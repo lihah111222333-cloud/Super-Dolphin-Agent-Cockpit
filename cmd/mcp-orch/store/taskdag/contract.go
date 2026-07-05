@@ -197,10 +197,12 @@ type DispatchNodeStore interface {
 // ThreadID 为空表示未拿到 child thread id，store 会 fail-fast 拒绝写入，避免覆盖旧 thread id。
 // DagKey / NodeKey 必须 trim 后非空，RunID 用来保持执行实例隔离。
 type RecordNodeSpawnInput struct {
-	DagKey   string
-	NodeKey  string
-	RunID    int64
-	ThreadID string
+	DagKey      string
+	NodeKey     string
+	RunID       int64
+	ThreadID    string
+	WakeupID    int64
+	WakeupFence WakeupFence
 }
 
 // RecordNodeSpawnResult 报告本次 spawn 写入结果。
@@ -322,12 +324,41 @@ type TouchRunningNodeEventInput struct {
 
 // RunningNodeStatusUpdate 是 UpdateRunningNodeStatus 的入参，WakeupID 用于 fence 防止旧副本覆盖。
 type RunningNodeStatusUpdate struct {
-	Status   string
-	Result   json.RawMessage
-	WakeupID int64
-	DagKey   string
-	NodeKey  string
-	RunID    int64
+	Status      string
+	Result      json.RawMessage
+	WakeupID    int64
+	WakeupFence WakeupFence
+	DagKey      string
+	NodeKey     string
+	RunID       int64
+}
+
+// WakeupFence captures the dispatching wakeup lease that authorizes node launch side effects.
+type WakeupFence struct {
+	WakeupID       int64
+	WakeupAttempt  int32
+	ClaimedBy      string
+	ClaimedAt      time.Time
+	LeaseExpiresAt time.Time
+}
+
+type wakeupFenceContextKey struct{}
+
+// ContextWithWakeupFence 将已领取 wakeup 的 lease fence 放入 ctx，供无法改签名的适配器透传。
+func ContextWithWakeupFence(ctx context.Context, fence WakeupFence) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, wakeupFenceContextKey{}, fence)
+}
+
+// WakeupFenceFromContext 从 ctx 读取 dispatch wakeup fence；不存在时返回 ok=false。
+func WakeupFenceFromContext(ctx context.Context) (WakeupFence, bool) {
+	if ctx == nil {
+		return WakeupFence{}, false
+	}
+	fence, ok := ctx.Value(wakeupFenceContextKey{}).(WakeupFence)
+	return fence, ok
 }
 
 // CompleteNodeInput 是 CompleteNode / CompleteNodeAndScheduleDownstream 的入参。

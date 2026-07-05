@@ -42,13 +42,21 @@ var Module = fx.Module("cron",
 )
 
 type cronStoreAdapter struct {
+	*cronSubmitAdapter
+	store cronstore.Store
+}
+
+type cronSubmitAdapter struct {
 	store cronstore.Store
 }
 
 // newCronStoreAdapter 把 store.cron 的完整持久化接口收在 module 装配边界内。
 // 其它 cron 生产文件只能依赖本包窄端口，避免继续泄露 store DTO 和状态常量。
 func newCronStoreAdapter(store cronstore.Store) *cronStoreAdapter {
-	return &cronStoreAdapter{store: store}
+	return &cronStoreAdapter{
+		cronSubmitAdapter: &cronSubmitAdapter{store: store},
+		store:             store,
+	}
 }
 
 // provideStore 将完整 cron 持久化实现收窄为 service CRUD 端口。
@@ -221,6 +229,20 @@ func (a *cronStoreAdapter) SetActiveTurn(ctx context.Context, p setActiveTurnPar
 	}))
 }
 
+// SubmitRunWithActiveTurn 原子保存 run turn、job active turn 和 submitted 状态。
+func (a *cronSubmitAdapter) SubmitRunWithActiveTurn(ctx context.Context, p submitRunWithActiveTurnParams) error {
+	return mapCronStoreError(a.store.SubmitRunWithActiveTurn(ctx, cronstore.SubmitRunWithActiveTurnParams{
+		RunID:        p.RunID,
+		JobID:        p.JobID,
+		ClaimToken:   p.ClaimToken,
+		ActiveTurnID: p.ActiveTurnID,
+		ThreadID:     p.ThreadID,
+		AgentID:      p.AgentID,
+		SubmittedAt:  p.SubmittedAt,
+		Now:          p.Now,
+	}))
+}
+
 // InsertRun 创建一次 run 记录，返回值会转成本包 runRecord。
 func (a *cronStoreAdapter) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
 	row, err := a.store.InsertRun(ctx, cronstore.InsertRunParams{
@@ -265,9 +287,24 @@ func (a *cronStoreAdapter) GetRunningRunByTurnID(ctx context.Context, turnID str
 	return fromStoreRun(row), mapCronStoreError(err)
 }
 
+// GetSubmittedOrRunningRunByTurnID 查找可由终态事件收尾的 submitted/running run。
+func (a *cronSubmitAdapter) GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+	row, err := a.store.GetSubmittedOrRunningRunByTurnID(ctx, turnID)
+	return fromStoreRun(row), mapCronStoreError(err)
+}
+
 // ListUnresolvedRuns 列出恢复流程需要接管的 run。
 func (a *cronStoreAdapter) ListUnresolvedRuns(ctx context.Context) ([]runRecord, error) {
 	rows, err := a.store.ListUnresolvedRuns(ctx)
+	if err != nil {
+		return nil, mapCronStoreError(err)
+	}
+	return fromStoreRuns(rows), nil
+}
+
+// ListUnresolvedRunsPage 分页列出恢复流程需要接管的 run。
+func (a *cronSubmitAdapter) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]runRecord, error) {
+	rows, err := a.store.ListUnresolvedRunsPage(ctx, limit, cursor)
 	if err != nil {
 		return nil, mapCronStoreError(err)
 	}

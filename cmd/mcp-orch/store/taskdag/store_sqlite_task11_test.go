@@ -344,6 +344,40 @@ func TestSQLiteTaskDAGRecordNodeSpawnAndLookupAreRunFenced(t *testing.T) {
 	}
 }
 
+// TestRecordNodeSpawnRequiresWakeupFence verifies dispatch-scoped spawn writes reject missing lease fences.
+func TestRecordNodeSpawnRequiresWakeupFence(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteTaskDAGTemplate(t, ctx, store)
+	run := createSQLiteTaskDAGRun(t, ctx, store, "run-spawn-fence", "dag-multi")
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-multi", run.ID)
+	wakeupID, err := store.EnqueueWakeup(ctx, EnqueueWakeupInput{
+		DagKey:         "dag-multi",
+		NodeKey:        "root",
+		RunID:          run.ID,
+		WakeupKind:     "node_start",
+		TargetAgentID:  "agent-alpha",
+		PromptPayload:  json.RawMessage(`{"prompt":"start"}`),
+		IdempotencyKey: "node_start:dag-multi:run-spawn-fence:root",
+	})
+	if err != nil {
+		t.Fatalf("EnqueueWakeup() error = %v", err)
+	}
+	if _, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{
+		DagKey:   "dag-multi",
+		NodeKey:  "root",
+		RunID:    run.ID,
+		ThreadID: "thread-unfenced",
+		WakeupID: wakeupID,
+	}); err == nil {
+		t.Fatal("RecordNodeSpawn() error = nil, want missing wakeup fence rejection")
+	}
+	if got := sqliteRunNodeSpawningThread(t, ctx, store, "dag-multi", run.ID, "root"); got != "" {
+		t.Fatalf("spawning_thread_id = %q, want empty after rejected unfenced spawn", got)
+	}
+}
+
 func assertSQLiteFirstSpawn(t *testing.T, got *RecordNodeSpawnResult) {
 	t.Helper()
 	if got == nil {
@@ -590,6 +624,25 @@ func sqliteRunNodeStatus(t *testing.T, ctx context.Context, store *store, dagKey
 		if node.NodeKey == nodeKey {
 			return node.Status
 		}
+	}
+	t.Fatalf("node %s not found in run %s/%d", nodeKey, dagKey, runID)
+	return ""
+}
+
+func sqliteRunNodeSpawningThread(t *testing.T, ctx context.Context, store *store, dagKey string, runID int64, nodeKey string) string {
+	t.Helper()
+	nodes, err := store.ListRunNodes(ctx, dagKey, runID)
+	if err != nil {
+		t.Fatalf("ListRunNodes(%s/%d) error = %v", dagKey, runID, err)
+	}
+	for _, node := range nodes {
+		if node.NodeKey != nodeKey {
+			continue
+		}
+		if node.SpawningThreadID == nil {
+			return ""
+		}
+		return *node.SpawningThreadID
 	}
 	t.Fatalf("node %s not found in run %s/%d", nodeKey, dagKey, runID)
 	return ""

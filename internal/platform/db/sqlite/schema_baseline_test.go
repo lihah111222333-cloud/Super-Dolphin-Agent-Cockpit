@@ -130,6 +130,7 @@ func TestSQLiteBaselineCriticalIndexesAndConstraints(t *testing.T) {
 	assertIndex(t, db, "cron_job_runs", "uq_cron_job_runs_dedupe_key", true, "dedupe_key <> ''")
 	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_status_active", false, "status IN ('pending', 'submitting', 'submitted', 'running')")
 	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_turn_running", false, "status = 'running'")
+	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_turn_status", false, "turn_id <> '' AND status IN ('submitted', 'running')")
 
 	assertIndex(t, db, "task_dag_wakeups", "idx_task_dag_wakeups_poll", false, "status = 'pending'")
 	assertIndex(t, db, "task_dag_wakeups", "idx_task_dag_wakeups_sent_target", false, "status = 'sent'")

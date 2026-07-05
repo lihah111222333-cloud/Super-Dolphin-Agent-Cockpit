@@ -169,6 +169,39 @@ func TestRunMigrationsSystemLogsTraceSpanAcceptsCurrentAgentV3Table(t *testing.T
 	})
 }
 
+// TestRunMigrationsAddsCronJobRunsTurnStatusIndex verifies migration 114 adds the terminal turn lookup index.
+func TestRunMigrationsAddsCronJobRunsTurnStatusIndex(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	mustExec(t, db, `
+		CREATE TABLE cron_job_runs (
+			id TEXT PRIMARY KEY,
+			job_id TEXT NOT NULL,
+			scheduled_at INTEGER NOT NULL,
+			idempotency_key TEXT NOT NULL DEFAULT '',
+			dedupe_key TEXT NOT NULL DEFAULT '',
+			thread_id TEXT NOT NULL DEFAULT '',
+			agent_id TEXT NOT NULL DEFAULT '',
+			turn_id TEXT NOT NULL DEFAULT '',
+			submitted_at INTEGER,
+			status TEXT NOT NULL,
+			error TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "114_cron_job_runs_turn_status_index.sql", readMigrationTestFile(t, "114_cron_job_runs_turn_status_index.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	assertMigrationMarkerCount(t, db, "114_cron_job_runs_turn_status_index.sql", 1)
+	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_turn_status", false, "turn_id <> '' AND status IN ('submitted', 'running')")
+}
+
 func TestRunMigrationsSystemLogsTraceSpanRejectsLegacyShape(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
@@ -273,6 +306,15 @@ func writeMigrationTestFile(t *testing.T, dir, name, body string) {
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 		t.Fatalf("write migration %s: %v", name, err)
 	}
+}
+
+func readMigrationTestFile(t *testing.T, name string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(sqliteMigrationsDir(t), name))
+	if err != nil {
+		t.Fatalf("read migration %s: %v", name, err)
+	}
+	return string(body)
 }
 
 func assertMigrationTableMissing(t *testing.T, db *sql.DB, table string) {

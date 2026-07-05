@@ -799,6 +799,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key ON cron_job_runs(d
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_job_created ON cron_job_runs(job_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_status_active ON cron_job_runs(status, updated_at DESC, id DESC) WHERE status IN ('pending', 'submitting', 'submitted', 'running');
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_turn_running ON cron_job_runs(turn_id) WHERE turn_id <> '' AND status = 'running';
+CREATE INDEX IF NOT EXISTS idx_cron_job_runs_turn_status ON cron_job_runs(turn_id, status) WHERE turn_id <> '' AND status IN ('submitted', 'running');
 CREATE INDEX IF NOT EXISTS idx_datasource_v2_text_chunks_document_order ON datasource_v2_text_chunks(document_id, chunk_index);
 
 CREATE INDEX IF NOT EXISTS idx_task_acks_status ON task_acks(status, updated_at DESC);

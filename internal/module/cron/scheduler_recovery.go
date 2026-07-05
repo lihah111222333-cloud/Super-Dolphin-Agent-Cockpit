@@ -11,6 +11,16 @@ import (
 	"log/slog"
 )
 
+const recoverDanglingRunsBatchLimit int32 = 128
+
+type terminalRunLookupStore interface {
+	GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error)
+}
+
+type unresolvedRunsPageStore interface {
+	ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]runRecord, error)
+}
+
 // CompleteTurn 将 turn 终态事件写回当前追踪该 turnID 的 cron run。
 // 终态事件可能早于 submitted->running 的观察 CAS 到达，因此这里按 turnID 查找
 // submitted/running 未解决 run，并用当前状态做 CAS 收尾。
@@ -42,21 +52,16 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 // terminalRunByTurnID 定位可被终态事件收尾的 unresolved run。
 // running 走专用查询，submitted 则回看未解决 run，避免终态事件抢在 Observe 前到达时丢失收尾。
 func (s *Scheduler) terminalRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
-	run, err := s.store.GetRunningRunByTurnID(ctx, turnID)
+	lookupStore, ok := s.store.(terminalRunLookupStore)
+	if !ok {
+		return runRecord{}, errors.New("cron: store does not implement submitted/running turn lookup")
+	}
+	run, err := lookupStore.GetSubmittedOrRunningRunByTurnID(ctx, turnID)
 	if err == nil {
 		return run, nil
 	}
 	if !errors.Is(err, errStoreJobRunNotFound) {
 		return runRecord{}, err
-	}
-	runs, listErr := s.store.ListUnresolvedRuns(ctx)
-	if listErr != nil {
-		return runRecord{}, listErr
-	}
-	for _, run := range runs {
-		if run.TurnID == turnID && (run.Status == statusSubmitted || run.Status == statusRunning) {
-			return run, nil
-		}
 	}
 	return runRecord{}, fmt.Errorf("cron: submitted/running run for turn %q not found: %w", turnID, errStoreJobRunNotFound)
 }
@@ -175,19 +180,38 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 // 恢复流程绝不调用 StartTurn；submitting 窗口只查 provider 去重索引再观察既有 turn。
 // 只处理 submitting/submitted/running，避免重启后对同一 dedupeKey 重复提交。
 func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
-	runs, err := s.store.ListUnresolvedRuns(ctx)
-	if err != nil {
-		return err
+	pageStore, ok := s.store.(unresolvedRunsPageStore)
+	if !ok {
+		return errors.New("cron: store does not implement paged unresolved run recovery")
 	}
 	var joined error
-	for _, run := range runs {
-		if err := s.recoverDanglingRun(ctx, run); err != nil {
-			joined = errors.Join(joined, err)
-			s.logger.Warn("cron: recover dangling run failed",
-				slog.String("run_id", run.ID),
-				slog.String("status", run.Status),
-				slog.String("error", err.Error()),
-			)
+	cursor := ""
+	for {
+		runs, err := pageStore.ListUnresolvedRunsPage(ctx, recoverDanglingRunsBatchLimit, cursor)
+		if err != nil {
+			return err
+		}
+		s.logger.Info("cron: recover dangling runs batch",
+			slog.Int("limit", int(recoverDanglingRunsBatchLimit)),
+			slog.Int("count", len(runs)),
+			slog.String("cursor", cursor),
+		)
+		if len(runs) == 0 {
+			break
+		}
+		for _, run := range runs {
+			if err := s.recoverDanglingRun(ctx, run); err != nil {
+				joined = errors.Join(joined, err)
+				s.logger.Warn("cron: recover dangling run failed",
+					slog.String("run_id", run.ID),
+					slog.String("status", run.Status),
+					slog.String("error", err.Error()),
+				)
+			}
+		}
+		cursor = strings.TrimSpace(runs[len(runs)-1].ID)
+		if cursor == "" {
+			return errors.New("cron: unresolved run page ended with empty cursor")
 		}
 	}
 	return joined

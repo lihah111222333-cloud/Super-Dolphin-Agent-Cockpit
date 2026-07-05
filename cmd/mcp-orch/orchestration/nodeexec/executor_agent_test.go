@@ -259,8 +259,8 @@ func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
 	exec := NewAgentExecutor(launcher)
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
-	//nolint:staticcheck // 故意传 nil ctx 测兜底
-	out, err := exec.Execute(nil, node, RunContext{})
+	var nilCtx context.Context
+	out, err := exec.Execute(nilCtx, node, RunContext{})
 	if err != nil {
 		t.Fatalf("Execute(nil ctx) framework error = %v, want nil", err)
 	}
@@ -548,6 +548,39 @@ func TestAgentExecutor_Execute_Spawn_RecorderErrorStopsLaunchedThread(t *testing
 	}
 	if got := launcher.stoppedThreads; len(got) != 1 || got[0] != "thread-late" {
 		t.Fatalf("stoppedThreads = %v, want [thread-late]", got)
+	}
+}
+
+// TestRunningWriteConflictStopsSpawnedChild covers cleanup after a post-launch running write conflict.
+func TestRunningWriteConflictStopsSpawnedChild(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-running-cas"}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+	var launchedThreadID string
+	ctx := WithLaunchedThreadCapture(context.Background(), &launchedThreadID)
+
+	out, err := exec.Execute(ctx, node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1001,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	if launchedThreadID != "thread-running-cas" {
+		t.Fatalf("captured launched thread = %q, want thread-running-cas", launchedThreadID)
+	}
+	summary := exec.StopLaunchedThreadAfterWritebackFailure(ctx, launchedThreadID, errors.New("running wakeup fence lost"))
+	if !strings.Contains(summary, "launched thread stopped") {
+		t.Fatalf("stop summary = %q, want launched thread stopped", summary)
+	}
+	if got := launcher.stoppedThreads; len(got) != 1 || got[0] != "thread-running-cas" {
+		t.Fatalf("stoppedThreads = %v, want [thread-running-cas]", got)
 	}
 }
 
