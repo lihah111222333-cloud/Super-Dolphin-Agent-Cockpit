@@ -69,11 +69,60 @@ describe('warning runtime helpers', () => {
       method: 'thread.config.failed',
       thread_id: 'thread-1',
       status: 'error',
-      error: 'bad config',
+      error: '[redacted]',
       metadata: {
         component: 'thread',
         req_id: 'req-1',
       },
     }));
+  });
+
+  it('redacts sensitive warning fields before storing, signing, and tracing', () => {
+    let state = { warningEntries: [] };
+    const emitFrontendTraceEvent = vi.fn();
+    const runtime = {
+      set: (updater) => {
+        state = { ...state, ...updater(state) };
+      },
+    };
+
+    attachWarningRuntime(runtime, {
+      cleanObject,
+      emitFrontendTraceEvent,
+      normalizeString,
+      normalizeThreadId,
+      runtimeThreadIdentifier,
+    });
+
+    runtime.addWarning('error', 'api.rpc.failed', {
+      threadId: 'thread-1',
+      method: 'thread/messages',
+      req_id: 9,
+      path: '/home/l4place/private-project/secret.txt',
+      prompt: 'private prompt body',
+      api_key: 'sk-live-secret',
+      error: 'failed at /home/l4place/private-project/secret.txt with sk-live-secret',
+      rawPreview: {
+        content: 'private prompt body',
+      },
+    });
+
+    const entry = state.warningEntries[0];
+    const serializedFields = JSON.stringify(entry.fields);
+    expect(serializedFields).toContain('thread/messages');
+    expect(serializedFields).toContain('"req_id":9');
+    expect(serializedFields).not.toContain('/home/l4place');
+    expect(serializedFields).not.toContain('secret.txt');
+    expect(serializedFields).not.toContain('private prompt body');
+    expect(serializedFields).not.toContain('sk-live-secret');
+    expect(entry.signature).not.toContain('/home/l4place');
+    expect(entry.signature).not.toContain('sk-live-secret');
+
+    const trace = emitFrontendTraceEvent.mock.calls[0][0];
+    const serializedTrace = JSON.stringify(trace);
+    expect(serializedTrace).not.toContain('/home/l4place');
+    expect(serializedTrace).not.toContain('secret.txt');
+    expect(serializedTrace).not.toContain('private prompt body');
+    expect(serializedTrace).not.toContain('sk-live-secret');
   });
 });

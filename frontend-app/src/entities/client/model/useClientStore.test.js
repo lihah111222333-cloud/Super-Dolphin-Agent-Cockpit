@@ -4901,7 +4901,7 @@ function registerBridgeEventHandlersForTest() {
         event: 'bridge.event.parse_failed',
         fields: expect.objectContaining({
           eventName: 'bridge-event',
-          error: 'Unexpected end of JSON input',
+          error: '[redacted]',
           rawLen: 10,
         }),
       }),
@@ -5343,7 +5343,7 @@ function registerBridgeEventHandlersForTest() {
       span_id: 'span-memory-1',
       thread_id: 'thread-1',
       status: 'error',
-      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
+      error: '[redacted]',
       metadata: { component: 'memory', req_id: 17 },
     }));
   });

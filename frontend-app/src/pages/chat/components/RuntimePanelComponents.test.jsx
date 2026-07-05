@@ -96,7 +96,42 @@ describe('RuntimeActivityPanel', () => {
 
     fireEvent.click(screen.getByText('权限告警').closest('button'));
     expect(screen.getByText('×2')).toBeInTheDocument();
-    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('missing permission');
+    expect(screen.getByTestId('warning-log-popover')).not.toHaveTextContent('missing permission');
+    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('[redacted]');
+  });
+
+  it('redacts warning popover details before display', () => {
+    renderRuntimeActivityPanel({
+      warnings: [{
+        id: 'warn-1',
+        timestamp: '2026-06-11T06:00:00.123456Z',
+        message: 'RPC 失败',
+        detail: JSON.stringify({
+          path: '/home/l4place/private-project/secret.txt',
+          api_key: 'sk-live-secret',
+          prompt: 'private prompt body',
+        }),
+        fields: {
+          method: 'thread/messages',
+          req_id: 9,
+          path: '/home/l4place/private-project/secret.txt',
+          prompt: 'private prompt body',
+          api_key: 'sk-live-secret',
+          rawPreview: {
+            content: 'private prompt body',
+          },
+        },
+      }],
+    });
+
+    fireEvent.click(screen.getByText('RPC 失败').closest('button'));
+    const popover = screen.getByTestId('warning-log-popover');
+    expect(popover).toHaveTextContent('thread/messages');
+    expect(popover).toHaveTextContent('"req_id":9');
+    expect(popover).not.toHaveTextContent('/home/l4place');
+    expect(popover).not.toHaveTextContent('secret.txt');
+    expect(popover).not.toHaveTextContent('private prompt body');
+    expect(popover).not.toHaveTextContent('sk-live-secret');
   });
 
   it('redacts runtime result popover fields before display', () => {

@@ -1,4 +1,74 @@
+import { safeDiagnosticPreviewValue } from '../../../shared/api/safeDiagnosticPreview.js';
+
 const MAX_WARNING_ENTRIES = 300;
+
+const SAFE_WARNING_FIELD_ALIASES = [
+  ['method'],
+  ['rpcMethod'],
+  ['rpc_method'],
+  ['action'],
+  ['code'],
+  ['status'],
+  ['provider'],
+  ['requestedProvider'],
+  ['requested_provider', 'requestedProvider'],
+  ['reason'],
+  ['eventName'],
+  ['event_name', 'eventName'],
+  ['payloadKeys'],
+  ['payload_keys', 'payloadKeys'],
+  ['eventKeys'],
+  ['event_keys', 'eventKeys'],
+  ['rawLen'],
+  ['raw_len', 'rawLen'],
+  ['threadId'],
+  ['thread_id', 'threadId'],
+  ['req_id'],
+  ['reqId', 'req_id'],
+  ['trace_id'],
+  ['traceId', 'trace_id'],
+  ['span_id'],
+  ['spanId', 'span_id'],
+  ['parent_span_id'],
+  ['parentSpanId', 'parent_span_id'],
+  ['agent_id'],
+  ['agentId', 'agent_id'],
+  ['turn_id'],
+  ['turnId', 'turn_id'],
+  ['call_id'],
+  ['callId', 'call_id'],
+];
+
+function safeWarningCorrelationScalar(value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'boolean') return value;
+  const text = value.toString().trim();
+  if (!text || text.length > 160) return undefined;
+  if (text.startsWith('/') || text.includes('\\') || /[A-Za-z]:[\\/]/.test(text)) return undefined;
+  if (!/^[A-Za-z0-9_.:/-]+$/.test(text)) return undefined;
+  return text;
+}
+
+function safeWarningCorrelationValue(value) {
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => safeWarningCorrelationScalar(item))
+      .filter((item) => item !== undefined);
+    return items.length > 0 ? items : undefined;
+  }
+  return safeWarningCorrelationScalar(value);
+}
+
+export function safeWarningFields(fields = {}) {
+  const preview = safeDiagnosticPreviewValue(fields);
+  const out = preview && typeof preview === 'object' && !Array.isArray(preview) ? { ...preview } : {};
+  for (const [source, target = source] of SAFE_WARNING_FIELD_ALIASES) {
+    const value = safeWarningCorrelationValue(fields?.[source]);
+    if (value !== undefined) out[target] = value;
+  }
+  return out;
+}
 
 export function attachWarningRuntime(runtime, deps) {
   const {
@@ -53,21 +123,22 @@ export function attachWarningRuntime(runtime, deps) {
   const addWarning = (level, event, fields = {}) => {
     if (level !== 'warn' && level !== 'error') return;
     const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
-    const signature = warningSignature(level, event, threadId, fields);
+    const safeFields = safeWarningFields(fields);
+    const signature = warningSignature(level, event, threadId, safeFields);
     const entry = {
       id: `${event}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       timestamp: new Date().toISOString(),
       level,
       event,
       threadId,
-      fields,
+      fields: safeFields,
       occurrenceCount: 1,
       signature,
     };
     set((state) => ({
-      warningEntries: mergeWarningEntries(state.warningEntries, entry, fields),
+      warningEntries: mergeWarningEntries(state.warningEntries, entry, safeFields),
     }));
-    emitWarningTrace(level, event, threadId, fields);
+    emitWarningTrace(level, event, threadId, safeFields);
   };
 
   Object.assign(runtime, { addWarning });
