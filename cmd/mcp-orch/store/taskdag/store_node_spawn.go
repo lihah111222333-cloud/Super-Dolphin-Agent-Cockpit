@@ -64,9 +64,10 @@ func resolveWakeupFence(ctx context.Context, wakeupID int64, input WakeupFence) 
 		input.WakeupID = wakeupID
 	}
 	if ctxFence, ok := WakeupFenceFromContext(ctx); ok && ctxFence.WakeupID > 0 {
-		if input.WakeupID == 0 {
+		switch input.WakeupID {
+		case 0:
 			input = ctxFence
-		} else if input.WakeupID == ctxFence.WakeupID {
+		case ctxFence.WakeupID:
 			input = mergeWakeupFence(input, ctxFence)
 		}
 	}
