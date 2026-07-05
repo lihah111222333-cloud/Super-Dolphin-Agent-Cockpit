@@ -19,7 +19,7 @@ import (
 func TestSQLiteApplyOpsConcurrentSameVersionOneConflict(t *testing.T) {
 	ctx := context.Background()
 	db := openOrchestrationSQLiteDB(t)
-	store := taskdag.NewStore(db).(taskdag.Store)
+	store := taskdag.NewStore(db)
 	if _, err := store.UpsertDAG(ctx, taskdag.DAG{DagKey: "dag-occ", Title: "occ", Status: "draft", CreatedBy: "tester", Metadata: []byte(`{}`)}); err != nil {
 		t.Fatalf("UpsertDAG() error = %v", err)
 	}
@@ -30,13 +30,11 @@ func TestSQLiteApplyOpsConcurrentSameVersionOneConflict(t *testing.T) {
 	results := make(chan error, 2)
 	var wg sync.WaitGroup
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			_, err := svc.ApplyOps(ctx, contract.ApplyOpsRequest{DagKey: "dag-occ", BaseVersion: 0, Ops: ops})
 			results <- err
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -68,7 +66,7 @@ func TestSQLiteApplyOpsConcurrentSameVersionOneConflict(t *testing.T) {
 func TestSQLiteApplyOpsAddUpdateDeleteAndEmptyShortCircuit(t *testing.T) {
 	ctx := context.Background()
 	db := openOrchestrationSQLiteDB(t)
-	store := taskdag.NewStore(db).(taskdag.Store)
+	store := taskdag.NewStore(db)
 	seedSQLiteApplyOpsDAG(t, ctx, store, "dag-ops")
 	svc := &service{dagStore: store}
 
@@ -126,7 +124,7 @@ func TestSQLiteApplyOpsAddUpdateDeleteAndEmptyShortCircuit(t *testing.T) {
 func TestSQLiteApplyOpsRejectsConfigChangeForDoneTemplateNode(t *testing.T) {
 	ctx := context.Background()
 	db := openOrchestrationSQLiteDB(t)
-	store := taskdag.NewStore(db).(taskdag.Store)
+	store := taskdag.NewStore(db)
 	seedSQLiteApplyOpsDAG(t, ctx, store, "dag-done")
 	if _, err := store.UpsertNode(ctx, taskdag.Node{
 		DagKey:    "dag-done",

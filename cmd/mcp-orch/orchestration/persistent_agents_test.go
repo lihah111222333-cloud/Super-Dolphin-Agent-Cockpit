@@ -221,7 +221,8 @@ func TestListAgentsHonorsContextWhileRuntimeLockHeld(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := svc.ListAgents(ctx); done <- err }()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { _, err := svc.ListAgents(ctx); done <- err })
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.DeadlineExceeded) {

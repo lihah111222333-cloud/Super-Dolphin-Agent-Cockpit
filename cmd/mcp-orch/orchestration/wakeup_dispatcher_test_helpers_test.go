@@ -15,6 +15,7 @@ type dispatcherStubStore struct {
 	claimCalls []taskdag.ClaimDueWakeupsInput
 	claimReply []taskdag.Wakeup
 	claimErr   error
+	claimSeen  chan struct{}
 
 	renewCalls []taskdag.RenewWakeupLeaseInput
 	renewRows  int64
@@ -160,6 +161,12 @@ func (s *dispatcherStubNodeFlowFixture) UpdateRunningNodeStatus(_ context.Contex
 
 func (s *dispatcherStubWakeupFixture) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
 	s.claimCalls = append(s.claimCalls, input)
+	if s.claimSeen != nil {
+		select {
+		case s.claimSeen <- struct{}{}:
+		default:
+		}
+	}
 	if s.claimErr != nil {
 		return nil, s.claimErr
 	}

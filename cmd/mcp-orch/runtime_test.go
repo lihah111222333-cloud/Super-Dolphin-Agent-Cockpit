@@ -209,9 +209,10 @@ func TestBootstrapRunnerSkipsStartWhenRPCAddrMissing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		done <- bootstrapRunner{client: client}.Run(ctx)
-	}()
+	})
 
 	cancel()
 
@@ -245,12 +246,13 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		done <- bootstrapRunner{
 			cfg:    bootstrap.Config{RPCAddr: "127.0.0.1:9123", BinaryName: "mcp-orch"},
 			client: client,
 		}.Run(ctx)
-	}()
+	})
 
 	waitForBootstrapSignal(t, client.started, "Start() was not called")
 	waitForBootstrapSignal(t, client.subscribed, "SubscribeHooks() was not called")

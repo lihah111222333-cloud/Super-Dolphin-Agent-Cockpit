@@ -125,7 +125,8 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	runCtx, cancelRunner := context.WithCancel(context.Background())
 	defer cancelRunner()
 	runDone := make(chan error, 1)
-	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(runCtx) }()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(runCtx) })
 	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
 
 	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {

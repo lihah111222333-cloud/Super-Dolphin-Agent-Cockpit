@@ -280,7 +280,7 @@ func TestDAGNotifierStopDrainsBeforeReturn(t *testing.T) {
 	}
 	n := NewDAGNotifier(slog.Default(), rec, store)
 	n.Start()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
 			TaskNodeHeader: shareddto.TaskNodeHeader{
 				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
@@ -327,9 +327,10 @@ func TestDAGNotifierRunDrainsWithCanceledRunnerContext(t *testing.T) {
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	runErr := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		runErr <- n.Run(runCtx)
-	}()
+	})
 	select {
 	case <-storeStarted:
 	case <-time.After(time.Second):
@@ -390,7 +391,7 @@ func TestDAGNotifierDropsWhenQueueFull(t *testing.T) {
 		t.Fatal("worker did not start processing first event")
 	}
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
 			TaskNodeHeader: shareddto.TaskNodeHeader{
 				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},

@@ -38,8 +38,9 @@ func TestScheduledDAGCronRunnerRunsUntilContextCancelled(t *testing.T) {
 	runner := scheduledDAGCronRunner{daemon: daemon}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
+	goroutines := newTestGoroutineGroup(t)
 
-	go func() { done <- runner.Run(ctx) }()
+	goroutines.Go(func() { done <- runner.Run(ctx) })
 	waitForCronSignal(t, daemon.started, "start")
 	cancel()
 	waitForCronSignal(t, daemon.stopped, "stop")
