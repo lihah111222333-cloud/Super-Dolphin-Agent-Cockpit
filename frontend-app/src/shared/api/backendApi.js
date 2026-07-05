@@ -620,11 +620,6 @@ function cronIdPayload(method, params) {
   };
 }
 
-function cronUpdatePayload(params) {
-  const payload = requireKey(RPC_METHODS.CRONJOB_UPDATE, assertPlainObject(RPC_METHODS.CRONJOB_UPDATE, params), 'id');
-  return { ...payload, id: payload.id };
-}
-
 function cronSetEnabledPayload(params) {
   const payload = requireBoolean(
     RPC_METHODS.CRONJOB_SET_ENABLED,
@@ -642,6 +637,63 @@ function cronListRunsPayload(params) {
     job_id: jobID,
     limit: normalizeOptionalLimit(RPC_METHODS.CRONJOB_LIST_RUNS, payload),
   });
+}
+
+function cronJobMutationPayload(method, params, options = {}) {
+  const payload = requireCwd(method, params);
+  const name = normalizeString(payload.name);
+  const prompt = normalizeString(payload.prompt);
+  const scheduleExpr = normalizeString(payload.schedule_expr ?? payload.scheduleExpr);
+  if (!name) throw new Error(`${method}: name is required`);
+  if (!prompt) throw new Error(`${method}: prompt is required`);
+  if (!scheduleExpr) throw new Error(`${method}: schedule_expr is required`);
+  return cleanObject({
+    id: options.requireId ? requireKey(method, payload, 'id').id : undefined,
+    cwd: payload.cwd,
+    name,
+    prompt,
+    schedule_type: normalizeString(payload.schedule_type ?? payload.scheduleType),
+    schedule_expr: scheduleExpr,
+    timezone: normalizeString(payload.timezone),
+    provider: normalizeString(payload.provider),
+    model: normalizeString(payload.model),
+    config: cronJobConfigPayload(method, payload),
+    skills: cronJobSkillsPayload(method, payload),
+    notify_channel: normalizeString(payload.notify_channel ?? payload.notifyChannel),
+    enabled: cronJobEnabledPayload(method, payload),
+    next_run_at: normalizeString(payload.next_run_at ?? payload.nextRunAt),
+    max_attempts: cronJobMaxAttemptsPayload(method, payload),
+  });
+}
+
+function cronJobConfigPayload(method, payload) {
+  if (!hasOwn(payload, 'config') || payload.config == null) return undefined;
+  if (typeof payload.config !== 'object' || Array.isArray(payload.config)) {
+    throw new Error(`${method}: config must be an object`);
+  }
+  return payload.config;
+}
+
+function cronJobSkillsPayload(method, payload) {
+  if (!hasOwn(payload, 'skills') || payload.skills == null) return undefined;
+  if (!Array.isArray(payload.skills)) throw new Error(`${method}: skills must be an array`);
+  return payload.skills.map(normalizeString).filter(Boolean);
+}
+
+function cronJobEnabledPayload(method, payload) {
+  if (!hasOwn(payload, 'enabled') || payload.enabled == null) return undefined;
+  if (typeof payload.enabled !== 'boolean') throw new Error(`${method}: enabled must be boolean`);
+  return payload.enabled;
+}
+
+function cronJobMaxAttemptsPayload(method, payload) {
+  const raw = payload.max_attempts ?? payload.maxAttempts;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${method}: max_attempts must be a non-negative integer`);
+  }
+  return value;
 }
 
 function codeProjectsPayload(method, payload) {
@@ -1407,8 +1459,8 @@ function createCronApi(callBackend) {
   return {
     listCronJobs: () => callBackend(RPC_METHODS.CRONJOB_LIST, {}),
     getCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_GET, cronIdPayload(RPC_METHODS.CRONJOB_GET, params)),
-    createCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_CREATE, assertPlainObject(RPC_METHODS.CRONJOB_CREATE, params)),
-    updateCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_UPDATE, cronUpdatePayload(params)),
+    createCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_CREATE, cronJobMutationPayload(RPC_METHODS.CRONJOB_CREATE, params)),
+    updateCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_UPDATE, cronJobMutationPayload(RPC_METHODS.CRONJOB_UPDATE, params, { requireId: true })),
     deleteCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_DELETE, cronIdPayload(RPC_METHODS.CRONJOB_DELETE, params)),
     runCronJobOnce: (params) => callBackend(RPC_METHODS.CRONJOB_RUN_ONCE, cronIdPayload(RPC_METHODS.CRONJOB_RUN_ONCE, params)),
     setCronJobEnabled: (params) => callBackend(RPC_METHODS.CRONJOB_SET_ENABLED, cronSetEnabledPayload(params)),
