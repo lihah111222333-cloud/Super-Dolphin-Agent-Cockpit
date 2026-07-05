@@ -108,6 +108,8 @@ describe('RuntimePanelSlot', () => {
         startLine: 1,
         endLine: 1,
         totalLines: 1,
+        previewMode: 'full',
+        contentVersion: 'version-src-b',
       });
     });
     const preview = await screen.findByRole('dialog', { name: '文件预览' });
@@ -136,6 +138,8 @@ describe('RuntimePanelSlot', () => {
     expect(codeFileActions.saveCodeFile).toHaveBeenCalledWith(expect.objectContaining({
       filePath: 'src/b.js',
       content: 'const latest = false;',
+      previewMode: 'full',
+      contentVersion: 'version-src-b',
     }));
   });
 });

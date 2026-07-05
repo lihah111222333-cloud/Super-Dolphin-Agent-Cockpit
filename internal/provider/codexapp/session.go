@@ -84,6 +84,22 @@ type turnHandle struct {
 	once       sync.Once
 }
 
+// ErrForceCompleteTargetNotFound marks a force-complete request with no active provider turn target.
+var ErrForceCompleteTargetNotFound = forceCompleteTargetNotFoundError{}
+
+// forceCompleteTargetNotFoundError is the typed no-target marker shared across package boundaries by behavior.
+type forceCompleteTargetNotFoundError struct{}
+
+// Error 返回 force-complete 无目标失败的稳定诊断文本，供日志和 RPC envelope 复用。
+func (forceCompleteTargetNotFoundError) Error() string {
+	return "force complete target not found"
+}
+
+// ForceCompleteTargetNotFound 暴露跨包识别标记，避免 turn 模块反向导入 provider 包。
+func (forceCompleteTargetNotFoundError) ForceCompleteTargetNotFound() bool {
+	return true
+}
+
 func newSession(
 	transportCtx context.Context,
 	logger *slog.Logger,
@@ -488,7 +504,7 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 }
 
 // ForceComplete 强制完成当前或指定 provider turn，并在远端确认后关闭本地 turn handle。
-// 找不到目标 turn 时按幂等语义直接返回，避免重复 completion 触发错误。
+// 找不到目标 turn 时返回 typed 错误，避免 UI 把未执行的强制完成显示为成功。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -496,7 +512,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	}
 	turnID, ok := s.forceCompleteTargetTurnID(req.ProviderID)
 	if !ok {
-		return nil
+		return ErrForceCompleteTargetNotFound
 	}
 	if err := s.callForceComplete(ctx, threadID, turnID); err != nil {
 		return err

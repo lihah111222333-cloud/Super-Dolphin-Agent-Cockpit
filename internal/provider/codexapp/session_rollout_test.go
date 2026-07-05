@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -50,8 +51,9 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	if activeTurnID != "" || stillTracked {
 		t.Fatalf("active turn state = id:%q tracked:%v, want cleared", activeTurnID, stillTracked)
 	}
-	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"}); err != nil {
-		t.Fatalf("ForceComplete() after rollout completion error = %v", err)
+	err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"})
+	if !errors.Is(err, ErrForceCompleteTargetNotFound) {
+		t.Fatalf("ForceComplete() after rollout completion error = %v, want ErrForceCompleteTargetNotFound", err)
 	}
 	fixture.assertNoForceComplete(t)
 }

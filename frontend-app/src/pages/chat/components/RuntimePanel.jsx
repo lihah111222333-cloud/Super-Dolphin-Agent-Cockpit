@@ -147,6 +147,8 @@ function RuntimePanel({
       const result = await codeFileActions.saveCodeFile({
         ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
         content: codePreview.draft,
+        previewMode: codePreview.previewMode,
+        contentVersion: codePreview.contentVersion,
       });
       if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);

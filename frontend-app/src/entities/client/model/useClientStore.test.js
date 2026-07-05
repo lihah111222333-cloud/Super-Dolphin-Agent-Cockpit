@@ -4877,6 +4877,55 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('routes agent failed bridge events into visible warning and action notice state', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'agent/failed',
+      payload: {
+        threadId: 'thread-1',
+        agentId: 'agent-1',
+        turnId: 'turn-1',
+        traceId: 'trace-1',
+        error: 'boom',
+        recoverable: false,
+        path: '/repo/app/private.txt',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: expect.stringContaining('boom'),
+      error: 'boom',
+      recoverable: false,
+    }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        event: 'agent/failed',
+        threadId: 'thread-1',
+        fields: expect.objectContaining({
+          threadId: 'thread-1',
+          agent_id: 'agent-1',
+          turn_id: 'turn-1',
+          trace_id: 'trace-1',
+          error: '[redacted]',
+          recoverable: false,
+        }),
+      }),
+    ]);
+    expect(state.warningEntries[0].fields).not.toHaveProperty('path');
+  });
+
   it('routes malformed bridge event parse failures into visible warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

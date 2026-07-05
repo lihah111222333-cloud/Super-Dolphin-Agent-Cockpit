@@ -529,6 +529,8 @@ function mockSettingsAndThreadDefaults() {
     startLine: 1,
     endLine: 2,
     totalLines: 2,
+    previewMode: 'full',
+    contentVersion: 'version-src-a',
     snippet: [
       { line: 1, text: 'old' },
       { line: 2, text: 'keep' },
@@ -2775,6 +2777,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       expect(backend.saveCodeFile).toHaveBeenCalledWith({
         filePath: '/repo/app/src/a.js',
         content: 'new\nkeep',
+        previewMode: 'full',
+        contentVersion: 'version-src-a',
         project: '/repo/app',
         projects: ['/repo/app'],
       });
@@ -2849,6 +2853,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       startLine: 1,
       endLine: 3,
       totalLines: 3,
+      previewMode: 'full',
+      contentVersion: 'version-docs-readme',
       snippet: '# Guide\n\n- first step',
     });
     backend.getThreadState.mockResolvedValue({

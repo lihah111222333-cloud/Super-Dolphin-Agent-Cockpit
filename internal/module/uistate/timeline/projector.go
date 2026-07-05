@@ -8,6 +8,7 @@ import (
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/terminalstatus"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -75,15 +76,7 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 		}
 		agentID := strings.TrimSpace(ev.AgentID)
 		turnID := strings.TrimSpace(ev.TurnID)
-		failed := !ev.Success && util.FirstNonEmpty(
-			strings.TrimSpace(ev.Error),
-			strings.TrimSpace(ev.Reason),
-			strings.TrimSpace(ev.Status),
-		) != ""
-		status := "completed"
-		if failed {
-			status = "failed"
-		}
+		status := terminalstatus.Status(ev.Success, ev.Status, ev.Reason, ev.Error)
 		svc.Append(threadID, agentID, Item{
 			ID:      timelineID("turn-end", turnID),
 			Kind:    "turn_end",
@@ -91,19 +84,23 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 			AgentID: agentID,
 			TurnID:  turnID,
 		})
-		if failed {
+		if status == "failed" {
+			diagnostic := util.FirstNonEmpty(
+				strings.TrimSpace(ev.Error),
+				strings.TrimSpace(ev.Reason),
+				strings.TrimSpace(ev.Result),
+				strings.TrimSpace(ev.Summary),
+			)
+			if diagnostic == "" {
+				diagnostic = "turn failed without provider diagnostic"
+			}
 			appendErrorItem(
 				svc,
 				threadID,
 				agentID,
 				turnID,
 				timelineID("error", "turn", turnID),
-				util.FirstNonEmpty(
-					strings.TrimSpace(ev.Error),
-					strings.TrimSpace(ev.Reason),
-					strings.TrimSpace(ev.Result),
-					strings.TrimSpace(ev.Summary),
-				),
+				diagnostic,
 				ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 			)
 		}

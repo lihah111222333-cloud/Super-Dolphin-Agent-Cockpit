@@ -479,8 +479,9 @@ type turnInterruptResult struct {
 
 // turnForceCompleteResult 是 turn/force_complete 的最小成功响应。
 type turnForceCompleteResult struct {
-	OK             bool `json:"ok"`
-	ForceCompleted bool `json:"forceCompleted"`
+	OK             bool   `json:"ok"`
+	ForceCompleted bool   `json:"forceCompleted"`
+	ErrorCode      string `json:"errorCode,omitempty"`
 }
 
 // turnStartResult 返回本地 turnID，并在 pending launch 首 turn 时附带路由信息。
