@@ -11,13 +11,18 @@ import (
 
 const updateTaskDagNodeSpawningThread = `-- name: UpdateTaskDagNodeSpawningThread :one
 UPDATE task_dag_nodes
-SET spawning_thread_id = ?,
+SET spawning_thread_id = ?1,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND node_key = ?
+WHERE dag_key = ?2
+  AND node_key = ?3
   AND run_id = ?4
   AND ?4 > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+  AND (
+      spawning_thread_id IS NULL
+      OR TRIM(spawning_thread_id) = ''
+      OR TRIM(spawning_thread_id) = TRIM(COALESCE(?1, ''))
+  )
 RETURNING id, dag_key, node_key, run_id, title,
           node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result,
