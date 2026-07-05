@@ -147,6 +147,109 @@ func TestHasViolation_OverFileLimit(t *testing.T) {
 	}
 }
 
+func TestFreezeBaselineKeepsProductionMissingDocs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "internal", "risk", "doc.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	body := `package risk
+
+func ExportedThing() {
+	println("ok")
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	bl := FreezeBaseline(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"internal"},
+		SkipDirs:  DefaultSkipDirs(),
+	})
+	got, ok := bl["internal/risk/doc.go"]
+	if !ok {
+		t.Fatalf("FreezeBaseline() omitted production missing_docs fixture: %#v", bl)
+	}
+	if got.MissingDocs == 0 {
+		t.Fatalf("production MissingDocs = 0, want violation recorded")
+	}
+}
+
+func TestFreezeTestBaselineIgnoresMissingDocsOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "internal", "risk", "doc_test.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	body := `package risk
+
+func TestExportedThing() {
+	println("ok")
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	bl := FreezeTestBaseline(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"internal"},
+		SkipDirs:  DefaultSkipDirs(),
+	})
+	if len(bl) != 0 {
+		t.Fatalf("FreezeTestBaseline() = %#v, want missing_docs-only test file omitted", bl)
+	}
+
+	result := CheckWithBaseline(CheckOptions{
+		RepoRoot:            root,
+		ScanRoots:           []string{"internal"},
+		SkipDirs:            DefaultSkipDirs(),
+		BaselineTestsOnly:   true,
+		EnforceFuncComments: true,
+	}, Baseline{})
+	if !result.OK() {
+		t.Fatalf("CheckWithBaseline() reported missing_docs-only test violation: %#v", result)
+	}
+}
+
+func TestFreezeTestBaselineDropsMissingDocsWhenOtherDebtRemains(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "internal", "risk", "mixed_test.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	body := `package risk
+
+func TestExportedThing() {
+	panic("boom")
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	bl := FreezeTestBaseline(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"internal"},
+		SkipDirs:  DefaultSkipDirs(),
+	})
+	got, ok := bl["internal/risk/mixed_test.go"]
+	if !ok {
+		t.Fatalf("FreezeTestBaseline() omitted panic fixture: %#v", bl)
+	}
+	if got.PanicCount == 0 {
+		t.Fatalf("PanicCount = 0, want real test debt retained")
+	}
+	if got.MissingDocs != 0 {
+		t.Fatalf("MissingDocs = %d, want test missing_docs omitted from baseline", got.MissingDocs)
+	}
+}
+
 func TestCheckWithBaselineFlagsNewProductionFileFullQualityDebt(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

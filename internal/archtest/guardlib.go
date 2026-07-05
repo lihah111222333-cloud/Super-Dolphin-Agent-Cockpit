@@ -195,10 +195,7 @@ func EffectiveLinesInRange(rawLines []string, start, end int) int {
 	end = clampEffectiveLineEnd(len(rawLines), end)
 	count := 0
 	inBlock := false
-	idx := start - 1
-	if idx < 0 {
-		idx = 0
-	}
+	idx := max(start-1, 0)
 	for i := idx; i < end; i++ {
 		delta, nextInBlock := effectiveLineDelta(strings.TrimSpace(rawLines[i]), inBlock)
 		count += delta

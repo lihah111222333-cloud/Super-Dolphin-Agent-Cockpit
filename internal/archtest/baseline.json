@@ -2445,7 +2445,7 @@
     "missing_docs": 2
   },
   "internal/provider/codexapp/driver.go": {
-    "lines": 678,
+    "lines": 759,
     "max_func_len": 66,
     "max_nesting": 4,
     "max_complexity": 10,

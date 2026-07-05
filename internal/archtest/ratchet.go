@@ -41,6 +41,8 @@ func (r CheckResult) OK() bool {
 // 注册表驱动：所有 flagRatchet 规则自动参与，无需手动同步。
 func RatchetCheck(path string, cur, frozen FileMetrics) []RatchetViolation {
 	var vs []RatchetViolation
+	cur = normalizeBaselineMetrics(path, cur)
+	frozen = normalizeBaselineMetrics(path, frozen)
 	for _, r := range metricRules() {
 		if !r.Flags.has(flagRatchet) {
 			continue
@@ -86,11 +88,17 @@ func shouldTightenRatchetField(path, field string, curV, frozenV int) bool {
 // 注册表驱动：所有 flagViolation 规则自动参与，无需手动同步。
 // 用于 FreezeBaseline：只冻结有真实违规的文件，不冻结绿色代码。
 func HasViolation(m FileMetrics) bool {
+	return HasViolationForPath("", m)
+}
+
+// HasViolationForPath 按路径归一化指标后判断是否存在守卫债务。
+func HasViolationForPath(path string, m FileMetrics) bool {
+	m = normalizeBaselineMetrics(path, m)
 	for _, r := range metricRules() {
 		if !r.Flags.has(flagViolation) {
 			continue
 		}
-		if isViolationByRule(r, "", *r.Access(&m)) {
+		if isViolationByRule(r, path, *r.Access(&m)) {
 			return true
 		}
 	}
@@ -109,7 +117,7 @@ func CheckWithBaseline(opts CheckOptions, bl Baseline) CheckResult {
 	var result CheckResult
 	for path, frozen := range bl {
 		absPath := filepath.Join(repoRoot, filepath.FromSlash(path))
-		cur := MeasureFileMetrics(absPath)
+		cur := MeasureBaselineFileMetrics(absPath)
 		if cur.Lines == 0 {
 			continue // 文件已删除，shrink 负责清理
 		}
@@ -132,7 +140,7 @@ func MeasureBaselineFileMetrics(path string) FileMetrics {
 		return m
 	}
 	m.NakedGoroutines = CountNakedGoStmts(node)
-	return m
+	return normalizeBaselineMetrics(path, m)
 }
 
 func parseMetricFile(path string) (*ast.File, bool) {
@@ -190,8 +198,10 @@ func shouldCheckNewBaselineFile(repoRoot, relPath string, bl Baseline) bool {
 	return true
 }
 
+// metricViolationsForNewFile 将新文件指标转换为零容忍违规列表。
 func metricViolationsForNewFile(path string, metrics FileMetrics) []Violation {
 	var violations []Violation
+	metrics = normalizeBaselineMetrics(path, metrics)
 	for _, r := range metricRules() {
 		if !r.Flags.has(flagViolation) {
 			continue
@@ -235,6 +245,14 @@ func newFileMetricViolationMessage(path, field string, got, limit int) string {
 	return fmt.Sprintf("新文件 %s: %s got=%d limit=%d", path, field, got, limit)
 }
 
+// normalizeBaselineMetrics 排除测试文件不参与棘轮的文档注释债务。
+func normalizeBaselineMetrics(path string, m FileMetrics) FileMetrics {
+	if IsTestFile(path) {
+		m.MissingDocs = 0
+	}
+	return m
+}
+
 // IsTestFile 判断文件路径是否为测试文件。
 func IsTestFile(path string) bool {
 	return strings.HasSuffix(path, "_test.go")
@@ -269,7 +287,7 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 		}
 		relPath = filepath.ToSlash(relPath)
 		m := MeasureBaselineFileMetrics(absPath)
-		if HasViolation(m) {
+		if HasViolationForPath(relPath, m) {
 			bl[relPath] = m
 		}
 	}
