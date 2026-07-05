@@ -41,6 +41,8 @@ const (
 	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
 
+// NotifyTap 是 hook consumer 旁路通知层的窄端口。
+// 它只观察 turn/thread 事件，不参与 agent 状态机或 DAG fallback 的写入决策。
 type NotifyTap interface {
 	OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted)
 	OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted)
@@ -67,6 +69,8 @@ func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
 	return newHookConsumerInternal(svc, logger, nil, nil, nil)
 }
 
+// HookAfterHandlerParams 汇总 provider hook 后处理所需的 fx 依赖。
+// 可选端口只开启对应桥接能力，缺失时不得静默改写核心 agent 状态流。
 type HookAfterHandlerParams struct {
 	fx.In
 

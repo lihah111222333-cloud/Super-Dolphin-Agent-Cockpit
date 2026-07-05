@@ -14,6 +14,8 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// PersistedThread 是 agent thread 表恢复 runtime 快照时使用的只读投影。
+// 字段保持接近存储层，service 负责转换为对外 AgentSnapshot。
 type PersistedThread struct {
 	ThreadID      string
 	AgentID       string
@@ -29,6 +31,8 @@ type PersistedThread struct {
 	PendingLaunch bool
 }
 
+// PersistedBinding 描述 agent 与 provider thread 的持久化绑定。
+// archive 和 snapshot fallback 都通过它识别远端线程归属。
 type PersistedBinding struct {
 	AgentID          string
 	Provider         string
@@ -40,24 +44,32 @@ type PersistedBinding struct {
 	UpdatedAt        int64
 }
 
+// PersistedThreadStatusUpdate 是写回持久化 thread 状态的最小更新载荷。
+// 只允许更新状态和时间戳，避免 service 状态同步覆盖 thread 身份字段。
 type PersistedThreadStatusUpdate struct {
 	ThreadID  string
 	Status    string
 	UpdatedAt int64
 }
 
+// PersistedBindingArchiveUpdate 是归档 provider binding 的最小更新载荷。
+// 它只切换 archived 标记和更新时间，不重写 provider thread id。
 type PersistedBindingArchiveUpdate struct {
 	AgentID   string
 	Archived  bool
 	UpdatedAt int64
 }
 
+// AgentThreadStore 是 orchestration 读取和更新持久化 thread 的窄端口。
+// service 通过它做 runtime 缺失时的 snapshot fallback 和停止状态写回。
 type AgentThreadStore interface {
 	ListAll(ctx context.Context) ([]PersistedThread, error)
 	GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error)
 	UpdateStatus(ctx context.Context, params PersistedThreadStatusUpdate) error
 }
 
+// AgentBindingStore 是 orchestration 读取和归档 provider binding 的窄端口。
+// archive 路径依赖它定位远端线程归属，不能在 service 内绕过 store。
 type AgentBindingStore interface {
 	GetByAgentID(ctx context.Context, agentID string) (*PersistedBinding, error)
 	SetArchived(ctx context.Context, params PersistedBindingArchiveUpdate) error

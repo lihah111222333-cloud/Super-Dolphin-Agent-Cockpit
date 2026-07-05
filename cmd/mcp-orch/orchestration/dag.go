@@ -593,10 +593,12 @@ func (e *IdempotencyKeyExhaustedError) Unwrap() error { return ErrIdempotencyKey
 // StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
 var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
 
-// StartDAGRequest / StartDAGResponse 是 contract 包类型别名。
+// StartDAGRequest 与 StartDAGResponse 是 DAG 启动 RPC 的 contract 别名。
 // 别名让 service 直接满足 contract.OrchestrationService，同时避免本包复制 wire DTO。
-type StartDAGRequest = contract.StartDAGRequest
-type StartDAGResponse = contract.StartDAGResponse
+type (
+	StartDAGRequest  = contract.StartDAGRequest
+	StartDAGResponse = contract.StartDAGResponse
+)
 
 // TerminateDAGRequest 是终止一次 DAG run 的入参。
 type TerminateDAGRequest = contract.TerminateDAGRequest

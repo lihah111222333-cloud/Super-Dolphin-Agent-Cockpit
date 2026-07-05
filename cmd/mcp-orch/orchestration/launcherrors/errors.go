@@ -50,6 +50,8 @@ func WaitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr 
 	}
 }
 
+// Class 描述启动错误的重试分类。
+// 调度层据此区分可重试临时错误和应立即停止的配置/认证错误。
 type Class string
 
 const (
