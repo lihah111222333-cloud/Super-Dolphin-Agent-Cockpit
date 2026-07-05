@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -109,6 +110,32 @@ func TestUIVideoSetAPIKeyPersistsWithoutExplicitSuperDolphinHome(t *testing.T) {
 	}
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("video.env mode = %o, want 600", mode)
+	}
+}
+
+// TestUIVideoSetAPIKeyDoesNotMutateProcessEnvWhenPersistenceFails 确认持久化失败不会半应用新 key。
+func TestUIVideoSetAPIKeyDoesNotMutateProcessEnvWhenPersistenceFails(t *testing.T) {
+	home := t.TempDir()
+	blockedHome := filepath.Join(home, "not-a-directory")
+	if err := os.WriteFile(blockedHome, []byte("blocked"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", blockedHome, err)
+	}
+	t.Setenv("SUPER_DOLPHIN_HOME", blockedHome)
+	t.Setenv("SILICONFLOW_API_KEY", "sk-existing")
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	server := rpc.NewServer(rpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewUIStateHandlers(svc).Handlers)
+	_, err = server.Dispatch(context.Background(), "ui/video/setApiKey", json.RawMessage(`{"apiKey":"sk-new-key"}`))
+	if err == nil || !strings.Contains(err.Error(), "create video env directory") {
+		t.Fatalf("Dispatch(ui/video/setApiKey) error = %v, want persistence failure", err)
+	}
+	if got := os.Getenv("SILICONFLOW_API_KEY"); got != "sk-existing" {
+		t.Fatalf("SILICONFLOW_API_KEY = %q, want previous key after failed persistence", got)
 	}
 }
 
