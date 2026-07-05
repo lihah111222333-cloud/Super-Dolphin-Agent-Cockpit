@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"go.uber.org/fx"
@@ -138,7 +139,7 @@ type httpAssetServerParams struct {
 
 // NewWailsApplication 创建 Wails 桌面应用。
 // 窗口标题和调试开关来自绑定对象，避免应用层重复解析桌面配置。
-func NewWailsApplication(p applicationParams) *application.App {
+func NewWailsApplication(p applicationParams) (*application.App, error) {
 	title := applicationTitle()
 	debug := false
 	if p.Binding != nil {
@@ -147,13 +148,17 @@ func NewWailsApplication(p applicationParams) *application.App {
 		}
 		debug = p.Binding.debug
 	}
+	assetHandler, err := assetHandlerFromForMode(p.Frontend, debug)
+	if err != nil {
+		return nil, err
+	}
 	wailsApp := application.New(application.Options{
 		Name:        title,
 		Description: "Super Dolphin desktop",
 		Logger:      p.Logger,
 		Services:    []application.Service{p.Service},
 		Assets: application.AssetOptions{
-			Handler: withClipboardAssets(AssetHandlerFromForMode(p.Frontend, debug)),
+			Handler: withClipboardAssets(assetHandler),
 		},
 		ShouldQuit: p.Lifecycle.ShouldQuit,
 		OnShutdown: p.Lifecycle.OnShutdown,
@@ -168,10 +173,12 @@ func NewWailsApplication(p applicationParams) *application.App {
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		p.Lifecycle.MarkFrontendReady()
-		go cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
+		safego.Go(context.Background(), nil, "wails.clipboard.cleanup", func(context.Context) {
+			cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
+		})
 	})
 	createWindow(wailsApp, title, debug, "main", "", "", p.Binding)
-	return wailsApp
+	return wailsApp, nil
 }
 
 // applicationTitle 返回桌面应用标题。
