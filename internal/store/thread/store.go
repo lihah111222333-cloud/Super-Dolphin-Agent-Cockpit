@@ -3,8 +3,10 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
@@ -40,10 +42,26 @@ type store struct {
 	q querier
 }
 
+type pagedStore struct {
+	*store
+}
+
+type agentThreadPageQuerier interface {
+	ListAgentThreadsPage(ctx context.Context, arg sqlc.ListAgentThreadsPageParams) ([]sqlc.ListAgentThreadsPageRow, error)
+}
+
+type loadedAgentThreadPageQuerier interface {
+	ListLoadedAgentThreadsPage(ctx context.Context, arg sqlc.ListLoadedAgentThreadsPageParams) ([]sqlc.ListLoadedAgentThreadsPageRow, error)
+}
+
+type activeAgentThreadCountQuerier interface {
+	CountActiveAgentThreads(ctx context.Context) (int64, error)
+}
+
 // NewStore 创建 sqlc 支撑的线程 store。
 // 调用方必须传入已初始化的查询器，这里不做 nil 兜底，避免启动配置错误延后暴露。
 func NewStore(q *sqlc.Queries) Store {
-	return &store{q: q}
+	return &pagedStore{store: &store{q: q}}
 }
 
 // GetByThreadID 按线程ID读取线程记录，并统一包装底层数据库错误。
@@ -73,6 +91,61 @@ func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 		return nil, wrapThreadError(err, "list_all")
 	}
 	return mapThreadList(rows), nil
+}
+
+// ListPage 使用 keyset cursor 读取有限 thread 列表页。
+func (s *pagedStore) ListPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error) {
+	limit, err := validateStoreThreadPageLimit(params.Limit)
+	if err != nil {
+		return contract.ThreadListPage{}, err
+	}
+	q, ok := s.q.(agentThreadPageQuerier)
+	if !ok {
+		return contract.ThreadListPage{}, wrapThreadError(errors.New("list page query is not configured"), "list_page")
+	}
+	rows, err := q.ListAgentThreadsPage(ctx, sqlc.ListAgentThreadsPageParams{
+		CursorCreatedAt: params.CursorCreatedAt,
+		CursorThreadID:  params.CursorThreadID,
+		Limit:           int64(limit),
+	})
+	if err != nil {
+		return contract.ThreadListPage{}, wrapThreadError(err, "list_page")
+	}
+	return buildThreadPage(mapThreadPageRows(rows), limit), nil
+}
+
+// ListLoadedPage 使用 SQL status 过滤读取已加载 thread 列表页。
+func (s *pagedStore) ListLoadedPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error) {
+	limit, err := validateStoreThreadPageLimit(params.Limit)
+	if err != nil {
+		return contract.ThreadListPage{}, err
+	}
+	q, ok := s.q.(loadedAgentThreadPageQuerier)
+	if !ok {
+		return contract.ThreadListPage{}, wrapThreadError(errors.New("loaded list page query is not configured"), "list_loaded_page")
+	}
+	rows, err := q.ListLoadedAgentThreadsPage(ctx, sqlc.ListLoadedAgentThreadsPageParams{
+		CursorCreatedAt: params.CursorCreatedAt,
+		CursorThreadID:  params.CursorThreadID,
+		Limit:           int64(limit),
+	})
+	if err != nil {
+		return contract.ThreadListPage{}, wrapThreadError(err, "list_loaded_page")
+	}
+	return buildThreadPage(mapLoadedThreadPageRows(rows), limit), nil
+}
+
+// CountActive 使用数据库聚合统计仍处于 active 状态的 thread。
+func (s *pagedStore) CountActive(ctx context.Context) (int64, error) {
+	q, ok := s.q.(activeAgentThreadCountQuerier)
+	if !ok {
+		return 0, wrapThreadError(errors.New("active count query is not configured"), "count_active")
+	}
+	count, err := q.CountActiveAgentThreads(ctx)
+	if err != nil {
+		return 0, wrapThreadError(err, "count_active")
+	}
+	return count, nil
 }
 
 // ListConfigsByIDs 只批量读取线程配置字段，避免恢复路径拉取不需要的大行。
@@ -372,7 +445,6 @@ func mapConfigList(rows []sqlc.ListAgentThreadConfigsByIDsRow) []Thread {
 
 // mapThreadList 映射全量线程列表查询结果。
 func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
-
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
 		result[i] = Thread{
@@ -403,6 +475,135 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 		}
 	}
 	return result
+}
+
+func validateStoreThreadPageLimit(limit int) (int, error) {
+	if limit <= 0 {
+		return 0, wrapThreadError(errors.New("thread page limit is required"), "list_page")
+	}
+	return limit, nil
+}
+
+func buildThreadPage(threads []contract.ThreadListRecord, limit int) contract.ThreadListPage {
+	page := contract.ThreadListPage{Threads: threads}
+	if len(threads) > limit {
+		page.HasMore = true
+		page.Threads = threads[:limit]
+	}
+	if len(page.Threads) > 0 {
+		last := page.Threads[len(page.Threads)-1]
+		page.NextCursorCreatedAt = last.CreatedAt
+		page.NextCursorThreadID = last.ThreadID
+	}
+	return page
+}
+
+func mapThreadPageRows(rows []sqlc.ListAgentThreadsPageRow) []contract.ThreadListRecord {
+	mapped := make([]sqlc.ListAgentThreadsRow, len(rows))
+	for i, row := range rows {
+		mapped[i] = listAgentThreadsRowFromPage(row)
+	}
+	return mapThreadListRecords(mapThreadList(mapped))
+}
+
+func mapLoadedThreadPageRows(rows []sqlc.ListLoadedAgentThreadsPageRow) []contract.ThreadListRecord {
+	mapped := make([]sqlc.ListAgentThreadsRow, len(rows))
+	for i, row := range rows {
+		mapped[i] = listAgentThreadsRowFromLoadedPage(row)
+	}
+	return mapThreadListRecords(mapThreadList(mapped))
+}
+
+// mapThreadListRecords 把 store 内部 Thread DTO 投影为 contract 层列表行。
+func mapThreadListRecords(threads []Thread) []contract.ThreadListRecord {
+	result := make([]contract.ThreadListRecord, len(threads))
+	for i, thread := range threads {
+		result[i] = contract.ThreadListRecord{
+			ThreadID:         thread.ThreadID,
+			AgentID:          thread.AgentID,
+			ParentAgentID:    thread.ParentAgentID,
+			AgentType:        thread.AgentType,
+			AgentMemoryScope: thread.AgentMemoryScope,
+			Name:             thread.Name,
+			Prompt:           thread.Prompt,
+			Model:            thread.Model,
+			Cwd:              thread.Cwd,
+			Status:           thread.Status,
+			Port:             thread.Port,
+			PID:              thread.PID,
+			CreatedAt:        thread.CreatedAt,
+			UpdatedAt:        thread.UpdatedAt,
+			FinishedAt:       thread.FinishedAt,
+			LastEventType:    thread.LastEventType,
+			ErrorMessage:     thread.ErrorMessage,
+			WorkspaceRunKey:  thread.WorkspaceRunKey,
+			OwnerThreadID:    thread.OwnerThreadID,
+			ConfigOverride:   thread.ConfigOverride,
+			AgentKey:         thread.AgentKey,
+			PromptVersionID:  thread.PromptVersionID,
+			PendingLaunch:    thread.PendingLaunch,
+			ManuallyRenamed:  thread.ManuallyRenamed,
+		}
+	}
+	return result
+}
+
+func listAgentThreadsRowFromPage(row sqlc.ListAgentThreadsPageRow) sqlc.ListAgentThreadsRow {
+	return sqlc.ListAgentThreadsRow{
+		ThreadID:         row.ThreadID,
+		Name:             row.Name,
+		Prompt:           row.Prompt,
+		Model:            row.Model,
+		CWD:              row.CWD,
+		Status:           row.Status,
+		Port:             row.Port,
+		Pid:              row.Pid,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+		FinishedAt:       row.FinishedAt,
+		LastEventType:    row.LastEventType,
+		ErrorMessage:     row.ErrorMessage,
+		WorkspaceRunKey:  row.WorkspaceRunKey,
+		OwnerThreadID:    row.OwnerThreadID,
+		ParentAgentID:    row.ParentAgentID,
+		AgentType:        row.AgentType,
+		AgentMemoryScope: row.AgentMemoryScope,
+		ConfigOverride:   row.ConfigOverride,
+		AgentKey:         row.AgentKey,
+		PromptVersionID:  row.PromptVersionID,
+		PendingLaunch:    row.PendingLaunch,
+		ManuallyRenamed:  row.ManuallyRenamed,
+		AgentID:          row.AgentID,
+	}
+}
+
+func listAgentThreadsRowFromLoadedPage(row sqlc.ListLoadedAgentThreadsPageRow) sqlc.ListAgentThreadsRow {
+	return sqlc.ListAgentThreadsRow{
+		ThreadID:         row.ThreadID,
+		Name:             row.Name,
+		Prompt:           row.Prompt,
+		Model:            row.Model,
+		CWD:              row.CWD,
+		Status:           row.Status,
+		Port:             row.Port,
+		Pid:              row.Pid,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+		FinishedAt:       row.FinishedAt,
+		LastEventType:    row.LastEventType,
+		ErrorMessage:     row.ErrorMessage,
+		WorkspaceRunKey:  row.WorkspaceRunKey,
+		OwnerThreadID:    row.OwnerThreadID,
+		ParentAgentID:    row.ParentAgentID,
+		AgentType:        row.AgentType,
+		AgentMemoryScope: row.AgentMemoryScope,
+		ConfigOverride:   row.ConfigOverride,
+		AgentKey:         row.AgentKey,
+		PromptVersionID:  row.PromptVersionID,
+		PendingLaunch:    row.PendingLaunch,
+		ManuallyRenamed:  row.ManuallyRenamed,
+		AgentID:          row.AgentID,
+	}
 }
 
 // mapRunningThreadList 映射运行中线程列表查询结果。

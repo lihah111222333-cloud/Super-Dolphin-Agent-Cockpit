@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -170,17 +171,19 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 // 启动阶段没有 threadID 时会失败所有 pending RPC；运行中事件交给 runtime 的恢复队列串行处理。
 func (s *session) handleConnectionDead(params json.RawMessage) {
 	reason := shared.FirstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
+	safeReason := observability.SafeProviderErrorReason(reason)
 	pkglogger.Warn("codexapp: CONNECTION DEAD (passive)",
 		"agent_id", s.agentID,
 		"thread_id", s.ThreadID(),
-		"reason", reason,
+		"reason", safeReason.Message,
+		"error_code", safeReason.Code,
 	)
 	if isNonRecoverableAuthErrorText(reason) {
 		s.failNonRecoverableConnection(reason)
 		return
 	}
 	if strings.TrimSpace(s.ThreadID()) == "" {
-		err := errors.New("codexapp: startup failed: " + strings.TrimSpace(reason))
+		err := errors.New("codexapp: startup failed: " + safeReason.Message)
 		if s.transport != nil {
 			s.transport.failPending(err)
 		}
@@ -201,7 +204,7 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 			"thread_id", s.ThreadID())
 		return
 	}
-	s.runtime.NotifyRecovery("connection-dead", reason)
+	s.runtime.NotifyRecovery("connection-dead", safeReason.Message)
 }
 
 // isNonRecoverableAuthErrorText 识别无需恢复的认证失败文本。
@@ -220,17 +223,21 @@ func isNonRecoverableAuthErrorText(reason string) bool {
 	return strings.Contains(text, "401") && strings.Contains(text, "unauthorized")
 }
 
+// failNonRecoverableConnection 处理不可恢复的认证或配置失败，避免继续重连。
+// 原始 provider reason 可能包含密钥，只能把安全 code/message 写入 turn error 和 AgentFailed payload。
 func (s *session) failNonRecoverableConnection(reason string) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "connection lost"
 	}
+	safeReason := observability.SafeProviderErrorReason(reason)
 	pkglogger.Warn("codexapp: non-recoverable connection failure",
 		"agent_id", s.agentID,
 		"thread_id", s.ThreadID(),
-		"reason", reason,
+		"reason", safeReason.Message,
+		"error_code", safeReason.Code,
 	)
-	err := errors.New("codexapp: " + reason)
+	err := errors.New("codexapp: " + safeReason.Message)
 	if strings.TrimSpace(s.ThreadID()) == "" {
 		if s.transport != nil {
 			s.transport.failPending(err)
@@ -243,7 +250,8 @@ func (s *session) failNonRecoverableConnection(reason string) {
 		Data: map[string]any{
 			"agentId":     strings.TrimSpace(s.agentID),
 			"threadId":    s.ThreadID(),
-			"error":       reason,
+			"error":       safeReason.Message,
+			"errorCode":   safeReason.Code,
 			"recoverable": false,
 		},
 	})

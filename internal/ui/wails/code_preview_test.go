@@ -20,7 +20,7 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 		t.Fatalf("WriteFile(old) error = %v", err)
 	}
 
-	result, err := saveScopedFile(target, "# Saved\n\nBody", []string{root}, false)
+	result, err := saveScopedFile(target, "# Saved\n\nBody", []string{root}, false, "full", codeContentVersion([]byte("old")))
 	if err != nil {
 		t.Fatalf("saveScopedFile() error = %v", err)
 	}
@@ -42,11 +42,60 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	}
 }
 
+// TestBuildCodeOpenResultSnippetIsNotFullSaveToken verifies snippet previews cannot carry overwrite tokens.
+func TestBuildCodeOpenResultSnippetIsNotFullSaveToken(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "src", "main.go")
+	writeTestFile(t, target, strings.Join([]string{
+		"package main",
+		"",
+		"func main() {",
+		"\tprintln(\"hello\")",
+		"}",
+	}, "\n"))
+
+	result, err := buildCodeOpenResult(scopedPath{Root: root, Abs: target, Relative: "src/main.go"}, 3)
+	if err != nil {
+		t.Fatalf("buildCodeOpenResult() error = %v", err)
+	}
+	if result.PreviewMode != "snippet" {
+		t.Fatalf("buildCodeOpenResult() previewMode = %q, want snippet", result.PreviewMode)
+	}
+	if result.ContentVersion != "" {
+		t.Fatalf("buildCodeOpenResult() contentVersion = %q, want empty snippet save token", result.ContentVersion)
+	}
+	if result.RangeStartLine != result.StartLine || result.RangeEndLine != result.EndLine {
+		t.Fatalf("buildCodeOpenResult() range = %d-%d, start/end = %d-%d", result.RangeStartLine, result.RangeEndLine, result.StartLine, result.EndLine)
+	}
+}
+
+// TestSaveScopedFileRejectsSnippetPreviewMode verifies save rejects non-full preview payloads.
+func TestSaveScopedFileRejectsSnippetPreviewMode(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "docs", "readme.md")
+	writeTestFile(t, target, "# Title\n")
+
+	_, err := saveScopedFile(target, "# Changed\n", []string{root}, false, "snippet", "")
+	if err == nil {
+		t.Fatal("saveScopedFile() error = nil, want snippet preview mode rejection")
+	}
+	if !strings.Contains(err.Error(), "previewMode") {
+		t.Fatalf("saveScopedFile() error = %v, want previewMode rejection", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(data) != "# Title\n" {
+		t.Fatalf("saveScopedFile() body = %q, want original content preserved", string(data))
+	}
+}
+
 func TestSaveScopedFileRejectsOutsideScope(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "escape.txt")
 
-	_, err := saveScopedFile(outside, "nope", []string{root}, false)
+	_, err := saveScopedFile(outside, "nope", []string{root}, false, "full", codeContentVersion(nil))
 	if err == nil {
 		t.Fatal("saveScopedFile() error = nil, want scope error")
 	}
@@ -56,7 +105,7 @@ func TestSaveScopedFileRejectsMissingFileWithoutCreateNew(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "docs", "new.md")
 
-	_, err := saveScopedFile(target, "body", []string{root}, false)
+	_, err := saveScopedFile(target, "body", []string{root}, false, "full", codeContentVersion(nil))
 	if err == nil {
 		t.Fatal("saveScopedFile() error = nil, want missing-file validation error")
 	}
@@ -69,7 +118,7 @@ func TestSaveScopedFileRejectsMissingFileWithCreateNew(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "docs", "new.md")
 
-	_, err := saveScopedFile(target, "body", []string{root}, true)
+	_, err := saveScopedFile(target, "body", []string{root}, true, "full", codeContentVersion(nil))
 	if err == nil {
 		t.Fatal("saveScopedFile() error = nil, want missing-file validation error")
 	}

@@ -13,6 +13,197 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
+// TestListThreadsUsesLimitAndCursor 验证列表页读取必须把 limit/cursor 下推到 store。
+func TestListThreadsUsesLimitAndCursor(t *testing.T) {
+	t.Parallel()
+
+	store := &pageAwareThreadStore{
+		page: contract.ThreadListPage{
+			Threads: []contract.ThreadListRecord{
+				{ThreadID: "thread-next", AgentID: "agent-next", Status: statusCreated, CreatedAt: 41},
+			},
+			HasMore:             true,
+			NextCursorCreatedAt: 41,
+			NextCursorThreadID:  "thread-next",
+		},
+	}
+	svc := &service{threadStore: store}
+
+	got, err := svc.ListPage(context.Background(), ListPageRequest{
+		Limit:           50,
+		CursorCreatedAt: 42,
+		CursorThreadID:  "thread-cursor",
+	})
+
+	if err != nil {
+		t.Fatalf("ListPage() error = %v", err)
+	}
+	if store.listAllCalled {
+		t.Fatal("ListPage() called ListAll; want bounded store page query")
+	}
+	requireThreadPageParams(t, store.pageParams, 50, 42, "thread-cursor")
+	requireThreadPageResult(t, got, "thread-next", 41)
+}
+
+// TestListThreadsRejectsOverLimit verifies explicit page requests fail fast instead of clamping.
+func TestListThreadsRejectsOverLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		call func(*service) error
+	}{
+		{
+			name: "all",
+			call: func(svc *service) error {
+				_, err := svc.ListPage(context.Background(), ListPageRequest{Limit: maxThreadListLimit + 1})
+				return err
+			},
+		},
+		{
+			name: "loaded",
+			call: func(svc *service) error {
+				_, err := svc.ListLoadedPage(context.Background(), ListPageRequest{Limit: maxThreadListLimit + 1})
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &pageAwareThreadStore{}
+			svc := &service{threadStore: store}
+
+			err := tc.call(svc)
+
+			if err == nil || !strings.Contains(err.Error(), "thread list limit exceeds maximum") {
+				t.Fatalf("ListPage over limit error = %v, want fail-fast max limit error", err)
+			}
+			if store.pageParams.Limit != 0 || store.loadedPageParams.Limit != 0 || store.listAllCalled {
+				t.Fatalf("store was called for over-limit request: page=%#v loaded=%#v listAll=%v", store.pageParams, store.loadedPageParams, store.listAllCalled)
+			}
+		})
+	}
+}
+
+// TestLoadedThreadsUsesSQLFilter 验证 loaded 线程页必须使用 store 的 SQL 过滤入口。
+func TestLoadedThreadsUsesSQLFilter(t *testing.T) {
+	t.Parallel()
+
+	store := &pageAwareThreadStore{
+		loadedPage: contract.ThreadListPage{
+			Threads: []contract.ThreadListRecord{
+				{ThreadID: "thread-loaded", AgentID: "agent-loaded", Status: statusCreated},
+			},
+		},
+	}
+	svc := &service{threadStore: store}
+
+	got, err := svc.ListLoadedPage(context.Background(), ListPageRequest{Limit: 25})
+
+	if err != nil {
+		t.Fatalf("ListLoadedPage() error = %v", err)
+	}
+	if store.listAllCalled {
+		t.Fatal("ListLoadedPage() called ListAll; want SQL status filter")
+	}
+	requireThreadPageParams(t, store.loadedPageParams, 25, 0, "")
+	requireThreadListIDs(t, got.Threads, "thread-loaded")
+}
+
+// TestLegacyListUsesHardCap 验证旧 no-arg List 兼容入口也只能读取有限页。
+func TestLegacyListUsesHardCap(t *testing.T) {
+	t.Parallel()
+
+	store := &pageAwareThreadStore{
+		page: contract.ThreadListPage{
+			Threads: []contract.ThreadListRecord{
+				{ThreadID: "thread-legacy", Status: statusCreated},
+			},
+		},
+	}
+	svc := &service{threadStore: store}
+
+	got, err := svc.List(context.Background())
+
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if store.listAllCalled {
+		t.Fatal("List() called ListAll; want hard-capped compatibility page")
+	}
+	requireThreadPageParams(t, store.pageParams, 200, 0, "")
+	requireThreadListIDs(t, got, "thread-legacy")
+}
+
+// requireThreadPageParams 断言 service 传给 store 的分页参数完整。
+func requireThreadPageParams(t *testing.T, got contract.ThreadListPageParams, wantLimit int, wantCreatedAt int64, wantThreadID string) {
+	t.Helper()
+	if got.Limit != wantLimit {
+		t.Fatalf("page limit = %d, want %d", got.Limit, wantLimit)
+	}
+	if got.CursorCreatedAt != wantCreatedAt {
+		t.Fatalf("cursor created_at = %d, want %d", got.CursorCreatedAt, wantCreatedAt)
+	}
+	if got.CursorThreadID != wantThreadID {
+		t.Fatalf("cursor thread_id = %q, want %q", got.CursorThreadID, wantThreadID)
+	}
+}
+
+// requireThreadPageResult 断言 service 把 store page 元数据原样投影到返回值。
+func requireThreadPageResult(t *testing.T, got ListPageResult, wantID string, wantCreatedAt int64) {
+	t.Helper()
+	requireThreadListIDs(t, got.Threads, wantID)
+	if !got.HasMore {
+		t.Fatalf("HasMore = false, want true")
+	}
+	if got.NextCursorCreatedAt != wantCreatedAt {
+		t.Fatalf("NextCursorCreatedAt = %d, want %d", got.NextCursorCreatedAt, wantCreatedAt)
+	}
+	if got.NextCursorThreadID != wantID {
+		t.Fatalf("NextCursorThreadID = %q, want %q", got.NextCursorThreadID, wantID)
+	}
+}
+
+// requireThreadListIDs 断言线程列表只包含一个指定 id。
+func requireThreadListIDs(t *testing.T, got []Ref, wantID string) {
+	t.Helper()
+	if len(got) != 1 {
+		t.Fatalf("threads = %#v, want one thread", got)
+	}
+	if got[0].ID != wantID {
+		t.Fatalf("thread id = %q, want %q", got[0].ID, wantID)
+	}
+}
+
+// pageAwareThreadStore 记录分页调用，任何 ListAll 调用都会让测试失败。
+type pageAwareThreadStore struct {
+	*stubThreadStore
+	page             contract.ThreadListPage
+	loadedPage       contract.ThreadListPage
+	pageParams       contract.ThreadListPageParams
+	loadedPageParams contract.ThreadListPageParams
+	listAllCalled    bool
+}
+
+// ListAll 记录 legacy 全量读取调用，分页路径不允许触发它。
+func (s *pageAwareThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
+	s.listAllCalled = true
+	return nil, errors.New("ListAll should not be called by paged thread readers")
+}
+
+// ListPage 记录普通线程分页参数并返回预设页。
+func (s *pageAwareThreadStore) ListPage(_ context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error) {
+	s.pageParams = params
+	return s.page, nil
+}
+
+// ListLoadedPage 记录 loaded 线程分页参数并返回预设页。
+func (s *pageAwareThreadStore) ListLoadedPage(_ context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error) {
+	s.loadedPageParams = params
+	return s.loadedPage, nil
+}
+
 type pinDeleteThreadStore struct {
 	*stubThreadStore
 	deletedIDs []string

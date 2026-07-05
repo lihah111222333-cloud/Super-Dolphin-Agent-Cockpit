@@ -453,6 +453,44 @@ func (q *Queries) GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunni
 	return i, err
 }
 
+const getSubmittedOrRunningCronJobRunByTurnID = `-- name: GetSubmittedOrRunningCronJobRunByTurnID :one
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE turn_id = ?1
+  AND turn_id <> ''
+  AND status IN ('submitted', 'running')
+LIMIT 1
+`
+
+type GetSubmittedOrRunningCronJobRunByTurnIDParams struct {
+	TurnID string `db:"turn_id" json:"turn_id"`
+}
+
+// Used by CompleteTurn to locate early terminal events that arrive while a run
+// is still submitted, without falling back to the unresolved recovery scan.
+func (q *Queries) GetSubmittedOrRunningCronJobRunByTurnID(ctx context.Context, arg GetSubmittedOrRunningCronJobRunByTurnIDParams) (CronJobRun, error) {
+	row := q.db.QueryRowContext(ctx, getSubmittedOrRunningCronJobRunByTurnID, arg.TurnID)
+	var i CronJobRun
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.ScheduledAt,
+		&i.IdempotencyKey,
+		&i.DedupeKey,
+		&i.ThreadID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.SubmittedAt,
+		&i.Status,
+		&i.Error,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertCronJobRun = `-- name: InsertCronJobRun :one
 
 INSERT INTO cron_job_runs (
@@ -717,6 +755,61 @@ ORDER BY created_at ASC, id ASC
 // instead of StartTurn, per the three-phase protocol.
 func (q *Queries) ListUnresolvedCronJobRuns(ctx context.Context) ([]CronJobRun, error) {
 	rows, err := q.db.QueryContext(ctx, listUnresolvedCronJobRuns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CronJobRun{}
+	for rows.Next() {
+		var i CronJobRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.ScheduledAt,
+			&i.IdempotencyKey,
+			&i.DedupeKey,
+			&i.ThreadID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.SubmittedAt,
+			&i.Status,
+			&i.Error,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnresolvedCronJobRunsPage = `-- name: ListUnresolvedCronJobRunsPage :many
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE status IN ('submitting', 'submitted', 'running')
+  AND (?1 = '' OR id > ?1)
+ORDER BY id ASC
+LIMIT ?2
+`
+
+type ListUnresolvedCronJobRunsPageParams struct {
+	Cursor interface{} `db:"cursor" json:"cursor"`
+	Limit  int64       `db:"limit" json:"limit"`
+}
+
+// Bounded scheduler boot recovery page. The caller advances cursor with the
+// last returned id so startup recovery never materializes every unresolved row.
+func (q *Queries) ListUnresolvedCronJobRunsPage(ctx context.Context, arg ListUnresolvedCronJobRunsPageParams) ([]CronJobRun, error) {
+	rows, err := q.db.QueryContext(ctx, listUnresolvedCronJobRunsPage, arg.Cursor, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

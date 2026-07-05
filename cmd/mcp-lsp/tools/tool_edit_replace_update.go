@@ -18,7 +18,7 @@ import (
 // 两条确认路径都失败才回滚，避免 LSP 慢响应时把已经真实落盘的编辑误判为失败。
 func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, updatedContent string, version int, log *editStageLogger) (bool, string, error) {
 	stage := log.Started("write_file", "bytes", len(updatedContent), "version", version)
-	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
+	if err := atomicReplaceFile(path, []byte(updatedContent), file.mode, defaultFileWriter); err != nil {
 		log.Failed("write_file", stage, err)
 		return false, "", err
 	}
@@ -112,7 +112,7 @@ func firstReplaceConfirmationError(syncErr error, diffErr error) error {
 // 回滚失败会被合并进返回错误，避免调用方误以为文件仍处于原始状态。
 func (h EditHandler) rollbackReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, version int, syncErr error, log *editStageLogger) (bool, string, error) {
 	stage := log.Started("rollback", "version", version, "reason", syncErr != nil)
-	rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
+	rollbackErr := atomicReplaceFile(path, []byte(file.raw), file.mode, defaultFileWriter)
 	if rollbackErr == nil {
 		rollbackErr = h.syncRollbackDocument(ctx, manager, path, file.raw, version)
 	}

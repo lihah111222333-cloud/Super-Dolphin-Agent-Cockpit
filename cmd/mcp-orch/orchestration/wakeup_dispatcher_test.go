@@ -259,6 +259,72 @@ func TestWakeupDispatcher_RouterFrameworkErrorRetriesWakeup(t *testing.T) {
 	}
 }
 
+// TestWakeupLeaseExpiryDoesNotDuplicateChildLaunch verifies router writes carry the claimed wakeup lease fence.
+func TestWakeupLeaseExpiryDoesNotDuplicateChildLaunch(t *testing.T) {
+	now := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
+	leaseAt := now.Add(30 * time.Second)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{{
+			ID:             61,
+			DagKey:         "dag-1",
+			NodeKey:        "n1",
+			RunID:          int64Ptr(7006),
+			ClaimedAt:      &now,
+			ClaimedBy:      "worker-a",
+			LeaseExpiresAt: &leaseAt,
+			AttemptCount:   4,
+		}},
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			NodeType: "agent",
+			Status:   string(nodeexec.NodeStatusReady),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+		}},
+	}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	launcher := &stubAgentLauncher{threadID: "thread-fenced"}
+	agentExec := newTestAgentExecutor(launcher)
+	d.WithNodeRouter(NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil))
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if len(launcher.calls) != 1 {
+		t.Fatalf("launcher calls = %d, want exactly one child launch", len(launcher.calls))
+	}
+	if len(store.runningCalls) != 1 {
+		t.Fatalf("running calls = %d, want one fenced ready->running write", len(store.runningCalls))
+	}
+	assertRunningWakeupFence(t, store.runningCalls[0].WakeupFence, now, leaseAt)
+}
+
+func assertRunningWakeupFence(t *testing.T, fence taskdag.WakeupFence, claimedAt, leaseAt time.Time) {
+	t.Helper()
+	if fence.WakeupID != 61 {
+		t.Fatalf("WakeupID = %d, want 61", fence.WakeupID)
+	}
+	if fence.WakeupAttempt != 4 {
+		t.Fatalf("WakeupAttempt = %d, want 4", fence.WakeupAttempt)
+	}
+	if fence.ClaimedBy != "worker-a" {
+		t.Fatalf("ClaimedBy = %q, want worker-a", fence.ClaimedBy)
+	}
+	if !fence.ClaimedAt.Equal(claimedAt) {
+		t.Fatalf("ClaimedAt = %s, want %s", fence.ClaimedAt, claimedAt)
+	}
+	if !fence.LeaseExpiresAt.Equal(leaseAt) {
+		t.Fatalf("LeaseExpiresAt = %s, want %s", fence.LeaseExpiresAt, leaseAt)
+	}
+}
+
 func TestWakeupDispatcherRetryWakeupPassesConfiguredMaxAttempts(t *testing.T) {
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{

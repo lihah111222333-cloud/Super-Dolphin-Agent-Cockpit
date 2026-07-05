@@ -182,6 +182,14 @@ func (m *Manager) GetPendingReviews(ctx context.Context, agentID string) ([]mcp.
 	return m.resolver.ListPendingReviews(ctx, agentID)
 }
 
+// GetPendingReviewsPage 读取指定 agent 的有界 hook 审批页。
+func (m *Manager) GetPendingReviewsPage(ctx context.Context, params contract.HookPendingReviewPageParams) (contract.HookPendingReviewPage, error) {
+	if err := m.validate(); err != nil {
+		return contract.HookPendingReviewPage{}, err
+	}
+	return m.resolver.ListPendingReviewsPage(ctx, params)
+}
+
 // ShutdownHooks 在 peer lease 关闭时取消订阅并清理其 pending review。
 func (m *Manager) ShutdownHooks(ctx context.Context, lease mcp.LeaseKey) error {
 	if err := m.validate(); err != nil {

@@ -10,6 +10,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/terminalstatus"
 	"github.com/kelindar/event"
 )
 
@@ -53,6 +54,40 @@ func TestDerivedThreadStatusTransitions(t *testing.T) {
 		Approved: true,
 	})
 	assertThreadStatus(t, svc, "thinking")
+}
+
+// TestTimelineAndProjectionTerminalStatusParity 保证主 UI 投影不再私有化终态推导。
+func TestTimelineAndProjectionTerminalStatusParity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ev   turndto.TurnCompleted
+	}{
+		{
+			name: "completed without explicit status",
+			ev:   turndto.TurnCompleted{Success: true},
+		},
+		{
+			name: "failed without provider diagnostic",
+			ev:   turndto.TurnCompleted{Success: false},
+		},
+		{
+			name: "explicit provider status",
+			ev:   turndto.TurnCompleted{Success: false, Status: "interrupted", Reason: "user stopped"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			want := terminalstatus.Status(tt.ev.Success, tt.ev.Status, tt.ev.Reason, tt.ev.Error)
+			if got := completionStatus(tt.ev); got != want {
+				t.Fatalf("completionStatus(%+v) = %q, want shared terminal status %q", tt.ev, got, want)
+			}
+		})
+	}
 }
 
 func TestDeriveInterruptibleRequiresActiveTurnIdentityForSidebarSnapshot(t *testing.T) {

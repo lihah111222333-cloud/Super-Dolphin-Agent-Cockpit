@@ -118,8 +118,11 @@ func (s *promptDatasourceV2Store) GetDocument(context.Context, int64) (*datasour
 	return nil, errors.New("unexpected datasource_v2 prompt test get document")
 }
 
-func (s *promptDatasourceV2Store) ListChunks(context.Context, int64) ([]datasourcev2store.TextChunk, error) {
-	return nil, errors.New("unexpected datasource_v2 prompt test list chunks")
+func (s *promptDatasourceV2Store) ListChunksPage(
+	context.Context,
+	datasourcev2store.ListChunksParams,
+) (datasourcev2store.TextChunkPage, error) {
+	return datasourcev2store.TextChunkPage{}, errors.New("unexpected datasource_v2 prompt test list chunks")
 }
 
 func (s *promptDatasourceV2Store) SearchChunks(

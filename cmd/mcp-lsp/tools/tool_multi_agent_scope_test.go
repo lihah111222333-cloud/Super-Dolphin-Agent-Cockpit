@@ -31,8 +31,6 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	runScopedDiagnostics(t, handler, repo, "agent-a", map[string]any{
 		"action":    "diagnostics",
 		"file_path": "main.go",
-		"agent_id":  "agent-forged",
-		"cwd":       evilRoot,
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
 	assertToolManagerDiagnostics(t, managerB, 0, "", "", "")
@@ -40,8 +38,6 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{
 		"action":    "diagnostics",
 		"file_path": "main.go",
-		"agent_id":  "agent-forged",
-		"cwd":       evilRoot,
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
 	assertToolManagerDiagnostics(t, managerB, 1, "agent-b", repo, evilRoot)

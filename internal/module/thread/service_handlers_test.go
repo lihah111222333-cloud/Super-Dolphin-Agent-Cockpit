@@ -35,10 +35,10 @@ func TestNewThreadHandlersRegistersExpectedRoutes(t *testing.T) {
 	t.Parallel()
 
 	got := NewThreadHandlers(&stubThreadService{}, nil).Handlers
-	if len(got) != 32 {
-		t.Fatalf("len(Handlers) = %d, want 32", len(got))
+	if len(got) != 34 {
+		t.Fatalf("len(Handlers) = %d, want 34", len(got))
 	}
-	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff"} {
+	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/listPage", "thread/loaded/listPage", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff"} {
 		if _, ok := got[method]; !ok {
 			t.Fatalf("Handlers missing %q", method)
 		}

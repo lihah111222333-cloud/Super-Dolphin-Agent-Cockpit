@@ -25,7 +25,27 @@ SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payl
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE agent_id = ? AND status = 'pending'
-ORDER BY created_at ASC;
+ORDER BY created_at ASC, hook_call_id ASC
+LIMIT 500;
+
+-- name: ListHookPendingReviewsByAgentPage :many
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
+       status, created_at, deadline_at
+FROM hook_pending_reviews
+WHERE agent_id = sqlc.arg(agent_id)
+  AND status = 'pending'
+  AND (
+      sqlc.arg(cursor_created_at) = 0
+      OR created_at > sqlc.arg(cursor_created_at)
+      OR (created_at = sqlc.arg(cursor_created_at) AND hook_call_id > sqlc.arg(cursor_hook_call_id))
+  )
+ORDER BY created_at ASC, hook_call_id ASC
+LIMIT sqlc.arg(limit) + 1;
+
+-- name: CountHookPendingReviews :one
+SELECT COUNT(*)
+FROM hook_pending_reviews
+WHERE status = 'pending';
 
 -- name: CheckHookReviewIdempotency :one
 -- Returns 1 if a review is already resolved with the given idempotency key.

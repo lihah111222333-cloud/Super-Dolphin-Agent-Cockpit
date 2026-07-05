@@ -30,6 +30,12 @@ const (
 	envHarnessKind                 = "MULTI_AGENT_HARNESS_CLI"
 )
 
+const (
+	defaultMaxConsolidationFiles      = 200
+	defaultMaxConsolidationFileBytes  = 256 * 1024
+	defaultMaxConsolidationTotalBytes = 2 * 1024 * 1024
+)
+
 var (
 	ErrTeamMemoryDisabled      = teampkg.ErrTeamMemoryDisabled
 	ErrInvalidTeamMemWritePath = teampkg.ErrInvalidTeamMemWritePath
@@ -85,11 +91,14 @@ type Config struct {
 	SkipIndex                  bool
 	ExtractOnStop              bool
 	// AutoDreamIntentError 记录读取本地 intent 文件失败时的脱敏摘要；空值表示没有诊断。
-	AutoDreamIntentError string
-	ExtraGuidelines      []string
-	Features             MemoryFeatureFlags
-	Kairos               KairosConfig
-	NestedMemory         NestedMemoryConfig
+	AutoDreamIntentError       string
+	ExtraGuidelines            []string
+	Features                   MemoryFeatureFlags
+	Kairos                     KairosConfig
+	NestedMemory               NestedMemoryConfig
+	MaxConsolidationFiles      int
+	MaxConsolidationFileBytes  int64
+	MaxConsolidationTotalBytes int64
 	// Harness 记录启动时识别出的底层 CLI harness。
 	// 该值冻结在 Config 中，避免运行中 os.Setenv 改变 overlay suppression 判断。
 	//
@@ -126,9 +135,12 @@ func NewConfig(platformCfg *contract.Config) *Config {
 			TeamMemory:        parseBoolEnv(envFeatureTeamMemory, false),
 			SearchPastContext: parseBoolEnv(envFeatureSearchPastContext, false),
 		},
-		Kairos:       KairosConfig{Enabled: kairosEnabled},
-		NestedMemory: NestedMemoryConfig{Enabled: false},
-		Harness:      resolveMemoryHarness(),
+		Kairos:                     KairosConfig{Enabled: kairosEnabled},
+		NestedMemory:               NestedMemoryConfig{Enabled: false},
+		MaxConsolidationFiles:      defaultMaxConsolidationFiles,
+		MaxConsolidationFileBytes:  defaultMaxConsolidationFileBytes,
+		MaxConsolidationTotalBytes: defaultMaxConsolidationTotalBytes,
+		Harness:                    resolveMemoryHarness(),
 	}
 	if root := firstNonEmptyEnv(envMemoryRoot, envClaudeRemoteMemoryDir); root != "" {
 		cfg.RootDir = root
@@ -140,6 +152,27 @@ func NewConfig(platformCfg *contract.Config) *Config {
 		cfg.ExtractOnStop = *intent
 	}
 	return cfg
+}
+
+func maxConsolidationFiles(cfg *Config) int {
+	if cfg != nil && cfg.MaxConsolidationFiles > 0 {
+		return cfg.MaxConsolidationFiles
+	}
+	return defaultMaxConsolidationFiles
+}
+
+func maxConsolidationFileBytes(cfg *Config) int64 {
+	if cfg != nil && cfg.MaxConsolidationFileBytes > 0 {
+		return cfg.MaxConsolidationFileBytes
+	}
+	return defaultMaxConsolidationFileBytes
+}
+
+func maxConsolidationTotalBytes(cfg *Config) int64 {
+	if cfg != nil && cfg.MaxConsolidationTotalBytes > 0 {
+		return cfg.MaxConsolidationTotalBytes
+	}
+	return defaultMaxConsolidationTotalBytes
 }
 
 // IsMemoryEnabled 返回当前配置下 memory 功能是否真正开放。

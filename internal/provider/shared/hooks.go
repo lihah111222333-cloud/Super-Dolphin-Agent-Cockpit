@@ -20,10 +20,12 @@ type ToolResultMeta struct {
 }
 
 // ToolResultRecord 是工具结果持久化后的 provider 层返回记录。
-// Preview 给 UI 展示，PersistedPath 指向落盘内容，Truncated/OriginalSize 描述截断边界。
+// Preview 给 UI 展示，PersistedPath 指向落盘内容，PersistFailed/PersistError 描述落盘失败。
 type ToolResultRecord struct {
 	Preview       string
 	PersistedPath string
+	PersistFailed bool
+	PersistError  string
 	Truncated     bool
 	OriginalSize  int
 }

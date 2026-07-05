@@ -14,6 +14,7 @@ const backend = vi.hoisted(() => ({
   getDatasourceDocument: vi.fn(),
   importDatasourceLocalFile: vi.fn(),
   importSkillDirectories: vi.fn(),
+  listDatasourceChunks: vi.fn(),
   listDatasourceDocuments: vi.fn(),
   listMCPServers: vi.fn(),
   listSkillFiles: vi.fn(),
@@ -141,6 +142,20 @@ beforeEach(() => {
       charCount: 7,
       byteCount: 7,
     }],
+    hasMore: true,
+    nextCursor: 0,
+  });
+  backend.listDatasourceChunks.mockResolvedValue({
+    chunks: [{
+      id: 502,
+      documentId: 101,
+      chunkIndex: 1,
+      content: 'more content',
+      charCount: 12,
+      byteCount: 12,
+    }],
+    hasMore: false,
+    nextCursor: 1,
   });
   backend.updateDatasourceDocument.mockResolvedValue({
     documentId: 101,
@@ -261,9 +276,11 @@ describe('SkillsPage backend migration', () => {
     fireEvent.click(screen.getByTestId('datasource-view-101'));
     await waitFor(() => {
       expect(backend.getDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 });
+      expect(backend.listDatasourceChunks).toHaveBeenCalledWith({ documentId: 101, limit: 50, cursor: 0 });
     });
     const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
-    expect(await within(detailDialog).findByTestId('datasource-detail-chunk')).toHaveTextContent('content');
+    const chunks = await within(detailDialog).findAllByTestId('datasource-detail-chunk');
+    expect(chunks.map((chunk) => chunk.textContent)).toEqual(['content', 'more content']);
     fireEvent.click(within(detailDialog).getByRole('button', { name: '关闭' }));
 
     fireEvent.click(screen.getByTestId('datasource-edit-101'));

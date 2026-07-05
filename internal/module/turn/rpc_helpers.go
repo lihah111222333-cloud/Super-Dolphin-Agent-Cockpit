@@ -413,11 +413,25 @@ func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) ha
 	return platformrpc.ThreadHandler(func(ctx context.Context, p threadIDOnlyParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			if err := svc.ForceCompleteTurn(ctx, session); err != nil {
+				if isForceCompleteTargetNotFound(err) {
+					return turnForceCompleteResult{OK: false, ForceCompleted: false, ErrorCode: "force_complete_target_not_found"}, nil
+				}
 				return nil, err
 			}
 			return turnForceCompleteResult{OK: true, ForceCompleted: true}, nil
 		})
 	})
+}
+
+// forceCompleteTargetNotFound identifies provider no-target errors without importing provider packages.
+type forceCompleteTargetNotFound interface {
+	ForceCompleteTargetNotFound() bool
+}
+
+// isForceCompleteTargetNotFound reports whether err should map to a no-target force-complete envelope.
+func isForceCompleteTargetNotFound(err error) bool {
+	var marker forceCompleteTargetNotFound
+	return errors.As(err, &marker) && marker.ForceCompleteTargetNotFound()
 }
 
 // approvalRespondHandler 将 UI 审批响应转交给 provider approval responder，并要求显式决策。

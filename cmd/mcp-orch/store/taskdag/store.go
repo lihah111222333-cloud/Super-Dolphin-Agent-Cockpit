@@ -431,6 +431,35 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 	if err := requireRuntimeRunID("update_running_status", input.RunID); err != nil {
 		return nil, err
 	}
+	fence, fenced, err := resolveWakeupFence(ctx, input.WakeupID, input.WakeupFence)
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "update_running_status", "task_dag_node")
+	}
+	if fenced {
+		var mapped Node
+		err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+			if err := validateWakeupFenceTx(ctx, txq, fence, input.DagKey, input.NodeKey, input.RunID); err != nil {
+				return err
+			}
+			row, updateErr := txq.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
+				Status:         input.Status,
+				Result:         input.Result,
+				ActiveWakeupID: int64Ptr(fence.WakeupID),
+				DagKey:         input.DagKey,
+				NodeKey:        input.NodeKey,
+				RunID:          int64Ptr(input.RunID),
+			})
+			if updateErr != nil {
+				return wrapTaskDAGError(updateErr, "update_running_status", "task_dag_node")
+			}
+			mapped = fromNodeUpdateRunningRow(row)
+			return nil
+		})
+		if err != nil {
+			return nil, wrapTaskDAGError(err, "update_running_status", "task_dag_node")
+		}
+		return &mapped, nil
+	}
 	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateRunningTaskDagNodeStatusRow, error) {
 		return s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
 			Status:         input.Status,

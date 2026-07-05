@@ -77,6 +77,37 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+// TestWrapperRejectsEmptyWorkDir ensures wrapper-owned work_dir cannot be silently stripped when empty.
+func TestWrapperRejectsEmptyWorkDir(t *testing.T) {
+	root := t.TempDir()
+	handlerCalled := false
+	handler := wrapToolHandler("file", time.Second, func(context.Context, json.RawMessage) (any, error) {
+		handlerCalled = true
+		return "ok", nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{
+		"work_dir": " \t ",
+	})
+
+	_, err := handler(testToolContext(root), payload)
+	if err == nil || !strings.Contains(err.Error(), "work_dir") || !strings.Contains(err.Error(), "required") {
+		t.Fatalf("handler error = %v, want empty work_dir rejection", err)
+	}
+	if handlerCalled {
+		t.Fatalf("handler should not run when work_dir is empty")
+	}
+}
+
+// TestWrapperRejectsLegacyCWDInArguments ensures cwd is not silently stripped from tool arguments.
+func TestWrapperRejectsLegacyCWDInArguments(t *testing.T) {
+	assertWrapperRejectsLegacyArgument(t, "cwd")
+}
+
+// TestWrapperRejectsLegacyAgentIDInArguments ensures agent_id is not silently stripped from tool arguments.
+func TestWrapperRejectsLegacyAgentIDInArguments(t *testing.T) {
+	assertWrapperRejectsLegacyArgument(t, "agent_id")
+}
+
 func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	envelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("line must be >= 1"))
 	if envelope.Success {
@@ -92,6 +123,39 @@ func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	replaceEnvelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("column is out of range"))
 	if !strings.Contains(strings.ToLower(replaceEnvelope.Hint), "patch") {
 		t.Fatalf("replace_range-style cursor hint = %q, want patch guidance", replaceEnvelope.Hint)
+	}
+}
+
+func assertWrapperRejectsLegacyArgument(t *testing.T, field string) {
+	t.Helper()
+	root := t.TempDir()
+	decoded := false
+	handler := wrapToolHandler("file", time.Second, func(_ context.Context, params json.RawMessage) (any, error) {
+		var input struct {
+			Action string `json:"action"`
+		}
+		if err := decodeStrictToolParams(params, &input); err != nil {
+			return nil, err
+		}
+		decoded = true
+		return input, nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{
+		"action": "read_file",
+		field:    root,
+	})
+
+	_, err := handler(testToolContext(root), payload)
+	if err == nil {
+		t.Fatalf("handler accepted legacy %s argument, want migration error", field)
+	}
+	for _, want := range []string{field, "_cwd", "_agentId"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("handler error = %q, want %q", err.Error(), want)
+		}
+	}
+	if decoded {
+		t.Fatalf("handler decoded params with legacy %s argument, want fail-fast rejection", field)
 	}
 }
 

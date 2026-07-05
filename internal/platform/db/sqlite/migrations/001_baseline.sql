@@ -302,6 +302,23 @@ CREATE TABLE IF NOT EXISTS shared_files (
     updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS datasource_documents (
+    workspace_root TEXT NOT NULL,
+    name TEXT NOT NULL,
+    extension TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+    stored_path TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    PRIMARY KEY (workspace_root, name),
+    CHECK (workspace_root <> ''),
+    CHECK (name <> ''),
+    CHECK (extension <> ''),
+    CHECK (stored_path <> ''),
+    CHECK (content <> '')
+);
+
 CREATE TABLE IF NOT EXISTS agent_feedback_events (
     id INTEGER PRIMARY KEY,
     thread_id TEXT NOT NULL,
@@ -726,6 +743,8 @@ CREATE INDEX IF NOT EXISTS idx_agent_threads_workspace_run_key ON agent_threads(
 CREATE INDEX IF NOT EXISTS idx_agent_threads_owner_thread_id ON agent_threads(owner_thread_id);
 CREATE INDEX IF NOT EXISTS idx_agent_threads_agent_key ON agent_threads(agent_key) WHERE agent_key <> '';
 CREATE INDEX IF NOT EXISTS idx_agent_threads_pending_launch ON agent_threads(pending_launch) WHERE pending_launch = 1;
+CREATE INDEX IF NOT EXISTS idx_agent_threads_created_thread_id_desc ON agent_threads(created_at DESC, thread_id DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_threads_status_created_thread_id_desc ON agent_threads(status, created_at DESC, thread_id DESC);
 
 CREATE INDEX IF NOT EXISTS idx_audit_events_ts ON audit_events(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
@@ -753,6 +772,7 @@ CREATE INDEX IF NOT EXISTS idx_command_card_versions_key_id ON command_card_vers
 CREATE INDEX IF NOT EXISTS idx_command_card_runs_status_created ON command_card_runs(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_command_card_runs_card_key ON command_card_runs(card_key, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_shared_files_updated_at ON shared_files(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_datasource_documents_workspace_name ON datasource_documents(workspace_root, name);
 CREATE INDEX IF NOT EXISTS idx_agent_feedback_events_thread ON agent_feedback_events(thread_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_feedback_events_agent_key ON agent_feedback_events(agent_key, created_at DESC) WHERE agent_key <> '';
 CREATE INDEX IF NOT EXISTS idx_agent_feedback_events_prompt_version ON agent_feedback_events(prompt_version_id, created_at DESC) WHERE prompt_version_id IS NOT NULL;
@@ -799,6 +819,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key ON cron_job_runs(d
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_job_created ON cron_job_runs(job_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_status_active ON cron_job_runs(status, updated_at DESC, id DESC) WHERE status IN ('pending', 'submitting', 'submitted', 'running');
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_turn_running ON cron_job_runs(turn_id) WHERE turn_id <> '' AND status = 'running';
+CREATE INDEX IF NOT EXISTS idx_cron_job_runs_turn_status ON cron_job_runs(turn_id, status) WHERE turn_id <> '' AND status IN ('submitted', 'running');
 CREATE INDEX IF NOT EXISTS idx_datasource_v2_text_chunks_document_order ON datasource_v2_text_chunks(document_id, chunk_index);
 
 CREATE INDEX IF NOT EXISTS idx_task_acks_status ON task_acks(status, updated_at DESC);

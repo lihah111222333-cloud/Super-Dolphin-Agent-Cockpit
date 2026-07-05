@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
+import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceChunks, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './SkillsPage.css';
@@ -970,6 +970,7 @@ function importNotice(importedCount, drafts, failures, scope) {
 }
 
 const DATASOURCE_LIST_LIMIT = 200;
+const DATASOURCE_CHUNK_PAGE_LIMIT = 50;
 const DATASOURCE_IMPORT_FILTERS = Object.freeze([
   Object.freeze({ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }),
 ]);
@@ -1231,8 +1232,18 @@ function normalizeDatasourceDetail(response) {
     throw new Error('datasourceV2/get response must be an object');
   }
   const document = normalizeDatasourceDocument(response.document || {}, 0);
+  return {
+    document,
+    ...normalizeDatasourceChunkPage(response, document, 'datasourceV2/get'),
+  };
+}
+
+function normalizeDatasourceChunkPage(response, document, source) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error(`${source} response must be an object`);
+  }
   if (!Array.isArray(response.chunks)) {
-    throw new Error('datasourceV2/get response.chunks must be an array');
+    throw new Error(`${source} response.chunks must be an array`);
   }
   const chunks = response.chunks.map((raw, index) => ({
     id: Number(raw?.id ?? index + 1),
@@ -1242,7 +1253,32 @@ function normalizeDatasourceDetail(response) {
     charCount: Number(raw?.charCount ?? raw?.char_count ?? 0),
     byteCount: Number(raw?.byteCount ?? raw?.byte_count ?? 0),
   }));
-  return { document, chunks };
+  return {
+    chunks,
+    hasMore: Boolean(response.hasMore ?? response.has_more),
+    nextCursor: Number(response.nextCursor ?? response.next_cursor ?? -1),
+  };
+}
+
+async function fetchDatasourceDetail(documentId) {
+  const initial = normalizeDatasourceDetail(await getDatasourceDocument({ documentId }));
+  let chunks = [...initial.chunks];
+  let hasMore = initial.hasMore;
+  let nextCursor = initial.nextCursor;
+  while (hasMore) {
+    const page = normalizeDatasourceChunkPage(
+      await listDatasourceChunks({ documentId, limit: DATASOURCE_CHUNK_PAGE_LIMIT, cursor: nextCursor }),
+      initial.document,
+      'datasourceV2/list_chunks',
+    );
+    if (page.chunks.length === 0) {
+      throw new Error('datasourceV2/list_chunks returned hasMore without chunks');
+    }
+    chunks = chunks.concat(page.chunks);
+    hasMore = page.hasMore;
+    nextCursor = page.nextCursor;
+  }
+  return { ...initial, chunks, hasMore, nextCursor };
 }
 
 function datasourceMatches(doc, search) {
@@ -1312,7 +1348,7 @@ function DataSourceView({ copy }) {
   } = useQuery({
     queryKey: ['datasourceV2', 'document', detailID],
     enabled: detailID > 0,
-    queryFn: async () => normalizeDatasourceDetail(await getDatasourceDocument({ documentId: detailID })),
+    queryFn: async () => fetchDatasourceDetail(detailID),
   });
   const filtered = documents.filter((doc) => datasourceMatches(doc, search));
 

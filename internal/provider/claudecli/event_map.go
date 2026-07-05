@@ -1,7 +1,6 @@
 package claudecli
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -123,14 +122,6 @@ func claudeAgentErrorFromRaw(raw dto.RawProviderEvent) agentdto.AgentError {
 		Code:               dataString(raw.Data, "code"),
 		Payload:            raw.SafePayload(),
 	}
-}
-
-func claudeProviderErrorPayload(data any) json.RawMessage {
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return nil
-	}
-	return raw
 }
 
 // translateStatusPatchEvent 翻译重启等 provider 状态补丁事件。
@@ -255,6 +246,8 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 			Error:          dataString(raw.Data, "error"),
 			Result:         result.Preview,
 			PersistedPath:  result.PersistedPath,
+			PersistFailed:  result.PersistFailed,
+			PersistError:   result.PersistError,
 			Truncated:      result.Truncated,
 			OriginalSize:   result.OriginalSize,
 		}, true

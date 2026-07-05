@@ -192,6 +192,21 @@ type Scheduler struct {
 	newID func() string
 }
 
+type submittedTurnStore interface {
+	SubmitRunWithActiveTurn(ctx context.Context, params submitRunWithActiveTurnParams) error
+}
+
+type submitRunWithActiveTurnParams struct {
+	RunID        string
+	JobID        string
+	ClaimToken   string
+	ActiveTurnID string
+	ThreadID     string
+	AgentID      string
+	SubmittedAt  time.Time
+	Now          time.Time
+}
+
 // NewScheduler 创建 cron 调度器并注入存储和 turn 依赖。
 // nil submitter 会替换为 NoopTurnSubmitter，确保未接线时 fail-fast。
 func NewScheduler(logger *slog.Logger, store SchedulerStore, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
@@ -360,35 +375,24 @@ func buildStartTurnRequest(job jobRecord, runID, dedupe string, scheduledAt time
 // persistSubmittedTurn 保存已提交 turn 和 cron run 的绑定关系。
 func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job jobRecord, run runRecord, result StartTurnResult) error {
 	updatedAt := s.now().UTC()
-	// 先保存 turn_id，再把 run 标成 submitted，最后更新 job.active_turn_id。
-	// 恢复逻辑依赖这个顺序找回已提交的 turn。
-	if err := s.store.SetRunTurn(ctx, setRunTurnParams{
-		ID:          run.ID,
-		ThreadID:    result.ThreadID,
-		AgentID:     result.AgentID,
-		TurnID:      result.TurnID,
-		SubmittedAt: updatedAt,
-		UpdatedAt:   updatedAt,
-	}); err != nil {
-		return err
+	submitStore, ok := s.store.(submittedTurnStore)
+	if !ok {
+		return errors.New("cron: store does not implement atomic submitted turn persistence")
 	}
-	if err := s.store.CASRunStatus(ctx, casRunStatusParams{
-		ID:             run.ID,
-		ExpectedStatus: statusSubmitting,
-		NextStatus:     statusSubmitted,
-		UpdatedAt:      updatedAt,
-	}); err != nil {
-		return err
-	}
-	s.publishRunState(job.ID, run.ID, statusSubmitted, result.TurnID, "", run.ScheduledAt)
-	return s.store.SetActiveTurn(ctx, setActiveTurnParams{
-		ID:           job.ID,
+	if err := submitStore.SubmitRunWithActiveTurn(ctx, submitRunWithActiveTurnParams{
+		RunID:        run.ID,
+		JobID:        job.ID,
 		ClaimToken:   job.ClaimToken,
 		ActiveTurnID: result.TurnID,
 		ThreadID:     result.ThreadID,
 		AgentID:      result.AgentID,
+		SubmittedAt:  updatedAt,
 		Now:          updatedAt,
-	})
+	}); err != nil {
+		return err
+	}
+	s.publishRunState(job.ID, run.ID, statusSubmitted, result.TurnID, "", run.ScheduledAt)
+	return nil
 }
 
 // observeStartedTurn 调用 Observe 将已提交 turn 纳入追踪，失败时转为 observe_lost。

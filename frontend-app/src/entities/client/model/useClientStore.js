@@ -1293,6 +1293,14 @@ function actionNotice(message, tone = 'info') {
   };
 }
 
+function actionNoticeRuntimeFields(fields = {}) {
+  const out = {};
+  const error = normalizeString(fields.error || fields.message);
+  if (error) out.error = error;
+  if (typeof fields.recoverable === 'boolean') out.recoverable = fields.recoverable;
+  return out;
+}
+
 const imageFileAttachment = createImageFileAttachment({ saveClipboardImage });
 
 const composerAttachmentActionDeps = {
@@ -2158,7 +2166,8 @@ function attachNotificationRuntime(runtime) {
   const { set, addWarning } = runtime;
 
   const notifyAction = (message, tone = 'info', fields = {}) => {
-    const notice = actionNotice(message, tone);
+    const baseNotice = actionNotice(message, tone);
+    const notice = baseNotice ? { ...baseNotice, ...actionNoticeRuntimeFields(fields) } : null;
     if (!notice) return;
     set((state) => ({
       actionNotice: notice,
@@ -2536,19 +2545,36 @@ function attachBridgeEventRuntime(runtime) {
     flushAssistantDeltasNow,
     applyAssistantCompletion,
     bridgeThreadIdForPayload,
+    notifyAction,
   } = runtime;
 
-    const handleBridgeEvent = (evt) => {
-      const method = normalizeString(evt?.method || evt?.type);
-      const eventName = method.toLowerCase();
-      const payload = evt?.payload || evt?.params || evt?.data || {};
-      if (!method) {
-        addWarning('error', 'bridge.event.method_missing', {
-          eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
-          payloadKeys: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
-        });
-        return;
-      }
+  const handleFailedBridgeEvent = (eventName, method, payload) => {
+    flushAssistantDeltasNow();
+    const threadId = bridgeThreadIdForPayload(payload);
+    if (threadId) {
+      finalizeActiveAssistantMessages(threadId);
+    }
+    addWarning('error', method, { ...payload, eventName });
+    const message = normalizeString(payload?.error || payload?.message || payload?.reason) || 'provider reported failure';
+    notifyAction(`运行失败：${message}`, 'error', {
+      ...payload,
+      threadId,
+      error: message,
+      recoverable: payload?.recoverable,
+    });
+  };
+
+  const handleBridgeEvent = (evt) => {
+    const method = normalizeString(evt?.method || evt?.type);
+    const eventName = method.toLowerCase();
+    const payload = evt?.payload || evt?.params || evt?.data || {};
+    if (!method) {
+      addWarning('error', 'bridge.event.method_missing', {
+        eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
+        payloadKeys: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
+      });
+      return;
+    }
 
     const revisionKey = bridgeRevisionKey(eventName, payload);
     if (revisionKey) {
@@ -2581,12 +2607,15 @@ function attachBridgeEventRuntime(runtime) {
       applyAssistantCompletion(method, payload);
       return;
     }
+    if (eventName === 'agent/failed') {
+      handleFailedBridgeEvent(eventName, method, payload);
+      return;
+    }
     if (
       eventName === 'turn/completed' ||
       eventName === 'turn/interrupted' ||
       eventName === 'agent/stopped' ||
-      eventName === 'thread/stopped' ||
-      eventName === 'agent/failed'
+      eventName === 'thread/stopped'
     ) {
       flushAssistantDeltasNow();
       const threadId = bridgeThreadIdForPayload(payload);
@@ -3054,6 +3083,9 @@ function createActiveThreadActions(runtime) {
 
     hasActiveThreadActions: () => Boolean(backendThreadIdForState(runtime.get(), runtime.get().activeThreadId)),
     hasInterruptibleThreadAction: () => {
+      return activeThreadInterruptTarget(runtime.get()).interruptible;
+    },
+    hasForceCompleteThreadAction: () => {
       return activeThreadInterruptTarget(runtime.get()).interruptible;
     },
 

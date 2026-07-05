@@ -83,17 +83,25 @@ type activeAgentCounterParams struct {
 func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	if p.Threads != nil {
 		return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
-			threads, err := p.Threads.List(ctx)
+			counter, ok := p.Threads.(contract.ThreadActiveCounter)
+			if !ok {
+				return 0, errors.New("active agent count source is not configured")
+			}
+			if !contract.IsActiveAgentState("created") {
+				return 0, errors.New("active agent state predicate rejected created state")
+			}
+			count, err := counter.CountActive(ctx)
 			if err != nil {
 				return 0, err
 			}
-			active := 0
-			for _, thread := range threads {
-				if contract.IsActiveAgentState(thread.Status) {
-					active++
-				}
+			if count < 0 {
+				return 0, errors.New("active agent count source returned negative count")
 			}
-			return active, nil
+			maxInt := int64(^uint(0) >> 1)
+			if count > maxInt {
+				return 0, errors.New("active agent count exceeds int range")
+			}
+			return int(count), nil
 		})
 	}
 	return ActiveAgentCounterFunc(func(context.Context) (int, error) {

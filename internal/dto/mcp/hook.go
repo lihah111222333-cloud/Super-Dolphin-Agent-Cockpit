@@ -57,7 +57,7 @@ type AfterDecision struct {
 type HookSubscribeRequest struct {
 	SubscriptionID string          `json:"subscription_id"`
 	Topics         []string        `json:"topics"`
-	Scope          Selector        `json:"scope,omitempty"`
+	Scope          Selector        `json:"scope,omitzero"`
 	Filters        json.RawMessage `json:"filters,omitempty"` // 协议要求的 hook 过滤条件。
 	Mode           string          `json:"mode,omitempty"`
 }
@@ -67,7 +67,7 @@ type HookSubscribeResponse struct {
 	Accepted            bool     `json:"accepted"`
 	SubscriptionVersion int64    `json:"subscription_version,omitempty"`
 	EffectiveTopics     []string `json:"effective_topics"`
-	EffectiveScope      Selector `json:"effective_scope,omitempty"`
+	EffectiveScope      Selector `json:"effective_scope,omitzero"`
 }
 
 // ----- Hook Resolve -----
@@ -89,14 +89,25 @@ type HookResolveResponse struct {
 	PendingState      string `json:"pending_state,omitempty"`
 }
 
-// HookPendingRequest 是 ctl/hook/pending 的请求载荷，查询指定 agent 待处理的 hook。
-type HookPendingRequest struct {
-	AgentID string `json:"agent_id,omitempty"`
+// HookPendingCursor 是 ctl/hook/pending 的 keyset cursor。
+type HookPendingCursor struct {
+	CreatedAt  time.Time `json:"created_at"`
+	HookCallID string    `json:"hook_call_id"`
 }
 
-// HookPendingResponse 是 ctl/hook/pending 的响应，返回所有待人工审批的 hook 列表。
+// HookPendingRequest 是 ctl/hook/pending 的请求载荷，查询指定 agent 待处理的 hook。
+type HookPendingRequest struct {
+	AgentID string             `json:"agent_id,omitempty"`
+	Limit   int                `json:"limit"`
+	Cursor  *HookPendingCursor `json:"cursor,omitempty"`
+}
+
+// HookPendingResponse 是 ctl/hook/pending 的有界分页响应。
 type HookPendingResponse struct {
-	Reviews []PendingHookReview `json:"reviews"`
+	Reviews    []PendingHookReview `json:"reviews"`
+	Limit      int                 `json:"limit"`
+	HasMore    bool                `json:"has_more"`
+	NextCursor *HookPendingCursor  `json:"next_cursor,omitempty"`
 }
 
 // ----- Pending Hook Review -----

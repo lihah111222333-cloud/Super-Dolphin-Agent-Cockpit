@@ -342,7 +342,7 @@ func deleteMissingMirrorEntries(manifest *SkillMirrorManifest, target SkillMirro
 			return report, err
 		}
 		if !deleted {
-			if target.Scope == skillScopePersonal && item.ConflictKind == "drift" {
+			if target.Scope == skillScopePersonal && item.ConflictKind == "drift" && !isProviderReadableMirrorDrift(target, item) {
 				report.Skipped = append(report.Skipped, item)
 				continue
 			}
@@ -389,7 +389,7 @@ func publishCanonicalRecords(manifest *SkillMirrorManifest, target SkillMirrorTa
 			report.Skipped = append(report.Skipped, item)
 			continue
 		}
-		if target.Scope == skillScopePersonal && item.ConflictKind == "drift" {
+		if target.Scope == skillScopePersonal && item.ConflictKind == "drift" && !isProviderReadableMirrorDrift(target, item) {
 			report.Skipped = append(report.Skipped, item)
 			continue
 		}
@@ -430,6 +430,17 @@ func publishCanonicalRecord(manifest *SkillMirrorManifest, target SkillMirrorTar
 		return item, false, nil
 	}
 	return replaceChangedMirrorRecord(manifest, target, record, canonicalHash, item)
+}
+
+func isProviderReadableMirrorDrift(target SkillMirrorTarget, item SkillMirrorReportItem) bool {
+	if strings.ToLower(strings.TrimSpace(item.ConflictKind)) != "drift" {
+		return false
+	}
+	scope := strings.ToLower(strings.TrimSpace(target.Scope))
+	targetID := strings.ToLower(strings.TrimSpace(target.TargetID))
+	return scope == skillScopeProject ||
+		strings.Contains(targetID, ":project:") ||
+		strings.Contains(targetID, ":app-managed:")
 }
 
 // ensureCanonicalHash 保证后续发布流程已有 canonical hash，避免调用方重复分支判断。

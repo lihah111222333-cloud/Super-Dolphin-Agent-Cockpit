@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/kelindar/event"
 )
@@ -50,8 +52,9 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	if activeTurnID != "" || stillTracked {
 		t.Fatalf("active turn state = id:%q tracked:%v, want cleared", activeTurnID, stillTracked)
 	}
-	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"}); err != nil {
-		t.Fatalf("ForceComplete() after rollout completion error = %v", err)
+	err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"})
+	if !errors.Is(err, ErrForceCompleteTargetNotFound) {
+		t.Fatalf("ForceComplete() after rollout completion error = %v, want ErrForceCompleteTargetNotFound", err)
 	}
 	fixture.assertNoForceComplete(t)
 }
@@ -423,6 +426,94 @@ func TestOnNotification_CodexRolloutResponseItemFunctionCallOutputDispatchesTool
 	if !strings.Contains(end.Result, "smoke.go") {
 		t.Fatalf("Result = %q, want function_call_output text", end.Result)
 	}
+	assertToolCallEndPersistence(t, end, toolCallEndPersistenceSummary{})
+}
+
+// TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure verifies function_call_output uses the shared persistence capture path.
+func TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure(t *testing.T) {
+	installFunctionCallOutputPersistFailureHook(t)
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	defer cancelBegin()
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.dispatcher = dispatcher
+
+	s.onNotification("response_item", json.RawMessage(`{
+		"item":{"type":"tool_call","name":"file","arguments":{"action":"read_file"},"call_id":"call-file"}
+	}`))
+	_ = waitToolCallBegin(t, beginCh)
+
+	s.onNotification("response_item", json.RawMessage(`{
+		"item":{"type":"function_call_output","call_id":"call-file","output":"{\"success\":true,\"path\":\"smoke.go\"}"}
+	}`))
+	end := waitToolCallEnd(t, endCh)
+	assertToolCallEndResult(t, end, `{"captured":true}`)
+	assertToolCallEndPersistence(t, end, toolCallEndPersistenceSummary{
+		path:          "/tmp/function-call-output.json",
+		persistError:  "disk full",
+		persistFailed: true,
+		truncated:     true,
+		originalSize:  2048,
+	})
+}
+
+// toolCallEndPersistenceSummary keeps persistence field assertions compact.
+type toolCallEndPersistenceSummary struct {
+	path, persistError       string
+	persistFailed, truncated bool
+	originalSize             int
+}
+
+// assertToolCallEndResult compares the visible ToolCallEnd result payload.
+func assertToolCallEndResult(t *testing.T, end tooldto.ToolCallEnd, want string) {
+	t.Helper()
+	if end.Result != want {
+		t.Fatalf("ToolCallEnd result = %q, want %q", end.Result, want)
+	}
+}
+
+// assertToolCallEndPersistence compares the rollout persistence metadata on ToolCallEnd.
+func assertToolCallEndPersistence(t *testing.T, end tooldto.ToolCallEnd, want toolCallEndPersistenceSummary) {
+	t.Helper()
+	got := toolCallEndPersistenceSummary{
+		path:          end.PersistedPath,
+		persistError:  end.PersistError,
+		persistFailed: end.PersistFailed,
+		truncated:     end.Truncated,
+		originalSize:  end.OriginalSize,
+	}
+	if got != want {
+		t.Fatalf("ToolCallEnd persistence fields = %+v, want %+v", got, want)
+	}
+}
+
+// installFunctionCallOutputPersistFailureHook injects a failing capture hook for function_call_output tests.
+func installFunctionCallOutputPersistFailureHook(t *testing.T) {
+	t.Helper()
+	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
+		if meta.CallID != "call-file" || meta.ToolName != "file" {
+			t.Fatalf("capture meta = %+v, want call-file/file", meta)
+		}
+		if !strings.Contains(raw, "smoke.go") {
+			t.Fatalf("capture raw = %q, want function_call_output body", raw)
+		}
+		return providershared.ToolResultRecord{
+			Preview:       `{"captured":true}`,
+			PersistedPath: "/tmp/function-call-output.json",
+			PersistFailed: true,
+			PersistError:  "disk full",
+			Truncated:     true,
+			OriginalSize:  2048,
+		}
+	})
+	t.Cleanup(func() { providershared.SetCaptureToolResultHook(nil) })
 }
 
 func TestOnNotification_CodexRolloutFunctionCallOutputAfterResultDoesNotPublishNamelessEnd(t *testing.T) {

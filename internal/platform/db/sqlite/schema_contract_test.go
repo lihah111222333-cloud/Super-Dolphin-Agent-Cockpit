@@ -3,7 +3,6 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -264,6 +263,7 @@ func baselineContracts() map[string]tableContract {
 		"command_card_versions": {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "title", "description", "command_template", "args_schema", "risk_level", "enabled", "created_by", "updated_by", "created_at", "archived_at"}, Checks: []string{"json_valid(args_schema)", "enabled IN (0, 1)"}, Indexes: []string{"idx_command_card_versions_key_id"}},
 		"command_card_runs":     {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "requested_by", "params", "rendered_command", "risk_level", "status", "requires_review", "output", "error", "created_at", "updated_at"}, Checks: []string{"json_valid(params)", "requires_review IN (0, 1)"}, Indexes: []string{"idx_command_card_runs_status_created", "idx_command_card_runs_card_key"}},
 		"shared_files":          {PrimaryKey: []string{"path"}, NotNull: []string{"content", "content_location", "updated_by", "created_at", "updated_at"}, Checks: []string{"content_location IN ('inline', 'disk')"}, Indexes: []string{"idx_shared_files_updated_at"}},
+		"datasource_documents":  {PrimaryKey: []string{"workspace_root", "name"}, NotNull: []string{"workspace_root", "name", "extension", "size_bytes", "stored_path", "content", "created_at", "updated_at"}, Checks: []string{"workspace_root <> ''", "name <> ''", "extension <> ''", "stored_path <> ''", "content <> ''", "size_bytes >= 0"}, Indexes: []string{"idx_datasource_documents_workspace_name"}},
 		"datasource_v2_documents": {
 			PrimaryKey: []string{"id"},
 			NotNull:    []string{"source_path", "file_name", "extension", "size_bytes", "chunk_count", "total_chars", "status", "created_at", "updated_at"},
@@ -292,7 +292,7 @@ func baselineContracts() map[string]tableContract {
 		"cwd_instance_locks":   {PrimaryKey: []string{"cwd"}, NotNull: []string{"instance_id", "pid", "acquired_at", "heartbeat_at"}, Indexes: []string{"idx_cwd_instance_locks_heartbeat"}},
 		"turn_dedupe_registry": {PrimaryKey: []string{"dedupe_key"}, NotNull: []string{"local_turn_id", "provider_turn_id", "thread_id", "created_at", "updated_at"}, Indexes: []string{"idx_turn_dedupe_registry_updated_at", "idx_turn_dedupe_registry_live"}},
 		"cron_jobs":            {PrimaryKey: []string{"id"}, NotNull: []string{"name", "prompt", "schedule_type", "schedule_expr", "timezone", "provider", "model", "cwd", "config", "skills", "enabled", "next_run_at", "failure_count", "max_attempts", "created_at", "updated_at"}, Checks: []string{"schedule_expr <> ''", "provider IN ('codex', 'claude')", "cwd <> ''", "json_valid(config)", "json_valid(skills)", "enabled IN (0, 1)", "failure_count >= 0", "max_attempts >= 0"}, Indexes: []string{"idx_cron_jobs_due", "idx_cron_jobs_claim"}},
-		"cron_job_runs":        {PrimaryKey: []string{"id"}, NotNull: []string{"job_id", "scheduled_at", "idempotency_key", "dedupe_key", "thread_id", "agent_id", "turn_id", "status", "error", "created_at", "updated_at"}, Checks: []string{"status IN ('pending', 'submitting', 'submitted', 'running', 'finished', 'failed', 'observe_lost')"}, Indexes: []string{"uq_cron_job_runs_idempotency", "uq_cron_job_runs_dedupe_key", "idx_cron_job_runs_job_created", "idx_cron_job_runs_status_active", "idx_cron_job_runs_turn_running"}, ForeignKey: []foreignKeyContract{{Column: "job_id", Table: "cron_jobs"}}},
+		"cron_job_runs":        {PrimaryKey: []string{"id"}, NotNull: []string{"job_id", "scheduled_at", "idempotency_key", "dedupe_key", "thread_id", "agent_id", "turn_id", "status", "error", "created_at", "updated_at"}, Checks: []string{"status IN ('pending', 'submitting', 'submitted', 'running', 'finished', 'failed', 'observe_lost')"}, Indexes: []string{"uq_cron_job_runs_idempotency", "uq_cron_job_runs_dedupe_key", "idx_cron_job_runs_job_created", "idx_cron_job_runs_status_active", "idx_cron_job_runs_turn_running", "idx_cron_job_runs_turn_status"}, ForeignKey: []foreignKeyContract{{Column: "job_id", Table: "cron_jobs"}}},
 
 		"task_acks":              {PrimaryKey: []string{"id"}, NotNull: []string{"ack_key", "title", "description", "assigned_to", "requested_by", "priority", "status", "progress", "ack_message", "result_summary", "metadata", "created_at", "updated_at"}, Checks: []string{"progress >= 0", "progress <= 100", "json_valid(metadata)"}, Indexes: []string{"idx_task_acks_status", "idx_task_acks_priority", "idx_task_acks_assigned_to", "idx_task_acks_due_at"}},
 		"task_dags":              {PrimaryKey: []string{"id"}, NotNull: []string{"dag_key", "title", "description", "status", "created_by", "metadata", "created_at", "updated_at", "trigger", "owner_id", "cron_expr", "version"}, Checks: []string{"json_valid(metadata)", "trigger IN ('manual', 'auto', 'scheduled', 'external')"}, Indexes: []string{"idx_task_dags_status", "idx_task_dags_updated_id", "idx_task_dags_next_run_scheduled"}},
@@ -408,13 +408,4 @@ func normalizeSQL(s string) string {
 
 func indexLooksUnique(name string) bool {
 	return strings.HasPrefix(name, "uq_") || strings.HasPrefix(name, "uniq_")
-}
-
-func sortedKeys[K ~string, V any](m map[K]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, string(k))
-	}
-	sort.Strings(keys)
-	return keys
 }

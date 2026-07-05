@@ -53,3 +53,33 @@ func TestObservabilityLogEventAnchorsWired(t *testing.T) {
 		}
 	}
 }
+
+// TestProductionLogsUseSafeSummaries 禁止生产日志回退到任意 event payload 预览。
+// bus sink 必须使用 allowlist summary，并保持 mcp-orch 可接受的轻依赖边界。
+func TestProductionLogsUseSafeSummaries(t *testing.T) {
+	sink, err := os.ReadFile("../platform/bus/sink.go")
+	if err != nil {
+		t.Fatalf("read bus sink: %v", err)
+	}
+	sinkText := string(sink)
+	for _, forbidden := range []string{
+		"\"event_preview\"",
+		"busSafePreview(",
+		"busSafePreviewBytes(",
+	} {
+		if strings.Contains(sinkText, forbidden) {
+			t.Fatalf("bus sink still uses unsafe generic preview marker %q", forbidden)
+		}
+	}
+	if !strings.Contains(sinkText, "busSafeEventSummary") {
+		t.Fatalf("bus sink must use busSafeEventSummary for production logs")
+	}
+
+	preview, err := os.ReadFile("../platform/observability/safe_preview.go")
+	if err != nil {
+		t.Fatalf("read observability safe preview: %v", err)
+	}
+	if !strings.Contains(string(preview), "type BusEventSummary struct") {
+		t.Fatalf("observability safe preview must own BusEventSummary")
+	}
+}

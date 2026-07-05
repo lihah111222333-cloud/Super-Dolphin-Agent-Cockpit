@@ -43,7 +43,7 @@ func TestCaptureToolResultPersistsLargePayload(t *testing.T) {
 	}
 }
 
-func TestCaptureToolResultReportsPersistFailure(t *testing.T) {
+func TestToolResultPersistFailurePropagatesToProviderRecord(t *testing.T) {
 	homeFile := filepath.Join(t.TempDir(), "home-file")
 	if err := os.WriteFile(homeFile, []byte("not a directory"), 0o600); err != nil {
 		t.Fatalf("WriteFile(%q): %v", homeFile, err)

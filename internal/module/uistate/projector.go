@@ -11,6 +11,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/terminalstatus"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
@@ -324,13 +325,7 @@ func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSu
 }
 
 func completionStatus(ev turndto.TurnCompleted) string {
-	if status := strings.TrimSpace(ev.Status); status != "" {
-		return status
-	}
-	if ev.Success {
-		return "completed"
-	}
-	return "failed"
+	return terminalstatus.Status(ev.Success, ev.Status, ev.Reason, ev.Error)
 }
 
 func chooseString(next, current string) string {

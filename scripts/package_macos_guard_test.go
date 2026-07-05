@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -237,17 +238,73 @@ func TestPackageMacOSScriptEmbedsNewFrontendApp(t *testing.T) {
 	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
+// macOSInstallerGenerationBlock 提取 DMG 安装脚本生成区块，避免测试只盯单个 heredoc 形态而漏掉分段生成后的安装边界。
+func macOSInstallerGenerationBlock(t *testing.T, script string) string {
+	t.Helper()
+	start := strings.Index(script, "install_script=\"$staging/安装 $app_name.command\"")
+	if start < 0 {
+		t.Fatal("package_macos.sh missing DMG install script path")
+	}
+	end := strings.Index(script[start:], "chmod 755 \"$install_script\"")
+	if end < 0 {
+		t.Fatal("package_macos.sh missing install script chmod")
+	}
+	return script[start : start+end]
+}
+
+// macOSAppNamePattern 读取脚本内 APP_NAME 白名单表达式，用样例验证 slash、控制字符和 shell 元字符都会被拒绝。
+func macOSAppNamePattern(t *testing.T, script string) string {
+	t.Helper()
+	const marker = "local pattern='"
+	_, rest, ok := strings.Cut(script, marker)
+	if !ok {
+		t.Fatal("package_macos.sh missing APP_NAME validation pattern")
+	}
+	pattern, _, ok := strings.Cut(rest, "'")
+	if !ok {
+		t.Fatal("package_macos.sh APP_NAME validation pattern is not quoted")
+	}
+	return pattern
+}
+
+// TestPackageMacOSInstallerUsesCustomAppName 锁住 DMG installer 必须使用验证后的 APP_NAME literal，避免 staging app 与安装脚本名称不一致。
+func TestPackageMacOSInstallerUsesCustomAppName(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	installerBlock := macOSInstallerGenerationBlock(t, script)
+
+	assertScriptContains(t, script, "app_name=\"${APP_NAME:-Super Dolphin}\"")
+	assertScriptDoesNotContain(t, installerBlock, "APP_NAME=\"Super Dolphin\"")
+	assertScriptContains(t, installerBlock, "APP_NAME=$install_app_name_literal")
+	assertScriptContains(t, installerBlock, "SRC_APP=\"$SRC_DIR/$APP_NAME.app\"")
+}
+
+// TestPackageMacOSInstallerRejectsUnsafeAppName 覆盖 macOS APP_NAME 白名单，防止斜杠、控制字符和 shell 元字符进入安装脚本生成。
+func TestPackageMacOSInstallerRejectsUnsafeAppName(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	pattern := macOSAppNamePattern(t, script)
+	re := regexp.MustCompile(pattern)
+
+	for _, name := range []string{"Super Dolphin", "Super-Dolphin Beta_2.0", "Super.Dolphin"} {
+		if !re.MatchString(name) {
+			t.Fatalf("APP_NAME pattern rejects safe name %q", name)
+		}
+	}
+	for _, name := range []string{"", "-Super Dolphin", "/Applications/Super Dolphin", "Super/Dolphin", "Super;Dolphin", "Super$(open)", "Super`open`", "Super\nDolphin"} {
+		if re.MatchString(name) {
+			t.Fatalf("APP_NAME pattern accepts unsafe name %q", name)
+		}
+	}
+
+	assertScriptContains(t, script, "validate_macos_app_name()")
+	assertScriptContains(t, script, "local pattern='^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$'")
+	assertScriptContains(t, script, "validate_macos_app_name \"$app_name\"")
+	assertScriptContains(t, script, "invalid APP_NAME")
+	assertScriptContains(t, script, "install_app_name_literal=\"$(shell_quote_literal \"$app_name\")\"")
+}
+
 func TestPackageMacOSDMGInstallScriptStagesAndRollsBackApplication(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
-	installStart := strings.Index(script, "cat > \"$install_script\" <<'INSTALL_SH'")
-	if installStart < 0 {
-		t.Fatal("package_macos.sh missing DMG install script heredoc")
-	}
-	installEnd := strings.Index(script[installStart:], "\nINSTALL_SH\n")
-	if installEnd < 0 {
-		t.Fatal("package_macos.sh install script heredoc is not closed")
-	}
-	installScript := script[installStart : installStart+installEnd]
+	installScript := macOSInstallerGenerationBlock(t, script)
 
 	for _, want := range []string{
 		"STAGED_APP=",

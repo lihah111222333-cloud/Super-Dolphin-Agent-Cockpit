@@ -1,6 +1,3 @@
-//go:build e2e
-// +build e2e
-
 package memory
 
 import (
@@ -9,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
@@ -144,6 +142,7 @@ func TestRulesLoadMemoryPromptSearchPastContextGateAcrossModes(t *testing.T) {
 func TestRulesProviderOmitsSearchingPastContextWhenFeatureDisabled(t *testing.T) {
 	provider := NewRulesProvider(&Config{
 		Enabled:         true,
+		RootDir:         t.TempDir(),
 		SkipIndex:       true,
 		ExtraGuidelines: []string{"Keep explanations short."},
 	}, NewMemoryRuleEngine(), nil)
@@ -166,6 +165,7 @@ func TestRulesProviderOmitsSearchingPastContextWhenFeatureDisabled(t *testing.T)
 func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 	provider := NewRulesProvider(&Config{
 		Enabled:         true,
+		RootDir:         t.TempDir(),
 		SkipIndex:       true,
 		ExtraGuidelines: []string{"Keep explanations short."},
 		Features:        MemoryFeatureFlags{SearchPastContext: true},
@@ -190,9 +190,9 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 	for _, snippet := range []string{
 		"### 2. taxonomy",
 		"When `skipIndex` is enabled",
-		"### 8. extra guidelines",
+		"### 9. extra guidelines",
 		"Keep explanations short.",
-		"### 9. searching past context",
+		"### 10. searching past context",
 	} {
 		if !strings.Contains(start.BaseInstructions, snippet) {
 			t.Fatalf("BaseInstructions missing %q:\n%s", snippet, start.BaseInstructions)
@@ -208,6 +208,33 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 	}
 	if strings.Contains(turn.UserContextText, "### 1. memory system") {
 		t.Fatalf("UserContextText unexpectedly contains memory dynamic section:\n%s", turn.UserContextText)
+	}
+}
+
+// TestMemoryRulesProviderDoesNotLeakAbsoluteDisplayPath 覆盖 root memory 到 retrieval wrapper 的 prompt 可见路径。
+// 记忆附件可以显示文件名或相对路径，但不能把本机绝对 memory root 写进 provider prompt。
+func TestMemoryRulesProviderDoesNotLeakAbsoluteDisplayPath(t *testing.T) {
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	absolutePath := filepath.Join(root, "project", "commit-style.md")
+	attachments := freezeRelevantMemoryAttachments([]MemoryEntry{{
+		FilePath:  absolutePath,
+		Content:   "Use concise imperative commit messages.",
+		UpdatedAt: now,
+	}}, now)
+	if len(attachments) != 1 {
+		t.Fatalf("len(freezeRelevantMemoryAttachments()) = %d, want 1", len(attachments))
+	}
+	attachment := attachments[0]
+	for _, leaked := range []string{root, filepath.ToSlash(root), absolutePath} {
+		if strings.Contains(attachment.Path, leaked) ||
+			strings.Contains(attachment.Header, leaked) ||
+			strings.Contains(attachment.Content, leaked) {
+			t.Fatalf("attachment leaked absolute memory path %q: %#v", leaked, attachment)
+		}
+	}
+	if filepath.IsAbs(attachment.Path) || !strings.Contains(filepath.ToSlash(attachment.Path), "commit-style.md") {
+		t.Fatalf("attachment path = %q, want non-absolute display path", attachment.Path)
 	}
 }
 
@@ -242,7 +269,7 @@ func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	section, ok := findResolvedSection(start.ResolvedSections, prompt.DynamicSectionMemory)
+	section, ok := resolvedPromptSectionByName(start.ResolvedSections, prompt.DynamicSectionMemory)
 	if !ok {
 		t.Fatalf("ResolvedSections missing %q: %#v", prompt.DynamicSectionMemory, start.ResolvedSections)
 	}
@@ -333,4 +360,14 @@ func TestCombinedRulesProviderSuppressesCombinedWhenKairosActive(t *testing.T) {
 	if !strings.Contains(*text, "### 1. KAIROS daily log mode") {
 		t.Fatalf("Kairos prompt missing daily-log guidance:\n%s", *text)
 	}
+}
+
+// resolvedPromptSectionByName 返回指定名称的 resolved prompt section。
+func resolvedPromptSectionByName(sections []prompt.ResolvedPromptSection, name string) (prompt.ResolvedPromptSection, bool) {
+	for _, section := range sections {
+		if section.Name == name {
+			return section, true
+		}
+	}
+	return prompt.ResolvedPromptSection{}, false
 }

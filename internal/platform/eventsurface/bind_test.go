@@ -141,7 +141,7 @@ func TestBindPublishesUIPromptsChanged(t *testing.T) {
 	}
 }
 
-func TestBindPublishesRecoveryAndToolSurface(t *testing.T) {
+func TestToolCallEndPayloadIncludesPersistFailure(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := event.NewDispatcher()
@@ -189,6 +189,8 @@ func publishRecoveryAndToolSurfaceEvents(dispatcher *event.Dispatcher) {
 	event.Publish(dispatcher, tooldto.ToolCallEnd{
 		ToolCallHeader: bindTestToolCallHeader(turnHeader, "call-1", "search"),
 		Success:        true,
+		PersistFailed:  true,
+		PersistError:   "write cache: permission denied",
 		ElapsedMS:      25,
 	})
 	event.Publish(dispatcher, tooldto.ToolApprovalRequested{
@@ -256,6 +258,9 @@ func assertRecoveryAndToolSurfacePayloads(t *testing.T, seen map[string]map[stri
 	}
 	if seen[MethodItemCompleted]["elapsedMs"] != int64(25) {
 		t.Fatalf("tool completion payload = %#v", seen[MethodItemCompleted])
+	}
+	if seen[MethodItemCompleted]["persistFailed"] != true || seen[MethodItemCompleted]["persistError"] != "write cache: permission denied" {
+		t.Fatalf("tool completion payload = %#v, want persist failure", seen[MethodItemCompleted])
 	}
 	if seen[MethodCommandApprovalRequested]["requestId"] != int64(99) {
 		t.Fatalf("approval requested payload = %#v", seen[MethodCommandApprovalRequested])

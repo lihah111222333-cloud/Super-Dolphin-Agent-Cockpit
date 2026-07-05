@@ -48,6 +48,19 @@ func (q *Queries) AgentThreadRunningExists(ctx context.Context, arg AgentThreadR
 	return column_1, err
 }
 
+const countActiveAgentThreads = `-- name: CountActiveAgentThreads :one
+SELECT COUNT(*)
+FROM agent_threads
+WHERE TRIM(COALESCE(status, '')) NOT IN ('', 'stopped', 'failed', 'archived')
+`
+
+func (q *Queries) CountActiveAgentThreads(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveAgentThreads)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countAllThreads = `-- name: CountAllThreads :one
 SELECT COUNT(*) FROM agent_threads
 `
@@ -437,6 +450,199 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 	items := []ListAgentThreadsRow{}
 	for rows.Next() {
 		var i ListAgentThreadsRow
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.Name,
+			&i.Prompt,
+			&i.Model,
+			&i.CWD,
+			&i.Status,
+			&i.Port,
+			&i.Pid,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FinishedAt,
+			&i.LastEventType,
+			&i.ErrorMessage,
+			&i.WorkspaceRunKey,
+			&i.OwnerThreadID,
+			&i.ParentAgentID,
+			&i.AgentType,
+			&i.AgentMemoryScope,
+			&i.ConfigOverride,
+			&i.AgentKey,
+			&i.PromptVersionID,
+			&i.PendingLaunch,
+			&i.ManuallyRenamed,
+			&i.AgentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentThreadsPage = `-- name: ListAgentThreadsPage :many
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN (
+    SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
+) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
+WHERE ?1 = 0
+   OR t.created_at < ?1
+   OR (t.created_at = ?1 AND t.thread_id < ?2)
+ORDER BY t.created_at DESC, t.thread_id DESC
+LIMIT ?3 + 1
+`
+
+type ListAgentThreadsPageParams struct {
+	CursorCreatedAt interface{} `db:"cursor_created_at" json:"cursor_created_at"`
+	CursorThreadID  string      `db:"cursor_thread_id" json:"cursor_thread_id"`
+	Limit           interface{} `db:"limit" json:"limit"`
+}
+
+type ListAgentThreadsPageRow struct {
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int64  `db:"port" json:"port"`
+	Pid              int64  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   string `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    int64  `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  int64  `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) ListAgentThreadsPage(ctx context.Context, arg ListAgentThreadsPageParams) ([]ListAgentThreadsPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentThreadsPage, arg.CursorCreatedAt, arg.CursorThreadID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentThreadsPageRow{}
+	for rows.Next() {
+		var i ListAgentThreadsPageRow
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.Name,
+			&i.Prompt,
+			&i.Model,
+			&i.CWD,
+			&i.Status,
+			&i.Port,
+			&i.Pid,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FinishedAt,
+			&i.LastEventType,
+			&i.ErrorMessage,
+			&i.WorkspaceRunKey,
+			&i.OwnerThreadID,
+			&i.ParentAgentID,
+			&i.AgentType,
+			&i.AgentMemoryScope,
+			&i.ConfigOverride,
+			&i.AgentKey,
+			&i.PromptVersionID,
+			&i.PendingLaunch,
+			&i.ManuallyRenamed,
+			&i.AgentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLoadedAgentThreadsPage = `-- name: ListLoadedAgentThreadsPage :many
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN (
+    SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
+) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
+WHERE t.status = 'created'
+  AND (
+      ?1 = 0
+      OR t.created_at < ?1
+      OR (t.created_at = ?1 AND t.thread_id < ?2)
+  )
+ORDER BY t.created_at DESC, t.thread_id DESC
+LIMIT ?3 + 1
+`
+
+type ListLoadedAgentThreadsPageParams struct {
+	CursorCreatedAt interface{} `db:"cursor_created_at" json:"cursor_created_at"`
+	CursorThreadID  string      `db:"cursor_thread_id" json:"cursor_thread_id"`
+	Limit           interface{} `db:"limit" json:"limit"`
+}
+
+type ListLoadedAgentThreadsPageRow struct {
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int64  `db:"port" json:"port"`
+	Pid              int64  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   string `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    int64  `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  int64  `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) ListLoadedAgentThreadsPage(ctx context.Context, arg ListLoadedAgentThreadsPageParams) ([]ListLoadedAgentThreadsPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLoadedAgentThreadsPage, arg.CursorCreatedAt, arg.CursorThreadID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLoadedAgentThreadsPageRow{}
+	for rows.Next() {
+		var i ListLoadedAgentThreadsPageRow
 		if err := rows.Scan(
 			&i.ThreadID,
 			&i.Name,

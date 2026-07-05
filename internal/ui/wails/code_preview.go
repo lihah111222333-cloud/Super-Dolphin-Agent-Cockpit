@@ -5,7 +5,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -59,27 +61,44 @@ type codeSnippetLine struct {
 // codeOpenResult 是 ui/code/open 的返回载荷，图片和文本预览共用该结构。
 // LocateResult 不出现在 JSON wire 中，只供后端 handler 复用 locate 阶段结果。
 type codeOpenResult struct {
-	Ok           bool              `json:"ok"`
-	Type         string            `json:"type,omitempty"`
-	Path         string            `json:"path,omitempty"`
-	FilePath     string            `json:"filePath,omitempty"`
-	Relative     string            `json:"relative,omitempty"`
-	Image        bool              `json:"image,omitempty"`
-	MediaType    string            `json:"mediaType,omitempty"`
-	SizeBytes    int64             `json:"sizeBytes,omitempty"`
-	StartLine    int               `json:"startLine,omitempty"`
-	EndLine      int               `json:"endLine,omitempty"`
-	TotalLines   int               `json:"totalLines,omitempty"`
-	Snippet      any               `json:"snippet,omitempty"`
-	Opened       bool              `json:"opened,omitempty"`
-	LocateResult *codeLocateResult `json:"-"`
+	Ok             bool              `json:"ok"`
+	Type           string            `json:"type,omitempty"`
+	Path           string            `json:"path,omitempty"`
+	FilePath       string            `json:"filePath,omitempty"`
+	Relative       string            `json:"relative,omitempty"`
+	Image          bool              `json:"image,omitempty"`
+	MediaType      string            `json:"mediaType,omitempty"`
+	SizeBytes      int64             `json:"sizeBytes,omitempty"`
+	PreviewMode    string            `json:"previewMode,omitempty"`
+	ContentVersion string            `json:"contentVersion,omitempty"`
+	RangeStartLine int               `json:"rangeStartLine,omitempty"`
+	RangeEndLine   int               `json:"rangeEndLine,omitempty"`
+	StartLine      int               `json:"startLine,omitempty"`
+	EndLine        int               `json:"endLine,omitempty"`
+	TotalLines     int               `json:"totalLines,omitempty"`
+	Snippet        any               `json:"snippet,omitempty"`
+	Opened         bool              `json:"opened,omitempty"`
+	LocateResult   *codeLocateResult `json:"-"`
 }
 
 // saveScopedFile 在允许范围内覆盖已有文件，并保持原文件权限。
-func saveScopedFile(rawPath, content string, roots []string, createNew bool) (codeSaveResult, error) {
+func saveScopedFile(rawPath, content string, roots []string, createNew bool, previewMode, contentVersion string) (codeSaveResult, error) {
+	if strings.TrimSpace(previewMode) != "full" {
+		return codeSaveResult{}, errors.New("ui/code/save: previewMode must be full")
+	}
+	if strings.TrimSpace(contentVersion) == "" {
+		return codeSaveResult{}, errors.New("ui/code/save: contentVersion is required")
+	}
 	target, err := resolveSaveTarget(rawPath, roots, createNew)
 	if err != nil {
 		return codeSaveResult{}, err
+	}
+	existing, err := os.ReadFile(target.Abs)
+	if err != nil {
+		return codeSaveResult{}, err
+	}
+	if version := codeContentVersion(existing); version != strings.TrimSpace(contentVersion) {
+		return codeSaveResult{}, fmt.Errorf("ui/code/save: contentVersion mismatch for %q", target.Abs)
 	}
 	body := normalizeFileText(content)
 	if err := os.MkdirAll(filepath.Dir(target.Abs), 0o755); err != nil {
@@ -137,11 +156,12 @@ func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 		return codeOpenResult{}, err
 	}
 	result := codeOpenResult{
-		Ok:        true,
-		Path:      target.Abs,
-		FilePath:  target.Abs,
-		Relative:  target.Relative,
-		SizeBytes: info.Size(),
+		Ok:          true,
+		Path:        target.Abs,
+		FilePath:    target.Abs,
+		Relative:    target.Relative,
+		SizeBytes:   info.Size(),
+		PreviewMode: "binary",
 	}
 	if info.Size() > maxCodeOpenFileBytes {
 		return codeOpenResult{}, fmt.Errorf("ui/code/open: file %q exceeds preview size limit", target.Abs)
@@ -157,6 +177,7 @@ func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 		result.Type = "image"
 		result.Image = true
 		result.MediaType = mediaType
+		result.PreviewMode = "image"
 		return result, nil
 	}
 	data, err := os.ReadFile(target.Abs)
@@ -176,8 +197,12 @@ func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 func buildFullTextResult(result codeOpenResult, data []byte) codeOpenResult {
 	text := normalizeFileText(string(data))
 	totalLines := countTextLines(text)
+	result.PreviewMode = "full"
+	result.ContentVersion = codeContentVersion(data)
 	result.StartLine = 1
 	result.EndLine = totalLines
+	result.RangeStartLine = result.StartLine
+	result.RangeEndLine = result.EndLine
 	result.TotalLines = totalLines
 	result.Snippet = text
 	return result
@@ -187,8 +212,11 @@ func buildFullTextResult(result codeOpenResult, data []byte) codeOpenResult {
 func buildSnippetResult(result codeOpenResult, data []byte, line int) codeOpenResult {
 	text := normalizeFileText(string(data))
 	lines := splitTextLines(text)
+	result.PreviewMode = "snippet"
 	result.TotalLines = len(lines)
 	if len(lines) == 0 {
+		result.RangeStartLine = 0
+		result.RangeEndLine = 0
 		result.Snippet = []codeSnippetLine{}
 		return result
 	}
@@ -199,8 +227,16 @@ func buildSnippetResult(result codeOpenResult, data []byte, line int) codeOpenRe
 	}
 	result.StartLine = startLine
 	result.EndLine = endLine
+	result.RangeStartLine = startLine
+	result.RangeEndLine = endLine
 	result.Snippet = snippet
 	return result
+}
+
+// codeContentVersion returns the overwrite token for the exact bytes read from disk.
+func codeContentVersion(data []byte) string {
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", sum[:])
 }
 
 // readCodeLocateMatch 读取候选文件大小和行数，超大文件不计算行数。
@@ -287,18 +323,12 @@ func snippetRange(line, total int) (int, int) {
 		current = total
 	}
 	start := current - 3
-	if start < 1 {
-		start = 1
-	}
+	start = max(start, 1)
 	end := start + 8
-	if end > total {
-		end = total
-	}
+	end = min(end, total)
 	if span := end - start; span < 8 && start > 1 {
 		start -= 8 - span
-		if start < 1 {
-			start = 1
-		}
+		start = max(start, 1)
 	}
 	return start, end
 }

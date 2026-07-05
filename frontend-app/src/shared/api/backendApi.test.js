@@ -11,6 +11,7 @@ import {
   importDatasourceLocalFile,
   installAppUpdate,
   installLatestAppUpdate,
+  listDatasourceChunks,
   listDatasourceDocuments,
   listMCPToolLifecycle,
   listMCPServers,
@@ -96,6 +97,7 @@ function guardedBackendResponse(method) {
     await api.createDatasourceDocument({ source_path: ' C:\\data\\alpha.txt ' });
     await api.listDatasourceDocuments({ keyword: 'alpha', limit: '25' });
     await api.getDatasourceDocument({ document_id: '101' });
+    await api.listDatasourceChunks({ document_id: '101', limit: '2', cursor: 0 });
     await api.updateDatasourceDocument({
       documentId: 101,
       sourcePath: ' C:\\data\\alpha-renamed.txt ',
@@ -115,24 +117,31 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.DATASOURCE_V2_GET, {
       documentId: 101,
     });
-    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_UPDATE, {
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS, {
+      documentId: 101,
+      limit: 2,
+      cursor: 0,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_UPDATE, {
       documentId: 101,
       sourcePath: 'C:\\data\\alpha-renamed.txt',
       fileName: 'alpha-renamed.txt',
       extension: '.txt',
       sizeBytes: 42,
     });
-    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_DELETE, {
+    expect(callAPI).toHaveBeenNthCalledWith(6, RPC_METHODS.DATASOURCE_V2_DELETE, {
       documentId: 101,
     });
     expectInvalidInputDoesNotCall(callAPI, () => api.createDatasourceDocument({ sourcePath: '' }), 'sourcePath is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceDocuments({}), 'limit must be a positive integer');
     expectInvalidInputDoesNotCall(callAPI, () => api.getDatasourceDocument({ documentId: 0 }), 'documentId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceChunks({ documentId: 101, limit: 2 }), 'cursor is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.updateDatasourceDocument({ documentId: 101, sourcePath: 'C:\\data\\a.txt', sizeBytes: 1 }), 'fileName is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.deleteDatasourceDocument({ documentId: '' }), 'documentId is required');
     expect(typeof createDatasourceDocument).toBe('function');
     expect(typeof listDatasourceDocuments).toBe('function');
     expect(typeof getDatasourceDocument).toBe('function');
+    expect(typeof listDatasourceChunks).toBe('function');
     expect(typeof updateDatasourceDocument).toBe('function');
     expect(typeof deleteDatasourceDocument).toBe('function');
   });
@@ -693,7 +702,22 @@ function guardedBackendResponse(method) {
       {
         call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
         response: { ok: true },
-        message: 'turn/forceComplete response forceCompleted must be true',
+        message: 'turn/forceComplete response forceCompleted must be a boolean',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: false, forceCompleted: false },
+        message: 'turn/forceComplete response failure must include errorCode, error, or message',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: true, forceCompleted: false, errorCode: 'force_complete_target_not_found' },
+        message: 'turn/forceComplete response ok true cannot have forceCompleted false',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: false, forceCompleted: 'false', errorCode: 'force_complete_target_not_found' },
+        message: 'turn/forceComplete response forceCompleted must be a boolean',
       },
       {
         call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
@@ -908,6 +932,24 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.THREAD_RECOVER, {
       threadId: 'thread-1',
     });
+  });
+
+  it('passes through diagnosed turn force-complete failure envelopes from the backend facade', async () => {
+    const responses = [
+      { ok: false, forceCompleted: false, errorCode: 'force_complete_target_not_found' },
+      { ok: false, forceCompleted: false, error: 'force complete target not found' },
+      { ok: false, forceCompleted: false, message: 'force complete target not found' },
+    ];
+
+    for (const response of responses) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const api = createBackendApi({ callAPI });
+
+      await expect(api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' })).resolves.toEqual(response);
+      expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_FORCE_COMPLETE, {
+        threadId: 'thread-1',
+      });
+    }
   });
 
   it('rejects unknown turn/forceComplete facade fields before calling the backend', () => {

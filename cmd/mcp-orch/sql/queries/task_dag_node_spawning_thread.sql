@@ -1,12 +1,17 @@
 -- name: UpdateTaskDagNodeSpawningThread :one
 UPDATE task_dag_nodes
-SET spawning_thread_id = ?,
+SET spawning_thread_id = sqlc.arg(spawning_thread_id),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND node_key = ?
+WHERE dag_key = sqlc.arg(dag_key)
+  AND node_key = sqlc.arg(node_key)
   AND run_id = sqlc.arg(run_id)
   AND sqlc.arg(run_id) > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+  AND (
+      spawning_thread_id IS NULL
+      OR TRIM(spawning_thread_id) = ''
+      OR TRIM(spawning_thread_id) = TRIM(COALESCE(sqlc.arg(spawning_thread_id), ''))
+  )
 RETURNING id, dag_key, node_key, run_id, title,
           node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result,

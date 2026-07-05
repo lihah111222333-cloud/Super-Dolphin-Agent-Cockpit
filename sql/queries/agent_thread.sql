@@ -29,6 +29,40 @@ LEFT JOIN (
 ) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
 ORDER BY t.created_at DESC;
 
+-- name: ListAgentThreadsPage :many
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN (
+    SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
+) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
+WHERE sqlc.arg(cursor_created_at) = 0
+   OR t.created_at < sqlc.arg(cursor_created_at)
+   OR (t.created_at = sqlc.arg(cursor_created_at) AND t.thread_id < sqlc.arg(cursor_thread_id))
+ORDER BY t.created_at DESC, t.thread_id DESC
+LIMIT sqlc.arg(limit) + 1;
+
+-- name: ListLoadedAgentThreadsPage :many
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN (
+    SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
+) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
+WHERE t.status = 'created'
+  AND (
+      sqlc.arg(cursor_created_at) = 0
+      OR t.created_at < sqlc.arg(cursor_created_at)
+      OR (t.created_at = sqlc.arg(cursor_created_at) AND t.thread_id < sqlc.arg(cursor_thread_id))
+  )
+ORDER BY t.created_at DESC, t.thread_id DESC
+LIMIT sqlc.arg(limit) + 1;
+
+-- name: CountActiveAgentThreads :one
+SELECT COUNT(*)
+FROM agent_threads
+WHERE TRIM(COALESCE(status, '')) NOT IN ('', 'stopped', 'failed', 'archived');
+
 -- name: ListRunningAgents :many
 SELECT thread_id, port, pid, status
 FROM agent_threads

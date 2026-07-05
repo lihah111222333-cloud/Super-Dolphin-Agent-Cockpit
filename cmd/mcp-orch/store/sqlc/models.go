@@ -240,6 +240,17 @@ type CronJobRun struct {
 	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
+type DatasourceDocument struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+	Name          string `db:"name" json:"name"`
+	Extension     string `db:"extension" json:"extension"`
+	SizeBytes     int64  `db:"size_bytes" json:"size_bytes"`
+	StoredPath    string `db:"stored_path" json:"stored_path"`
+	Content       string `db:"content" json:"content"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+}
+
 type DatasourceV2Document struct {
 	ID           int64   `db:"id" json:"id"`
 	SourcePath   string  `db:"source_path" json:"source_path"`

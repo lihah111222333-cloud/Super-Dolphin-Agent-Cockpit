@@ -16,7 +16,7 @@ type querier interface {
 		arg sqlc.ListDatasourceV2DocumentsParams,
 	) ([]sqlc.DatasourceV2Document, error)
 	GetDatasourceV2Document(ctx context.Context, arg sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error)
-	ListDatasourceV2Chunks(ctx context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error)
+	ListDatasourceV2ChunksPage(ctx context.Context, arg sqlc.ListDatasourceV2ChunksPageParams) ([]sqlc.ListDatasourceV2ChunksPageRow, error)
 	SearchDatasourceV2ChunksByEmbedding(
 		ctx context.Context,
 		arg sqlc.SearchDatasourceV2ChunksByEmbeddingParams,
@@ -108,21 +108,41 @@ func (s *store) GetDocument(ctx context.Context, documentID int64) (*Document, e
 	return &doc, nil
 }
 
-// ListChunks 读取指定文档已经持久化的文本分块。
-// 查询结果由 SQL 保持分块顺序，调用方可直接用于重建文档内容。
-func (s *store) ListChunks(ctx context.Context, documentID int64) ([]TextChunk, error) {
-	if documentID <= 0 {
-		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "list_chunks")
+// ListChunksPage 读取指定文档已经持久化的文本分块页。
+// 查询结果由 SQL 保持分块顺序，调用方必须显式传入 limit 和 cursor。
+func (s *store) ListChunksPage(ctx context.Context, params ListChunksParams) (TextChunkPage, error) {
+	if params.DocumentID <= 0 {
+		return TextChunkPage{}, wrapDatasourceV2Error(errors.New("document id is required"), "list_chunks")
 	}
-	rows, err := s.q.ListDatasourceV2Chunks(ctx, sqlc.ListDatasourceV2ChunksParams{DocumentID: documentID})
+	if params.Limit <= 0 {
+		return TextChunkPage{}, wrapDatasourceV2Error(errors.New("limit is required"), "list_chunks")
+	}
+	rows, err := s.q.ListDatasourceV2ChunksPage(ctx, sqlc.ListDatasourceV2ChunksPageParams{
+		DocumentID: params.DocumentID,
+		Cursor:     params.Cursor,
+		Limit:      int64(params.Limit),
+	})
 	if err != nil {
-		return nil, wrapDatasourceV2Error(err, "list_chunks")
+		return TextChunkPage{}, wrapDatasourceV2Error(err, "list_chunks")
 	}
-	chunks := make([]TextChunk, 0, len(rows))
-	for _, row := range rows {
-		chunks = append(chunks, textChunkFromSQLC(row))
+	return textChunkPageFromSQLC(rows, int(params.Limit)), nil
+}
+
+func textChunkPageFromSQLC(rows []sqlc.ListDatasourceV2ChunksPageRow, limit int) TextChunkPage {
+	pageRows := rows
+	hasMore := len(rows) > limit
+	if hasMore {
+		pageRows = rows[:limit]
 	}
-	return chunks, nil
+	chunks := make([]TextChunk, 0, len(pageRows))
+	for _, row := range pageRows {
+		chunks = append(chunks, textChunkFromSQLCPage(row))
+	}
+	page := TextChunkPage{Chunks: chunks, HasMore: hasMore}
+	if hasMore && len(chunks) > 0 {
+		page.NextCursor = chunks[len(chunks)-1].ChunkIndex
+	}
+	return page
 }
 
 // SearchChunks 根据查询向量检索 ready 文档中最相近的 datasource_v2 分块。
@@ -377,7 +397,7 @@ func documentFromSQLC(row sqlc.DatasourceV2Document) Document {
 	}
 }
 
-func textChunkFromSQLC(row sqlc.ListDatasourceV2ChunksRow) TextChunk {
+func textChunkFromSQLCPage(row sqlc.ListDatasourceV2ChunksPageRow) TextChunk {
 	return TextChunk{
 		ID:             row.ID,
 		DocumentID:     row.DocumentID,
