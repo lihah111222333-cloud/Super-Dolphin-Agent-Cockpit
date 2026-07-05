@@ -10,6 +10,8 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// SymbolProvider 为函数范围补充逻辑提供按文件读取文档符号的能力。
+// 实现方应返回 LSP documentSymbol 结果，错误由调用方决定是否忽略。
 type SymbolProvider interface {
 	Symbols(absPath string) ([]protocol.DocumentSymbol, error)
 }

@@ -25,6 +25,7 @@ const (
 	goworkModeExplicit = "explicit"
 )
 
+// GoRootRequest 描述一次 Go LSP root 解析所需的 cwd、目标文件和环境。
 type GoRootRequest struct {
 	CWD           string
 	FilePath      string
@@ -32,6 +33,7 @@ type GoRootRequest struct {
 	NoiseDirNames []string
 }
 
+// GoRootInfo 保存 Go root 解析结果，包括 workspace、module、go.work 和工具链信息。
 type GoRootInfo struct {
 	RootKind      string
 	WorkspaceRoot string
@@ -44,6 +46,7 @@ type GoRootInfo struct {
 	GoToolchain   GoToolchainInfo
 }
 
+// GoToolchainInfo 描述 Go 语言服务运行时需要注入的工具链路径和版本约束。
 type GoToolchainInfo struct {
 	RequiredVersion string
 	BinDir          string
