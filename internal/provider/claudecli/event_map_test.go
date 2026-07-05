@@ -10,6 +10,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -106,6 +107,22 @@ func TestRegisterTranslatorsPublishesProviderErrorForInvalidToolTimestamp(t *tes
 	case ev := <-toolEnds:
 		t.Fatalf("unexpected ToolCallEnd for bad timestamp = %#v", ev)
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestToolCallEndReportsPersistFailure 确认 Claude 工具结束事件透传结果持久化失败诊断。
+func TestToolCallEndReportsPersistFailure(t *testing.T) {
+	providershared.SetCaptureToolResultHook(func(providershared.ToolResultMeta, string) providershared.ToolResultRecord {
+		return providershared.ToolResultRecord{Preview: "captured", PersistFailed: true, PersistError: "disk full"}
+	})
+	t.Cleanup(func() { providershared.SetCaptureToolResultHook(nil) })
+	ev, ok := translateToolEvent(dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{"thread_id": "thread-1", "turn_id": "turn-1", "call_id": "call-1", "tool_name": "Read", "success": true, "result": "raw"}})
+	if !ok {
+		t.Fatal("translateToolEvent() ok=false, want ToolCallEnd")
+	}
+	end, ok := ev.(tooldto.ToolCallEnd)
+	if !ok || end.Result != "captured" || !end.PersistFailed || end.PersistError != "disk full" {
+		t.Fatalf("ToolCallEnd = %+v, want persist failure fields", ev)
 	}
 }
 

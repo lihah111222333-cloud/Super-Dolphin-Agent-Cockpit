@@ -22,7 +22,7 @@ func TestArchiveAgentMarksPersistedThreadAndBindingArchivedWhenRuntimeMissing(t 
 	svc.agentThreads = threads
 	svc.agentBindings = bindings
 
-	if err := svc.ArchiveAgent(context.Background(), " agent-1 "); err != nil {
+	if _, err := svc.ArchiveAgent(context.Background(), " agent-1 "); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
 	}
 	if threads.updated.ThreadID != "provider-thread-1" || threads.updated.Status != "archived" {
@@ -44,7 +44,7 @@ func TestArchiveAgentAcceptsProviderThreadIDAndArchivesOwningAgent(t *testing.T)
 	svc.agentThreads = threads
 	svc.agentBindings = bindings
 
-	if err := svc.ArchiveAgent(context.Background(), "provider-thread-1"); err != nil {
+	if _, err := svc.ArchiveAgent(context.Background(), "provider-thread-1"); err != nil {
 		t.Fatalf("ArchiveAgent(provider thread) error = %v", err)
 	}
 	if threads.updated.ThreadID != "provider-thread-1" || threads.updated.Status != "archived" {
@@ -52,6 +52,18 @@ func TestArchiveAgentAcceptsProviderThreadIDAndArchivesOwningAgent(t *testing.T)
 	}
 	if bindings.archived.AgentID != "agent-1" || !bindings.archived.Archived {
 		t.Fatalf("binding archive update = %#v, want owning agent archived", bindings.archived)
+	}
+}
+
+// TestArchiveAgentMissingReturnsNotFound 验证缺失 agent 不会被归档路径静默视为成功。
+func TestArchiveAgentMissingReturnsNotFound(t *testing.T) {
+	threads := &archiveAgentThreadStore{}
+	bindings := &archiveAgentBindingStore{bindings: map[string]PersistedBinding{}}
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	svc.agentThreads = threads
+	svc.agentBindings = bindings
+	if _, err := svc.ArchiveAgent(context.Background(), "missing-agent"); !errors.Is(err, errAgentNotFound) {
+		t.Fatalf("ArchiveAgent() error = %v, want errAgentNotFound", err)
 	}
 }
 
@@ -67,7 +79,7 @@ func TestArchiveAgentArchivesPersistedThreadViaSettledLauncherWhenRuntimeMissing
 	svc.agentThreads = threads
 	svc.agentBindings = bindings
 
-	if err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
+	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
 	}
 	if launcher.archivedAgentID != "agent-1" {
@@ -116,7 +128,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(runCtx) }()
 	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
 
-	if err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
+	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
 	}
 
@@ -184,7 +196,7 @@ func TestArchiveAgentArchivesOwningRuntimeWhenCalledWithProviderThreadID(t *test
 	agent.launchSeq = 1
 	svc.agents[agent.id] = agent
 
-	if err := svc.ArchiveAgent(context.Background(), "provider-thread-1"); err != nil {
+	if _, err := svc.ArchiveAgent(context.Background(), "provider-thread-1"); err != nil {
 		t.Fatalf("ArchiveAgent(provider thread) error = %v", err)
 	}
 	if launcher.archivedAgentID != "agent-1" {
@@ -219,7 +231,7 @@ func TestArchiveAgentInvokesLauncherArchiveNotStop(t *testing.T) {
 	agent.launchSeq = 1
 	svc.agents[agent.id] = agent
 
-	if err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
+	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
 	}
 	if launcher.archivedAgentID != "agent-1" {

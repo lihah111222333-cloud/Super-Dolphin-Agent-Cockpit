@@ -12,6 +12,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
@@ -165,16 +166,32 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 	header.Timestamp = time.Now()
 	success, errorText := toolCallEndOutcome(result, callErr)
 	success, errorText, resultPreview := resultguard.ApplyEmptyFileReadFromRaw(success, errorText, previewAny(result), call.header.ToolName, call.params.Params, result)
+	record := captureSessionToolResult(header, resultPreview)
 	ev := tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
-		Result:         resultPreview,
+		Result:         record.Preview,
+		PersistedPath:  record.PersistedPath,
+		PersistFailed:  record.PersistFailed,
+		PersistError:   record.PersistError,
+		Truncated:      record.Truncated,
+		OriginalSize:   record.OriginalSize,
 		ElapsedMS:      time.Since(call.started).Milliseconds(),
 	}
 	if !success {
 		ev.Error = errorText
 	}
 	s.dispatcher.Publish(ev)
+}
+
+// captureSessionToolResult 通过 provider/shared hook 捕获 host-direct 工具结果。
+// hook 未装配时保留原 preview；已装配时必须把持久化失败诊断带回 ToolCallEnd。
+func captureSessionToolResult(header shareddto.ToolCallHeader, preview string) providershared.ToolResultRecord {
+	record := providershared.CaptureToolResult(providershared.ToolResultMeta{ThreadID: header.ThreadID, TurnID: header.TurnID, CallID: header.CallID, ToolName: header.ToolName, Timestamp: header.Timestamp}, preview)
+	if record.Preview == "" && record.PersistedPath == "" && !record.PersistFailed && !record.Truncated && record.OriginalSize == 0 {
+		record.Preview = preview
+	}
+	return record
 }
 
 type toolCallResultEnvelope struct {

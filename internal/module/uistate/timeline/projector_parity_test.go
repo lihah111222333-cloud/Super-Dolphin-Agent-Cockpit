@@ -388,6 +388,8 @@ func TestRegisterSubscriptions_ToolCallEndWithoutToolNameUpdatesBeginRow(t *test
 	event.Publish(dispatcher, tooldto.ToolCallEnd{
 		ToolCallHeader: endHeader,
 		Success:        true,
+		PersistFailed:  true,
+		PersistError:   "tool result cache unavailable",
 	})
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
@@ -395,6 +397,6 @@ func TestRegisterSubscriptions_ToolCallEndWithoutToolNameUpdatesBeginRow(t *test
 			return false
 		}
 		item := items[0]
-		return item.Tool == "lsp_grep" && item.Done && item.Status != "running"
+		return item.Tool == "lsp_grep" && item.Done && item.Status == "warning" && item.Error == "tool result cache unavailable"
 	}, "end without ToolName must update the existing row in place, not spawn a 未知工具 duplicate")
 }

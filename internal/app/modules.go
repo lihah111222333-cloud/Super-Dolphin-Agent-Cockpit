@@ -221,6 +221,8 @@ func initProviderHooks() {
 		return providershared.ToolResultRecord{
 			Preview:       result.Preview,
 			PersistedPath: result.PersistedPath,
+			PersistFailed: result.PersistFailed,
+			PersistError:  result.PersistError,
 			Truncated:     result.Truncated,
 			OriginalSize:  result.OriginalSize,
 		}

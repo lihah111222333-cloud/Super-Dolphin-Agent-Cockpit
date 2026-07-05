@@ -67,6 +67,8 @@ func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 		Error:          errorText,
 		Result:         result.Preview,
 		PersistedPath:  result.PersistedPath,
+		PersistFailed:  result.PersistFailed,
+		PersistError:   result.PersistError,
 		Truncated:      result.Truncated,
 		OriginalSize:   result.OriginalSize,
 		ElapsedMS:      codexMCPToolElapsedMS(item),
@@ -276,6 +278,8 @@ func codexFunctionCallOutputOutcome(item map[string]any) (bool, string) {
 	return true, ""
 }
 
+// captureCodexRolloutToolResult 捕获 rollout/replay 工具结果并保留持久化诊断。
+// 空 hook 只回填 preview；非空 hook 返回的 PersistFailed/PersistError 不能被 fallback 覆盖。
 func captureCodexRolloutToolResult(header shareddto.ToolCallHeader, timestamp time.Time, preview string) providershared.ToolResultRecord {
 	result := providershared.CaptureToolResult(providershared.ToolResultMeta{
 		ThreadID:  header.ThreadID,
@@ -284,7 +288,7 @@ func captureCodexRolloutToolResult(header shareddto.ToolCallHeader, timestamp ti
 		ToolName:  header.ToolName,
 		Timestamp: timestamp,
 	}, preview)
-	if result.Preview == "" && result.PersistedPath == "" && !result.Truncated && result.OriginalSize == 0 {
+	if result.Preview == "" && result.PersistedPath == "" && !result.PersistFailed && result.PersistError == "" && !result.Truncated && result.OriginalSize == 0 {
 		result.Preview = preview
 	}
 	return result

@@ -20,6 +20,8 @@ type ToolCallEnd struct {
 	Error         string `json:"error,omitempty"`
 	Result        string `json:"result,omitempty"`
 	PersistedPath string `json:"persisted_path,omitempty"`
+	PersistFailed bool   `json:"persist_failed,omitempty"`
+	PersistError  string `json:"persist_error,omitempty"`
 	Truncated     bool   `json:"truncated,omitempty"`
 	OriginalSize  int    `json:"original_size,omitempty"`
 	ElapsedMS     int64  `json:"elapsed_ms,omitempty"`
