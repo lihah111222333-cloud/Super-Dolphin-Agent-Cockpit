@@ -39,12 +39,22 @@ const SAFE_WARNING_FIELD_ALIASES = [
   ['callId', 'call_id'],
 ];
 
+const WARNING_CORRELATION_SECRET_PATTERNS = [
+  /\b(?:api[_\s-]?key|auth[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|id[_\s-]?token|authorization|credential(?:s)?|password|secret|token)\b\s*[:=]\s*["']?[^"',\s}]+/i,
+  /\b(?:bearer|basic)\s+[a-z0-9._~+/=-]{8,}\b/i,
+  /\b(?:sk|pk|rk)-[a-z0-9][a-z0-9_-]{6,}\b/i,
+  /\b(?:ghp|gho|ghu|ghs|glpat|xoxb|xoxp|xoxa|xoxr)[_-][a-z0-9_-]{6,}\b/i,
+  /\bgithub_pat_[a-z0-9_]{12,}\b/i,
+  /\bAKIA[0-9A-Z]{16}\b/,
+];
+
 function safeWarningCorrelationScalar(value) {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
   if (typeof value === 'boolean') return value;
   const text = value.toString().trim();
   if (!text || text.length > 160) return undefined;
+  if (WARNING_CORRELATION_SECRET_PATTERNS.some((pattern) => pattern.test(text))) return undefined;
   if (text.startsWith('/') || text.includes('\\') || /[A-Za-z]:[\\/]/.test(text)) return undefined;
   if (!/^[A-Za-z0-9_.:/-]+$/.test(text)) return undefined;
   return text;

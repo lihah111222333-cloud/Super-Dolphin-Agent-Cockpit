@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   attachWarningRuntime,
   mergeWarningEntries,
+  safeWarningFields,
   warningTraceComponent,
   warningTraceStatus,
 } from './warningRuntime.js';
@@ -32,6 +33,27 @@ describe('warning runtime helpers', () => {
     expect(warningTraceStatus('warn', 'thread.config.failed')).toBe('error');
     expect(warningTraceStatus('warn', 'memory.changed')).toBe('ok');
     expect(warningTraceStatus('error', 'memory.changed')).toBe('error');
+  });
+
+  it('does not rehydrate token-shaped warning correlation fields', () => {
+    const fields = safeWarningFields({
+      method: 'thread/start',
+      req_id: 9,
+      reason: 'sk-live-secret-token',
+      code: 'sk-live-secret-code',
+      status: 'sk-live-secret-status',
+      provider: 'sk-live-secret-provider',
+      call_id: 'sk-live-secret-call',
+    });
+
+    expect(fields.method).toBe('thread/start');
+    expect(fields.req_id).toBe(9);
+    expect(fields.reason).toBe('[redacted]');
+    expect(fields.code).toBe('[redacted]');
+    expect(fields.status).toBe('[redacted]');
+    expect(fields.provider).toBe('[redacted]');
+    expect(fields.call_id).toBe('[redacted]');
+    expect(JSON.stringify(fields)).not.toContain('sk-live-secret');
   });
 
   it('attaches addWarning to runtime and emits frontend traces', () => {
