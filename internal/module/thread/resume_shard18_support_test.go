@@ -38,7 +38,9 @@ func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params bind
 	return nil
 }
 
-func (s *stubBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+type stubBindingStoreNoopMethods struct{}
+
+func (stubBindingStoreNoopMethods) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
 }
 
@@ -54,11 +56,11 @@ func (s *stubBindingStore) bindingForAgent(agentID string) (*bindingstore.Bindin
 	return &binding, nil
 }
 
-func (s *stubBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+func (stubBindingStoreNoopMethods) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil
 }
 
-func (s *stubBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
+func (stubBindingStoreNoopMethods) UnbindAgentThread(context.Context, string) error { return nil }
 
 func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
 	if s.bindings != nil {
@@ -77,17 +79,19 @@ func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, er
 	return shared.FirstNonEmpty(s.binding.CodexThreadID, s.binding.ProviderThreadID), nil
 }
 
-func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (stubBindingStoreNoopMethods) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
 	return nil
 }
 
-func (s *stubBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+func (stubBindingStoreNoopMethods) Rebind(context.Context, bindingstore.RebindParams) error {
+	return nil
+}
 
-func (s *stubBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+func (stubBindingStoreNoopMethods) ListProviderMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
-func (s *stubBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+func (stubBindingStoreNoopMethods) ListCwdMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 

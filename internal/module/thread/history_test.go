@@ -268,6 +268,8 @@ func requireForkedHistoryUsesForkThreadID(t *testing.T, fixture forkedThreadHist
 }
 
 type historyTestBindingStore struct {
+	historyTestBindingNoopStore
+
 	bindings map[string]bindingstore.Binding
 }
 
@@ -307,16 +309,18 @@ func (s *historyTestBindingStore) Upsert(_ context.Context, params bindingstore.
 	return nil
 }
 
-func (s *historyTestBindingStore) DeleteByAgentID(context.Context, string) error { return nil }
+type historyTestBindingNoopStore struct{}
 
-func (s *historyTestBindingStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
+func (historyTestBindingNoopStore) DeleteByAgentID(context.Context, string) error { return nil }
+
+func (historyTestBindingNoopStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
 	return nil
 }
-func (s *historyTestBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+func (historyTestBindingNoopStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
 	return nil
 }
 
-func (s *historyTestBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+func (historyTestBindingNoopStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
 }
 
@@ -329,11 +333,11 @@ func (s *historyTestBindingStore) GetByAgentID(_ context.Context, agentID string
 	return &copy, nil
 }
 
-func (s *historyTestBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+func (historyTestBindingNoopStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil
 }
 
-func (s *historyTestBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
+func (historyTestBindingNoopStore) UnbindAgentThread(context.Context, string) error { return nil }
 
 func (s *historyTestBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
 	if len(s.bindings) == 0 {
@@ -354,19 +358,19 @@ func (s *historyTestBindingStore) GetThreadByAgent(_ context.Context, agentID st
 	return shared.FirstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID), nil
 }
 
-func (s *historyTestBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (historyTestBindingNoopStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
 	return nil
 }
 
-func (s *historyTestBindingStore) Rebind(context.Context, bindingstore.RebindParams) error {
+func (historyTestBindingNoopStore) Rebind(context.Context, bindingstore.RebindParams) error {
 	return nil
 }
 
-func (s *historyTestBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+func (historyTestBindingNoopStore) ListProviderMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
-func (s *historyTestBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+func (historyTestBindingNoopStore) ListCwdMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -400,6 +404,8 @@ type historyPageCall struct {
 }
 
 type historyTestSession struct {
+	historyTestSessionUnusedMethods
+
 	threadID   string
 	threads    []dto.ThreadRef
 	messages   []dto.Message
@@ -409,18 +415,23 @@ type historyTestSession struct {
 	pageCalls  []historyPageCall
 }
 
-func (s *historyTestSession) ThreadID() string    { return s.threadID }
-func (s *historyTestSession) RolloutPath() string { return "" }
+func (s *historyTestSession) ThreadID() string { return s.threadID }
 
-func (s *historyTestSession) Capabilities() dto.CapabilitySet { return nil }
+type historyTestSessionUnusedMethods struct{}
 
-func (s *historyTestSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+func (historyTestSessionUnusedMethods) RolloutPath() string { return "" }
+
+func (historyTestSessionUnusedMethods) Capabilities() dto.CapabilitySet { return nil }
+
+func (historyTestSessionUnusedMethods) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
 
-func (s *historyTestSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
+func (historyTestSessionUnusedMethods) Interrupt(context.Context, dto.InterruptRequest) error {
+	return nil
+}
 
-func (s *historyTestSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+func (historyTestSessionUnusedMethods) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
 	return nil
 }
 
@@ -494,8 +505,10 @@ func reverseHistoryTestMessages(messages []dto.Message) {
 	}
 }
 
-func (s *historyTestSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
+func (historyTestSessionUnusedMethods) Configure(context.Context, dto.ThreadConfigPatch) error {
+	return nil
+}
 
-func (s *historyTestSession) Close(context.Context) error { return nil }
+func (historyTestSessionUnusedMethods) Close(context.Context) error { return nil }
 
-func (s *historyTestSession) ForceStop() error { return nil }
+func (historyTestSessionUnusedMethods) ForceStop() error { return nil }

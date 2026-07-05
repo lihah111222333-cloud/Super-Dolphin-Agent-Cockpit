@@ -16,18 +16,20 @@ func TestGetAgentDetailIncludesDerivedFields(t *testing.T) {
 
 	svc := &service{
 		orchestration: &stubDashboardOrchestration{
-			snapshot: contract.AgentSnapshot{
-				ID:           "agent-1",
-				Name:         "Agent One",
-				ThreadID:     "thread-1",
-				ActiveTurnID: "turn-1",
-				State:        "running",
-				LastReport:   "stale",
-			},
-			report: contract.AgentReportResult{
-				AgentID: "agent-1",
-				Report:  "fresh report",
-				State:   "running",
+			stubDashboardAgentDetailStore: stubDashboardAgentDetailStore{
+				snapshot: contract.AgentSnapshot{
+					ID:           "agent-1",
+					Name:         "Agent One",
+					ThreadID:     "thread-1",
+					ActiveTurnID: "turn-1",
+					State:        "running",
+					LastReport:   "stale",
+				},
+				report: contract.AgentReportResult{
+					AgentID: "agent-1",
+					Report:  "fresh report",
+					State:   "running",
+				},
 			},
 		},
 	}
@@ -70,11 +72,13 @@ func TestGetAgentDetailSkipsEmptyTurnHistoryWithoutActiveTurn(t *testing.T) {
 
 	svc := &service{
 		orchestration: &stubDashboardOrchestration{
-			snapshot: contract.AgentSnapshot{
-				ID:       "agent-2",
-				Name:     "Agent Two",
-				ThreadID: "thread-2",
-				State:    "idle",
+			stubDashboardAgentDetailStore: stubDashboardAgentDetailStore{
+				snapshot: contract.AgentSnapshot{
+					ID:       "agent-2",
+					Name:     "Agent Two",
+					ThreadID: "thread-2",
+					State:    "idle",
+				},
 			},
 		},
 	}
@@ -382,7 +386,6 @@ func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
 		{"blank", json.RawMessage(`   `)},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			stub := &stubDashboardOrchestration{}
@@ -404,9 +407,11 @@ func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
 }
 
 type stubDashboardOrchestration struct {
+	stubDashboardAgentDetailStore
+	stubDashboardAgentNoopStore
+	stubDashboardRuntimeNoopStore
+
 	mu                  sync.Mutex
-	snapshot            contract.AgentSnapshot
-	report              contract.AgentReportResult
 	listDAGsResult      []contract.DAGSummary
 	listDAGsErr         error
 	listDAGsFilter      contract.ListDAGsFilter
@@ -438,6 +443,11 @@ type stubDashboardOrchestration struct {
 	applyOpsCalled      bool
 }
 
+type stubDashboardAgentDetailStore struct {
+	snapshot contract.AgentSnapshot
+	report   contract.AgentReportResult
+}
+
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
 // contract.OrchestrationService 全部方法。未来接口扩张时
 // 该行在 `go build` / `go test -c` 阶段即报错，不靠 `make test` 补漏。
@@ -446,55 +456,59 @@ type stubDashboardOrchestration struct {
 // time instead of relying on `make test` to surface the gap.
 var _ contract.OrchestrationService = (*stubDashboardOrchestration)(nil)
 
-func (s *stubDashboardOrchestration) LaunchAgent(context.Context, contract.LaunchRequest) error {
+type stubDashboardAgentNoopStore struct{}
+
+func (stubDashboardAgentNoopStore) LaunchAgent(context.Context, contract.LaunchRequest) error {
 	return nil
 }
 
-func (s *stubDashboardOrchestration) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
+func (stubDashboardAgentNoopStore) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
 	return nil, nil
 }
 
-func (s *stubDashboardOrchestration) StopAgent(context.Context, string) error { return nil }
+func (stubDashboardAgentNoopStore) StopAgent(context.Context, string) error { return nil }
 
-func (s *stubDashboardOrchestration) InterruptAgent(context.Context, string, string) (contract.AgentStateResult, error) {
+func (stubDashboardAgentNoopStore) InterruptAgent(context.Context, string, string) (contract.AgentStateResult, error) {
 	return contract.AgentStateResult{}, nil
 }
 
-func (s *stubDashboardOrchestration) SubmitTurn(context.Context, contract.TurnSubmission) error {
+func (stubDashboardAgentNoopStore) SubmitTurn(context.Context, contract.TurnSubmission) error {
 	return nil
 }
 
-func (s *stubDashboardOrchestration) CompleteTurn(context.Context, string, string, bool, string) error {
+func (stubDashboardAgentNoopStore) CompleteTurn(context.Context, string, string, bool, string) error {
 	return nil
 }
 
-func (s *stubDashboardOrchestration) Recover(context.Context, string) error { return nil }
+func (stubDashboardAgentNoopStore) Recover(context.Context, string) error { return nil }
 
-func (s *stubDashboardOrchestration) BindSessionGeneration(context.Context, string, uint64) error {
+func (stubDashboardAgentNoopStore) BindSessionGeneration(context.Context, string, uint64) error {
 	return nil
 }
 
-func (s *stubDashboardOrchestration) Snapshot(context.Context, string) (contract.AgentSnapshot, error) {
+func (s *stubDashboardAgentDetailStore) Snapshot(context.Context, string) (contract.AgentSnapshot, error) {
 	return s.snapshot, nil
 }
 
-func (s *stubDashboardOrchestration) UpdateRuntime(context.Context, contract.RuntimeReport) error {
+type stubDashboardRuntimeNoopStore struct{}
+
+func (stubDashboardRuntimeNoopStore) UpdateRuntime(context.Context, contract.RuntimeReport) error {
 	return nil
 }
 
-func (s *stubDashboardOrchestration) GetState(context.Context, string) (contract.AgentStateResult, error) {
+func (stubDashboardRuntimeNoopStore) GetState(context.Context, string) (contract.AgentStateResult, error) {
 	return contract.AgentStateResult{}, nil
 }
 
-func (s *stubDashboardOrchestration) GetReport(context.Context, string) (contract.AgentReportResult, error) {
+func (s *stubDashboardAgentDetailStore) GetReport(context.Context, string) (contract.AgentReportResult, error) {
 	return s.report, nil
 }
 
-func (s *stubDashboardOrchestration) RememberReportRequest(context.Context, contract.RememberReportRequest) (contract.RememberReportRequestResult, error) {
+func (stubDashboardRuntimeNoopStore) RememberReportRequest(context.Context, contract.RememberReportRequest) (contract.RememberReportRequestResult, error) {
 	return contract.RememberReportRequestResult{}, nil
 }
 
-func (s *stubDashboardOrchestration) HandleReportEvent(context.Context, contract.ReportEvent) (contract.ReportEventResult, error) {
+func (stubDashboardRuntimeNoopStore) HandleReportEvent(context.Context, contract.ReportEvent) (contract.ReportEventResult, error) {
 	return contract.ReportEventResult{}, nil
 }
 
@@ -519,7 +533,7 @@ func (s *stubDashboardOrchestration) ListDAGs(_ context.Context, filter contract
 	return s.listDAGsResult, nil
 }
 
-func (s *stubDashboardOrchestration) UpdateNodeStatus(context.Context, contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
+func (stubDashboardRuntimeNoopStore) UpdateNodeStatus(context.Context, contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
 	return contract.DAGNode{}, nil
 }
 

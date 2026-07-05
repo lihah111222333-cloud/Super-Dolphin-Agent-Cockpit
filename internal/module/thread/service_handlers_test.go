@@ -589,6 +589,9 @@ func newThreadTestServer(svc Service) *rpcpkg.Server {
 }
 
 type stubThreadService struct {
+	stubThreadServiceLifecycleNoop
+	stubThreadServiceListNoop
+
 	startReq           StartRequest
 	startResult        StartResult
 	resumeReq          ResumeRequest
@@ -621,10 +624,13 @@ func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartRes
 	s.startReq = req
 	return s.startResult, nil
 }
-func (*stubThreadService) SpawnIfNeeded(context.Context, string, string, string) (bool, SpawnRouting, error) {
+
+type stubThreadServiceLifecycleNoop struct{}
+
+func (stubThreadServiceLifecycleNoop) SpawnIfNeeded(context.Context, string, string, string) (bool, SpawnRouting, error) {
 	return false, SpawnRouting{}, nil
 }
-func (s *stubThreadService) Stop(context.Context, string) error { return nil }
+func (stubThreadServiceLifecycleNoop) Stop(context.Context, string) error { return nil }
 func (s *stubThreadService) Resume(_ context.Context, req ResumeRequest) (ResumeResult, error) {
 	s.resumeReq = req
 	return s.resumeResult, nil
@@ -641,10 +647,10 @@ func (s *stubThreadService) Handoff(_ context.Context, req HandoffRequest) (Hand
 	s.handoffReq = req
 	return s.handoffResult, nil
 }
-func (s *stubThreadService) Get(context.Context, string) (*Ref, error) {
+func (stubThreadServiceLifecycleNoop) Get(context.Context, string) (*Ref, error) {
 	return &Ref{ID: "thread-1", AgentID: "agent-1"}, nil
 }
-func (s *stubThreadService) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+func (stubThreadServiceLifecycleNoop) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
 	return nil, nil
 }
 func (s *stubThreadService) ReadMessages(_ context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
@@ -653,7 +659,7 @@ func (s *stubThreadService) ReadMessages(_ context.Context, threadID string, lim
 	s.readMessagesBefore = before
 	return s.readMessagesResult, nil
 }
-func (s *stubThreadService) GetConfig(context.Context, string) (dto.ThreadConfig, error) {
+func (stubThreadServiceLifecycleNoop) GetConfig(context.Context, string) (dto.ThreadConfig, error) {
 	return dto.ThreadConfig{}, nil
 }
 func (s *stubThreadService) SetConfig(_ context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
@@ -666,21 +672,26 @@ func (s *stubThreadService) SetModel(_ context.Context, threadID, model string) 
 	s.setModelArg = model
 	return dto.ThreadConfig{}, s.setModelErr
 }
-func (s *stubThreadService) Compact(context.Context, string, string) (dto.ThreadCompactResult, error) {
+func (stubThreadServiceLifecycleNoop) Compact(context.Context, string, string) (dto.ThreadCompactResult, error) {
 	return dto.ThreadCompactResult{}, nil
 }
-func (s *stubThreadService) Archive(context.Context, string) error               { return nil }
-func (s *stubThreadService) Unarchive(context.Context, string) error             { return nil }
-func (s *stubThreadService) ListByStatus(context.Context, string) ([]Ref, error) { return nil, nil }
-func (s *stubThreadService) ListByCWD(context.Context, string) ([]Ref, error)    { return nil, nil }
+func (stubThreadServiceLifecycleNoop) Archive(context.Context, string) error   { return nil }
+func (stubThreadServiceLifecycleNoop) Unarchive(context.Context, string) error { return nil }
+
+type stubThreadServiceListNoop struct{}
+
+func (stubThreadServiceListNoop) ListByStatus(context.Context, string) ([]Ref, error) {
+	return nil, nil
+}
+func (stubThreadServiceListNoop) ListByCWD(context.Context, string) ([]Ref, error) { return nil, nil }
 func (s *stubThreadService) SendCommand(_ context.Context, threadID, command, args string) (any, error) {
 	s.sendCommandThread = threadID
 	s.sendCommandName = command
 	s.sendCommandArgs = args
 	return s.sendCommandResult, nil
 }
-func (s *stubThreadService) SetName(context.Context, string, string) error { return nil }
-func (s *stubThreadService) Delete(context.Context, string) error          { return nil }
+func (stubThreadServiceListNoop) SetName(context.Context, string, string) error { return nil }
+func (stubThreadServiceListNoop) Delete(context.Context, string) error          { return nil }
 func (s *stubThreadService) List(context.Context) ([]Ref, error) {
 	s.listCalls++
 	return s.listResult, nil

@@ -12,6 +12,8 @@ import (
 )
 
 type stubThreadBindingStore struct {
+	stubThreadBindingStoreNoopMethods
+
 	binding         *bindingstore.Binding
 	sessionUpdates  []bindingstore.UpdateSessionUUIDParams
 	archived        []bindingstore.SetArchivedParams
@@ -20,10 +22,14 @@ type stubThreadBindingStore struct {
 	getByAgentIDErr error
 }
 
-func (s *stubThreadBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
+type stubThreadBindingStoreNoopMethods struct{}
+
+func (stubThreadBindingStoreNoopMethods) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
 	return nil, platformdb.ErrNotFound
 }
-func (s *stubThreadBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
+func (stubThreadBindingStoreNoopMethods) Upsert(context.Context, bindingstore.UpsertParams) error {
+	return nil
+}
 func (s *stubThreadBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
 	s.deletedAgentIDs = append(s.deletedAgentIDs, agentID)
 	recordCall(s.calls, "binding_delete:"+agentID)
@@ -33,7 +39,7 @@ func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params bin
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	return nil
 }
-func (s *stubThreadBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+func (stubThreadBindingStoreNoopMethods) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
 	return nil
 }
 func (s *stubThreadBindingStore) SetArchived(_ context.Context, params bindingstore.SetArchivedParams) error {
@@ -54,10 +60,10 @@ func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string)
 	}
 	return nil, platformdb.ErrNotFound
 }
-func (s *stubThreadBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+func (stubThreadBindingStoreNoopMethods) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil
 }
-func (s *stubThreadBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
+func (stubThreadBindingStoreNoopMethods) UnbindAgentThread(context.Context, string) error { return nil }
 func (s *stubThreadBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
 	if s.binding == nil {
 		return nil, nil
@@ -70,17 +76,19 @@ func (s *stubThreadBindingStore) GetThreadByAgent(context.Context, string) (stri
 	}
 	return s.binding.ProviderThreadID, nil
 }
-func (s *stubThreadBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (stubThreadBindingStoreNoopMethods) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
 	return nil
 }
 
-func (s *stubThreadBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+func (stubThreadBindingStoreNoopMethods) Rebind(context.Context, bindingstore.RebindParams) error {
+	return nil
+}
 
-func (s *stubThreadBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+func (stubThreadBindingStoreNoopMethods) ListProviderMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
-func (s *stubThreadBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+func (stubThreadBindingStoreNoopMethods) ListCwdMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -122,39 +130,48 @@ func (s *stubThreadSessions) RemoveSessionGeneration(agentID string, generation 
 }
 
 type stubThreadSession struct {
+	stubThreadSessionUnusedMethods
+
 	threadID   string
 	closeCalls int
 	calls      *[]string
 }
 
-func (s *stubThreadSession) ThreadID() string    { return s.threadID }
-func (s *stubThreadSession) RolloutPath() string { return "" }
-func (s *stubThreadSession) Capabilities() dto.CapabilitySet {
+func (s *stubThreadSession) ThreadID() string { return s.threadID }
+
+type stubThreadSessionUnusedMethods struct{}
+
+func (stubThreadSessionUnusedMethods) RolloutPath() string { return "" }
+func (stubThreadSessionUnusedMethods) Capabilities() dto.CapabilitySet {
 	return nil
 }
-func (s *stubThreadSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+func (stubThreadSessionUnusedMethods) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
-func (s *stubThreadSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
-func (s *stubThreadSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+func (stubThreadSessionUnusedMethods) Interrupt(context.Context, dto.InterruptRequest) error {
 	return nil
 }
-func (s *stubThreadSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+func (stubThreadSessionUnusedMethods) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+	return nil
+}
+func (stubThreadSessionUnusedMethods) ListThreads(context.Context) ([]dto.ThreadRef, error) {
 	return nil, nil
 }
-func (s *stubThreadSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
+func (stubThreadSessionUnusedMethods) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, nil
 }
-func (s *stubThreadSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+func (stubThreadSessionUnusedMethods) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
 	return nil, nil
 }
-func (s *stubThreadSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
+func (stubThreadSessionUnusedMethods) Configure(context.Context, dto.ThreadConfigPatch) error {
+	return nil
+}
 func (s *stubThreadSession) Close(context.Context) error {
 	s.closeCalls++
 	recordCall(s.calls, "session_close:"+s.threadID)
 	return nil
 }
-func (s *stubThreadSession) ForceStop() error { return nil }
+func (stubThreadSessionUnusedMethods) ForceStop() error { return nil }
 
 type stubTurnService struct {
 	interruptCalls []string
