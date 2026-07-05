@@ -17,6 +17,13 @@ func TestDreamMetrics_IncrementAndRead(t *testing.T) {
 	IncPromptOversize()
 
 	snap := Read()
+	assertDreamSnapshotCounts(t, snap)
+	assertDreamSingleReadsMatchSnapshot(t, snap)
+}
+
+func assertDreamSnapshotCounts(t *testing.T, snap Snapshot) {
+	t.Helper()
+
 	if snap.SuccessTotal != 2 {
 		t.Errorf("SuccessTotal: got %d, want 2", snap.SuccessTotal)
 	}
@@ -32,6 +39,10 @@ func TestDreamMetrics_IncrementAndRead(t *testing.T) {
 	if snap.PromptOversizeTotal != 2 {
 		t.Errorf("PromptOversizeTotal: got %d, want 2", snap.PromptOversizeTotal)
 	}
+}
+
+func assertDreamSingleReadsMatchSnapshot(t *testing.T, snap Snapshot) {
+	t.Helper()
 
 	// 单值读 API 与 snapshot 一致
 	if Success() != snap.SuccessTotal {
