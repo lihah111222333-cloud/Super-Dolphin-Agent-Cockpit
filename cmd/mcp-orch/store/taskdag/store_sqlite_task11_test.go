@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"testing"
@@ -329,12 +330,21 @@ func TestSQLiteTaskDAGRecordNodeSpawnAndLookupAreRunFenced(t *testing.T) {
 		t.Fatalf("RecordNodeSpawn(first) error = %v", err)
 	}
 	assertSQLiteFirstSpawn(t, first)
-	second, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{DagKey: "dag-multi", NodeKey: "root", RunID: runA.ID, ThreadID: "thread-a-retry"})
+	second, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{DagKey: "dag-multi", NodeKey: "root", RunID: runA.ID, ThreadID: "thread-a"})
 	if err != nil {
-		t.Fatalf("RecordNodeSpawn(retry) error = %v", err)
+		t.Fatalf("RecordNodeSpawn(idempotent retry) error = %v", err)
 	}
-	assertSQLiteRetrySpawn(t, second)
-	matches, err := store.LookupNodesBySpawningThread(ctx, "thread-a-retry")
+	assertSQLiteIdempotentSpawn(t, second)
+	if _, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{DagKey: "dag-multi", NodeKey: "root", RunID: runA.ID, ThreadID: "thread-a-retry"}); err == nil || !errors.Is(err, platformdb.ErrConflict) {
+		t.Fatalf("RecordNodeSpawn(conflicting retry) error = %v, want platformdb.ErrConflict", err)
+	}
+	if got := sqliteRunNodeSpawningThread(t, ctx, store, "dag-multi", runA.ID, "root"); got != "thread-a" {
+		t.Fatalf("spawning_thread_id = %q, want original thread-a after conflict", got)
+	}
+	if events := loadSQLiteRunEvents(t, ctx, db, runA.ID); len(events) != 0 {
+		t.Fatalf("node_spawn events = %#v, want none after idempotent/conflicting retry", events)
+	}
+	matches, err := store.LookupNodesBySpawningThread(ctx, "thread-a")
 	if err != nil {
 		t.Fatalf("LookupNodesBySpawningThread() error = %v", err)
 	}
@@ -388,13 +398,13 @@ func assertSQLiteFirstSpawn(t *testing.T, got *RecordNodeSpawnResult) {
 	}
 }
 
-func assertSQLiteRetrySpawn(t *testing.T, got *RecordNodeSpawnResult) {
+func assertSQLiteIdempotentSpawn(t *testing.T, got *RecordNodeSpawnResult) {
 	t.Helper()
 	if got == nil {
-		t.Fatal("retry spawn result is nil")
+		t.Fatal("idempotent spawn result is nil")
 	}
-	if !got.AppendedEvent || got.PreviousThreadID != "thread-a" || got.RunKey != "run-spawn-a" {
-		t.Fatalf("retry spawn result = %#v, want appended event on run-spawn-a with previous thread-a", got)
+	if got.AppendedEvent || got.PreviousThreadID != "thread-a" || got.RunKey != "" {
+		t.Fatalf("idempotent spawn result = %#v, want no event with previous thread-a", got)
 	}
 }
 

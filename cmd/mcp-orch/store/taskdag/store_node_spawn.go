@@ -11,16 +11,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 // RecordNodeSpawn 是 nodeexec.AgentExecutor 在子 agent thread 创建成功后的写回入口。
-// 同事务两步：
-//  1. UpdateTaskDagNodeSpawningThread 覆盖 task_dag_nodes.spawning_thread_id
-//     并通过 CTE 拿出旧值（previous_spawning_thread_id）；
-//  2. 旧值非空且 != 新值 → appendTaskDagRunEventTx 把
-//     {kind:"node_spawn", node_key, prev_thread_id, thread_id, ts} append 到
-//     该 run 的 events JSON 数组。无 running run 时硬报错，
-//     避免重试历史缺失被静默吞掉。
+// 同事务执行 CAS 写回：只有空 spawning_thread_id 或同一 threadID 的幂等重试可以写入；
+// 已存在不同 threadID 时返回 conflict，避免覆盖仍在运行的 child 归属。
 //
 // 不在事务内 finalize run，因为 spawn 是 run.status 'running' 阶段事件，不会
 // 影响终态判定；终态推进仍由 CompleteNode 路径负责。
@@ -173,7 +169,7 @@ func wakeupFenceLeaseMismatch(fence WakeupFence) error {
 	return fmt.Errorf("wakeup fence mismatch: wakeup_id=%d", fence.WakeupID)
 }
 
-// recordNodeSpawnTx 是事务体拆出的两步逻辑：UPDATE 节点 + 重试改绑时 append events。
+// recordNodeSpawnTx 是事务体拆出的 CAS 逻辑：UPDATE 节点 + 幂等重试不追加事件。
 // 拆为独立函数是为了让入口只表达参数校验和事务边界，实际写入顺序集中在这里维护。
 func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	current, err := txq.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
@@ -188,6 +184,9 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	if current.SpawningThreadID != nil {
 		previousThreadID = strings.TrimSpace(*current.SpawningThreadID)
 	}
+	if previousThreadID != "" && previousThreadID != threadID {
+		return fmt.Errorf("%w: spawning_thread_id for dag=%s node=%s run_id=%d already bound to %q, refusing overwrite with %q", platformdb.ErrConflict, dagKey, nodeKey, runID, previousThreadID, threadID)
+	}
 	row, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
 		SpawningThreadID: sqlc.TextValuePtr(&threadID),
 		DagKey:           dagKey,
@@ -199,11 +198,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	}
 	result.Node = nodeFromSpawnRow(row)
 	result.PreviousThreadID = previousThreadID
-	// 首次 spawn 或幂等重试不追加事件，只有真实改绑才记录重试历史。
-	if result.PreviousThreadID == "" || result.PreviousThreadID == threadID {
-		return nil
-	}
-	return appendNodeSpawnEvent(ctx, txq, dagKey, nodeKey, runID, threadID, result)
+	return nil
 }
 
 // appendNodeSpawnEvent 封装「构造 payload + appendTaskDagRunEventTx」。

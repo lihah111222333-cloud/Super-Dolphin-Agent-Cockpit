@@ -85,11 +85,17 @@ func translateCodexFunctionCallOutputEnd(payload map[string]any) (any, bool) {
 		return nil, false
 	}
 	success, errorText := codexFunctionCallOutputOutcome(item)
+	result := captureCodexRolloutToolResult(header, eventTime(payload), stringValue(item, "output"))
 	return tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
 		Error:          errorText,
-		Result:         stringValue(item, "output"),
+		Result:         result.Preview,
+		PersistedPath:  result.PersistedPath,
+		PersistFailed:  result.PersistFailed,
+		PersistError:   result.PersistError,
+		Truncated:      result.Truncated,
+		OriginalSize:   result.OriginalSize,
 	}, true
 }
 
