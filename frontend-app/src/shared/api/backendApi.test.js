@@ -664,7 +664,22 @@ function guardedBackendResponse(method) {
       {
         call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
         response: { ok: true },
-        message: 'turn/forceComplete response forceCompleted must be true',
+        message: 'turn/forceComplete response forceCompleted must be a boolean',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: false, forceCompleted: false },
+        message: 'turn/forceComplete response failure must include errorCode, error, or message',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: true, forceCompleted: false, errorCode: 'force_complete_target_not_found' },
+        message: 'turn/forceComplete response ok true cannot have forceCompleted false',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: false, forceCompleted: 'false', errorCode: 'force_complete_target_not_found' },
+        message: 'turn/forceComplete response forceCompleted must be a boolean',
       },
       {
         call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
@@ -879,6 +894,24 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.THREAD_RECOVER, {
       threadId: 'thread-1',
     });
+  });
+
+  it('passes through diagnosed turn force-complete failure envelopes from the backend facade', async () => {
+    const responses = [
+      { ok: false, forceCompleted: false, errorCode: 'force_complete_target_not_found' },
+      { ok: false, forceCompleted: false, error: 'force complete target not found' },
+      { ok: false, forceCompleted: false, message: 'force complete target not found' },
+    ];
+
+    for (const response of responses) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const api = createBackendApi({ callAPI });
+
+      await expect(api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' })).resolves.toEqual(response);
+      expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_FORCE_COMPLETE, {
+        threadId: 'thread-1',
+      });
+    }
   });
 
   it('rejects unknown turn/forceComplete facade fields before calling the backend', () => {

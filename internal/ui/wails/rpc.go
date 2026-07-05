@@ -67,9 +67,11 @@ type scopeParams struct {
 
 // codeSaveParams 是 ui/code/save 的请求参数。
 type codeSaveParams struct {
-	FilePath  string  `json:"filePath"`
-	Content   *string `json:"content"`
-	CreateNew bool    `json:"createNew,omitempty"`
+	FilePath       string  `json:"filePath"`
+	Content        *string `json:"content"`
+	CreateNew      bool    `json:"createNew,omitempty"`
+	PreviewMode    string  `json:"previewMode,omitempty"`
+	ContentVersion string  `json:"contentVersion,omitempty"`
 	scopeParams
 }
 
@@ -240,7 +242,7 @@ func handleCodeSave(
 	if err != nil {
 		return codeSaveResult{}, err
 	}
-	return saveScopedFile(p.FilePath, *p.Content, roots, p.CreateNew)
+	return saveScopedFile(p.FilePath, *p.Content, roots, p.CreateNew, p.PreviewMode, p.ContentVersion)
 }
 
 // handleCodeLocate 先解析项目范围，再在允许根目录内定位候选文件。

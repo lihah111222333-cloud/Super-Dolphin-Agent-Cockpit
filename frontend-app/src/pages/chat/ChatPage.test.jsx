@@ -389,6 +389,23 @@ describe('ChatPage module', () => {
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
   });
 
+  it('disables force complete controls when the selected thread has no active turn target', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '空闲线程', time: '2026-06-02T08:00:00Z' },
+    ], {
+      hasActiveThreadActions: vi.fn(() => true),
+      hasInterruptibleThreadAction: vi.fn(() => false),
+      hasForceCompleteThreadAction: vi.fn(() => false),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('button', { name: '强制完成（不可用）' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
+    const menu = screen.getByTestId('chat-actions-menu');
+    expect(within(menu).getByRole('button', { name: '强制完成（不可用）' })).toBeDisabled();
+  });
+
   it('turns the composer primary button into an interrupt action while the active thread is running', () => {
     const store = createFakeStore({
       activeThreadId: 'thread-1',
@@ -970,6 +987,40 @@ describe('ChatPage module', () => {
     expect(store.selectThread).toHaveBeenCalledWith('thread-2');
   });
 
+  it('keeps snippet code previews read-only even when the snippet covers all returned lines', async () => {
+    openCodeFile.mockResolvedValue({
+      ok: true,
+      filePath: '/repo/app/src/one-line.js',
+      relative: 'src/one-line.js',
+      previewMode: 'snippet',
+      startLine: 1,
+      endLine: 1,
+      totalLines: 1,
+      snippet: [{ line: 1, text: 'const snippet = true;' }],
+    });
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-snippet',
+        role: 'assistant',
+        text: ':codex-file-citation[]{path="src/one-line.js" line_range_start="1" line_range_end="1"}',
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/one-line.js' }));
+
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(preview).getByText('const snippet = true;')).toBeInTheDocument();
+    expect(within(preview).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
+    expect(within(preview).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
+    expect(saveCodeFile).not.toHaveBeenCalled();
+  });
+
   it('ignores stale file preview responses when a newer timeline preview is open', async () => {
     const firstOpen = deferred();
     const secondOpen = deferred();
@@ -1011,6 +1062,8 @@ describe('ChatPage module', () => {
         ok: true,
         filePath: '/repo/app/src/b.js',
         relative: 'src/b.js',
+        previewMode: 'full',
+        contentVersion: 'sha256:b-version',
         snippet: [{ line: 1, text: 'const latest = true;' }],
         startLine: 1,
         endLine: 1,
@@ -1043,6 +1096,8 @@ describe('ChatPage module', () => {
     expect(saveCodeFile).toHaveBeenCalledWith(expect.objectContaining({
       filePath: '/repo/app/src/b.js',
       content: 'const latest = false;',
+      previewMode: 'full',
+      contentVersion: 'sha256:b-version',
     }));
   });
 

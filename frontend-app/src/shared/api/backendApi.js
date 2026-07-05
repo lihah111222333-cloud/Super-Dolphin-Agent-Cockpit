@@ -1008,10 +1008,31 @@ function validateTurnStartResponse(method, response) {
   return value;
 }
 
+function hasTurnForceCompleteFailureDiagnostic(value) {
+  return ['errorCode', 'error', 'message'].some((key) => (
+    typeof value[key] === 'string' && value[key].trim() !== ''
+  ));
+}
+
 function validateTurnForceCompleteResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
-  if (value.forceCompleted !== true) {
-    throw new TypeError(`${method} response forceCompleted must be true`);
+  if (typeof value.forceCompleted !== 'boolean') {
+    throw new TypeError(`${method} response forceCompleted must be a boolean`);
+  }
+  if (value.forceCompleted) {
+    if (value.ok !== true) {
+      throw new TypeError(`${method} response ok must be true when forceCompleted is true`);
+    }
+    return value;
+  }
+  if (value.ok === true) {
+    throw new TypeError(`${method} response ok true cannot have forceCompleted false`);
+  }
+  if (value.ok !== false) {
+    throw new TypeError(`${method} response ok must be false when forceCompleted is false`);
+  }
+  if (!hasTurnForceCompleteFailureDiagnostic(value)) {
+    throw new TypeError(`${method} response failure must include errorCode, error, or message`);
   }
   return value;
 }

@@ -206,6 +206,8 @@ function useCodePreviewController({ projectPath, projects }) {
       const result = await saveCodeFile({
         ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
         content: codePreview.draft,
+        previewMode: codePreview.previewMode,
+        contentVersion: codePreview.contentVersion,
       });
       if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);
@@ -227,7 +229,7 @@ function useCodePreviewController({ projectPath, projects }) {
         error: codeActionError(error, '保存失败'),
       }));
     }
-  }, [codePreview.draft, codePreview.editable, codePreview.filePath, codePreview.image, codePreview.loading, codePreview.relative, codePreview.saving, codePreview.scopeKey, isCurrentPreviewRequest, previewScopeKey, projectPath, projects]);
+  }, [codePreview.contentVersion, codePreview.draft, codePreview.editable, codePreview.filePath, codePreview.image, codePreview.loading, codePreview.previewMode, codePreview.relative, codePreview.saving, codePreview.scopeKey, isCurrentPreviewRequest, previewScopeKey, projectPath, projects]);
 
   const closeCodePreview = useCallback(() => {
     nextPreviewRequestSeq();

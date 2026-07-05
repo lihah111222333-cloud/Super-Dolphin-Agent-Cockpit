@@ -17,8 +17,9 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
 
   const activeThreadRPC = async (action, rpc) => {
     const currentState = get();
-    const interruptTarget = action === 'thread.interrupt' ? activeThreadInterruptTarget(currentState) : null;
-    const threadId = interruptTarget?.threadId || backendThreadIdForState(currentState, currentState.activeThreadId);
+    const requiresActiveTurn = action === 'thread.interrupt' || action === 'thread.force_complete';
+    const activeTurnTarget = requiresActiveTurn ? activeThreadInterruptTarget(currentState) : null;
+    const threadId = activeTurnTarget?.threadId || backendThreadIdForState(currentState, currentState.activeThreadId);
     if (!threadId) {
       notifyAction('当前没有可操作的后端线程', 'warning');
       return false;
@@ -32,18 +33,27 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     try {
       const cwd = requireCwd(action);
       let payload = { cwd, threadId };
-      if (action === 'thread.interrupt') {
-        const target = interruptTarget || activeThreadInterruptTarget(currentState);
+      if (requiresActiveTurn) {
+        const target = activeTurnTarget || activeThreadInterruptTarget(currentState);
         if (!target.interruptible) {
-          notifyAction('当前没有可中断任务', 'warning', { threadId });
+          notifyAction(action === 'thread.interrupt' ? '当前没有可中断任务' : '当前没有可强制完成任务', 'warning', { threadId });
           return false;
         }
-        payload = cleanObject({ cwd, threadId: target.threadId, source: 'ui_stop' });
+        payload = action === 'thread.interrupt'
+          ? cleanObject({ cwd, threadId: target.threadId, source: 'ui_stop' })
+          : cleanObject({ cwd, threadId: target.threadId });
       }
       const result = await rpc(cleanObject(payload));
       if (action === 'thread.interrupt' && result?.ok === false) {
         const message = interruptFailureMessage(result);
         notifyAction(`${actionLabels[action]}失败：${message}`, 'warning', { threadId });
+        addWarning('warn', `${action}.failed`, { threadId, error: message });
+        return false;
+      }
+      if (action === 'thread.force_complete' && (result?.ok === false || result?.forceCompleted === false)) {
+        const message = (result?.error || result?.message || result?.errorCode || 'force complete target not found').toString().trim();
+        if (!message) throw new Error('thread.force_complete ok:false response message is required');
+        notifyAction(`${actionLabels[action]}失败：${message}`, 'warning', { threadId, error: message });
         addWarning('warn', `${action}.failed`, { threadId, error: message });
         return false;
       }

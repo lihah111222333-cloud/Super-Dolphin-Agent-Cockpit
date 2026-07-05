@@ -4877,6 +4877,55 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('routes agent failed bridge events into visible warning and action notice state', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'agent/failed',
+      payload: {
+        threadId: 'thread-1',
+        agentId: 'agent-1',
+        turnId: 'turn-1',
+        traceId: 'trace-1',
+        error: 'boom',
+        recoverable: false,
+        path: '/repo/app/private.txt',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: expect.stringContaining('boom'),
+      error: 'boom',
+      recoverable: false,
+    }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        event: 'agent/failed',
+        threadId: 'thread-1',
+        fields: expect.objectContaining({
+          threadId: 'thread-1',
+          agent_id: 'agent-1',
+          turn_id: 'turn-1',
+          trace_id: 'trace-1',
+          error: '[redacted]',
+          recoverable: false,
+        }),
+      }),
+    ]);
+    expect(state.warningEntries[0].fields).not.toHaveProperty('path');
+  });
+
   it('routes malformed bridge event parse failures into visible warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -5416,6 +5465,37 @@ function registerBridgeEventHandlersForTest() {
       key: 'archivedThreadAtById.thread-1',
       value: expect.any(Number),
     });
+  });
+
+  it('shows a warning when force complete returns a diagnosed no-target envelope', async () => {
+    backend.forceCompleteTurn.mockResolvedValueOnce({
+      ok: false,
+      forceCompleted: false,
+      errorCode: 'force_complete_target_not_found',
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      activeTurnByThread: {
+        'thread-1': { id: 'turn-1', threadId: 'thread-1', status: 'running' },
+      },
+    });
+
+    await expect(useClientStore.getState().forceCompleteActiveThread()).resolves.toBe(false);
+
+    expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '强制完成当前执行失败：force_complete_target_not_found',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
+      level: 'warn',
+      event: 'thread.force_complete.failed',
+      fields: expect.objectContaining({
+        error: '[redacted]',
+      }),
+    }));
   });
 
   it('responds to timeline approval requests through the approval RPC', async () => {

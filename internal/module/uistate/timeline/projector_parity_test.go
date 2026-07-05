@@ -264,6 +264,57 @@ func TestRegisterSubscriptions_ErrorParity(t *testing.T) {
 	}, "expected agent and turn failures to map to error items")
 }
 
+// TestTimelineTurnCompletedSuccessFalseWithoutErrorIsFailed 固定无诊断失败也必须用户可见。
+func TestTimelineTurnCompletedSuccessFalseWithoutErrorIsFailed(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	dispatcher := event.NewDispatcher()
+	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		_ = dispatcher.Close()
+	}()
+
+	event.Publish(dispatcher, turndto.TurnCompleted{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: "t-no-diagnostic"},
+				AgentID:      "agent-1",
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-no-diagnostic"},
+		},
+		Success: false,
+	})
+
+	waitForCondition(t, func() bool {
+		for _, item := range svc.GetByThread("t-no-diagnostic") {
+			if item.Kind == "turn_end" {
+				return true
+			}
+		}
+		return false
+	}, "expected failed turn to append a turn_end item")
+
+	items := svc.GetByThread("t-no-diagnostic")
+	turnEndStatus := ""
+	errorText := ""
+	for _, item := range items {
+		switch item.Kind {
+		case "turn_end":
+			turnEndStatus = item.Status
+		case "error":
+			errorText = item.Text
+		}
+	}
+	if turnEndStatus != "failed" {
+		t.Fatalf("turn_end status = %q from items %#v, want failed", turnEndStatus, items)
+	}
+	if errorText != "turn failed without provider diagnostic" {
+		t.Fatalf("error text = %q from items %#v, want fallback provider diagnostic", errorText, items)
+	}
+}
+
 func TestRegisterSubscriptions_ToolCallDistinctByToolAndCallID(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	dispatcher := event.NewDispatcher()
