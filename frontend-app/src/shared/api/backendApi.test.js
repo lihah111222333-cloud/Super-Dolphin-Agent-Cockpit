@@ -295,6 +295,11 @@ function guardedBackendResponse(method) {
       toolName: 'remote_search',
       state: 'unknown',
     }), 'state must be enabled, disabled, suspended, or removed');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle({
+      serverName: 'my-search',
+      toolName: { name: 'remote_search' },
+      state: 'disabled',
+    }), 'toolName must be a string');
     expectInvalidInputDoesNotCall(callAPI, () => api.listMCPToolLifecycle({
       serverName: 'my-search',
       extra: true,

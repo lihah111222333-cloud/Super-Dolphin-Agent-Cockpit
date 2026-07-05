@@ -1627,22 +1627,29 @@ function emptyStrictPayload(method, params = {}) {
   return {};
 }
 
-function mcpToolLifecycleString(payload, camelKey, snakeKey = camelKey) {
+function normalizeMCPToolLifecycleString(method, value, key) {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new Error(`${method}: ${key} must be a string`);
+  return value.trim();
+}
+
+function mcpToolLifecycleString(method, payload, camelKey, snakeKey = camelKey) {
   const camelValue = takePayloadField(payload, camelKey);
   const snakeValue = snakeKey === camelKey ? undefined : takePayloadField(payload, snakeKey);
-  return normalizeString(camelValue || snakeValue);
+  const value = camelValue === undefined || camelValue === null || camelValue === '' ? snakeValue : camelValue;
+  return normalizeMCPToolLifecycleString(method, value, camelKey);
 }
 
 function mcpToolLifecycleSetPayload(params) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_SET;
   const payload = { ...assertStrictPlainObject(method, params) };
-  const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
-  const toolName = mcpToolLifecycleString(payload, 'toolName', 'tool_name');
-  const state = normalizeString(takePayloadField(payload, 'state'));
-  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
-  const manifestName = mcpToolLifecycleString(payload, 'manifestName', 'manifest_name');
-  const reason = normalizeString(takePayloadField(payload, 'reason'));
-  const replacementTool = mcpToolLifecycleString(payload, 'replacementTool', 'replacement_tool');
+  const serverName = mcpToolLifecycleString(method, payload, 'serverName', 'server_name');
+  const toolName = mcpToolLifecycleString(method, payload, 'toolName', 'tool_name');
+  const state = mcpToolLifecycleString(method, payload, 'state');
+  const workspaceRoot = mcpToolLifecycleString(method, payload, 'workspaceRoot', 'workspace_root');
+  const manifestName = mcpToolLifecycleString(method, payload, 'manifestName', 'manifest_name');
+  const reason = mcpToolLifecycleString(method, payload, 'reason');
+  const replacementTool = mcpToolLifecycleString(method, payload, 'replacementTool', 'replacement_tool');
   assertNoExtraPayloadFields(method, payload);
   if (!serverName) throw new Error(`${method}: serverName is required`);
   if (!toolName) throw new Error(`${method}: toolName is required`);
@@ -1664,8 +1671,8 @@ function mcpToolLifecycleSetPayload(params) {
 function mcpToolLifecycleListPayload(params) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST;
   const payload = { ...assertStrictPlainObject(method, params) };
-  const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
-  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  const serverName = mcpToolLifecycleString(method, payload, 'serverName', 'server_name');
+  const workspaceRoot = mcpToolLifecycleString(method, payload, 'workspaceRoot', 'workspace_root');
   assertNoExtraPayloadFields(method, payload);
   if (!serverName) throw new Error(`${method}: serverName is required`);
   return cleanObject({
@@ -1677,7 +1684,7 @@ function mcpToolLifecycleListPayload(params) {
 function mcpToolLifecycleExportPayload(params = {}) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_EXPORT;
   const payload = { ...assertStrictPlainObject(method, params) };
-  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  const workspaceRoot = mcpToolLifecycleString(method, payload, 'workspaceRoot', 'workspace_root');
   assertNoExtraPayloadFields(method, payload);
   return cleanObject({
     workspaceRoot,
