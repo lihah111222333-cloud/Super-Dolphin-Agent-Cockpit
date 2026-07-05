@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -237,7 +238,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 // startReadLoop 启动单独 goroutine 读取 transport，panic 会被记录而不是击穿 Run。
 func (s *Server) startReadLoop(results chan<- readResult) {
-	go func() {
+	var readWG sync.WaitGroup
+	readWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("mcp: recovered server readLoop panic",
@@ -245,7 +247,7 @@ func (s *Server) startReadLoop(results chan<- readResult) {
 			}
 		}()
 		s.readLoop(results)
-	}()
+	})
 }
 
 // readLoop 持续读取 transport 消息并把错误也送回主循环，由 Run 统一决定是否退出。

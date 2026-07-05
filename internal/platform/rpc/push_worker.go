@@ -89,14 +89,15 @@ func (w *pushNotificationWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go func() {
+		var workerWG sync.WaitGroup
+		workerWG.Go(func() {
 			defer func() {
 				if rec := recover(); rec != nil {
 					pkglogger.Error("rpc: recovered push_notification_worker panic", "panic", rec)
 				}
 			}()
 			w.runWorker()
-		}()
+		})
 	})
 }
 

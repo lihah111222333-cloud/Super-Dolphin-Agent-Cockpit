@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -26,7 +27,8 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 		"lease_key", c.currentLease(),
 		"error", err,
 	)
-	go func() {
+	var reconnectWG sync.WaitGroup
+	reconnectWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("bootstrap: recovered reconnectLoop panic",
@@ -34,7 +36,7 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 			}
 		}()
 		c.reconnectLoop(rootCtx)
-	}()
+	})
 }
 
 // markDisconnected 在锁内清空连接和租约，并决定是否启动唯一的重连循环。

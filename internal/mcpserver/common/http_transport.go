@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -88,7 +89,8 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
-	go func() {
+	var serveWG sync.WaitGroup
+	serveWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("mcp http: recovered serve panic",
@@ -98,7 +100,7 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 		if err := h.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			pkglogger.Warn("mcp http: serve error", "server", h.name, "error", err)
 		}
-	}()
+	})
 
 	pkglogger.Info("mcp http: started", "server", h.name, "addr", addr)
 	return addr, nil

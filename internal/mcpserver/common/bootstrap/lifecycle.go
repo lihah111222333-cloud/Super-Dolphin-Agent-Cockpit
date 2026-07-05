@@ -221,17 +221,15 @@ func (c *Client) spawnCallback(fn func()) {
 	if closed {
 		return
 	}
-	c.callbackWG.Add(1)
-	go func() {
+	c.callbackWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("bootstrap: recovered callback panic",
 					"instance_id", c.instanceID, "panic", rec)
 			}
 		}()
-		defer c.callbackWG.Done()
 		fn()
-	}()
+	})
 }
 
 // watchRoot 等待 rootCtx 取消后自动调用 Close，确保上下文退出时客户端被清理。

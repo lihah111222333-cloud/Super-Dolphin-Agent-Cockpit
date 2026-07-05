@@ -81,14 +81,15 @@ func (w *hookDispatchWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go func() {
+		var workerWG sync.WaitGroup
+		workerWG.Go(func() {
 			defer func() {
 				if rec := recover(); rec != nil {
 					pkglogger.Error("hooks: recovered dispatch_worker panic", "panic", rec)
 				}
 			}()
 			w.runWorker()
-		}()
+		})
 	})
 }
 
