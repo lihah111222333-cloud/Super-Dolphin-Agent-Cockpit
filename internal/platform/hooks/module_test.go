@@ -137,3 +137,22 @@ func TestListPendingReviewsRequiresLimit(t *testing.T) {
 		t.Fatalf("GetPendingReviewsPage() error = %v, want limit is required", err)
 	}
 }
+
+// TestListPendingReviewsRejectsOverLimit 固定 pending review 分页入口不能静默裁剪过大 limit。
+func TestListPendingReviewsRejectsOverLimit(t *testing.T) {
+	t.Parallel()
+
+	store := &countingHookReviewStore{stubHookReviewStore: &stubHookReviewStore{}}
+	resolver := mustNewHookResolver(t, store)
+	registry := NewHookRegistry()
+	manager := mustNewManager(t, registry, mustNewHookDispatcher(t, registry, stubPeerCallback{}), resolver)
+
+	_, err := manager.GetPendingReviewsPage(context.Background(), contract.HookPendingReviewPageParams{
+		AgentID: "agent-over-limit",
+		Limit:   contract.HookPendingReviewMaxPageLimit + 1,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "limit exceeds maximum") {
+		t.Fatalf("GetPendingReviewsPage() error = %v, want limit exceeds maximum", err)
+	}
+}

@@ -79,6 +79,9 @@ func TestPromptProviderRendersPersistedDatasourceText(t *testing.T) {
 	if !strings.Contains(*got, "### notes.txt") || !strings.Contains(*got, "first line\nsecond line") {
 		t.Fatalf("Resolve() missing persisted datasource content:\n%s", *got)
 	}
+	if store.listPromptCalls != 1 {
+		t.Fatalf("ListPromptDocuments() calls = %d, want 1", store.listPromptCalls)
+	}
 	if strings.Contains(*got, project) {
 		t.Fatalf("Resolve() leaked absolute project path:\n%s", *got)
 	}
@@ -111,6 +114,9 @@ func TestDatasourcePromptRejectsTooManyWorkspaceDocuments(t *testing.T) {
 	if got != nil {
 		t.Fatalf("Resolve() text = %q, want nil on too many datasource documents", *got)
 	}
+	if store.listPromptCalls != 1 {
+		t.Fatalf("ListPromptDocuments() calls = %d, want 1", store.listPromptCalls)
+	}
 }
 
 // TestDatasourcePromptRejectsOversizedWorkspaceDocuments 固定 workspace 文档总字节超限时阻断 prompt。
@@ -140,6 +146,9 @@ func TestDatasourcePromptRejectsOversizedWorkspaceDocuments(t *testing.T) {
 	if got != nil {
 		t.Fatalf("Resolve() text = %q, want nil on oversized datasource workspace bytes", *got)
 	}
+	if store.listPromptCalls != 1 {
+		t.Fatalf("ListPromptDocuments() calls = %d, want 1", store.listPromptCalls)
+	}
 }
 
 // TestDatasourcePromptRejectsOversizedSingleDocument 固定单文档超限时阻断 prompt，禁止静默截断。
@@ -167,6 +176,9 @@ func TestDatasourcePromptRejectsOversizedSingleDocument(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("Resolve() text = %q, want nil on oversized single datasource document", *got)
+	}
+	if store.listPromptCalls != 1 {
+		t.Fatalf("ListPromptDocuments() calls = %d, want 1", store.listPromptCalls)
 	}
 }
 

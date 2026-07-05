@@ -132,7 +132,9 @@ type Querier interface {
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
+	ListDatasourceDocumentPromptMetadata(ctx context.Context, arg ListDatasourceDocumentPromptMetadataParams) ([]ListDatasourceDocumentPromptMetadataRow, error)
 	ListDatasourceDocuments(ctx context.Context, arg ListDatasourceDocumentsParams) ([]ListDatasourceDocumentsRow, error)
+	ListDatasourcePromptDocuments(ctx context.Context, arg ListDatasourcePromptDocumentsParams) ([]ListDatasourcePromptDocumentsRow, error)
 	ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]ListDatasourceV2ChunksRow, error)
 	ListDatasourceV2ChunksPage(ctx context.Context, arg ListDatasourceV2ChunksPageParams) ([]ListDatasourceV2ChunksPageRow, error)
 	ListDatasourceV2Documents(ctx context.Context, arg ListDatasourceV2DocumentsParams) ([]DatasourceV2Document, error)

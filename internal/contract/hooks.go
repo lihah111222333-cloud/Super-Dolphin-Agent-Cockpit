@@ -28,6 +28,7 @@ type HookManager interface {
 	DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error)
 	Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error)
 	GetPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error)
+	GetPendingReviewsPage(ctx context.Context, params HookPendingReviewPageParams) (HookPendingReviewPage, error)
 }
 
 // HookPendingReviewPageParams 描述 pending hook review 的显式分页请求。

@@ -277,6 +277,54 @@ func TestConsolidationPromptRejectsOversizedLogDocuments(t *testing.T) {
 	}
 }
 
+// TestConsolidationPromptRejectsOversizedIndexDocument verifies MEMORY.md is covered by the single-file budget.
+func TestConsolidationPromptRejectsOversizedIndexDocument(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
+	if err := os.WriteFile(memoryIndexPath(root), []byte(strings.Repeat("x", defaultMaxConsolidationFileBytes+1)), 0o644); err != nil {
+		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
+	}
+
+	input, err := loadConsolidationPromptInput(root, &Config{Enabled: true, RootDir: root})
+	var diagnostic *ConsolidationDiagnosticError
+	if !errors.As(err, &diagnostic) || !strings.Contains(diagnostic.Reason, "memory index budget exceeded") {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want memory index budget diagnostic", err, input)
+	}
+	wantPath, err := filepath.EvalSymlinks(memoryIndexPath(root))
+	if err != nil {
+		t.Fatalf("EvalSymlinks(MEMORY.md) error = %v", err)
+	}
+	if diagnostic.Path != wantPath {
+		t.Fatalf("diagnostic path = %q, want %q", diagnostic.Path, wantPath)
+	}
+}
+
+// TestConsolidationPromptCountsIndexDocumentInFileBudget verifies MEMORY.md shares the file-count budget.
+func TestConsolidationPromptCountsIndexDocumentInFileBudget(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	writeMemoryIndexFixture(t, root)
+	writeExtractFixture(t, filepath.Join(root, "feedback", "topic.md"), testMemoryEntry(
+		"Topic",
+		"budget",
+		MemoryTypeFeedback,
+		"Keep this topic bounded.",
+	))
+
+	input, err := loadConsolidationPromptInput(root, &Config{
+		Enabled:                    true,
+		RootDir:                    root,
+		MaxConsolidationFiles:      1,
+		MaxConsolidationFileBytes:  defaultMaxConsolidationFileBytes,
+		MaxConsolidationTotalBytes: defaultMaxConsolidationTotalBytes,
+	})
+	var diagnostic *ConsolidationDiagnosticError
+	if !errors.As(err, &diagnostic) || !strings.Contains(diagnostic.Reason, "memory index budget exceeded") {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want index file-count budget diagnostic", err, input)
+	}
+}
+
 // TestConsolidationPromptHonorsContextCancel verifies cancellation aborts before reading prompt inputs.
 func TestConsolidationPromptHonorsContextCancel(t *testing.T) {
 	root := newTestMemoryRoot(t)

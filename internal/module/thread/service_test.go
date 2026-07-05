@@ -30,7 +30,7 @@ func TestListThreadsUsesLimitAndCursor(t *testing.T) {
 	svc := &service{threadStore: store}
 
 	got, err := svc.ListPage(context.Background(), ListPageRequest{
-		Limit:           500,
+		Limit:           50,
 		CursorCreatedAt: 42,
 		CursorThreadID:  "thread-cursor",
 	})
@@ -41,8 +41,49 @@ func TestListThreadsUsesLimitAndCursor(t *testing.T) {
 	if store.listAllCalled {
 		t.Fatal("ListPage() called ListAll; want bounded store page query")
 	}
-	requireThreadPageParams(t, store.pageParams, 200, 42, "thread-cursor")
+	requireThreadPageParams(t, store.pageParams, 50, 42, "thread-cursor")
 	requireThreadPageResult(t, got, "thread-next", 41)
+}
+
+// TestListThreadsRejectsOverLimit verifies explicit page requests fail fast instead of clamping.
+func TestListThreadsRejectsOverLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		call func(*service) error
+	}{
+		{
+			name: "all",
+			call: func(svc *service) error {
+				_, err := svc.ListPage(context.Background(), ListPageRequest{Limit: maxThreadListLimit + 1})
+				return err
+			},
+		},
+		{
+			name: "loaded",
+			call: func(svc *service) error {
+				_, err := svc.ListLoadedPage(context.Background(), ListPageRequest{Limit: maxThreadListLimit + 1})
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &pageAwareThreadStore{}
+			svc := &service{threadStore: store}
+
+			err := tc.call(svc)
+
+			if err == nil || !strings.Contains(err.Error(), "thread list limit exceeds maximum") {
+				t.Fatalf("ListPage over limit error = %v, want fail-fast max limit error", err)
+			}
+			if store.pageParams.Limit != 0 || store.loadedPageParams.Limit != 0 || store.listAllCalled {
+				t.Fatalf("store was called for over-limit request: page=%#v loaded=%#v listAll=%v", store.pageParams, store.loadedPageParams, store.listAllCalled)
+			}
+		})
+	}
 }
 
 // TestLoadedThreadsUsesSQLFilter 验证 loaded 线程页必须使用 store 的 SQL 过滤入口。
@@ -95,7 +136,7 @@ func TestLegacyListUsesHardCap(t *testing.T) {
 	requireThreadListIDs(t, got, "thread-legacy")
 }
 
-// requireThreadPageParams 断言 service 传给 store 的分页参数完整且已按上限裁剪。
+// requireThreadPageParams 断言 service 传给 store 的分页参数完整。
 func requireThreadPageParams(t *testing.T, got contract.ThreadListPageParams, wantLimit int, wantCreatedAt int64, wantThreadID string) {
 	t.Helper()
 	if got.Limit != wantLimit {
