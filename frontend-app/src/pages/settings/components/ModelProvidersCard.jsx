@@ -116,15 +116,23 @@ function ModelProvidersCard({ copy, cwd }) {
     if (!currentCwd || applying || !registryState || registryState.cwd !== currentCwd || !selectedVendor || !selectedVendor.enabled || !selectedVendor.configured) return;
     const requestCwd = currentCwd;
     const vendorToApply = selectedVendor;
+    const registryToApply = registryState.registry;
+    let phase = 'save';
     setBusy((current) => ({ ...current, applying: true }));
     try {
+      await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registryToApply) });
+      if (currentCwdRef.current !== requestCwd) return;
+      phase = 'apply';
       const payload = await applyModelProvider({ cwd: requestCwd, vendorId: vendorToApply.id });
       if (currentCwdRef.current === requestCwd) {
         applyRegistryState(payload, vendorToApply.id, requestCwd);
         setNotice({ level: 'info', message: modelCopy.applied.replace('{label}', vendorToApply.label || vendorToApply.id) });
       }
     } catch (error) {
-      if (currentCwdRef.current === requestCwd) setNotice({ level: 'error', message: modelCopy.applyFailed + (error?.message || error) });
+      if (currentCwdRef.current === requestCwd) {
+        const prefix = phase === 'save' ? modelCopy.saveFailed : modelCopy.applyFailed;
+        setNotice({ level: 'error', message: prefix + (error?.message || error) });
+      }
     } finally {
       if (currentCwdRef.current === requestCwd) setBusy((current) => ({ ...current, applying: false }));
     }
