@@ -10,6 +10,72 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+type listServersPublicResult struct {
+	ConfigPath string                           `json:"configPath"`
+	MCPServers map[string]mcpServerPublicStatus `json:"mcpServers"`
+}
+
+type mcpServerPublicStatus struct {
+	Enabled bool `json:"enabled"`
+}
+
+type startPostgresServerPublicResult struct {
+	ConfigPath string `json:"configPath"`
+	ServerName string `json:"serverName"`
+	Added      bool   `json:"added"`
+}
+
+type startSQLiteServerPublicResult struct {
+	ConfigPath string `json:"configPath"`
+	ServerName string `json:"serverName"`
+	Added      bool   `json:"added"`
+	Enabled    bool   `json:"enabled"`
+}
+
+type startPlaywrightServerPublicResult struct {
+	ConfigPath string `json:"configPath"`
+	ServerName string `json:"serverName"`
+	Added      bool   `json:"added"`
+	Enabled    bool   `json:"enabled"`
+}
+
+func toListServersPublicResult(result ListServersResult) listServersPublicResult {
+	servers := make(map[string]mcpServerPublicStatus, len(result.MCPServers))
+	for name, config := range result.MCPServers {
+		servers[name] = mcpServerPublicStatus{Enabled: mcpServerConfigEnabled(config)}
+	}
+	return listServersPublicResult{
+		ConfigPath: result.ConfigPath,
+		MCPServers: servers,
+	}
+}
+
+func toStartPostgresServerPublicResult(result StartPostgresServerResult) startPostgresServerPublicResult {
+	return startPostgresServerPublicResult{
+		ConfigPath: result.ConfigPath,
+		ServerName: result.ServerName,
+		Added:      result.Added,
+	}
+}
+
+func toStartSQLiteServerPublicResult(result StartSQLiteServerResult) startSQLiteServerPublicResult {
+	return startSQLiteServerPublicResult{
+		ConfigPath: result.ConfigPath,
+		ServerName: result.ServerName,
+		Added:      result.Added,
+		Enabled:    result.Enabled,
+	}
+}
+
+func toStartPlaywrightServerPublicResult(result StartPlaywrightServerResult) startPlaywrightServerPublicResult {
+	return startPlaywrightServerPublicResult{
+		ConfigPath: result.ConfigPath,
+		ServerName: result.ServerName,
+		Added:      result.Added,
+		Enabled:    result.Enabled,
+	}
+}
+
 // NewHandlers 注册 MCP server 管理相关的 RPC 处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
@@ -41,16 +107,16 @@ func addServersHandler(svc Service) func(context.Context, AddServersRequest) (Ad
 	}
 }
 
-func listServersHandler(svc Service) func(context.Context, struct{}) (ListServersResult, error) {
-	return func(ctx context.Context, _ struct{}) (ListServersResult, error) {
+func listServersHandler(svc Service) func(context.Context, struct{}) (listServersPublicResult, error) {
+	return func(ctx context.Context, _ struct{}) (listServersPublicResult, error) {
 		if svc == nil {
-			return ListServersResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+			return listServersPublicResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
 		}
 		result, err := svc.ListServers(ctx)
 		if err != nil {
-			return ListServersResult{}, mcpServerRPCError(err)
+			return listServersPublicResult{}, mcpServerRPCError(err)
 		}
-		return result, nil
+		return toListServersPublicResult(result), nil
 	}
 }
 
@@ -67,29 +133,29 @@ func listServerToolsHandler(svc Service) func(context.Context, ListServerToolsRe
 	}
 }
 
-func startPostgresServerHandler(svc Service) func(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error) {
-	return func(ctx context.Context, req StartPostgresServerRequest) (StartPostgresServerResult, error) {
+func startPostgresServerHandler(svc Service) func(context.Context, StartPostgresServerRequest) (startPostgresServerPublicResult, error) {
+	return func(ctx context.Context, req StartPostgresServerRequest) (startPostgresServerPublicResult, error) {
 		if svc == nil {
-			return StartPostgresServerResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+			return startPostgresServerPublicResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
 		}
 		result, err := svc.StartPostgresServer(ctx, req)
 		if err != nil {
-			return StartPostgresServerResult{}, mcpServerRPCError(err)
+			return startPostgresServerPublicResult{}, mcpServerRPCError(err)
 		}
-		return result, nil
+		return toStartPostgresServerPublicResult(result), nil
 	}
 }
 
-func startSQLiteServerHandler(svc Service) func(context.Context, StartSQLiteServerRequest) (StartSQLiteServerResult, error) {
-	return func(ctx context.Context, req StartSQLiteServerRequest) (StartSQLiteServerResult, error) {
+func startSQLiteServerHandler(svc Service) func(context.Context, StartSQLiteServerRequest) (startSQLiteServerPublicResult, error) {
+	return func(ctx context.Context, req StartSQLiteServerRequest) (startSQLiteServerPublicResult, error) {
 		if svc == nil {
-			return StartSQLiteServerResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+			return startSQLiteServerPublicResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
 		}
 		result, err := svc.StartSQLiteServer(ctx, req)
 		if err != nil {
-			return StartSQLiteServerResult{}, mcpServerRPCError(err)
+			return startSQLiteServerPublicResult{}, mcpServerRPCError(err)
 		}
-		return result, nil
+		return toStartSQLiteServerPublicResult(result), nil
 	}
 }
 
@@ -106,16 +172,16 @@ func stopSQLiteServerHandler(svc Service) func(context.Context, StopSQLiteServer
 	}
 }
 
-func startPlaywrightServerHandler(svc Service) func(context.Context, StartPlaywrightServerRequest) (StartPlaywrightServerResult, error) {
-	return func(ctx context.Context, req StartPlaywrightServerRequest) (StartPlaywrightServerResult, error) {
+func startPlaywrightServerHandler(svc Service) func(context.Context, StartPlaywrightServerRequest) (startPlaywrightServerPublicResult, error) {
+	return func(ctx context.Context, req StartPlaywrightServerRequest) (startPlaywrightServerPublicResult, error) {
 		if svc == nil {
-			return StartPlaywrightServerResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+			return startPlaywrightServerPublicResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
 		}
 		result, err := svc.StartPlaywrightServer(ctx, req)
 		if err != nil {
-			return StartPlaywrightServerResult{}, mcpServerRPCError(err)
+			return startPlaywrightServerPublicResult{}, mcpServerRPCError(err)
 		}
-		return result, nil
+		return toStartPlaywrightServerPublicResult(result), nil
 	}
 }
 

@@ -1639,7 +1639,6 @@ function mergeMCPServerEnabled(response, result, serverName, enabled) {
   const existing = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : {};
   const nextConfig = {
     ...existing,
-    ...(result?.config && typeof result.config === 'object' && !Array.isArray(result.config) ? result.config : {}),
     enabled,
   };
   return {

@@ -191,11 +191,11 @@ function guardedBackendResponse(method) {
   });
 
   it('wraps MCP server list and default controls with strict empty payloads', async () => {
-    const listResponse = { mcpServers: { sqlite: { enabled: false } } };
-    const startResponse = { serverName: 'sqlite', enabled: true };
-    const stopResponse = { serverName: 'sqlite', enabled: false };
-    const playwrightStartResponse = { serverName: 'playwright', enabled: true };
-    const playwrightStopResponse = { serverName: 'playwright', enabled: false };
+    const listResponse = { configPath: '/repo/.agent/mcp_server/config.json', mcpServers: { sqlite: { enabled: false } } };
+    const startResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'sqlite', enabled: true };
+    const stopResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'sqlite', enabled: false };
+    const playwrightStartResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'playwright', enabled: true };
+    const playwrightStopResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'playwright', enabled: false };
     const callAPI = vi.fn()
       .mockResolvedValueOnce(listResponse)
       .mockResolvedValueOnce(startResponse)
@@ -222,6 +222,33 @@ function guardedBackendResponse(method) {
     expect(typeof stopPlaywrightMCPServer).toBe('function');
   });
 
+  it('rejects MCP server public responses that include config details', async () => {
+    const leakedListAPI = createBackendApi({
+      callAPI: vi.fn().mockResolvedValue({
+        configPath: '/repo/.agent/mcp_server/config.json',
+        mcpServers: {
+          sqlite: {
+            enabled: true,
+            headers: { Authorization: 'Bearer YOUR_API_KEY' },
+          },
+        },
+      }),
+    });
+
+    await expect(leakedListAPI.listMCPServers()).rejects.toThrow('must not include headers');
+
+    const leakedStartAPI = createBackendApi({
+      callAPI: vi.fn().mockResolvedValue({
+        configPath: '/repo/.agent/mcp_server/config.json',
+        serverName: 'sqlite',
+        enabled: true,
+        config: { command: 'npx', args: ['@bytebase/dbhub'] },
+      }),
+    });
+
+    await expect(leakedStartAPI.startSQLiteMCPServer()).rejects.toThrow('must not include config');
+  });
+
   it('rejects malformed MCP server default control responses', async () => {
     for (const action of [
       'startSQLiteMCPServer',
@@ -229,7 +256,9 @@ function guardedBackendResponse(method) {
       'startPlaywrightMCPServer',
       'stopPlaywrightMCPServer',
     ]) {
-      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({}) });
+      const api = createBackendApi({
+        callAPI: vi.fn().mockResolvedValue({ configPath: '/repo/.agent/mcp_server/config.json' }),
+      });
 
       await expect(api[action]()).rejects.toThrow('serverName');
     }

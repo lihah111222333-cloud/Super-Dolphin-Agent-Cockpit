@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/creachadair/jrpc2"
@@ -13,6 +14,22 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
+
+type listServersRPCResponse struct {
+	ConfigPath string                             `json:"configPath"`
+	MCPServers map[string]mcpServerRPCStatusEntry `json:"mcpServers"`
+}
+
+type mcpServerRPCStatusEntry struct {
+	Enabled bool `json:"enabled"`
+}
+
+type startServerRPCResponse struct {
+	ConfigPath string `json:"configPath"`
+	ServerName string `json:"serverName"`
+	Added      bool   `json:"added"`
+	Enabled    bool   `json:"enabled"`
+}
 
 func TestAddRPCCreatesMCPServerConfig(t *testing.T) {
 	project := t.TempDir()
@@ -58,7 +75,7 @@ func TestAddRPCRejectsMissingMCPServers(t *testing.T) {
 	}
 }
 
-func TestListRPCReturnsMCPServerConfig(t *testing.T) {
+func TestListRPCReturnsPublicMCPServerStatus(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 	store := newMemoryMCPServerStore()
@@ -66,6 +83,15 @@ func TestListRPCReturnsMCPServerConfig(t *testing.T) {
 	store.seed(project, "my-search", ServerConfig{
 		Transport: "http",
 		URL:       "https://your-domain.com/mcp",
+		Headers: map[string]string{
+			"Authorization": "Bearer YOUR_API_KEY",
+		},
+		Command: "secret-command",
+		Args:    []string{"--token", "secret-arg-token"},
+		Env: map[string]string{
+			"API_TOKEN": "secret-env-token",
+		},
+		Enabled: boolPtr(false),
 	})
 	server := newMCPServerTestServer(store)
 	payload, err := json.Marshal(map[string]any{})
@@ -77,15 +103,20 @@ func TestListRPCReturnsMCPServerConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch mcpServer/list: %v", err)
 	}
-	var got ListServersResult
+	assertJSONOmitsMCPConfigDetails(t, raw, "Bearer YOUR_API_KEY", "secret-command", "secret-arg-token", "secret-env-token")
+	var got listServersRPCResponse
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 	if got.ConfigPath != configPath {
 		t.Fatalf("ConfigPath = %q, want %q", got.ConfigPath, configPath)
 	}
-	if got.MCPServers["my-search"].URL != "https://your-domain.com/mcp" {
-		t.Fatalf("mcpServers = %#v", got.MCPServers)
+	status, ok := got.MCPServers["my-search"]
+	if !ok {
+		t.Fatalf("mcpServers missing my-search: %#v", got.MCPServers)
+	}
+	if status.Enabled {
+		t.Fatalf("mcpServers my-search enabled = true, want false")
 	}
 }
 
@@ -126,12 +157,13 @@ func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch mcpServer/postgres/start: %v", err)
 	}
-	var got StartPostgresServerResult
+	assertJSONOmitsMCPConfigDetails(t, raw, `"config":`, "mcp-server-postgres")
+	var got startServerRPCResponse
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if !got.Added || got.Config.Command != "mcp-server-postgres" {
-		t.Fatalf("StartPostgresServerResult = %#v, want added mcp-server-postgres config", got)
+	if !got.Added || got.ServerName != DefaultPostgresServerName {
+		t.Fatalf("StartPostgresServerResult = %#v, want added postgres", got)
 	}
 	if store.servers[project][DefaultPostgresServerName].Command != "mcp-server-postgres" {
 		t.Fatalf("stored servers = %#v, want postgres mcp-server-postgres config", store.servers[project])
@@ -149,12 +181,13 @@ func TestStartSQLiteRPCCreatesDefaultNPXConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch mcpServer/sqlite/start: %v", err)
 	}
-	var got StartSQLiteServerResult
+	assertJSONOmitsMCPConfigDetails(t, raw, `"config":`, dbPath, "npx", "@bytebase/dbhub")
+	var got startServerRPCResponse
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if !got.Added || !got.Enabled || got.Config.Command != "npx" {
-		t.Fatalf("StartSQLiteServerResult = %#v, want added enabled npx sqlite config", got)
+	if !got.Added || !got.Enabled || got.ServerName != DefaultSQLiteServerName {
+		t.Fatalf("StartSQLiteServerResult = %#v, want added enabled sqlite", got)
 	}
 	if store.servers[project][DefaultSQLiteServerName].Command != "npx" {
 		t.Fatalf("stored servers = %#v, want sqlite npx config", store.servers[project])
@@ -192,12 +225,13 @@ func TestStartPlaywrightRPCCreatesDefaultNPXConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch mcpServer/playwright/start: %v", err)
 	}
-	var got StartPlaywrightServerResult
+	assertJSONOmitsMCPConfigDetails(t, raw, `"config":`, "npx", "@playwright/mcp@latest")
+	var got startServerRPCResponse
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if !got.Added || !got.Enabled || got.Config.Command != "npx" {
-		t.Fatalf("StartPlaywrightServerResult = %#v, want added enabled npx playwright config", got)
+	if !got.Added || !got.Enabled || got.ServerName != DefaultPlaywrightServerName {
+		t.Fatalf("StartPlaywrightServerResult = %#v, want added enabled playwright", got)
 	}
 	if args := store.servers[project][DefaultPlaywrightServerName].Args; len(args) != 1 || args[0] != "@playwright/mcp@latest" {
 		t.Fatalf("stored servers = %#v, want playwright npx config", store.servers[project])
@@ -438,6 +472,21 @@ func assertMCPServerRPCCode(t *testing.T, err error, want int) {
 	}
 	if rpcErr.Code != jrpc2.Code(want) {
 		t.Fatalf("rpc code = %v, want %d", rpcErr.Code, want)
+	}
+}
+
+func assertJSONOmitsMCPConfigDetails(t *testing.T, raw json.RawMessage, forbidden ...string) {
+	t.Helper()
+	payload := string(raw)
+	for _, marker := range []string{`"transport"`, `"url"`, `"headers"`, `"command"`, `"args"`, `"env"`} {
+		if strings.Contains(payload, marker) {
+			t.Fatalf("response leaked MCP config key %s: %s", marker, payload)
+		}
+	}
+	for _, marker := range forbidden {
+		if strings.Contains(payload, marker) {
+			t.Fatalf("response leaked MCP config marker %q: %s", marker, payload)
+		}
 	}
 }
 
