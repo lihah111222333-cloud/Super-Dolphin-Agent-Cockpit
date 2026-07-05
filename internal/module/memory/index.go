@@ -209,6 +209,18 @@ func newUIMemoryScanBudget(ctx context.Context) *uiMemoryScanBudget {
 	}
 }
 
+func newConsolidationMemoryScanBudget(ctx context.Context, cfg *Config) *uiMemoryScanBudget {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &uiMemoryScanBudget{
+		ctx:         ctx,
+		entryLimit:  maxConsolidationFiles(cfg),
+		singleLimit: maxConsolidationFileBytes(cfg),
+		totalLimit:  maxConsolidationTotalBytes(cfg),
+	}
+}
+
 func uiMemoryScanStopped(ctx context.Context, budget *uiMemoryScanBudget) error {
 	if budget == nil {
 		return nil
