@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,36 @@ import (
 // ErrConsolidationAgentMemoryPath 表示 consolidation 输入命中了 agent memory 目录。
 // dream 只能读取 durable memory，遇到 agent-scoped 路径必须拒绝，避免跨作用域泄露。
 var ErrConsolidationAgentMemoryPath = errors.New("dream cannot access agent memory path")
+
+// ConsolidationDiagnosticError 表示 consolidation prompt 输入构造被安全预算或取消信号阻断。
+type ConsolidationDiagnosticError struct {
+	Reason string
+	Path   string
+	Err    error
+}
+
+// Error 返回 consolidation 诊断的可读摘要。
+func (e *ConsolidationDiagnosticError) Error() string {
+	if e == nil {
+		return ""
+	}
+	reason := strings.TrimSpace(e.Reason)
+	if reason == "" {
+		reason = "input rejected"
+	}
+	if path := strings.TrimSpace(e.Path); path != "" {
+		return "memory consolidation diagnostic: " + reason + ": " + path
+	}
+	return "memory consolidation diagnostic: " + reason
+}
+
+// Unwrap 返回触发诊断的底层错误。
+func (e *ConsolidationDiagnosticError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 const (
 	consolidationDataFenceTag = "untrusted-memory-consolidation-data"
@@ -44,7 +75,11 @@ type consolidationPromptInput struct {
 
 // loadConsolidationPromptInput 读取一次 consolidation 所需的索引、主题文件和日志文件。
 // 所有路径都会经过 agent-memory 拒绝检查和 read path 校验，任一非法路径都会 fail-fast。
-func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPromptInput, error) {
+func loadConsolidationPromptInput(root string, cfg *Config, ctxOpt ...context.Context) (consolidationPromptInput, error) {
+	ctx := consolidationPromptContext(ctxOpt...)
+	if err := consolidationContextDiagnostic(ctx); err != nil {
+		return consolidationPromptInput{}, err
+	}
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
 		return consolidationPromptInput{}, err
@@ -52,7 +87,8 @@ func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPrompt
 	if err := rejectConsolidationPath(cfg, normalizedRoot); err != nil {
 		return consolidationPromptInput{}, err
 	}
-	entries, err := scanMemoryEntries(normalizedRoot)
+	budget := newConsolidationMemoryScanBudget(ctx, cfg)
+	entries, err := scanConsolidationTopicEntries(ctx, normalizedRoot, budget)
 	if err != nil {
 		return consolidationPromptInput{}, err
 	}
@@ -70,7 +106,7 @@ func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPrompt
 	if err != nil {
 		return consolidationPromptInput{}, err
 	}
-	logDocs, err := scanConsolidationLogDocuments(normalizedRoot, cfg)
+	logDocs, err := scanConsolidationLogDocuments(ctx, normalizedRoot, cfg, budget)
 	if err != nil {
 		return consolidationPromptInput{}, err
 	}
@@ -81,6 +117,34 @@ func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPrompt
 		TopicDocuments: topicDocs,
 		LogDocuments:   logDocs,
 	}, nil
+}
+
+func consolidationPromptContext(ctxOpt ...context.Context) context.Context {
+	if len(ctxOpt) > 0 && ctxOpt[0] != nil {
+		return ctxOpt[0]
+	}
+	return context.Background()
+}
+
+func consolidationContextDiagnostic(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return &ConsolidationDiagnosticError{Reason: "context canceled", Err: err}
+	}
+	return nil
+}
+
+func scanConsolidationTopicEntries(ctx context.Context, root string, budget *uiMemoryScanBudget) ([]MemoryEntry, error) {
+	entries, err := scanMemoryEntriesWithBudget(ctx, root, budget)
+	if err != nil {
+		return nil, err
+	}
+	if err := consolidationBudgetDiagnostic("topic files", "", budget); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 // buildConsolidationPrompt 渲染交给 extract 函数的 consolidation 指令。
@@ -146,7 +210,12 @@ func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocu
 
 // scanConsolidationLogDocuments 扫描 logs 目录中的 markdown 日志输入。
 // 日志目录不存在时返回空列表；遍历期间任一非法路径或读取错误都会中止本次 consolidation。
-func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDocument, error) {
+func scanConsolidationLogDocuments(
+	ctx context.Context,
+	root string,
+	cfg *Config,
+	budget *uiMemoryScanBudget,
+) ([]consolidationDocument, error) {
 	logRoot := filepath.Join(root, "logs")
 	if err := rejectConsolidationPath(cfg, logRoot); err != nil {
 		return nil, err
@@ -160,7 +229,10 @@ func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDoc
 	}
 	docs := make([]consolidationDocument, 0, 8)
 	err = filepath.WalkDir(logRoot, func(path string, d os.DirEntry, walkErr error) error {
-		doc, ok, readErr := readConsolidationLogDocument(root, cfg, path, d, walkErr)
+		if err := uiMemoryScanStopped(ctx, budget); err != nil {
+			return err
+		}
+		doc, ok, readErr := readConsolidationLogDocument(root, cfg, path, d, walkErr, budget)
 		if readErr != nil {
 			return readErr
 		}
@@ -169,11 +241,31 @@ func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDoc
 		}
 		return nil
 	})
+	if errors.Is(err, errUIMemoryScanStopped) {
+		return nil, consolidationBudgetDiagnostic("log files", "", budget)
+	}
 	if err != nil {
+		return nil, err
+	}
+	if err := consolidationBudgetDiagnostic("log files", "", budget); err != nil {
 		return nil, err
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].Path < docs[j].Path })
 	return docs, nil
+}
+
+func consolidationBudgetDiagnostic(source, path string, budget *uiMemoryScanBudget) error {
+	if budget == nil || !budget.isStopped() {
+		return nil
+	}
+	if budget.canceled {
+		err := budget.ctx.Err()
+		if err == nil {
+			err = context.Canceled
+		}
+		return &ConsolidationDiagnosticError{Reason: source + " canceled", Path: path, Err: err}
+	}
+	return &ConsolidationDiagnosticError{Reason: source + " budget exceeded", Path: path}
 }
 
 // consolidationLogRootExists 判断日志目录是否存在。
@@ -189,7 +281,14 @@ func consolidationLogRootExists(logRoot string) (bool, error) {
 
 // readConsolidationLogDocument 将 WalkDir 访问到的 markdown 文件转换为 consolidationDocument。
 // 目录、非 markdown 文件会被跳过；路径校验和读取错误会立即返回，避免 prompt 混入越界内容。
-func readConsolidationLogDocument(root string, cfg *Config, path string, d os.DirEntry, walkErr error) (consolidationDocument, bool, error) {
+func readConsolidationLogDocument(
+	root string,
+	cfg *Config,
+	path string,
+	d os.DirEntry,
+	walkErr error,
+	budget *uiMemoryScanBudget,
+) (consolidationDocument, bool, error) {
 	if walkErr != nil {
 		return consolidationDocument{}, false, walkErr
 	}
@@ -203,9 +302,15 @@ func readConsolidationLogDocument(root string, cfg *Config, path string, d os.Di
 	if err != nil {
 		return consolidationDocument{}, false, err
 	}
+	if !reserveUIMemoryScanFile(budget, d) {
+		return consolidationDocument{}, false, errUIMemoryScanStopped
+	}
 	raw, err := os.ReadFile(validatedPath)
 	if err != nil {
 		return consolidationDocument{}, false, err
+	}
+	if budget != nil {
+		budget.recordEntry()
 	}
 	return consolidationDocument{
 		Path:    relativeMemoryPath(root, validatedPath),

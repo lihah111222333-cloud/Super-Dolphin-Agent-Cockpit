@@ -115,7 +115,7 @@ func TestReconcileProviderMirrorsPublishesPackagedProjectMirrorToWritableHome(t 
 	assertMirrorFile(t, filepath.Join(resources, ".agents", "skills", "packaged", skillMainFile), false)
 }
 
-func TestSkillMirrorPublisherReportsPersonalManagedDriftAsNonBlockingSkipped(t *testing.T) {
+func TestPersonalMirrorDriftBlocksProviderStartup(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "notes"), "notes")
@@ -143,20 +143,20 @@ func TestSkillMirrorPublisherReportsPersonalManagedDriftAsNonBlockingSkipped(t *
 	}
 
 	assertFileContent(t, filepath.Join(target.Root, "notes", "references", "guide.md"), "personal edit")
-	assertSkippedReportItem(t, report.Skipped, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
-	personalDrift := findReportItem(t, report.Skipped, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
+	assertConflictReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes", "drift")
+	personalDrift := findReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
 	if personalDrift.ConflictKind != "drift" || personalDrift.OldHash == "" {
-		t.Fatalf("personal drift skipped item = %+v, want drift kind with old hash", personalDrift)
+		t.Fatalf("personal drift conflict item = %+v, want drift kind with old hash", personalDrift)
 	}
-	if len(report.Conflicts) != 0 {
-		t.Fatalf("conflicts = %+v, want none for personal managed drift", report.Conflicts)
+	if len(report.Skipped) != 0 {
+		t.Fatalf("skipped = %+v, want none for provider-readable personal drift", report.Skipped)
 	}
-	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err != nil {
-		t.Fatalf("EnsureNoSkillMirrorConflicts personal drift: %v", err)
+	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err == nil || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("EnsureNoSkillMirrorConflicts personal drift error = %v, want provider startup blocked", err)
 	}
 }
 
-func TestSkillMirrorPublisherReportsPersonalDeletedWithDriftAsNonBlockingSkipped(t *testing.T) {
+func TestDeletedPersonalMirrorDriftBlocksProviderStartup(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	canonicalDir := filepath.Join(superHome, "skills", "personal", "user", "notes")
@@ -171,16 +171,16 @@ func TestSkillMirrorPublisherReportsPersonalDeletedWithDriftAsNonBlockingSkipped
 	report := publishDeletedWithDriftMirror(t, project, superHome, canonicalDir, target, "notes", "personal deleted drift")
 
 	assertFileContent(t, filepath.Join(target.Root, "notes", "references", "guide.md"), "personal deleted drift")
-	assertSkippedReportItem(t, report.Skipped, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
-	personalDrift := findReportItem(t, report.Skipped, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
+	assertConflictReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes", "drift")
+	personalDrift := findReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
 	if personalDrift.ConflictKind != "drift" || personalDrift.OldHash == "" {
-		t.Fatalf("personal deleted drift skipped item = %+v, want drift kind with old hash", personalDrift)
+		t.Fatalf("personal deleted drift conflict item = %+v, want drift kind with old hash", personalDrift)
 	}
-	if len(report.Conflicts) != 0 {
-		t.Fatalf("conflicts = %+v, want none for personal deleted drift", report.Conflicts)
+	if len(report.Skipped) != 0 {
+		t.Fatalf("skipped = %+v, want none for provider-readable personal deleted drift", report.Skipped)
 	}
-	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err != nil {
-		t.Fatalf("EnsureNoSkillMirrorConflicts personal deleted drift: %v", err)
+	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err == nil || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("EnsureNoSkillMirrorConflicts personal deleted drift error = %v, want provider startup blocked", err)
 	}
 }
 

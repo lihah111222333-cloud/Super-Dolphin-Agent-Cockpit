@@ -333,6 +333,24 @@ func TestProviderHomeBlocksCanonicalDeletedWithDrift(t *testing.T) {
 	assertProviderHomeBlocksActiveConflict(t, "canonical_deleted_with_drift")
 }
 
+// TestSkippedDriftIsNotIgnoredForProviderReadableTargets verifies provider-readable drift stays startup-blocking.
+func TestSkippedDriftIsNotIgnoredForProviderReadableTargets(t *testing.T) {
+	report := contract.SkillMirrorReport{Skipped: []contract.SkillMirrorReportItem{{
+		TargetID:     "codex:app-managed:owner",
+		Scope:        "personal",
+		ConflictKind: "drift",
+	}}}
+
+	err := EnsureNoSkillMirrorConflicts(report)
+	if err == nil {
+		t.Fatalf("EnsureNoSkillMirrorConflicts() error = nil, want provider-readable skipped drift to block provider start")
+	}
+	assertProviderStartupGateCode(t, err, "skill_mirror_conflict")
+	if !strings.Contains(err.Error(), "drift") || !strings.Contains(err.Error(), "codex:app-managed:owner") {
+		t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want drift and target context", err)
+	}
+}
+
 func assertProviderHomeBlocksActiveConflict(t *testing.T, kind string) {
 	t.Helper()
 	for _, tc := range []struct {
