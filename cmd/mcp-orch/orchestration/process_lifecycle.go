@@ -15,6 +15,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // BindSessionGeneration 绑定线程会话代际，避免旧进程事件误写新会话。
@@ -248,30 +249,20 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
 	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), runnerShutdownDrainGrace)
 	defer cancel()
 	stopDone := make(chan struct{})
-	go func() {
+	safego.Go(drainCtx, nil, "mcp-orch.runnerActor.stopAll", func(context.Context) {
 		defer close(stopDone)
-		defer func() {
-			if r := recover(); r != nil {
-				a.service.logger.Error("orchestration: stopAll panic", slog.Any("panic", r))
-			}
-		}()
 		a.stopAll(drainCtx)
-	}()
+	})
 	drainDone := make(chan struct{})
-	go func() {
+	safego.Go(drainCtx, nil, "mcp-orch.runnerActor.exitMonitorDrain", func(context.Context) {
 		defer close(drainDone)
-		defer func() {
-			if r := recover(); r != nil {
-				a.service.logger.Error("orchestration: drain panic", slog.Any("panic", r))
-			}
-		}()
 		if err := a.service.exitMonitor.Drain(drainCtx); err != nil {
 			a.service.logger.Warn("orchestration: exit monitor drain failed",
 				slog.String("error", err.Error()),
 				slog.Duration("timeout", runnerShutdownDrainGrace),
 			)
 		}
-	}()
+	})
 	stopped, drained := false, false
 	for !stopped || !drained {
 		select {

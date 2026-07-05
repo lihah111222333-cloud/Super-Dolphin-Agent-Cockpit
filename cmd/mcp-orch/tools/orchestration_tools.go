@@ -13,6 +13,7 @@ import (
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -171,7 +172,7 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 		}
 		// 异步启动立即返回，避免 MCP 工具调用超过 app-server 超时；
 		// 后台 goroutine 有 AsyncLaunchTimeout 上限，调用方通过 list/report 工具观察结果。
-		go func() {
+		safego.Go(context.Background(), nil, "mcp-orch.tools.launchAgent", func(context.Context) {
 			defer releaseAgentID()
 			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 			defer cancel()
@@ -179,7 +180,7 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 				pkglogger.Warn("orchestration_launch_agent: async launch failed",
 					"agent_id", req.AgentID, "error", err)
 			}
-		}()
+		})
 		return successResult(map[string]any{"agent_id": req.AgentID, "status": "launching"}), nil
 	})
 }

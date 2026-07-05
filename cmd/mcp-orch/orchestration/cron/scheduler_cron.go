@@ -13,6 +13,7 @@ import (
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	robcron "github.com/robfig/cron/v3"
 )
 
@@ -375,12 +376,12 @@ func (t *ScheduledDAGTicker) tryRuntimeLock(ctx context.Context) (RuntimeLockHan
 // startRuntimeLockRenewal 在后台 goroutine 中定期续约运行时锁，续约失败时调 stop 取消上下文。
 func (t *ScheduledDAGTicker) startRuntimeLockRenewal(ctx context.Context, handle RuntimeLockHandle, stop func()) <-chan error {
 	errCh := make(chan error, 1)
-	go func() {
+	safego.Go(ctx, nil, "mcp-orch.cron.runtimeLockRenewal", func(runCtx context.Context) {
 		ticker := time.NewTicker(runtimeLockRenewInterval)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				errCh <- nil
 				return
 			case <-ticker.C:
@@ -394,7 +395,7 @@ func (t *ScheduledDAGTicker) startRuntimeLockRenewal(ctx context.Context, handle
 				}
 			}
 		}
-	}()
+	})
 	return errCh
 }
 

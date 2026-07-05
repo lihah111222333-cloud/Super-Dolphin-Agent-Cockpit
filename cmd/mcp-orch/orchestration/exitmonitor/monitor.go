@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -75,11 +76,11 @@ func (m *Monitor) Arm(target Target) bool {
 	}
 	m.wg.Add(1)
 	m.mu.Unlock()
-	go func() {
+	safego.Go(context.Background(), nil, "mcp-orch.exitmonitor.wait", func(context.Context) {
 		defer m.wg.Done()
 		err := target.Cmd.Wait()
 		m.publishExit(target.AgentID, target.LaunchSeq, err)
-	}()
+	})
 	return true
 }
 
@@ -127,7 +128,10 @@ func (m *Monitor) Drain(ctx context.Context) error {
 	m.closed = true
 	m.mu.Unlock()
 	done := make(chan struct{})
-	go func() { m.wg.Wait(); close(done) }()
+	safego.Go(ctx, nil, "mcp-orch.exitmonitor.drain", func(context.Context) {
+		m.wg.Wait()
+		close(done)
+	})
 	select {
 	case <-done:
 		return nil

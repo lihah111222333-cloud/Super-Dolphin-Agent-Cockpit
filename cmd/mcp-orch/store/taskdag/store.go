@@ -22,10 +22,43 @@ var ErrDAGDeleteActiveRun = errors.New("task_dag: delete blocked by active runni
 type store struct {
 	db sqlc.DBTX
 	q  *sqlc.Queries
+
+	*dagCommandStore
+	*dagOutputStore
+	*dagQueryStore
+	*wakeupCommandStore
+	*wakeupLeaseStore
+	*wakeupQueryStore
+}
+
+type dagCommandStore struct {
+	db sqlc.DBTX
+	q  *sqlc.Queries
+}
+
+type dagOutputStore struct {
+	q *sqlc.Queries
+}
+
+type dagQueryStore struct {
+	q *sqlc.Queries
 }
 
 // NewStore 创建 taskdag 存储实现，并复用同一 sqlc 查询集封装所有窄接口。
-func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
+func NewStore(db sqlc.DBTX) Store { return newStoreWithQueries(db, sqlc.New(db)) }
+
+func newStoreWithQueries(db sqlc.DBTX, q *sqlc.Queries) *store {
+	return &store{
+		db:                 db,
+		q:                  q,
+		dagCommandStore:    &dagCommandStore{db: db, q: q},
+		dagOutputStore:     &dagOutputStore{q: q},
+		dagQueryStore:      &dagQueryStore{q: q},
+		wakeupCommandStore: newWakeupCommandStore(db, q),
+		wakeupLeaseStore:   newWakeupLeaseStore(q),
+		wakeupQueryStore:   newWakeupQueryStore(q),
+	}
+}
 
 // requireRuntimeRunID 确保 run_id 非零；零值意味着调用方传入了模板节点操作，应 fail-fast。
 func requireRuntimeRunID(op string, runID int64) error {
@@ -39,12 +72,12 @@ func requireRuntimeRunID(op string, runID int64) error {
 // 旧 PostgreSQL 行锁读路径由 BEGIN IMMEDIATE 加显式 CAS 写谓词串行化。
 func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error {
 	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
-		return fn(&store{db: tx, q: txq})
+		return fn(newStoreWithQueries(tx, txq))
 	}), "with_tx", "task_dag")
 }
 
 // UpsertDAG 创建或更新 DAG 模板行，只影响模板元数据，不触碰已展开的 runtime run。
-func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
+func (s *dagCommandStore) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagRow, error) {
 		return s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
 			DagKey:      dag.DagKey,
@@ -58,7 +91,7 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 }
 
 // ListDAGs 按状态、关键字和 limit 下推过滤；空过滤由 SQL 返回默认可见模板集合。
-func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
+func (s *dagQueryStore) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagsRow, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
 			StatusFilter: filter.Status,
@@ -77,14 +110,14 @@ func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 
 // DeleteDAG 在事务内级联删除 DAG 及其节点、wakeup 和 run 记录；
 // 存在 running run 时返回 ErrDAGDeleteActiveRun。
-func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
+func (s *dagCommandStore) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
 		return 0, errors.New("delete task_dag: dag_key is required")
 	}
 	var rows int64
 	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
-		txStore := &store{db: txdb, q: txq}
+		txStore := newStoreWithQueries(txdb, txq)
 		if _, err := txStore.lockDAGForDelete(ctx, key); err != nil {
 			return err
 		}
@@ -126,7 +159,7 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 
 // PatchNodeConfigIfUnchanged 以 previous_config CAS fence 原子更新 runtime 节点的 config。
 // fence miss 时 SQL 返回 0 行，store 层向上传 ErrNotFound，service 层判 OCC 冲突。
-func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
+func (s *dagCommandStore) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
 	if err := requireRuntimeRunID("patch_config", input.RunID); err != nil {
 		return nil, err
 	}
@@ -152,7 +185,7 @@ func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, 
 }
 
 // UpdateNodeStatus 更新 runtime 节点状态，要求 run_id 命中副本，避免误写模板节点。
-func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
+func (s *dagCommandStore) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_status", input.RunID); err != nil {
 		return nil, err
 	}
@@ -179,7 +212,7 @@ func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 }
 
 // AssignNode 将 runtime 节点的 assigned_to 更新为指定 agent id，要求 run_id 非零。
-func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
+func (s *dagCommandStore) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("assign", input.RunID); err != nil {
 		return nil, err
 	}
@@ -195,7 +228,7 @@ func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, e
 
 // AssignNodeAndEnqueueWakeup 在同一 SQLite 写事务内完成节点指派和 wakeup 入队。
 // enqueue 失败必须回滚 assigned_to，避免 task_dispatch_node 留下不可恢复的半写状态。
-func (s *store) AssignNodeAndEnqueueWakeup(ctx context.Context, input AssignNodeAndEnqueueWakeupInput) (*AssignNodeAndEnqueueWakeupResult, error) {
+func (s *dagCommandStore) AssignNodeAndEnqueueWakeup(ctx context.Context, input AssignNodeAndEnqueueWakeupInput) (*AssignNodeAndEnqueueWakeupResult, error) {
 	if err := validateAssignNodeAndEnqueueWakeupInput(input); err != nil {
 		return nil, err
 	}
@@ -253,13 +286,13 @@ func validateAssignNodeAndEnqueueWakeupInput(input AssignNodeAndEnqueueWakeupInp
 
 // MarkDispatchIncompleteIfMissingWakeup 标记历史半写的 pending/ready 节点。
 // 只有 assigned_to 已写入且找不到未完成 wakeup 时才推进到 dispatch_incomplete。
-func (s *store) MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (*MarkDispatchIncompleteResult, error) {
+func (s *dagCommandStore) MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (*MarkDispatchIncompleteResult, error) {
 	if err := requireRuntimeRunID("mark_dispatch_incomplete", input.RunID); err != nil {
 		return nil, err
 	}
 	var result MarkDispatchIncompleteResult
 	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
-		txStore := &store{db: txdb, q: txq}
+		txStore := newStoreWithQueries(txdb, txq)
 		node, found, err := findRuntimeNodeForDispatchMark(ctx, txStore, input)
 		if err != nil || !found {
 			return err
@@ -349,14 +382,14 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 // LookupNodesBySpawningThread 通过 spawning_thread_id 反查产生子线程的 runtime 节点。
 // 空结果表示当前没有节点持有该 thread id；多行结果在重试/恢复链路里合法，
 // 调用方需要逐行做幂等推进，不能把它当成唯一索引。
-func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
+func (s *dagQueryStore) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.LookupNodesBySpawningThreadRow, error) {
 		return s.q.LookupNodesBySpawningThread(ctx, sqlc.LookupNodesBySpawningThreadParams{SpawningThreadID: sqlc.TextValuePtr(&threadID)})
 	}, "lookup_by_spawning_thread", "task_dag_node", fromNodeLookupBySpawningThreadRow)
 }
 
 // ListRunningNodesByAssignee 列出 assignee 当前持有的 running 节点，用于恢复与重复派发防护。
-func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
+func (s *dagQueryStore) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.ListRunningTaskDagNodesByAssigneeRow, error) {
 		return s.q.ListRunningTaskDagNodesByAssignee(ctx, sqlc.ListRunningTaskDagNodesByAssigneeParams{AssignedTo: assignee})
 	}, "list_running_by_assignee", "task_dag_node", fromNodeRunningByAssigneeRow)
@@ -370,7 +403,7 @@ func (s *store) GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error
 }
 
 // GetNodesForUpdate 以 FOR UPDATE 锁批量读取 dag_key 下所有节点，供事务内串行化使用。
-func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error) {
+func (s *dagQueryStore) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.GetTaskDagNodesForUpdateRow, error) {
 		return s.q.GetTaskDagNodesForUpdate(ctx, sqlc.GetTaskDagNodesForUpdateParams{DagKey: dagKey})
 	}, "get_for_update", "task_dag_node", fromNodeForUpdateRow)
@@ -378,7 +411,7 @@ func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, e
 
 // BindRunningNodeTurn 在事务内先绑定 wakeup turn，再把 active_turn_id 写回节点行。
 // wakeup fence miss 时返回 binding conflict 错误，阻止节点指向无效 turn。
-func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
+func (s *dagCommandStore) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
 	if err := requireRuntimeRunID("bind_running_turn", input.RunID); err != nil {
 		return nil, err
 	}
@@ -411,7 +444,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 }
 
 // TouchRunningNodeEvent 更新节点的 last_event_at，表示 turn 仍在活跃。
-func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
+func (s *dagCommandStore) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
 	if err := requireRuntimeRunID("touch_running_event", input.RunID); err != nil {
 		return nil, err
 	}
@@ -427,7 +460,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 }
 
 // UpdateRunningNodeStatus 更新 running 节点状态，WakeupID fence 防止旧 dispatch 副本覆盖新轮次。
-func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
+func (s *dagCommandStore) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_running_status", input.RunID); err != nil {
 		return nil, err
 	}
@@ -508,7 +541,7 @@ func requireWakeupAttemptFence(op string, wakeupID int64, wakeupAttempt int32) e
 
 // ClaimNodeOutputMaterialization 在节点仍可完成时写入 result 作为物化占位。
 // 它不再写 legacy awaiting_verify，后续由 CompleteNode 直接把 ready/running 推到 done。
-func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
+func (s *dagOutputStore) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
 	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
 		return nil, err
 	}
@@ -532,19 +565,9 @@ func stringPtr(value string) sqlc.Text {
 	return sqlc.TextValuePtr(&value)
 }
 
-// fromDAG 把 sqlc 生成的 TaskDag 行转换为 contract 层 DAG。
-func fromDAG(row sqlc.TaskDag) DAG {
-	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
-}
-
 // fromDAGListRow 把 ListTaskDagsRow 投影成 contract DAG。
 func fromDAGListRow(row sqlc.ListTaskDagsRow) DAG {
 	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
-}
-
-// fromNode 把 sqlc 生成的 TaskDagNode 行转换为 contract 层 Node。
-func fromNode(row sqlc.TaskDagNode) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
 // wrapTaskDAGError 把 database/sql 错误包装为 platformdb 统一域错误。
