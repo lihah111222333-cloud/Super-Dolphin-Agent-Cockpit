@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,48 @@ func TestFreezeRelevantMemoryAttachmentsPreservesFrontmatterMetadata(t *testing.
 		if !strings.Contains(content, want) {
 			t.Fatalf("attachment content missing %q:\n%s", want, content)
 		}
+	}
+}
+
+// TestRenderAttachmentTextUsesRelativeDisplayPath 确认附件渲染不会把 memory root 绝对路径交给 provider。
+// 相关记忆可显示文件名或相对路径，但不能暴露本机临时目录。
+func TestRenderAttachmentTextUsesRelativeDisplayPath(t *testing.T) {
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	absolutePath := filepath.Join(root, "project", "commit-style.md")
+	attachments := FreezeRelevantMemoryAttachments([]MemoryEntry{{
+		FilePath:  absolutePath,
+		Content:   "Use concise imperative commit messages.",
+		UpdatedAt: now,
+	}}, now)
+	if len(attachments) != 1 {
+		t.Fatalf("len(FreezeRelevantMemoryAttachments()) = %d, want 1", len(attachments))
+	}
+	attachment := attachments[0]
+	if strings.Contains(attachment.Header, root) || strings.Contains(attachment.Content, root) {
+		t.Fatalf("attachment leaked absolute root %q: %#v", root, attachment)
+	}
+	if filepath.IsAbs(attachment.Path) || !strings.Contains(filepath.ToSlash(attachment.Path), "commit-style.md") {
+		t.Fatalf("attachment path = %q, want non-absolute display path", attachment.Path)
+	}
+}
+
+// TestRenderAttachmentTextRejectsAbsoluteMemoryPathLeak 锁住 MemoryHeader 的路径隐私边界。
+// header 是 prompt 可见文本，因此必须拒绝绝对 memory 文件路径。
+func TestRenderAttachmentTextRejectsAbsoluteMemoryPathLeak(t *testing.T) {
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	absolutePath := filepath.Join(root, "private", "tokens.md")
+	got := MemoryHeader(now, MemoryEntry{
+		FilePath:  absolutePath,
+		Content:   "Keep credentials out of prompts.",
+		UpdatedAt: now,
+	})
+	if strings.Contains(got, root) || strings.Contains(got, filepath.ToSlash(root)) || strings.Contains(got, absolutePath) {
+		t.Fatalf("MemoryHeader leaked absolute memory path: %q", got)
+	}
+	if !strings.Contains(got, "tokens.md") {
+		t.Fatalf("MemoryHeader = %q, want non-absolute display path", got)
 	}
 }
 

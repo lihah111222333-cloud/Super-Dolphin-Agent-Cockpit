@@ -218,7 +218,7 @@ func secretLikeKey(key string) bool {
 	if _, ok := sensitiveMetadataKeys[normalized]; ok {
 		return true
 	}
-	for _, part := range strings.Split(normalized, "_") {
+	for part := range strings.SplitSeq(normalized, "_") {
 		if _, ok := sensitiveMetadataKeyTokens[part]; ok {
 			return true
 		}

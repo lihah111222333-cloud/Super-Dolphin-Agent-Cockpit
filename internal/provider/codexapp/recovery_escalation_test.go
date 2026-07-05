@@ -62,7 +62,7 @@ func TestAttemptRecoveryExhaustsAtTwo(t *testing.T) {
 		suppressed: map[string]struct{}{},
 	}
 
-	for i := 0; i < maxRecoveryAttempts; i++ {
+	for i := range maxRecoveryAttempts {
 		err := s.attemptRecovery("test")
 		if err == nil || !strings.Contains(err.Error(), "recovery unavailable") {
 			t.Fatalf("attempt %d: err = %v, want 'recovery unavailable'", i+1, err)
@@ -129,6 +129,100 @@ func TestConnectionDeadInvalidAPIKeyFailsWithoutRecovery(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for AgentFailed event")
+	}
+}
+
+// TestConnectionDeadInvalidAPIKeyDoesNotLeakSecretToTurnOrAgentFailed 锁住 auth failure 的日志外边界。
+// turn error 和 AgentFailed 只能暴露安全分类，不能把 provider 原始 API key reason 透传出去。
+func TestConnectionDeadInvalidAPIKeyDoesNotLeakSecretToTurnOrAgentFailed(t *testing.T) {
+	t.Parallel()
+
+	reason := "unexpected status 401 Unauthorized: Incorrect API key provided: sk-l05-secret, auth error code: invalid_api_key"
+	turnErr, failed := runConnectionDeadAuthFailure(t, reason)
+	for _, got := range []struct {
+		name string
+		text string
+	}{
+		{name: "turn error", text: turnErr},
+		{name: "AgentFailed.Error", text: failed.Error},
+	} {
+		if strings.Contains(got.text, "sk-l05-secret") || strings.Contains(got.text, "Incorrect API key provided") {
+			t.Fatalf("%s leaked raw auth reason: %q", got.name, got.text)
+		}
+		if !strings.Contains(got.text, "invalid_api_key") {
+			t.Fatalf("%s = %q, want safe invalid_api_key classification", got.name, got.text)
+		}
+	}
+	if failed.Recoverable {
+		t.Fatal("AgentFailed.Recoverable = true, want false for invalid API key")
+	}
+}
+
+// TestConnectionDeadSafeErrorPreservesAuthClassification 覆盖 provider 未显式带 code 的 auth 文案。
+// 即使 raw reason 只有 401/Incorrect API key，也必须被折叠为 invalid_api_key 分类。
+func TestConnectionDeadSafeErrorPreservesAuthClassification(t *testing.T) {
+	t.Parallel()
+
+	reason := "401 Unauthorized: Incorrect API key provided: sk-l05-secret-without-code"
+	turnErr, failed := runConnectionDeadAuthFailure(t, reason)
+	for _, got := range []struct {
+		name string
+		text string
+	}{
+		{name: "turn error", text: turnErr},
+		{name: "AgentFailed.Error", text: failed.Error},
+	} {
+		if strings.Contains(got.text, "sk-l05-secret-without-code") || strings.Contains(got.text, "Incorrect API key provided") {
+			t.Fatalf("%s leaked raw auth reason: %q", got.name, got.text)
+		}
+		if !strings.Contains(got.text, "invalid_api_key") {
+			t.Fatalf("%s = %q, want inferred invalid_api_key classification", got.name, got.text)
+		}
+	}
+}
+
+// runConnectionDeadAuthFailure 通过真实 connection.dead 分发链返回 turn error 和 AgentFailed。
+func runConnectionDeadAuthFailure(t *testing.T, reason string) (string, agentdto.AgentFailed) {
+	t.Helper()
+
+	bus := event.NewDispatcher()
+	t.Cleanup(func() { _ = bus.Close() })
+
+	failedEvents := make(chan agentdto.AgentFailed, 1)
+	cancelSub := event.Subscribe(bus, func(ev agentdto.AgentFailed) {
+		failedEvents <- ev
+	})
+	t.Cleanup(cancelSub)
+
+	handle := newTurnHandle("local-1", "provider-1")
+	dispatcher := unified.NewEventDispatcher(bus, pkglogger.Get())
+	RegisterTranslators(dispatcher)
+	s := &session{
+		agentID:    "agent-1",
+		dispatcher: dispatcher,
+		turns:      map[string]*turnHandle{"provider-1": handle},
+		suppressed: map[string]struct{}{},
+	}
+	s.setThreadID("thread-1")
+	s.activeTurnID = "provider-1"
+
+	s.handleConnectionDead(mustJSON(map[string]any{"error": reason}))
+
+	select {
+	case <-handle.Done():
+	case <-time.After(time.Second):
+		t.Fatal("handle.Done() not closed after non-recoverable auth failure")
+	}
+	turnErr := ""
+	if err := handle.Err(); err != nil {
+		turnErr = err.Error()
+	}
+	select {
+	case ev := <-failedEvents:
+		return turnErr, ev
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for AgentFailed event")
+		return "", agentdto.AgentFailed{}
 	}
 }
 
@@ -316,7 +410,7 @@ func TestReplayFailureIncrementsCountTowardsMax(t *testing.T) {
 	s.setThreadID("thread-1")
 
 	// Each attempt: reconnect succeeds, replay fails → failRecovery.
-	for i := 0; i < maxRecoveryAttempts; i++ {
+	for i := range maxRecoveryAttempts {
 		err := s.attemptRecovery(fmt.Sprintf("replay-fail-%d", i+1))
 		if err == nil {
 			t.Fatalf("attempt %d: expected error from replay failure", i+1)

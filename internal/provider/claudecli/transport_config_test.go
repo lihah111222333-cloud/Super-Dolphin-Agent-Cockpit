@@ -1,15 +1,18 @@
 package claudecli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func mustBuildCLIArgs(t testing.TB, model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
@@ -19,6 +22,142 @@ func mustBuildCLIArgs(t testing.TB, model, instructions, mcpConfigPath string, c
 		t.Fatalf("buildCLIArgs() error = %v", err)
 	}
 	return args
+}
+
+// TestLogManifestLaunchRedactsArgsAndURLSecrets 锁住 MCP launch 日志的命令行/URL 隐私边界。
+// 日志可以保留 server 摘要，但不能输出 DSN、token query 或任何原始参数 secret。
+func TestLogManifestLaunchRedactsArgsAndURLSecrets(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	logManifestLaunch("claude", "/work/project", "sonnet", "/tmp/mcp.json", dto.MCPManifest{Binaries: []dto.MCPBinary{
+		{
+			Name:    "postgres",
+			Command: []string{"mcp-server-postgres", "postgresql://user:secret-pass@127.0.0.1:5432/app?sslmode=disable"},
+		},
+		{
+			Name: "proxy",
+			Type: "http",
+			URL:  "http://127.0.0.1:39003/mcp?token=sk-l05-url-secret",
+		},
+	}})
+
+	output := buf.String()
+	for _, forbidden := range []string{"secret-pass", "sk-l05-url-secret", "postgresql://user:secret-pass", "token="} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("launch manifest log leaked %q: %s", forbidden, output)
+		}
+	}
+	for _, required := range []string{"postgres", "proxy", "server_count"} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("launch manifest log missing safe summary %q: %s", required, output)
+		}
+	}
+}
+
+// TestLogManifestLaunchKeepsEnvKeysOnly 确认 launch 日志只保留 env key 和布尔摘要。
+// env value、RPC 地址和命令行 secret 都不能写进结构化日志。
+func TestLogManifestLaunchKeepsEnvKeysOnly(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	logManifestLaunch("claude", "/work/project", "sonnet", "/tmp/mcp.json", dto.MCPManifest{Binaries: []dto.MCPBinary{{
+		Name: "orch",
+		Command: []string{
+			"/tmp/bin/mcp-orch",
+			"--token",
+			"sk-l05-arg-secret",
+		},
+		Env: map[string]string{
+			"GO_AGENT_CTL_RPC_ADDR":       "127.0.0.1:44000",
+			"GO_AGENT_CTL_BOOTSTRAP_JSON": `{"token":"sk-l05-env-secret"}`,
+			"SAFE_KEY":                    "sk-l05-env-value",
+		},
+	}}})
+
+	output := buf.String()
+	for _, forbidden := range []string{"sk-l05-arg-secret", "sk-l05-env-secret", "sk-l05-env-value", "127.0.0.1:44000"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("launch manifest log leaked %q: %s", forbidden, output)
+		}
+	}
+	for _, required := range []string{"GO_AGENT_CTL_RPC_ADDR", "GO_AGENT_CTL_BOOTSTRAP_JSON", "SAFE_KEY"} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("launch manifest log missing env key %q: %s", required, output)
+		}
+	}
+}
+
+// TestLogManifestLaunchOmitsRawPathsAndSummarizesURL 锁住 MCP launch 日志的路径边界。
+// cwd、临时 mcp config、绝对 command 目录和 URL 非固定 path/query/fragment 都不能写入日志。
+func TestLogManifestLaunchOmitsRawPathsAndSummarizesURL(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	cwd := "/Users/l05/private/repo"
+	mcpPath := "/var/folders/l05/private/mcp-config.json"
+	commandPath := "/Users/l05/private/bin/mcp-sensitive-server"
+	logManifestLaunch("claude", cwd, "sonnet", mcpPath, dto.MCPManifest{Binaries: []dto.MCPBinary{
+		{
+			Name: "fixed",
+			Type: "http",
+			URL:  "https://mcp.example.test:9443/mcp?token=sk-l05-query#sk-l05-fragment",
+		},
+		{
+			Name: "custom",
+			Type: "http",
+			Command: []string{
+				commandPath,
+				"--dsn",
+				"postgres://user:secret-pass@127.0.0.1/app",
+			},
+			URL: "https://mcp.example.test:9443/private/team/project?token=sk-l05-path-token#sk-l05-fragment",
+		},
+	}})
+
+	output := buf.String()
+	for _, forbidden := range []string{
+		cwd,
+		mcpPath,
+		filepath.Dir(commandPath),
+		"/private/team/project",
+		"token=",
+		"sk-l05-query",
+		"sk-l05-path-token",
+		"sk-l05-fragment",
+		"secret-pass",
+		"postgres://user",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("launch manifest log leaked %q: %s", forbidden, output)
+		}
+	}
+	for _, required := range []string{
+		"cwd_present",
+		"mcp_config_present",
+		"mcp-sensitive-server",
+		"arg_sha256",
+		"url_scheme",
+		"https",
+		"url_host",
+		"mcp.example.test",
+		"url_port",
+		"9443",
+		"url_path",
+		"/mcp",
+		"url_path_segments",
+		"url_path_sha256",
+	} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("launch manifest log missing safe field %q: %s", required, output)
+		}
+	}
 }
 
 func TestWriteManifestConfigIncludesEnvAndAutoApprove(t *testing.T) {
@@ -438,14 +577,7 @@ func TestRouterInjectedPromptReachesSystemPromptFlag(t *testing.T) {
 	}
 	args := mustBuildCLIArgs(t, "claude-sonnet", assembly.BaseInstructions, "", cfg)
 
-	found := false
-	for _, v := range flagValues(args, "--system-prompt") {
-		if v == routerBody {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(flagValues(args, "--system-prompt"), routerBody) {
 		t.Fatalf("--system-prompt flag values = %#v, want one equal to %q", flagValues(args, "--system-prompt"), routerBody)
 	}
 }

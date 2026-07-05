@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -92,50 +92,26 @@ func claudeLaunchEnv(cfg cliLaunchConfig) []string {
 }
 
 // logManifestLaunch 记录本轮写给 Claude CLI 的 MCP manifest 摘要。
-// 日志只暴露命令、参数和 env key，不输出敏感 env value，便于排查启动与权限边界。
+// 日志只暴露路径存在性、命令 basename、参数摘要和 env key，不输出 cwd、配置路径、args 或 URL secret。
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
-	servers := make([]map[string]any, 0, len(manifest.Binaries))
-	for _, bin := range manifest.Binaries {
-		serverType := strings.TrimSpace(bin.Type)
-		if serverType == "" {
-			serverType = "stdio"
-		}
-		command := ""
-		args := []string(nil)
-		commandExists := false
-		if len(bin.Command) > 0 {
-			command = strings.TrimSpace(bin.Command[0])
-			args = append(args, bin.Command[1:]...)
-			if command != "" {
-				_, statErr := os.Stat(command)
-				commandExists = statErr == nil
-			}
-		}
-		envKeys := make([]string, 0, len(bin.Env))
-		for key := range bin.Env {
-			envKeys = append(envKeys, key)
-		}
-		sort.Strings(envKeys)
-		servers = append(servers, map[string]any{
-			"name":           strings.TrimSpace(bin.Name),
-			"type":           serverType,
-			"command":        command,
-			"args":           args,
-			"command_exists": commandExists,
-			"url":            strings.TrimSpace(bin.URL),
-			"env_keys":       envKeys,
-			"has_rpc_addr":   strings.TrimSpace(bin.Env["GO_AGENT_CTL_RPC_ADDR"]) != "",
-			"has_bootstrap":  strings.TrimSpace(bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]) != "",
-		})
-	}
+	servers := observability.SafeMCPServerSummaries(manifest)
 	pkglogger.Info("claudecli: launch mcp manifest",
-		"binary", strings.TrimSpace(binary),
-		"cwd", strings.TrimSpace(cwd),
+		"binary", safeCLICommandName(binary),
+		"cwd_present", strings.TrimSpace(cwd) != "",
 		"model", strings.TrimSpace(model),
-		"mcp_config_path", strings.TrimSpace(mcpPath),
+		"mcp_config_present", strings.TrimSpace(mcpPath) != "",
 		"server_count", len(servers),
 		"servers", servers,
 	)
+}
+
+func safeCLICommandName(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.ReplaceAll(command, "\\", "/")
+	return filepath.Base(filepath.FromSlash(command))
 }
 
 // logSystemPromptArgs 记录即将交给 Claude CLI 的每段 --system-prompt。

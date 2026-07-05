@@ -75,7 +75,7 @@ func parseMemoryHeader(path, header string) MemoryEntry {
 // 未知字段会忽略，避免旧文件扩展影响相关记忆扫描。
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	parsed := MemoryFrontmatter{}
-	for _, line := range strings.Split(frontmatter, "\n") {
+	for line := range strings.SplitSeq(frontmatter, "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
