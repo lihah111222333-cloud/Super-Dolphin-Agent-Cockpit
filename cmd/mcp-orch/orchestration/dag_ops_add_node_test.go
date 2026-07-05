@@ -57,8 +57,14 @@ type stubDAGOpsStore struct {
 	bumpCalls           []int64 // 调用 BumpDAGVersion 时传入的 expectedVersion
 }
 
+// receiver alias 按 fixture 角色拆分导出方法，同时保留旧字段和 composite literal 写法。
+type stubDAGOpsVersionFixture = stubDAGOpsStore
+type stubDAGOpsReadFixture = stubDAGOpsStore
+type stubDAGOpsMutationFixture = stubDAGOpsStore
+type stubDAGOpsTxFixture = stubDAGOpsStore
+
 // GetDAGVersion (DAGVersionReader): 事务外只读路径，独立计数。
-func (s *stubDAGOpsStore) GetDAGVersion(_ context.Context, _ string) (int64, error) {
+func (s *stubDAGOpsVersionFixture) GetDAGVersion(_ context.Context, _ string) (int64, error) {
 	s.getVersionReadCalls++
 	if s.versionErr != nil {
 		return 0, s.versionErr
@@ -71,7 +77,7 @@ func (s *stubDAGOpsStore) GetDAGVersion(_ context.Context, _ string) (int64, err
 
 // GetDAG 返回一个带当前 dagStatus 的 *taskdag.DAG。
 // runOpsBatch 在事务内读取 DAG 状态；默认 draft 覆盖可编辑路径，需要验证拒绝路径时显式设置 running。
-func (s *stubDAGOpsStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
+func (s *stubDAGOpsReadFixture) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
 	if s.getDagErr != nil {
 		return nil, s.getDagErr
 	}
@@ -82,7 +88,7 @@ func (s *stubDAGOpsStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, err
 	return &taskdag.DAG{Status: status}, nil
 }
 
-func (s *stubDAGOpsStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
+func (s *stubDAGOpsReadFixture) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
 	s.listCalls++
 	if s.listErr != nil {
 		return nil, s.listErr
@@ -93,7 +99,7 @@ func (s *stubDAGOpsStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node
 	return out, nil
 }
 
-func (s *stubDAGOpsStore) GetDAGVersionForUpdate(_ context.Context, _ string) (int64, error) {
+func (s *stubDAGOpsVersionFixture) GetDAGVersionForUpdate(_ context.Context, _ string) (int64, error) {
 	s.getVersionCalls++
 	if s.versionErr != nil {
 		return 0, s.versionErr
@@ -101,7 +107,7 @@ func (s *stubDAGOpsStore) GetDAGVersionForUpdate(_ context.Context, _ string) (i
 	return s.currentVersion, nil
 }
 
-func (s *stubDAGOpsStore) BumpDAGVersion(_ context.Context, _ string, expectedVersion int64) (int64, error) {
+func (s *stubDAGOpsVersionFixture) BumpDAGVersion(_ context.Context, _ string, expectedVersion int64) (int64, error) {
 	s.bumpCalls = append(s.bumpCalls, expectedVersion)
 	if s.bumpErr != nil {
 		return 0, s.bumpErr
@@ -116,26 +122,26 @@ func (s *stubDAGOpsStore) BumpDAGVersion(_ context.Context, _ string, expectedVe
 	return s.currentVersion, nil
 }
 
-func (s *stubDAGOpsStore) CountRunningRunsByDagKey(_ context.Context, _ string) (int64, error) {
+func (s *stubDAGOpsReadFixture) CountRunningRunsByDagKey(_ context.Context, _ string) (int64, error) {
 	if s.activeRunsErr != nil {
 		return 0, s.activeRunsErr
 	}
 	return s.activeRuns, nil
 }
 
-func (s *stubDAGOpsStore) GetDAGSchedule(_ context.Context, _ string) (taskdag.DAGSchedule, error) {
+func (s *stubDAGOpsReadFixture) GetDAGSchedule(_ context.Context, _ string) (taskdag.DAGSchedule, error) {
 	return taskdag.DAGSchedule{
 		Trigger:  s.dagTrigger,
 		CronExpr: s.dagCronExpr,
 	}, nil
 }
 
-func (s *stubDAGOpsStore) UpdateDAGPatch(_ context.Context, input taskdag.UpdateDAGPatchInput) (int64, error) {
+func (s *stubDAGOpsMutationFixture) UpdateDAGPatch(_ context.Context, input taskdag.UpdateDAGPatchInput) (int64, error) {
 	s.dagPatchCalls = append(s.dagPatchCalls, input)
 	return 1, nil
 }
 
-func (s *stubDAGOpsStore) UpsertNode(_ context.Context, node taskdag.Node) (*taskdag.Node, error) {
+func (s *stubDAGOpsMutationFixture) UpsertNode(_ context.Context, node taskdag.Node) (*taskdag.Node, error) {
 	s.upsertCalls = append(s.upsertCalls, node)
 	if s.upsertErr != nil {
 		return nil, s.upsertErr
@@ -147,7 +153,7 @@ func (s *stubDAGOpsStore) UpsertNode(_ context.Context, node taskdag.Node) (*tas
 	return &saved, nil
 }
 
-func (s *stubDAGOpsStore) DeleteNode(_ context.Context, dagKey, nodeKey string) (int64, error) {
+func (s *stubDAGOpsMutationFixture) DeleteNode(_ context.Context, dagKey, nodeKey string) (int64, error) {
 	s.deleteCalls = append(s.deleteCalls, nodeKey)
 	if s.deleteRows != nil {
 		return *s.deleteRows, nil
@@ -164,7 +170,7 @@ func (s *stubDAGOpsStore) DeleteNode(_ context.Context, dagKey, nodeKey string) 
 	return 0, nil
 }
 
-func (s *stubDAGOpsStore) WithDAGOpsTx(ctx context.Context, fn func(taskdag.DAGOpsStore) error) error {
+func (s *stubDAGOpsTxFixture) WithDAGOpsTx(ctx context.Context, fn func(taskdag.DAGOpsStore) error) error {
 	// stub: 同一实例当作 tx-bound 实例（与 stubRunStore.WithRunTx 同款）。
 	return fn(s)
 }

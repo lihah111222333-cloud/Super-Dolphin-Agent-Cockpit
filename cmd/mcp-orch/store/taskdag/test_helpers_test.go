@@ -136,11 +136,16 @@ type fakeTaskDAGTx struct {
 	closed  bool
 }
 
-func (*fakeTaskDAGTx) Begin(context.Context) (pgx.Tx, error) {
+// receiver alias 按 pgx Tx fixture 角色拆分导出方法，同时保留旧字段和接口方法集。
+type fakeTaskDAGTxLifecycleFixture = fakeTaskDAGTx
+type fakeTaskDAGTxUnsupportedFixture = fakeTaskDAGTx
+type fakeTaskDAGTxQueryFixture = fakeTaskDAGTx
+
+func (*fakeTaskDAGTxLifecycleFixture) Begin(context.Context) (pgx.Tx, error) {
 	return nil, fmt.Errorf("fakeTaskDAGTx: nested transaction not implemented")
 }
 
-func (tx *fakeTaskDAGTx) Commit(context.Context) error {
+func (tx *fakeTaskDAGTxLifecycleFixture) Commit(context.Context) error {
 	if tx.closed {
 		return pgx.ErrTxClosed
 	}
@@ -152,7 +157,7 @@ func (tx *fakeTaskDAGTx) Commit(context.Context) error {
 	return nil
 }
 
-func (tx *fakeTaskDAGTx) Rollback(context.Context) error {
+func (tx *fakeTaskDAGTxLifecycleFixture) Rollback(context.Context) error {
 	if tx.closed {
 		return pgx.ErrTxClosed
 	}
@@ -160,40 +165,42 @@ func (tx *fakeTaskDAGTx) Rollback(context.Context) error {
 	return nil
 }
 
-func (*fakeTaskDAGTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+func (*fakeTaskDAGTxUnsupportedFixture) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
 	return 0, fmt.Errorf("fakeTaskDAGTx: copyfrom not implemented")
 }
 
-func (*fakeTaskDAGTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults { return nil }
+func (*fakeTaskDAGTxUnsupportedFixture) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults {
+	return nil
+}
 
-func (*fakeTaskDAGTx) LargeObjects() pgx.LargeObjects { return pgx.LargeObjects{} }
+func (*fakeTaskDAGTxUnsupportedFixture) LargeObjects() pgx.LargeObjects { return pgx.LargeObjects{} }
 
-func (*fakeTaskDAGTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+func (*fakeTaskDAGTxUnsupportedFixture) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return nil, fmt.Errorf("fakeTaskDAGTx: prepare not implemented")
 }
 
-func (tx *fakeTaskDAGTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (tx *fakeTaskDAGTxQueryFixture) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	if tx.closed {
 		return pgconn.CommandTag{}, pgx.ErrTxClosed
 	}
 	return tx.working.Exec(ctx, sql, args...)
 }
 
-func (tx *fakeTaskDAGTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+func (tx *fakeTaskDAGTxQueryFixture) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	if tx.closed {
 		return nil, pgx.ErrTxClosed
 	}
 	return tx.working.Query(ctx, sql, args...)
 }
 
-func (tx *fakeTaskDAGTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+func (tx *fakeTaskDAGTxQueryFixture) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	if tx.closed {
 		return stubTaskDAGRow{err: pgx.ErrTxClosed}
 	}
 	return tx.working.QueryRow(ctx, sql, args...)
 }
 
-func (*fakeTaskDAGTx) Conn() *pgx.Conn { return nil }
+func (*fakeTaskDAGTxUnsupportedFixture) Conn() *pgx.Conn { return nil }
 
 func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	db.mu.Lock()

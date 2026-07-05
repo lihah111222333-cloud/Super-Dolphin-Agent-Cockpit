@@ -76,6 +76,13 @@ type stubRunStore struct {
 	callOrder     []string
 }
 
+// receiver alias 按 run fixture 角色拆分导出方法，同时保留旧字段和 composite literal 写法。
+type stubRunStoreDAGLockFixture = stubRunStore
+type stubRunStoreWriteFixture = stubRunStore
+type stubRunStoreTxFixture = stubRunStore
+type stubRunStoreReadFixture = stubRunStore
+type stubRunStoreScheduleFixture = stubRunStore
+
 type runNodeCall struct {
 	DagKey string
 	RunID  int64
@@ -87,12 +94,12 @@ type scheduledNextRunCall struct {
 	NextRunAt time.Time
 }
 
-func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string) (int64, error) {
+func (s *stubRunStoreDAGLockFixture) CountActiveRunsByDagKey(_ context.Context, dagKey string) (int64, error) {
 	s.countCalls = append(s.countCalls, dagKey)
 	return s.activeCount, s.activeErr
 }
 
-func (s *stubRunStore) GetDAGForUpdate(_ context.Context, dagKey string) (*taskdag.DAG, error) {
+func (s *stubRunStoreDAGLockFixture) GetDAGForUpdate(_ context.Context, dagKey string) (*taskdag.DAG, error) {
 	s.lockCalls = append(s.lockCalls, dagKey)
 	s.callOrder = append(s.callOrder, "lock:"+dagKey)
 	if s.lockedDAG != nil {
@@ -101,7 +108,7 @@ func (s *stubRunStore) GetDAGForUpdate(_ context.Context, dagKey string) (*taskd
 	return &taskdag.DAG{DagKey: dagKey}, nil
 }
 
-func (s *stubRunStore) CreateRun(_ context.Context, input taskdag.CreateRunInput) (*taskdag.Run, error) {
+func (s *stubRunStoreWriteFixture) CreateRun(_ context.Context, input taskdag.CreateRunInput) (*taskdag.Run, error) {
 	s.createCalls = append(s.createCalls, input)
 	s.callOrder = append(s.callOrder, "create:"+input.DagKey)
 	if s.createErr != nil {
@@ -120,34 +127,34 @@ func (s *stubRunStore) CreateRun(_ context.Context, input taskdag.CreateRunInput
 	}, nil
 }
 
-func (s *stubRunStore) CloneNodesForRun(_ context.Context, dagKey string, runID int64) (int64, error) {
+func (s *stubRunStoreWriteFixture) CloneNodesForRun(_ context.Context, dagKey string, runID int64) (int64, error) {
 	s.cloneCalls = append(s.cloneCalls, runNodeCall{DagKey: dagKey, RunID: runID})
 	s.callOrder = append(s.callOrder, "clone:"+dagKey)
 	return s.cloneRows, s.cloneErr
 }
 
-func (s *stubRunStore) PromoteRootNodesToReady(_ context.Context, dagKey string, runID int64) (int64, error) {
+func (s *stubRunStoreWriteFixture) PromoteRootNodesToReady(_ context.Context, dagKey string, runID int64) (int64, error) {
 	s.promoteCalls = append(s.promoteCalls, dagKey)
 	s.promoteRunIDs = append(s.promoteRunIDs, runID)
 	s.callOrder = append(s.callOrder, "promote:"+dagKey)
 	return s.promoteRows, s.promoteErr
 }
 
-func (s *stubRunStore) WithRunTx(ctx context.Context, fn func(taskdag.RunStore) error) error {
+func (s *stubRunStoreTxFixture) WithRunTx(ctx context.Context, fn func(taskdag.RunStore) error) error {
 	if s.withTxErr != nil {
 		return s.withTxErr
 	}
 	return fn(s) // mock: 同一实例当作 tx-bound 实例
 }
 
-func (s *stubRunStore) WithScheduledStartTx(ctx context.Context, fn func(taskdag.ScheduledStartTxStore) error) error {
+func (s *stubRunStoreTxFixture) WithScheduledStartTx(ctx context.Context, fn func(taskdag.ScheduledStartTxStore) error) error {
 	if s.withTxErr != nil {
 		return s.withTxErr
 	}
 	return fn(s)
 }
 
-func (s *stubRunStore) GetRun(_ context.Context, runKey string) (*taskdag.Run, error) {
+func (s *stubRunStoreReadFixture) GetRun(_ context.Context, runKey string) (*taskdag.Run, error) {
 	s.getRunCalls = append(s.getRunCalls, runKey)
 	if s.getRunErr != nil {
 		return nil, s.getRunErr
@@ -155,7 +162,7 @@ func (s *stubRunStore) GetRun(_ context.Context, runKey string) (*taskdag.Run, e
 	return s.getRunReply, nil
 }
 
-func (s *stubRunStore) ListRunNodes(_ context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
+func (s *stubRunStoreReadFixture) ListRunNodes(_ context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
 	s.listRunNodesCalls = append(s.listRunNodesCalls, runNodeCall{DagKey: dagKey, RunID: runID})
 	if s.listRunNodesErr != nil {
 		return nil, s.listRunNodesErr
@@ -163,7 +170,7 @@ func (s *stubRunStore) ListRunNodes(_ context.Context, dagKey string, runID int6
 	return s.listRunNodesReply, nil
 }
 
-func (s *stubRunStore) ScheduleRootWakeups(_ context.Context, dagKey string, runID int64) (int64, error) {
+func (s *stubRunStoreWriteFixture) ScheduleRootWakeups(_ context.Context, dagKey string, runID int64) (int64, error) {
 	s.scheduleRootWakeupsCalls = append(s.scheduleRootWakeupsCalls, runNodeCall{DagKey: dagKey, RunID: runID})
 	s.callOrder = append(s.callOrder, "schedule_roots:"+dagKey)
 	if s.scheduleRootWakeupsErr != nil {
@@ -172,7 +179,7 @@ func (s *stubRunStore) ScheduleRootWakeups(_ context.Context, dagKey string, run
 	return s.scheduleRootWakeupsRows, nil
 }
 
-func (s *stubRunStore) UpdateScheduledDAGNextRun(_ context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
+func (s *stubRunStoreScheduleFixture) UpdateScheduledDAGNextRun(_ context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
 	s.updateNextRunCalls = append(s.updateNextRunCalls, scheduledNextRunCall{DagKey: dagKey, DueAt: dueAt, NextRunAt: nextRunAt})
 	s.callOrder = append(s.callOrder, "update_next_run:"+dagKey)
 	if s.updateNextRunErr != nil {
@@ -184,7 +191,7 @@ func (s *stubRunStore) UpdateScheduledDAGNextRun(_ context.Context, dagKey strin
 	return 1, nil
 }
 
-func (s *stubRunStore) TerminateRun(_ context.Context, input taskdag.TerminateRunInput) (taskdag.TerminateRunResult, error) {
+func (s *stubRunStoreWriteFixture) TerminateRun(_ context.Context, input taskdag.TerminateRunInput) (taskdag.TerminateRunResult, error) {
 	s.terminateRunCalls = append(s.terminateRunCalls, input)
 	s.callOrder = append(s.callOrder, "terminate:"+input.DagKey)
 	if platformdb.IsNotFound(s.terminateRunErr) && s.getRunReply != nil {
