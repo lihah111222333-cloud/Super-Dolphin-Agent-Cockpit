@@ -40,6 +40,8 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return listRenderableThreads(ctx, svc)
 		}),
+		"thread/listPage":        newThreadListPageHandler("thread/listPage", svc, false),
+		"thread/loaded/listPage": newThreadListPageHandler("thread/loaded/listPage", svc, true),
 		"thread/loaded/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListByStatus(ctx, statusCreated)
 		}),
@@ -103,6 +105,38 @@ func newStartHandler(svc Service) handler.Func {
 			return nil, err
 		}
 		return buildStartResponse(result), nil
+	})
+}
+
+type threadListPageParams struct {
+	Limit           int    `json:"limit"`
+	CursorCreatedAt int64  `json:"cursor_created_at,omitempty"`
+	CursorThreadID  string `json:"cursor_thread_id,omitempty"`
+}
+
+type threadListPageService interface {
+	ListPage(ctx context.Context, req ListPageRequest) (ListPageResult, error)
+	ListLoadedPage(ctx context.Context, req ListPageRequest) (ListPageResult, error)
+}
+
+func newThreadListPageHandler(method string, svc Service, loaded bool) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p threadListPageParams) (ListPageResult, error) {
+		if p.Limit <= 0 {
+			return ListPageResult{}, platformrpc.ErrInvalidParams(method + ": limit is required")
+		}
+		pager, ok := svc.(threadListPageService)
+		if !ok {
+			return ListPageResult{}, platformrpc.ErrInvalidState(method + ": thread page service is not configured")
+		}
+		req := ListPageRequest{
+			Limit:           p.Limit,
+			CursorCreatedAt: p.CursorCreatedAt,
+			CursorThreadID:  p.CursorThreadID,
+		}
+		if loaded {
+			return pager.ListLoadedPage(ctx, req)
+		}
+		return pager.ListPage(ctx, req)
 	})
 }
 

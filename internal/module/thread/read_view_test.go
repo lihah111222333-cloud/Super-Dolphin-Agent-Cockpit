@@ -407,15 +407,66 @@ func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
 	}
 }
 
-func historyThreadStore(threads ...threadstore.Thread) *stubThreadStore {
+func historyThreadStore(threads ...threadstore.Thread) *historyThreadPageStore {
 	store := &stubThreadStore{threads: append([]threadstore.Thread(nil), threads...)}
 	if len(store.threads) == 0 {
-		return store
+		return &historyThreadPageStore{stubThreadStore: store}
 	}
 	store.threadByID = make(map[string]*threadstore.Thread, len(store.threads))
 	for i := range store.threads {
 		thread := &store.threads[i]
 		store.threadByID[strings.TrimSpace(thread.ThreadID)] = thread
 	}
-	return store
+	return &historyThreadPageStore{stubThreadStore: store}
+}
+
+// historyThreadPageStore adds bounded list-page behavior to the shared thread test store.
+type historyThreadPageStore struct {
+	*stubThreadStore
+}
+
+// ListPage returns a bounded test projection for legacy List() read-view tests.
+func (s *historyThreadPageStore) ListPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error) {
+	threads, err := s.ListAll(ctx)
+	if err != nil {
+		return contract.ThreadListPage{}, err
+	}
+	records := make([]contract.ThreadListRecord, 0, len(threads))
+	for _, thread := range threads {
+		records = append(records, contract.ThreadListRecord{
+			ThreadID:         thread.ThreadID,
+			AgentID:          thread.AgentID,
+			ParentAgentID:    thread.ParentAgentID,
+			AgentType:        thread.AgentType,
+			AgentMemoryScope: thread.AgentMemoryScope,
+			Name:             thread.Name,
+			Prompt:           thread.Prompt,
+			Model:            thread.Model,
+			Cwd:              thread.Cwd,
+			Status:           thread.Status,
+			Port:             thread.Port,
+			PID:              thread.PID,
+			CreatedAt:        thread.CreatedAt,
+			UpdatedAt:        thread.UpdatedAt,
+			FinishedAt:       thread.FinishedAt,
+			LastEventType:    thread.LastEventType,
+			ErrorMessage:     thread.ErrorMessage,
+			WorkspaceRunKey:  thread.WorkspaceRunKey,
+			OwnerThreadID:    thread.OwnerThreadID,
+			ConfigOverride:   thread.ConfigOverride,
+			AgentKey:         thread.AgentKey,
+			PromptVersionID:  thread.PromptVersionID,
+			PendingLaunch:    thread.PendingLaunch,
+			ManuallyRenamed:  thread.ManuallyRenamed,
+		})
+	}
+	if params.Limit > 0 && len(records) > params.Limit {
+		return contract.ThreadListPage{
+			Threads:             records[:params.Limit],
+			HasMore:             true,
+			NextCursorCreatedAt: records[params.Limit-1].CreatedAt,
+			NextCursorThreadID:  records[params.Limit-1].ThreadID,
+		}, nil
+	}
+	return contract.ThreadListPage{Threads: records}, nil
 }

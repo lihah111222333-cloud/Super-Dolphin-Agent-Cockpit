@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -14,6 +15,8 @@ import (
 type serviceThreadListerAdapter struct {
 	svc Service
 }
+
+var _ contract.ThreadActiveCounter = (*serviceThreadListerAdapter)(nil)
 
 // NewThreadLister 将 thread.Service 暴露为 contract.ThreadLister。
 // svc 为空时返回 nil，允许上层按可选依赖装配而不制造空 adapter。
@@ -43,6 +46,18 @@ func (a *serviceThreadListerAdapter) List(ctx context.Context) ([]contract.Threa
 		}
 	}
 	return out, nil
+}
+
+// CountActive 透过具体 thread service 使用数据库聚合统计活跃 agent。
+func (a *serviceThreadListerAdapter) CountActive(ctx context.Context) (int64, error) {
+	type activeCounter interface {
+		CountActive(context.Context) (int64, error)
+	}
+	counter, ok := a.svc.(activeCounter)
+	if !ok {
+		return 0, errors.New("thread active count service is not configured")
+	}
+	return counter.CountActive(ctx)
 }
 
 type serviceConfigReaderAdapter struct {
@@ -333,9 +348,7 @@ func cloneSessionBoolMap(in map[string]bool) map[string]bool {
 		return nil
 	}
 	out := make(map[string]bool, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 

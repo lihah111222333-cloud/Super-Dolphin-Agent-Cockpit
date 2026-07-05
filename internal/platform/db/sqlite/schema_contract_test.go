@@ -3,7 +3,6 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -264,6 +263,7 @@ func baselineContracts() map[string]tableContract {
 		"command_card_versions": {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "title", "description", "command_template", "args_schema", "risk_level", "enabled", "created_by", "updated_by", "created_at", "archived_at"}, Checks: []string{"json_valid(args_schema)", "enabled IN (0, 1)"}, Indexes: []string{"idx_command_card_versions_key_id"}},
 		"command_card_runs":     {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "requested_by", "params", "rendered_command", "risk_level", "status", "requires_review", "output", "error", "created_at", "updated_at"}, Checks: []string{"json_valid(params)", "requires_review IN (0, 1)"}, Indexes: []string{"idx_command_card_runs_status_created", "idx_command_card_runs_card_key"}},
 		"shared_files":          {PrimaryKey: []string{"path"}, NotNull: []string{"content", "content_location", "updated_by", "created_at", "updated_at"}, Checks: []string{"content_location IN ('inline', 'disk')"}, Indexes: []string{"idx_shared_files_updated_at"}},
+		"datasource_documents":  {PrimaryKey: []string{"workspace_root", "name"}, NotNull: []string{"workspace_root", "name", "extension", "size_bytes", "stored_path", "content", "created_at", "updated_at"}, Checks: []string{"workspace_root <> ''", "name <> ''", "extension <> ''", "stored_path <> ''", "content <> ''", "size_bytes >= 0"}, Indexes: []string{"idx_datasource_documents_workspace_name"}},
 		"datasource_v2_documents": {
 			PrimaryKey: []string{"id"},
 			NotNull:    []string{"source_path", "file_name", "extension", "size_bytes", "chunk_count", "total_chars", "status", "created_at", "updated_at"},
@@ -408,13 +408,4 @@ func normalizeSQL(s string) string {
 
 func indexLooksUnique(name string) bool {
 	return strings.HasPrefix(name, "uq_") || strings.HasPrefix(name, "uniq_")
-}
-
-func sortedKeys[K ~string, V any](m map[K]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, string(k))
-	}
-	sort.Strings(keys)
-	return keys
 }

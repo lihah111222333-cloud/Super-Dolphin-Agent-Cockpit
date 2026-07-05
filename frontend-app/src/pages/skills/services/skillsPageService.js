@@ -7,6 +7,7 @@ import {
   getDatasourceDocument as getDatasourceDocumentBackend,
   importDatasourceLocalFile as importDatasourceLocalFileBackend,
   importSkillDirectories as importSkillDirectoriesBackend,
+  listDatasourceChunks as listDatasourceChunksBackend,
   listDatasourceDocuments as listDatasourceDocumentsBackend,
   listMCPServers as listMCPServersBackend,
   listSkillFiles as listSkillFilesBackend,
@@ -64,6 +65,10 @@ export function importSkillDirectories(payload) {
 
 export function listDatasourceDocuments(payload) {
   return listDatasourceDocumentsBackend(payload);
+}
+
+export function listDatasourceChunks(payload) {
+  return listDatasourceChunksBackend(payload);
 }
 
 export function listMCPServers(payload) {
@@ -125,4 +130,3 @@ export function updateDatasourceDocument(payload) {
 export function writeSkill(payload) {
   return writeSkillBackend(payload);
 }
-

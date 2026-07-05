@@ -16,6 +16,9 @@ var (
 	ErrHookReviewConflict = errors.New("hook review conflict")
 )
 
+// HookPendingReviewMaxPageLimit 是 pending review 分页的生产最大行数。
+const HookPendingReviewMaxPageLimit = 500
+
 // HookManager 是 core 层 hook 调度和人工 review 的跨模块边界。
 // topic 是当前 wire 选择器；实现负责 before/check/after fanout、review resolve 和待审查询。
 type HookManager interface {
@@ -25,6 +28,24 @@ type HookManager interface {
 	DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error)
 	Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error)
 	GetPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error)
+}
+
+// HookPendingReviewPageParams 描述 pending hook review 的显式分页请求。
+// Limit 必须由调用方提供；Cursor* 为空时读取第一页。
+type HookPendingReviewPageParams struct {
+	AgentID          string
+	Limit            int
+	CursorCreatedAt  time.Time
+	CursorHookCallID string
+}
+
+// HookPendingReviewPage 是 pending hook review 的有界分页结果。
+type HookPendingReviewPage struct {
+	Reviews              []mcp.PendingHookReview
+	HasMore              bool
+	NextCursorCreatedAt  time.Time
+	NextCursorHookCallID string
+	EffectiveLimit       int
 }
 
 // HookLifecycle 管理 hook 租约关闭时的清理动作。
@@ -46,4 +67,11 @@ type HookReviewStore interface {
 	CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error)
 	CancelExpiredReviews(ctx context.Context) (int, error)
 	RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error)
+}
+
+// HookPendingReviewPager 是 pending review 的显式分页和计数能力。
+// HookReviewStore 保持兼容，resolver 在需要 bounded 能力时必须显式检查该接口。
+type HookPendingReviewPager interface {
+	ListPendingReviewsPage(ctx context.Context, params HookPendingReviewPageParams) (HookPendingReviewPage, error)
+	CountPendingReviews(ctx context.Context) (int64, error)
 }

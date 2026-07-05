@@ -12,7 +12,7 @@ type datasourceV2Store interface {
 	WithTx(ctx context.Context, fn func(txStore datasourceV2Store) error) error
 	ListDocuments(ctx context.Context, params datasourceV2ListDocumentsParams) ([]datasourceV2Document, error)
 	GetDocument(ctx context.Context, documentID int64) (*datasourceV2Document, error)
-	ListChunks(ctx context.Context, documentID int64) ([]datasourceV2TextChunk, error)
+	ListChunksPage(ctx context.Context, params datasourceV2ListChunksParams) (datasourceV2TextChunkPage, error)
 	SearchChunks(ctx context.Context, params datasourceV2SearchChunksParams) ([]datasourceV2SemanticChunk, error)
 	UpsertImporting(ctx context.Context, params datasourceV2UpsertDocumentParams) (*datasourceV2Document, error)
 	UpdateDocument(ctx context.Context, params datasourceV2UpdateDocumentParams) (*datasourceV2Document, error)
@@ -25,6 +25,12 @@ type datasourceV2Store interface {
 type datasourceV2ListDocumentsParams struct {
 	Keyword string
 	Limit   int32
+}
+
+type datasourceV2ListChunksParams struct {
+	DocumentID int64
+	Limit      int32
+	Cursor     int32
 }
 
 type datasourceV2SearchChunksParams struct {
@@ -95,6 +101,12 @@ type datasourceV2TextChunk struct {
 	EmbeddingDim   int32
 	TokenCount     int32
 	CreatedAt      time.Time
+}
+
+type datasourceV2TextChunkPage struct {
+	Chunks     []datasourceV2TextChunk
+	HasMore    bool
+	NextCursor int32
 }
 
 type datasourceV2SemanticChunk struct {

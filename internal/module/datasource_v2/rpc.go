@@ -21,6 +21,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 		"datasourceV2/importLocalFile": platformrpc.StrictHandler(importLocalFileHandler(svc)),
 		"datasourceV2/list":            platformrpc.StrictHandler(listDocumentsHandler(svc)),
 		"datasourceV2/get":             platformrpc.StrictHandler(getDocumentHandler(svc)),
+		"datasourceV2/list_chunks":     platformrpc.StrictHandler(listChunksHandler(svc)),
 		"datasourceV2/update":          platformrpc.StrictHandler(updateDocumentHandler(svc)),
 		"datasourceV2/delete":          platformrpc.StrictHandler(deleteDocumentHandler(svc)),
 	}}
@@ -86,6 +87,21 @@ func getDocumentHandler(svc Service) func(context.Context, GetDocumentRequest) (
 	}
 }
 
+// listChunksHandler 绑定 datasourceV2/list_chunks 请求。
+// limit 和 cursor 必须由调用方显式传入，避免详情页无界读取分块正文。
+func listChunksHandler(svc Service) func(context.Context, ListChunksRequest) (ListChunksResult, error) {
+	return func(ctx context.Context, req ListChunksRequest) (ListChunksResult, error) {
+		if svc == nil {
+			return ListChunksResult{}, platformrpc.ErrInvalidState("datasource v2 service is not configured")
+		}
+		result, err := svc.ListChunks(ctx, req)
+		if err != nil {
+			return ListChunksResult{}, datasourceV2RPCError(err)
+		}
+		return result, nil
+	}
+}
+
 // updateDocumentHandler 绑定 datasourceV2/update 请求。
 // 更新路径只改元数据，不改已导入正文分块。
 func updateDocumentHandler(svc Service) func(context.Context, UpdateDocumentRequest) (DocumentResult, error) {
@@ -131,6 +147,7 @@ func datasourceV2RPCError(err error) error {
 		errors.Is(err, errDatasourceV2DocumentIDRequired),
 		errors.Is(err, errDatasourceV2ListLimitRequired),
 		errors.Is(err, errDatasourceV2ListLimitTooLarge),
+		errors.Is(err, errDatasourceV2ChunkCursorRequired),
 		errors.Is(err, errDatasourceV2MissingFileName),
 		errors.Is(err, errDatasourceV2SizeBytesInvalid):
 		return platformrpc.ErrInvalidParams(err.Error())

@@ -27,7 +27,36 @@ const (
 	statusStopped  = "stopped"
 )
 
+const maxThreadListLimit = 200
+
 var errLocalSessionAlreadyGone = errors.New("thread local session already gone")
+
+// ListPageRequest 是 thread 列表 keyset 分页请求。
+type ListPageRequest struct {
+	Limit           int
+	CursorCreatedAt int64
+	CursorThreadID  string
+}
+
+// ListPageResult 是 thread 列表 keyset 分页响应。
+type ListPageResult struct {
+	Threads             []Ref  `json:"threads"`
+	HasMore             bool   `json:"has_more"`
+	NextCursorCreatedAt int64  `json:"next_cursor_created_at,omitempty"`
+	NextCursorThreadID  string `json:"next_cursor_thread_id,omitempty"`
+}
+
+type threadPageStore interface {
+	ListPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error)
+}
+
+type loadedThreadPageStore interface {
+	ListLoadedPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error)
+}
+
+type activeThreadCountStore interface {
+	CountActive(ctx context.Context) (int64, error)
+}
 
 // SessionProvider 复用跨模块会话查询接口，保留本包旧构造函数的类型签名兼容。
 type SessionProvider = contract.SessionProvider
@@ -114,9 +143,65 @@ func (s *service) invalidatePromptAssembly(ctx context.Context, reason contract.
 	return s.promptAssembly.Invalidate(ctx, reason)
 }
 
-// List 返回当前 thread store 中的全部线程引用。
+// List 返回最多 200 条线程引用，保留旧 no-arg RPC 的兼容硬上限。
 func (s *service) List(ctx context.Context) ([]Ref, error) {
-	return s.listThreads(ctx, nil)
+	page, err := s.ListPage(ctx, ListPageRequest{Limit: maxThreadListLimit})
+	if err != nil {
+		return nil, err
+	}
+	return page.Threads, nil
+}
+
+// ListPage 返回按 created_at/thread_id keyset 分页的线程引用。
+func (s *service) ListPage(ctx context.Context, req ListPageRequest) (ListPageResult, error) {
+	params, err := normalizeThreadListPage(req)
+	if err != nil {
+		return ListPageResult{}, err
+	}
+	if s.threadStore == nil {
+		return ListPageResult{}, errors.New("thread store is not configured")
+	}
+	store, ok := s.threadStore.(threadPageStore)
+	if !ok {
+		return ListPageResult{}, errors.New("thread store page query is not configured")
+	}
+	page, err := store.ListPage(ctx, params)
+	if err != nil {
+		return ListPageResult{}, err
+	}
+	return toListPageResult(page), nil
+}
+
+// ListLoadedPage 返回已加载线程的有限列表页，状态过滤必须在 SQL 层完成。
+func (s *service) ListLoadedPage(ctx context.Context, req ListPageRequest) (ListPageResult, error) {
+	params, err := normalizeThreadListPage(req)
+	if err != nil {
+		return ListPageResult{}, err
+	}
+	if s.threadStore == nil {
+		return ListPageResult{}, errors.New("thread store is not configured")
+	}
+	store, ok := s.threadStore.(loadedThreadPageStore)
+	if !ok {
+		return ListPageResult{}, errors.New("thread loaded page query is not configured")
+	}
+	page, err := store.ListLoadedPage(ctx, params)
+	if err != nil {
+		return ListPageResult{}, err
+	}
+	return toListPageResult(page), nil
+}
+
+// CountActive 通过 store 聚合查询统计活跃 agent 数量。
+func (s *service) CountActive(ctx context.Context) (int64, error) {
+	if s.threadStore == nil {
+		return 0, errors.New("thread store is not configured")
+	}
+	counter, ok := s.threadStore.(activeThreadCountStore)
+	if !ok {
+		return 0, errors.New("thread active count query is not configured")
+	}
+	return counter.CountActive(ctx)
 }
 
 // Get 按 thread id 读取单个线程，并补齐 binding 中的 provider 身份。
@@ -135,6 +220,13 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 	want := strings.TrimSpace(status)
 	if want == "" {
 		return s.List(ctx)
+	}
+	if strings.EqualFold(want, statusCreated) {
+		page, err := s.ListLoadedPage(ctx, ListPageRequest{Limit: maxThreadListLimit})
+		if err != nil {
+			return nil, err
+		}
+		return page.Threads, nil
 	}
 	return s.listThreads(ctx, func(thread threadStoreRecord) bool {
 		return strings.EqualFold(strings.TrimSpace(thread.Status), want)
@@ -330,6 +422,45 @@ func (s *service) listThreads(ctx context.Context, filter func(threadStoreRecord
 		result = append(result, toRef(thread))
 	}
 	return result, nil
+}
+
+func normalizeThreadListPage(req ListPageRequest) (contract.ThreadListPageParams, error) {
+	if req.Limit <= 0 {
+		return contract.ThreadListPageParams{}, errors.New("thread list limit is required")
+	}
+	limit := min(req.Limit, maxThreadListLimit)
+	return contract.ThreadListPageParams{
+		Limit:           limit,
+		CursorCreatedAt: req.CursorCreatedAt,
+		CursorThreadID:  strings.TrimSpace(req.CursorThreadID),
+	}, nil
+}
+
+func toListPageResult(page contract.ThreadListPage) ListPageResult {
+	refs := make([]Ref, 0, len(page.Threads))
+	for _, thread := range page.Threads {
+		refs = append(refs, refFromThreadListRecord(thread))
+	}
+	return ListPageResult{
+		Threads:             refs,
+		HasMore:             page.HasMore,
+		NextCursorCreatedAt: page.NextCursorCreatedAt,
+		NextCursorThreadID:  page.NextCursorThreadID,
+	}
+}
+
+func refFromThreadListRecord(thread contract.ThreadListRecord) Ref {
+	return Ref{
+		ID:        thread.ThreadID,
+		Name:      thread.Name,
+		AgentID:   thread.AgentID,
+		Status:    thread.Status,
+		CreatedAt: thread.CreatedAt,
+		UpdatedAt: thread.UpdatedAt,
+		CWD:       thread.Cwd,
+		Model:     thread.Model,
+		Port:      int(thread.Port),
+	}
 }
 
 // getThread 按 threadID 从 store 读取单条记录。

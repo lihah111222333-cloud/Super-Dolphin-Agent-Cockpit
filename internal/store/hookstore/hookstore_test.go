@@ -70,9 +70,9 @@ func TestNewStore(t *testing.T) {
 	if got == nil {
 		t.Fatal("NewStore() = nil, want non-nil store")
 	}
-	store, ok := got.(*store)
+	store, ok := got.(*pagedStore)
 	if !ok {
-		t.Fatalf("NewStore() type = %T, want *store", got)
+		t.Fatalf("NewStore() type = %T, want *pagedStore", got)
 	}
 	if store.q != nil {
 		t.Fatalf("NewStore().q = %#v, want nil querier", store.q)
@@ -127,6 +127,29 @@ func TestListPendingReviews(t *testing.T) {
 	}
 	if got[0].HookCallID != older.HookCallID || got[1].HookCallID != newer.HookCallID {
 		t.Fatalf("ListPendingReviews() order = [%s %s], want [%s %s]", got[0].HookCallID, got[1].HookCallID, older.HookCallID, newer.HookCallID)
+	}
+}
+
+// TestListPendingReviewsCapsLimit 固定 hookstore 下沉查询前必须裁剪过大分页 limit。
+func TestListPendingReviewsCapsLimit(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 24, 13, 0, 0, 0, time.UTC)
+	store, db := newTestStore(
+		testRecord{review: testPendingReview("call-cap-1", "agent-cap", "reject", base, base.Add(10*time.Minute)), status: "pending"},
+		testRecord{review: testPendingReview("call-cap-2", "agent-cap", "reject", base.Add(time.Minute), base.Add(20*time.Minute)), status: "pending"},
+	)
+
+	_, err := store.ListPendingReviewsPage(context.Background(), contract.HookPendingReviewPageParams{
+		AgentID: "agent-cap",
+		Limit:   999,
+	})
+
+	if err != nil {
+		t.Fatalf("ListPendingReviewsPage() error = %v", err)
+	}
+	if len(db.listPageLimits) != 1 || db.listPageLimits[0] != 500 {
+		t.Fatalf("ListPendingReviewsPage() limits = %v, want [500]", db.listPageLimits)
 	}
 }
 

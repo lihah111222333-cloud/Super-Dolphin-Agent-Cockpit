@@ -11,6 +11,7 @@ import {
   importDatasourceLocalFile,
   installAppUpdate,
   installLatestAppUpdate,
+  listDatasourceChunks,
   listDatasourceDocuments,
   listMCPToolLifecycle,
   listMCPServers,
@@ -96,6 +97,7 @@ function guardedBackendResponse(method) {
     await api.createDatasourceDocument({ source_path: ' C:\\data\\alpha.txt ' });
     await api.listDatasourceDocuments({ keyword: 'alpha', limit: '25' });
     await api.getDatasourceDocument({ document_id: '101' });
+    await api.listDatasourceChunks({ document_id: '101', limit: '2', cursor: 0 });
     await api.updateDatasourceDocument({
       documentId: 101,
       sourcePath: ' C:\\data\\alpha-renamed.txt ',
@@ -115,24 +117,31 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.DATASOURCE_V2_GET, {
       documentId: 101,
     });
-    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_UPDATE, {
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS, {
+      documentId: 101,
+      limit: 2,
+      cursor: 0,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_UPDATE, {
       documentId: 101,
       sourcePath: 'C:\\data\\alpha-renamed.txt',
       fileName: 'alpha-renamed.txt',
       extension: '.txt',
       sizeBytes: 42,
     });
-    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_DELETE, {
+    expect(callAPI).toHaveBeenNthCalledWith(6, RPC_METHODS.DATASOURCE_V2_DELETE, {
       documentId: 101,
     });
     expectInvalidInputDoesNotCall(callAPI, () => api.createDatasourceDocument({ sourcePath: '' }), 'sourcePath is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceDocuments({}), 'limit must be a positive integer');
     expectInvalidInputDoesNotCall(callAPI, () => api.getDatasourceDocument({ documentId: 0 }), 'documentId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceChunks({ documentId: 101, limit: 2 }), 'cursor is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.updateDatasourceDocument({ documentId: 101, sourcePath: 'C:\\data\\a.txt', sizeBytes: 1 }), 'fileName is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.deleteDatasourceDocument({ documentId: '' }), 'documentId is required');
     expect(typeof createDatasourceDocument).toBe('function');
     expect(typeof listDatasourceDocuments).toBe('function');
     expect(typeof getDatasourceDocument).toBe('function');
+    expect(typeof listDatasourceChunks).toBe('function');
     expect(typeof updateDatasourceDocument).toBe('function');
     expect(typeof deleteDatasourceDocument).toBe('function');
   });

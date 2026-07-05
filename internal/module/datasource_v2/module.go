@@ -85,16 +85,27 @@ func (p datasourceV2StorePort) GetDocument(ctx context.Context, documentID int64
 	return &converted, nil
 }
 
-// ListChunks 读取文档正文分块，并隐藏 store 层的分块类型。
-func (p datasourceV2StorePort) ListChunks(ctx context.Context, documentID int64) ([]datasourceV2TextChunk, error) {
+// ListChunksPage 读取文档正文分块页，并隐藏 store 层的分块类型。
+func (p datasourceV2StorePort) ListChunksPage(
+	ctx context.Context,
+	params datasourceV2ListChunksParams,
+) (datasourceV2TextChunkPage, error) {
 	if err := p.requireStore(); err != nil {
-		return nil, err
+		return datasourceV2TextChunkPage{}, err
 	}
-	chunks, err := p.store.ListChunks(ctx, documentID)
+	page, err := p.store.ListChunksPage(ctx, datasourcev2store.ListChunksParams{
+		DocumentID: params.DocumentID,
+		Limit:      params.Limit,
+		Cursor:     params.Cursor,
+	})
 	if err != nil {
-		return nil, err
+		return datasourceV2TextChunkPage{}, err
 	}
-	return datasourceV2TextChunksFromStore(chunks), nil
+	return datasourceV2TextChunkPage{
+		Chunks:     datasourceV2TextChunksFromStore(page.Chunks),
+		HasMore:    page.HasMore,
+		NextCursor: page.NextCursor,
+	}, nil
 }
 
 // SearchChunks 执行语义检索，并把带距离的分块结果转成模块 DTO。

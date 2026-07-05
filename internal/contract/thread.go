@@ -42,9 +42,57 @@ type ThreadRef struct {
 	UpdatedAt int64
 }
 
+// ThreadListPageParams 定义跨模块 thread 列表 keyset 分页参数。
+type ThreadListPageParams struct {
+	Limit           int
+	CursorCreatedAt int64
+	CursorThreadID  string
+}
+
+// ThreadListRecord 是 store 向 thread service 返回的列表行投影。
+type ThreadListRecord struct {
+	ThreadID         string
+	AgentID          string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	Name             string
+	Prompt           string
+	Model            string
+	Cwd              string
+	Status           string
+	Port             int32
+	PID              int32
+	CreatedAt        int64
+	UpdatedAt        int64
+	FinishedAt       *int64
+	LastEventType    string
+	ErrorMessage     string
+	WorkspaceRunKey  string
+	OwnerThreadID    string
+	ConfigOverride   json.RawMessage
+	AgentKey         string
+	PromptVersionID  *int64
+	PendingLaunch    bool
+	ManuallyRenamed  bool
+}
+
+// ThreadListPage 是 thread 列表 keyset 分页结果。
+type ThreadListPage struct {
+	Threads             []ThreadListRecord
+	HasMore             bool
+	NextCursorCreatedAt int64
+	NextCursorThreadID  string
+}
+
 // ThreadLister 是 uistate 构建初始侧边栏所需的 thread 只读列表端口。
 type ThreadLister interface {
 	List(ctx context.Context) ([]ThreadRef, error)
+}
+
+// ThreadActiveCounter 是 Wails 退出流程使用的轻量 active agent 计数端口。
+type ThreadActiveCounter interface {
+	CountActive(ctx context.Context) (int64, error)
 }
 
 // ThreadConfigReader 读取单个 thread 的有效配置。
