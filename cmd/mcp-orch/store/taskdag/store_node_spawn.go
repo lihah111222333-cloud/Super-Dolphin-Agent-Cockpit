@@ -2,8 +2,6 @@ package taskdag
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -199,41 +197,6 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	result.Node = nodeFromSpawnRow(row)
 	result.PreviousThreadID = previousThreadID
 	return nil
-}
-
-// appendNodeSpawnEvent 封装「构造 payload + appendTaskDagRunEventTx」。
-// sql.ErrNoRows（dag_key 下无 running run）必须传错上去。
-func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
-	payload, err := json.Marshal(nodeSpawnEvent{
-		Kind:         "node_spawn",
-		NodeKey:      nodeKey,
-		PrevThreadID: result.PreviousThreadID,
-		ThreadID:     threadID,
-		TS:           time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return fmt.Errorf("marshal node_spawn event: %w", err)
-	}
-	runKey, err := appendTaskDagRunEventTx(ctx, txq, dagKey, runID, payload)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("append node_spawn event: running run not found for dag %q run %d: %w", dagKey, runID, err)
-		}
-		return err
-	}
-	result.AppendedEvent = true
-	result.RunKey = runKey
-	return nil
-}
-
-// nodeSpawnEvent 是写入 task_dag_runs.events JSON 数组的事件载荷。kind 固定
-// "node_spawn"；TS 用 RFC3339Nano 字符串方便 UI 直接渲染。
-type nodeSpawnEvent struct {
-	Kind         string `json:"kind"`
-	NodeKey      string `json:"node_key"`
-	PrevThreadID string `json:"prev_thread_id"`
-	ThreadID     string `json:"thread_id"`
-	TS           string `json:"ts"`
 }
 
 // nodeFromSpawnRow 把更新 spawning_thread_id 的 CTE 返回行投影成 Node。
