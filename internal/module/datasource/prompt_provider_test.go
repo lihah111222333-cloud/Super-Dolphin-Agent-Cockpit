@@ -84,8 +84,8 @@ func TestPromptProviderRendersPersistedDatasourceText(t *testing.T) {
 	}
 }
 
-// TestDatasourcePromptRejectsOversizedWorkspaceDocuments 固定 workspace 文档总量超限时阻断 prompt。
-func TestDatasourcePromptRejectsOversizedWorkspaceDocuments(t *testing.T) {
+// TestDatasourcePromptRejectsTooManyWorkspaceDocuments 固定 workspace 文档数量超限时阻断 prompt。
+func TestDatasourcePromptRejectsTooManyWorkspaceDocuments(t *testing.T) {
 	project := t.TempDir()
 	store := &recordingDatasourceStore{
 		documents: make([]DatasourceDocument, 0, 21),
@@ -109,12 +109,41 @@ func TestDatasourcePromptRejectsOversizedWorkspaceDocuments(t *testing.T) {
 		t.Fatalf("Resolve() error = %v, want critical prompt section error", err)
 	}
 	if got != nil {
-		t.Fatalf("Resolve() text = %q, want nil on oversized datasource documents", *got)
+		t.Fatalf("Resolve() text = %q, want nil on too many datasource documents", *got)
 	}
 }
 
-// TestDatasourcePromptUsesBoundedSummaries 固定 prompt 只渲染每个文档的有界摘要。
-func TestDatasourcePromptUsesBoundedSummaries(t *testing.T) {
+// TestDatasourcePromptRejectsOversizedWorkspaceDocuments 固定 workspace 文档总字节超限时阻断 prompt。
+func TestDatasourcePromptRejectsOversizedWorkspaceDocuments(t *testing.T) {
+	project := t.TempDir()
+	store := &recordingDatasourceStore{
+		documents: make([]DatasourceDocument, 0, 17),
+	}
+	for i := range 17 {
+		store.documents = append(store.documents, DatasourceDocument{
+			WorkspaceRoot: project,
+			Name:          "doc-" + string(rune('a'+i)) + ".txt",
+			Extension:     ".txt",
+			Content:       strings.Repeat("x", datasourcePromptMaxDocumentBytes),
+		})
+	}
+	provider := NewPromptProvider(NewServiceWithStore(store))
+
+	got, err := provider.Resolve(context.Background(), contract.SectionContext{
+		BuildCtx: contract.BuildCtx{CWD: project},
+		Start:    &contract.StartInput{CWD: project},
+	})
+
+	if err == nil || !contract.IsCriticalPromptSectionError(err) {
+		t.Fatalf("Resolve() error = %v, want critical prompt section error", err)
+	}
+	if got != nil {
+		t.Fatalf("Resolve() text = %q, want nil on oversized datasource workspace bytes", *got)
+	}
+}
+
+// TestDatasourcePromptRejectsOversizedSingleDocument 固定单文档超限时阻断 prompt，禁止静默截断。
+func TestDatasourcePromptRejectsOversizedSingleDocument(t *testing.T) {
 	project := t.TempDir()
 	store := &recordingDatasourceStore{
 		documents: []DatasourceDocument{
@@ -122,7 +151,7 @@ func TestDatasourcePromptUsesBoundedSummaries(t *testing.T) {
 				WorkspaceRoot: project,
 				Name:          "large.txt",
 				Extension:     ".txt",
-				Content:       strings.Repeat("a", 5000) + "TAIL_MARKER",
+				Content:       strings.Repeat("a", datasourcePromptMaxDocumentBytes) + "TAIL_MARKER",
 			},
 		},
 	}
@@ -133,17 +162,11 @@ func TestDatasourcePromptUsesBoundedSummaries(t *testing.T) {
 		Start:    &contract.StartInput{CWD: project},
 	})
 
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
+	if err == nil || !contract.IsCriticalPromptSectionError(err) {
+		t.Fatalf("Resolve() error = %v, want critical prompt section error", err)
 	}
-	if got == nil {
-		t.Fatal("Resolve() = nil, want bounded datasource prompt text")
-	}
-	if strings.Contains(*got, "TAIL_MARKER") {
-		t.Fatalf("Resolve() rendered unbounded document tail:\n%s", *got)
-	}
-	if !strings.Contains(*got, "truncated") {
-		t.Fatalf("Resolve() missing truncation marker:\n%s", *got)
+	if got != nil {
+		t.Fatalf("Resolve() text = %q, want nil on oversized single datasource document", *got)
 	}
 }
 

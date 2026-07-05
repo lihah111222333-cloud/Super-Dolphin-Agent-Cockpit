@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -109,7 +108,7 @@ func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) (stri
 		lines = append(lines,
 			"",
 			"### "+document.Name,
-			boundedDatasourceDocumentSummary(document.Content),
+			strings.TrimSpace(document.Content),
 		)
 	}
 	return strings.Join(lines, "\n"), nil
@@ -137,30 +136,14 @@ func validateDatasourcePromptBounds(documents []DatasourceDocument) error {
 	}
 	totalBytes := 0
 	for _, document := range documents {
-		totalBytes += len([]byte(document.Content))
+		documentBytes := len([]byte(document.Content))
+		if documentBytes > datasourcePromptMaxDocumentBytes {
+			return fmt.Errorf("datasource prompt document %q exceeds byte cap: %d > %d", document.Name, documentBytes, datasourcePromptMaxDocumentBytes)
+		}
+		totalBytes += documentBytes
 		if totalBytes > datasourcePromptMaxWorkspaceBytes {
 			return fmt.Errorf("datasource prompt documents exceed byte cap: %d > %d", totalBytes, datasourcePromptMaxWorkspaceBytes)
 		}
 	}
 	return nil
-}
-
-func boundedDatasourceDocumentSummary(content string) string {
-	content = strings.TrimSpace(content)
-	if len([]byte(content)) <= datasourcePromptMaxDocumentBytes {
-		return content
-	}
-	summary := trimStringToValidUTF8Bytes(content, datasourcePromptMaxDocumentBytes)
-	return fmt.Sprintf("%s\n\n[truncated: showing first %d bytes of %d bytes]", summary, len([]byte(summary)), len([]byte(content)))
-}
-
-func trimStringToValidUTF8Bytes(s string, maxBytes int) string {
-	if len([]byte(s)) <= maxBytes {
-		return s
-	}
-	end := maxBytes
-	for end > 0 && !utf8.ValidString(s[:end]) {
-		end--
-	}
-	return strings.TrimSpace(s[:end])
 }
