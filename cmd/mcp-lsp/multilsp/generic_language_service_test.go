@@ -79,6 +79,9 @@ func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *Langua
 	if policy := goAdapter.BootstrapPolicy(goScope); policy.OpenSiblingDocuments || len(policy.SiblingExtensions) != 0 {
 		t.Fatalf("go BootstrapPolicy = %#v, want no sibling bootstrap", policy)
 	}
+	if policy := goAdapter.BootstrapPolicy(goScope); !policy.TreatMissingDiagnosticsAsEmpty {
+		t.Fatalf("go BootstrapPolicy = %#v, want missing empty diagnostics accepted after ready bootstrap", policy)
+	}
 }
 
 func assertTypeScriptAdapterPolicies(t *testing.T, ctx context.Context, registry *LanguageAdapterRegistry, root, jsRoot string) {

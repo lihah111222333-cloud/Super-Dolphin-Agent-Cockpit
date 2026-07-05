@@ -2,12 +2,19 @@ package multilsp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+)
+
+const (
+	documentDiagnosticKindFull      = "full"
+	documentDiagnosticKindUnchanged = "unchanged"
 )
 
 type diagnosticReadiness struct {
@@ -112,6 +119,142 @@ func (m *manager) requestedDiagnosticReadiness(ctx context.Context, filter diagn
 	}
 	sort.Strings(result.missing)
 	return result, nil
+}
+
+// pullMissingDiagnostics 对尚未收到 publishDiagnostics 的显式目标尝试 LSP pull diagnostics。
+func (m *manager) pullMissingDiagnostics(ctx context.Context, filter diagnosticFilter, uris []string) error {
+	if len(uris) == 0 || m.factory == nil {
+		return nil
+	}
+	ready := m.readyDiagnosticSnapshots(filter)
+	for _, uri := range uniqueDiagnosticURIs(uris) {
+		ref, ok, err := m.awaitableDiagnosticRef(ctx, uri)
+		if err != nil {
+			return err
+		}
+		if !ok || !ready[ref.uri].IsZero() {
+			continue
+		}
+		if err := m.pullDocumentDiagnostics(ctx, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pullDocumentDiagnostics 从声明 diagnosticProvider 的 LSP server 主动拉取单文档诊断。
+func (m *manager) pullDocumentDiagnostics(ctx context.Context, ref documentRef) error {
+	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
+	if err != nil {
+		return err
+	}
+	if !clientSupportsPullDiagnostics(client) {
+		return nil
+	}
+	raw, err := client.Request(ctx, protocol.MethodTextDocumentDiagnostic, protocol.DocumentDiagnosticParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
+	})
+	if err != nil {
+		return fmt.Errorf("pull diagnostics %s: %w", ref.uri, err)
+	}
+	params, ok, err := decodePulledDiagnostics(ref.uri, raw)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	return m.PublishDiagnostics(params)
+}
+
+// markReadyForOmittedEmptyDiagnostics 为允许省略空推送的语言写入空诊断快照。
+func (m *manager) markReadyForOmittedEmptyDiagnostics(ctx context.Context, filter diagnosticFilter, uris []string) error {
+	if len(uris) == 0 || m.factory == nil {
+		return nil
+	}
+	ready := m.readyDiagnosticSnapshots(filter)
+	for _, uri := range uniqueDiagnosticURIs(uris) {
+		ref, ok, err := m.awaitableDiagnosticRef(ctx, uri)
+		if err != nil {
+			return err
+		}
+		if !ok || !ready[ref.uri].IsZero() {
+			continue
+		}
+		allowEmpty, err := m.diagnosticsMayBeEmptyWithoutPublish(ctx, ref)
+		if err != nil {
+			return err
+		}
+		if !allowEmpty {
+			continue
+		}
+		if err := m.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: ref.uri}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// diagnosticsMayBeEmptyWithoutPublish 判断目标文档是否已完成启动且允许缺省空诊断。
+func (m *manager) diagnosticsMayBeEmptyWithoutPublish(ctx context.Context, ref documentRef) (bool, error) {
+	scope, adapter, err := m.resolveLanguageScope(ctx, ref.languageID, ref.absPath, ref.uri)
+	if err != nil {
+		return false, err
+	}
+	if !adapter.BootstrapPolicy(scope).TreatMissingDiagnosticsAsEmpty {
+		return false, nil
+	}
+	cfg, err := workspaceConfigForLanguageScope(scope, adapter)
+	if err != nil {
+		return false, err
+	}
+	resolved, err := m.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return false, err
+	}
+	return coordinator.states.status(resolved.bootstrapKey(), ref.uri) == bootstrapReady, nil
+}
+
+func clientSupportsPullDiagnostics(client Client) bool {
+	capClient, ok := client.(ServerCapabilitiesClient)
+	if !ok {
+		return false
+	}
+	return diagnosticProviderAvailable(capClient.ServerCapabilities().DiagnosticProvider)
+}
+
+func diagnosticProviderAvailable(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	default:
+		return true
+	}
+}
+
+// decodePulledDiagnostics 把 textDocument/diagnostic 结果转换成统一诊断快照载荷。
+func decodePulledDiagnostics(uri string, raw json.RawMessage) (protocol.PublishDiagnosticsParams, bool, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return protocol.PublishDiagnosticsParams{}, false, nil
+	}
+	var report protocol.DocumentDiagnosticReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return protocol.PublishDiagnosticsParams{}, false, fmt.Errorf("decode pulled diagnostics: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(report.Kind)) {
+	case documentDiagnosticKindFull:
+		return protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: report.Items}, true, nil
+	case documentDiagnosticKindUnchanged:
+		return protocol.PublishDiagnosticsParams{}, false, nil
+	default:
+		return protocol.PublishDiagnosticsParams{}, false, fmt.Errorf("decode pulled diagnostics: unsupported report kind %q", report.Kind)
+	}
 }
 
 func (m *manager) readyDiagnosticSnapshots(filter diagnosticFilter) map[string]time.Time {

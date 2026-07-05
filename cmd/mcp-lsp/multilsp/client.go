@@ -35,6 +35,11 @@ type Client interface {
 	Close() error
 }
 
+// ServerCapabilitiesClient 暴露 initialize 返回的服务端能力，供可选能力路径按需探测。
+type ServerCapabilitiesClient interface {
+	ServerCapabilities() protocol.ServerCapabilities
+}
+
 type HealthCheckedClient interface {
 	Client
 	Healthy() bool
@@ -57,11 +62,12 @@ type client struct {
 	initOptions      map[string]any
 	workspaceFolders []protocol.WorkspaceFolder
 
-	lifecycleMu sync.Mutex
-	stateMu     sync.RWMutex
-	rootURI     string
-	initialized bool
-	shutdown    bool
+	lifecycleMu  sync.Mutex
+	stateMu      sync.RWMutex
+	rootURI      string
+	initialized  bool
+	shutdown     bool
+	capabilities protocol.ServerCapabilities
 }
 
 type limitedBuffer struct {
@@ -142,12 +148,14 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 		c.markDeadIfClientFailure(err)
 		return fmt.Errorf("LSP initialized notification: %w", err)
 	}
-	if err := decodeInitializeResult(result); err != nil {
+	capabilities, err := decodeInitializeResult(result)
+	if err != nil {
 		return err
 	}
 	c.stateMu.Lock()
 	c.rootURI = rootURI
 	c.initialized = true
+	c.capabilities = capabilities
 	c.stateMu.Unlock()
 	return nil
 }
@@ -259,6 +267,13 @@ func (c *client) Healthy() bool {
 	return c.transport != nil && !c.transport.closed.Load()
 }
 
+// ServerCapabilities 返回 initialize 阶段记录的服务端能力。
+func (c *client) ServerCapabilities() protocol.ServerCapabilities {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.capabilities
+}
+
 func (c *client) canInitialize(rootURI string) error {
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
@@ -307,15 +322,15 @@ func (c *client) markDeadIfClientFailure(err error) {
 	}
 }
 
-func decodeInitializeResult(result json.RawMessage) error {
+func decodeInitializeResult(result json.RawMessage) (protocol.ServerCapabilities, error) {
 	if len(result) == 0 {
-		return nil
+		return protocol.ServerCapabilities{}, nil
 	}
 	var decoded protocol.InitializeResult
 	if err := json.Unmarshal(result, &decoded); err != nil {
-		return fmt.Errorf("decode initialize result: %w", err)
+		return protocol.ServerCapabilities{}, fmt.Errorf("decode initialize result: %w", err)
 	}
-	return nil
+	return decoded.Capabilities, nil
 }
 
 // clientCapabilities 声明本 sidecar 支持的 LSP 能力集合。
@@ -328,6 +343,9 @@ func clientCapabilities() protocol.ClientCapabilities {
 		TextDocument: &protocol.TextDocumentClientCapabilities{
 			PublishDiagnostics: &protocol.PublishDiagnosticsCapability{
 				RelatedInformation: true,
+			},
+			Diagnostic: &protocol.DiagnosticClientCapability{
+				DynamicRegistration: true,
 			},
 			Hover: &protocol.HoverCapability{
 				ContentFormat: []string{"markdown", "plaintext"},

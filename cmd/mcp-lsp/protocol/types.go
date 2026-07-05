@@ -125,6 +125,19 @@ type PublishDiagnosticsParams struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 
+// DocumentDiagnosticParams 是 textDocument/diagnostic 的请求参数。
+type DocumentDiagnosticParams struct {
+	TextDocument     TextDocumentIdentifier `json:"textDocument"`
+	Identifier       string                 `json:"identifier,omitempty"`
+	PreviousResultID string                 `json:"previousResultId,omitempty"`
+}
+
+// DocumentDiagnosticReport 是 pull diagnostics 返回的完整或未变化结果。
+type DocumentDiagnosticReport struct {
+	Kind  string       `json:"kind"`
+	Items []Diagnostic `json:"items,omitempty"`
+}
+
 // MarkupContent 表示 markdown/plaintext 等格式化文本。
 type MarkupContent struct {
 	Kind  string `json:"kind"`

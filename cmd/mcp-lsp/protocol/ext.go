@@ -42,6 +42,7 @@ type DynamicRegistrationCapability struct {
 // TextDocumentClientCapabilities 汇总本 sidecar 使用到的 textDocument 能力声明。
 type TextDocumentClientCapabilities struct {
 	PublishDiagnostics *PublishDiagnosticsCapability  `json:"publishDiagnostics,omitempty"`
+	Diagnostic         *DiagnosticClientCapability    `json:"diagnostic,omitempty"`
 	Hover              *HoverCapability               `json:"hover,omitempty"`
 	Completion         *CompletionClientCapability    `json:"completion,omitempty"`
 	Rename             *RenameClientCapability        `json:"rename,omitempty"`
@@ -68,6 +69,12 @@ type DocumentSymbolCapability struct {
 // PublishDiagnosticsCapability 描述诊断推送是否可携带 relatedInformation。
 type PublishDiagnosticsCapability struct {
 	RelatedInformation bool `json:"relatedInformation,omitempty"`
+}
+
+// DiagnosticClientCapability 描述 LSP pull diagnostics 请求能力。
+type DiagnosticClientCapability struct {
+	DynamicRegistration    bool `json:"dynamicRegistration,omitempty"`
+	RelatedDocumentSupport bool `json:"relatedDocumentSupport,omitempty"`
 }
 
 // HoverCapability 描述 hover 返回内容可接受的 markup 格式。

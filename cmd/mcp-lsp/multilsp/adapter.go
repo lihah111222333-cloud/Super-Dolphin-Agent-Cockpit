@@ -43,11 +43,12 @@ type ServerCommand struct {
 }
 
 type BootstrapPolicy struct {
-	OpenTarget            bool
-	OpenSiblingDocuments  bool
-	SiblingExtensions     []string
-	FirstSourceExtensions []string
-	IgnoredDirNames       map[string]struct{}
+	OpenTarget                     bool
+	OpenSiblingDocuments           bool
+	TreatMissingDiagnosticsAsEmpty bool
+	SiblingExtensions              []string
+	FirstSourceExtensions          []string
+	IgnoredDirNames                map[string]struct{}
 }
 
 type ToolCapabilityPolicy struct {
@@ -209,7 +210,8 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 // 这样 gopls 能尽快产生诊断和符号索引。
 func (goLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
-		OpenTarget: true,
+		OpenTarget:                     true,
+		TreatMissingDiagnosticsAsEmpty: true,
 	}
 }
 

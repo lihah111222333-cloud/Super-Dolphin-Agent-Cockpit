@@ -264,6 +264,6 @@ func (t *transport) stopWithError(err error) {
 func (t *transport) abortBlockedWrite(err error) {
 	t.closed.Store(true)
 	t.clearPending(err)
-	_ = t.killProcess()
 	t.closeInput()
+	_ = t.killProcess()
 }

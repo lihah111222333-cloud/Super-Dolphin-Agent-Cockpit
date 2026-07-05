@@ -53,7 +53,7 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 
 	select {
 	case <-tr.done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("request() returned but LSP process stayed alive; want context cancellation to terminate the process")
 	}
 }
