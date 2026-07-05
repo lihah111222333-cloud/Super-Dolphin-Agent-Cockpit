@@ -315,6 +315,33 @@ func TestStartDAGRequiresDAGKey(t *testing.T) {
 	}
 }
 
+// TestCreateAndStartDAGRollsBackCreatedDAGWhenStartFails 确认立即启动失败不会留下半创建 DAG。
+func TestCreateAndStartDAGRollsBackCreatedDAGWhenStartFails(t *testing.T) {
+	t.Parallel()
+
+	startErr := errors.New("start failed")
+	orchestration := &stubDashboardOrchestration{startDAGErr: startErr}
+	svc := &service{orchestration: orchestration}
+
+	_, _, err := svc.CreateAndStartDAG(context.Background(), contract.CreateDAGRequest{
+		DagKey:    " dag-rollback ",
+		Title:     "Rollback DAG",
+		CreatedBy: dashboardUICreatedBy,
+		Nodes: []contract.CreateDAGNodeRequest{{
+			NodeKey:    "draft",
+			Title:      "Draft",
+			NodeType:   "agent",
+			AssignedTo: "codex-runner",
+		}},
+	}, "ui-create-1")
+	if !errors.Is(err, startErr) {
+		t.Fatalf("CreateAndStartDAG() error = %v, want start failure", err)
+	}
+	if orchestration.deleteDAGRequest != (contract.DeleteDAGRequest{DagKey: "dag-rollback"}) {
+		t.Fatalf("DeleteDAG() request after failed start = %#v, want rollback", orchestration.deleteDAGRequest)
+	}
+}
+
 func TestDispatchDAGNodeUsesOrchestration(t *testing.T) {
 	t.Parallel()
 

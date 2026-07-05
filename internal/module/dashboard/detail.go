@@ -174,9 +174,21 @@ func (s *service) CreateAndStartDAG(ctx context.Context, req contract.CreateDAGR
 	}
 	started, err := s.StartDAG(ctx, req.DagKey, "manual", idempotencyKey)
 	if err != nil {
+		if rollbackErr := s.rollbackCreatedDAG(ctx, runtime, req.DagKey); rollbackErr != nil {
+			return detail, contract.StartDAGResponse{}, fmt.Errorf("dashboard: start created dag %q: %w; rollback failed: %v", req.DagKey, err, rollbackErr)
+		}
 		return detail, contract.StartDAGResponse{}, err
 	}
 	return detail, started, nil
+}
+
+// rollbackCreatedDAG 删除已创建但未能启动的 DAG，避免 create-and-start 留下半完成模板。
+func (s *service) rollbackCreatedDAG(ctx context.Context, runtime contract.DAGRuntime, dagKey string) error {
+	deleter, ok := any(runtime).(contract.DAGDeleteRuntime)
+	if !ok {
+		return errOrchestrationServiceNotAvailable
+	}
+	return deleter.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: strings.TrimSpace(dagKey)})
 }
 
 // StartDAG 以手动触发方式启动 DAG。
