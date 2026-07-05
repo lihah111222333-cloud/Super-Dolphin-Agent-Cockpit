@@ -5467,6 +5467,37 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
+  it('shows a warning when force complete returns a diagnosed no-target envelope', async () => {
+    backend.forceCompleteTurn.mockResolvedValueOnce({
+      ok: false,
+      forceCompleted: false,
+      errorCode: 'force_complete_target_not_found',
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      activeTurnByThread: {
+        'thread-1': { id: 'turn-1', threadId: 'thread-1', status: 'running' },
+      },
+    });
+
+    await expect(useClientStore.getState().forceCompleteActiveThread()).resolves.toBe(false);
+
+    expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '强制完成当前执行失败：force_complete_target_not_found',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
+      level: 'warn',
+      event: 'thread.force_complete.failed',
+      fields: expect.objectContaining({
+        error: '[redacted]',
+      }),
+    }));
+  });
+
   it('responds to timeline approval requests through the approval RPC', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
