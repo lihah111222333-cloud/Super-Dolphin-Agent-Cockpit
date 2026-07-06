@@ -243,7 +243,7 @@ func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit failed: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "[pre-commit] full codebase guard", "fake code guard --guard-only", "pre-commit OK")
+	assertOutputContainsAll(t, out, "[pre-commit] full codebase guard", "fake code guard --guard-only skip-gosec=1", "pre-commit OK")
 	assertOutputOmitsAll(t, out, "go vet", "frontend-app tests")
 }
 

@@ -47,7 +47,7 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
 	assertOutputOmitsAll(t, out, "frontend-app tests")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1")
+	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1 skip-gosec=1")
 	assertOutputOmitsAll(t, log, "node ", "npx ", "npm ")
 }
 
@@ -157,7 +157,7 @@ func preparePrePushScopeRepo(t *testing.T) string {
 
 func writePrePushFakeGoTestScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'go-test %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nprintf 'fake go package test %s\\n' \"$*\"\n"
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'go-test %s skip-gosec=%s\\n' \"$*\" \"${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}\" >>\"$HOOK_SCOPE_LOG\"\nprintf 'fake go package test %s\\n' \"$*\"\n"
 	path := filepath.Join(root, "scripts", "test_with_guard.sh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake test_with_guard.sh: %v", err)
@@ -166,7 +166,7 @@ func writePrePushFakeGoTestScript(t *testing.T, root string) {
 
 func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake code guard %s\\n' \"$*\"\nif [ \"$*\" != \"--guard-only\" ]; then\n  echo \"unexpected guard args: $*\" >&2\n  exit 1\nfi\n"
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake code guard %s skip-gosec=%s\\n' \"$*\" \"${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}\"\nif [ \"$*\" != \"--guard-only\" ]; then\n  echo \"unexpected guard args: $*\" >&2\n  exit 1\nfi\n"
 	path := filepath.Join(root, "scripts", "test_with_guard.sh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake test_with_guard.sh: %v", err)

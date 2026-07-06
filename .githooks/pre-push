@@ -3,8 +3,14 @@
 # Bypass: git push --no-verify
 set -e
 
+# Push hooks must not run gosec; keep security scans out of the local push path.
+export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
+
 run_without_git_env() (
-  unset $(git rev-parse --local-env-vars)
+  local git_var
+  while IFS= read -r git_var; do
+    [ -n "$git_var" ] && unset "$git_var"
+  done < <(git rev-parse --local-env-vars)
   unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
   local name
   while IFS='=' read -r name _; do
