@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -67,6 +68,8 @@ type sgStreamMatch struct {
 }
 
 var errSearchResultsLimitReached = errors.New("search results limit reached")
+
+const maxGlobBracePatterns = 64
 
 func maxResultsReached(count, maxResults int) bool { return maxResults > 0 && count >= maxResults }
 
@@ -552,10 +555,105 @@ func validateSearchGlob(rawGlob string) error {
 	if glob == "" {
 		return nil
 	}
-	if _, err := path.Match(glob, "probe"); err != nil {
+	patterns, err := expandGlobBraces(glob)
+	if err != nil {
 		return fmt.Errorf("invalid glob %q: %w", rawGlob, err)
 	}
+	for _, pattern := range patterns {
+		if _, err := path.Match(pattern, "probe"); err != nil {
+			return fmt.Errorf("invalid glob %q: %w", rawGlob, err)
+		}
+	}
 	return nil
+}
+
+// expandGlobBraces 支持常见的 `*.{js,jsx}` brace alternation，再交给现有 glob 逻辑匹配。
+func expandGlobBraces(pattern string) ([]string, error) {
+	patterns := []string{pattern}
+	for {
+		expanded := false
+		next := make([]string, 0, len(patterns))
+		for _, candidate := range patterns {
+			start := indexUnescapedByte(candidate, '{')
+			if start < 0 {
+				next = append(next, candidate)
+				continue
+			}
+			end := indexUnescapedByte(candidate[start+1:], '}')
+			if end < 0 {
+				return nil, errors.New("missing closing brace")
+			}
+			end += start + 1
+			choices, err := splitGlobBraceChoices(candidate[start+1 : end])
+			if err != nil {
+				return nil, err
+			}
+			if len(next)+len(choices) > maxGlobBracePatterns {
+				return nil, fmt.Errorf("brace expansion exceeds %d patterns", maxGlobBracePatterns)
+			}
+			for _, choice := range choices {
+				next = append(next, candidate[:start]+choice+candidate[end+1:])
+			}
+			expanded = true
+		}
+		patterns = next
+		if !expanded {
+			return patterns, nil
+		}
+	}
+}
+
+func splitGlobBraceChoices(body string) ([]string, error) {
+	if body == "" {
+		return nil, errors.New("empty brace alternation")
+	}
+	if indexUnescapedByte(body, '{') >= 0 || indexUnescapedByte(body, '}') >= 0 {
+		return nil, errors.New("nested brace alternation is unsupported")
+	}
+	choices := splitUnescapedGlobAlternatives(body)
+	if slices.Contains(choices, "") {
+		return nil, errors.New("empty brace alternative")
+	}
+	return choices, nil
+}
+
+func indexUnescapedByte(s string, target byte) int {
+	escaped := false
+	for i := range len(s) {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if s[i] == '\\' {
+			escaped = true
+			continue
+		}
+		if s[i] == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func splitUnescapedGlobAlternatives(body string) []string {
+	parts := []string{}
+	start := 0
+	escaped := false
+	for i := range len(body) {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if body[i] == '\\' {
+			escaped = true
+			continue
+		}
+		if body[i] == ',' {
+			parts = append(parts, body[start:i])
+			start = i + 1
+		}
+	}
+	return append(parts, body[start:])
 }
 
 // matchesPathGlob 判断候选文件是否匹配用户提供的 glob。
@@ -570,14 +668,28 @@ func matchesPathGlob(root, candidate, rawGlob string) (bool, error) {
 		return false, fmt.Errorf("resolve relative path for glob %s: %w", candidate, err)
 	}
 	slashRel := filepath.ToSlash(rel)
-	ok, err := matchesCompiledGlob(glob, slashRel)
+	patterns, err := expandGlobBraces(glob)
+	if err != nil {
+		return false, fmt.Errorf("invalid glob %q: %w", rawGlob, err)
+	}
+	ok, err := matchesAnyCompiledGlob(patterns, slashRel)
 	if err != nil || ok {
 		return ok, err
 	}
 	if strings.Contains(glob, "/") {
 		return false, nil
 	}
-	return matchesCompiledGlob(glob, path.Base(slashRel))
+	return matchesAnyCompiledGlob(patterns, path.Base(slashRel))
+}
+
+func matchesAnyCompiledGlob(patterns []string, candidate string) (bool, error) {
+	for _, pattern := range patterns {
+		ok, err := matchesCompiledGlob(pattern, candidate)
+		if err != nil || ok {
+			return ok, err
+		}
+	}
+	return false, nil
 }
 
 func matchesCompiledGlob(pattern, candidate string) (bool, error) {

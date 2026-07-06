@@ -192,6 +192,65 @@ func TestSearchTextDoublestarGlobMatchesCurrentAndNestedFiles(t *testing.T) {
 	}
 }
 
+func TestSearchTextBraceGlobMatchesAlternativesAndEscapedLiteralBrace(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	writeSearchTestFile(t, filepath.Join(root, "src", "client.js"), "const needle = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "src", "App.jsx"), "export const needle = <main />\n")
+	writeSearchTestFile(t, filepath.Join(root, "src", "style.css"), ".needle { color: black; }\n")
+	writeSearchTestFile(t, filepath.Join(root, "src", "component{demo}.jsx"), "export const literalNeedle = true\n")
+
+	matches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         filepath.Join(root, "src"),
+		Query:        "needle",
+		Glob:         "**/*.{js,jsx}",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText() brace glob error = %v", err)
+	}
+	got := searchTestRelativePaths(t, root, matches)
+	for _, want := range []string{"src/client.js", "src/App.jsx", "src/component{demo}.jsx"} {
+		if !got[want] {
+			t.Fatalf("brace glob paths = %#v, missing %s", got, want)
+		}
+	}
+	if got["src/style.css"] {
+		t.Fatalf("brace glob paths = %#v, included CSS file", got)
+	}
+
+	literalMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         filepath.Join(root, "src"),
+		Query:        "literalNeedle",
+		Glob:         `*\{demo\}.jsx`,
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText() escaped literal brace glob error = %v", err)
+	}
+	got = searchTestRelativePaths(t, root, literalMatches)
+	if len(got) != 1 || !got["src/component{demo}.jsx"] {
+		t.Fatalf("escaped literal brace paths = %#v, want component{demo}.jsx only", got)
+	}
+}
+
+func searchTestRelativePaths(t *testing.T, root string, matches []SearchMatch) map[string]bool {
+	t.Helper()
+	got := map[string]bool{}
+	for _, match := range matches {
+		rel, err := filepath.Rel(root, match.AbsPath)
+		if err != nil {
+			t.Fatalf("relative match path: %v", err)
+		}
+		got[filepath.ToSlash(rel)] = true
+	}
+	return got
+}
+
 func TestSearchTextSearchesDelimitedPaths(t *testing.T) {
 	root, err := NormalizeRoot(t.TempDir())
 	if err != nil {
