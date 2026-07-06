@@ -460,14 +460,7 @@ func proxyToolResultPreview(result *ToolCallResult) string {
 
 // proxySafePreview 返回可写入 lifecycle event 的短脱敏预览。
 func proxySafePreview(value any) string {
-	preview := observability.SafePreview(value, 512)
-	if preview.Preview != "" {
-		return preview.Preview
-	}
-	if preview.Truncated {
-		return fmt.Sprintf("truncated bytes=%d sha256=%s", preview.Bytes, preview.SHA256)
-	}
-	return ""
+	return observability.SafeToolArgumentsPreview(value)
 }
 
 // proxyToolCallErrorCode 将 tool call 错误映射为 JSON-RPC error code。

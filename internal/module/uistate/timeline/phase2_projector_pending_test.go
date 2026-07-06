@@ -171,6 +171,7 @@ func TestToolCallBegin_UsesArgumentsPreviewAsRunningPreview(t *testing.T) {
 	defer cleanup()
 
 	const argsPreview = `{"action":"read_file","file_path":"main.go"}`
+	const wantPreview = `{"action":"read_file","file_path":"[REDACTED]"}`
 	event.Publish(dispatcher, tooldto.ToolCallBegin{
 		ToolCallHeader: shared.ToolCallHeader{
 			TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
@@ -182,8 +183,8 @@ func TestToolCallBegin_UsesArgumentsPreviewAsRunningPreview(t *testing.T) {
 
 	waitForCondition(t, func() bool { return len(svc.GetByThread("t1")) == 1 }, "expected tool timeline item")
 	items := svc.GetByThread("t1")
-	if got := items[0].Preview; got != argsPreview {
-		t.Fatalf("items[0].Preview = %q, want arguments preview %q", got, argsPreview)
+	if got := items[0].Preview; got != wantPreview {
+		t.Fatalf("items[0].Preview = %q, want sanitized arguments preview %q", got, wantPreview)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/terminalstatus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -220,7 +221,7 @@ func toolCallBeginHandler(svc Service, onUpdated func(string)) func(tooldto.Tool
 			RequestID: ev.RequestID,
 			Tool:      tool,
 			ToolName:  tool,
-			Preview:   previewText(ev.ArgumentsPreview),
+			Preview:   previewText(observability.SafeToolArgumentsPreviewString(ev.ArgumentsPreview)),
 			AgentID:   strings.TrimSpace(ev.AgentID),
 			TurnID:    strings.TrimSpace(ev.TurnID),
 			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
