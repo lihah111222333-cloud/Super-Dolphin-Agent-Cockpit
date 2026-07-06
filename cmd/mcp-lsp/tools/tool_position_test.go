@@ -127,6 +127,34 @@ func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing
 	}
 }
 
+func TestResolveFilePositionRequestSuggestsNearbyIdentifierForBlankLine(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "sample.go", "package sample\n\ntype bindingThreadStub = bindingQuerierStub\n")
+
+	_, _, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "sample.go:2:6",
+	})
+	if err == nil {
+		t.Fatalf("resolveFilePositionRequest returned nil error, want position_out_of_range")
+	}
+
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) {
+		t.Fatalf("error type = %T, want *common.CodedToolError", err)
+	}
+	if coded.Code != "position_out_of_range" {
+		t.Fatalf("code = %q, want position_out_of_range", coded.Code)
+	}
+	suggestions, ok := coded.Meta["nearby_suggested_columns"].([]map[string]any)
+	if !ok || len(suggestions) == 0 {
+		t.Fatalf("nearby_suggested_columns = %#v, want at least one suggestion", coded.Meta["nearby_suggested_columns"])
+	}
+	first := suggestions[0]
+	if first["line"] != 3 || first["column"] != 6 || first["identifier"] != "bindingThreadStub" {
+		t.Fatalf("first nearby suggestion = %#v, want line 3 column 6 bindingThreadStub", first)
+	}
+}
+
 func TestResolveFilePositionRequestRejectsLineBeyondFileWithLLMHint(t *testing.T) {
 	dir := t.TempDir()
 	writePositionFixture(t, dir, "sample.go", "package sample\n")
