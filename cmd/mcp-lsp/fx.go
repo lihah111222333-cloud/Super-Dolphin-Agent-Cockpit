@@ -258,6 +258,9 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, error) {
 	scope, ok := common.ToolScopeFromContext(ctx)
 	hadTrustedRoots := ok && len(scope.WorkspaceRoots) > 0
+	if hadTrustedRoots {
+		return ctx, nil
+	}
 	runtimeRoots, configured, err := runtimeWorkspaceRootsFromEnv()
 	if err != nil {
 		return ctx, err
@@ -265,9 +268,6 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 	if len(runtimeRoots) == 0 {
 		if configured {
 			return ctx, errors.New("runtime workspace roots env is explicitly configured but empty")
-		}
-		if hadTrustedRoots {
-			return ctx, nil
 		}
 		return ctx, errors.New("runtime workspace roots env is required")
 	}
@@ -279,9 +279,6 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 		scope.Family = mcp.ClientKindLSP
 	}
 	ctx = common.WithToolScope(ctx, scope)
-	if hadTrustedRoots {
-		return ctx, nil
-	}
 	return common.WithRuntimeWorkspaceScopeFallback(ctx), nil
 }
 
