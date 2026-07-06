@@ -78,6 +78,43 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 	}
 }
 
+func TestDirectToolsCallGrepSingleTSVFileHonorsGlob(t *testing.T) {
+	root := canonicalToolTestRoot(t, t.TempDir())
+	target := filepath.Join(root, "index.tsv")
+	if err := os.WriteFile(target, []byte("path\tmodule\ncmd/mcp-orch/main.go\tcmd\n"), 0o600); err != nil {
+		t.Fatalf("write grep fixture: %v", err)
+	}
+	request := mustDirectToolCallRequest(t, root, "grep", map[string]any{
+		"action":      "text_search",
+		"query":       "cmd/mcp-orch/main.go",
+		"path":        target,
+		"glob":        "*.tsv",
+		"max_results": 10,
+	})
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "grep"},
+		Handler:  ToolHandler(lsptools.NewGrepHandler(lsptools.Config{WorkspaceRoot: root})),
+	}}
+	response := runDirectToolCallForPlainText(t, request, defs)
+	var payload struct {
+		Data    map[string]struct{} `json:"data"`
+		Total   int                 `json:"total"`
+		Showing int                 `json:"showing"`
+	}
+	if err := json.Unmarshal(response.Result.StructuredContent, &payload); err != nil {
+		t.Fatalf("unmarshal structuredContent: %v; raw=%s", err, response.Result.StructuredContent)
+	}
+	if payload.Total != 1 || payload.Showing != 1 {
+		t.Fatalf("grep totals = total:%d showing:%d, want single TSV match", payload.Total, payload.Showing)
+	}
+	if _, ok := payload.Data[target]; !ok {
+		t.Fatalf("grep data = %#v, want match for %s", payload.Data, target)
+	}
+	if !strings.Contains(response.Result.Content[0].Text, "cmd/mcp-orch/main.go") {
+		t.Fatalf("content text = %q, want TSV match", response.Result.Content[0].Text)
+	}
+}
+
 type directToolsCallResponse struct {
 	Result struct {
 		Content []struct {

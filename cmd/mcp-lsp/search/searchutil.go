@@ -97,7 +97,7 @@ func searchTextResolvedPaths(ctx context.Context, opts TextSearchOptions, matche
 			break
 		}
 		if !searchPath.Info.IsDir() {
-			found, err := searchTextFile(ctx, searchPath.Path.AbsPath, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults-len(results))
+			found, err := searchTextFile(ctx, searchPath.Path.Root, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults-len(results))
 			if stop, err := appendSearchResults(&results, found, err); err != nil {
 				return nil, err
 			} else if stop {
