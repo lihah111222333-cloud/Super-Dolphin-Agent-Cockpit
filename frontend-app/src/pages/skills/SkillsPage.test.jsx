@@ -395,6 +395,60 @@ describe('SkillsPage backend migration', () => {
     expect(backend.writeSkill.mock.calls.at(-1)[0].content).toContain('description: "当你需要维护 Go 服务时使用。"');
   });
 
+  it('shows partial failure feedback when applying a skill resolution needs follow-up', async () => {
+    backend.listSkillResolutions.mockResolvedValue({
+      items: [{
+        conflict_id: 'conflict-1',
+        kind: 'mirror_drift',
+        name: 'backend',
+        scope: 'project',
+        available_actions: ['canonical_overwrite_mirror'],
+        provider_entries: [{ provider: 'codex', source_path_id: 'codex:backend', display_label: 'Codex' }],
+      }],
+    });
+    backend.previewSkillResolution.mockResolvedValue({
+      items: [{
+        provider: 'codex',
+        source_provider: 'codex',
+        source_path_id: 'codex:backend',
+        preview_id: 'preview-1',
+        preview_hash: 'hash-1',
+        source_path: '/repo/app/.agents/skills/backend/SKILL.md',
+        target_path: '/home/user/.codex/skills/backend/SKILL.md',
+      }],
+    });
+    backend.applySkillResolution.mockResolvedValue({
+      action: 'canonical_overwrite_mirror',
+      name: 'backend',
+      partialFailure: true,
+      followUpAction: 'canonical_overwrite_mirror',
+    });
+
+    renderSkillsPage();
+    openSkillTools();
+
+    expect(await screen.findByText('发现 1 个技能冲突，需要处理后再使用。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
+
+    await waitFor(() => expect(backend.previewSkillResolution).toHaveBeenCalledWith(expect.objectContaining({
+      conflict_id: 'conflict-1',
+      action: 'canonical_overwrite_mirror',
+    })));
+    expect(await screen.findByText('请先确认将要写入的位置，确认应用后才会修改文件。')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '确认应用' }));
+
+    await waitFor(() => expect(backend.applySkillResolution).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'canonical_overwrite_mirror',
+      preview_id: 'preview-1',
+      preview_hash: 'hash-1',
+    })));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('技能冲突已部分处理');
+    expect(alert).toHaveTextContent('用本项目内容覆盖外部版本');
+    expect(screen.queryByText('已处理技能冲突')).not.toBeInTheDocument();
+  });
+
   it('opens skill citation links from the editor preview through skills/local RPCs', async () => {
     backend.getDashboardPage.mockResolvedValue({
       skills: [
