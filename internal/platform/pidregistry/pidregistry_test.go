@@ -37,6 +37,42 @@ func TestRegistryRegisterAndPersist(t *testing.T) {
 	}
 }
 
+func TestRegistryPersistWritesPrivateProvenance(t *testing.T) {
+	r := &Registry{
+		appPID:   99994,
+		path:     filepath.Join(t.TempDir(), "test-reg.json"),
+		children: make(map[int]ChildInfo),
+	}
+	defer r.Close()
+
+	if err := r.RegisterChecked(12345, "codex-app-server", nil); err != nil {
+		t.Fatalf("RegisterChecked() error = %v", err)
+	}
+
+	info, err := os.Stat(r.path)
+	if err != nil {
+		t.Fatalf("stat registry file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("registry file mode = %03o, want 600", got)
+	}
+
+	var raw map[string]any
+	data, err := os.ReadFile(r.path)
+	if err != nil {
+		t.Fatalf("read registry file: %v", err)
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal registry JSON: %v", err)
+	}
+	for _, key := range []string{"nonce", "created_at", "parent_executable_fingerprint"} {
+		value, ok := raw[key].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			t.Fatalf("registry JSON missing non-empty %q: %#v", key, raw)
+		}
+	}
+}
+
 func TestRegistryRegisterCheckedReturnsPersistError(t *testing.T) {
 	tmpBlocker := filepath.Join(t.TempDir(), "not-a-dir")
 	if err := os.WriteFile(tmpBlocker, []byte("block registry path"), 0o600); err != nil {
@@ -160,7 +196,10 @@ func TestFindStaleRegistryFiles(t *testing.T) {
 	deadPID := 99999999 // very unlikely to be a real PID
 	path := registryPath(deadPID)
 	rf := registryFile{
-		AppPID: deadPID,
+		AppPID:                      deadPID,
+		Nonce:                       "test-nonce",
+		CreatedAt:                   "2026-07-06T00:00:00Z",
+		ParentExecutableFingerprint: "sha256:test",
 		Children: []ChildInfo{
 			{PID: 88888888, Kind: "test"},
 		},
