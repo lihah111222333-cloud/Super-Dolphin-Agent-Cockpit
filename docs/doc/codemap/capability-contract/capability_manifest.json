@@ -9,12 +9,12 @@
   ],
   "summary": {
     "total_packages": 40,
-    "total_functions": 2146,
+    "total_functions": 2152,
     "total_methods": 1034,
     "total_interfaces": 136,
     "total_interface_methods": 279,
-    "total_exported": 1156,
-    "total_unexported": 2713,
+    "total_exported": 1159,
+    "total_unexported": 2716,
     "total_structs": 553
   },
   "packages": [
@@ -1351,6 +1351,19 @@
           ],
           "returns": [
             "StopResult"
+          ]
+        },
+        {
+          "name": "cleanStringSlice",
+          "exported": false,
+          "params": [
+            {
+              "name": "values",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "[]string"
           ]
         },
         {
@@ -21672,6 +21685,13 @@
           ]
         },
         {
+          "name": "applyOpsInputSchema",
+          "exported": false,
+          "returns": [
+            "Schema"
+          ]
+        },
+        {
           "name": "applyOpsOpSchema",
           "exported": false,
           "returns": [
@@ -27444,7 +27464,8 @@
           "name": "List",
           "exported": true,
           "returns": [
-            "[]ToolDefinition"
+            "[]ToolDefinition",
+            "error"
           ]
         },
         {
@@ -28480,6 +28501,19 @@
           ]
         },
         {
+          "name": "IsBlockingSkillMirrorConflict",
+          "exported": true,
+          "params": [
+            {
+              "name": "item",
+              "type": "SkillMirrorReportItem"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "IsCriticalPromptSectionError",
           "exported": true,
           "params": [
@@ -29350,6 +29384,19 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "isActiveProviderMirrorTarget",
+          "exported": false,
+          "params": [
+            {
+              "name": "item",
+              "type": "SkillMirrorReportItem"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -54817,6 +54864,32 @@
           ]
         },
         {
+          "name": "SafeToolArgumentsPreviewString",
+          "exported": true,
+          "params": [
+            {
+              "name": "raw",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "SafeToolArgumentsPreview",
+          "exported": true,
+          "params": [
+            {
+              "name": "raw",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "SanitizeConfigString",
           "exported": true,
           "params": [
@@ -55236,19 +55309,6 @@
         },
         {
           "name": "isActiveProviderMirrorTarget",
-          "exported": false,
-          "params": [
-            {
-              "name": "item",
-              "type": "contract.SkillMirrorReportItem"
-            }
-          ],
-          "returns": [
-            "bool"
-          ]
-        },
-        {
-          "name": "isBlockingSkillMirrorConflict",
           "exported": false,
           "params": [
             {
@@ -55873,6 +55933,13 @@
           ],
           "returns": [
             "reviewerToolCandidate"
+          ]
+        },
+        {
+          "name": "workerDeniedTools",
+          "exported": false,
+          "returns": [
+            "[]string"
           ]
         }
       ],
