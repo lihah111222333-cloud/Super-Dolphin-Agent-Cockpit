@@ -215,6 +215,13 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			}
 			return map[string][]string{"paths": paths}, nil
 		}),
+		"ui/selectDatasourceImportFile": rpc.StrictHandler(func(ctx context.Context, p selectFilesParams) (any, error) {
+			selection, err := app.selectDatasourceImportFile(p.DefaultPath, p.Filters)
+			if err != nil {
+				return nil, err
+			}
+			return selection, nil
+		}),
 		"ui/readDroppedTextFiles": rpc.StrictHandler(func(ctx context.Context, p readDroppedTextFilesParams) (any, error) {
 			return readDroppedTextFiles(app, p)
 		}),

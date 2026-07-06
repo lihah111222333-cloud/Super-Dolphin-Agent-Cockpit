@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -25,6 +26,7 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		"ui/selectProjectDir",
 		"ui/selectProjectDirs",
 		"ui/selectFiles",
+		"ui/selectDatasourceImportFile",
 		"ui/readDroppedTextFiles",
 		"ui/buildInfo",
 		"ui/saveClipboardImage",
@@ -36,6 +38,74 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("handler %q is not registered", method)
 		}
+	}
+}
+
+func TestSelectDatasourceImportFileReturnsPickerToken(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	sourcePath := filepath.Join(t.TempDir(), "source.txt")
+	defaultPath := filepath.Dir(sourcePath)
+	app := &App{
+		datasourceImportPickerTokens: newDatasourceImportPickerTokens(func() time.Time { return now }),
+		selectFileInvoker: func(gotDefaultPath string, gotFilters []selectFileFilter) (string, error) {
+			if gotDefaultPath != defaultPath {
+				t.Fatalf("defaultPath = %q, want %q", gotDefaultPath, defaultPath)
+			}
+			if len(gotFilters) != 1 || gotFilters[0].Pattern != "*.txt" {
+				t.Fatalf("filters = %+v, want txt filter", gotFilters)
+			}
+			return sourcePath, nil
+		},
+	}
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/selectDatasourceImportFile", mustJSON(t, map[string]any{
+		"defaultPath": defaultPath,
+		"filters": []map[string]string{
+			{"displayName": "Text", "pattern": "*.txt"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/selectDatasourceImportFile) error = %v", err)
+	}
+	var got datasourceImportFileSelection
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got.SourcePath != sourcePath || got.PickerToken == "" {
+		t.Fatalf("selection = %+v, want source path and picker token", got)
+	}
+	if !app.VerifyDatasourceImportPickerToken(got.SourcePath, got.PickerToken) {
+		t.Fatal("VerifyDatasourceImportPickerToken() = false, want true")
+	}
+	if app.VerifyDatasourceImportPickerToken(got.SourcePath, got.PickerToken) {
+		t.Fatal("VerifyDatasourceImportPickerToken() replay = true, want one-time token")
+	}
+}
+
+func TestSelectDatasourceImportFileCancelReturnsEmptySelection(t *testing.T) {
+	t.Parallel()
+
+	app := &App{
+		datasourceImportPickerTokens: newDatasourceImportPickerTokens(nil),
+		selectFileInvoker: func(string, []selectFileFilter) (string, error) {
+			return "", nil
+		},
+	}
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/selectDatasourceImportFile", mustJSON(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/selectDatasourceImportFile) error = %v", err)
+	}
+	var got datasourceImportFileSelection
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got.SourcePath != "" || got.PickerToken != "" {
+		t.Fatalf("selection = %+v, want empty cancel result", got)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
+	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -32,6 +33,7 @@ var Module = fx.Module("ui.wails",
 		NewWailsApplication,
 		NewHTTPAssetServer,
 		provideAppUpdateRequestQuit,
+		provideDatasourceImportPickerTokenVerifier,
 	),
 	fx.Invoke(bindWailsLifecycle),
 	fx.Invoke(bindEventBridge),
@@ -62,15 +64,22 @@ func NewApp(p appParams) *App {
 		pushRuntimeEvent: func(ctx context.Context, event string, payload any) {
 			p.RPCServer.NotifyAll(ctx, p.PushBridge, event, payload)
 		},
-		windowTitle:   applicationTitle(),
-		debug:         isDebug(p.Config),
-		observability: p.Observability,
+		windowTitle:                  applicationTitle(),
+		debug:                        isDebug(p.Config),
+		observability:                p.Observability,
+		datasourceImportPickerTokens: newDatasourceImportPickerTokens(nil),
 	}
 }
 
 // NewService 把 App 绑定包装为 Wails application.Service。
 func NewService(app *App) application.Service {
 	return application.NewService(app)
+}
+
+// provideDatasourceImportPickerTokenVerifier 只把桌面 App 暴露为 datasource 本地导入 capability 验证器。
+// token 状态仍保存在 Wails 层，业务模块只能调用验证接口，不能自行签发。
+func provideDatasourceImportPickerTokenVerifier(app *App) datasourcev2.LocalFilePickerTokenVerifier {
+	return app
 }
 
 // activeAgentCounterParams 汇总创建活跃 agent 计数器所需依赖。

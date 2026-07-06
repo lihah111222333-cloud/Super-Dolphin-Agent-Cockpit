@@ -147,6 +147,22 @@ function registerBridgeEventHandlersForTest() {
     backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({ path, content: `content for ${path}` }));
   });
 
+  it('keeps composer file selection on plain path arrays without picker tokens', async () => {
+    backend.selectFiles.mockResolvedValue(['/tmp/plain.txt']);
+
+    const attachments = await useClientStore.getState().selectFilesForComposer();
+
+    expect(backend.selectFiles).toHaveBeenCalledWith();
+    expect(attachments).toEqual([expect.objectContaining({
+      path: '/tmp/plain.txt',
+      name: 'plain.txt',
+    })]);
+    expect(useClientStore.getState().attachments).toEqual([expect.objectContaining({
+      path: '/tmp/plain.txt',
+      name: 'plain.txt',
+    })]);
+  });
+
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
     await useClientStore.getState().bootstrap();
 

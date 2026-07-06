@@ -59,9 +59,10 @@ type ImportFileTextRequest struct {
 }
 
 // ImportLocalFileRequest 是 datasourceV2/importLocalFile 的 RPC 入参。
-// 该接口只用于桌面端用户主动选择的本地文件，因此允许读取 workspace 外的绝对路径。
+// PickerToken 只由桌面端 datasource 导入文件选择器签发，用于授权 workspace 外路径。
 type ImportLocalFileRequest struct {
-	SourcePath string `json:"sourcePath"`
+	SourcePath  string `json:"sourcePath"`
+	PickerToken string `json:"pickerToken"`
 }
 
 // ImportFileTextResult 返回导入后的文档 id、摘要和分块统计。

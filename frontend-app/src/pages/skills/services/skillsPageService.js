@@ -15,6 +15,7 @@ import {
   listSkillTools as listSkillToolsBackend,
   previewSkillResolution as previewSkillResolutionBackend,
   readSkill as readSkillBackend,
+  selectDatasourceImportFile as selectDatasourceImportFileBackend,
   selectFiles as selectFilesBackend,
   selectProjectDirs as selectProjectDirsBackend,
   startPlaywrightMCPServer as startPlaywrightMCPServerBackend,
@@ -97,6 +98,10 @@ export function readSkill(payload) {
 
 export function selectFiles(payload) {
   return selectFilesBackend(payload);
+}
+
+export function selectDatasourceImportFile(payload) {
+  return selectDatasourceImportFileBackend(payload);
 }
 
 export function selectProjectDirs(payload) {

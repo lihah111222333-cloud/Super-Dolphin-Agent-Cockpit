@@ -979,6 +979,25 @@ function nativeSelectFilesResponse(method, raw, { allowArray = false } = {}) {
   return nativePathListResponse(method, raw);
 }
 
+function nativeDatasourceImportFileResponse(method, raw) {
+  const value = assertNativeResponseObject(method, raw);
+  if (typeof value.sourcePath !== 'string') {
+    throw new TypeError(`${method} response sourcePath must be a string`);
+  }
+  if (typeof value.pickerToken !== 'string') {
+    throw new TypeError(`${method} response pickerToken must be a non-empty string`);
+  }
+  const sourcePath = value.sourcePath.trim();
+  const pickerToken = value.pickerToken.trim();
+  if (sourcePath && !pickerToken) {
+    throw new TypeError(`${method} response pickerToken must be a non-empty string`);
+  }
+  if (pickerToken && !sourcePath) {
+    throw new TypeError(`${method} response sourcePath must be a non-empty string when pickerToken is present`);
+  }
+  return { sourcePath, pickerToken };
+}
+
 function nativeDroppedTextFilesResponse(method, raw) {
   const value = assertNativeResponseObject(method, raw);
   if (!Array.isArray(value.files)) {
@@ -1065,6 +1084,20 @@ export async function selectFiles(options = {}) {
     first: files[0] || '',
   });
   return files;
+}
+
+export async function selectDatasourceImportFile(options = {}) {
+  const payload = normalizeSelectFilesOptions(options);
+  writeBridgeLog('info', 'ui.selectDatasourceImportFile.start', {
+    filtered: Boolean(payload.filters?.length),
+  });
+  const raw = await callAPI('ui/selectDatasourceImportFile', payload);
+  const selection = nativeDatasourceImportFileResponse('ui/selectDatasourceImportFile', raw);
+  writeBridgeLog('info', 'ui.selectDatasourceImportFile.done', {
+    selected: Boolean(selection.sourcePath),
+    has_picker_token: Boolean(selection.pickerToken),
+  });
+  return selection;
 }
 
 export async function readDroppedTextFiles(files, targetId = '') {
