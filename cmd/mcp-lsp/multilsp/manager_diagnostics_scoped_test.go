@@ -533,6 +533,57 @@ func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
 	}
 }
 
+func TestWaitDiagnosticsStableTreatsProjectMissingDiagnosticsAsEmptyAfterGrace(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"missing-diagnostics-empty"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "const value = 1\n")
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    ClientFactoryFunc(newNoPublishDiagnosticsClient),
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DiagnosticsMaxWait:               200 * time.Millisecond,
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), time.Second)
+	defer cancel()
+	uri := fileURIFromPath(target)
+
+	if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want omitted empty diagnostics to become ready after grace", err)
+	}
+	items, err := mgr.Diagnostics(ctx, []string{uri})
+	if err != nil {
+		t.Fatalf("Diagnostics() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Diagnostics) != 0 {
+		t.Fatalf("Diagnostics() = %#v, want one empty diagnostics snapshot", items)
+	}
+}
+
+func newNoPublishDiagnosticsClient(string, protocol.NotificationHandler) (Client, error) {
+	return noPublishDiagnosticsClient{}, nil
+}
+
+type noPublishDiagnosticsClient struct{}
+
+func (noPublishDiagnosticsClient) Initialize(context.Context, string) error { return nil }
+func (noPublishDiagnosticsClient) Shutdown(context.Context) error           { return nil }
+func (noPublishDiagnosticsClient) Notify(context.Context, string, any) error {
+	return nil
+}
+func (noPublishDiagnosticsClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	return json.RawMessage("null"), nil
+}
+func (noPublishDiagnosticsClient) DidOpen(context.Context, string, string, int, string) error {
+	return nil
+}
+func (noPublishDiagnosticsClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+	return nil
+}
+func (noPublishDiagnosticsClient) DidClose(context.Context, string) error { return nil }
+func (noPublishDiagnosticsClient) Close() error                           { return nil }
+
 func TestWaitDiagnosticsStableFailsWhenAnyRequestedTargetNeverPublishes(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"partial-diagnostics"}`)

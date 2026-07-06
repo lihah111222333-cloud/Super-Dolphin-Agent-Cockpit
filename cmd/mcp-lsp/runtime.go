@@ -191,7 +191,7 @@ func normalizeRuntimeWorkspaceRoot(base, root string) (string, error) {
 }
 
 func runtimePrimaryLanguageIDs() []string {
-	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown", "shellscript"}
+	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown", "shellscript", "sql"}
 }
 
 // runtimePrimaryLanguageIDsForBundle 为包体处理运行时primary语言ids。
@@ -428,15 +428,7 @@ func setupInstaller() *installer.Provider {
 		InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
 		AllowInstallCommand: true,
 	})
-	inst.Register("shellscript", installer.InstallerConfig{
-		BinaryName:          "bash-language-server",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "bash-language-server", "shellcheck"},
-		AllowInstallCommand: true,
-		RequiredBinaries: []installer.RequiredBinary{
-			{Name: "shellcheck", CheckArgs: []string{"--version"}},
-		},
-	})
+	registerShellAndSQLInstallers(inst)
 	for _, alias := range []string{"gomod", "gosum", "gowork"} {
 		inst.Register(alias, installer.InstallerConfig{
 			BinaryName:          "gopls",
@@ -447,6 +439,24 @@ func setupInstaller() *installer.Provider {
 	}
 
 	return inst
+}
+
+func registerShellAndSQLInstallers(inst *installer.Provider) {
+	inst.Register("shellscript", installer.InstallerConfig{
+		BinaryName:          "bash-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "bash-language-server", "shellcheck"},
+		AllowInstallCommand: true,
+		RequiredBinaries: []installer.RequiredBinary{
+			{Name: "shellcheck", CheckArgs: []string{"--version"}},
+		},
+	})
+	inst.Register("sql", installer.InstallerConfig{
+		BinaryName:          "sql-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "sql-language-server"},
+		AllowInstallCommand: true,
+	})
 }
 
 func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) multilsp.Manager {

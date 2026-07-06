@@ -156,6 +156,7 @@ func coldStartLanguageCases(t *testing.T) []coldStartLanguageCase {
 		{languageID: "python", write: writeColdStartPythonFixture},
 		{languageID: "rust", write: writeColdStartRustFixture},
 		{languageID: "shellscript", write: writeColdStartShellFixture},
+		{languageID: "sql", write: writeColdStartSQLFixture},
 		{languageID: "typescript", write: writeColdStartTypeScriptFixture},
 		{languageID: "typescriptreact", write: writeColdStartTypeScriptReactFixture},
 	}
@@ -256,6 +257,12 @@ func writeColdStartShellFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeColdStartFile(t, root, "Makefile", "all:\n\t@true\n")
 	return writeColdStartFile(t, root, "scripts/run.sh", "#!/usr/bin/env bash\n")
+}
+
+func writeColdStartSQLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "sqlc.yaml", "version: '2'\n")
+	return writeColdStartFile(t, root, "schema.sql", "select 1;\n")
 }
 
 func writeColdStartTypeScriptFixture(t *testing.T, root string) string {

@@ -23,6 +23,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(javaAdapterDefaults(), cfg, contract.LSPServiceJava),
 		projectAdapterFromConfig(cssAdapterDefaults(), cfg, contract.LSPServiceCSS),
 		projectAdapterFromConfig(shellAdapterDefaults(), cfg, contract.LSPServiceShell),
+		projectAdapterFromConfig(sqlAdapterDefaults(), cfg, contract.LSPServiceSQL),
 		documentFallbackAdapter{languageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs)},
 	)
 }
@@ -119,6 +120,14 @@ func shellAdapterDefaults() projectLanguageAdapter {
 		languageIDs: []string{"shellscript"},
 		command:     ServerCommand{Executable: "bash-language-server", Args: []string{"start"}},
 		rootKind:    "shell_project",
+	}
+}
+
+func sqlAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"sql"},
+		command:     ServerCommand{Executable: "sql-language-server", Args: []string{"up", "--method", "stdio"}},
+		rootKind:    "sql_project",
 	}
 }
 

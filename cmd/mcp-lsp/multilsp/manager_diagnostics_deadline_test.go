@@ -77,6 +77,33 @@ func TestWaitDiagnosticsStableStartsDeadlineAfterBootstrapSucceeds(t *testing.T)
 	}
 }
 
+func TestWaitDiagnosticsStableDoesNotApplyStableDeadlineToInitialPullDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"diagnostics-pull-budget"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "export const value = 1\n")
+	factory := &delayedPullDiagnosticsFactory{
+		pullDelay: 80 * time.Millisecond,
+	}
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DiagnosticsMaxWait:               30 * time.Millisecond,
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx, cancel := diagnosticsDeadlineContext(root, time.Second)
+	defer cancel()
+	uri := fileURIFromPath(target)
+
+	if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want slow initial pull diagnostics to use caller context before stable wait deadline", err)
+	}
+	if got := factory.currentClient(t).requestCount(); got != 1 {
+		t.Fatalf("pull diagnostics request count = %d, want one initial pull", got)
+	}
+}
+
 func diagnosticsDeadlineContext(root string, timeout time.Duration) (context.Context, context.CancelFunc) {
 	scope := common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}
 	return context.WithTimeout(common.WithToolScope(context.Background(), scope), timeout)
@@ -158,4 +185,87 @@ func (c *delayedBootstrapDiagnosticsClient) openCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.opens
+}
+
+type delayedPullDiagnosticsFactory struct {
+	pullDelay time.Duration
+	client    *delayedPullDiagnosticsClient
+}
+
+func (f *delayedPullDiagnosticsFactory) NewClient(_ string, handler protocol.NotificationHandler) (Client, error) {
+	f.client = &delayedPullDiagnosticsClient{
+		handler:   handler,
+		pullDelay: f.pullDelay,
+	}
+	return f.client, nil
+}
+
+func (f *delayedPullDiagnosticsFactory) currentClient(t *testing.T) *delayedPullDiagnosticsClient {
+	t.Helper()
+	if f.client == nil {
+		t.Fatal("client was not created")
+	}
+	return f.client
+}
+
+type delayedPullDiagnosticsClient struct {
+	mu          sync.Mutex
+	handler     protocol.NotificationHandler
+	pullDelay   time.Duration
+	requests    int
+	openedURI   string
+	openedReady bool
+}
+
+func (c *delayedPullDiagnosticsClient) Initialize(context.Context, string) error { return nil }
+
+func (c *delayedPullDiagnosticsClient) Shutdown(context.Context) error { return nil }
+
+func (c *delayedPullDiagnosticsClient) Request(ctx context.Context, method string, _ any) (json.RawMessage, error) {
+	if method != protocol.MethodTextDocumentDiagnostic {
+		return json.RawMessage("null"), nil
+	}
+	c.mu.Lock()
+	c.requests++
+	uri := c.openedURI
+	c.mu.Unlock()
+	if err := sleepContext(ctx, c.pullDelay); err != nil {
+		return nil, err
+	}
+	raw := json.RawMessage(`{"kind":"full","items":[{"message":"delayed pulled diagnostic"}]}`)
+	if c.handler != nil {
+		_ = c.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{
+			URI:         uri,
+			Diagnostics: []protocol.Diagnostic{{Message: "delayed pulled diagnostic"}},
+		})
+	}
+	return raw, nil
+}
+
+func (c *delayedPullDiagnosticsClient) ServerCapabilities() protocol.ServerCapabilities {
+	return protocol.ServerCapabilities{DiagnosticProvider: true}
+}
+
+func (c *delayedPullDiagnosticsClient) Notify(context.Context, string, any) error { return nil }
+
+func (c *delayedPullDiagnosticsClient) DidOpen(context.Context, string, string, int, string) error {
+	return nil
+}
+
+func (c *delayedPullDiagnosticsClient) DidChange(_ context.Context, uri string, _ int, _ []protocol.TextDocumentContentChangeEvent) error {
+	c.mu.Lock()
+	c.openedURI = uri
+	c.openedReady = true
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *delayedPullDiagnosticsClient) DidClose(context.Context, string) error { return nil }
+
+func (c *delayedPullDiagnosticsClient) Close() error { return nil }
+
+func (c *delayedPullDiagnosticsClient) requestCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.requests
 }

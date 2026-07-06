@@ -38,6 +38,7 @@ lsp_server_specs=(
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
   "bash-language-server|bin/bash-language-server"
+  "sql-language-server|bin/sql-language-server"
   "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
@@ -380,7 +381,7 @@ lsp_manifest_json_value() {
 lsp_server_version_args() {
   local server_id="$1"
   case "$server_id" in
-    typescript-language-server|vscode-langservers-extracted|pyright)
+    typescript-language-server|vscode-langservers-extracted|pyright|sql-language-server)
       printf '\n'
       ;;
     gopls)
@@ -638,6 +639,7 @@ verify_packaged_ast_grep_smoke() {
   cat >"$workspace/app.js" <<'EOF_JS'
 console.log("smoke")
 EOF_JS
+  # shellcheck disable=SC2016
   if ! output="$(PATH="$lsp_smoke_path" "$resources/lsp/bin/sg" run -p 'console.log($A)' --lang javascript "$workspace/app.js" 2>&1)"; then
     echo "packaged ast-grep smoke failed: sg run" >&2
     printf '%s\n' "$output" >&2
@@ -769,6 +771,7 @@ required_execs=(
   "$resources/bin/pyright-langserver"
   "$resources/bin/rust-analyzer"
   "$resources/bin/bash-language-server"
+  "$resources/bin/sql-language-server"
   "$resources/bin/shellcheck"
   "$resources/lsp/bin/sg"
   "$resources/lsp/bin/python"

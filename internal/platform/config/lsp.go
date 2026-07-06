@@ -76,6 +76,11 @@ func DefaultLSPConfig() contract.LSPConfig {
 				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
 				FirstSourceExtensions: []string{".sh", ".bash", ".zsh", ".ksh", ".bats"},
 			},
+			contract.LSPServiceSQL: {
+				RootMarkers:           []string{".sqllsrc.json", "sqlc.yaml", "sqlc.yml", "go.mod", "package.json"},
+				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
+				FirstSourceExtensions: []string{".sql"},
+			},
 		},
 		DocumentFallbackLanguageIDs:      []string{"markdown", "json", "yaml"},
 		DisableInitialWorkspaceBootstrap: true,
@@ -109,6 +114,7 @@ func lspConfigFromEnv() (contract.LSPConfig, error) {
 		{service: contract.LSPServiceJava, prefix: "LSP_JAVA"},
 		{service: contract.LSPServiceCSS, prefix: "LSP_CSS"},
 		{service: contract.LSPServiceShell, prefix: "LSP_SHELL"},
+		{service: contract.LSPServiceSQL, prefix: "LSP_SQL"},
 	} {
 		if err := applyProjectAdapterEnv(cfg.ProjectAdapters, adapter.service, adapter.prefix); err != nil {
 			return contract.LSPConfig{}, err

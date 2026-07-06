@@ -28,6 +28,7 @@ const (
 	LSPServiceJava   = "java"
 	LSPServiceCSS    = "css"
 	LSPServiceShell  = "shell"
+	LSPServiceSQL    = "sql"
 )
 
 // LSPConfig 保存 language-service 启动、索引和项目适配配置。

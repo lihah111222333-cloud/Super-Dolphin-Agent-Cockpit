@@ -41,6 +41,7 @@ lsp_server_specs=(
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
   "bash-language-server|bin/bash-language-server"
+  "sql-language-server|bin/sql-language-server"
   "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
@@ -469,7 +470,7 @@ verify_lsp_checksums_file() {
 resolve_packaged_lsp_bundle() {
   packaged_lsp_bundle_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-}"
   if [[ -z "$packaged_lsp_bundle_dir" ]]; then
-    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, shellcheck, sg, and jdtls only for full profile" >&2
+    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sql-language-server, shellcheck, sg, and jdtls only for full profile" >&2
     exit 1
   fi
   if [[ ! -d "$packaged_lsp_bundle_dir" ]]; then
@@ -807,7 +808,7 @@ export GO_AGENT_PEER_BIN_DIR="$here/bin"
 export SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1
 export SUPER_DOLPHIN_LSP_BUNDLE_DIR="$here/lsp"
 export SUPER_DOLPHIN_LSP_MANIFEST="$here/lsp/lsp-manifest.json"
-bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server shellcheck sg)
+bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sql-language-server shellcheck sg)
 if grep -q '"jdtls"' "$SUPER_DOLPHIN_LSP_MANIFEST"; then
   bundled_execs+=(jdtls)
 fi

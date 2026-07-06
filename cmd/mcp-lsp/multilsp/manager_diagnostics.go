@@ -161,14 +161,11 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 	if err := m.refreshExistingDiagnosticTargets(ctx, uris, filter); err != nil {
 		return err
 	}
+	if err := m.pullMissingDiagnostics(ctx, filter, uris); err != nil {
+		return err
+	}
 	waitCtx, cancel := m.diagnosticsStableWaitContext(ctx)
 	defer cancel()
-	if err := m.pullMissingDiagnostics(waitCtx, filter, uris); err != nil {
-		return err
-	}
-	if err := m.markReadyForOmittedEmptyDiagnostics(waitCtx, filter, uris); err != nil {
-		return err
-	}
 	waiter, err := m.newDiagnosticStableWait(waitCtx, filter, uris)
 	if err != nil {
 		return err

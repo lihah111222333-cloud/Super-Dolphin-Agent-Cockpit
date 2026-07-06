@@ -505,9 +505,10 @@ func (a projectLanguageAdapter) EnvPolicy(ResolvedLanguageScope) []string { retu
 // ignoredDirNames 会复制返回，供 bootstrap 扫描时跳过依赖和构建产物。
 func (a projectLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
-		OpenTarget:            true,
-		FirstSourceExtensions: append([]string(nil), a.firstSourceExtensions...),
-		IgnoredDirNames:       copyStringSet(a.ignoredDirNames),
+		OpenTarget:                     true,
+		TreatMissingDiagnosticsAsEmpty: true,
+		FirstSourceExtensions:          append([]string(nil), a.firstSourceExtensions...),
+		IgnoredDirNames:                copyStringSet(a.ignoredDirNames),
 	}
 }
 

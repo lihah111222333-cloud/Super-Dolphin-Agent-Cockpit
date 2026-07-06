@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -105,6 +104,7 @@ func binaryColdStartLanguageCases(t *testing.T) []binaryColdStartLanguageCase {
 		{languageID: "python", write: writeBinaryColdStartPythonFixture},
 		{languageID: "rust", write: writeBinaryColdStartRustFixture},
 		{languageID: "shellscript", write: writeBinaryColdStartShellFixture},
+		{languageID: "sql", write: writeBinaryColdStartSQLFixture},
 		{languageID: "typescript", write: writeBinaryColdStartTypeScriptFixture},
 		{languageID: "typescriptreact", write: writeBinaryColdStartTypeScriptReactFixture},
 	}
@@ -154,6 +154,7 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		"jdtls",
 		"pyright-langserver",
 		"rust-analyzer",
+		"sql-language-server",
 		"typescript-language-server",
 		"vscode-css-language-server",
 	} {
@@ -366,6 +367,12 @@ func writeBinaryColdStartShellFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeBinaryColdStartFile(t, root, "Makefile", "all:\n\t@true\n")
 	return writeBinaryColdStartFile(t, root, "scripts/run.sh", "#!/usr/bin/env bash\n")
+}
+
+func writeBinaryColdStartSQLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: '2'\n")
+	return writeBinaryColdStartFile(t, root, "schema.sql", "select 1;\n")
 }
 
 func writeBinaryColdStartTypeScriptFixture(t *testing.T, root string) string {

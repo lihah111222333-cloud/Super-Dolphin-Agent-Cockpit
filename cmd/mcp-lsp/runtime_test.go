@@ -262,7 +262,7 @@ func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 
 func TestRuntimeAdapterDiagnosticsMaxWaitCoversAllLSPClientAdapters(t *testing.T) {
 	registry := multilsp.NewDefaultLanguageAdapterRegistry()
-	for _, languageID := range []string{"go", "typescript", "python", "rust", "java", "css", "shellscript"} {
+	for _, languageID := range []string{"go", "typescript", "python", "rust", "java", "css", "shellscript", "sql"} {
 		adapter, ok := registry.AdapterForLanguage(languageID)
 		if !ok {
 			t.Fatalf("missing adapter for %s", languageID)
@@ -307,9 +307,29 @@ func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t
 	}
 }
 
-func TestRuntimePrimaryLanguageIDsIncludeShellscript(t *testing.T) {
-	if !slices.Contains(runtimePrimaryLanguageIDs(), "shellscript") {
-		t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing shellscript", runtimePrimaryLanguageIDs())
+func TestRuntimePrimaryLanguageIDsIncludeShellscriptAndSQL(t *testing.T) {
+	for _, languageID := range []string{"shellscript", "sql"} {
+		if !slices.Contains(runtimePrimaryLanguageIDs(), languageID) {
+			t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing %s", runtimePrimaryLanguageIDs(), languageID)
+		}
+	}
+}
+
+func TestSetupInstallerRegistersSQLLanguageServer(t *testing.T) {
+	binDir := t.TempDir()
+	writeMcpLSPExecutable(t, binDir, "sql-language-server")
+	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sql-language-server"))
+	t.Setenv("PATH", binDir)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	if result.Binary != "sql-language-server" {
+		t.Fatalf("sql installer binary = %q, want sql-language-server", result.Binary)
+	}
+	if result.Path != fakeServer {
+		t.Fatalf("sql installer path = %q, want %q", result.Path, fakeServer)
 	}
 }
 
@@ -438,7 +458,8 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
     "vscode-langservers-extracted": {"path": "bin/vscode-css-language-server", "languages": ["css"]},
     "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
     "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
-    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]}
+    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]},
+    "sql-language-server": {"path": "bin/sql-language-server", "languages": ["sql"]}
   }
 }
 `)
@@ -449,6 +470,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
+		"sql-language-server",
 	} {
 		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
 	}
@@ -485,6 +507,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 		"python",
 		"rust",
 		"shellscript",
+		"sql",
 	} {
 		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
 			t.Fatalf("bundled %s manager error = %v", languageID, err)
@@ -574,6 +597,7 @@ func normalizeMcpLSPBundleManifestForTest(body string) string {
 		"bin/pyright-langserver",
 		"bin/rust-analyzer",
 		"bin/bash-language-server",
+		"bin/sql-language-server",
 	} {
 		body = strings.ReplaceAll(body, `"`+path+`"`, `"`+path+`.cmd"`)
 	}
