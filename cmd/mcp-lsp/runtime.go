@@ -25,7 +25,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const lspDiagnosticsColdStartMaxWait = 8 * time.Second
+const (
+	lspDiagnosticsColdStartMaxWait = 8 * time.Second
+	jstsTSServerFallbackPath       = "tsserver"
+)
 
 // Manager 汇总 mcp-lsp 进程内的语言 registry、后台 runner 和 scope 释放器。
 // 它是 MCP 工具层进入 LSP runtime 的本地边界，不直接暴露具体 ManagerPool 实现。
@@ -495,6 +498,7 @@ const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/p
 // 打包 Pyright 使用哨兵 pythonPath，防止它隐式探测系统 Python 造成跨环境差异。
 func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP bool) map[string]any {
 	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
+	initOptions = runtimeJSTSInitOptions(adapter, initOptions)
 	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
 		return initOptions
 	}
@@ -513,6 +517,43 @@ func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP boo
 	}
 	python["pythonPath"] = packagedPyrightNoSystemPythonPath
 	return initOptions
+}
+
+// runtimeJSTSInitOptions 为 JS/TS language server 注入 tsserver 后备路径。
+// typescript-language-server 只有在工作区 TypeScript 查找失败后才会使用该后备路径。
+func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[string]any) map[string]any {
+	if !runtimeAdapterUsesJSTS(adapter) {
+		return initOptions
+	}
+	if initOptions == nil {
+		initOptions = map[string]any{}
+	}
+	tsserver, ok := initOptions["tsserver"].(map[string]any)
+	if !ok {
+		tsserver = map[string]any{}
+		initOptions["tsserver"] = tsserver
+	}
+	if runtimeStringOption(tsserver["path"]) == "" && runtimeStringOption(tsserver["fallbackPath"]) == "" {
+		tsserver["fallbackPath"] = jstsTSServerFallbackPath
+	}
+	return initOptions
+}
+
+func runtimeAdapterUsesJSTS(adapter multilsp.LanguageAdapter) bool {
+	for _, languageID := range []string{"javascript", "javascriptreact", "typescript", "typescriptreact"} {
+		if adapterSupportsLanguage(adapter, languageID) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeStringOption(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func adapterSupportsLanguage(adapter multilsp.LanguageAdapter, languageID string) bool {
