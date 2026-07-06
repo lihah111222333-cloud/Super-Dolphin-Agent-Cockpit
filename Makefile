@@ -189,11 +189,11 @@ codemap-refresh:
 	@echo "✅ codemap ai-index.json refreshed"
 
 project-map-check:
-	node scripts/generate_ai_project_map.js --check --strict-drift
+	node scripts/generate_ai_project_map.js --check --strict-drift $(PROJECT_MAP_ARGS)
 	@echo "✅ project map generated files are up to date"
 
 project-map-refresh:
-	node scripts/generate_ai_project_map.js
+	node scripts/generate_ai_project_map.js $(PROJECT_MAP_ARGS)
 	@echo "✅ project map refreshed"
 
 capcontract-check:

@@ -1,20 +1,4 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-.codex/.gitignore	.codex	other	file	6	未细分职责：请结合路径、文件名和相邻代码判断	codex,未细分职责：请结合路径,文件名和相邻代码判断
-.codex/hooks.json	.codex	other	json	696	未细分职责：请结合路径、文件名和相邻代码判断	codex,hooks,未细分职责：请结合路径,文件名和相邻代码判断
-.env.example	(root)	other	example	1787	仓库根级配置、入口或说明文件	env,仓库根级配置,入口或说明文件
-.env.packaging.example	(root)	other	example	1607	仓库根级配置、入口或说明文件	env,packaging,仓库根级配置,入口或说明文件
-.gitattributes	(root)	other	file	864	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
-.githooks/commit-msg	.githooks	other	file	454	仓库 git hooks	仓库,git,hooks
-.githooks/pre-commit	.githooks	other	file	13071	仓库 git hooks	仓库,git,hooks
-.githooks/pre-push	.githooks	other	file	10682	仓库 git hooks	仓库,git,hooks
-.githooks/README.md	.githooks	other	doc	10255	仓库 git hooks	githooks,README,仓库,git,hooks
-.github/workflows/ci.yml	.github	other	yaml	4419	GitHub 配置	github,workflows,ci,GitHub,配置
-.github/workflows/sqlite-release-gates.yml	.github	other	yaml	2293	GitHub 配置	github,workflows,sqlite,release,gates,GitHub,配置
-.gitignore	(root)	other	file	2183	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
-.golangci.yml	(root)	other	yaml	878	仓库根级配置、入口或说明文件	golangci,仓库根级配置,入口或说明文件
-.mcp.json	(root)	other	json	532	仓库根级配置、入口或说明文件	mcp,仓库根级配置,入口或说明文件
-ai04-docs/修改记录2026-06-15 _22-34_mcpServer_postgres_start支持stdio持久化.md	ai04-docs	other	doc	5784	未细分职责：请结合路径、文件名和相邻代码判断	ai04,docs,修改记录2026,06,15 ,22,34,mcpServer,postgres,start支持stdio持久化,未细分职责：请结合路径,文件名和相邻代码判断
-ai04-docs/修改记录2026-06-18 _09-16_mcpServer_sqlite_playwright_开关与工具命名空间.md	ai04-docs	other	doc	13541	未细分职责：请结合路径、文件名和相邻代码判断	ai04,docs,修改记录2026,06,18 ,09,16,mcpServer,sqlite,playwright,开关与工具命名空间,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6944	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9997	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,darwin,未细分职责：请结合路径,文件名和相邻代码判断
@@ -22,9 +6,6 @@ cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	未细分职
 cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	13919	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,install,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/install.go	cmd	other	go-source	23830	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,install,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/main.go	cmd	other	go-source	8714	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,main,未细分职责：请结合路径,文件名和相邻代码判断
-codex-app 2.zip	(root)	other	zip	2012844	仓库根级配置、入口或说明文件	codex,app 2,仓库根级配置,入口或说明文件
-filebeat/filebeat.yml	filebeat	other	yaml	1122	未细分职责：请结合路径、文件名和相邻代码判断	filebeat,未细分职责：请结合路径,文件名和相邻代码判断
-GEMINI.md	(root)	other	doc	6130	仓库根级配置、入口或说明文件	GEMINI,仓库根级配置,入口或说明文件
 go.mod	(root)	other	mod	3844	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app_test.go	internal	other	go-test	4257	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/app.go	internal	other	go-source	12858	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
@@ -332,8 +313,7 @@ internal/util/safego/safego.go	internal	other	go-source	710	未细分职责：�
 internal/util/toolresults/path_test.go	internal	other	go-test	706	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/util/toolresults/path.go	internal	other	go-source	716	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,未细分职责：请结合路径,文件名和相邻代码判断
 internal/util/util.go	internal	other	go-source	1698	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,未细分职责：请结合路径,文件名和相邻代码判断
-LICENSE	(root)	other	file	1211	仓库根级配置、入口或说明文件	LICENSE,仓库根级配置,入口或说明文件
-Makefile	(root)	other	file	14663	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	14703	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	5884	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3359	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
@@ -359,8 +339,7 @@ pkg/logger/truncate.go	pkg	other	go-source	581	统一日志、采样、relay、w
 pkg/logger/watchdog.go	pkg	other	go-source	1702	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	2042	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
-README.md	(root)	other	doc	8959	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
-run-new-ui-desktop.ps1	(root)	other	script	32617	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+run-new-ui-desktop.ps1	(root)	other	script	31794	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 run-new-ui-desktop.sh	(root)	other	script	25754	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
 scripts/bash_test_helpers_test.go	scripts	other	go-test	8708	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
@@ -371,7 +350,7 @@ scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9307	工程�
 scripts/check_p1_turn_wrappers.go	scripts	other	go-source	5150	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_commit_guard.sh	scripts	other	script	3332	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,commit,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ci_cross_platform_smoke.ps1	scripts	other	script	4405	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ci_cross_platform_smoke.ps1	scripts	other	script	4297	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_cli_test.go	scripts	other	go-test	5787	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,cli,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_test.go	scripts	other	go-test	2791	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard.go	scripts	other	go-source	11207	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
@@ -380,7 +359,7 @@ scripts/codemap_index.go	scripts	other	go-source	16449	工程自动化、测试�
 scripts/codex_stop_gate.sh	scripts	other	script	9559	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood_test.py	scripts	other	py	18679	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood.py	scripts	other	py	29352	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,工程自动化,测试守卫,代码地图与开发脚本
-scripts/elk-local.ps1	scripts	other	script	1977	工程自动化、测试守卫、代码地图与开发脚本	scripts,elk,local,工程自动化,测试守卫,代码地图与开发脚本
+scripts/elk-local.ps1	scripts	other	script	1906	工程自动化、测试守卫、代码地图与开发脚本	scripts,elk,local,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods_guard_test.go	scripts	other	go-test	556	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods_main_guardrail_test.go	scripts	other	go-test	8887	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods.go	scripts	other	go-source	6615	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
@@ -389,7 +368,8 @@ scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试
 scripts/frontend_build_guard_test.go	scripts	other	go-test	1989	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	13400	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify.sh	scripts	other	script	2368	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,工程自动化,测试守卫,代码地图与开发脚本
-scripts/generate_ai_project_map.js	scripts	other	js-source	21835	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	5043	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map.js	scripts	other	js-source	25908	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
 scripts/github_release_updater_guard_test.go	scripts	other	go-test	26455	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,updater,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go	scripts	other	file	1043	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
@@ -402,7 +382,7 @@ scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	13259
 scripts/guard_fix_commits_have_tests.sh	scripts	other	script	9260	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install_hooks_guard_test.go	scripts	other	go-test	2562	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install-hooks.sh	scripts	other	script	797	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
-scripts/install-postgres.ps1	scripts	other	script	432	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,postgres,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install-postgres.ps1	scripts	other	script	419	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,postgres,工程自动化,测试守卫,代码地图与开发脚本
 scripts/lsp_router_eval.py	scripts	other	py	36697	工程自动化、测试守卫、代码地图与开发脚本	scripts,lsp,router,eval,工程自动化,测试守卫,代码地图与开发脚本
 scripts/new_ui_desktop_dev_env_guard_test.go	scripts	other	go-test	3514	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,env,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/new_ui_desktop_dev_loopback_guard_test.go	scripts	other	go-test	1331	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,loopback,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -423,14 +403,14 @@ scripts/package_macos_release_guard_test.go	scripts	other	go-test	10981	工程�
 scripts/package_macos_video_guard_test.go	scripts	other	go-test	2164	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,video,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_macos.sh	scripts	other	script	58015	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_sqlite_migrations_guard_test.go	scripts	other	go-test	4609	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,sqlite,migrations,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/package_windows_github_release.ps1	scripts	other	script	6713	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,github,release,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_github_release.ps1	scripts	other	script	6538	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,github,release,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_guard_test.go	scripts	other	go-test	31625	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/package_windows_local.ps1	scripts	other	script	11536	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,local,工程自动化,测试守卫,代码地图与开发脚本
-scripts/package_windows.ps1	scripts	other	script	53832	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_local.ps1	scripts	other	script	11274	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,local,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows.ps1	scripts	other	script	52616	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_guard_test.go	scripts	other	go-test	17634	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_linux.sh	scripts	other	script	11085	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,linux,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_macos.sh	scripts	other	script	10553	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,macos,工程自动化,测试守卫,代码地图与开发脚本
-scripts/prepare_lsp_bundle_windows.ps1	scripts	other	script	22909	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prepare_lsp_bundle_windows.ps1	scripts	other	script	22422	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prompt_intent_e2e_test.py	scripts	other	py	8881	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prompt_intent_e2e.py	scripts	other	py	24095	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,工程自动化,测试守卫,代码地图与开发脚本
 scripts/publish_github_release.sh	scripts	other	script	19101	工程自动化、测试守卫、代码地图与开发脚本	scripts,publish,github,release,工程自动化,测试守卫,代码地图与开发脚本
@@ -451,7 +431,7 @@ scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	5895	工程自�
 scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main.go	scripts	other	go-source	2592	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1251	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.ps1	scripts	other	script	11800	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.ps1	scripts	other	script	11441	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.sh	scripts	other	script	2428	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	4208	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
 scripts/uat-p21.sh	scripts	other	script	9414	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
@@ -461,10 +441,8 @@ scripts/validate_risk_evidence.py	scripts	other	py	7460	工程自动化、测试
 scripts/validate_super_agent_skills.py	scripts	other	py	19343	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_linux.sh	scripts	other	script	16336	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,linux,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_macos.sh	scripts	other	script	24337	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,macos,工程自动化,测试守卫,代码地图与开发脚本
-scripts/verify_packaged_app_windows.ps1	scripts	other	script	23538	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/verify_packaged_app_windows.ps1	scripts	other	script	22969	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/windows_test_helpers_test.go	scripts	other	go-test	317	工程自动化、测试守卫、代码地图与开发脚本	scripts,windows,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
-sqlc.yaml	(root)	other	yaml	5510	仓库根级配置、入口或说明文件	sqlc,仓库根级配置,入口或说明文件
-start_26_6_12.ps1	(root)	other	script	316	仓库根级配置、入口或说明文件	start,26,6,12,仓库根级配置,入口或说明文件
 test/fixtures/p21/cron/README.md	test	other	doc	789	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,cron,README,未细分职责：请结合路径,文件名和相邻代码判断
 test/fixtures/p21/prompt-injection/samples.txt	test	other	txt	798	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,prompt,injection,samples,未细分职责：请结合路径,文件名和相邻代码判断
 test/fixtures/p21/README.md	test	other	doc	1752	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,README,未细分职责：请结合路径,文件名和相邻代码判断
@@ -475,14 +453,12 @@ test/fixtures/p21/secrets/sample.txt	test	other	txt	1516	未细分职责：请�
 test/fixtures/p21/webhooks/README.md	test	other	doc	1128	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,README,未细分职责：请结合路径,文件名和相邻代码判断
 test/fixtures/p21/webhooks/replay.py	test	other	py	744	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,replay,未细分职责：请结合路径,文件名和相邻代码判断
 tests/scripts/guard_env_test.sh	tests	other	script	138	未细分职责：请结合路径、文件名和相邻代码判断	tests,scripts,guard,env,test,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/default_test.go	third_party	other	go-test	3616	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,test,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/default.go	third_party	other	go-source	1090	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/event_test.go	third_party	other	go-test	8300	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,test,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/event.go	third_party	other	go-source	8118	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/example/main.go	third_party	other	go-source	1135	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,example,main,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/default_test.go	third_party	other	go-test	3478	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/default.go	third_party	other	go-source	1060	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/event_test.go	third_party	other	go-test	7976	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/event.go	third_party	other	go-source	7795	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/example/main.go	third_party	other	go-source	1086	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,example,main,未细分职责：请结合路径,文件名和相邻代码判断
 third_party/kelindar-event/go.mod	third_party	other	mod	233	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
 third_party/kelindar-event/go.sum	third_party	other	sum	881	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
 third_party/kelindar-event/LICENSE	third_party	other	file	1073	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,LICENSE,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/README.md	third_party	other	doc	4735	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,README,未细分职责：请结合路径,文件名和相邻代码判断
-项目架构图.htm	(root)	other	htm	5021	仓库根级配置、入口或说明文件	项目架构图,仓库根级配置,入口或说明文件
-项目架构图.xls	(root)	other	xls	5021	仓库根级配置、入口或说明文件	项目架构图,仓库根级配置,入口或说明文件
+third_party/kelindar-event/README.md	third_party	other	doc	4621	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,README,未细分职责：请结合路径,文件名和相邻代码判断

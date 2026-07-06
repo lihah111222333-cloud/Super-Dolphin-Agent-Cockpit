@@ -120,10 +120,11 @@ refresh_codemap_generated_files() {
   ensure_codemap_generated_paths_clean
 
   CODEMAP_TMP=$(mktemp -d -t pre-commit-codemap.XXXXXX)
-  git checkout-index -a --prefix="$CODEMAP_TMP/"
+  git -c core.autocrlf=false checkout-index -a --prefix="$CODEMAP_TMP/"
   (
     cd "$CODEMAP_TMP"
-    run_go_without_git_env make codemap-refresh project-map-refresh
+    run_go_without_git_env make codemap-refresh
+    run_go_without_git_env make project-map-refresh PROJECT_MAP_ARGS=--filesystem-scan
   )
 
   for generated in \
