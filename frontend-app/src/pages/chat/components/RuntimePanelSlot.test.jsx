@@ -142,4 +142,51 @@ describe('RuntimePanelSlot', () => {
       contentVersion: 'version-src-b',
     }));
   });
+
+  it('keeps edits typed while a code preview save is in flight marked as unsaved', async () => {
+    const save = deferred();
+    const codeFileActions = {
+      locateCodeFile: vi.fn(),
+      openCodeFile: vi.fn().mockResolvedValue({
+        ok: true,
+        filePath: 'docs/plan.md',
+        relative: 'docs/plan.md',
+        snippet: [{ line: 1, text: 'saved snapshot' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+        previewMode: 'full',
+        contentVersion: 'version-docs-plan',
+      }),
+      saveCodeFile: vi.fn(() => save.promise),
+    };
+    const diffText = [
+      'diff --git a/docs/plan.md b/docs/plan.md',
+      '+++ b/docs/plan.md',
+      '@@ -0,0 +1 @@',
+      '+saved snapshot',
+    ].join('\n');
+    renderSlot({
+      codeFileActions,
+      threadData: { ...threadData, diffText },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 docs/plan.md' }));
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    fireEvent.click(within(preview).getByRole('button', { name: '编辑预览' }));
+    const editor = within(preview).getByLabelText('文件预览内容');
+    fireEvent.change(editor, { target: { value: 'saved snapshot\nsaved before click' } });
+    fireEvent.click(within(preview).getByRole('button', { name: '保存预览更改' }));
+    await waitFor(() => expect(codeFileActions.saveCodeFile).toHaveBeenCalledTimes(1));
+    fireEvent.change(editor, { target: { value: 'saved snapshot\nsaved before click\nnew unsaved edit' } });
+
+    await act(async () => {
+      save.resolve({ ok: true, filePath: 'docs/plan.md', relative: 'docs/plan.md', totalLines: 2 });
+    });
+
+    expect(editor).toHaveValue('saved snapshot\nsaved before click\nnew unsaved edit');
+    expect(within(preview).getByText('已保存 docs/plan.md，仍有未保存更改')).toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole('button', { name: '关闭文件预览' }));
+    expect(within(preview).getByRole('alert')).toHaveTextContent('请先保存或放弃预览更改');
+  });
 });

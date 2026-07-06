@@ -107,6 +107,25 @@ function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative 
   };
 }
 
+function codePreviewStateAfterSave(current, result, relative, savedDraft) {
+  const filePath = (result?.filePath || current.filePath || '').toString();
+  const savedContent = normalizeCodePreviewText(savedDraft);
+  const draftChangedDuringSave = current.draft !== savedContent;
+  const totalLines = Number.isFinite(Number(result?.totalLines))
+    ? Math.floor(Number(result.totalLines))
+    : countCodePreviewLines(savedContent);
+  return {
+    ...current,
+    saving: false,
+    filePath,
+    relative,
+    content: savedContent,
+    editing: current.previewKind === 'markdown' && !draftChangedDuringSave ? false : current.editing,
+    totalLines,
+    status: draftChangedDuringSave ? `已保存 ${relative}，仍有未保存更改` : `已保存 ${relative}`,
+  };
+}
+
 function codePreviewImageState(result, filePath, relative, mediaType) {
   const previewUrl = (result?.previewURL || result?.previewUrl || '').toString().trim();
   const thumbnailUrl = (result?.thumbnailURL || result?.thumbnailUrl || '').toString().trim();
@@ -162,6 +181,7 @@ function emptyCodePreviewState() {
 
 export {
   codeOpenDisplayPath,
+  codePreviewStateAfterSave,
   codePreviewStateFromOpenResult,
   countCodePreviewLines,
   emptyCodePreviewState,

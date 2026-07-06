@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import {
   codeOpenDisplayPath,
+  codePreviewStateAfterSave,
   codePreviewStateFromOpenResult,
-  countCodePreviewLines,
   emptyCodePreviewState,
 } from './adapters/codePreviewAdapter.js';
 import {
@@ -201,26 +201,18 @@ function useCodePreviewController({ projectPath, projects }) {
     }
     const requestSeq = previewRequestSeqRef.current;
     const requestScopeKey = previewScopeKey;
+    const savedDraft = codePreview.draft;
     setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
     try {
       const result = await saveCodeFile({
         ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
-        content: codePreview.draft,
+        content: savedDraft,
         previewMode: codePreview.previewMode,
         contentVersion: codePreview.contentVersion,
       });
       if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);
-      setCodePreview((current) => ({
-        ...current,
-        saving: false,
-        filePath: (result?.filePath || current.filePath).toString(),
-        relative,
-        content: current.draft,
-        editing: current.previewKind === 'markdown' ? false : current.editing,
-        totalLines: Number.isFinite(Number(result?.totalLines)) ? Math.floor(Number(result.totalLines)) : countCodePreviewLines(current.draft),
-        status: `已保存 ${relative}`,
-      }));
+      setCodePreview((current) => codePreviewStateAfterSave(current, result, relative, savedDraft));
     } catch (error) {
       if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       setCodePreview((current) => ({
