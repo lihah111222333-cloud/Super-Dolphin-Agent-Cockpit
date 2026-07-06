@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
@@ -123,6 +124,45 @@ func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	replaceEnvelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("column is out of range"))
 	if !strings.Contains(strings.ToLower(replaceEnvelope.Hint), "patch") {
 		t.Fatalf("replace_range-style cursor hint = %q, want patch guidance", replaceEnvelope.Hint)
+	}
+}
+
+func TestFileDiagnosticsDisablesOuterTimeout(t *testing.T) {
+	if _, ok := fileToolDeadlineForAction(t, "diagnostics"); ok {
+		t.Fatal("file diagnostics received an outer tool deadline, want diagnostics timeout to start after LSP bootstrap")
+	}
+}
+
+func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
+	deadline, ok := fileToolDeadlineForAction(t, "read_file")
+	if !ok {
+		t.Fatal("file read_file context deadline missing")
+	}
+	assertDeadlineNear(t, deadline, middleware.TierNormal, "read_file")
+}
+
+func fileToolDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
+	t.Helper()
+	root := t.TempDir()
+	var deadline time.Time
+	deadlineOK := false
+	handler := wrapToolHandlerWithTimeoutResolver("file", middleware.TierNormal, fileToolTimeoutTier, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		deadline, deadlineOK = ctx.Deadline()
+		return "ok", nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{"action": action})
+
+	if _, err := handler(testToolContext(root), payload); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	return deadline, deadlineOK
+}
+
+func assertDeadlineNear(t *testing.T, deadline time.Time, want time.Duration, action string) {
+	t.Helper()
+	remaining := time.Until(deadline)
+	if remaining < want-5*time.Second || remaining > want {
+		t.Fatalf("file %s timeout = %s, want near %s", action, remaining.Round(time.Second), want)
 	}
 }
 

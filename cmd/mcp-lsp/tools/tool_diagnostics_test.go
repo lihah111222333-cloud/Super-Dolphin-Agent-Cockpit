@@ -460,12 +460,10 @@ func TestDiagnosticsReportsPartialBootstrapFailure(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
+func TestDiagnosticsRecoversStartupWaitByBootstrappingTarget(t *testing.T) {
 	root := t.TempDir()
 	target := writeDiagnosticsFixture(t, root, "startup.go")
-	manager := &diagnosticsStartupManager{}
 	registry := &diagnosticsTestRegistry{
-		manager:  manager,
 		waitErrs: []error{lspmanager.ErrDiagnosticsNotReady},
 	}
 	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
@@ -475,10 +473,9 @@ func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
 		t.Fatalf("diagnostics returned startup wait error: %v", err)
 	}
 	wantURI := canonicalFileURI(t, target)
-	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
-	assertDiagnosticURIs(t, manager.didOpenURIs, []string{wantURI})
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI, wantURI})
 	if registry.waitCalls != 2 {
-		t.Fatalf("WaitDiagnosticsStable calls = %d, want retry after startup open", registry.waitCalls)
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want retry after startup bootstrap", registry.waitCalls)
 	}
 	if len(registry.callOrder) == 0 || registry.callOrder[len(registry.callOrder)-1] != "diagnostics" {
 		t.Fatalf("diagnostics call order = %#v, want diagnostics after startup recovery", registry.callOrder)
@@ -488,9 +485,7 @@ func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
 func TestDiagnosticsRetriesStartupWaitUntilFifthRetry(t *testing.T) {
 	root := t.TempDir()
 	target := writeDiagnosticsFixture(t, root, "slow.go")
-	manager := &diagnosticsStartupManager{}
 	registry := &diagnosticsTestRegistry{
-		manager: manager,
 		waitErrs: []error{
 			lspmanager.ErrDiagnosticsNotReady,
 			lspmanager.ErrDiagnosticsNotReady,
@@ -506,8 +501,7 @@ func TestDiagnosticsRetriesStartupWaitUntilFifthRetry(t *testing.T) {
 		t.Fatalf("diagnostics returned startup retry error: %v", err)
 	}
 	wantURI := canonicalFileURI(t, target)
-	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
-	assertDiagnosticURIs(t, manager.didOpenURIs, []string{wantURI})
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI, wantURI})
 	if registry.waitCalls != 6 {
 		t.Fatalf("WaitDiagnosticsStable calls = %d, want initial wait plus 5 retries", registry.waitCalls)
 	}
@@ -516,9 +510,7 @@ func TestDiagnosticsRetriesStartupWaitUntilFifthRetry(t *testing.T) {
 func TestDiagnosticsReportsStartupTimeoutAfterFiveRetries(t *testing.T) {
 	root := t.TempDir()
 	target := writeDiagnosticsFixture(t, root, "never.go")
-	manager := &diagnosticsStartupManager{}
 	registry := &diagnosticsTestRegistry{
-		manager: manager,
 		waitErrs: []error{
 			lspmanager.ErrDiagnosticsNotReady,
 			lspmanager.ErrDiagnosticsNotReady,
@@ -536,8 +528,7 @@ func TestDiagnosticsReportsStartupTimeoutAfterFiveRetries(t *testing.T) {
 		t.Fatalf("diagnostics error = %v, want ErrDiagnosticsNotReady after retries", err)
 	}
 	wantURI := canonicalFileURI(t, target)
-	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
-	assertDiagnosticURIs(t, manager.didOpenURIs, []string{wantURI})
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI, wantURI})
 	if registry.waitCalls != 6 {
 		t.Fatalf("WaitDiagnosticsStable calls = %d, want initial wait plus 5 retries", registry.waitCalls)
 	}
@@ -569,9 +560,7 @@ func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testi
 	second := writeDiagnosticsFixture(t, root, "slow.go")
 	firstURI := canonicalFileURI(t, first)
 	secondURI := canonicalFileURI(t, second)
-	manager := &diagnosticsStartupManager{}
 	registry := &diagnosticsTestRegistry{
-		manager: manager,
 		waitFn: func(_ int, uris []string) error {
 			if len(uris) == 1 && uris[0] == firstURI {
 				return nil
@@ -600,7 +589,7 @@ func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testi
 	if strings.Contains(string(raw), "source") {
 		t.Fatalf("diagnostics response exposes source: %s", string(raw))
 	}
-	assertDiagnosticURIs(t, manager.didOpenURIs, []string{firstURI, secondURI})
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{firstURI, secondURI, firstURI, secondURI})
 	if registry.waitCalls < 3 {
 		t.Fatalf("WaitDiagnosticsStable calls = %d, want batch retry plus per-target wait", registry.waitCalls)
 	}
@@ -608,10 +597,8 @@ func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testi
 
 func TestDiagnosticsPropagatesNonStartupWaitError(t *testing.T) {
 	root := t.TempDir()
-	writeDiagnosticsFixture(t, root, "broken.go")
-	manager := &diagnosticsStartupManager{}
+	target := writeDiagnosticsFixture(t, root, "broken.go")
 	registry := &diagnosticsTestRegistry{
-		manager:  manager,
 		waitErrs: []error{errors.New("diagnostic cache corrupt")},
 	}
 	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
@@ -621,19 +608,7 @@ func TestDiagnosticsPropagatesNonStartupWaitError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "diagnostic cache corrupt") {
 		t.Fatalf("diagnostics error = %v, want non-startup wait failure", err)
 	}
-	if len(manager.didOpenURIs) != 0 {
-		t.Fatalf("DidOpen recovery ran for non-startup error: %#v", manager.didOpenURIs)
-	}
-}
-
-type diagnosticsStartupManager struct {
-	structureTestManager
-	didOpenURIs []string
-}
-
-func (m *diagnosticsStartupManager) DidOpen(_ context.Context, uri, _ string, _ int, _ string) error {
-	m.didOpenURIs = append(m.didOpenURIs, uri)
-	return nil
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{canonicalFileURI(t, target)})
 }
 
 func writeDiagnosticsFixture(t *testing.T, root, name string) string {

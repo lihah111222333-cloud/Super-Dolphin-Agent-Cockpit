@@ -259,6 +259,32 @@ func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 	}
 }
 
+func TestRuntimeAdapterDiagnosticsMaxWaitCoversAllLSPClientAdapters(t *testing.T) {
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	for _, languageID := range []string{"go", "typescript", "python", "rust", "java", "css", "shellscript"} {
+		adapter, ok := registry.AdapterForLanguage(languageID)
+		if !ok {
+			t.Fatalf("missing adapter for %s", languageID)
+		}
+		if got := runtimeAdapterDiagnosticsMaxWait(adapter); got != lspDiagnosticsColdStartMaxWait {
+			t.Fatalf("runtimeAdapterDiagnosticsMaxWait(%s) = %s, want %s", languageID, got, lspDiagnosticsColdStartMaxWait)
+		}
+	}
+}
+
+func TestRuntimeAdapterDiagnosticsMaxWaitKeepsFallbackAdaptersDefault(t *testing.T) {
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	for _, languageID := range []string{"markdown", "json", "yaml"} {
+		adapter, ok := registry.AdapterForLanguage(languageID)
+		if !ok {
+			t.Fatalf("missing adapter for %s", languageID)
+		}
+		if got := runtimeAdapterDiagnosticsMaxWait(adapter); got != 0 {
+			t.Fatalf("runtimeAdapterDiagnosticsMaxWait(%s) = %s, want default manager wait", languageID, got)
+		}
+	}
+}
+
 func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t *testing.T) {
 	registry := multilsp.NewDefaultLanguageAdapterRegistry()
 	adapter, ok := registry.AdapterForLanguage("python")

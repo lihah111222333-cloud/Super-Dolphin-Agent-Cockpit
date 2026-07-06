@@ -25,7 +25,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const pythonDiagnosticsColdStartMaxWait = 8 * time.Second
+const lspDiagnosticsColdStartMaxWait = 8 * time.Second
 
 // Manager 汇总 mcp-lsp 进程内的语言 registry、后台 runner 和 scope 释放器。
 // 它是 MCP 工具层进入 LSP runtime 的本地边界，不直接暴露具体 ManagerPool 实现。
@@ -483,8 +483,8 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 }
 
 func runtimeAdapterDiagnosticsMaxWait(adapter multilsp.LanguageAdapter) time.Duration {
-	if adapterSupportsLanguage(adapter, "python") {
-		return pythonDiagnosticsColdStartMaxWait
+	if adapter.CapabilityPolicy().RequiresLSPClient {
+		return lspDiagnosticsColdStartMaxWait
 	}
 	return 0
 }

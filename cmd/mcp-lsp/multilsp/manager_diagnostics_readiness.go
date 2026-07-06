@@ -29,6 +29,7 @@ type diagnosticStableWait struct {
 	uris      []string
 	readiness diagnosticReadiness
 	last      time.Time
+	lastPull  time.Time
 }
 
 func (m *manager) newDiagnosticStableWait(ctx context.Context, filter diagnosticFilter, uris []string) (*diagnosticStableWait, error) {
@@ -86,6 +87,11 @@ func (w *diagnosticStableWait) refresh(resetLast bool) error {
 	if err := sleepContext(w.ctx, waitFor); err != nil {
 		return w.contextError(err)
 	}
+	if len(w.readiness.missing) > 0 {
+		if err := w.pullMissingDiagnosticsIfDue(); err != nil {
+			return err
+		}
+	}
 	readiness, err := w.manager.diagnosticReadiness(w.ctx, w.filter, w.uris)
 	if err != nil {
 		return err
@@ -95,6 +101,33 @@ func (w *diagnosticStableWait) refresh(resetLast bool) error {
 		w.last = readiness.latest
 	}
 	return nil
+}
+
+// pullMissingDiagnosticsIfDue 在等待窗口内节流重试 pull diagnostics。
+// 某些语言服务器启动后只发 workspace/diagnostic/refresh，不主动 publish；这里按通用能力重新拉取缺失目标。
+func (w *diagnosticStableWait) pullMissingDiagnosticsIfDue() error {
+	interval := diagnosticsPullRetryInterval(w.manager.diagPoll)
+	now := time.Now()
+	if !w.lastPull.IsZero() && now.Sub(w.lastPull) < interval {
+		return nil
+	}
+	w.lastPull = now
+	return w.manager.pullMissingDiagnostics(w.ctx, w.filter, w.uris)
+}
+
+// diagnosticsPullRetryInterval 根据稳定轮询间隔推导 pull 重试节奏，避免对语言服务器高频打点。
+func diagnosticsPullRetryInterval(poll time.Duration) time.Duration {
+	if poll <= 0 {
+		return 200 * time.Millisecond
+	}
+	interval := poll * 5
+	if interval < 50*time.Millisecond {
+		return 50 * time.Millisecond
+	}
+	if interval > 500*time.Millisecond {
+		return 500 * time.Millisecond
+	}
+	return interval
 }
 
 func (m *manager) diagnosticReadiness(ctx context.Context, filter diagnosticFilter, uris []string) (diagnosticReadiness, error) {

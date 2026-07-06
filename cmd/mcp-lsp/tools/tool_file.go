@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -149,7 +150,24 @@ func NewFileHandler(cfg Config) Handler {
 		root:     resolveRoot(cfg.WorkspaceRoot),
 		registry: cfg.Registry,
 	}
-	return Handler(wrapToolHandler("file", middleware.TierNormal, handler.handleFile))
+	return Handler(wrapToolHandlerWithTimeoutResolver("file", middleware.TierNormal, fileToolTimeoutTier, handler.handleFile))
+}
+
+func fileToolTimeoutTier(params json.RawMessage) time.Duration {
+	var input struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil {
+		return middleware.TierNormal
+	}
+	action := normalizeAction(input.Action)
+	if alias := legacyActionAlias("file", action); alias != "" {
+		action = alias
+	}
+	if action == "diagnostics" {
+		return toolTimeoutDisabled
+	}
+	return middleware.TierNormal
 }
 
 // handleFile 解码 file 工具请求，并按 action 分发到打开、读取或诊断路径。

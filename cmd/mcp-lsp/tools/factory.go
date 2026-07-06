@@ -506,8 +506,15 @@ func renderListResult[T any](items []T, limit int, emptyMessage string, render f
 	return render(items, total), nil
 }
 
+const toolTimeoutDisabled time.Duration = -1
+
 // wrapToolHandler 用 Recovery/Logging/Timeout/Budget 中间件链包装工具处理函数。
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
+	return wrapToolHandlerWithTimeoutResolver(toolName, tier, nil, handler)
+}
+
+// wrapToolHandlerWithTimeoutResolver 在统一工作区校验、日志和预算外，允许少数 action 按参数选择或关闭工具层 timeout。
+func wrapToolHandlerWithTimeoutResolver(toolName string, tier time.Duration, timeoutTier func(json.RawMessage) time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
 	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
 		var err error
@@ -517,11 +524,32 @@ func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Han
 		}
 		return handler(ctx, params)
 	}
+	normalHandler := middleware.Timeout(tier)(scopedHandler)
+	slowHandler := middleware.Timeout(middleware.TierSlow)(scopedHandler)
+	timedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
+		selected := tier
+		if timeoutTier != nil {
+			selected = timeoutTier(params)
+			if selected == toolTimeoutDisabled {
+				return scopedHandler(ctx, params)
+			}
+			if selected <= 0 {
+				selected = tier
+			}
+		}
+		switch selected {
+		case tier:
+			return normalHandler(ctx, params)
+		case middleware.TierSlow:
+			return slowHandler(ctx, params)
+		default:
+			return middleware.Timeout(selected)(scopedHandler)(ctx, params)
+		}
+	}
 	chained := middleware.Chain(
-		scopedHandler,
+		timedHandler,
 		middleware.Recovery(log, toolName),
 		middleware.Logging(log, toolName),
-		middleware.Timeout(tier),
 	)
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
 }

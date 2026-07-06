@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -61,10 +62,11 @@ type Options struct {
 }
 
 type client struct {
-	transport        *transport
-	processID        int
-	initOptions      map[string]any
-	workspaceFolders []protocol.WorkspaceFolder
+	transport            *transport
+	processID            int
+	initOptions          map[string]any
+	workspaceFolders     []protocol.WorkspaceFolder
+	dynamicRegistrations *dynamicRegistrationTracker
 
 	lifecycleMu  sync.Mutex
 	stateMu      sync.RWMutex
@@ -72,6 +74,112 @@ type client struct {
 	initialized  bool
 	shutdown     bool
 	capabilities protocol.ServerCapabilities
+}
+
+type dynamicRegistrationTracker struct {
+	mu                      sync.RWMutex
+	diagnosticRegistrations map[string]struct{}
+}
+
+func newDynamicRegistrationTracker() *dynamicRegistrationTracker {
+	return &dynamicRegistrationTracker{diagnosticRegistrations: map[string]struct{}{}}
+}
+
+// dynamicRegistrationRequestHandler 记录服务端动态注册能力，并把未处理请求交给调用方配置处理器。
+func dynamicRegistrationRequestHandler(tracker *dynamicRegistrationTracker, next ServerRequestHandler) ServerRequestHandler {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		if tracker != nil {
+			handled, err := tracker.handleServerRequest(method, params)
+			if err != nil {
+				return nil, err
+			}
+			if handled {
+				return struct{}{}, nil
+			}
+		}
+		if next != nil {
+			return next(ctx, method, params)
+		}
+		return nil, ErrMethodNotSupported
+	}
+}
+
+func (t *dynamicRegistrationTracker) handleServerRequest(method string, params json.RawMessage) (bool, error) {
+	switch method {
+	case LSPCompatMethodClientRegisterCapability:
+		return true, t.register(params)
+	case LSPCompatMethodClientUnregisterCapability:
+		return true, t.unregister(params)
+	default:
+		return false, nil
+	}
+}
+
+func (t *dynamicRegistrationTracker) register(params json.RawMessage) error {
+	var request struct {
+		Registrations []struct {
+			ID     string `json:"id"`
+			Method string `json:"method"`
+		} `json:"registrations"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for index, registration := range request.Registrations {
+		if registration.Method != protocol.MethodTextDocumentDiagnostic {
+			continue
+		}
+		t.diagnosticRegistrations[dynamicRegistrationKey(registration.ID, registration.Method, index)] = struct{}{}
+	}
+	return nil
+}
+
+func (t *dynamicRegistrationTracker) unregister(params json.RawMessage) error {
+	var request struct {
+		Unregisterations []struct {
+			ID     string `json:"id"`
+			Method string `json:"method"`
+		} `json:"unregisterations"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for index, registration := range request.Unregisterations {
+		if registration.Method != protocol.MethodTextDocumentDiagnostic {
+			continue
+		}
+		key := dynamicRegistrationKey(registration.ID, registration.Method, index)
+		if strings.TrimSpace(registration.ID) == "" {
+			clear(t.diagnosticRegistrations)
+			continue
+		}
+		delete(t.diagnosticRegistrations, key)
+	}
+	return nil
+}
+
+func (t *dynamicRegistrationTracker) serverCapabilities(capabilities protocol.ServerCapabilities) protocol.ServerCapabilities {
+	if t == nil {
+		return capabilities
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if len(t.diagnosticRegistrations) > 0 {
+		capabilities.DiagnosticProvider = true
+	}
+	return capabilities
+}
+
+func dynamicRegistrationKey(id, method string, index int) string {
+	id = strings.TrimSpace(id)
+	if id != "" {
+		return id
+	}
+	return strings.TrimSpace(method) + "#" + strconv.Itoa(index)
 }
 
 type limitedBuffer struct {
@@ -106,21 +214,23 @@ func NewClientWithOptions(options Options) (Client, error) {
 	if requestHandler == nil {
 		requestHandler = configurationRequestHandlerFromInitOptions(options.InitOptions)
 	}
+	dynamicRegistrations := newDynamicRegistrationTracker()
 	transport, err := newTransport(transportOptions{
 		Binary:              binary,
 		Args:                defaultArgs(options.Args),
 		Dir:                 options.Dir,
 		Env:                 append([]string(nil), options.Env...),
 		NotificationHandler: options.NotificationHandler,
-		RequestHandler:      requestHandler,
+		RequestHandler:      dynamicRegistrationRequestHandler(dynamicRegistrations, requestHandler),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &client{
-		transport:   transport,
-		processID:   normalizeProcessID(options.ProcessID),
-		initOptions: options.InitOptions,
+		transport:            transport,
+		processID:            normalizeProcessID(options.ProcessID),
+		initOptions:          options.InitOptions,
+		dynamicRegistrations: dynamicRegistrations,
 	}, nil
 }
 
@@ -274,8 +384,9 @@ func (c *client) Healthy() bool {
 // ServerCapabilities 返回 initialize 阶段记录的服务端能力。
 func (c *client) ServerCapabilities() protocol.ServerCapabilities {
 	c.stateMu.RLock()
-	defer c.stateMu.RUnlock()
-	return c.capabilities
+	capabilities := c.capabilities
+	c.stateMu.RUnlock()
+	return c.dynamicRegistrations.serverCapabilities(capabilities)
 }
 
 func (c *client) canInitialize(rootURI string) error {

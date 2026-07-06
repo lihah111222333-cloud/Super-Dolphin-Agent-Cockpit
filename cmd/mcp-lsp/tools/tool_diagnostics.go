@@ -129,11 +129,11 @@ func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, ex
 	if appManaged {
 		return diagnosticsWaitResult{appManagedOutsideWorkspace: true, message: message}, nil
 	}
-	opened, openErr := h.openDiagnosticDocuments(ctx, existingURIs)
-	if openErr != nil {
-		return diagnosticsWaitResult{}, errors.Join(waitErr, openErr)
+	bootstrapped, bootstrapErr := h.bootstrapDiagnosticDocuments(ctx, existingURIs)
+	if bootstrapErr != nil {
+		return diagnosticsWaitResult{}, errors.Join(waitErr, bootstrapErr)
 	}
-	if opened == 0 {
+	if bootstrapped == 0 {
 		return diagnosticsWaitResult{}, waitErr
 	}
 	if retryErr := h.waitDiagnosticsStableWithStartupRetries(ctx, uris); retryErr != nil {
@@ -386,9 +386,9 @@ func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (
 	return currentGeneration, nil
 }
 
-// openDiagnosticDocuments 去重后打开一组诊断目标。
-// 单个文件打开失败会汇总为 joined error，但仍继续尝试其他目标，便于部分恢复。
-func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
+// bootstrapDiagnosticDocuments 去重后重新触发诊断目标 bootstrap。
+// 单个文件 bootstrap 失败会汇总为 joined error，但仍继续尝试其他目标，便于部分恢复。
+func (h handlerBase) bootstrapDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
 	var errs []error
@@ -401,7 +401,7 @@ func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string)
 			continue
 		}
 		seen[uri] = struct{}{}
-		if err := h.openDiagnosticDocument(ctx, uri); err != nil {
+		if err := h.bootstrapDiagnosticDocument(ctx, uri); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", uri, err))
 			continue
 		}
@@ -413,9 +413,12 @@ func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string)
 	return count, nil
 }
 
-// openDiagnosticDocument 读取普通文件并向对应 LSP manager 发送 DidOpen。
-// 目标必须不是 symlink，manager 缺失会显式报错而不是返回空诊断。
-func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) error {
+// bootstrapDiagnosticDocument 校验普通文件后委托 manager 状态机同步目标文档。
+// 目标必须不是 symlink，registry 缺失会显式报错而不是返回空诊断。
+func (h handlerBase) bootstrapDiagnosticDocument(ctx context.Context, uri string) error {
+	if h.registry == nil {
+		return errManagerUnavailable
+	}
 	path := format.URIToPath(uri)
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -427,18 +430,7 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) err
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("diagnostic target %q must reference a regular file", path)
 	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	manager, err := managerForFile(ctx, h.registry, path, "")
-	if err != nil {
-		return err
-	}
-	if manager == nil {
-		return errManagerUnavailable
-	}
-	return manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(path), 1, string(content))
+	return h.registry.BootstrapDocument(ctx, uri)
 }
 
 // appManagedDiagnosticsOutsideWorkspace 判断诊断目标是否全部位于 app-managed 外部数据区。
