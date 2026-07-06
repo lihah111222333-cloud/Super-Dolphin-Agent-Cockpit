@@ -30,8 +30,12 @@ run_go_without_git_env() (
 
 FMT_OUT=$(mktemp -t pre-commit-fmt.XXXXXX)
 GO_LIST_ERR=$(mktemp -t pre-commit-golist.XXXXXX)
+CODEMAP_TMP=
 cleanup() {
   rm -f "$FMT_OUT" "$GO_LIST_ERR"
+  if [ -n "${CODEMAP_TMP:-}" ]; then
+    rm -rf "$CODEMAP_TMP"
+  fi
 }
 trap 'cleanup' EXIT
 trap 'cleanup; exit 130' INT
@@ -43,6 +47,11 @@ PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
 HAS_FRONTEND_APP_CHANGES=0
+CODEMAP_GENERATED_PATHS=(
+  docs/doc/codemap/README.md
+  docs/doc/codemap/ai-index.json
+  docs/doc/codemap/project-map
+)
 
 is_frontend_app_code_path() {
   case "$1" in
@@ -79,6 +88,61 @@ add_frontend_path() {
   if is_frontend_app_code_path "$1"; then
     HAS_FRONTEND_APP_CHANGES=1
   fi
+}
+
+ensure_codemap_generated_paths_clean() {
+  local untracked
+  if ! git diff --quiet -- "${CODEMAP_GENERATED_PATHS[@]}"; then
+    echo "❌ 代码地图生成物存在未暂存改动，pre-commit 不会覆盖它们：" >&2
+    git diff --name-only -- "${CODEMAP_GENERATED_PATHS[@]}" >&2
+    echo "" >&2
+    echo "  请先 git add 或还原这些生成物，再重新 commit。" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
+
+  untracked=$({
+    git ls-files --others --exclude-standard -- "${CODEMAP_GENERATED_PATHS[@]}"
+    git ls-files --others --ignored --exclude-standard -- "${CODEMAP_GENERATED_PATHS[@]}"
+  } | sort -u)
+  if [ -n "$untracked" ]; then
+    echo "❌ 代码地图生成物路径下存在未跟踪文件，pre-commit 不会覆盖它们：" >&2
+    printf '%s\n' "$untracked" >&2
+    echo "" >&2
+    echo "  请先 git add、移动或删除这些文件，再重新 commit。" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
+}
+
+refresh_codemap_generated_files() {
+  echo "[pre-commit] codemap refresh..."
+  ensure_codemap_generated_paths_clean
+
+  CODEMAP_TMP=$(mktemp -d -t pre-commit-codemap.XXXXXX)
+  git checkout-index -a --prefix="$CODEMAP_TMP/"
+  (
+    cd "$CODEMAP_TMP"
+    run_go_without_git_env make codemap-refresh project-map-refresh
+  )
+
+  for generated in \
+    docs/doc/codemap/README.md \
+    docs/doc/codemap/ai-index.json \
+    docs/doc/codemap/project-map
+  do
+    if [ ! -e "$CODEMAP_TMP/$generated" ]; then
+      echo "❌ 代码地图刷新未生成期望文件：$generated" >&2
+      exit 1
+    fi
+  done
+
+  rm -rf docs/doc/codemap/project-map
+  mkdir -p docs/doc/codemap
+  cp "$CODEMAP_TMP/docs/doc/codemap/README.md" docs/doc/codemap/README.md
+  cp "$CODEMAP_TMP/docs/doc/codemap/ai-index.json" docs/doc/codemap/ai-index.json
+  cp -R "$CODEMAP_TMP/docs/doc/codemap/project-map" docs/doc/codemap/project-map
+  git add -A -- "${CODEMAP_GENERATED_PATHS[@]}"
 }
 
 is_go_path() {
@@ -185,6 +249,8 @@ while IFS= read -r -d '' status; do
       ;;
   esac
 done < <(git diff --cached --name-status -z --diff-filter=ACMRD)
+
+refresh_codemap_generated_files
 
 # go vet / go test 以 worktree 包为输入；为避免测试到未提交内容，
 # staged Go 影响到的包内若还有未暂存或未跟踪 .go，也必须先处理。

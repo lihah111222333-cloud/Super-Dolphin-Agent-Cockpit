@@ -99,8 +99,15 @@ func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
 			name:    "codemap changes run codemap check",
 			path:    "docs/doc/codemap/01-terminal-ui.md",
 			content: "codemap\n",
-			wantOut: []string{"[pre-push] codemap check"},
-			wantLog: []string{"make codemap-check"},
+			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
+			wantLog: []string{"make codemap-check", "make project-map-check"},
+		},
+		{
+			name:    "project map generator changes run codemap checks",
+			path:    "scripts/generate_ai_project_map.js",
+			content: "#!/usr/bin/env node\n",
+			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
+			wantLog: []string{"make codemap-check", "make project-map-check"},
 		},
 		{
 			name:    "skill changes run skill validation",
@@ -290,7 +297,7 @@ func activeRiskIDsForFixture(t *testing.T, plan string) []string {
 		"P3-07": true,
 	}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		match := idRe.FindStringSubmatch(line)
 		if len(match) != 2 || reserved[match[1]] {
 			continue

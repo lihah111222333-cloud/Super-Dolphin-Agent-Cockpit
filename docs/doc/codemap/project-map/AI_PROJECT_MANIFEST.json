@@ -1,20 +1,20 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.js",
-  "generated_at": "2026-06-30",
-  "files": 4673,
+  "generated_at": "2026-07-06",
+  "files": 4817,
   "domains": {
-    "docs-agent": 1594,
-    "other": 476,
-    "app-ui": 279,
-    "platform-provider": 915,
-    "orchestration": 395,
-    "modules": 710,
-    "store-sql": 304
+    "docs-agent": 1658,
+    "other": 487,
+    "app-ui": 286,
+    "platform-provider": 958,
+    "orchestration": 406,
+    "modules": 716,
+    "store-sql": 306
   },
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0124,
+    "unknown_ratio": 0.012,
     "unknown_files": 58
   }
 }

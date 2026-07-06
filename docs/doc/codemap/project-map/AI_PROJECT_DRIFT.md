@@ -2,7 +2,7 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4673
+> 已索引文件：4817
 >
 > 未细分职责文件：58
 
@@ -11,17 +11,17 @@
 | 指标 | 当前值 |
 |---|---:|
 | 未细分职责文件数 | 58 |
-| 未细分职责占比 | 1.24% |
+| 未细分职责占比 | 1.20% |
 
 ## 2. 未细分职责分布
 
 | 模块 | 文件数 |
 |---|---:|
-| `internal` | 25 |
+| `internal` | 26 |
 | `test` | 9 |
 | `third_party` | 9 |
 | `cmd` | 7 |
-| `.codex` | 3 |
+| `.codex` | 2 |
 | `ai04-docs` | 2 |
 | `filebeat` | 1 |
 | `sql` | 1 |
@@ -30,7 +30,6 @@
 ## 3. 样例文件
 
 - `.codex/.gitignore`
-- `.codex/config.toml`
 - `.codex/hooks.json`
 - `ai04-docs/修改记录2026-06-15 _22-34_mcpServer_postgres_start支持stdio持久化.md`
 - `ai04-docs/修改记录2026-06-18 _09-16_mcpServer_sqlite_playwright_开关与工具命名空间.md`
@@ -45,6 +44,7 @@
 - `internal/guards/code_size_guard_test.go`
 - `internal/guards/guard_manifest.json`
 - `internal/guards/refactor_baseline.json`
+- `internal/guards/rollback_skip_guard_test.go`
 - `internal/testutil/golden/golden.go`
 - `internal/testutil/golden/orchestration_stub.go`
 - `internal/util/clone/clone.go`
