@@ -229,7 +229,7 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 	case "tool:use_begin":
 		return tooldto.ToolCallBegin{
 			ToolCallHeader:   toolHeader(raw.Data),
-			ArgumentsPreview: dataString(raw.Data, "arguments_preview"),
+			ArgumentsPreview: providershared.SafeToolArgumentsPreviewString(dataString(raw.Data, "arguments_preview")),
 		}, true
 	case "tool:use_end":
 		header := toolHeader(raw.Data)

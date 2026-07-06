@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -39,6 +40,7 @@ type actionHandler[T any] func(context.Context, T) (any, error)
 
 type appManagedWriteCapabilityContextKey struct{}
 type appManagedReadCapabilityContextKey struct{}
+type runtimeWorkspaceRootCapabilityContextKey struct{}
 
 // 解码模式常量决定未知字段、空参数和原始 payload 的处理策略。
 const (
@@ -65,6 +67,18 @@ func WithAppManagedReadCapability(ctx context.Context) context.Context {
 	return context.WithValue(ctx, appManagedReadCapabilityContextKey{}, true)
 }
 
+// WithRuntimeWorkspaceRootCapability 在 context 中授予主控确认过的 runtime roots 访问能力。
+func WithRuntimeWorkspaceRootCapability(ctx context.Context, roots []string) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	normalized, err := normalizeRuntimeWorkspaceRootCapability(roots)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, runtimeWorkspaceRootCapabilityContextKey{}, normalized), nil
+}
+
 // hasAppManagedWriteCapability 读取应用侧授予的 app-managed 写能力标记。
 func hasAppManagedWriteCapability(ctx context.Context) bool {
 	if ctx == nil {
@@ -81,6 +95,51 @@ func hasAppManagedReadCapability(ctx context.Context) bool {
 	}
 	allowed, _ := ctx.Value(appManagedReadCapabilityContextKey{}).(bool)
 	return allowed
+}
+
+func runtimeWorkspaceRootCapabilityFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	roots, _ := ctx.Value(runtimeWorkspaceRootCapabilityContextKey{}).([]string)
+	return append([]string(nil), roots...)
+}
+
+// normalizeRuntimeWorkspaceRootCapability 校验并规范化主控授予的 runtime roots。
+func normalizeRuntimeWorkspaceRootCapability(roots []string) ([]string, error) {
+	out := make([]string, 0, len(roots))
+	seen := map[string]struct{}{}
+	for _, root := range roots {
+		trimmed := strings.TrimSpace(root)
+		if trimmed == "" {
+			return nil, errors.New("runtime workspace root capability contains empty root")
+		}
+		absolute, err := filepath.Abs(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("resolve runtime workspace root capability: %w", err)
+		}
+		resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+		if err != nil {
+			return nil, fmt.Errorf("resolve runtime workspace root capability: %w", err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("stat runtime workspace root capability: %w", err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("runtime workspace root capability is not a directory: %s", resolved)
+		}
+		clean := filepath.Clean(resolved)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("runtime workspace root capability requires at least one root")
+	}
+	return out, nil
 }
 
 func toolWorkspaceRoot(ctx context.Context) (string, error) {
@@ -518,6 +577,7 @@ func wrapToolHandlerWithTimeoutResolver(toolName string, tier time.Duration, tim
 	log := pkglogger.Get()
 	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
 		var err error
+		ctx = lspinstaller.WithToolCallInstallCheckOnly(ctx)
 		ctx, err = contextWithExplicitToolWorkDir(ctx, params)
 		if err != nil {
 			return nil, err
@@ -609,6 +669,11 @@ func ensureExplicitWorkDirWithinWorkspaceRoots(ctx context.Context, workDir stri
 		return fmt.Errorf("explicit work_dir requires trusted workspace roots: %w", err)
 	}
 	for _, root := range roots {
+		if platformshared.ContainsPath(root, workDir) {
+			return nil
+		}
+	}
+	for _, root := range runtimeWorkspaceRootCapabilityFromContext(ctx) {
 		if platformshared.ContainsPath(root, workDir) {
 			return nil
 		}

@@ -53,13 +53,13 @@ WHERE task_dag_nodes.dag_key = sqlc.arg('dag_key') AND task_dag_nodes.node_key =
   AND sqlc.arg('run_id') > 0
   AND status IN ('ready', 'running')
   AND (
-    sqlc.arg('wakeup_id') = 0
+    CAST(sqlc.arg('wakeup_id') AS INTEGER) = 0
     OR (
-      task_dag_nodes.active_wakeup_id = sqlc.arg('wakeup_id')
+      task_dag_nodes.active_wakeup_id = CAST(sqlc.arg('wakeup_id') AS INTEGER)
       AND EXISTS (
         SELECT 1
         FROM task_dag_wakeups w
-        WHERE w.id = sqlc.arg('wakeup_id')
+        WHERE w.id = CAST(sqlc.arg('wakeup_id') AS INTEGER)
           AND w.run_id = task_dag_nodes.run_id
           AND w.dag_key = task_dag_nodes.dag_key
           AND w.node_key = task_dag_nodes.node_key

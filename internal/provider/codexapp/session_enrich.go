@@ -154,7 +154,7 @@ func (s *session) publishToolCallBegin(call preparedToolCall) {
 	}
 	s.dispatcher.Publish(tooldto.ToolCallBegin{
 		ToolCallHeader:   call.header,
-		ArgumentsPreview: jsonPreviewFromRaw(call.params.Params, "arguments", "args"),
+		ArgumentsPreview: providershared.SafeToolArgumentsPreviewString(jsonPreviewFromRaw(call.params.Params, "arguments", "args")),
 	})
 }
 

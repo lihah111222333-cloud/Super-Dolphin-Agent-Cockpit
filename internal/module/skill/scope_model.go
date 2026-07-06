@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -79,15 +80,6 @@ func defaultProjectSkillsRoot(projectRoot string) string {
 	return filepath.Join(projectRoot, ".agents", "skills")
 }
 
-// hasProjectSkillPolicy 识别已迁移到 .agents/skills 的项目 canonical skill 根。
-// 普通 provider mirror 只会写 mirror manifest，不会写项目选择策略；因此这里不会因为一次发布生成 .agents 而切换来源。
-func hasProjectSkillPolicy(root string) bool {
-	info, err := os.Lstat(filepath.Join(root, projectSkillPolicyFile))
-	if err != nil {
-		return false
-	}
-	return info.Mode().IsRegular()
-}
 func defaultSuperDolphinHome() string {
 	if override := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME")); override != "" {
 		return override
@@ -213,10 +205,8 @@ func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 		return skillScopeProject, "", nil
 	case skillScopePersonal:
 		normalizedType := strings.ToLower(strings.TrimSpace(personalType))
-		for _, activeType := range activePersonalSkillTypes() {
-			if normalizedType == activeType {
-				return skillScopePersonal, normalizedType, nil
-			}
+		if slices.Contains(activePersonalSkillTypes(), normalizedType) {
+			return skillScopePersonal, normalizedType, nil
 		}
 		return "", "", fmt.Errorf("%w: personal_type %q", ErrInvalidSkillScope, personalType)
 	case skillScopeSystem:
@@ -310,7 +300,7 @@ func rejectWritableSymlinkPath(rootAbs, rel string) error {
 	if rel == "." {
 		return nil
 	}
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		if part == "" || part == "." {
 			continue
 		}

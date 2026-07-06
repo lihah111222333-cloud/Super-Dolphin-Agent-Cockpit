@@ -619,6 +619,8 @@ type Node struct {
 	NodeType       string
 	AssignedTo     string
 	DependsOn      json.RawMessage
+	Reads          []string
+	Writes         []string
 	Status         string
 	CommandRef     string
 	Config         json.RawMessage

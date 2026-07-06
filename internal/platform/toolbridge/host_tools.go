@@ -120,19 +120,19 @@ type workflowTemplateSaveInput struct {
 	TemplateID       string                           `json:"template_id,omitempty"`
 	TemplateIDCamel  string                           `json:"templateId,omitempty"`
 	Version          int                              `json:"version,omitempty"`
-	Title            workflowtemplates.LocalizedText  `json:"title,omitempty"`
-	Description      workflowtemplates.LocalizedText  `json:"description,omitempty"`
+	Title            workflowtemplates.LocalizedText  `json:"title"`
+	Description      workflowtemplates.LocalizedText  `json:"description"`
 	Category         string                           `json:"category,omitempty"`
 	BusinessFlow     string                           `json:"business_flow,omitempty"`
 	OutputTypes      []string                         `json:"output_types,omitempty"`
 	Tags             []string                         `json:"tags,omitempty"`
 	RequiresReview   bool                             `json:"requires_review,omitempty"`
 	SupportsSchedule bool                             `json:"supports_schedule,omitempty"`
-	Trust            workflowtemplates.TrustMetadata  `json:"trust,omitempty"`
-	Compatibility    workflowtemplates.Compatibility  `json:"compatibility,omitempty"`
+	Trust            workflowtemplates.TrustMetadata  `json:"trust"`
+	Compatibility    workflowtemplates.Compatibility  `json:"compatibility"`
 	UISchema         []workflowtemplates.UIField      `json:"ui_schema,omitempty"`
-	Validation       workflowtemplates.ValidationRule `json:"validation,omitempty"`
-	Draft            workflowtemplates.DAGDraft       `json:"draft,omitempty"`
+	Validation       workflowtemplates.ValidationRule `json:"validation"`
+	Draft            workflowtemplates.DAGDraft       `json:"draft"`
 }
 
 // workflowTemplateRollbackInput 是 workflow_template_rollback 的模型输入。
@@ -170,16 +170,17 @@ type workflowTemplateRollbackResult struct {
 }
 
 // NewWorkflowTemplateHostToolRegistry 创建只读模板工具注册表，供 DAG Designer 读取同一份内置模板资产。
-func NewWorkflowTemplateHostToolRegistry() *WorkflowTemplateHostToolRegistry {
-	registry, err := workflowtemplates.NewDefaultRegistry()
-	return &WorkflowTemplateHostToolRegistry{registry: registry, loadErr: err}
+func NewWorkflowTemplateHostToolRegistry(registry *workflowtemplates.Registry) *WorkflowTemplateHostToolRegistry {
+	if registry == nil {
+		return &WorkflowTemplateHostToolRegistry{loadErr: fmt.Errorf("workflow template registry is not configured")}
+	}
+	return &WorkflowTemplateHostToolRegistry{registry: registry}
 }
 
 // NewWorkflowTemplateWriteHostToolRegistry 创建受授权保护的模板写工具注册表。
-func NewWorkflowTemplateWriteHostToolRegistry(authority WorkflowTemplateWriteAuthority) *WorkflowTemplateWriteHostToolRegistry {
-	registry, err := workflowtemplates.NewDefaultRegistry()
+func NewWorkflowTemplateWriteHostToolRegistry(registry *workflowtemplates.Registry, authority WorkflowTemplateWriteAuthority) *WorkflowTemplateWriteHostToolRegistry {
 	return &WorkflowTemplateWriteHostToolRegistry{
-		WorkflowTemplateHostToolRegistry: &WorkflowTemplateHostToolRegistry{registry: registry, loadErr: err},
+		WorkflowTemplateHostToolRegistry: NewWorkflowTemplateHostToolRegistry(registry),
 		authority:                        authority,
 	}
 }
@@ -277,16 +278,6 @@ func (r *WorkflowTemplateWriteHostToolRegistry) CallHostTool(ctx context.Context
 		return r.rollback(call.Arguments)
 	default:
 		return nil, fmt.Errorf("workflow template write tools: unknown tool %q", call.Name)
-	}
-}
-
-// isWorkflowTemplateToolName 判断工具名是否属于模板库 host-direct 工具集合。
-func isWorkflowTemplateToolName(name string) bool {
-	switch strings.TrimSpace(name) {
-	case ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG, ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback:
-		return true
-	default:
-		return false
 	}
 }
 
@@ -517,24 +508,6 @@ func workflowTemplateVersionString(value any) string {
 		}
 		return strings.TrimSpace(fmt.Sprint(value))
 	}
-}
-
-// workflowTemplateSummaryMatches 判断模板摘要是否满足列表筛选条件。
-// 该 helper 与 registry 过滤规则保持一致，供测试或未来本地过滤复用。
-func workflowTemplateSummaryMatches(tpl workflowtemplates.TemplateSummary, input workflowTemplateListInput) bool {
-	category := strings.TrimSpace(input.Category)
-	if category != "" && tpl.Category != category {
-		return false
-	}
-	businessFlow := strings.TrimSpace(input.BusinessFlow)
-	if businessFlow != "" && tpl.BusinessFlow != businessFlow {
-		return false
-	}
-	outputType := strings.TrimSpace(input.OutputType)
-	if outputType != "" && !workflowTemplateHasOutputType(tpl.OutputTypes, outputType) {
-		return false
-	}
-	return input.SupportsSchedule == nil || tpl.SupportsSchedule == *input.SupportsSchedule
 }
 
 // workflowTemplateHasOutputType 判断模板输出类型列表是否包含目标类型。

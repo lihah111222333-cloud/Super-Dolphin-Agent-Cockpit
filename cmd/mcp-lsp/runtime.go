@@ -375,63 +375,74 @@ func setupInstaller() *installer.Provider {
 	inst := installer.NewProvider()
 
 	inst.Register("javascript", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("javascriptreact", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("typescript", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("typescriptreact", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("python", installer.InstallerConfig{
-		BinaryName:  "pyright-langserver",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "pyright"},
+		BinaryName:          "pyright-langserver",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "pyright"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("css", installer.InstallerConfig{
-		BinaryName:  "vscode-css-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "vscode-langservers-extracted"},
+		BinaryName:          "vscode-css-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "vscode-langservers-extracted"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("rust", installer.InstallerConfig{
-		BinaryName:  "rust-analyzer",
-		InstallCmd:  "rustup",
-		InstallArgs: []string{"component", "add", "rust-analyzer"},
+		BinaryName:          "rust-analyzer",
+		InstallCmd:          "rustup",
+		InstallArgs:         []string{"component", "add", "rust-analyzer"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("java", installer.InstallerConfig{
-		BinaryName:  "jdtls",
-		InstallCmd:  "brew",
-		InstallArgs: []string{"install", "jdtls"},
+		BinaryName:          "jdtls",
+		InstallCmd:          "brew",
+		InstallArgs:         []string{"install", "jdtls"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("go", installer.InstallerConfig{
-		BinaryName:  "gopls",
-		InstallCmd:  "go",
-		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+		BinaryName:          "gopls",
+		InstallCmd:          "go",
+		InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("shellscript", installer.InstallerConfig{
-		BinaryName:  "bash-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "bash-language-server", "shellcheck"},
+		BinaryName:          "bash-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "bash-language-server", "shellcheck"},
+		AllowInstallCommand: true,
 		RequiredBinaries: []installer.RequiredBinary{
 			{Name: "shellcheck", CheckArgs: []string{"--version"}},
 		},
 	})
 	for _, alias := range []string{"gomod", "gosum", "gowork"} {
 		inst.Register(alias, installer.InstallerConfig{
-			BinaryName:  "gopls",
-			InstallCmd:  "go",
-			InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+			BinaryName:          "gopls",
+			InstallCmd:          "go",
+			InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
+			AllowInstallCommand: true,
 		})
 	}
 

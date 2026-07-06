@@ -1,11 +1,13 @@
 -- name: UpsertTaskDagNode :one
-INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, command_ref, config, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, reads, writes, command_ref, config, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (dag_key, node_key) WHERE run_id IS NULL DO UPDATE
 SET title = EXCLUDED.title,
     node_type = EXCLUDED.node_type,
     assigned_to = EXCLUDED.assigned_to,
     depends_on = EXCLUDED.depends_on,
+    reads = EXCLUDED.reads,
+    writes = EXCLUDED.writes,
     command_ref = EXCLUDED.command_ref,
     config = EXCLUDED.config,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
@@ -82,13 +84,13 @@ WHERE task_dag_nodes.dag_key = sqlc.arg('dag_key')
   AND sqlc.arg('run_id') > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
   AND (
-    sqlc.arg('wakeup_id') = 0
+    CAST(sqlc.arg('wakeup_id') AS INTEGER) = 0
     OR (
-      task_dag_nodes.active_wakeup_id = sqlc.arg('wakeup_id')
+      task_dag_nodes.active_wakeup_id = CAST(sqlc.arg('wakeup_id') AS INTEGER)
       AND EXISTS (
         SELECT 1
         FROM task_dag_wakeups w
-        WHERE w.id = sqlc.arg('wakeup_id')
+        WHERE w.id = CAST(sqlc.arg('wakeup_id') AS INTEGER)
           AND w.run_id = task_dag_nodes.run_id
           AND w.dag_key = task_dag_nodes.dag_key
           AND w.node_key = task_dag_nodes.node_key

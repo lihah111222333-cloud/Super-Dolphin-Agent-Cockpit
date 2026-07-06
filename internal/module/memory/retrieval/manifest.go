@@ -13,6 +13,8 @@ const DefaultManifestFileLimit = 200
 
 const defaultManifestByteLimit = 8 * 1024 * 1024
 
+const ManifestScanErrorCode = "memory_manifest_scan_error"
+
 // ManifestScanBudget limits memory manifest directory scans before prompt-time retrieval.
 type ManifestScanBudget struct {
 	MaxFiles      int
@@ -38,12 +40,38 @@ func (e *ManifestScanError) Error() string {
 	return e.Operation + " " + e.Path + ": " + e.Err.Error()
 }
 
+// SafeMessage 返回可跨 provider/RPC 边界展示的 code/stage 诊断，不包含路径或底层错误文本。
+func (e *ManifestScanError) SafeMessage() string {
+	if e == nil {
+		return ""
+	}
+	return ManifestScanErrorCode + " stage=" + manifestScanStage(e.Operation)
+}
+
 // Unwrap 返回底层文件系统或解析错误，供 errors.Is/As 继续匹配。
 func (e *ManifestScanError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
 	return e.Err
+}
+
+func manifestScanStage(operation string) string {
+	switch strings.TrimSpace(operation) {
+	case "walk memory manifest":
+		return "walk"
+	case "stat memory manifest entry":
+		return "stat"
+	case "scan memory header":
+		return "scan_memory_header"
+	default:
+		stage := strings.ToLower(strings.TrimSpace(operation))
+		stage = strings.NewReplacer(" ", "_", "-", "_", ":", "_").Replace(stage)
+		if stage == "" {
+			return "unknown"
+		}
+		return stage
+	}
 }
 
 // ManifestScanTruncatedError reports that a manifest scan stopped at a configured budget.

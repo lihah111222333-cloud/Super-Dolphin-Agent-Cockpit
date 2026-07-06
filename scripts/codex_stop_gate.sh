@@ -169,6 +169,20 @@ is_hook_change() {
   esac
 }
 
+is_capcontract_change() {
+  case "$1" in
+    docs/doc/codemap/capability-contract/*|\
+    internal/devtools/capcontract/*|\
+    scripts/capcontract.go|\
+    scripts/capcontract/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 changed_go_packages() {
   while IFS= read -r file; do
     [[ -z "${file}" ]] && continue
@@ -261,6 +275,7 @@ fi
 HAS_GO_GUARD=false
 HAS_FRONTEND_GUARD=false
 HAS_HOOK_TEST=false
+HAS_CAPCONTRACT_GUARD=false
 
 while IFS= read -r file; do
   [[ -z "${file}" ]] && continue
@@ -272,6 +287,9 @@ while IFS= read -r file; do
   fi
   if is_hook_change "${file}"; then
     HAS_HOOK_TEST=true
+  fi
+  if is_capcontract_change "${file}"; then
+    HAS_CAPCONTRACT_GUARD=true
   fi
 done <<< "${CHANGED_FILES}"
 
@@ -300,6 +318,10 @@ if ${PRINT_PLAN}; then
   fi
   if ${HAS_HOOK_TEST}; then
     printf 'hook_test scripts/tests/test_codex_stop_gate_plan.sh\n'
+    printed=true
+  fi
+  if ${HAS_CAPCONTRACT_GUARD}; then
+    printf 'capcontract_check make capcontract-check\n'
     printed=true
   fi
   if ! ${printed}; then
@@ -352,6 +374,12 @@ fi
 if ${HAS_HOOK_TEST}; then
   if ! run_cmd "Codex Stop gate plan tests" bash scripts/tests/test_codex_stop_gate_plan.sh; then
     FAILURES+=("Codex Stop gate plan tests")
+  fi
+fi
+
+if ${HAS_CAPCONTRACT_GUARD}; then
+  if ! run_cmd "capability contract check" make capcontract-check; then
+    FAILURES+=("capability contract check")
   fi
 fi
 

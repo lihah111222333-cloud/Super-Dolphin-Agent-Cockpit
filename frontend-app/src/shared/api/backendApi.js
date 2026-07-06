@@ -15,6 +15,7 @@ import {
   previewSharedFile as previewSharedFileViaBridge,
   beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
   copyTextToClipboard as copyTextToClipboardViaBridge,
+  selectDatasourceImportFile as selectDatasourceImportFileViaBridge,
   selectFiles as selectFilesViaBridge,
   selectProjectDir as selectProjectDirViaBridge,
   selectProjectDirs as selectProjectDirsViaBridge,
@@ -1203,6 +1204,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['previewSharedFile', previewSharedFileViaBridge],
   ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
   ['copyTextToClipboard', copyTextToClipboardViaBridge],
+  ['selectDatasourceImportFile', selectDatasourceImportFileViaBridge],
   ['selectFiles', selectFilesViaBridge],
   ['selectProjectDir', selectProjectDirViaBridge],
   ['selectProjectDirs', selectProjectDirsViaBridge],
@@ -1309,6 +1311,13 @@ function datasourceCreatePayload(method, params) {
   return { sourcePath };
 }
 
+function datasourceImportLocalFilePayload(params) {
+  const method = RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE;
+  const payload = datasourceCreatePayload(method, params);
+  const pickerToken = normalizeString(params?.pickerToken || params?.picker_token);
+  return cleanObject({ ...payload, pickerToken });
+}
+
 function datasourceListPayload(params = {}) {
   const method = RPC_METHODS.DATASOURCE_V2_LIST;
   const payload = assertPlainObject(method, params);
@@ -1372,7 +1381,7 @@ function createDatasourceApi(callBackend) {
     ),
     importDatasourceLocalFile: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE,
-      datasourceCreatePayload(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, params),
+      datasourceImportLocalFilePayload(params),
     ),
     listDatasourceDocuments: (params = {}) => callBackend(
       RPC_METHODS.DATASOURCE_V2_LIST,
@@ -2149,6 +2158,7 @@ function createNativeApi(native) {
     previewSharedFile: (params) => native.previewSharedFile(requireKey('previewSharedFile', assertPlainObject('previewSharedFile', params), 'path')),
     beginTextClipboardWrite: native.beginTextClipboardWrite,
     copyTextToClipboard: native.copyTextToClipboard,
+    selectDatasourceImportFile: native.selectDatasourceImportFile,
     selectFiles: native.selectFiles,
     selectProjectDir: native.selectProjectDir,
     selectProjectDirs: native.selectProjectDirs,
@@ -2325,6 +2335,7 @@ export const previewSharedFile = backendApi.previewSharedFile;
 export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
 export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;
+export const selectDatasourceImportFile = backendApi.selectDatasourceImportFile;
 export const selectProjectDir = backendApi.selectProjectDir;
 export const selectProjectDirs = backendApi.selectProjectDirs;
 export { registerBridgeLogStore, sendFrontendLogBatch, emitFrontendTraceEvent };

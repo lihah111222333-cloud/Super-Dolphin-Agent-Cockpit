@@ -47,12 +47,13 @@ exit 1
 
 	p := NewProvider()
 	p.Register("go", InstallerConfig{
-		BinaryName:  "gopls",
-		InstallCmd:  "go",
-		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+		BinaryName:          "gopls",
+		InstallCmd:          "go",
+		InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
+		AllowInstallCommand: true,
 	})
 
-	result, err := p.EnsureInstalledDetailed(context.Background(), "go")
+	result, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "go")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed() error = %v", err)
 	}
@@ -96,13 +97,14 @@ func TestEnsureInstalledUsesInstallTimeout(t *testing.T) {
 
 	p := NewProvider()
 	p.Register("slow", InstallerConfig{
-		BinaryName:     "slow-lsp",
-		InstallCmd:     installerPath,
-		InstallTimeout: 50 * time.Millisecond,
+		BinaryName:          "slow-lsp",
+		InstallCmd:          installerPath,
+		InstallTimeout:      50 * time.Millisecond,
+		AllowInstallCommand: true,
 	})
 
 	start := time.Now()
-	_, err := p.EnsureInstalledDetailed(context.Background(), "slow")
+	_, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "slow")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("EnsureInstalledDetailed() error = nil, want install timeout error")

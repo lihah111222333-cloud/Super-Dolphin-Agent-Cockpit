@@ -106,13 +106,13 @@ WHERE task_dag_nodes.dag_key = ?3 AND task_dag_nodes.node_key = ?4
   AND ?5 > 0
   AND status IN ('ready', 'running')
   AND (
-    ?6 = 0
+    CAST(?6 AS INTEGER) = 0
     OR (
-      task_dag_nodes.active_wakeup_id = ?6
+      task_dag_nodes.active_wakeup_id = CAST(?6 AS INTEGER)
       AND EXISTS (
         SELECT 1
         FROM task_dag_wakeups w
-        WHERE w.id = ?6
+        WHERE w.id = CAST(?6 AS INTEGER)
           AND w.run_id = task_dag_nodes.run_id
           AND w.dag_key = task_dag_nodes.dag_key
           AND w.node_key = task_dag_nodes.node_key
@@ -132,7 +132,7 @@ type CompleteTaskDagNodeParams struct {
 	DagKey        string          `db:"dag_key" json:"dag_key"`
 	NodeKey       string          `db:"node_key" json:"node_key"`
 	RunID         *int64          `db:"run_id" json:"run_id"`
-	WakeupID      interface{}     `db:"wakeup_id" json:"wakeup_id"`
+	WakeupID      int64           `db:"wakeup_id" json:"wakeup_id"`
 	WakeupAttempt int64           `db:"wakeup_attempt" json:"wakeup_attempt"`
 }
 

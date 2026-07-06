@@ -321,6 +321,8 @@ type CreateDAGNodeRequest struct {
 	NodeType   string
 	AssignedTo string
 	DependsOn  []string
+	Reads      []string
+	Writes     []string
 	CommandRef string
 	Config     json.RawMessage
 }
@@ -566,6 +568,8 @@ type DAGNode struct {
 	NodeType       string          `json:"node_type,omitempty"`
 	AssignedTo     string          `json:"assigned_to,omitempty"`
 	DependsOn      []string        `json:"depends_on,omitempty"`
+	Reads          []string        `json:"reads,omitempty"`
+	Writes         []string        `json:"writes,omitempty"`
 	Status         string          `json:"status"`
 	CommandRef     string          `json:"command_ref,omitempty"`
 	Config         json.RawMessage `json:"config,omitempty"`

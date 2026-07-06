@@ -88,7 +88,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 		s.logger.Warn("cron: create job failed", slog.String("error", err.Error()))
 		return Job{}, err
 	}
-	return toJob(row), nil
+	return toJob(row)
 }
 
 // GetJob 按 ID 读取定时任务详情，并把存储层 not found 映射为领域错误。
@@ -100,7 +100,7 @@ func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 		}
 		return Job{}, err
 	}
-	return toJob(row), nil
+	return toJob(row)
 }
 
 // ListJobs 列出全部定时任务并转换为对外 DTO。
@@ -111,7 +111,11 @@ func (s *service) ListJobs(ctx context.Context) ([]Job, error) {
 	}
 	out := make([]Job, len(rows))
 	for i, r := range rows {
-		out[i] = toJob(r)
+		job, err := toJob(r)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = job
 	}
 	return out, nil
 }
@@ -343,27 +347,44 @@ func marshalSkills(skills []string) ([]byte, error) {
 	return json.Marshal(cleaned)
 }
 
-// 下列 mapper 将 sqlc 行转换为 RPC/服务层 DTO，历史坏 JSON 只记录并暴露基础字段。
+const cronJobPayloadInvalidCode = "cron_job_payload_invalid"
+
+type cronJobPayloadInvalidError struct {
+	JobID string
+	Field string
+	Err   error
+}
+
+// Error 返回包含稳定错误码、job id 和损坏字段的可读错误。
+func (e *cronJobPayloadInvalidError) Error() string {
+	return fmt.Sprintf("%s: job %q field %s contains invalid JSON: %v", cronJobPayloadInvalidCode, e.JobID, e.Field, e.Err)
+}
+
+// Unwrap 暴露底层 JSON 解码错误，便于调用方保留原始原因。
+func (e *cronJobPayloadInvalidError) Unwrap() error {
+	return e.Err
+}
+
+// ErrorCode 返回 cron job payload 损坏的稳定错误码。
+func (e *cronJobPayloadInvalidError) ErrorCode() string {
+	return cronJobPayloadInvalidCode
+}
+
+// 下列 mapper 将 sqlc 行转换为 RPC/服务层 DTO；历史坏 JSON 必须阻断读取，避免调度继续使用损坏配置。
 
 // toJob 将存储层 job 行转换成 cron 对外 DTO。
-// config/skills JSON 损坏时记录日志并继续返回基础字段，便于 UI 暴露问题行。
-func toJob(row jobRecord) Job {
+// config/skills JSON 损坏时返回 typed error，调用方不能把坏行当正常任务继续使用。
+func toJob(row jobRecord) (Job, error) {
 	var skills []string
 	if len(row.Skills) > 0 {
 		if err := json.Unmarshal(row.Skills, &skills); err != nil {
-			slog.Warn("cron: corrupt skills json in job row",
-				slog.String("job_id", row.ID),
-				slog.String("error", err.Error()),
-			)
+			return Job{}, &cronJobPayloadInvalidError{JobID: row.ID, Field: "skills", Err: err}
 		}
 	}
 	var config any
 	if len(row.Config) > 0 {
 		if err := json.Unmarshal(row.Config, &config); err != nil {
-			slog.Warn("cron: corrupt config json in job row",
-				slog.String("job_id", row.ID),
-				slog.String("error", err.Error()),
-			)
+			return Job{}, &cronJobPayloadInvalidError{JobID: row.ID, Field: "config", Err: err}
 		}
 	}
 	return Job{
@@ -394,7 +415,7 @@ func toJob(row jobRecord) Job {
 		LastErrorAt:     formatTime(row.LastErrorAt),
 		CreatedAt:       formatTime(row.CreatedAt),
 		UpdatedAt:       formatTime(row.UpdatedAt),
-	}
+	}, nil
 }
 
 // toRun 将存储层 run 行转换成 cron 对外 DTO，时间统一输出 RFC3339 UTC 字符串。

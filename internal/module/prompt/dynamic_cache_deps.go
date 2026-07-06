@@ -24,7 +24,7 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 		}
 	case DynamicSectionAvailableExperts:
 		return availableExpertsSectionDependency(section, input)
-	case DynamicSectionRecallCatalog, DynamicSectionProjectDefaultRules:
+	case DynamicSectionRecallCatalog, DynamicSectionProjectDefaultRules, DynamicSectionPersonalizationProfile:
 		return cwdScopedSectionDependency(section, input)
 	case DynamicSectionMemory:
 		return memorySectionDependency(section, input)

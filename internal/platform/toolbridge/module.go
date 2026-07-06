@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/workflowtemplates"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -72,10 +73,11 @@ type handlerIn struct {
 type hostToolRegistryIn struct {
 	fx.In
 
-	Reader  contract.AgentMemoryReader `optional:"true"`
-	Writer  contract.AgentMemoryWriter `optional:"true"`
-	History contract.SessionStatusPort `optional:"true"`
-	Tracer  *observability.Service     `optional:"true"`
+	Reader    contract.AgentMemoryReader  `optional:"true"`
+	Writer    contract.AgentMemoryWriter  `optional:"true"`
+	History   contract.SessionStatusPort  `optional:"true"`
+	Tracer    *observability.Service      `optional:"true"`
+	Templates *workflowtemplates.Registry `optional:"true"`
 }
 
 // provideHostToolRegistry 组装 Codex 可见的 host-direct 工具 registry。
@@ -86,7 +88,7 @@ func provideHostToolRegistry(in hostToolRegistryIn) HostToolRegistry {
 		NewMemoryWriteHostToolRegistry(in.Writer, memoryWriteHostToolOptions(in.Writer)),
 		NewHistoryReadHostToolRegistry(in.History),
 		NewObservabilityTraceHostToolRegistry(in.Tracer),
-		NewWorkflowTemplateHostToolRegistry(),
+		NewWorkflowTemplateHostToolRegistry(in.Templates),
 	)
 }
 

@@ -84,6 +84,27 @@ func TestOps_MixedRoundTrip(t *testing.T) {
 	assertRoundtripPayloads(t, roundtrip, title)
 }
 
+func TestOpsReadsWritesRoundTrip(t *testing.T) {
+	raw := []byte(`[
+		{"op":"add_node","node":{"node_key":"materialize","title":"Materialize","node_type":"agent","reads":["shared://inputs/source.md"],"writes":["shared://outputs/report.md"]}},
+		{"op":"update_node","node_key":"materialize","patch":{"reads":["shared://inputs/new-source.md"],"writes":[]}}
+	]`)
+
+	roundtrip := unmarshalOpsForTest(t, raw)
+	add, ok := roundtrip[0].(OpAddNode)
+	if !ok {
+		t.Fatalf("ops[0] = %T, want OpAddNode", roundtrip[0])
+	}
+	assertNodeexecStringSliceField(t, add.Node, "Reads", []string{"shared://inputs/source.md"})
+	assertNodeexecStringSliceField(t, add.Node, "Writes", []string{"shared://outputs/report.md"})
+	update, ok := roundtrip[1].(OpUpdateNode)
+	if !ok {
+		t.Fatalf("ops[1] = %T, want OpUpdateNode", roundtrip[1])
+	}
+	assertNodeexecStringSlicePointerField(t, update.Patch, "Reads", []string{"shared://inputs/new-source.md"})
+	assertNodeexecStringSlicePointerField(t, update.Patch, "Writes", []string{})
+}
+
 func marshalOpsForTest(t *testing.T, original Ops) []byte {
 	t.Helper()
 	marshaled, err := json.Marshal(original)
@@ -294,5 +315,38 @@ func TestNodePatch_DependsOn_ThreeStates(t *testing.T) {
 	data, _ = json.Marshal(set)
 	if string(data) != `{"depends_on":["a"]}` {
 		t.Errorf("set DependsOn marshal got %s", data)
+	}
+}
+
+func assertNodeexecStringSliceField(t *testing.T, target any, field string, want []string) {
+	t.Helper()
+	fieldValue := reflect.ValueOf(target).FieldByName(field)
+	if !fieldValue.IsValid() {
+		t.Fatalf("%T missing %s field", target, field)
+	}
+	if fieldValue.Kind() != reflect.Slice || fieldValue.Type().Elem().Kind() != reflect.String {
+		t.Fatalf("%T.%s type = %v, want []string", target, field, fieldValue.Type())
+	}
+	got := fieldValue.Interface().([]string)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%T.%s = %#v, want %#v", target, field, got, want)
+	}
+}
+
+func assertNodeexecStringSlicePointerField(t *testing.T, target any, field string, want []string) {
+	t.Helper()
+	fieldValue := reflect.ValueOf(target).FieldByName(field)
+	if !fieldValue.IsValid() {
+		t.Fatalf("%T missing %s field", target, field)
+	}
+	if fieldValue.Kind() != reflect.Pointer || fieldValue.Type().Elem().Kind() != reflect.Slice || fieldValue.Type().Elem().Elem().Kind() != reflect.String {
+		t.Fatalf("%T.%s type = %v, want *[]string", target, field, fieldValue.Type())
+	}
+	if fieldValue.IsNil() {
+		t.Fatalf("%T.%s = nil, want %#v", target, field, want)
+	}
+	got := fieldValue.Elem().Interface().([]string)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%T.%s = %#v, want %#v", target, field, got, want)
 	}
 }

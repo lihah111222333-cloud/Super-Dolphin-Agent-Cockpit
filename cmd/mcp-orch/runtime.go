@@ -73,7 +73,7 @@ func newLogger(cfg *platformconfig.Config) *slog.Logger {
 }
 
 // newLoggerWithOpenFile 初始化 mcp-orch logger，并把文件打开动作注入出来供测试覆盖失败分支。
-func newLoggerWithOpenFile(cfg *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) *slog.Logger {
+func newLoggerWithOpenFile(_ *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) *slog.Logger {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
@@ -219,7 +219,10 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 // ListTools 只把 registry 定义转换为 MCP tool 列表，不解释 scope。
 // scope 已经由上游放进 ctx，别在这里让 stdio/bootstrap 分叉。
 func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
-	defs := p.registry.List()
+	defs, err := p.registry.List()
+	if err != nil {
+		return nil, err
+	}
 	toolsList := make([]mcpdto.MCPTool, 0, len(defs))
 	for _, def := range defs {
 		schema, err := marshalInputSchema(def.InputSchema)

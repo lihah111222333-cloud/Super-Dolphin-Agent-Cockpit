@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,7 +173,7 @@ func TestPrefetchManagerResetClearsSurfacedAndDiscardsCurrentHandle(t *testing.T
 	}
 }
 
-// TestPrefetchReportsManifestTruncated verifies prefetch exposes manifest truncation via handle.Err.
+// TestPrefetchReportsManifestTruncated verifies prefetch exposes manifest truncation without leaking raw details.
 func TestPrefetchReportsManifestTruncated(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	writeTestTopicFile(t, filepath.Join(root, string(MemoryTypeUser), "0001-valid.md"), testMemoryEntry("One", "first", MemoryTypeUser, "one"))
@@ -193,8 +192,16 @@ func TestPrefetchReportsManifestTruncated(t *testing.T) {
 	if findCalled.Load() {
 		t.Fatalf("findRelevant called despite manifest truncation")
 	}
-	if handle.Err() == nil || !strings.Contains(handle.Err().Error(), "truncated") {
-		t.Fatalf("PrefetchHandle.Err() = %v, want manifest truncation error", handle.Err())
+	err := handle.Err()
+	if err == nil {
+		t.Fatalf("PrefetchHandle.Err() = nil, want manifest truncation error")
+	}
+	if err.Error() != "memory_prefetch_failed stage=build_manifest" {
+		t.Fatalf("PrefetchHandle.Err() = %v, want safe prefetch manifest error", err)
+	}
+	var truncated *ManifestScanTruncatedError
+	if !errors.As(err, &truncated) {
+		t.Fatalf("PrefetchHandle.Err() = %v, want manifest truncation root cause", err)
 	}
 	if _, ok := manager.ConsumeIfReady(handle); ok {
 		t.Fatalf("ConsumeIfReady() ok = true, want false for truncated manifest")

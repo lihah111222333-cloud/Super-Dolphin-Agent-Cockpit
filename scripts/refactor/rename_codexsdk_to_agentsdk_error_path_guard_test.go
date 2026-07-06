@@ -1,13 +1,14 @@
 package main
 
-/* ROLLBACK_SKIP_START
-
 import "testing"
 
 func TestRenameScriptErrorPathGuard_FatalfAndRenameFailures(t *testing.T) {
 	t.Parallel()
 
-	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_error_harness_test.go", `package main
+	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_error_harness_test.go", renameErrorPathFatalHarnessSource)
+}
+
+const renameErrorPathFatalHarnessSource = `package main
 
 import (
 	"bytes"
@@ -153,13 +154,15 @@ func TestProcessRenameFileWrapsCollectEditsParseErrors(t *testing.T) {
 		t.Fatalf("parse failure should not record reports, reports=%#v total=%d", reports, total)
 	}
 }
-`)
-}
+`
 
-func TestRenameScriptErrorPathGuard_BuildPlanAndRollbackFailures(t *testing.T) {
+func TestRenameScriptErrorPathGuard_ProcessFileFailures(t *testing.T) {
 	t.Parallel()
 
-	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_error_plan_harness_test.go", `package main
+	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_error_process_harness_test.go", renameErrorPathProcessHarnessSource)
+}
+
+const renameErrorPathProcessHarnessSource = `package main
 
 import (
 	"os"
@@ -168,83 +171,55 @@ import (
 	"testing"
 )
 
-func TestBuildRenamePlanNoopAndReadErrorContracts(t *testing.T) {
+func TestProcessRenameFileNoopAndReadErrorContracts(t *testing.T) {
 	root := t.TempDir()
 	noop := filepath.Join(root, "noop.go")
 	if err := os.WriteFile(noop, []byte("package demo\n\nimport _ \"fmt\"\n"), 0o640); err != nil {
 		t.Fatalf("write noop.go: %v", err)
 	}
 
-	plan, ok, err := buildRenamePlan(root, noop, collectEdits)
-	if err != nil {
-		t.Fatalf("buildRenamePlan(noop) err = %v, want nil", err)
+	reports := []fileReport{}
+	total := 0
+	if err := processRenameFile(root, noop, false, collectEdits, applyEdits, &reports, &total); err != nil {
+		t.Fatalf("processRenameFile(noop) err = %v, want nil", err)
 	}
-	if ok {
-		t.Fatalf("buildRenamePlan(noop) ok = true, want false with empty plan %#v", plan)
+	if len(reports) != 0 || total != 0 {
+		t.Fatalf("noop should not record reports, reports=%#v total=%d", reports, total)
 	}
 
-	_, ok, err = buildRenamePlan(root, filepath.Join(root, "missing.go"), collectEdits)
+	err := processRenameFile(root, filepath.Join(root, "missing.go"), false, collectEdits, applyEdits, &reports, &total)
 	if err == nil {
 		t.Fatal("missing file should return wrapped read error")
-	}
-	if ok {
-		t.Fatal("missing file should not report an executable plan")
 	}
 	if !strings.Contains(err.Error(), "read missing.go:") {
 		t.Fatalf("missing file err = %q, want wrapped read error", err.Error())
 	}
 }
 
-func TestApplyRenamePlansRollbackFailureIncludesContext(t *testing.T) {
+func TestProcessRenameFileApplyWriteFailureIncludesContext(t *testing.T) {
 	root := t.TempDir()
-	first := filepath.Join(root, "first.go")
-	if err := os.WriteFile(first, []byte("package demo\n\nimport _ \""+oldImportRoot+"\"\n"), 0o600); err != nil {
-		t.Fatalf("write first.go: %v", err)
+	blocked := filepath.Join(root, "blocked.go")
+	if err := os.WriteFile(blocked, []byte("package demo\n"), 0o400); err != nil {
+		t.Fatalf("write blocked.go: %v", err)
 	}
-	second := filepath.Join(root, "second.go")
-	if err := os.Mkdir(second, 0o755); err != nil {
-		t.Fatalf("mkdir second.go dir: %v", err)
-	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o600) })
 
-	firstPlan, ok, err := buildRenamePlan(root, first, collectEdits)
-	if err != nil || !ok {
-		t.Fatalf("buildRenamePlan(first) = (%#v, %v, %v), want executable plan", firstPlan, ok, err)
-	}
-	secondPlan := renamePlan{
-		Path:     second,
-		Rel:      "second.go",
-		Src:      []byte("package demo\n"),
-		Edits:    []edit{{Start: 0, End: 0, NewLit: "package demo\n", Line: 1}},
-		FileMode: 0o644,
-	}
-
-	callCount := 0
-	err = applyRenamePlans([]renamePlan{firstPlan, secondPlan}, func(src []byte, edits []edit) []byte {
-		callCount++
-		if callCount == 2 {
-			if removeErr := os.Remove(first); removeErr != nil {
-				t.Fatalf("remove first.go before rollback sabotage: %v", removeErr)
-			}
-			if mkdirErr := os.Mkdir(first, 0o755); mkdirErr != nil {
-				t.Fatalf("mkdir first.go before rollback sabotage: %v", mkdirErr)
-			}
-		}
-		return applyEdits(src, edits)
-	})
+	reports := []fileReport{}
+	total := 0
+	err := processRenameFile(root, blocked, true,
+		func(path string, src []byte) ([]edit, []replacement, error) {
+			return []edit{{Start: 0, End: 0, NewLit: "package demo\n", Line: 1}},
+				[]replacement{{Old: oldImportRoot, New: newImportRoot, Line: 1}}, nil
+		},
+		applyEdits,
+		&reports,
+		&total,
+	)
 	if err == nil {
-		t.Fatal("applyRenamePlans() should surface write and rollback failures")
+		t.Fatal("processRenameFile() should surface write failure")
 	}
-	if !strings.Contains(err.Error(), "write second.go:") {
-		t.Fatalf("applyRenamePlans() err = %q, want second.go write failure", err.Error())
-	}
-	if !strings.Contains(err.Error(), "rollback failed:") {
-		t.Fatalf("applyRenamePlans() err = %q, want rollback failure context", err.Error())
-	}
-	if !strings.Contains(err.Error(), "first.go:") {
-		t.Fatalf("applyRenamePlans() err = %q, want first.go rollback detail", err.Error())
+	if !strings.Contains(err.Error(), "write blocked.go:") {
+		t.Fatalf("processRenameFile() err = %q, want blocked.go write failure", err.Error())
 	}
 }
-`)
-}
-
-ROLLBACK_SKIP_END */
+`

@@ -480,7 +480,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		return tooldto.ToolCallBegin{
 			ToolCallHeader:   buildToolCallHeader(payload),
 			RequestID:        int64Value(payload, "requestId"),
-			ArgumentsPreview: jsonPreview(payload, "arguments", "args"),
+			ArgumentsPreview: providershared.SafeToolArgumentsPreviewString(jsonPreview(payload, "arguments", "args")),
 		}, true
 	case "item/completed", "tool.call.end":
 		if !looksLikeToolCall(payload) {

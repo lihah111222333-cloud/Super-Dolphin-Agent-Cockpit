@@ -20,18 +20,73 @@ import (
 
 // InstallerConfig 描述单个语言服务的二进制、安装命令和伴随工具校验配置。
 type InstallerConfig struct {
-	BinaryName       string
-	InstallCmd       string
-	InstallArgs      []string
-	InstallTimeout   time.Duration
-	Language         string
-	RequiredBinaries []RequiredBinary
+	BinaryName          string
+	InstallCmd          string
+	InstallArgs         []string
+	InstallTimeout      time.Duration
+	Language            string
+	RequiredBinaries    []RequiredBinary
+	AllowInstallCommand bool
 }
 
 // RequiredBinary 描述安装后必须存在并可选执行健康检查的伴随命令。
 type RequiredBinary struct {
 	Name      string
 	CheckArgs []string
+}
+
+type installCommandCapabilityContextKey struct{}
+type installCheckOnlyContextKey struct{}
+
+// MissingBinaryError 表示语义工具调用需要的 LSP 二进制不可用。
+type MissingBinaryError struct {
+	LanguageID string
+	BinaryName string
+	Reason     error
+}
+
+// Error 返回缺失 LSP 二进制的可读错误信息。
+func (e *MissingBinaryError) Error() string {
+	if e == nil {
+		return "missing LSP binary"
+	}
+	message := fmt.Sprintf("missing LSP binary %s for language %s", e.BinaryName, e.LanguageID)
+	if e.Reason != nil {
+		message += ": " + e.Reason.Error()
+	}
+	return message
+}
+
+// Unwrap 返回底层探测失败原因，供 errors.Is 和 errors.As 使用。
+func (e *MissingBinaryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Reason
+}
+
+// MissingLSPBinary 返回缺失的语言 ID 和二进制名，供工具层做 typed error 断言。
+func (e *MissingBinaryError) MissingLSPBinary() (languageID string, binaryName string) {
+	if e == nil {
+		return "", ""
+	}
+	return e.LanguageID, e.BinaryName
+}
+
+// WithInstallCommandCapability 标记调用方明确允许执行安装命令。
+func WithInstallCommandCapability(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, installCommandCapabilityContextKey{}, true)
+}
+
+// WithToolCallInstallCheckOnly 标记语义工具调用只能检查二进制，不能执行安装命令。
+func WithToolCallInstallCheckOnly(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, installCheckOnlyContextKey{}, true)
 }
 
 // InstallStatus 标记语言服务二进制路径的来源。
@@ -74,6 +129,9 @@ func NewProvider() *Provider {
 func (p *Provider) Register(lang string, cfg InstallerConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if strings.TrimSpace(cfg.Language) == "" {
+		cfg.Language = lang
+	}
 	p.configs[lang] = cfg
 }
 
@@ -101,12 +159,22 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
 	// 先信任 PATH 中已有二进制，但必须同时验证伴随工具可用。
+	var pathErr error
+	var companionErr error
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
 		if err := validateRequiredBinaries(ctx, cfg); err == nil {
 			result.Path = path
 			result.Status = InstallStatusPathFound
 			return result, nil
+		} else {
+			companionErr = err
 		}
+	} else {
+		pathErr = err
+	}
+
+	if !canRunInstallCommand(ctx, cfg) {
+		return InstallResult{}, missingBinaryError(lang, cfg, firstNonNilError(companionErr, pathErr))
 	}
 
 	p.logger.Info("LSP binary or required companion not ready, attempting auto-install...",
@@ -122,6 +190,50 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	defer cancel()
 
 	return p.resolveInstalledBinary(ctx, installCtx, cfg, result)
+}
+
+func missingBinaryError(lang string, cfg InstallerConfig, reason error) *MissingBinaryError {
+	languageID := strings.TrimSpace(cfg.Language)
+	if languageID == "" {
+		languageID = lang
+	}
+	return &MissingBinaryError{
+		LanguageID: languageID,
+		BinaryName: cfg.BinaryName,
+		Reason:     reason,
+	}
+}
+
+func canRunInstallCommand(ctx context.Context, cfg InstallerConfig) bool {
+	return cfg.AllowInstallCommand &&
+		strings.TrimSpace(cfg.InstallCmd) != "" &&
+		installCommandCapabilityFromContext(ctx) &&
+		!installCheckOnlyFromContext(ctx)
+}
+
+func installCommandCapabilityFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(installCommandCapabilityContextKey{}).(bool)
+	return value
+}
+
+func installCheckOnlyFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(installCheckOnlyContextKey{}).(bool)
+	return value
+}
+
+func firstNonNilError(values ...error) error {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 // runInstallCommand 执行声明式安装命令，并为这一层强制设置 deadline。

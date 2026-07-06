@@ -201,7 +201,7 @@ func flatApplyOpFromInput(action string, in ApplyOpsInput) (map[string]any, erro
 }
 
 // flatAddNodeFromInput 构造 add_node 的最小节点对象。
-// config 和 depends_on 只在显式传入时写入，避免无意覆盖后端默认行为。
+// config、depends_on、reads 和 writes 只在显式传入时写入，避免无意覆盖后端默认行为。
 func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 	nodeKey, err := requireTrimmed(in.NodeKey, "node_key")
 	if err != nil {
@@ -225,6 +225,12 @@ func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 	}
 	if in.DependsOn != nil {
 		node["depends_on"] = trimStringSlicePreserveEmpty(in.DependsOn)
+	}
+	if in.Reads != nil {
+		node["reads"] = trimStringSlicePreserveEmpty(in.Reads)
+	}
+	if in.Writes != nil {
+		node["writes"] = trimStringSlicePreserveEmpty(in.Writes)
 	}
 	if hasExplicitRawJSON(in.Config) {
 		node["config"] = append(json.RawMessage(nil), in.Config...)
@@ -282,6 +288,12 @@ func flatNodePatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	if in.DependsOn != nil {
 		patch["depends_on"] = trimStringSlicePreserveEmpty(in.DependsOn)
 	}
+	if in.Reads != nil {
+		patch["reads"] = trimStringSlicePreserveEmpty(in.Reads)
+	}
+	if in.Writes != nil {
+		patch["writes"] = trimStringSlicePreserveEmpty(in.Writes)
+	}
 	if hasExplicitRawJSON(in.Config) {
 		patch["config"] = append(json.RawMessage(nil), in.Config...)
 	}
@@ -315,11 +327,13 @@ func hasFlatDAGPatchFields(in ApplyOpsInput) bool {
 }
 
 // hasFlatNodePatchFields 判断 update_node 是否使用了任一扁平字段。
-// depends_on 的空切片也算显式输入，因为它表达“清空依赖”而不是未传字段。
+// depends_on/reads/writes 的空切片也算显式输入，因为它表达“清空”而不是未传字段。
 func hasFlatNodePatchFields(in ApplyOpsInput) bool {
 	return strings.TrimSpace(in.Title) != "" ||
 		strings.TrimSpace(in.AssignedTo) != "" ||
 		in.DependsOn != nil ||
+		in.Reads != nil ||
+		in.Writes != nil ||
 		hasExplicitRawJSON(in.Config)
 }
 

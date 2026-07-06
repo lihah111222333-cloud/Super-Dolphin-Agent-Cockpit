@@ -4432,7 +4432,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.getThreadState).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: 'essay_agent_15' }));
   });
 
-  it('connects attachments and conversation operation buttons', async () => {
+  it('connects ComposerMeta attachments as plain arrays and conversation operation buttons', async () => {
     backend.selectFiles.mockResolvedValue(['/tmp/a.txt']);
     backend.resolveThreadIdentity.mockResolvedValue({ id: 'thread-1', providerThreadId: 'provider-thread-1', agent_id: 'agent-1' });
 
@@ -4449,7 +4449,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('归档会话')).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(backend.selectFiles).toHaveBeenCalled();
+      expect(backend.selectFiles).toHaveBeenCalledWith();
       expect(JSON.parse(backend.copyTextToClipboard.mock.calls[0][0])).toEqual(expect.objectContaining({
         agentId: 'agent-1',
         providerThreadId: 'provider-thread-1',

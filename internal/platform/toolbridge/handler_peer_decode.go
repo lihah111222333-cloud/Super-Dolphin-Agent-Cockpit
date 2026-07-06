@@ -351,26 +351,7 @@ func canonicalCodexToolName(family, name string) string {
 
 // canonicalOrchestrationToolName 将 orchestration_* 旧名映射为短工具名。
 func canonicalOrchestrationToolName(name string) string {
-	switch strings.TrimSpace(name) {
-	case "orchestration_launch_agent":
-		return "launch_agent"
-	case "orchestration_send_message":
-		return "send_message"
-	case "orchestration_stop_agent":
-		return "stop_agent"
-	case "orchestration_recover_agent":
-		return "recover_agent"
-	case "orchestration_interrupt_agent":
-		return "interrupt_agent"
-	case "orchestration_list_agents":
-		return "list_agents"
-	case "orchestration_get_agent_report":
-		return "get_agent_report"
-	case "orchestration_get_agent_reports":
-		return "get_agent_reports"
-	default:
-		return strings.TrimSpace(name)
-	}
+	return canonicalOrchName(name)
 }
 
 // legacyCodexToolAliases 返回短工具名对应的旧版和 MCP 命名空间别名。

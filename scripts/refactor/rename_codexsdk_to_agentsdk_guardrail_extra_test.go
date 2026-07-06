@@ -1,7 +1,5 @@
 package main
 
-/* ROLLBACK_SKIP_START
-
 import (
 	"encoding/json"
 	"os"
@@ -30,23 +28,7 @@ func TestRenameScriptMainSkipsNonGoFilesAndSortsReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read report: %v", err)
 	}
-	var rep map[string]any
-	if err := json.Unmarshal(data, &rep); err != nil {
-		t.Fatalf("unmarshal report: %v", err)
-	}
-	files, ok := rep["files"].([]any)
-	if !ok || len(files) != 2 {
-		t.Fatalf("report files = %#v, want 2 entries", rep["files"])
-	}
-	var names []string
-	for _, item := range files {
-		row, ok := item.(map[string]any)
-		if !ok {
-			t.Fatalf("unexpected file row: %#v", item)
-		}
-		name, _ := row["file"].(string)
-		names = append(names, name)
-	}
+	names := reportFileNames(t, data, 2)
 	if got := strings.Join(names, ","); got != "a.go,b.go" {
 		t.Fatalf("report order = %s, want a.go,b.go", got)
 	}
@@ -57,6 +39,35 @@ func TestRenameScriptMainSkipsNonGoFilesAndSortsReport(t *testing.T) {
 	if !strings.Contains(string(notes), "/pkg/codexsdk") {
 		t.Fatalf("non-go file should remain untouched, got %q", string(notes))
 	}
+}
+
+func reportFileNames(t *testing.T, data []byte, wantCount int) []string {
+	t.Helper()
+
+	var rep map[string]any
+	if err := json.Unmarshal(data, &rep); err != nil {
+		t.Fatalf("unmarshal report: %v", err)
+	}
+	files, ok := rep["files"].([]any)
+	if !ok || len(files) != wantCount {
+		t.Fatalf("report files = %#v, want %d entries", rep["files"], wantCount)
+	}
+	names := make([]string, 0, len(files))
+	for _, item := range files {
+		names = append(names, reportFileName(t, item))
+	}
+	return names
+}
+
+func reportFileName(t *testing.T, item any) string {
+	t.Helper()
+
+	row, ok := item.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected file row: %#v", item)
+	}
+	name, _ := row["file"].(string)
+	return name
 }
 
 func TestRenameScriptMainFailsOnInvalidGoFile(t *testing.T) {
@@ -381,5 +392,3 @@ import _ "github.com/multi-agent/go-agent-v2/pkg/codexsdk"
 		t.Fatalf(".vscode file should stay untouched, got %q want %q", string(data), original)
 	}
 }
-
-ROLLBACK_SKIP_END */

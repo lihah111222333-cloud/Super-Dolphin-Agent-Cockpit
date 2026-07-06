@@ -6,11 +6,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
@@ -76,6 +79,56 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	if !strings.Contains(err.Error(), `unknown field "schema_forbidden_field"`) {
 		t.Fatalf("direct handler error = %v, want unknown field rejection", err)
 	}
+}
+
+func TestSemanticInspectAndStructureReturnMissingBinaryWithoutRunningInstaller(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake installer")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write go fixture: %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	marker := filepath.Join(t.TempDir(), "installer-ran")
+	t.Setenv("INSTALL_MARKER", marker)
+	installScript := filepath.Join(t.TempDir(), "install-lsp")
+	if err := os.WriteFile(installScript, []byte("#!/bin/sh\n: > \"$INSTALL_MARKER\"\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake installer: %v", err)
+	}
+	inst := lspinstaller.NewProvider()
+	inst.Register("go", lspinstaller.InstallerConfig{
+		BinaryName: "gopls",
+		InstallCmd: installScript,
+	})
+	inst.Register("typescript", lspinstaller.InstallerConfig{
+		BinaryName: "typescript-language-server",
+		InstallCmd: installScript,
+	})
+	registry := lspmanager.NewRegistryWithInstaller(inst)
+	registry.Register("go", &structureTestManager{})
+	registry.Register("typescript", &structureTestManager{})
+
+	t.Run("inspect", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{
+			"action": "hover",
+			"pos":    filepath.Join(root, "main.go") + ":1:1",
+		})
+		_, err := NewInspectHandler(registry)(testToolContext(root), payload)
+		requireSemanticMissingBinary(t, err, "go", "gopls")
+		requireInstallerMarkerAbsent(t, marker)
+	})
+
+	t.Run("structure", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{
+			"action":   "workspace_symbol",
+			"language": "typescript",
+			"query":    "anything",
+		})
+		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
+		requireSemanticMissingBinary(t, err, "typescript", "typescript-language-server")
+		requireInstallerMarkerAbsent(t, marker)
+	})
 }
 
 // TestWrapperRejectsEmptyWorkDir ensures wrapper-owned work_dir cannot be silently stripped when empty.
@@ -319,5 +372,33 @@ func requireExplicitWorkDirScope(t *testing.T, gotScope common.ToolScope, gotExp
 	}
 	if !slices.Contains(gotScope.WorkspaceRoots, filepath.Clean(root)) {
 		t.Fatalf("workspace roots = %#v, want original root %q preserved", gotScope.WorkspaceRoots, filepath.Clean(root))
+	}
+}
+
+type semanticMissingBinaryError interface {
+	MissingLSPBinary() (languageID string, binaryName string)
+}
+
+func requireSemanticMissingBinary(t *testing.T, err error, wantLanguageID, wantBinary string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("handler error = nil, want missing binary error")
+	}
+	var missing semanticMissingBinaryError
+	if !errors.As(err, &missing) {
+		t.Fatalf("handler error = %T %[1]v, want semantic missing binary error", err)
+	}
+	gotLanguageID, gotBinary := missing.MissingLSPBinary()
+	if gotLanguageID != wantLanguageID || gotBinary != wantBinary {
+		t.Fatalf("missing binary = (%q, %q), want (%q, %q)", gotLanguageID, gotBinary, wantLanguageID, wantBinary)
+	}
+}
+
+func requireInstallerMarkerAbsent(t *testing.T, marker string) {
+	t.Helper()
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("installer command was invoked; marker exists at %s", marker)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat installer marker: %v", err)
 	}
 }
