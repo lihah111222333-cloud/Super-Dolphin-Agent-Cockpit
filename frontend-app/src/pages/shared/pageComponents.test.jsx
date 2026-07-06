@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Circle } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
 import { PageHeader, Panel, RetryableSyncError } from './pageComponents.jsx';
@@ -18,5 +18,15 @@ describe('pageComponents', () => {
     expect(screen.getByRole('heading', { name: /Dashboard/ })).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Sync failed');
+  });
+
+  it('shows retry failures instead of dropping rejected retry promises', async () => {
+    const onRetry = vi.fn().mockRejectedValue(new Error('backend offline'));
+    render(<RetryableSyncError message="Sync failed" onRetry={onRetry} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('重试同步失败：backend offline')).toBeInTheDocument();
   });
 });
