@@ -34,10 +34,9 @@ func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) 
 				WorkspaceRoots: []string{root},
 				Family:         "lsp",
 			}), 5*time.Second)
-			var goroutines sync.WaitGroup
+			goroutines := newTestGoroutineGroup(t)
 			defer func() {
 				cancel()
-				goroutines.Wait()
 			}()
 			uri, _ := resolveDiagnosticsScopeForTarget(t, mgr, ctx, target, "cold-start")
 			published := make(chan struct{})
@@ -305,6 +304,7 @@ func (f *coldStartDefinitionFactory) clientAt(t *testing.T) *coldStartDefinition
 
 type coldStartDefinitionClient struct {
 	mu                  sync.Mutex
+	goroutines          sync.WaitGroup
 	handler             protocol.NotificationHandler
 	readyDelay          time.Duration
 	openedURI           string
@@ -320,14 +320,17 @@ func (c *coldStartDefinitionClient) DidChange(context.Context, string, int, []pr
 	return nil
 }
 func (c *coldStartDefinitionClient) DidClose(context.Context, string) error { return nil }
-func (c *coldStartDefinitionClient) Close() error                           { return nil }
+func (c *coldStartDefinitionClient) Close() error {
+	c.goroutines.Wait()
+	return nil
+}
 
 func (c *coldStartDefinitionClient) DidOpen(ctx context.Context, uri, languageID string, _ int, _ string) error {
 	c.mu.Lock()
 	c.openedURI = uri
 	c.openedLanguage = languageID
 	c.mu.Unlock()
-	go c.publishReadyDiagnostics(ctx, uri)
+	c.goroutines.Go(func() { c.publishReadyDiagnostics(ctx, uri) })
 	return nil
 }
 
