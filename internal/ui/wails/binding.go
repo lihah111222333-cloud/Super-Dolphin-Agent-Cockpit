@@ -44,9 +44,12 @@ type App struct {
 	droppedFilesMu sync.Mutex                   // 保护近期拖拽文件登记表
 	droppedFiles   map[string]droppedFileRecord // 路径到可读取窗口和过期时间的映射
 
-	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error) // 测试可替换的新窗口打开函数
-	saveDirectoryInvoker func(defaultPath string) (string, error)                           // 测试可替换的目录选择函数
-	currentWindowNameFn  func() string                                                      // 测试可替换的当前窗口名函数
+	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error)   // 测试可替换的新窗口打开函数
+	saveDirectoryInvoker func(defaultPath string) (string, error)                             // 测试可替换的目录选择函数
+	selectFileInvoker    func(defaultPath string, filters []selectFileFilter) (string, error) // 测试可替换的单文件选择函数
+	currentWindowNameFn  func() string                                                        // 测试可替换的当前窗口名函数
+
+	datasourceImportPickerTokens *datasourceImportPickerTokens // datasource 本地文件导入的短期 capability 状态
 }
 
 // CallAPI 处理前端统一 RPC 调用，并围绕 dispatch 记录脱敏 trace。

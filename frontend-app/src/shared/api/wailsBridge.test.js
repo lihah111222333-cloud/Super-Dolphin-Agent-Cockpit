@@ -689,6 +689,30 @@ describe('wails bridge file picker helpers', () => {
     }));
   });
 
+  it('uses a dedicated datasource import picker response with a token', async () => {
+    const byID = vi.fn((methodID, method, payload) => {
+      if (methodID !== 2963398832 || method !== 'ui/selectDatasourceImportFile') {
+        throw new Error('datasource import picker must use its dedicated RPC path');
+      }
+      if (payload.filters?.[0]?.pattern !== '*.pdf;*.txt;*.text') {
+        throw new Error('missing datasource filter pattern');
+      }
+      return Promise.resolve({ sourcePath: 'C:\\\\data\\\\manual.pdf', pickerToken: 'picker-token' });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectDatasourceImportFile } = await import('./wailsBridge.js');
+
+    await expect(selectDatasourceImportFile({
+      filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+    })).resolves.toEqual({ sourcePath: 'C:\\\\data\\\\manual.pdf', pickerToken: 'picker-token' });
+    expect(byID).toHaveBeenCalledWith(2963398832, 'ui/selectDatasourceImportFile', expect.objectContaining({
+      filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+    }));
+  });
+
   it('parses native file helper responses only from explicit response shapes', async () => {
     const byID = vi.fn((_methodID, method) => {
       if (method === 'ui/selectProjectDirs') return Promise.resolve({ paths: ['/repo/a'] });
@@ -751,6 +775,18 @@ describe('wails bridge file picker helpers', () => {
 
     await expect(selectFiles()).rejects.toThrow('ui/selectFiles response paths must be an array');
     expect(byID).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed datasource import picker responses without defaulting a token', async () => {
+    const byID = vi.fn().mockResolvedValue({ sourcePath: 'C:\\\\data\\\\manual.pdf' });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectDatasourceImportFile } = await import('./wailsBridge.js');
+
+    await expect(selectDatasourceImportFile())
+      .rejects.toThrow('ui/selectDatasourceImportFile response pickerToken must be a non-empty string');
   });
 });
 

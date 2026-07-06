@@ -152,10 +152,11 @@ function guardedBackendResponse(method) {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    await api.importDatasourceLocalFile({ source_path: ' D:\\new\\fj.txt ' });
+    await api.importDatasourceLocalFile({ source_path: ' D:\\new\\fj.txt ', picker_token: ' picker-token ' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, {
       sourcePath: 'D:\\new\\fj.txt',
+      pickerToken: 'picker-token',
     });
     expectInvalidInputDoesNotCall(callAPI, () => api.importDatasourceLocalFile({ sourcePath: '' }), 'sourcePath is required');
     expect(typeof importDatasourceLocalFile).toBe('function');
