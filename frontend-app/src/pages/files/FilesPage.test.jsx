@@ -1,6 +1,6 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FilesPage } from './FilesPage.jsx';
 
@@ -32,6 +32,16 @@ function getOverviewMetric(overview, label) {
   const metric = within(overview).getByText(label).closest('div');
   if (!metric) throw new Error(`Missing overview metric: ${label}`);
   return metric;
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('FilesPage module', () => {
@@ -116,5 +126,53 @@ describe('FilesPage module', () => {
     fireEvent.click(screen.getByRole('button', { name: '用此文件继续对话' }));
 
     expect(store.continueWithSharedFile).toHaveBeenCalledWith(finalPath);
+  });
+
+  it('keeps the latest file preview when an older detail request resolves later', async () => {
+    const firstPath = 'reports/first.md';
+    const secondPath = 'reports/second.md';
+    const firstDetail = deferred();
+    const secondDetail = deferred();
+    backend.listSharedFilesDashboard.mockResolvedValue({
+      files: [
+        { id: `${firstPath}:0`, path: firstPath, content: 'first summary', updatedAt: '2026-06-06T08:00:00Z' },
+        { id: `${secondPath}:1`, path: secondPath, content: 'second summary', updatedAt: '2026-06-06T09:00:00Z' },
+      ],
+      finalOutputRefs: [],
+      retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    });
+    backend.readSharedFile.mockImplementation(({ path }) => {
+      if (path === firstPath) return firstDetail.promise;
+      if (path === secondPath) return secondDetail.promise;
+      return Promise.reject(new Error(`Unexpected shared file path: ${path}`));
+    });
+
+    const { container } = renderFilesPage();
+
+    const firstCard = (await screen.findByText('first.md')).closest('article');
+    const secondCard = screen.getByText('second.md').closest('article');
+    fireEvent.click(within(firstCard).getByRole('button', { name: '打开' }));
+    await waitFor(() => expect(backend.readSharedFile).toHaveBeenCalledWith({ path: firstPath }, expect.objectContaining({ path: firstPath })));
+    fireEvent.click(within(secondCard).getByRole('button', { name: '打开' }));
+    await waitFor(() => expect(backend.readSharedFile).toHaveBeenCalledWith({ path: secondPath }, expect.objectContaining({ path: secondPath })));
+
+    await act(async () => {
+      secondDetail.resolve({ path: secondPath, content: 'latest preview content', updatedAt: '2026-06-06T09:00:00Z' });
+      await secondDetail.promise;
+    });
+    const latestDialog = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(latestDialog).getByText(secondPath)).toBeInTheDocument();
+    expect(container.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
+
+    await act(async () => {
+      firstDetail.resolve({ path: firstPath, content: 'stale preview content', updatedAt: '2026-06-06T08:00:00Z' });
+      await firstDetail.promise;
+    });
+
+    const dialog = screen.getByRole('dialog', { name: '文件预览' });
+    expect(within(dialog).getByText(secondPath)).toBeInTheDocument();
+    expect(within(dialog).queryByText(firstPath)).not.toBeInTheDocument();
+    expect(container.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
+    expect(container.querySelector('.shared-file-content-preview')?.textContent).not.toContain('stale preview content');
   });
 });
