@@ -232,13 +232,13 @@ WHERE task_dag_nodes.dag_key = ?3
   AND ?5 > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
   AND (
-    ?6 = 0
+    CAST(?6 AS INTEGER) = 0
     OR (
-      task_dag_nodes.active_wakeup_id = ?6
+      task_dag_nodes.active_wakeup_id = CAST(?6 AS INTEGER)
       AND EXISTS (
         SELECT 1
         FROM task_dag_wakeups w
-        WHERE w.id = ?6
+        WHERE w.id = CAST(?6 AS INTEGER)
           AND w.run_id = task_dag_nodes.run_id
           AND w.dag_key = task_dag_nodes.dag_key
           AND w.node_key = task_dag_nodes.node_key
@@ -258,7 +258,7 @@ type FailTaskDagNodeIfNonTerminalParams struct {
 	DagKey        string          `db:"dag_key" json:"dag_key"`
 	NodeKey       string          `db:"node_key" json:"node_key"`
 	RunID         *int64          `db:"run_id" json:"run_id"`
-	WakeupID      interface{}     `db:"wakeup_id" json:"wakeup_id"`
+	WakeupID      int64           `db:"wakeup_id" json:"wakeup_id"`
 	WakeupAttempt int64           `db:"wakeup_attempt" json:"wakeup_attempt"`
 }
 
@@ -519,13 +519,15 @@ func (q *Queries) UpdateTaskDagNodeStatusIfCurrent(ctx context.Context, arg Upda
 }
 
 const upsertTaskDagNode = `-- name: UpsertTaskDagNode :one
-INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, command_ref, config, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, reads, writes, command_ref, config, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (dag_key, node_key) WHERE run_id IS NULL DO UPDATE
 SET title = EXCLUDED.title,
     node_type = EXCLUDED.node_type,
     assigned_to = EXCLUDED.assigned_to,
     depends_on = EXCLUDED.depends_on,
+    reads = EXCLUDED.reads,
+    writes = EXCLUDED.writes,
     command_ref = EXCLUDED.command_ref,
     config = EXCLUDED.config,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
@@ -542,6 +544,8 @@ type UpsertTaskDagNodeParams struct {
 	NodeType   string          `db:"node_type" json:"node_type"`
 	AssignedTo string          `db:"assigned_to" json:"assigned_to"`
 	DependsOn  json.RawMessage `db:"depends_on" json:"depends_on"`
+	Reads      json.RawMessage `db:"reads" json:"reads"`
+	Writes     json.RawMessage `db:"writes" json:"writes"`
 	CommandRef string          `db:"command_ref" json:"command_ref"`
 	Config     json.RawMessage `db:"config" json:"config"`
 }
@@ -579,6 +583,8 @@ func (q *Queries) UpsertTaskDagNode(ctx context.Context, arg UpsertTaskDagNodePa
 		arg.NodeType,
 		arg.AssignedTo,
 		arg.DependsOn,
+		arg.Reads,
+		arg.Writes,
 		arg.CommandRef,
 		arg.Config,
 	)

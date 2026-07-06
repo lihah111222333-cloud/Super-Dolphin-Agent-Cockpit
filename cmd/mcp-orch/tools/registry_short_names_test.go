@@ -5,7 +5,11 @@ import "testing"
 func TestRegistryAdvertisesShortOrchestrationNames(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 	got := make(map[string]bool)
-	for _, tool := range registry.List() {
+	list, err := registry.List()
+	if err != nil {
+		t.Fatalf("registry.List() error = %v", err)
+	}
+	for _, tool := range list {
 		got[tool.Name] = true
 	}
 
@@ -24,7 +28,11 @@ func TestRegistryAdvertisesShortOrchestrationNames(t *testing.T) {
 func TestRegistryAdvertisesDAGConsoleReadTools(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 	got := make(map[string]bool)
-	for _, tool := range registry.List() {
+	list, err := registry.List()
+	if err != nil {
+		t.Fatalf("registry.List() error = %v", err)
+	}
+	for _, tool := range list {
 		got[tool.Name] = true
 	}
 

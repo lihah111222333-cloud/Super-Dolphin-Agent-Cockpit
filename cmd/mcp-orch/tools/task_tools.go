@@ -61,6 +61,8 @@ type CreateDAGNodeInput struct {
 	NodeType   string             `json:"node_type,omitempty"`
 	AssignedTo string             `json:"assigned_to,omitempty"`
 	DependsOn  []string           `json:"depends_on,omitempty"`
+	Reads      []string           `json:"reads,omitempty"`
+	Writes     []string           `json:"writes,omitempty"`
 	CommandRef string             `json:"command_ref,omitempty"`
 	Config     json.RawMessage    `json:"config,omitempty"`
 	Execution  *DAGExecutionInput `json:"execution,omitempty"`
@@ -312,6 +314,8 @@ type ApplyOpsInput struct {
 	NodeType    string          `json:"node_type,omitempty"`
 	AssignedTo  string          `json:"assigned_to,omitempty"`
 	DependsOn   []string        `json:"depends_on,omitempty"`
+	Reads       []string        `json:"reads,omitempty"`
+	Writes      []string        `json:"writes,omitempty"`
 	Config      json.RawMessage `json:"config,omitempty"`
 	Patch       json.RawMessage `json:"patch,omitempty"`
 }

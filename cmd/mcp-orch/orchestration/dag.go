@@ -399,6 +399,8 @@ func dagNodeFromRequest(dagKey string, req CreateDAGNodeRequest) taskdag.Node {
 		NodeType:   strings.TrimSpace(req.NodeType),
 		AssignedTo: strings.TrimSpace(req.AssignedTo),
 		DependsOn:  dependsOnJSON(req.DependsOn),
+		Reads:      cleanStringSlice(req.Reads),
+		Writes:     cleanStringSlice(req.Writes),
 		CommandRef: strings.TrimSpace(req.CommandRef),
 		Config:     append(json.RawMessage(nil), req.Config...),
 	}
@@ -406,17 +408,22 @@ func dagNodeFromRequest(dagKey string, req CreateDAGNodeRequest) taskdag.Node {
 
 // dependsOnJSON 清理 depends_on 后编码为 JSON 数组，空依赖写入 []。
 func dependsOnJSON(values []string) json.RawMessage {
+	trimmed := cleanStringSlice(values)
+	if len(trimmed) == 0 {
+		return json.RawMessage("[]")
+	}
+	raw, _ := json.Marshal(trimmed)
+	return raw
+}
+
+func cleanStringSlice(values []string) []string {
 	trimmed := make([]string, 0, len(values))
 	for _, value := range values {
 		if candidate := strings.TrimSpace(value); candidate != "" {
 			trimmed = append(trimmed, candidate)
 		}
 	}
-	if len(trimmed) == 0 {
-		return json.RawMessage("[]")
-	}
-	raw, _ := json.Marshal(trimmed)
-	return raw
+	return trimmed
 }
 
 // nodeStatusUpdateFromRequest 校验 task_update_node 必填字段并转换为 store 入参。
@@ -507,6 +514,8 @@ func dagNodeDTO(item taskdag.Node) DAGNode {
 		NodeType:       item.NodeType,
 		AssignedTo:     item.AssignedTo,
 		DependsOn:      decodeDependsOn(item.DependsOn),
+		Reads:          append([]string(nil), item.Reads...),
+		Writes:         append([]string(nil), item.Writes...),
 		Status:         item.Status,
 		CommandRef:     item.CommandRef,
 		Config:         append(json.RawMessage(nil), item.Config...),

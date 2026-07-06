@@ -66,11 +66,11 @@ func NewRegistry(deps Dependencies) Registry {
 }
 
 // List 返回工具定义副本，避免调用方修改 Registry 内部切片。
-func (r Registry) List() []ToolDefinition {
+func (r Registry) List() ([]ToolDefinition, error) {
 	if r.initErr != nil {
-		return nil
+		return nil, fmt.Errorf("tool registry invalid: %w", r.initErr)
 	}
-	return append([]ToolDefinition(nil), r.tools...)
+	return append([]ToolDefinition(nil), r.tools...), nil
 }
 
 // Lookup 按工具名查找定义，并兼容旧 orchestration_* 别名。

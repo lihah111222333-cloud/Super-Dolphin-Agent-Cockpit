@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -61,7 +62,7 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
 	specs := make([]NodeSpec, len(nodes))
 	for i, n := range nodes {
-		specs[i] = NodeSpec{NodeKey: n.NodeKey, Title: n.Title, NodeType: n.NodeType, DependsOn: n.DependsOn, Config: n.Config}
+		specs[i] = NodeSpec{NodeKey: n.NodeKey, Title: n.Title, NodeType: n.NodeType, DependsOn: n.DependsOn, Reads: n.Reads, Writes: n.Writes, Config: n.Config}
 	}
 	if err := ValidateAddNodeTopology(specs); err != nil {
 		return err
@@ -125,10 +126,8 @@ func registerNewNode(idx int, spec NodeSpec, known map[string]struct{}, adjacenc
 	if _, dup := known[spec.NodeKey]; dup {
 		return fmt.Errorf("%w: ops[%d] add_node node_key %q already exists", ErrAddNodePlan, idx, spec.NodeKey)
 	}
-	for _, d := range spec.DependsOn {
-		if d == spec.NodeKey {
-			return fmt.Errorf("%w: ops[%d] add_node %q depends on itself", ErrAddNodePlan, idx, spec.NodeKey)
-		}
+	if slices.Contains(spec.DependsOn, spec.NodeKey) {
+		return fmt.Errorf("%w: ops[%d] add_node %q depends on itself", ErrAddNodePlan, idx, spec.NodeKey)
 	}
 	known[spec.NodeKey] = struct{}{}
 	adjacency[spec.NodeKey] = spec.DependsOn
@@ -404,10 +403,8 @@ func firstDependentOn(adjacency map[string][]string, target string) string {
 		if nodeKey == target {
 			continue
 		}
-		for _, dep := range deps {
-			if dep == target {
-				return nodeKey
-			}
+		if slices.Contains(deps, target) {
+			return nodeKey
 		}
 	}
 	return ""

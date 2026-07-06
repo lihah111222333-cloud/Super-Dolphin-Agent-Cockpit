@@ -232,10 +232,10 @@ func (h *HTTPServer) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	return maybeResult(req.ID, result)
 }
 
-// handleToolsList 返回 legacy HTTP transport 可见的工具列表，未注入 provider 时为空列表。
+// handleToolsList 返回 legacy HTTP transport 可见的工具列表，未注入 provider 时 fail-fast。
 func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	if h.tools == nil {
-		return maybeResult(req.ID, map[string]any{"tools": []MCPTool{}})
+		return errorResponse(req.ID, codeInternal, ErrToolProviderUnavailable.Error())
 	}
 	tools, err := h.tools.ListTools(ctx)
 	if err != nil {

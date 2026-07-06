@@ -70,6 +70,8 @@ erDiagram
     text status
     jsonb input
     jsonb output
+    jsonb reads
+    jsonb writes
   }
 
   cron_jobs {
