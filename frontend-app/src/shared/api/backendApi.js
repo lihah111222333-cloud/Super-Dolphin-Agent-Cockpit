@@ -366,8 +366,20 @@ function legacyThreadNamePayload(method, params) {
   return { threadId, name };
 }
 
+function memoryTargetPayload(method, value, field = 'target') {
+  const target = normalizeString(value);
+  if (target !== 'private' && target !== 'team') {
+    throw new Error(`${method}: ${field} must be private or team`);
+  }
+  return target;
+}
+
 function memoryEntryGetPayload(method, params) {
-  return requireKey(method, requireCwd(method, params), 'path');
+  const payload = requireKey(method, requireCwd(method, params), 'path');
+  return {
+    ...payload,
+    target: memoryTargetPayload(method, payload.target),
+  };
 }
 
 function memoryEntryUpsertPayload(method, params) {
@@ -377,7 +389,7 @@ function memoryEntryUpsertPayload(method, params) {
   }
   return cleanObject({
     cwd: payload.cwd,
-    target: normalizeString(payload.target),
+    target: memoryTargetPayload(method, payload.target),
     existingPath: normalizeString(payload.existingPath),
     name: normalizeString(payload.name),
     description: normalizeString(payload.description),
@@ -389,14 +401,14 @@ function memoryEntryUpsertPayload(method, params) {
 
 function memoryPairPayload(method, params) {
   const payload = requireCwd(method, params);
-  for (const key of ['targetA', 'pathA', 'targetB', 'pathB']) {
+  for (const key of ['pathA', 'pathB']) {
     if (!normalizeString(payload[key])) throw new Error(`${method}: ${key} is required`);
   }
   return {
     cwd: payload.cwd,
-    targetA: normalizeString(payload.targetA),
+    targetA: memoryTargetPayload(method, payload.targetA, 'targetA'),
     pathA: normalizeString(payload.pathA),
-    targetB: normalizeString(payload.targetB),
+    targetB: memoryTargetPayload(method, payload.targetB, 'targetB'),
     pathB: normalizeString(payload.pathB),
   };
 }

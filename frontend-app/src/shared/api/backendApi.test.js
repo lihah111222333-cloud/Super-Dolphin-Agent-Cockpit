@@ -1749,6 +1749,29 @@ function expectPromptFacadeValidation(api) {
     expectMemoryCenterValidation(api);
   });
 
+  it('rejects malformed memory target payloads before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.getMemoryEntry({ cwd: '/repo/app', target: '', path: 'feedback/tdd.md' }))
+      .toThrow('ui/memory/entry/get: target must be private or team');
+    expect(() => api.deleteMemoryEntry({ cwd: '/repo/app', target: 'public', path: 'feedback/tdd.md' }))
+      .toThrow('ui/memory/entry/delete: target must be private or team');
+    expect(() => api.upsertMemoryEntry({
+      cwd: '/repo/app',
+      target: 'global',
+      name: 'tdd-rule',
+      description: '先写红测',
+      type: 'feedback',
+      content: '规则',
+    })).toThrow('ui/memory/entry/upsert: target must be private or team');
+    expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'global', pathB: 'b.md' }))
+      .toThrow('ui/memory/entry/merge: targetB must be private or team');
+    expect(() => api.ignoreMemorySimilarity({ cwd: '/repo/app', targetA: 'global', pathA: 'a.md', targetB: 'team', pathB: 'b.md' }))
+      .toThrow('ui/memory/similarity/ignore: targetA must be private or team');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
 async function callMemoryCenterApis(api) {
   await api.getMemorySnapshot({ cwd: '/repo/app' });
   await api.getMemoryEntry({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
