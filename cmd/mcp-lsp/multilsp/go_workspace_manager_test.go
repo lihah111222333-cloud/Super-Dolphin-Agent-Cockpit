@@ -180,7 +180,7 @@ func TestGOWORKDoesNotAffectCSSWorkspaceRoot(t *testing.T) {
 	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "css"))
 }
 
-func TestGOWORKDoesNotAffectJSONYAMLMarkdownFallback(t *testing.T) {
+func TestGOWORKDoesNotAffectDocumentLanguageServices(t *testing.T) {
 	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "json"))
 	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "yaml"))
 	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "markdown"))

@@ -577,7 +577,7 @@ func wrapToolHandlerWithTimeoutResolver(toolName string, tier time.Duration, tim
 	log := pkglogger.Get()
 	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
 		var err error
-		ctx = lspinstaller.WithToolCallInstallCheckOnly(ctx)
+		ctx = lspinstaller.WithInstallCommandCapability(ctx)
 		ctx, err = contextWithExplicitToolWorkDir(ctx, params)
 		if err != nil {
 			return nil, err

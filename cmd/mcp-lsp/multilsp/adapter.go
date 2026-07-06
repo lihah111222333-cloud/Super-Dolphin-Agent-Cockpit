@@ -376,6 +376,7 @@ type projectLanguageAdapter struct {
 	firstSourceExtensions          []string
 	ignoredDirNames                map[string]struct{}
 	initOptions                    map[string]any
+	envPolicy                      func(ResolvedLanguageScope) []string
 	retryEmptyCallHierarchyPrepare bool
 }
 
@@ -497,9 +498,47 @@ func (a projectLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]an
 	return cloneAnyMap(a.initOptions)
 }
 
-// EnvPolicy 当前不为项目型语言追加环境覆盖。
-// 这些服务继承 manager 统一筛选后的环境，避免 adapter 私自扩展进程变量。
-func (a projectLanguageAdapter) EnvPolicy(ResolvedLanguageScope) []string { return nil }
+// EnvPolicy 返回项目型语言服务需要的最小环境覆盖。
+// 默认继承 manager 统一筛选后的环境，只有 adapter 明确声明时才补充语言运行时路径。
+func (a projectLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
+	if a.envPolicy == nil {
+		return nil
+	}
+	return a.envPolicy(scope)
+}
+
+func dotnetRootEnvPolicy(ResolvedLanguageScope) []string {
+	if strings.TrimSpace(os.Getenv("DOTNET_ROOT")) != "" || strings.TrimSpace(os.Getenv("DOTNET_ROOT_ARM64")) != "" {
+		return nil
+	}
+	for _, root := range dotnetRootCandidates() {
+		if dotnetRootUsable(root) {
+			return []string{"DOTNET_ROOT=" + root}
+		}
+	}
+	return nil
+}
+
+func dotnetRootCandidates() []string {
+	return []string{
+		"/opt/homebrew/opt/dotnet/libexec",
+		"/usr/local/opt/dotnet/libexec",
+	}
+}
+
+// dotnetRootUsable 判断候选 DOTNET_ROOT 是否同时具备运行时和 SDK 目录。
+func dotnetRootUsable(root string) bool {
+	if strings.TrimSpace(root) == "" {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(root, "shared", "Microsoft.NETCore.App")); err != nil || !info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(root, "sdk")); err != nil || !info.IsDir() {
+		return false
+	}
+	return true
+}
 
 // BootstrapPolicy 声明项目型语言启动后的文档打开和首选源码扩展。
 // ignoredDirNames 会复制返回，供 bootstrap 扫描时跳过依赖和构建产物。

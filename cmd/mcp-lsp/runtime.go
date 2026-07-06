@@ -191,7 +191,12 @@ func normalizeRuntimeWorkspaceRoot(base, root string) (string, error) {
 }
 
 func runtimePrimaryLanguageIDs() []string {
-	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown", "shellscript", "sql"}
+	return []string{
+		"go", "javascript", "python", "css", "html", "json", "yaml", "markdown",
+		"vue", "svelte", "c", "swift", "csharp", "php", "ruby", "kotlin", "dart",
+		"lua", "dockerfile", "terraform", "graphql", "prisma", "rust", "java",
+		"shellscript", "sql",
+	}
 }
 
 // runtimePrimaryLanguageIDsForBundle 为包体处理运行时primary语言ids。
@@ -373,72 +378,82 @@ func runtimeScopedResolver(mgr multilsp.Manager) manager.ScopedManagerResolver {
 // 仅在未使用打包 LSP bundle 时启用，避免运行时覆盖应用随包携带的二进制。
 func setupInstaller() *installer.Provider {
 	inst := installer.NewProvider()
+	registerNPMInstallers(inst)
+	registerNativeToolInstallers(inst)
+	registerGoInstallers(inst)
+	registerShellAndSQLInstallers(inst)
 
-	inst.Register("javascript", installer.InstallerConfig{
-		BinaryName:          "typescript-language-server",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
-		AllowInstallCommand: true,
+	return inst
+}
+
+type runtimeInstallerSpec struct {
+	languages  []string
+	binaryName string
+	installCmd string
+	args       []string
+}
+
+func registerInstallerSpecs(inst *installer.Provider, specs []runtimeInstallerSpec) {
+	for _, spec := range specs {
+		cfg := installer.InstallerConfig{
+			BinaryName:          spec.binaryName,
+			InstallCmd:          spec.installCmd,
+			InstallArgs:         spec.args,
+			AllowInstallCommand: true,
+		}
+		for _, languageID := range spec.languages {
+			inst.Register(languageID, cfg)
+		}
+	}
+}
+
+func registerNPMInstallers(inst *installer.Provider) {
+	extractedArgs := []string{
+		"install", "-g", "vscode-langservers-extracted",
+		"vscode-markdown-languageservice@0.5.0-alpha.11",
+	}
+	registerInstallerSpecs(inst, []runtimeInstallerSpec{
+		{[]string{"javascript", "javascriptreact", "typescript", "typescriptreact"}, "typescript-language-server", "npm", []string{"install", "-g", "typescript-language-server", "typescript"}},
+		{[]string{"python"}, "pyright-langserver", "npm", []string{"install", "-g", "pyright"}},
+		{[]string{"css"}, "vscode-css-language-server", "npm", extractedArgs},
+		{[]string{"html"}, "vscode-html-language-server", "npm", extractedArgs},
+		{[]string{"json"}, "vscode-json-language-server", "npm", extractedArgs},
+		{[]string{"yaml"}, "yaml-language-server", "npm", []string{"install", "-g", "yaml-language-server"}},
+		{[]string{"markdown"}, "vscode-markdown-language-server", "npm", extractedArgs},
+		{[]string{"vue"}, "vue-language-server", "npm", []string{"install", "-g", "@vue/language-server"}},
+		{[]string{"svelte"}, "svelteserver", "npm", []string{"install", "-g", "svelte-language-server"}},
+		{[]string{"php"}, "intelephense", "npm", []string{"install", "-g", "intelephense"}},
+		{[]string{"dockerfile"}, "docker-langserver", "npm", []string{"install", "-g", "dockerfile-language-server-nodejs"}},
+		{[]string{"graphql"}, "graphql-lsp", "npm", []string{"install", "-g", "graphql-language-service-cli"}},
+		{[]string{"prisma"}, "prisma-language-server", "npm", []string{"install", "-g", "@prisma/language-server"}},
 	})
-	inst.Register("javascriptreact", installer.InstallerConfig{
-		BinaryName:          "typescript-language-server",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
-		AllowInstallCommand: true,
+}
+
+func registerNativeToolInstallers(inst *installer.Provider) {
+	registerInstallerSpecs(inst, []runtimeInstallerSpec{
+		{[]string{"c", "cpp", "objective-c", "objective-cpp"}, "clangd", "brew", []string{"install", "llvm"}},
+		{[]string{"swift"}, "sourcekit-lsp", "brew", []string{"install", "swift"}},
+		{[]string{"csharp"}, "csharp-ls", "dotnet", []string{"tool", "install", "--global", "csharp-ls"}},
+		{[]string{"ruby"}, "solargraph", "brew", []string{"install", "solargraph"}},
+		{[]string{"kotlin"}, "kotlin-language-server", "brew", []string{"install", "kotlin-language-server"}},
+		{[]string{"dart"}, "dart", "brew", []string{"install", "dart-sdk"}},
+		{[]string{"lua"}, "lua-language-server", "brew", []string{"install", "lua-language-server"}},
+		{[]string{"terraform"}, "terraform-ls", "brew", []string{"install", "hashicorp/tap/terraform-ls"}},
+		{[]string{"rust"}, "rust-analyzer", "rustup", []string{"component", "add", "rust-analyzer"}},
+		{[]string{"java"}, "jdtls", "brew", []string{"install", "jdtls"}},
 	})
-	inst.Register("typescript", installer.InstallerConfig{
-		BinaryName:          "typescript-language-server",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("typescriptreact", installer.InstallerConfig{
-		BinaryName:          "typescript-language-server",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "typescript-language-server", "typescript"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("python", installer.InstallerConfig{
-		BinaryName:          "pyright-langserver",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "pyright"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("css", installer.InstallerConfig{
-		BinaryName:          "vscode-css-language-server",
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "vscode-langservers-extracted"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("rust", installer.InstallerConfig{
-		BinaryName:          "rust-analyzer",
-		InstallCmd:          "rustup",
-		InstallArgs:         []string{"component", "add", "rust-analyzer"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("java", installer.InstallerConfig{
-		BinaryName:          "jdtls",
-		InstallCmd:          "brew",
-		InstallArgs:         []string{"install", "jdtls"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("go", installer.InstallerConfig{
+}
+
+func registerGoInstallers(inst *installer.Provider) {
+	cfg := installer.InstallerConfig{
 		BinaryName:          "gopls",
 		InstallCmd:          "go",
 		InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
 		AllowInstallCommand: true,
-	})
-	registerShellAndSQLInstallers(inst)
-	for _, alias := range []string{"gomod", "gosum", "gowork"} {
-		inst.Register(alias, installer.InstallerConfig{
-			BinaryName:          "gopls",
-			InstallCmd:          "go",
-			InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
-			AllowInstallCommand: true,
-		})
 	}
-
-	return inst
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork"} {
+		inst.Register(languageID, cfg)
+	}
 }
 
 func registerShellAndSQLInstallers(inst *installer.Provider) {
@@ -453,8 +468,9 @@ func registerShellAndSQLInstallers(inst *installer.Provider) {
 	})
 	inst.Register("sql", installer.InstallerConfig{
 		BinaryName:          "sql-language-server",
+		BinaryCheckArgs:     []string{"--version"},
 		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "sql-language-server"},
+		InstallArgs:         []string{"install", "-g", "sql-language-server", "vscode-languageserver-protocol@3.17.5", "vscode-jsonrpc@8.2.0"},
 		AllowInstallCommand: true,
 	})
 }

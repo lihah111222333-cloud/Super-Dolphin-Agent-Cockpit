@@ -81,7 +81,7 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestSemanticInspectAndStructureReturnMissingBinaryWithoutRunningInstaller(t *testing.T) {
+func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses a POSIX shell script as the fake installer")
 	}
@@ -89,21 +89,27 @@ func TestSemanticInspectAndStructureReturnMissingBinaryWithoutRunningInstaller(t
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
 		t.Fatalf("write go fixture: %v", err)
 	}
-	t.Setenv("PATH", t.TempDir())
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir)
 	marker := filepath.Join(t.TempDir(), "installer-ran")
 	t.Setenv("INSTALL_MARKER", marker)
+	t.Setenv("FAKE_BIN_DIR", binDir)
 	installScript := filepath.Join(t.TempDir(), "install-lsp")
-	if err := os.WriteFile(installScript, []byte("#!/bin/sh\n: > \"$INSTALL_MARKER\"\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(installScript, []byte("#!/bin/sh\nset -eu\n: >> \"$INSTALL_MARKER\"\ntarget=\"$1\"\nprintf '#!/bin/sh\\nexit 0\\n' > \"$FAKE_BIN_DIR/$target\"\n/bin/chmod +x \"$FAKE_BIN_DIR/$target\"\n"), 0o755); err != nil {
 		t.Fatalf("write fake installer: %v", err)
 	}
 	inst := lspinstaller.NewProvider()
 	inst.Register("go", lspinstaller.InstallerConfig{
-		BinaryName: "gopls",
-		InstallCmd: installScript,
+		BinaryName:          "gopls",
+		InstallCmd:          installScript,
+		InstallArgs:         []string{"gopls"},
+		AllowInstallCommand: true,
 	})
 	inst.Register("typescript", lspinstaller.InstallerConfig{
-		BinaryName: "typescript-language-server",
-		InstallCmd: installScript,
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          installScript,
+		InstallArgs:         []string{"typescript-language-server"},
+		AllowInstallCommand: true,
 	})
 	registry := lspmanager.NewRegistryWithInstaller(inst)
 	registry.Register("go", &structureTestManager{})
@@ -115,8 +121,10 @@ func TestSemanticInspectAndStructureReturnMissingBinaryWithoutRunningInstaller(t
 			"pos":    filepath.Join(root, "main.go") + ":1:1",
 		})
 		_, err := NewInspectHandler(registry)(testToolContext(root), payload)
-		requireSemanticMissingBinary(t, err, "go", "gopls")
-		requireInstallerMarkerAbsent(t, marker)
+		if err != nil {
+			t.Fatalf("inspect handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
 	})
 
 	t.Run("structure", func(t *testing.T) {
@@ -126,8 +134,10 @@ func TestSemanticInspectAndStructureReturnMissingBinaryWithoutRunningInstaller(t
 			"query":    "anything",
 		})
 		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
-		requireSemanticMissingBinary(t, err, "typescript", "typescript-language-server")
-		requireInstallerMarkerAbsent(t, marker)
+		if err != nil {
+			t.Fatalf("structure handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
 	})
 }
 
@@ -375,30 +385,9 @@ func requireExplicitWorkDirScope(t *testing.T, gotScope common.ToolScope, gotExp
 	}
 }
 
-type semanticMissingBinaryError interface {
-	MissingLSPBinary() (languageID string, binaryName string)
-}
-
-func requireSemanticMissingBinary(t *testing.T, err error, wantLanguageID, wantBinary string) {
+func requireInstallerMarkerPresent(t *testing.T, marker string) {
 	t.Helper()
-	if err == nil {
-		t.Fatalf("handler error = nil, want missing binary error")
-	}
-	var missing semanticMissingBinaryError
-	if !errors.As(err, &missing) {
-		t.Fatalf("handler error = %T %[1]v, want semantic missing binary error", err)
-	}
-	gotLanguageID, gotBinary := missing.MissingLSPBinary()
-	if gotLanguageID != wantLanguageID || gotBinary != wantBinary {
-		t.Fatalf("missing binary = (%q, %q), want (%q, %q)", gotLanguageID, gotBinary, wantLanguageID, wantBinary)
-	}
-}
-
-func requireInstallerMarkerAbsent(t *testing.T, marker string) {
-	t.Helper()
-	if _, err := os.Stat(marker); err == nil {
-		t.Fatalf("installer command was invoked; marker exists at %s", marker)
-	} else if !os.IsNotExist(err) {
+	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("stat installer marker: %v", err)
 	}
 }

@@ -294,27 +294,35 @@ func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 	return filepath.Join(bundleDir, clean), nil
 }
 
+var defaultLSPLanguageSets = map[string][]string{
+	"bash-language-server":         {"shellscript"},
+	"clangd":                       {"c", "cpp", "objective-c", "objective-cpp"},
+	"csharp-ls":                    {"csharp"},
+	"dart":                         {"dart"},
+	"docker-langserver":            {"dockerfile"},
+	"gopls":                        {"go", "gomod", "gosum", "gowork"},
+	"graphql-lsp":                  {"graphql"},
+	"intelephense":                 {"php"},
+	"jdtls":                        {"java"},
+	"kotlin-language-server":       {"kotlin"},
+	"lua-language-server":          {"lua"},
+	"prisma-language-server":       {"prisma"},
+	"pyright":                      {"python"},
+	"rust-analyzer":                {"rust"},
+	"solargraph":                   {"ruby"},
+	"sourcekit-lsp":                {"swift"},
+	"sql-language-server":          {"sql"},
+	"svelteserver":                 {"svelte"},
+	"terraform-ls":                 {"terraform"},
+	"typescript-language-server":   {"javascript", "javascriptreact", "typescript", "typescriptreact"},
+	"vscode-langservers-extracted": {"css", "html", "json", "markdown"},
+	"vue-language-server":          {"vue"},
+	"yaml-language-server":         {"yaml"},
+}
+
 // defaultLSPLanguages 为缺少 languages 字段的内置 server 提供默认语言集合。
 func defaultLSPLanguages(serverID string) []string {
-	switch normalizeLSPKey(serverID) {
-	case "gopls":
-		return []string{"go", "gomod", "gosum", "gowork"}
-	case "typescript-language-server":
-		return []string{"javascript", "javascriptreact", "typescript", "typescriptreact"}
-	case "pyright":
-		return []string{"python"}
-	case "vscode-langservers-extracted":
-		return []string{"css"}
-	case "rust-analyzer":
-		return []string{"rust"}
-	case "bash-language-server":
-		return []string{"shellscript"}
-	case "sql-language-server":
-		return []string{"sql"}
-	case "jdtls":
-		return []string{"java"}
-	}
-	return nil
+	return slices.Clone(defaultLSPLanguageSets[normalizeLSPKey(serverID)])
 }
 
 // normalizeLSPLanguages 去重、排序并清理 language id，保证映射稳定。

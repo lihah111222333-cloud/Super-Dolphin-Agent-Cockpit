@@ -2,6 +2,7 @@ package multilsp
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -37,6 +38,37 @@ func TestLanguageAdapterRegistryUsesConfiguredRootMarkers(t *testing.T) {
 	}
 	if resolved.WorkspaceRoot != root {
 		t.Fatalf("configured typescript workspace root = %q, want %q", resolved.WorkspaceRoot, root)
+	}
+}
+
+func TestCSharpAdapterDoesNotOverrideExplicitDotnetRoot(t *testing.T) {
+	t.Setenv("DOTNET_ROOT", "/explicit/dotnet")
+	registry := NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("csharp")
+	if !ok {
+		t.Fatal("missing csharp adapter")
+	}
+	if env := adapter.EnvPolicy(ResolvedLanguageScope{}); len(env) != 0 {
+		t.Fatalf("csharp EnvPolicy with explicit DOTNET_ROOT = %#v, want no override", env)
+	}
+}
+
+func TestDotnetRootUsableRequiresRuntimeAndSDKDirs(t *testing.T) {
+	root := t.TempDir()
+	if dotnetRootUsable(root) {
+		t.Fatal("empty dotnet root reported usable")
+	}
+	if err := os.MkdirAll(filepath.Join(root, "shared", "Microsoft.NETCore.App"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	if dotnetRootUsable(root) {
+		t.Fatal("dotnet root without sdk dir reported usable")
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sdk"), 0o755); err != nil {
+		t.Fatalf("mkdir sdk dir: %v", err)
+	}
+	if !dotnetRootUsable(root) {
+		t.Fatal("dotnet root with runtime and sdk dirs reported unusable")
 	}
 }
 

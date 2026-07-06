@@ -116,3 +116,58 @@ func TestEnsureInstalledUsesInstallTimeout(t *testing.T) {
 		t.Fatalf("EnsureInstalledDetailed() elapsed = %v, want local install timeout to stop slow installer", elapsed)
 	}
 }
+
+func TestEnsureInstalledRejectsBrokenPathBinaryAndRunsInstaller(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX shell scripts as fake binaries")
+	}
+	binDir := t.TempDir()
+	broken := filepath.Join(binDir, "sql-language-server")
+	if err := os.WriteFile(broken, []byte("#!/bin/sh\necho broken sql language server >&2\nexit 42\n"), 0o755); err != nil {
+		t.Fatalf("write broken sql-language-server: %v", err)
+	}
+	installerPath := filepath.Join(binDir, "install-sql-lsp")
+	script := `#!/bin/sh
+set -eu
+printf '%s\n' "$*" > "$INSTALL_MARKER"
+/bin/cat > "$FAKE_BIN_DIR/sql-language-server" <<'EOF'
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "1.7.1"
+  exit 0
+fi
+exit 0
+EOF
+/bin/chmod +x "$FAKE_BIN_DIR/sql-language-server"
+`
+	if err := os.WriteFile(installerPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake sql installer: %v", err)
+	}
+	marker := filepath.Join(t.TempDir(), "installer-args")
+	t.Setenv("PATH", binDir)
+	t.Setenv("FAKE_BIN_DIR", binDir)
+	t.Setenv("INSTALL_MARKER", marker)
+
+	p := NewProvider()
+	p.Register("sql", InstallerConfig{
+		BinaryName:          "sql-language-server",
+		BinaryCheckArgs:     []string{"--version"},
+		InstallCmd:          installerPath,
+		InstallArgs:         []string{"sql-language-server"},
+		AllowInstallCommand: true,
+	})
+
+	result, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	if result.Path != broken {
+		t.Fatalf("EnsureInstalledDetailed(sql).Path = %q, want repaired PATH binary %q", result.Path, broken)
+	}
+	if result.Status != InstallStatusInstalledPath {
+		t.Fatalf("EnsureInstalledDetailed(sql).Status = %q, want %q", result.Status, InstallStatusInstalledPath)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("installer did not run for broken PATH binary: %v", err)
+	}
+}

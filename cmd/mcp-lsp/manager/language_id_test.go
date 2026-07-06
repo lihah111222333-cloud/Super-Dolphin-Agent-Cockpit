@@ -14,6 +14,20 @@ func TestDetectLanguageIDReactExtensions(t *testing.T) {
 	}
 }
 
+func TestDetectLanguageIDDockerBaseNames(t *testing.T) {
+	cases := map[string]string{
+		"Containerfile":        "dockerfile",
+		"Dockerfile":           "dockerfile",
+		"deploy/Containerfile": "dockerfile",
+		"deploy/Dockerfile":    "dockerfile",
+	}
+	for file, want := range cases {
+		if got := DetectLanguageID(file); got != want {
+			t.Fatalf("DetectLanguageID(%q) = %q, want %q", file, got, want)
+		}
+	}
+}
+
 func TestDetectLanguageIDShellExtensionsUseShellscript(t *testing.T) {
 	cases := map[string]string{
 		"script.sh":     "shellscript",

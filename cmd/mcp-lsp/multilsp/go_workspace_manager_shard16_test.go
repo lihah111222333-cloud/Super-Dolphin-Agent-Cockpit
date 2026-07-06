@@ -73,6 +73,7 @@ func nonGoGOWORKPollutionCase(t *testing.T, languageID string) nonGoGOWORKPollut
 		target = filepath.Join(repo, "config", "settings.yaml")
 		writeFile(t, target, "key: value\n")
 	case "markdown":
+		targetRoot = filepath.Join(repo, "docs")
 		target = filepath.Join(repo, "docs", "readme.md")
 		writeFile(t, target, "# readme\n")
 	default:

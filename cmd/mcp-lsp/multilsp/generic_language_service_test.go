@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,9 +15,51 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-func TestGenericLanguageServicesMatrixCoversGoJSTSPythonRustJavaCSS(t *testing.T) {
+func TestGenericLanguageServicesMatrixCoversDefaultLSPClients(t *testing.T) {
 	registry := NewDefaultLanguageAdapterRegistry()
-	for _, languageID := range []string{"go", "gomod", "gosum", "gowork", "javascript", "typescript", "python", "rust", "java", "css"} {
+	want := []string{
+		"c",
+		"cpp",
+		"css",
+		"csharp",
+		"dart",
+		"dockerfile",
+		"go",
+		"gomod",
+		"gosum",
+		"gowork",
+		"graphql",
+		"html",
+		"java",
+		"javascript",
+		"javascriptreact",
+		"json",
+		"kotlin",
+		"lua",
+		"markdown",
+		"objective-c",
+		"objective-cpp",
+		"php",
+		"prisma",
+		"python",
+		"ruby",
+		"rust",
+		"shellscript",
+		"sql",
+		"svelte",
+		"swift",
+		"terraform",
+		"typescript",
+		"typescriptreact",
+		"vue",
+		"yaml",
+	}
+	slices.Sort(want)
+	got := defaultLSPClientLanguageIDs(t)
+	if !slices.Equal(got, want) {
+		t.Fatalf("default LSP client languages = %#v, want %#v", got, want)
+	}
+	for _, languageID := range want {
 		adapter, ok := registry.AdapterForLanguage(languageID)
 		if !ok {
 			t.Fatalf("default adapter registry missing %q", languageID)
@@ -25,14 +68,18 @@ func TestGenericLanguageServicesMatrixCoversGoJSTSPythonRustJavaCSS(t *testing.T
 			t.Fatalf("%s adapter should require an LSP client", languageID)
 		}
 	}
+}
+
+func TestGenericLanguageServicesDefaultDocumentLanguagesUseLSPClients(t *testing.T) {
+	registry := NewDefaultLanguageAdapterRegistry()
 	for _, languageID := range []string{"markdown", "json", "yaml"} {
 		adapter, ok := registry.AdapterForLanguage(languageID)
 		if !ok {
-			t.Fatalf("default adapter registry missing fallback language %q", languageID)
+			t.Fatalf("default adapter registry missing %q", languageID)
 		}
 		policy := adapter.CapabilityPolicy()
-		if policy.RequiresLSPClient || !policy.DocumentSymbolFallback {
-			t.Fatalf("%s policy = %#v, want fallback without LSP client", languageID, policy)
+		if !policy.RequiresLSPClient || policy.DocumentSymbolFallback {
+			t.Fatalf("%s policy = %#v, want real LSP client without document fallback", languageID, policy)
 		}
 	}
 }
@@ -378,10 +425,14 @@ func TestGenericManagerHasNoLanguageSpecificRootBranches(t *testing.T) {
 	}
 }
 
-func TestNonLSPDocumentLanguagesUseCapabilityFallback(t *testing.T) {
+func TestConfiguredDocumentFallbackLanguagesUseCapabilityFallback(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	factory := &genericMatrixClientFactory{}
-	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	mgr := NewManager(Config{
+		WorkspaceRoot:    root,
+		ClientFactory:    factory,
+		LanguageAdapters: NewLanguageAdapterRegistry(documentFallbackAdapter{languageIDs: []string{"markdown", "json", "yaml"}}),
+	}).(*manager)
 	defer func() { _ = mgr.Close() }()
 	for _, tc := range []struct {
 		name string
