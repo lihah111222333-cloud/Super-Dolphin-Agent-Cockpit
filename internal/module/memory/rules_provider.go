@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,128 @@ type PrefetchManager = retrievalpkg.PrefetchManager
 // 句柄只在当前 thread 的 turn 缓存中流转，用于避免重复注入同一批记忆。
 type PrefetchHandle = retrievalpkg.PrefetchHandle
 type transcriptSnippet = retrievalpkg.TranscriptSnippet
+
+const (
+	memoryContextErrorCode       = "memory_context_error"
+	memoryHistorySearchErrorCode = "memory_history_search_failed"
+	memoryPrefetchErrorCode      = "memory_prefetch_failed"
+	memoryExtractManifestCode    = "memory_extract_manifest_failed"
+)
+
+type memoryTurnContextError struct {
+	code        string
+	stage       string
+	safeMessage string
+	err         error
+	logFields   []any
+}
+
+func newMemoryHistorySearchError(err error) error {
+	return newMemoryTurnContextError(memoryHistorySearchErrorCode, "read_history", err)
+}
+
+func newMemoryPrefetchError(err error) error {
+	return newMemoryTurnContextError(memoryPrefetchErrorCode, "prefetch", err)
+}
+
+func newMemoryExtractManifestError(err error) error {
+	return newMemoryTurnContextError(memoryExtractManifestCode, "build_manifest", err)
+}
+
+func newMemoryTurnContextError(code, stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &memoryTurnContextError{
+		code:        strings.TrimSpace(code),
+		stage:       strings.TrimSpace(stage),
+		safeMessage: safeMessageForMemoryCause(err),
+		err:         err,
+		logFields:   logFieldsForMemoryCause(err),
+	}
+}
+
+// Error 返回可跨 provider 边界传播的安全错误文本。
+func (e *memoryTurnContextError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.SafeMessage()
+}
+
+// SafeMessage 返回只包含 code/stage 的安全诊断。
+func (e *memoryTurnContextError) SafeMessage() string {
+	if e == nil {
+		return ""
+	}
+	if strings.TrimSpace(e.safeMessage) != "" {
+		return e.safeMessage
+	}
+	code := strings.TrimSpace(e.code)
+	if code == "" {
+		code = memoryContextErrorCode
+	}
+	stage := strings.TrimSpace(e.stage)
+	if stage == "" {
+		stage = "unknown"
+	}
+	return code + " stage=" + stage
+}
+
+// Unwrap 保留底层错误，供本地日志和 errors.Is/As 继续诊断。
+func (e *memoryTurnContextError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+// LogFields 返回只供本地结构化日志使用的诊断字段。
+func (e *memoryTurnContextError) LogFields() []any {
+	if e == nil {
+		return nil
+	}
+	fields := []any{
+		"memory_error_code", nonEmptyMemoryErrorValue(e.code, memoryContextErrorCode),
+		"memory_error_stage", nonEmptyMemoryErrorValue(e.stage, "unknown"),
+	}
+	fields = append(fields, e.logFields...)
+	return fields
+}
+
+func safeMessageForMemoryCause(err error) string {
+	var safeCause interface {
+		SafeMessage() string
+	}
+	if errors.As(err, &safeCause) {
+		if safeMessage := strings.TrimSpace(safeCause.SafeMessage()); safeMessage != "" {
+			return safeMessage
+		}
+	}
+	var manifestErr *retrievalpkg.ManifestScanError
+	if errors.As(err, &manifestErr) {
+		return manifestErr.SafeMessage()
+	}
+	return ""
+}
+
+func logFieldsForMemoryCause(err error) []any {
+	var manifestErr *retrievalpkg.ManifestScanError
+	if !errors.As(err, &manifestErr) {
+		return nil
+	}
+	return []any{
+		"memory_manifest_path", manifestErr.Path,
+		"memory_manifest_operation", manifestErr.Operation,
+	}
+}
+
+func nonEmptyMemoryErrorValue(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
+}
 
 // memory 检索默认值和 prefetch 状态常量。
 const (
@@ -347,7 +470,11 @@ func (p *MemoryContextProvider) PrepareTurnInputs(
 	buildCtx contract.BuildCtx,
 	threadID, query string,
 ) []shareddto.InputItem {
-	return p.PrepareTurnContext(ctx, session, buildCtx, threadID, query).Inputs
+	payload, err := p.PrepareTurnContextWithError(ctx, session, buildCtx, threadID, query)
+	if err != nil {
+		return nil
+	}
+	return payload.Inputs
 }
 
 // PrepareTurnContext 给本轮 turn 准备 memory 附件和历史片段。
@@ -358,13 +485,24 @@ func (p *MemoryContextProvider) PrepareTurnContext(
 	buildCtx contract.BuildCtx,
 	threadID, query string,
 ) TurnContextPayload {
+	payload, _ := p.PrepareTurnContextWithError(ctx, session, buildCtx, threadID, query)
+	return payload
+}
+
+// PrepareTurnContextWithError 给 turn assembly 返回 memory 上下文，并把检索/预取失败作为 typed error 上抛。
+func (p *MemoryContextProvider) PrepareTurnContextWithError(
+	ctx context.Context,
+	session contract.Session,
+	buildCtx contract.BuildCtx,
+	threadID, query string,
+) (TurnContextPayload, error) {
 	threadID = strings.TrimSpace(threadID)
 	query = strings.TrimSpace(query)
 	if invalidTurnContextRequest(p, threadID, query) {
-		return TurnContextPayload{}
+		return TurnContextPayload{}, nil
 	}
 	if !memoryProductEnabled(p.cfg) {
-		return TurnContextPayload{}
+		return TurnContextPayload{}, nil
 	}
 	gate := ResolveMemoryGate(buildCtx, p.cfg)
 	p.rememberTurnGate(threadID, gate)
@@ -373,14 +511,17 @@ func (p *MemoryContextProvider) PrepareTurnContext(
 	payload := TurnContextPayload{Attachments: freezeRelevantMemoryAttachmentsFromRoot(p.memoryRoot, entries, p.now())}
 	payload.Attachments = p.appendKairosDateChangeAttachment(threadID, gate, payload.Attachments)
 	if prefetchErr != nil {
-		payload.Inputs = memoryPrefetchErrorInputs(prefetchErr)
-		return payload
+		return payload, newMemoryPrefetchError(prefetchErr)
 	}
 	if attemptPrefetch && !ready {
-		return payload
+		return payload, nil
 	}
-	payload.Inputs = p.searchPastContextInputs(ctx, session, threadID, query, gate, entries)
-	return payload
+	inputs, err := p.searchPastContextInputs(ctx, session, threadID, query, gate, entries)
+	if err != nil {
+		return payload, err
+	}
+	payload.Inputs = inputs
+	return payload, nil
 }
 
 // prepareTurnAttachments 尝试消费上一轮预取结果，并判断本轮是否需要启动新的预取。
@@ -414,45 +555,21 @@ func (p *MemoryContextProvider) searchPastContextInputs(
 	threadID, query string,
 	gate MemoryGateSnapshot,
 	entries []MemoryEntry,
-) []shareddto.InputItem {
+) ([]shareddto.InputItem, error) {
 	if !gate.SearchPastContextEnabled || !shouldSearchPastContextQuery(query) {
-		return nil
+		return nil, nil
 	}
 	if len(entries) > 0 && !memoryRetrievalLowConfidence(query, entries) {
-		return nil
+		return nil, nil
 	}
 	snippets, err := p.searchPastContext(ctx, session, threadID, query)
 	if err != nil {
-		return memoryHistorySearchErrorInputs(err)
+		return nil, newMemoryHistorySearchError(err)
 	}
 	if len(snippets) == 0 {
-		return nil
+		return nil, nil
 	}
-	return freezeTranscriptInputs(snippets)
-}
-
-// memoryHistorySearchErrorInputs 把历史检索失败显式传给本轮 turn，避免上层把错误误判成没有命中。
-func memoryHistorySearchErrorInputs(err error) []shareddto.InputItem {
-	if err == nil {
-		return nil
-	}
-	return []shareddto.InputItem{{
-		Type:    "filecontent",
-		Name:    "Memory history search error",
-		Content: "memory history search failed:\n" + err.Error(),
-	}}
-}
-
-// memoryPrefetchErrorInputs 把相关记忆预取失败显式交给本轮 turn，避免错误被误判成无命中。
-func memoryPrefetchErrorInputs(err error) []shareddto.InputItem {
-	if err == nil {
-		return nil
-	}
-	return []shareddto.InputItem{{
-		Type:    "filecontent",
-		Name:    "Memory prefetch error",
-		Content: "memory prefetch failed:\n" + err.Error(),
-	}}
+	return freezeTranscriptInputs(snippets), nil
 }
 
 func invalidTurnContextRequest(p *MemoryContextProvider, threadID, query string) bool {
