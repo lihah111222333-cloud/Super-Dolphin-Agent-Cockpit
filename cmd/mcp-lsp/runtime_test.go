@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -319,7 +320,7 @@ func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
 	writeMcpLSPExecutable(t, binDir, "shellcheck")
 	t.Setenv("PATH", binDir)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
 	}
@@ -368,7 +369,7 @@ printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
 	t.Setenv("FAKE_INSTALL_BIN", binDir)
 	t.Setenv("FAKE_NPM_MARKER", marker)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
 	}
