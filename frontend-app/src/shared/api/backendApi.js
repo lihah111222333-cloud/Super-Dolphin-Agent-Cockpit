@@ -1748,11 +1748,15 @@ async function suggestSkillSummaryPayload(callBackend, params) {
 
 function applySkillResolutionPayload(callBackend, params) {
   const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_APPLY, params);
+  const previewID = normalizeString(payload.preview_id ?? payload.previewId);
+  const previewHash = normalizeString(payload.preview_hash ?? payload.previewHash);
+  if (!previewID) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_id is required`);
+  if (!previewHash) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_hash is required`);
   return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
     cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
     ...skillResolutionPayload(payload),
-    preview_id: normalizeString(payload.preview_id ?? payload.previewId),
-    preview_hash: normalizeString(payload.preview_hash ?? payload.previewHash),
+    preview_id: previewID,
+    preview_hash: previewHash,
   }));
 }
 

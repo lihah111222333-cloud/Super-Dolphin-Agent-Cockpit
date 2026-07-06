@@ -1247,6 +1247,27 @@ function expectSkillEditorCalls(callAPI) {
     });
   });
 
+  it('rejects skill resolution apply without preview proof', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+    const validApplyPayload = {
+      cwd: '/repo/app',
+      conflict_id: 'c1',
+      action: 'canonical_overwrite_mirror',
+      previewId: 'p1',
+      previewHash: 'h1',
+    };
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      previewId: '',
+    }), 'preview_id is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      previewHash: '',
+    }), 'preview_hash is required');
+  });
+
   it('wraps DAG dashboard RPCs with the legacy payload shapes', async () => {
     const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
