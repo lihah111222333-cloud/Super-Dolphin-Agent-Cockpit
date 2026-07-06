@@ -84,6 +84,48 @@ func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *Langua
 	}
 }
 
+func TestGoAdapterUsesTargetBuildTagsInEnvAndInitOptions(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/e2e\n\ngo 1.25.0\n")
+	target := filepath.Join(root, "lsp_binary_e2e_probe_test.go")
+	writeGenericTestFile(t, target, strings.Join([]string{
+		"//go:build e2e",
+		"",
+		"package main",
+		"",
+		"func TestProbe(t testingT) {}",
+		"",
+		"type testingT interface { Helper() }",
+		"",
+	}, "\n"))
+
+	registry := NewDefaultLanguageAdapterRegistry()
+	goAdapter, ok := registry.AdapterForLanguage("go")
+	if !ok {
+		t.Fatal("missing go adapter")
+	}
+	scope, err := goAdapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "go",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("go ResolveRoot: %v", err)
+	}
+	if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "e2e" {
+		t.Fatalf("go build tags = %q, want e2e", got)
+	}
+	if got, want := goAdapter.EnvPolicy(scope), []string{"GOFLAGS=-mod=mod -tags=e2e"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("go EnvPolicy = %#v, want %#v", got, want)
+	}
+	initOptions := goAdapter.InitOptions(scope)
+	if got, want := initOptions["buildFlags"], []string{"-tags=e2e"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("go InitOptions buildFlags = %#v, want %#v", got, want)
+	}
+}
+
 func assertTypeScriptAdapterPolicies(t *testing.T, ctx context.Context, registry *LanguageAdapterRegistry, root, jsRoot string) {
 	t.Helper()
 	tsAdapter, ok := registry.AdapterForLanguage("typescript")
