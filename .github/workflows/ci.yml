@@ -66,6 +66,8 @@ jobs:
         run: make sqlc-verify
       - name: Codemap check
         run: make codemap-check
+      - name: Capability contract check
+        run: make capcontract-check
       - name: Validate skills
         run: python3 scripts/validate_super_agent_skills.py
 
