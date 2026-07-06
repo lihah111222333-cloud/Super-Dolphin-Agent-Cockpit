@@ -747,9 +747,27 @@ package_linux_main() {
 
   build_current_frontend_app
 
-  if ! phase_cache_check "go-binaries" "$root/cmd" "$root/internal" "$root/pkg" "$root/go.sum"; then
+  linux_cgo_enabled="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
+  go_binary_cache_paths=(
+    "$root/cmd"
+    "$root/internal"
+    "$root/pkg"
+    "$root/go.mod"
+    "$root/go.sum"
+  )
+  go_binary_cache_inputs=(
+    "input:GOVERSION=$(go env GOVERSION)"
+    "input:GOOS=$goos"
+    "input:GOARCH=$goarch"
+    "input:CGO_ENABLED=$linux_cgo_enabled"
+    "input:CGO_CFLAGS=${CGO_CFLAGS:-}"
+    "input:CGO_CXXFLAGS=${CGO_CXXFLAGS:-}"
+    "input:CGO_LDFLAGS=${CGO_LDFLAGS:-}"
+  )
+  if ! phase_cache_check "go-binaries" "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"; then
     (
       cd "$root"
+      export CGO_ENABLED="$linux_cgo_enabled"
       make build-peer-binaries
       go build -o bin/agent-terminal ./cmd/agent-terminal
       go build -o bin/mcp-ida ./cmd/mcp-ida

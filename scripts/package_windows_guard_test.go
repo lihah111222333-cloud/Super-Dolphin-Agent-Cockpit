@@ -81,7 +81,9 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'frontend'", "& npm run build", "Save-BuildPhaseCache")
 
 	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'go-binaries'")
-	assertScriptContains(t, script, "(Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')")
+	assertScriptContains(t, script, "$goBinaryCachePaths = @(")
+	assertScriptContains(t, script, "(Join-Path $Root 'go.mod')")
+	assertScriptContains(t, script, "(Join-Path $Root 'go.sum')")
 	assertScriptContains(t, script, "@('GOOS=windows', \"GOARCH=$WindowsPackageArch\"")
 	assertScriptContains(t, script, "$windowsGuiLdFlags = '-H=windowsgui'")
 	assertScriptContains(t, script, `"WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags"`)

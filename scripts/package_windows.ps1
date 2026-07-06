@@ -1153,7 +1153,14 @@ function Package-WindowsMain() {
     try {
         $windowsGuiLdFlags = '-H=windowsgui'
         $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())", "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags")
-        if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths @((Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')) -Inputs $goInputs)) {
+        $goBinaryCachePaths = @(
+            (Join-Path $Root 'cmd'),
+            (Join-Path $Root 'internal'),
+            (Join-Path $Root 'pkg'),
+            (Join-Path $Root 'go.mod'),
+            (Join-Path $Root 'go.sum')
+        )
+        if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths $goBinaryCachePaths -Inputs $goInputs)) {
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags
