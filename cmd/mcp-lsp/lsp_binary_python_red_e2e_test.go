@@ -180,6 +180,50 @@ func TestMcpLSPBinaryPythonDiagnosticsWaitsForDelayedTargets_E2E(t *testing.T) {
 	}
 }
 
+func TestMcpLSPBinaryPythonDiagnosticsRetriesPastStartupRecoveryBudget_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	targets := writePythonDiagnosticsFixture(t, root)
+	slowTarget := targets[1]
+	binary := buildMcpLSPBinaryForTest(t)
+	fakePyrightBinDir := writeFakePyrightLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakePyrightBinDir, []string{
+		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS=delayed_second",
+		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTIC_SLOW_DELAY=16500ms",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": slowTarget,
+	})
+	if diagnostics.Result.IsError {
+		t.Fatalf("diagnostics timed out before delayed Python target published; text=%q structured=%s stderr=%s",
+			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+	}
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	if strings.Contains(payload.Meta.Message, "partial diagnostics") {
+		t.Fatalf("diagnostics returned partial readiness before delayed Python target published: meta=%q payload=%s text=%q stderr=%s",
+			payload.Meta.Message, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+	if payload.Total != 1 {
+		t.Fatalf("diagnostics total = %d, want 1; payload=%s text=%q stderr=%s",
+			payload.Total, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+	if !payload.HasFile(slowTarget) {
+		t.Fatalf("diagnostics missing %s; payload=%s text=%q stderr=%s",
+			slowTarget, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+}
+
 func TestMcpLSPBinaryPythonDiagnosticsSummarizesMultilineMessages_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")

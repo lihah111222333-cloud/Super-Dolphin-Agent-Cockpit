@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -22,6 +24,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+const pythonDiagnosticsColdStartMaxWait = 8 * time.Second
 
 // Manager 汇总 mcp-lsp 进程内的语言 registry、后台 runner 和 scope 释放器。
 // 它是 MCP 工具层进入 LSP runtime 的本地边界，不直接暴露具体 ManagerPool 实现。
@@ -455,6 +459,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	mgr := multilsp.NewManager(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
+		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			// rootDir 来自本次 workspace 解析结果，让语言服务器子进程跟随调用方项目。
@@ -475,6 +480,13 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		Logger: log,
 	})
 	return &runtimeBinaryManager{Manager: mgr, binary: binary}, nil
+}
+
+func runtimeAdapterDiagnosticsMaxWait(adapter multilsp.LanguageAdapter) time.Duration {
+	if adapterSupportsLanguage(adapter, "python") {
+		return pythonDiagnosticsColdStartMaxWait
+	}
+	return 0
 }
 
 const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/python"
@@ -504,12 +516,7 @@ func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP boo
 }
 
 func adapterSupportsLanguage(adapter multilsp.LanguageAdapter, languageID string) bool {
-	for _, adapterLanguageID := range adapter.LanguageIDs() {
-		if adapterLanguageID == languageID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(adapter.LanguageIDs(), languageID)
 }
 
 func runtimeServerBinary(commandExecutable, binaryOverride string) string {

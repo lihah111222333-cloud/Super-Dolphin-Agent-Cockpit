@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -481,6 +482,84 @@ func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
 	}
 	if len(registry.callOrder) == 0 || registry.callOrder[len(registry.callOrder)-1] != "diagnostics" {
 		t.Fatalf("diagnostics call order = %#v, want diagnostics after startup recovery", registry.callOrder)
+	}
+}
+
+func TestDiagnosticsRetriesStartupWaitUntilFifthRetry(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "slow.go")
+	manager := &diagnosticsStartupManager{}
+	registry := &diagnosticsTestRegistry{
+		manager: manager,
+		waitErrs: []error{
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+		},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "slow.go"})
+
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
+		t.Fatalf("diagnostics returned startup retry error: %v", err)
+	}
+	wantURI := canonicalFileURI(t, target)
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
+	assertDiagnosticURIs(t, manager.didOpenURIs, []string{wantURI})
+	if registry.waitCalls != 6 {
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want initial wait plus 5 retries", registry.waitCalls)
+	}
+}
+
+func TestDiagnosticsReportsStartupTimeoutAfterFiveRetries(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "never.go")
+	manager := &diagnosticsStartupManager{}
+	registry := &diagnosticsTestRegistry{
+		manager: manager,
+		waitErrs: []error{
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+			lspmanager.ErrDiagnosticsNotReady,
+		},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "never.go"})
+
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err == nil || !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+		t.Fatalf("diagnostics error = %v, want ErrDiagnosticsNotReady after retries", err)
+	}
+	wantURI := canonicalFileURI(t, target)
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
+	assertDiagnosticURIs(t, manager.didOpenURIs, []string{wantURI})
+	if registry.waitCalls != 6 {
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want initial wait plus 5 retries", registry.waitCalls)
+	}
+}
+
+func TestDiagnosticsRetryBackoffSequence(t *testing.T) {
+	tests := []struct {
+		retry int
+		want  time.Duration
+	}{
+		{retry: 0, want: 0},
+		{retry: 1, want: 300 * time.Millisecond},
+		{retry: 2, want: 600 * time.Millisecond},
+		{retry: 3, want: 1200 * time.Millisecond},
+		{retry: 4, want: 2400 * time.Millisecond},
+		{retry: 5, want: 4800 * time.Millisecond},
+	}
+
+	for _, tt := range tests {
+		if got := diagnosticsRetryBackoff(tt.retry); got != tt.want {
+			t.Fatalf("diagnosticsRetryBackoff(%d) = %s, want %s", tt.retry, got, tt.want)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -20,6 +21,8 @@ const maxDiagnosticSummaryRunes = 300
 const typeScriptDeprecatedDiagnosticCode = "6385"
 const appManagedDiagnosticsNoBootstrapSource = "app_managed_no_bootstrap"
 const appManagedDiagnosticsNoBootstrapMessage = "diagnostics target is app-managed data outside workspace roots; skipped workspace LSP bootstrap and returned an empty diagnostics cache"
+const diagnosticsStartupRetryCount = 5
+const diagnosticsStartupRetryBaseDelay = 300 * time.Millisecond
 
 type diagnosticsTable struct {
 	File string   `json:"file"`
@@ -133,10 +136,56 @@ func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, ex
 	if opened == 0 {
 		return diagnosticsWaitResult{}, waitErr
 	}
-	if _, retryErr := h.waitDiagnosticsStable(ctx, uris); retryErr != nil {
+	if retryErr := h.waitDiagnosticsStableWithStartupRetries(ctx, uris); retryErr != nil {
 		return h.recoverPartialDiagnosticsWait(ctx, uris, retryErr)
 	}
 	return diagnosticsWaitResult{recovered: true}, nil
+}
+
+// waitDiagnosticsStableWithStartupRetries 在启动恢复后继续等待 diagnostics ready。
+// 仅 ErrDiagnosticsNotReady 进入有限指数退避重试，其他错误必须立即返回，避免吞掉真实 LSP 失败。
+func (h handlerBase) waitDiagnosticsStableWithStartupRetries(ctx context.Context, uris []string) error {
+	var lastErr error
+	for retry := 1; retry <= diagnosticsStartupRetryCount; retry++ {
+		if err := sleepDiagnosticsRetryBackoff(ctx, retry); err != nil {
+			return err
+		}
+		if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
+			if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+				return err
+			}
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func sleepDiagnosticsRetryBackoff(ctx context.Context, retry int) error {
+	delay := diagnosticsRetryBackoff(retry)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func diagnosticsRetryBackoff(retry int) time.Duration {
+	if retry <= 0 {
+		return 0
+	}
+	delay := diagnosticsStartupRetryBaseDelay
+	for i := 1; i < retry; i++ {
+		delay *= 2
+	}
+	return delay
 }
 
 // recoverPartialDiagnosticsWait 将批量等待失败降级为逐文件等待。
