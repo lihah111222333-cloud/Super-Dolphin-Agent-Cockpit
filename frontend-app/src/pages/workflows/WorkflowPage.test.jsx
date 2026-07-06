@@ -473,6 +473,23 @@ describe('WorkflowPage module', () => {
     expect(payload.idempotencyKey).toMatch(/^ui-/);
   });
 
+  it('shows refresh failure after a successful DAG start', async () => {
+    mockWorkflowDag();
+    backend.getDagDetail
+      .mockResolvedValueOnce({
+        dag: { dag_key: 'daily-brief', title: 'Daily Brief', status: 'ready', trigger: 'manual', version: 7 },
+        nodes: [{ node_key: 'draft', title: 'Draft', node_type: 'agent', assigned_to: 'codex', depends_on: [] }],
+      })
+      .mockRejectedValueOnce(new Error('detail refresh offline'));
+
+    renderWorkflowPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '运行' }));
+
+    const notice = await screen.findByText(/已启动自动化/);
+    expect(notice).toHaveTextContent('但刷新状态失败：detail refresh offline');
+  });
+
   it('shows blocked ready-node diagnostics and dispatches the runtime node with an assignee', async () => {
     mockWorkflowDag();
     backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
