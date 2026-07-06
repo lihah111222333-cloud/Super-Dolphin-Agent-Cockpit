@@ -1268,6 +1268,38 @@ function expectSkillEditorCalls(callAPI) {
     }), 'preview_hash is required');
   });
 
+  it('rejects skill resolution payloads without required conflict fields', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+    const validPreviewPayload = {
+      cwd: '/repo/app',
+      conflictId: 'c1',
+      action: 'canonical_overwrite_mirror',
+    };
+    const validApplyPayload = {
+      ...validPreviewPayload,
+      previewId: 'p1',
+      previewHash: 'h1',
+    };
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.previewSkillResolution({
+      ...validPreviewPayload,
+      conflictId: '',
+    }), 'conflict_id is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.previewSkillResolution({
+      ...validPreviewPayload,
+      action: '',
+    }), 'action is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      conflictId: '',
+    }), 'conflict_id is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      action: '',
+    }), 'action is required');
+  });
+
   it('wraps DAG dashboard RPCs with the legacy payload shapes', async () => {
     const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });

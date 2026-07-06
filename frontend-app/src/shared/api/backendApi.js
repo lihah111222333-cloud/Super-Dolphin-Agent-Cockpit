@@ -425,11 +425,15 @@ function normalizeSkillSummarySuggestion(raw) {
   throw new Error(`${RPC_METHODS.SKILLS_SUMMARY_SUGGEST}: description is required`);
 }
 
-function skillResolutionPayload(params = {}) {
-  const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params);
+function skillResolutionPayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  const conflictID = normalizeString(payload.conflict_id ?? payload.conflictId);
+  const action = normalizeString(payload.action);
+  if (!conflictID) throw new Error(`${method}: conflict_id is required`);
+  if (!action) throw new Error(`${method}: action is required`);
   const entries = [
-    ['conflict_id', payload.conflict_id ?? payload.conflictId],
-    ['action', payload.action],
+    ['conflict_id', conflictID],
+    ['action', action],
     ['name', payload.name],
     ['scope', payload.scope],
     ['personal_type', payload.personal_type ?? payload.personalType],
@@ -1644,7 +1648,7 @@ function createSkillApi(callBackend) {
     listSkillResolutions: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_LIST, requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params)),
     previewSkillResolution: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, {
       cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params).cwd,
-      ...skillResolutionPayload(params),
+      ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params),
     }),
     applySkillResolution: (params) => applySkillResolutionPayload(callBackend, params),
     deleteSkill: (params) => deleteSkillPayload(callBackend, params),
@@ -1754,7 +1758,7 @@ function applySkillResolutionPayload(callBackend, params) {
   if (!previewHash) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_hash is required`);
   return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
     cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
-    ...skillResolutionPayload(payload),
+    ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload),
     preview_id: previewID,
     preview_hash: previewHash,
   }));
