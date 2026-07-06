@@ -1416,6 +1416,39 @@ function useWorkflowNotice(selectedDagKey) {
   return { clearNotice, notice, showTaskNotice };
 }
 
+function workflowRefreshNotice(message, refreshError) {
+  if (!refreshError) return message;
+  return `${message}，但刷新状态失败：${errorMessage(refreshError)}`;
+}
+
+async function refreshWorkflowListResult(list, fallbackItems) {
+  try {
+    return { error: null, items: await list.refreshDags() };
+  } catch (err) {
+    return { error: err, items: fallbackItems };
+  }
+}
+
+async function refreshWorkflowDetailResult(refresh, targetDagKey, runKey = '') {
+  if (!refresh || !textValue(targetDagKey)) return null;
+  try {
+    await refresh.refreshDetail(targetDagKey, runKey);
+    return null;
+  } catch (err) {
+    return err;
+  }
+}
+
+function firstWorkflowRefreshError(...errors) {
+  return errors.find(Boolean) || null;
+}
+
+async function refreshWorkflowAfterAction({ fallbackItems, list, refresh, runKey = '', targetDagKey }) {
+  const listResult = list ? await refreshWorkflowListResult(list, fallbackItems) : { error: null, items: fallbackItems };
+  const detailError = refresh ? await refreshWorkflowDetailResult(refresh, targetDagKey, runKey) : null;
+  return { error: firstWorkflowRefreshError(listResult.error, detailError), items: listResult.items };
+}
+
 function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, selectedRunKey, setSelectedRunKey, workflowCwd }) {
   const queryClient = useQueryClient();
   const handledWorkflowRefreshRef = useRef(0);
@@ -1552,10 +1585,10 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
     try {
       const result = await withWorkflowActionTimeout(startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2) }));
       const runKey = runKeyOf(result);
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(targetDagKey, runKey).catch(() => {});
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey });
       const warning = textValue(result?.warning);
-      notices.showTaskNotice(warning ? '已启动，后端提示：' + warning : '已启动自动化', targetDagKey);
+      const message = warning ? '已启动，后端提示：' + warning : '已启动自动化';
+      notices.showTaskNotice(workflowRefreshNotice(message, refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('启动自动化失败：' + errorMessage(err));
     } finally {
@@ -1573,12 +1606,11 @@ function useStopSelectedDagAction({ actionState, derived, list, notices, refresh
     notices.clearNotice();
     try {
       await withWorkflowActionTimeout(terminateDagRun({ dagKey: targetDagKey, runKey: derived.activeRunKey, reason: 'user_requested' }));
-      notices.showTaskNotice('已停止运行', targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice('已停止运行', refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('停止运行失败：' + errorMessage(err));
     } finally {
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(targetDagKey).catch(() => {});
       actionState.setActioning('');
     }
   }, [actionState, derived, list, notices, refresh]);
@@ -1601,9 +1633,10 @@ function useDeleteDagAction({ actionState, derived, list, notices, selection }) 
       await withWorkflowActionTimeout(deleteDag({ dagKey: targetKey }));
       actionState.setDeleteTarget(null);
       const fallback = list.items.filter((item) => item.dagKey !== targetKey);
-      const nextItems = await list.refreshDags().catch(() => fallback);
+      const refreshResult = await refreshWorkflowAfterAction({ fallbackItems: fallback, list, targetDagKey: targetKey });
+      const nextItems = refreshResult.items || fallback;
       selection.setSelectedDagKey(nextWorkflowSelectionKey(nextItems, selection.activeCategory));
-      notices.showTaskNotice('已删除 ' + (target?.title || targetKey), targetKey);
+      notices.showTaskNotice(workflowRefreshNotice('已删除 ' + (target?.title || targetKey), refreshResult.error), targetKey);
     } catch (err) {
       actionState.setError('删除自动化失败：' + errorMessage(err));
     } finally {
@@ -1635,11 +1668,8 @@ function useSaveScheduleAction({ actionState, derived, list, notices, refresh })
       }
       await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: schedulePatch }] }));
       actionState.setScheduleOpen(false);
-      await Promise.all([
-        list.refreshDags().catch(() => []),
-        refresh.refreshDetail(targetDagKey).catch(() => {}),
-      ]);
-      notices.showTaskNotice('已保存定时任务', targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice('已保存定时任务', refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('保存定时任务失败：' + errorMessage(err));
     } finally {
@@ -1659,11 +1689,8 @@ function useToggleScheduleAction({ actionState, derived, list, notices, refresh 
     notices.clearNotice();
     try {
       await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }] }));
-      await Promise.all([
-        list.refreshDags().catch(() => []),
-        refresh.refreshDetail(targetDagKey).catch(() => {}),
-      ]);
-      notices.showTaskNotice(enabled ? '已启用自动运行' : '已暂停自动运行', targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice(enabled ? '已启用自动运行' : '已暂停自动运行', refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('切换自动运行失败：' + errorMessage(err));
     } finally {
@@ -1682,8 +1709,8 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
     notices.clearNotice();
     try {
       await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_node', node_key: node.nodeKey, patch: dagNodePatchFromForm(form, node) }] }));
-      await refresh.refreshDetail(targetDagKey).catch(() => {});
-      notices.showTaskNotice('已保存步骤 ' + node.title, targetDagKey);
+      const refreshError = await refreshWorkflowDetailResult(refresh, targetDagKey);
+      notices.showTaskNotice(workflowRefreshNotice('已保存步骤 ' + node.title, refreshError), targetDagKey);
     } catch (err) {
       actionState.setError('保存步骤失败：' + errorMessage(err));
     } finally {
@@ -1709,11 +1736,8 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
         nodeKey: node.nodeKey,
         assignedTo: assignee,
       }));
-      await Promise.all([
-        list.refreshDags().catch(() => []),
-        refresh.refreshDetail(targetDagKey).catch(() => {}),
-      ]);
-      notices.showTaskNotice(`已派发步骤 ${node.title || node.nodeKey}`, targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice(`已派发步骤 ${node.title || node.nodeKey}`, refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('派发节点失败：' + errorMessage(err));
     } finally {
@@ -1745,10 +1769,10 @@ function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, 
       const result = await withWorkflowActionTimeout(createAndStartDag(enterpriseCreateAndStartDAGPayload(draft)));
       const dagKey = textValue(result?.dagKey || result?.dag_key || draft.dag_key || draft.dagKey);
       const runKey = runKeyOf(result);
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(dagKey, runKey).catch(() => {});
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey: dagKey });
       const warning = textValue(result?.warning);
-      notices.showTaskNotice(warning ? '已创建并启动，后端提示：' + warning : '已创建并启动自动化', dagKey);
+      const message = warning ? '已创建并启动，后端提示：' + warning : '已创建并启动自动化';
+      notices.showTaskNotice(workflowRefreshNotice(message, refreshResult.error), dagKey);
       return { ok: true, dagKey, runKey, warning };
     } catch (err) {
       actionState.setError('创建模板工作流失败：' + errorMessage(err));
