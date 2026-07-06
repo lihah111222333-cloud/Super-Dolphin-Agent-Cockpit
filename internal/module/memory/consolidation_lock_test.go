@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,13 +109,14 @@ func TestConsolidationLockIndependentFromDiskStoreLock(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	errCh := make(chan error, 1)
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		errCh <- store.locks.withDiskStoreLock(root, func() error {
 			close(started)
 			<-release
 			return nil
 		})
-	}()
+	})
 	<-started
 	guard, err := acquireConsolidationLock(root, consolidationLockOptions{})
 	if err != nil {
@@ -124,6 +126,7 @@ func TestConsolidationLockIndependentFromDiskStoreLock(t *testing.T) {
 	if err := <-errCh; err != nil {
 		t.Fatalf("withDiskStoreLock() error = %v", err)
 	}
+	wg.Wait()
 	if err := guard.Release(); err != nil {
 		t.Fatalf("Release() error = %v", err)
 	}

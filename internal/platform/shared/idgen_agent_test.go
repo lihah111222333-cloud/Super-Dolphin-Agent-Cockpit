@@ -45,7 +45,6 @@ func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
 	start := make(chan struct{})
 	ids := make(chan string, n)
 	var wg sync.WaitGroup
-	wg.Add(n)
 	workersDone := make(chan struct{})
 	t.Cleanup(func() {
 		select {
@@ -55,11 +54,10 @@ func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
 		}
 	})
 	for range n {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			ids <- NewAgentID()
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

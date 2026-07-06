@@ -46,7 +46,7 @@ func runUpsertSuccessCase(t *testing.T, params UpsertParams) {
 
 	var got sqlc.UpsertAgentProviderBindingParams
 	lookupCalls := 0
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
 			got = arg
 			return nil
@@ -55,7 +55,7 @@ func runUpsertSuccessCase(t *testing.T, params UpsertParams) {
 			lookupCalls++
 			return sqlc.AgentProviderBinding{AgentID: arg.ProviderThreadID}, nil
 		},
-	}}
+	})}
 
 	if err := s.Upsert(context.Background(), params); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
@@ -71,7 +71,7 @@ func runUpsertUniqueFallbackCase(t *testing.T, params UpsertParams) {
 
 	lookupCalls := 0
 	var gotLookup sqlc.GetAgentProviderBindingByProviderThreadParams
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
 			if arg.AgentID != params.AgentID {
 				t.Fatalf("Upsert() AgentID = %q, want %q", arg.AgentID, params.AgentID)
@@ -83,7 +83,7 @@ func runUpsertUniqueFallbackCase(t *testing.T, params UpsertParams) {
 			gotLookup = arg
 			return sqlc.AgentProviderBinding{AgentID: params.AgentID}, nil
 		},
-	}}
+	})}
 
 	if err := s.Upsert(context.Background(), params); err != nil {
 		t.Fatalf("Upsert() unique violation fallback error = %v", err)
@@ -125,12 +125,12 @@ func TestGetByProviderThread(t *testing.T) {
 
 	t.Run("found", func(t *testing.T) {
 		var got sqlc.GetAgentProviderBindingByProviderThreadParams
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			getByProviderThreadFn: func(_ context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 				got = arg
 				return sampleAgentProviderBindingByProviderThreadRow(), nil
 			},
-		}}
+		})}
 
 		binding, err := s.GetByProviderThread(context.Background(), "codex", "provider-thread-1")
 		if err != nil {
@@ -143,11 +143,11 @@ func TestGetByProviderThread(t *testing.T) {
 	})
 
 	t.Run("missing returns nil binding", func(t *testing.T) {
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			getByProviderThreadFn: func(context.Context, sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 				return sqlc.AgentProviderBinding{}, sql.ErrNoRows
 			},
-		}}
+		})}
 
 		binding, err := s.GetByProviderThread(context.Background(), "codex", "missing-thread")
 		if binding != nil {
@@ -165,12 +165,12 @@ func TestGetByAgentID(t *testing.T) {
 
 	t.Run("found", func(t *testing.T) {
 		var got string
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			getAgentProviderBindingByAgentIDFn: func(_ context.Context, agentID string) (sqlc.AgentProviderBinding, error) {
 				got = agentID
 				return sampleAgentProviderBindingByAgentIDRow(), nil
 			},
-		}}
+		})}
 
 		binding, err := s.GetByAgentID(context.Background(), "agent-lookup")
 		if err != nil {
@@ -183,11 +183,11 @@ func TestGetByAgentID(t *testing.T) {
 	})
 
 	t.Run("missing returns nil binding", func(t *testing.T) {
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			getAgentProviderBindingByAgentIDFn: func(context.Context, string) (sqlc.AgentProviderBinding, error) {
 				return sqlc.AgentProviderBinding{}, sql.ErrNoRows
 			},
-		}}
+		})}
 
 		binding, err := s.GetByAgentID(context.Background(), "missing-agent")
 		if binding != nil {
@@ -203,14 +203,14 @@ func TestGetByAgentID(t *testing.T) {
 func TestSessionBindingAdapterMapsArchived(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		getAgentProviderBindingByAgentIDFn: func(_ context.Context, agentID string) (sqlc.AgentProviderBinding, error) {
 			if agentID != "agent-lookup" {
 				t.Fatalf("GetByAgentID() agentID = %q, want agent-lookup", agentID)
 			}
 			return sampleAgentProviderBindingByAgentIDRow(), nil
 		},
-	}}
+	})}
 	adapter := NewSessionBindingLookup(s)
 	binding, err := adapter.GetByAgentID(context.Background(), "agent-lookup")
 	if err != nil {
@@ -226,12 +226,12 @@ func TestDeleteByAgentID(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		var got string
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			deleteAgentProviderBindingByIDFn: func(_ context.Context, agentID string) error {
 				got = agentID
 				return nil
 			},
-		}}
+		})}
 
 		if err := s.DeleteByAgentID(context.Background(), "agent-delete"); err != nil {
 			t.Fatalf("DeleteByAgentID() error = %v", err)
@@ -243,7 +243,7 @@ func TestDeleteByAgentID(t *testing.T) {
 
 	t.Run("missing is noop", func(t *testing.T) {
 		var calls int
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			deleteAgentProviderBindingByIDFn: func(_ context.Context, agentID string) error {
 				calls++
 				if agentID != "missing-agent" {
@@ -251,7 +251,7 @@ func TestDeleteByAgentID(t *testing.T) {
 				}
 				return nil
 			},
-		}}
+		})}
 
 		if err := s.DeleteByAgentID(context.Background(), "missing-agent"); err != nil {
 			t.Fatalf("DeleteByAgentID() missing error = %v", err)
@@ -266,12 +266,12 @@ func TestUpdateSessionUUID(t *testing.T) {
 	t.Parallel()
 
 	var got sqlc.UpdateAgentProviderBindingSessionUUIDParams
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		updateSessionUUIDFn: func(_ context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error {
 			got = arg
 			return nil
 		},
-	}}
+	})}
 
 	if err := s.UpdateSessionUUID(context.Background(), UpdateSessionUUIDParams{
 		SessionUUID: "session-uuid-1",
@@ -289,12 +289,12 @@ func TestUpdateProviderThreadID(t *testing.T) {
 	t.Parallel()
 
 	var got sqlc.UpdateAgentProviderBindingProviderThreadIDParams
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		updateProviderThreadIDFn: func(_ context.Context, arg sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error {
 			got = arg
 			return nil
 		},
-	}}
+	})}
 
 	if err := s.UpdateProviderThreadID(context.Background(), UpdateProviderThreadIDParams{
 		ProviderThreadID: "provider-thread-1",
@@ -321,12 +321,12 @@ func TestSetArchived(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got sqlc.UpdateAgentProviderBindingArchivedParams
-			s := &store{q: &bindingQuerierStub{
+			s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 				updateArchivedFn: func(_ context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error {
 					got = arg
 					return nil
 				},
-			}}
+			})}
 
 			if err := s.SetArchived(context.Background(), SetArchivedParams{
 				AgentID:   "agent-archived",
@@ -357,22 +357,22 @@ func TestErrorWrapping(t *testing.T) {
 
 	t.Run("generic delete error", func(t *testing.T) {
 		baseErr := errors.New("delete failed")
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			deleteAgentProviderBindingByIDFn: func(context.Context, string) error {
 				return baseErr
 			},
-		}}
+		})}
 
 		err := s.DeleteByAgentID(context.Background(), "agent-wrap")
 		assertStoreError(t, err, "delete_by_agent_id", "binding", baseErr)
 	})
 
 	t.Run("not found classification", func(t *testing.T) {
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			getAgentProviderBindingByAgentIDFn: func(context.Context, string) (sqlc.AgentProviderBinding, error) {
 				return sqlc.AgentProviderBinding{}, sql.ErrNoRows
 			},
-		}}
+		})}
 
 		_, err := s.GetByAgentID(context.Background(), "missing-agent")
 		assertStoreError(t, err, "get_by_agent_id", "binding", sql.ErrNoRows)
@@ -383,14 +383,14 @@ func TestErrorWrapping(t *testing.T) {
 
 	t.Run("conflict classification", func(t *testing.T) {
 		baseErr := errors.New("UNIQUE constraint failed: agent_provider_binding.provider, agent_provider_binding.provider_thread_id")
-		s := &store{q: &bindingQuerierStub{
+		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			upsertAgentProviderBindingFn: func(context.Context, sqlc.UpsertAgentProviderBindingParams) error {
 				return baseErr
 			},
 			getByProviderThreadFn: func(context.Context, sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 				return sqlc.AgentProviderBinding{AgentID: "other-agent"}, nil
 			},
-		}}
+		})}
 
 		err := s.Upsert(context.Background(), params)
 		assertStoreError(t, err, "upsert", "binding", baseErr)
@@ -404,12 +404,12 @@ func TestBindAgentThread(t *testing.T) {
 	t.Parallel()
 
 	var got sqlc.BindAgentThreadParams
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		bindAgentThreadFn: func(_ context.Context, arg sqlc.BindAgentThreadParams) error {
 			got = arg
 			return nil
 		},
-	}}
+	})}
 
 	start := time.Now().Unix()
 	if err := s.BindAgentThread(context.Background(), BindAgentThreadParams{
@@ -459,12 +459,12 @@ func TestUnbindAgentThread(t *testing.T) {
 	t.Parallel()
 
 	var got string
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		unbindAgentThreadFn: func(_ context.Context, agentID string) error {
 			got = agentID
 			return nil
 		},
-	}}
+	})}
 
 	if err := s.UnbindAgentThread(context.Background(), "agent-2"); err != nil {
 		t.Fatalf("UnbindAgentThread() error = %v", err)
@@ -478,12 +478,12 @@ func TestGetThreadByAgent(t *testing.T) {
 	t.Parallel()
 
 	var got string
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		getThreadByAgentFn: func(_ context.Context, agentID string) (string, error) {
 			got = agentID
 			return "thread-3", nil
 		},
-	}}
+	})}
 
 	threadID, err := s.GetThreadByAgent(context.Background(), "agent-3")
 	if err != nil {
@@ -497,7 +497,7 @@ func TestGetThreadByAgent(t *testing.T) {
 func TestListAgentThreadBindings(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		listAgentThreadBindingsFn: func(context.Context) ([]sqlc.AgentProviderBinding, error) {
 			return []sqlc.AgentProviderBinding{{
 				AgentID:          "agent-4",
@@ -512,7 +512,7 @@ func TestListAgentThreadBindings(t *testing.T) {
 				SessionUUID:      "session-4",
 			}}, nil
 		},
-	}}
+	})}
 
 	rows, err := s.ListAgentThreadBindings(context.Background())
 	if err != nil {
@@ -530,12 +530,12 @@ func TestUpdateAgentCwd(t *testing.T) {
 	t.Parallel()
 
 	var got sqlc.UpdateAgentCwdParams
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		updateAgentCwdFn: func(_ context.Context, arg sqlc.UpdateAgentCwdParams) error {
 			got = arg
 			return nil
 		},
-	}}
+	})}
 
 	start := time.Now().Unix()
 	if err := s.UpdateAgentCwd(context.Background(), UpdateAgentCwdParams{

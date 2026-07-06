@@ -136,14 +136,12 @@ func TestPhase4_1aWarnCrossScopeSameNameConcurrentDedup(t *testing.T) {
 	hooks := newTestHooks(withLogger(logger))
 	const concurrency = 20
 	var wg sync.WaitGroup
-	wg.Add(concurrency)
 	workersDone := make(chan struct{})
 	registerMemoryGoroutineCleanup(t, workersDone, "memory cross-scope dedupe")
 	for range concurrency {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			hooks.warnCrossScopeSameName(sharedName, primary, primary, secondary, "private", "team")
-		}()
+		})
 	}
 	wg.Wait()
 	close(workersDone)

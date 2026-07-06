@@ -121,7 +121,6 @@ func TestConcurrentPublish(t *testing.T) {
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(workers)
 	workersDone := make(chan struct{})
 	t.Cleanup(func() {
 		select {
@@ -131,13 +130,12 @@ func TestConcurrentPublish(t *testing.T) {
 		}
 	})
 	for worker := range workers {
-		go func(id int) {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			for i := range perWorker {
-				event.Publish(dispatcher, busEvent{ID: id*perWorker + i})
+				event.Publish(dispatcher, busEvent{ID: worker*perWorker + i})
 			}
-		}(worker)
+		})
 	}
 
 	close(start)

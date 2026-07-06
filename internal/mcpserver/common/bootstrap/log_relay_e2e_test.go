@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,7 +81,8 @@ func startControlPlaneForLogRelayTest(t *testing.T, methods handler.Map) string 
 		t.Fatalf("listen control plane: %v", err)
 	}
 	done := make(chan error, 1)
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		conn, acceptErr := ln.Accept()
 		if acceptErr != nil {
 			done <- acceptErr
@@ -89,11 +91,12 @@ func startControlPlaneForLogRelayTest(t *testing.T, methods handler.Map) string 
 		_ = ln.Close()
 		stat := jrpc2.NewServer(methods, &jrpc2.ServerOptions{}).Start(channel.Line(conn, conn)).WaitStatus()
 		done <- stat.Err
-	}()
+	})
 	t.Cleanup(func() {
 		_ = ln.Close()
 		select {
 		case <-done:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Error("control plane server did not stop")
 		}

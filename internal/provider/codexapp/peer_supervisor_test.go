@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -197,10 +198,11 @@ func startCodexGoroutineForTest(t *testing.T, label string, run func() error) <-
 	t.Helper()
 	done := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		defer close(finished)
 		done <- run()
-	}()
+	})
 	t.Cleanup(func() {
 		select {
 		case <-finished:
@@ -399,8 +401,8 @@ func requireEnvString(t *testing.T, env []string, key string) string {
 	t.Helper()
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix)
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return value
 		}
 	}
 	t.Fatalf("%s missing from env %#v", key, env)
@@ -678,12 +680,7 @@ func (s *stuckPeerHandle) Signal(sig processSig) error {
 func (s *stuckPeerHandle) hasSignal(want processSig) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, sig := range s.signals {
-		if sig == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.signals, want)
 }
 
 func (s *stuckPeerHandle) registered() bool {

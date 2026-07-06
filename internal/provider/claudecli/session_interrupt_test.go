@@ -279,9 +279,9 @@ func TestInterruptWaitsForConcurrentStartTurnSend(t *testing.T) {
 		model:           "claude-old",
 	}
 
-	startResult := startBlockingStartTurn(s)
+	startResult := startBlockingStartTurn(t, s)
 	waitForBlockingWriterStarted(t, writer)
-	interruptDone := startInterrupt(s)
+	interruptDone := startInterrupt(t, s)
 	assertInterruptStillWaiting(t, interruptDone)
 
 	close(writer.release)
@@ -291,12 +291,14 @@ func TestInterruptWaitsForConcurrentStartTurnSend(t *testing.T) {
 	assertTurnHandleCanceled(t, startedHandle)
 }
 
-func startBlockingStartTurn(s *session) <-chan interruptStartResult {
+func startBlockingStartTurn(t testing.TB, s *session) <-chan interruptStartResult {
+	t.Helper()
 	startResult := make(chan interruptStartResult, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		handle, err := s.StartTurn(context.Background(), turnRequest("claude-old"))
 		startResult <- interruptStartResult{handle: handle, err: err}
-	}()
+	})
 	return startResult
 }
 
@@ -309,11 +311,13 @@ func waitForBlockingWriterStarted(t *testing.T, writer *blockingWriteCloser) {
 	}
 }
 
-func startInterrupt(s *session) <-chan error {
+func startInterrupt(t testing.TB, s *session) <-chan error {
+	t.Helper()
 	interruptDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		interruptDone <- s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop"})
-	}()
+	})
 	return interruptDone
 }
 

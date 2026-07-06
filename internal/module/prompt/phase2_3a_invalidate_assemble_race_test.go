@@ -42,13 +42,11 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 		rounds  = 200
 	)
 	var wg sync.WaitGroup
-	wg.Add(readers + writers)
 	workersDone := make(chan struct{})
 	registerPromptGoroutineCleanup(t, workersDone, "phase2 invalidate race")
 
 	for range readers {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ctx := context.Background()
 			for range rounds {
 				assembly, err := svc.AssembleStart(ctx, input)
@@ -64,15 +62,14 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	for range writers {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range rounds {
 				internal.InvalidateSections(contract.InvalidateMemoryWrite, contract.DynamicSectionMemory)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(workersDone)
@@ -97,12 +94,10 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 	)
 	stop := make(chan struct{})
 	var rwg sync.WaitGroup
-	rwg.Add(readers)
 	readersDone := make(chan struct{})
 	registerPromptGoroutineCleanup(t, readersDone, "phase2 generation readers")
 	for range readers {
-		go func() {
-			defer rwg.Done()
+		rwg.Go(func() {
 			ctx := context.Background()
 			for {
 				select {
@@ -112,7 +107,7 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 				}
 				_, _ = svc.AssembleStart(ctx, input)
 			}
-		}()
+		})
 	}
 
 	prev := internal.cache.Generation()
@@ -171,8 +166,9 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 
 	resultCh := make(chan phase2AssembleResult, 1)
 	resultDone := make(chan struct{})
+	var resultWG sync.WaitGroup
 	registerPromptGoroutineCleanup(t, resultDone, "phase2 singleflight assemble")
-	go func() {
+	resultWG.Go(func() {
 		defer close(resultDone)
 		assembly, err := svc.AssembleStart(context.Background(), StartInput{
 			Provider: "claudecli",
@@ -180,7 +176,7 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 			Language: "English",
 		})
 		resultCh <- phase2AssembleResult{assembly, err}
-	}()
+	})
 
 	// 步骤 2：等自定义 compute 已经在旧 generation 下进入 singleflight，
 	// 然后在 store 触发前执行 invalidate。
@@ -192,6 +188,7 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 
 	// 步骤 3：等第一次 AssembleStart 完成，结果应写入旧 generation 桶。
 	first := <-resultCh
+	resultWG.Wait()
 	if first.err != nil {
 		t.Fatalf("first AssembleStart() error = %v", first.err)
 	}

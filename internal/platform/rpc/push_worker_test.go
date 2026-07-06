@@ -290,10 +290,12 @@ func TestRPCPushWorkerUsesCancelablePushCtx(t *testing.T) {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		time.Sleep(10 * time.Millisecond)
 		close(broadcaster.block)
-	}()
+	})
+	defer wg.Wait()
 	start := time.Now()
 	if err := worker.Stop(shutdownCtx); err != nil {
 		t.Fatalf("Stop() err = %v, want nil (drain must finish within ctx budget)", err)
@@ -333,14 +335,16 @@ func TestRPCPushWorkerEnqueueNonBlocking(t *testing.T) {
 
 	payload := []eventsurface.Notification{{Method: "thread/started", Payload: map[string]any{"thread_id": "T"}}}
 	done := make(chan struct{})
-	go func() {
-		for i := 0; i < 32; i++ {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 32 {
 			worker.Enqueue(payload)
 		}
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
+		wg.Wait()
 	case <-time.After(time.Second):
 		t.Fatal("Enqueue blocked while NotifyAll was stuck; callback path must stay non-blocking")
 	}

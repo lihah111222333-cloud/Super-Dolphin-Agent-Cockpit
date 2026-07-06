@@ -389,7 +389,7 @@ func seedDAGRows(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNod
 			Status:     n.status,
 			AssignedTo: n.agent,
 			DependsOn:  depsJSON,
-			Config:     validAgentConfigForTest(n.agent),
+			Config:     validAgentConfigForTest(t, n.agent),
 			Result:     []byte(`{}`),
 			CreatedAt:  timestamptzValue(now.Add(time.Duration(i) * time.Millisecond)),
 			UpdatedAt:  timestamptzValue(now),

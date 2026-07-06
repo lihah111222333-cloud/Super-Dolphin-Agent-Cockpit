@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -11,13 +12,15 @@ import (
 func startAppGoroutineForTest(t *testing.T, label string, run func()) <-chan struct{} {
 	t.Helper()
 	done := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(done)
 		run()
-	}()
+	})
 	t.Cleanup(func() {
 		select {
 		case <-done:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatalf("%s goroutine did not stop", label)
 		}

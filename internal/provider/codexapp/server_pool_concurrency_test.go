@@ -33,12 +33,14 @@ func blockingPoolSpawnerForTest(calls *atomic.Int32, firstStarted chan<- struct{
 }
 
 // acquirePoolAsync 在后台调用 Acquire，并把 server、release 和错误整体送回测试线程。
-func acquirePoolAsync(p *ServerPool, id providershared.CodexIdentity, owner string) <-chan poolAcquireResult {
+func acquirePoolAsync(t testing.TB, p *ServerPool, id providershared.CodexIdentity, owner string) <-chan poolAcquireResult {
+	t.Helper()
 	result := make(chan poolAcquireResult, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		server, release, err := p.Acquire(context.Background(), id, owner)
 		result <- poolAcquireResult{server: server, release: release, err: err}
-	}()
+	})
 	return result
 }
 
@@ -105,9 +107,9 @@ func TestServerPoolConcurrentAcquireSharesInFlightSpawn(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	first := acquirePoolAsync(p, id, "agent-1")
+	first := acquirePoolAsync(t, p, id, "agent-1")
 	waitForFirstSpawn(t, firstSpawnStarted)
-	second := acquirePoolAsync(p, id, "agent-1")
+	second := acquirePoolAsync(t, p, id, "agent-1")
 	time.Sleep(50 * time.Millisecond)
 	close(releaseSpawn)
 

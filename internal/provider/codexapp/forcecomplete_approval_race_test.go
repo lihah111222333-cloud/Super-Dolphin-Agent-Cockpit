@@ -381,9 +381,10 @@ func configureSingleForceCompleteTurn(s *session, providerID string) *turnHandle
 func startForceComplete(t *testing.T, s *session) chan error {
 	t.Helper()
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		done <- s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"})
-	}()
+	})
 	return done
 }
 

@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -98,14 +99,16 @@ func TestThreadBusWorkersAsRunnerRunStopsWorkers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(finished)
 		done <- runner.Run(ctx)
-	}()
+	})
 	t.Cleanup(func() {
 		cancel()
 		select {
 		case <-finished:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatal("thread bus runner goroutine did not stop")
 		}

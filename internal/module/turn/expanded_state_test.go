@@ -268,17 +268,13 @@ func TestExpandedArtifactState_ConcurrentMarkAndFresh(t *testing.T) {
 	s := NewExpandedArtifactState(5)
 	const N = 20
 	var wg sync.WaitGroup
-	wg.Add(N * 2)
-	for i := 0; i < N; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
+	for i := range N {
+		wg.Go(func() {
 			s.MarkArtifact("skill", "body", "SKILL.md", strings.Repeat("a", 63)+string(rune('a'+(i%26))), i)
-		}()
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			_ = s.IsArtifactFresh("skill", "body", "SKILL.md", strings.Repeat("a", 64), i)
-		}()
+		})
 	}
 	wg.Wait()
 }

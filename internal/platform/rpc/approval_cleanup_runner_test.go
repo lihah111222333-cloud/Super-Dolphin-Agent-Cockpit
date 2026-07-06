@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,14 +18,16 @@ func startRPCRunnerForTest(t *testing.T, run func(context.Context) error) (conte
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(finished)
 		done <- run(ctx)
-	}()
+	})
 	t.Cleanup(func() {
 		cancel()
 		select {
 		case <-finished:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatal("rpc runner goroutine did not stop")
 		}

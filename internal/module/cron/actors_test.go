@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,14 +21,16 @@ func startActorForTest(t *testing.T, run func(context.Context) error) (context.C
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(finished)
 		done <- run(ctx)
-	}()
+	})
 	t.Cleanup(func() {
 		cancel()
 		select {
 		case <-finished:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatal("actor goroutine did not stop")
 		}

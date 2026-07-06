@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -163,7 +164,9 @@ func writeFakeGoplsShutdownWarningLangserver(t *testing.T) string {
 
 func runFakeGoplsShutdownWarningLangserver() {
 	reader := bufio.NewReader(os.Stdin)
-	writer := &fakeLSPWriter{w: os.Stdout}
+	var goroutines sync.WaitGroup
+	defer goroutines.Wait()
+	writer := &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
 		if err != nil {
@@ -201,7 +204,7 @@ func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 	if os.Getenv(fakeGoplsPullDiagnosticsOnlyEnv) == "1" {
 		return true
 	}
-	go func() {
+	writer.goAsync(func() {
 		_ = writer.writeNotification("window/logMessage", map[string]any{
 			"type":    1,
 			"message": fakeGoplsOrphanedFilesWarning,
@@ -210,7 +213,7 @@ func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 			"uri":         uri,
 			"diagnostics": []any{},
 		})
-	}()
+	})
 	return true
 }
 

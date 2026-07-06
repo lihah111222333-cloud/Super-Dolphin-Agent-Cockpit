@@ -144,7 +144,6 @@ func TestAppendIgnoredConcurrent(t *testing.T) {
 	dir := t.TempDir()
 	const goroutines = 16
 	var wg sync.WaitGroup
-	wg.Add(goroutines)
 	workersDone := make(chan struct{})
 	t.Cleanup(func() {
 		select {
@@ -154,13 +153,12 @@ func TestAppendIgnoredConcurrent(t *testing.T) {
 		}
 	})
 	for i := range goroutines {
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			key := IgnoreKey("private", fmt.Sprintf("a%02d.md", i), "team", fmt.Sprintf("b%02d.md", i))
 			if err := AppendIgnored(dir, key); err != nil {
 				t.Errorf("AppendIgnored: %v", err)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 	close(workersDone)

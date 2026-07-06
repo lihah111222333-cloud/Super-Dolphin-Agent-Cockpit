@@ -93,8 +93,7 @@ func waitResponseCall(t *testing.T, ch <-chan recordedResponse) recordedResponse
 
 func TestOnInboundMessage_Approval_ViaApprovalBridge(t *testing.T) {
 	bus := event.NewDispatcher()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	requested := make(chan tooldto.ToolApprovalRequested, 1)
 	cancelSub := event.Subscribe(bus, func(ev tooldto.ToolApprovalRequested) { requested <- ev })
@@ -129,8 +128,7 @@ func TestOnInboundMessage_Approval_ViaApprovalBridge(t *testing.T) {
 
 func TestOnInboundMessage_RequestUserInput_ViaApprovalBridge(t *testing.T) {
 	bus := event.NewDispatcher()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	requested := make(chan tooldto.ToolApprovalRequested, 1)
 	cancelSub := event.Subscribe(bus, func(ev tooldto.ToolApprovalRequested) { requested <- ev })
@@ -182,14 +180,15 @@ func TestOnInboundMessage_ToolCall_AsyncNoBlockReadLoop(t *testing.T) {
 	s := newInboundTestSession(ctx, nil, manager)
 
 	returned := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		s.onInboundMessage(ctx, resp, RawMessage{
 			ID:     json.RawMessage(`9`),
 			Method: "item/tool/call",
 			Params: json.RawMessage(`{"tool":"demo"}`),
 		})
 		close(returned)
-	}()
+	})
 
 	waitSignal(t, returned, 100*time.Millisecond, "onInboundMessage blocked on toolHandler")
 	assertNoEarlyToolResponse(t, resp.ch)
@@ -356,7 +355,7 @@ func TestSuppressedToolEndBoundedAndTurnScoped(t *testing.T) {
 	if !s.consumeSuppressedToolEnd("turn-1", "call-1", "file") {
 		t.Fatal("consumeSuppressedToolEnd did not consume matching turn/call/tool")
 	}
-	for i := 0; i < maxSuppressedToolEnds+5; i++ {
+	for i := range maxSuppressedToolEnds + 5 {
 		s.suppressToolEnd("turn-bounded", fmt.Sprintf("call-%d", i), "file")
 	}
 	s.mu.Lock()

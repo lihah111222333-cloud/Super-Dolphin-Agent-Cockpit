@@ -91,10 +91,11 @@ func TestTransportSpawnResponderRegistersWithWaitGroup(t *testing.T) {
 	done := make(chan error, 1)
 	tr.spawnResponder(protocol.Envelope{Method: "client/registerCapability", ID: json.RawMessage(`1`)})
 	<-handlerFired
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		drainStarted.Store(true)
 		done <- tr.drainResponders(2 * time.Second)
-	}()
+	})
 
 	select {
 	case err := <-done:

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -155,7 +156,9 @@ func writeFakeShellDiagnosticsBinsForE2E(t *testing.T) string {
 
 func runFakeBashLanguageServer() {
 	reader := bufio.NewReader(os.Stdin)
-	writer := &fakeLSPWriter{w: os.Stdout}
+	var goroutines sync.WaitGroup
+	defer goroutines.Wait()
+	writer := &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
 		if err != nil {

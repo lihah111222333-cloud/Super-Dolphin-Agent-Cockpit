@@ -349,6 +349,7 @@ func startLSPBinaryClient(t *testing.T, root string) *lspBinaryClient {
 		cancel()
 		t.Fatalf("start mcp-lsp binary: %v", err)
 	}
+	goroutines := newTestGoroutineGroup(t)
 	client := &lspBinaryClient{
 		cmd:     cmd,
 		stdin:   stdin,
@@ -358,9 +359,9 @@ func startLSPBinaryClient(t *testing.T, root string) *lspBinaryClient {
 		stderr:  stderr,
 		root:    root,
 	}
-	go func() {
+	goroutines.Go(func() {
 		client.done <- cmd.Wait()
-	}()
+	})
 	t.Cleanup(func() {
 		client.close()
 	})

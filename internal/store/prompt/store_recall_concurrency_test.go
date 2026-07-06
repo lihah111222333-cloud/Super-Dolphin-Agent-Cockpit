@@ -64,7 +64,8 @@ func TestRecallTopicLockRetriesBusyUntilConcurrentWriterCommits(t *testing.T) {
 	leftDone := make(chan error, 1)
 	leftWorkerDone := make(chan struct{})
 	registerRecallGoroutineCleanup(t, leftWorkerDone, "recall lock holder")
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(leftWorkerDone)
 		leftDone <- storeA.WithTx(ctx, func(txStore Store) error {
 			template, err := txStore.Get(ctx, "main/knowledge/a")
@@ -96,7 +97,7 @@ func TestRecallTopicLockRetriesBusyUntilConcurrentWriterCommits(t *testing.T) {
 			}
 			return txStore.UpsertRecallTopicTargetInCWD(ctx, "/repo/a", section.RecallTopic, section.TemplateID, section.SectionKey)
 		})
-	}()
+	})
 
 	select {
 	case <-lockHeld:
@@ -108,6 +109,7 @@ func TestRecallTopicLockRetriesBusyUntilConcurrentWriterCommits(t *testing.T) {
 
 	rightErr := writeRecallSectionWithBusinessScan(ctx, storeB, "/repo/a", "main/knowledge/b", "recall_sqlc_b", "sqlc-workflow", "B body")
 	leftErr := <-leftDone
+	wg.Wait()
 
 	assertOneSuccessOneDuplicate(t, []error{leftErr, rightErr})
 	assertVisibleRecallSectionCount(t, ctx, storeA, "/repo/a", "sqlc-workflow", 1)
@@ -220,19 +222,16 @@ func runRecallWritesConcurrently(t *testing.T, ctx context.Context, left, right 
 	start := make(chan struct{})
 	errs := make([]error, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
 	workersDone := make(chan struct{})
 	registerRecallGoroutineCleanup(t, workersDone, "recall write")
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		errs[0] = left()
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		errs[1] = right()
-	}()
+	})
 	close(start)
 	wg.Wait()
 	close(workersDone)

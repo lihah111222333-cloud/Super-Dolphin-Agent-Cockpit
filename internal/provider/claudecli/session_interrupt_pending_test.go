@@ -31,10 +31,11 @@ func TestInterruptCancelsPendingRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := s.StartTurn(ctx, turnRequest("claude-new"))
 		result <- err
-	}()
+	})
 
 	_ = waitForReadySwap(t, s, oldReady)
 	if err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop"}); err != nil {

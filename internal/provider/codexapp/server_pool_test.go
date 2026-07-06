@@ -628,13 +628,14 @@ func TestServerPoolSpawnerRunsOutsideMutex(t *testing.T) {
 	defer p.Close(context.Background())
 
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, release, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 		if release != nil {
 			release()
 		}
 		done <- err
-	}()
+	})
 	select {
 	case <-spawnerEntered:
 	case <-time.After(2 * time.Second):

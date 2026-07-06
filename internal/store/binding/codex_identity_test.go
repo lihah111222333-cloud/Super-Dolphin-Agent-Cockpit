@@ -30,12 +30,12 @@ func TestUpsertForwardsCodexIdentity(t *testing.T) {
 		CodexModelProvider: "glm-compat",
 	}
 	var got sqlc.UpsertAgentProviderBindingParams
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
 			got = arg
 			return nil
 		},
-	}}
+	})}
 	if err := s.Upsert(context.Background(), params); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
@@ -67,11 +67,11 @@ func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 		CodexInstanceKey:   "glm",
 		CodexModelProvider: "glm-compat",
 	}
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		getAgentProviderBindingByAgentIDFn: func(_ context.Context, _ string) (sqlc.AgentProviderBinding, error) {
 			return row, nil
 		},
-	}}
+	})}
 
 	b, err := s.GetByAgentID(context.Background(), "agent-read")
 	if err != nil {
@@ -96,11 +96,11 @@ func TestGetByProviderThreadSurfacesCodexIdentity(t *testing.T) {
 		CodexInstanceKey:   "qwen",
 		CodexModelProvider: "qwen-compat",
 	}
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		getByProviderThreadFn: func(_ context.Context, _ sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 			return row, nil
 		},
-	}}
+	})}
 	b, err := s.GetByProviderThread(context.Background(), "codex", "pt")
 	if err != nil {
 		t.Fatalf("GetByProviderThread() error = %v", err)
@@ -116,7 +116,7 @@ func TestGetByProviderThreadSurfacesCodexIdentity(t *testing.T) {
 func TestListAgentThreadBindingsSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &bindingQuerierStub{
+	s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 		listAgentThreadBindingsFn: func(context.Context) ([]sqlc.AgentProviderBinding, error) {
 			return []sqlc.AgentProviderBinding{{
 				AgentID:            "agent-list",
@@ -129,7 +129,7 @@ func TestListAgentThreadBindingsSurfacesCodexIdentity(t *testing.T) {
 				UpdatedAt:          2,
 			}}, nil
 		},
-	}}
+	})}
 
 	bindings, err := s.ListAgentThreadBindings(context.Background())
 	if err != nil {
@@ -192,7 +192,7 @@ func readRepoFile(t *testing.T, rel string) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			data, err := os.ReadFile(filepath.Join(dir, rel))
 			if err != nil {

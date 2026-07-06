@@ -36,121 +36,153 @@ type promptQuerierStub struct {
 	updateDraftStatusFn  func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
 }
 
-func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
-	if s.listFn != nil {
-		return s.listFn(ctx, arg)
+type promptQuerierAdapter struct {
+	promptTemplateReadQuerier
+	promptTemplateWriteQuerier
+	promptSectionQuerier
+	promptDraftQuerier
+}
+
+func newPromptQuerierTestAdapter(stub *promptQuerierStub) *promptQuerierAdapter {
+	return &promptQuerierAdapter{
+		promptTemplateReadQuerier:  promptTemplateReadQuerier{stub: stub},
+		promptTemplateWriteQuerier: promptTemplateWriteQuerier{stub: stub},
+		promptSectionQuerier:       promptSectionQuerier{stub: stub},
+		promptDraftQuerier:         promptDraftQuerier{stub: stub},
+	}
+}
+
+type promptTemplateReadQuerier struct {
+	stub *promptQuerierStub
+}
+
+func (q promptTemplateReadQuerier) ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
+	if q.stub.listFn != nil {
+		return q.stub.listFn(ctx, arg)
 	}
 	return nil, nil
 }
 
-func (s *promptQuerierStub) GetPromptTemplate(ctx context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, arg)
+func (q promptTemplateReadQuerier) GetPromptTemplate(ctx context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error) {
+	if q.stub.getFn != nil {
+		return q.stub.getFn(ctx, arg)
 	}
 	return sqlc.GetPromptTemplateRow{}, nil
 }
 
-func (s *promptQuerierStub) DeletePromptTemplate(ctx context.Context, arg sqlc.DeletePromptTemplateParams) (int64, error) {
-	if s.deleteFn != nil {
-		return s.deleteFn(ctx, arg)
+type promptTemplateWriteQuerier struct {
+	stub *promptQuerierStub
+}
+
+func (q promptTemplateWriteQuerier) DeletePromptTemplate(ctx context.Context, arg sqlc.DeletePromptTemplateParams) (int64, error) {
+	if q.stub.deleteFn != nil {
+		return q.stub.deleteFn(ctx, arg)
 	}
 	return 0, nil
 }
 
-func (s *promptQuerierStub) InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) (int64, error) {
-	if s.insertVersionFn != nil {
-		return s.insertVersionFn(ctx, arg)
+func (q promptTemplateWriteQuerier) InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) (int64, error) {
+	if q.stub.insertVersionFn != nil {
+		return q.stub.insertVersionFn(ctx, arg)
 	}
 	return 0, nil
 }
 
-func (s *promptQuerierStub) CreatePromptTemplate(ctx context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
-	if s.createFn != nil {
-		return s.createFn(ctx, arg)
+func (q promptTemplateWriteQuerier) CreatePromptTemplate(ctx context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
+	if q.stub.createFn != nil {
+		return q.stub.createFn(ctx, arg)
 	}
 	return sqlc.CreatePromptTemplateRow{}, nil
 }
 
-func (s *promptQuerierStub) UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
-	if s.upsertFn != nil {
-		return s.upsertFn(ctx, arg)
+func (q promptTemplateWriteQuerier) UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
+	if q.stub.upsertFn != nil {
+		return q.stub.upsertFn(ctx, arg)
 	}
 	return sqlc.UpsertPromptTemplateRow{}, nil
 }
 
-func (s *promptQuerierStub) ListPromptTemplateSectionsByTemplate(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error) {
-	if s.listSectionsFn != nil {
-		return s.listSectionsFn(ctx, arg)
+type promptSectionQuerier struct {
+	stub *promptQuerierStub
+}
+
+func (q promptSectionQuerier) ListPromptTemplateSectionsByTemplate(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error) {
+	if q.stub.listSectionsFn != nil {
+		return q.stub.listSectionsFn(ctx, arg)
 	}
 	return nil, nil
 }
 
-func (s *promptQuerierStub) ListPromptTemplateSectionsByTemplates(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
-	if s.listSectionsBatchFn != nil {
-		return s.listSectionsBatchFn(ctx, arg)
+func (q promptSectionQuerier) ListPromptTemplateSectionsByTemplates(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
+	if q.stub.listSectionsBatchFn != nil {
+		return q.stub.listSectionsBatchFn(ctx, arg)
 	}
 	return nil, nil
 }
 
-func (s *promptQuerierStub) ListRecallSections(ctx context.Context, arg sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error) {
-	if s.listRecallFn != nil {
-		return s.listRecallFn(ctx, arg)
+func (q promptSectionQuerier) ListRecallSections(ctx context.Context, arg sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error) {
+	if q.stub.listRecallFn != nil {
+		return q.stub.listRecallFn(ctx, arg)
 	}
 	return nil, nil
 }
 
-func (s *promptQuerierStub) ListDefaultRuleSections(ctx context.Context, arg sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error) {
-	if s.listDefaultRulesFn != nil {
-		return s.listDefaultRulesFn(ctx, arg)
+func (q promptSectionQuerier) ListDefaultRuleSections(ctx context.Context, arg sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error) {
+	if q.stub.listDefaultRulesFn != nil {
+		return q.stub.listDefaultRulesFn(ctx, arg)
 	}
 	return nil, nil
 }
 
-func (s *promptQuerierStub) UpsertPromptTemplateSection(ctx context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
-	if s.upsertSectionFn != nil {
-		return s.upsertSectionFn(ctx, arg)
+func (q promptSectionQuerier) UpsertPromptTemplateSection(ctx context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
+	if q.stub.upsertSectionFn != nil {
+		return q.stub.upsertSectionFn(ctx, arg)
 	}
 	return sqlc.PromptTemplateSection{}, nil
 }
 
-func (s *promptQuerierStub) LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error {
-	if s.lockRecallFn != nil {
-		return s.lockRecallFn(ctx, arg)
+func (q promptSectionQuerier) LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error {
+	if q.stub.lockRecallFn != nil {
+		return q.stub.lockRecallFn(ctx, arg)
 	}
 	return nil
 }
 
-func (s *promptQuerierStub) UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
-	if s.upsertRecallTargetFn != nil {
-		return s.upsertRecallTargetFn(ctx, arg)
+func (q promptSectionQuerier) UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
+	if q.stub.upsertRecallTargetFn != nil {
+		return q.stub.upsertRecallTargetFn(ctx, arg)
 	}
 	return nil
 }
 
-func (s *promptQuerierStub) UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error) {
-	if s.upsertDraftFn != nil {
-		return s.upsertDraftFn(ctx, arg)
+type promptDraftQuerier struct {
+	stub *promptQuerierStub
+}
+
+func (q promptDraftQuerier) UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error) {
+	if q.stub.upsertDraftFn != nil {
+		return q.stub.upsertDraftFn(ctx, arg)
 	}
 	return sqlc.UpsertPromptIntentDraftRow{}, nil
 }
 
-func (s *promptQuerierStub) GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error) {
-	if s.getDraftFn != nil {
-		return s.getDraftFn(ctx, arg)
+func (q promptDraftQuerier) GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error) {
+	if q.stub.getDraftFn != nil {
+		return q.stub.getDraftFn(ctx, arg)
 	}
 	return sqlc.GetPromptIntentDraftRow{}, nil
 }
 
-func (s *promptQuerierStub) ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error) {
-	if s.listDraftsFn != nil {
-		return s.listDraftsFn(ctx, arg)
+func (q promptDraftQuerier) ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error) {
+	if q.stub.listDraftsFn != nil {
+		return q.stub.listDraftsFn(ctx, arg)
 	}
 	return nil, nil
 }
 
-func (s *promptQuerierStub) UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error) {
-	if s.updateDraftStatusFn != nil {
-		return s.updateDraftStatusFn(ctx, arg)
+func (q promptDraftQuerier) UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error) {
+	if q.stub.updateDraftStatusFn != nil {
+		return q.stub.updateDraftStatusFn(ctx, arg)
 	}
 	return sqlc.UpdatePromptIntentDraftStatusRow{}, nil
 }
@@ -160,7 +192,7 @@ func TestListForwardsAgentKeyKeywordCWDAndLimit(t *testing.T) {
 	now := time.Unix(1_234_567, 0).UTC()
 	var captured sqlc.ListPromptTemplatesParams
 
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listFn: func(_ context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
 			captured = arg
 			return []sqlc.ListPromptTemplatesRow{{
@@ -181,7 +213,7 @@ func TestListForwardsAgentKeyKeywordCWDAndLimit(t *testing.T) {
 				WhenToUse:   "Use for reviewing code.",
 			}}, nil
 		},
-	}}
+	})}
 
 	got, err := s.List(context.Background(), ListFilter{AgentKey: "reviewer", Keyword: "review", CWD: "/repo_a", Limit: 10})
 	if err != nil {
@@ -222,14 +254,14 @@ func TestStoreListPromptsRespectsCWDFilter(t *testing.T) {
 		{ID: 2, PromptKey: "repo-a", Title: "Repo A", AgentKey: "main", Tags: []byte(`["scope.cwd:/repo_a"]`), Enabled: int64(1), CreatedAt: platformdb.Millis(now), UpdatedAt: platformdb.Millis(now)},
 		{ID: 3, PromptKey: "repo-b", Title: "Repo B", AgentKey: "main", Tags: []byte(`["scope.cwd:/repo_b"]`), Enabled: int64(1), CreatedAt: platformdb.Millis(now), UpdatedAt: platformdb.Millis(now)},
 	}
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listFn: func(_ context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
 			if arg.CWD == nil || *arg.CWD != "/repo_a" {
 				t.Fatalf("ListPromptTemplates CWD = %v, want /repo_a", arg.CWD)
 			}
 			return rows[:2], nil
 		},
-	}}
+	})}
 
 	got, err := s.List(context.Background(), ListFilter{CWD: "/repo_a", Limit: 10})
 	if err != nil {
@@ -270,7 +302,7 @@ func TestListPromptTemplatesUsesSQLiteJSONEachForScopeTags(t *testing.T) {
 
 func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
 	t.Parallel()
-	s := &store{q: &promptQuerierStub{}}
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{})}
 	got, err := s.List(context.Background(), ListFilter{CWD: "/repo_a"})
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
@@ -282,12 +314,12 @@ func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
 
 func TestListRequiresCWD(t *testing.T) {
 	t.Parallel()
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listFn: func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
 			t.Fatal("ListPromptTemplates must not run without cwd")
 			return nil, nil
 		},
-	}}
+	})}
 
 	_, err := s.List(context.Background(), ListFilter{})
 	if err == nil {
@@ -301,11 +333,11 @@ func TestListRequiresCWD(t *testing.T) {
 func TestListWrapsQuerierError(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("pg connection reset")
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listFn: func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
 			return nil, sentinel
 		},
-	}}
+	})}
 	_, err := s.List(context.Background(), ListFilter{CWD: "/repo_a"})
 	if err == nil {
 		t.Fatal("List() expected error, got nil")
@@ -319,13 +351,13 @@ func TestStoreGetMapsRow(t *testing.T) {
 	t.Parallel()
 	now := promptStoreTestTime()
 	var capturedKey string
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		getFn: func(_ context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error) {
 			promptKey := arg.PromptKey
 			capturedKey = promptKey
 			return promptGetRow(promptKey, now), nil
 		},
-	}}
+	})}
 
 	got, err := s.Get(context.Background(), "main/scoped")
 	if err != nil {
@@ -373,12 +405,12 @@ func TestStoreUpsertForwardsParamsAndMapsRow(t *testing.T) {
 	t.Parallel()
 	now := promptStoreTestTime()
 	var captured sqlc.UpsertPromptTemplateParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
 			captured = arg
 			return promptUpsertRow(arg, now), nil
 		},
-	}}
+	})}
 
 	got, err := s.Upsert(context.Background(), promptUpsertInput())
 	if err != nil {
@@ -453,12 +485,12 @@ func assertPromptUpsertResult(t *testing.T, got *PromptTemplate) {
 func TestStoreDeleteTreatsRowsAffectedAsSuccess(t *testing.T) {
 	t.Parallel()
 	var capturedKey string
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		deleteFn: func(_ context.Context, arg sqlc.DeletePromptTemplateParams) (int64, error) {
 			capturedKey = arg.PromptKey
 			return 1, nil
 		},
-	}}
+	})}
 
 	if err := s.Delete(context.Background(), "main/scoped"); err != nil {
 		t.Fatalf("Delete() unexpected error: %v", err)
@@ -472,12 +504,12 @@ func TestStoreInsertVersionForwardsParams(t *testing.T) {
 	t.Parallel()
 	now := promptStoreTestTime()
 	var captured sqlc.InsertPromptVersionParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		insertVersionFn: func(_ context.Context, arg sqlc.InsertPromptVersionParams) (int64, error) {
 			captured = arg
 			return 42, nil
 		},
-	}}
+	})}
 
 	sourceUpdatedAt := now.Add(2 * time.Minute)
 	id, err := s.InsertVersion(context.Background(), promptVersionInput(sourceUpdatedAt))
@@ -516,7 +548,7 @@ func assertPromptVersionParams(t *testing.T, captured sqlc.InsertPromptVersionPa
 
 func TestStoreWithTxExecutesCallback(t *testing.T) {
 	t.Parallel()
-	s := &store{q: &promptQuerierStub{}}
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{})}
 	callbackCalls := 0
 
 	err := s.WithTx(context.Background(), func(txStore Store) error {
@@ -536,11 +568,11 @@ func TestStoreWithTxExecutesCallback(t *testing.T) {
 
 func TestStoreDeleteWrapsNotFound(t *testing.T) {
 	t.Parallel()
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		deleteFn: func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error) {
 			return 0, nil
 		},
-	}}
+	})}
 	err := s.Delete(context.Background(), "missing")
 	if err == nil || !platformdb.IsNotFound(err) {
 		t.Fatalf("Delete() error = %v, want not found", err)
@@ -609,7 +641,7 @@ func readPromptRepoFile(t *testing.T, rel string) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			data, err := os.ReadFile(filepath.Join(dir, rel))
 			if err != nil {

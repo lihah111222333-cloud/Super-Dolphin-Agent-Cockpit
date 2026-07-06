@@ -29,14 +29,16 @@ func startFlusherForTest(t *testing.T, run func(context.Context) error) (context
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(finished)
 		done <- run(ctx)
-	}()
+	})
 	t.Cleanup(func() {
 		cancel()
 		select {
 		case <-finished:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatal("flusher goroutine did not stop")
 		}

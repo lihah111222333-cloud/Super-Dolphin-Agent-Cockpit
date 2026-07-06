@@ -32,7 +32,7 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	results := startTurnAsync(ctx, s, "claude-same")
+	results := startTurnAsync(t, ctx, s, "claude-same")
 
 	ready := waitForReadySwap(t, s, oldReady)
 	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
@@ -42,12 +42,14 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	assertResumeID(t, resumeIDs, "11111111-2222-3333-4444-555555555555")
 }
 
-func startTurnAsync(ctx context.Context, s *session, model string) <-chan startTurnResult {
+func startTurnAsync(t testing.TB, ctx context.Context, s *session, model string) <-chan startTurnResult {
+	t.Helper()
 	results := make(chan startTurnResult, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		handle, err := s.StartTurn(ctx, turnRequest(model))
 		results <- startTurnResult{handle: handle, err: err}
-	}()
+	})
 	return results
 }
 

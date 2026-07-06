@@ -269,10 +269,8 @@ func TestMemoryIsSafeForConcurrentUse(t *testing.T) {
 	m := NewMemory()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 200; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 200 {
+		wg.Go(func() {
 			m.MapTurn("l", "p")
 			m.AttributeCall("c", "l")
 			m.RecordTokens("l", TokenSnapshot{Input: 1, Observed: true})
@@ -282,7 +280,7 @@ func TestMemoryIsSafeForConcurrentUse(t *testing.T) {
 			_, _ = m.Terminal("l")
 			_, _ = m.ResolveLocalTurn("p")
 			_ = m.SkillsSelected("l")
-		}()
+		})
 	}
 	wg.Wait()
 }

@@ -11,7 +11,7 @@ import (
 func TestStoreListRecallSectionsMapsRows(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listRecallFn: func(_ context.Context, arg sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error) {
 			if arg.CWD == nil || *arg.CWD != "/repo/a" {
 				t.Fatalf("ListRecallSections() cwd = %v, want /repo/a", arg.CWD)
@@ -32,7 +32,7 @@ func TestStoreListRecallSectionsMapsRows(t *testing.T) {
 				TemplateWhenToUse:   "Use when editing sqlc queries",
 			}}, nil
 		},
-	}}
+	})}
 
 	got, err := s.ListRecallSections(context.Background(), " /repo/a ")
 	if err != nil {
@@ -61,12 +61,12 @@ func TestStoreListRecallSectionsRequiresCWD(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listRecallFn: func(context.Context, sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error) {
 			called = true
 			return nil, nil
 		},
-	}}
+	})}
 
 	_, err := s.ListRecallSections(context.Background(), " ")
 	if err == nil {
@@ -80,7 +80,7 @@ func TestStoreListRecallSectionsRequiresCWD(t *testing.T) {
 func TestStoreListDefaultRuleSectionsMapsRows(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listDefaultRulesFn: func(_ context.Context, arg sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error) {
 			if arg.CWD == nil || *arg.CWD != "/repo/a" {
 				t.Fatalf("ListDefaultRuleSections() cwd = %v, want /repo/a", arg.CWD)
@@ -98,7 +98,7 @@ func TestStoreListDefaultRuleSectionsMapsRows(t *testing.T) {
 				TemplatePromptKey: "main/default-rule/sqlc",
 			}}, nil
 		},
-	}}
+	})}
 
 	got, err := s.ListDefaultRuleSections(context.Background(), "/repo/a")
 	if err != nil {
@@ -120,12 +120,12 @@ func TestLockRecallTopicInCWDRequiresCWDAndTopic(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		lockRecallFn: func(context.Context, sqlc.LockRecallTopicInCWDParams) error {
 			called = true
 			return nil
 		},
-	}}
+	})}
 	if err := s.LockRecallTopicInCWD(context.Background(), "", "topic"); err == nil {
 		t.Fatal("LockRecallTopicInCWD() expected empty cwd error, got nil")
 	}
@@ -141,12 +141,12 @@ func TestLockRecallTopicInCWDForwardsTrimmedParamsAfterValidation(t *testing.T) 
 	t.Parallel()
 
 	var captured sqlc.LockRecallTopicInCWDParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		lockRecallFn: func(_ context.Context, arg sqlc.LockRecallTopicInCWDParams) error {
 			captured = arg
 			return nil
 		},
-	}}
+	})}
 	if err := s.LockRecallTopicInCWD(context.Background(), " /repo/a ", " topic-name "); err != nil {
 		t.Fatalf("LockRecallTopicInCWD() unexpected error: %v", err)
 	}
@@ -159,12 +159,12 @@ func TestLockRecallTopicInCWDRejectsInvalidTopicBeforeSQL(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		lockRecallFn: func(context.Context, sqlc.LockRecallTopicInCWDParams) error {
 			called = true
 			return nil
 		},
-	}}
+	})}
 	if err := s.LockRecallTopicInCWD(context.Background(), "/repo/a", "Project.Memory"); err == nil {
 		t.Fatal("LockRecallTopicInCWD() expected invalid topic error, got nil")
 	}
@@ -177,12 +177,12 @@ func TestUpsertRecallTopicTargetInCWDForwardsTrimmedParams(t *testing.T) {
 	t.Parallel()
 
 	var captured sqlc.UpsertPromptRecallTopicTargetInCWDParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertRecallTargetFn: func(_ context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
 			captured = arg
 			return nil
 		},
-	}}
+	})}
 	if err := s.UpsertRecallTopicTargetInCWD(context.Background(), " /repo/a ", " topic-name ", 7, " recall_topic "); err != nil {
 		t.Fatalf("UpsertRecallTopicTargetInCWD() unexpected error: %v", err)
 	}
@@ -195,12 +195,12 @@ func TestUpsertRecallTopicTargetInCWDRejectsInvalidInputBeforeSQL(t *testing.T) 
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertRecallTargetFn: func(context.Context, sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
 			called = true
 			return nil
 		},
-	}}
+	})}
 	for _, tc := range []struct {
 		name       string
 		cwd        string
