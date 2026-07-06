@@ -81,7 +81,16 @@ func validateWritableSkillMainContent(root, path, content string) error {
 	return nil
 }
 
+// writeProjectLocal 写入 project skill 并在 mirror 发布阻断时回滚 canonical 目录。
 func (s *service) writeProjectLocal(ctx context.Context, cwd, path, content, scope, personalType string) (any, error) {
+	name := filepath.Base(filepath.Dir(path))
+	if err := s.ensureWriteTimeMirrorPublishAllowed(ctx, cwd, scope, personalType, name); err != nil {
+		return nil, err
+	}
+	backupDir, err := backupExistingProjectSkill(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
 	mode, err := writableSkillFileMode(path)
 	if err != nil {
 		return nil, err
@@ -90,12 +99,24 @@ func (s *service) writeProjectLocal(ctx context.Context, cwd, path, content, sco
 		return nil, err
 	}
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		if rollbackErr := rollbackProjectSkillDir(filepath.Dir(path), backupDir); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback project write: %w", rollbackErr))
+		}
 		return nil, err
 	}
-	name := filepath.Base(filepath.Dir(path))
 	s.publishSkillsChanged(ctx, "local_write", name, scope)
 	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+	report, err := s.publishWriteTimeMirrorsBlocking(ctx, cwd, scope, personalType, name)
+	if err != nil {
+		if rollbackErr := rollbackProjectSkillDir(filepath.Dir(path), backupDir); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback project write: %w", rollbackErr))
+		}
+		return nil, err
+	}
+	if err := cleanupProjectSkillBackup(backupDir); err != nil {
+		return nil, err
+	}
+	return attachMirrorPublish(result, report), nil
 }
 
 func collectImportSources(primary string, extra []string) ([]string, error) {
@@ -390,6 +411,60 @@ func ensureSkillDirAbsent(targetDir, targetName string) error {
 
 func copySkillDir(source, target string) (int, int64, error) {
 	return skillhash.CopyDirWithLimits(source, target)
+}
+
+// backupExistingProjectSkill 在 project skill 写入或删除前复制可恢复快照。
+func backupExistingProjectSkill(targetDir string) (string, error) {
+	if !skillMainFileExists(targetDir) {
+		return "", nil
+	}
+	backupParent, err := os.MkdirTemp(filepath.Dir(targetDir), ".super-dolphin-project-skill-backup-*")
+	if err != nil {
+		return "", err
+	}
+	backupDir := filepath.Join(backupParent, filepath.Base(targetDir))
+	if _, _, err := copySkillDir(targetDir, backupDir); err != nil {
+		_ = os.RemoveAll(backupParent)
+		return "", err
+	}
+	return backupDir, nil
+}
+
+// rollbackProjectSkillDir 恢复 project skill 写入或删除前的 canonical 目录状态。
+func rollbackProjectSkillDir(targetDir, backupDir string) error {
+	if err := os.RemoveAll(targetDir); err != nil {
+		return err
+	}
+	if strings.TrimSpace(backupDir) == "" {
+		return nil
+	}
+	if _, _, err := copySkillDir(backupDir, targetDir); err != nil {
+		return err
+	}
+	return cleanupProjectSkillBackup(backupDir)
+}
+
+// cleanupProjectSkillBackup 清理 project skill 备份父目录。
+func cleanupProjectSkillBackup(backupDir string) error {
+	if strings.TrimSpace(backupDir) == "" {
+		return nil
+	}
+	return os.RemoveAll(filepath.Dir(backupDir))
+}
+
+// rollbackImportedSkillResults 删除本轮 import 已落盘的 canonical skill。
+func rollbackImportedSkillResults(results []map[string]any) error {
+	var joined error
+	for _, result := range results {
+		dir, _ := result["dir"].(string)
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			joined = errors.Join(joined, err)
+		}
+	}
+	return joined
 }
 
 func copyCanonicalSkillMainFile(src, dst, rel string, mode os.FileMode, tracker *skillhash.ContentLimitTracker) error {

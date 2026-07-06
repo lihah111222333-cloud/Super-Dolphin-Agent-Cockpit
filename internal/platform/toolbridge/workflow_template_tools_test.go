@@ -12,7 +12,7 @@ import (
 )
 
 func TestWorkflowTemplateHostToolRegistry_ListSchemaAndFilters(t *testing.T) {
-	reg := NewWorkflowTemplateHostToolRegistry()
+	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	tools := reg.ListHostTools()
 	assertWorkflowTemplateToolNames(t, tools)
 
@@ -38,7 +38,7 @@ func TestWorkflowTemplateHostToolRegistry_ListSchemaAndFilters(t *testing.T) {
 }
 
 func TestWorkflowTemplateHostToolRegistry_DefaultCodexToolsHideWriteEntrypoints(t *testing.T) {
-	reg := NewWorkflowTemplateHostToolRegistry()
+	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 			dto.ClientKindOrch: {listToolsPeer(nil, nil)},
@@ -68,7 +68,7 @@ func TestWorkflowTemplateHostToolRegistry_DefaultCodexToolsHideWriteEntrypoints(
 }
 
 func TestWorkflowTemplateHostToolRegistry_GetAndRenderDAG(t *testing.T) {
-	reg := NewWorkflowTemplateHostToolRegistry()
+	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	getResult, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameWorkflowTemplateGet,
 		Arguments: json.RawMessage(`{"template_id":"government-enterprise/meeting-minutes","version":1}`),
@@ -109,7 +109,7 @@ func TestWorkflowTemplateHostToolRegistry_GetAndRenderDAG(t *testing.T) {
 }
 
 func TestWorkflowTemplateHostToolRegistry_DefaultDirectWriteRequiresApproval(t *testing.T) {
-	reg := NewWorkflowTemplateHostToolRegistry()
+	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	h := &Handler{
 		registry:  &stubKindRegistry{},
 		hostTools: reg,
@@ -134,8 +134,9 @@ func TestWorkflowTemplateHostToolRegistry_DefaultDirectWriteRequiresApproval(t *
 }
 
 func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
-	readReg := NewWorkflowTemplateHostToolRegistry()
-	writeReg := NewWorkflowTemplateWriteHostToolRegistry(allowWorkflowTemplateWriteAuthority{})
+	registry := newWorkflowTemplateRegistryForTest(t)
+	readReg := NewWorkflowTemplateHostToolRegistry(registry)
+	writeReg := NewWorkflowTemplateWriteHostToolRegistry(registry, allowWorkflowTemplateWriteAuthority{})
 	renderResult, err := readReg.CallHostTool(context.Background(), HostToolCall{
 		Name: ToolNameWorkflowTemplateRenderDAG,
 		Arguments: json.RawMessage(`{
@@ -211,8 +212,18 @@ func (allowWorkflowTemplateWriteAuthority) AuthorizeWorkflowTemplateWrite(contex
 	return nil
 }
 
+func newWorkflowTemplateRegistryForTest(t *testing.T) *workflowtemplates.Registry {
+	t.Helper()
+
+	registry, err := workflowtemplates.NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+	return registry
+}
+
 func TestWorkflowTemplateHostToolRegistry_CWDisOptionalThroughHandler(t *testing.T) {
-	reg := NewWorkflowTemplateHostToolRegistry()
+	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	h := &Handler{hostTools: reg}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
@@ -235,7 +246,7 @@ func TestWorkflowTemplateHostToolRegistry_CWDisOptionalThroughHandler(t *testing
 }
 
 func TestWorkflowTemplateHostToolRegistry_InvalidInputFailsFast(t *testing.T) {
-	reg := NewWorkflowTemplateHostToolRegistry()
+	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	_, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameWorkflowTemplateRenderDAG,
 		Arguments: json.RawMessage(`{"template_id":"government-enterprise/meeting-minutes","unknown":true}`),

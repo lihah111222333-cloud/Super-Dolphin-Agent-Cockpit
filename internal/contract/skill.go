@@ -173,6 +173,38 @@ type SkillMirrorReportItem struct {
 	Error              string        `json:"error,omitempty"`
 }
 
+// IsBlockingSkillMirrorConflict 判断 mirror 报告项是否必须阻断调用方继续启动或写入。
+func IsBlockingSkillMirrorConflict(item SkillMirrorReportItem) bool {
+	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
+	case "same_name",
+		"same_name_scope_conflict":
+		return isActiveProviderMirrorTarget(item)
+	case "drift",
+		"mirror_drift",
+		"multi_mirror_drift",
+		"canonical_deleted_with_drift",
+		"unmanaged",
+		"unmanaged_same_name",
+		"unmanaged_provider_skill":
+		return isActiveProviderMirrorTarget(item)
+	case "publish_error",
+		"publish_targets_unconfigured",
+		"mirror_root_symlink":
+		return true
+	default:
+		return true
+	}
+}
+
+// isActiveProviderMirrorTarget 判断报告项是否来自 provider 会读取的活跃 mirror 目标。
+func isActiveProviderMirrorTarget(item SkillMirrorReportItem) bool {
+	scope := strings.ToLower(strings.TrimSpace(item.Scope))
+	targetID := strings.ToLower(strings.TrimSpace(item.TargetID))
+	return scope == "project" ||
+		strings.Contains(targetID, ":project:") ||
+		strings.Contains(targetID, ":app-managed:")
+}
+
 // SkillProviderMirrorTarget 描述一个 provider skill mirror 的目标目录。
 type SkillProviderMirrorTarget struct {
 	Provider          string `json:"provider"`

@@ -142,7 +142,6 @@ func TestCreateJobRejectsMissingFields(t *testing.T) {
 		{"bad max attempts", func(r *CreateJobRequest) { r.MaxAttempts = -1 }, ErrInvalidMaxAttempts},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			svc := newTestService(t, nil)
@@ -212,7 +211,6 @@ func TestCreateJobRejectsInvalidIdentity(t *testing.T) {
 		})},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			svc := newTestService(t, nil)
@@ -260,9 +258,7 @@ func TestCreateAndUpdateRejectInvalidScheduleInputs(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		for _, op := range []string{"create", "update"} {
-			op := op
 			t.Run(tc.name+"/"+op, func(t *testing.T) {
 				t.Parallel()
 				store := &fakeStore{
@@ -464,6 +460,91 @@ func TestListJobRunsPassesThrough(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].Status != statusPending {
 		t.Fatalf("ListJobRuns = %+v", runs)
+	}
+}
+
+func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		field string
+		row   jobRecord
+		call  func(*service) error
+	}{
+		{
+			name:  "create corrupt config",
+			field: "config",
+			row:   jobRecord{ID: "job-create", Name: "daily", Config: []byte(`{bad`), Skills: []byte(`[]`)},
+			call: func(svc *service) error {
+				_, err := svc.CreateJob(context.Background(), CreateJobRequest{
+					Name:         "daily",
+					Prompt:       "p",
+					ScheduleExpr: "* * * * *",
+					CWD:          "/repo",
+					Config:       newIdentityConfig(t),
+				})
+				return err
+			},
+		},
+		{
+			name:  "get corrupt skills",
+			field: "skills",
+			row:   jobRecord{ID: "job-get", Config: []byte(`{}`), Skills: []byte(`["ok"`), Name: "daily"},
+			call: func(svc *service) error {
+				_, err := svc.GetJob(context.Background(), "job-get")
+				return err
+			},
+		},
+		{
+			name:  "list corrupt config",
+			field: "config",
+			row:   jobRecord{ID: "job-list", Config: []byte(`{"unterminated"`), Skills: []byte(`[]`), Name: "daily"},
+			call: func(svc *service) error {
+				_, err := svc.ListJobs(context.Background())
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := &fakeStore{
+				createFn: func(context.Context, createJobParams) (jobRecord, error) {
+					return tc.row, nil
+				},
+				getByIDFn: func(context.Context, string) (jobRecord, error) {
+					return tc.row, nil
+				},
+				listFn: func(context.Context) ([]jobRecord, error) {
+					return []jobRecord{tc.row}, nil
+				},
+			}
+			svc := newTestService(t, store)
+
+			err := tc.call(svc)
+			assertCronJobPayloadInvalidError(t, err, tc.row.ID, tc.field)
+		})
+	}
+}
+
+func assertCronJobPayloadInvalidError(t *testing.T, err error, jobID, field string) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatalf("error = nil, want cron_job_payload_invalid for %s.%s", jobID, field)
+	}
+	var coded interface{ ErrorCode() string }
+	if !errors.As(err, &coded) {
+		t.Fatalf("error %T does not expose ErrorCode(): %v", err, err)
+	}
+	if code := coded.ErrorCode(); code != "cron_job_payload_invalid" {
+		t.Fatalf("error code = %q, want cron_job_payload_invalid", code)
+	}
+	for _, want := range []string{jobID, field} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want detail %q", err.Error(), want)
+		}
 	}
 }
 

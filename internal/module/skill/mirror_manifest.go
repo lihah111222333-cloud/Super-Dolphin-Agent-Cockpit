@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
@@ -447,6 +448,43 @@ func mirrorPublishErrorReport(targets []SkillMirrorTarget, scope, personalType, 
 		report.Conflicts = append(report.Conflicts, item)
 	}
 	return report
+}
+
+type skillMirrorPublishBlockingError struct {
+	Report SkillMirrorReport
+}
+
+// Error 返回阻断 mirror 发布的首个冲突详情和恢复提示。
+func (e *skillMirrorPublishBlockingError) Error() string {
+	item, ok := firstBlockingMirrorPublishItem(e.Report)
+	if !ok {
+		return "skill mirror publish blocked: resolve provider mirror conflicts and retry"
+	}
+	detail := strings.TrimSpace(item.Error)
+	if detail == "" {
+		detail = strings.TrimSpace(item.ConflictKind)
+	}
+	if detail == "" {
+		detail = "resolve provider mirror conflict"
+	}
+	return fmt.Sprintf("skill mirror publish blocked: %s target=%s kind=%s; resolve provider mirror conflicts and retry",
+		detail, strings.TrimSpace(item.TargetID), strings.TrimSpace(item.ConflictKind))
+}
+
+func mirrorPublishBlockingError(report SkillMirrorReport) error {
+	if _, ok := firstBlockingMirrorPublishItem(report); !ok {
+		return nil
+	}
+	return &skillMirrorPublishBlockingError{Report: report}
+}
+
+func firstBlockingMirrorPublishItem(report SkillMirrorReport) (SkillMirrorReportItem, bool) {
+	for _, item := range report.Conflicts {
+		if contract.IsBlockingSkillMirrorConflict(item) {
+			return item, true
+		}
+	}
+	return SkillMirrorReportItem{}, false
 }
 
 func canonicalIDForPublishReport(scope, personalType, name string) string {
