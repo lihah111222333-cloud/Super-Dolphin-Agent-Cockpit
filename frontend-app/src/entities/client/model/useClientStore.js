@@ -918,16 +918,18 @@ function canonicalizeActiveTurnByThread(activeTurnByThread = {}, threads = []) {
   return next;
 }
 
-function extractText(value) {
+function extractDeltaText(value) {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return normalizeString(value);
+    return value.toString();
   }
   if (Array.isArray(value)) {
-    return value.map((item) => extractText(item)).filter(Boolean).join('\n');
+    return value.map((item) => extractDeltaText(item)).filter((item) => item !== '').join('\n');
   }
   if (typeof value === 'object') {
-    return extractText(value.text || value.content || value.message || value.delta || value.output || value.result || value.answer || value.response);
+    for (const key of ['delta', 'text', 'content', 'message', 'output', 'result', 'answer', 'response']) {
+      if (value[key] !== undefined && value[key] !== null) return extractDeltaText(value[key]);
+    }
   }
   return '';
 }
@@ -2273,6 +2275,23 @@ function attachBridgeIdentityRuntime(runtime) {
   Object.assign(runtime, { bridgeThreadIdForPayload });
 }
 
+function relatedThreadTimelineKeys(state, threadId) {
+  const keys = new Set();
+  const addKey = (value) => {
+    const key = normalizeThreadId(value);
+    if (key) keys.add(key);
+  };
+  addKey(threadId);
+  const matchedThread = (state.threads || []).find((thread) => threadMatchesIdentifier(thread, threadId));
+  if (matchedThread) {
+    addKey(matchedThread.id);
+    addKey(matchedThread.agentId);
+    addKey(matchedThread.providerThreadId);
+    addKey(matchedThread.sessionId);
+  }
+  return [...keys];
+}
+
 function attachAssistantEventRuntime(runtime) {
   /*
    * assistant、reasoning、命令输出的 delta 先攒一下再写 timeline。
@@ -2364,8 +2383,8 @@ function attachAssistantEventRuntime(runtime) {
 
   const enqueueAssistantDelta = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
-    const delta = extractText(payload.delta || payload.text || payload.content);
-    if (!threadId || !delta) return false;
+    const delta = extractDeltaText(payload.delta ?? payload.text ?? payload.content);
+    if (!threadId || delta === '') return false;
     const itemId = normalizeString(payload.itemId || payload.item_id || payload.messageId || payload.message_id) ||
       runtimeAssistantFallbackId(payload, { normalizeThreadId, runtimeThreadIdentifier });
     const key = assistantDeltaBufferKey(threadId, itemId);
@@ -2383,8 +2402,8 @@ function attachAssistantEventRuntime(runtime) {
 
   const enqueueReasoningDelta = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
-    const delta = extractText(payload.delta || payload.text || payload.content);
-    if (!threadId || !delta) return false;
+    const delta = extractDeltaText(payload.delta ?? payload.text ?? payload.content);
+    if (!threadId || delta === '') return false;
     const turnId = normalizeString(payload.turnId || payload.turn_id);
     if (!turnId) return false;
 
@@ -2406,8 +2425,8 @@ function attachAssistantEventRuntime(runtime) {
 
   const enqueueCommandOutputDelta = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
-    const delta = extractText(payload.delta || payload.text || payload.content);
-    if (!threadId || !delta) return false;
+    const delta = extractDeltaText(payload.delta ?? payload.text ?? payload.content);
+    if (!threadId || delta === '') return false;
 
     const timeline = get().timelinesByThread[threadId] || [];
     let itemId = '';
@@ -2444,21 +2463,27 @@ function attachAssistantEventRuntime(runtime) {
   const finalizeActiveAssistantMessages = (threadId) => {
     if (!threadId) return false;
     set((state) => {
-      const timeline = state.timelinesByThread[threadId] || [];
       let mutated = false;
-      const nextTimeline = timeline.map((item) => {
-        if ((item.role === 'assistant' || item.kind === 'assistant' || item.kind === 'thinking' || item.kind === 'command') && item.done === false) {
+      const timelinesByThread = { ...state.timelinesByThread };
+      for (const key of relatedThreadTimelineKeys(state, threadId)) {
+        if (!hasOwn(state.timelinesByThread, key)) continue;
+        let keyMutated = false;
+        const timeline = state.timelinesByThread[key] || [];
+        const nextTimeline = timeline.map((item) => {
+          if ((item.role === 'assistant' || item.kind === 'assistant' || item.kind === 'thinking' || item.kind === 'command') && item.done === false) {
+            keyMutated = true;
+            return { ...item, done: true };
+          }
+          return item;
+        });
+        if (keyMutated) {
+          timelinesByThread[key] = nextTimeline;
           mutated = true;
-          return { ...item, done: true };
         }
-        return item;
-      });
+      }
       if (!mutated) return {};
       return {
-        timelinesByThread: {
-          ...state.timelinesByThread,
-          [threadId]: nextTimeline,
-        },
+        timelinesByThread,
       };
     });
     return true;
@@ -2468,19 +2493,24 @@ function attachAssistantEventRuntime(runtime) {
     const threadId = bridgeThreadIdForPayload(payload);
     const completion = runtimeAssistantCompletion(payload);
     if (!threadId || !completion) return false;
-    set((state) => ({
-      timelinesByThread: {
-        ...state.timelinesByThread,
-        [threadId]: mergeRuntimeAssistantCompletion(state.timelinesByThread[threadId] || [], completion),
-      },
-      actionNotice: actionNotice('已收到回复', 'success'),
-      activityEntries: [{
-        id: `${method}-${Date.now()}`,
-        method,
-        threadId,
-        timestamp: new Date().toISOString(),
-      }, ...state.activityEntries].slice(0, 120),
-    }));
+    set((state) => {
+      const timelinesByThread = { ...state.timelinesByThread };
+      const targetKeys = relatedThreadTimelineKeys(state, threadId)
+        .filter((key) => key === threadId || hasOwn(state.timelinesByThread, key));
+      for (const key of targetKeys) {
+        timelinesByThread[key] = mergeRuntimeAssistantCompletion(state.timelinesByThread[key] || [], completion);
+      }
+      return {
+        timelinesByThread,
+        actionNotice: actionNotice('已收到回复', 'success'),
+        activityEntries: [{
+          id: `${method}-${Date.now()}`,
+          method,
+          threadId,
+          timestamp: new Date().toISOString(),
+        }, ...state.activityEntries].slice(0, 120),
+      };
+    });
     return true;
   };
 

@@ -74,6 +74,22 @@ describe('TimelineMessage', () => {
     expect(screen.queryByText('\u601d\u8003\u4e2d')).not.toBeInTheDocument();
   });
 
+  it('opens generated image previews rendered inside assistant markdown', () => {
+    const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_lightbox.png';
+
+    render(
+      <TimelineMessage
+        message={{ id: 'assistant-image', role: 'assistant', text: `图片已生成：${imagePath}`, time: '2026-06-15T08:00:00Z' }}
+        activeThreadId="thread-1"
+        formatTime={formatTime}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '放大图片 ig_lightbox.png' }));
+
+    expect(screen.getByRole('dialog', { name: '图片预览：ig_lightbox.png' })).toBeInTheDocument();
+  });
+
   it('delegates approval and reasoning message variants', () => {
     const { rerender } = render(
       <TimelineMessage

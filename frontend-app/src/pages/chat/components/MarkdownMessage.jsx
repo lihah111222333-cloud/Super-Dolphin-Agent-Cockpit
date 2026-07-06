@@ -1,54 +1,17 @@
 import React, { useMemo } from 'react';
-import { EMPTY_MARKDOWN_ACTIONS, InlineMarkdown } from './MarkdownInline.jsx';
-import { MermaidDiagram } from './MermaidDiagram.jsx';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { MarkdownCitationLinkChip, MarkdownDirectiveChip } from './MarkdownDirectiveChip.jsx';
 import { MarkdownImagePreview } from './MarkdownImagePreview.jsx';
+import { MermaidDiagram } from './MermaidDiagram.jsx';
+import { CODEX_DIRECTIVE_RE, citationMarkdownLinkChipModel, directiveChipModel } from './markdownDirectiveModel.js';
 import { isMermaidLanguage, isMermaidSource } from './markdownMermaidModel.js';
-import { normalizeMessageText } from './markdownMessageModel.js';
+import { basenameFromPath, imagePreviewSource, normalizeMessageText } from './markdownMessageModel.js';
 
-function CodePreviewMarkdown({ content }) {
-  return <MarkdownBlocks lines={normalizeMessageText(content).split('\n')} />;
-}
-
-function markdownTableCells(line) {
-  return (
-    line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim())
-  );
-}
-
-function isMarkdownTableDivider(line) {
-  const cells = markdownTableCells(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function MarkdownParagraph({ lines, paragraphKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
-  const nodes = [];
-  const seenLines = new Map();
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const seenCount = seenLines.get(line) || 0;
-    seenLines.set(line, seenCount + 1);
-    const lineKey = `${paragraphKey}-line-${line}${seenCount > 0 ? `-${seenCount}` : ''}`;
-    if (index > 0) nodes.push(<br key={`${paragraphKey}-br-${lineKey}`} />);
-    nodes.push(
-      <InlineMarkdown
-        key={`${paragraphKey}-inline-${lineKey}`}
-        text={line}
-        inlineKey={lineKey}
-        actions={actions}
-      />,
-    );
-  }
-  return (
-    <p>
-      {nodes}
-    </p>
-  );
-}
+const EMPTY_MARKDOWN_ACTIONS = Object.freeze({});
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
+const DIRECTIVE_HREF_PREFIX = 'codex-directive:';
+const PLAIN_TEXT_MARKDOWN_TOKEN_RE = /[#>*_[\]()`|~!]/;
 
 const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
   'mermaid',
@@ -97,6 +60,146 @@ const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
   'c',
   'md',
 ].sort((left, right) => right.length - left.length));
+
+const INLINE_IMAGE_PATH_RE = /(?:file:\/\/\/?[^\s`<>()"']+|~?\/(?!\/)[^\s`<>()"']+|\.{1,2}\/[^\s`<>()"']+|[A-Za-z]:[\\/][^\s`<>()"']+)\.(?:png|jpe?g|webp|gif|svg)(?:[?#][^\s`<>()"']*)?/gi;
+
+function CodePreviewMarkdown({ content }) {
+  return <MarkdownRenderer text={content} />;
+}
+
+function parsedMarkdownUrl(value) {
+  try {
+    return new URL(value, window.location?.origin || 'http://localhost');
+  }
+  catch {
+    return null;
+  }
+}
+
+function markdownImageUrl(value, protocol) {
+  const allowed = new Set(['http:', 'https:', 'data:']);
+  return allowed.has(protocol) ? value : '';
+}
+
+function markdownLinkUrl(parsed, protocol) {
+  const allowed = new Set(['http:', 'https:', 'mailto:', 'file:']);
+  return allowed.has(protocol) ? parsed.href : '';
+}
+
+function isExternalMarkdownHref(value) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value) && !/^file:/i.test(value);
+}
+
+function isLikelyLocalMarkdownPath(value) {
+  if (!value || value.startsWith('#') || value.startsWith('//') || isExternalMarkdownHref(value)) return false;
+  if (/^file:/i.test(value)) return true;
+  if (/^[A-Za-z]:[\\/]/.test(value)) return true;
+  if (/^~?\//.test(value) || /^\.{1,2}[\\/]/.test(value)) return true;
+  return /[\\/]/.test(value) || /\.[A-Za-z0-9]{1,12}(?:$|[#?])/.test(value);
+}
+
+function fileUrlToLocalPath(value) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol.toLowerCase() !== 'file:') return '';
+    const path = decodeURIComponent(parsed.pathname || '');
+    if (/^\/[A-Za-z]:[\\/]/.test(path)) return path.slice(1);
+    return path;
+  }
+  catch {
+    return '';
+  }
+}
+
+function decodeMarkdownFilePath(value) {
+  try {
+    return decodeURIComponent(value);
+  }
+  catch {
+    return '';
+  }
+}
+
+function markdownFileLinkRef(rawUrl) {
+  const value = (rawUrl || '').toString().trim();
+  if (!isLikelyLocalMarkdownPath(value)) return null;
+  const lineMatch = value.match(/#L(\d+)/i);
+  const cleanValue = value.split(/[?#]/, 1)[0];
+  const path = /^file:/i.test(cleanValue) ? fileUrlToLocalPath(cleanValue) : decodeMarkdownFilePath(cleanValue);
+  if (!path) return null;
+  return {
+    path,
+    line: lineMatch ? Number.parseInt(lineMatch[1], 10) : 1,
+    column: 0,
+  };
+}
+
+function safeMarkdownUrl(rawUrl, options = {}) {
+  const value = (rawUrl || '').toString().trim();
+  if (!value) return '';
+  const localSrc = options.image ? imagePreviewSource(value) : '';
+  if (localSrc) return localSrc;
+  const parsed = parsedMarkdownUrl(value);
+  if (!parsed) return '';
+  const protocol = parsed.protocol.toLowerCase();
+  if (options.image) return markdownImageUrl(value, protocol);
+  return markdownLinkUrl(parsed, protocol);
+}
+
+function renderImagePreview(rawSource, altText, key) {
+  const src = imagePreviewSource(rawSource);
+  if (!src) return null;
+  const label = (altText || '').toString().trim() || basenameFromPath(rawSource) || '\u56fe\u7247\u9884\u89c8';
+  return <MarkdownImagePreview key={key} src={src} label={label} />;
+}
+
+function trimTrailingImagePathPunctuation(value) {
+  let path = (value || '').toString();
+  let suffix = '';
+  while (/[.,;:!?\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001]$/.test(path)) {
+    suffix = `${path.at(-1)}${suffix}`;
+    path = path.slice(0, -1);
+  }
+  return { path, suffix };
+}
+
+function renderPlainTextWithImagePreviews(text, keyPrefix) {
+  const source = (text || '').toString();
+  const parts = [];
+  let lastIndex = 0;
+  let matchIndex = 0;
+  for (const match of source.matchAll(INLINE_IMAGE_PATH_RE)) {
+    const token = match[0];
+    const start = match.index ?? 0;
+    const { path, suffix } = trimTrailingImagePathPunctuation(token);
+    const image = renderImagePreview(path, basenameFromPath(path), `${keyPrefix}-image-${matchIndex}`);
+    if (!image) continue;
+    if (start > lastIndex) parts.push(source.slice(lastIndex, start));
+    parts.push(image);
+    if (suffix) parts.push(suffix);
+    lastIndex = start + token.length;
+    matchIndex += 1;
+  }
+  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  return parts.length > 0 ? parts : [source];
+}
+
+function hasInlineImagePath(value) {
+  INLINE_IMAGE_PATH_RE.lastIndex = 0;
+  return INLINE_IMAGE_PATH_RE.test(value);
+}
+
+function hasCodexDirective(value) {
+  CODEX_DIRECTIVE_RE.lastIndex = 0;
+  return CODEX_DIRECTIVE_RE.test(value);
+}
+
+function shouldRenderPlainTextMarkdown(text) {
+  const value = normalizeMessageText(text);
+  if (!value.trim() || value.includes('\n')) return false;
+  if (PLAIN_TEXT_MARKDOWN_TOKEN_RE.test(value)) return false;
+  return !hasInlineImagePath(value) && !hasCodexDirective(value);
+}
 
 function CodeBlock({ language = '', code = '' }) {
   if (isMermaidLanguage(language) || isMermaidSource(code)) {
@@ -181,16 +284,34 @@ function splitMarkdownFenceLine(line) {
   };
 }
 
+function markdownClosingFence(line, openingFence) {
+  const value = (line || '').toString();
+  const indentMatch = value.match(/^ {0,3}/);
+  const markerStart = indentMatch?.[0].length || 0;
+  const rest = value.slice(markerStart);
+  const marker = openingFence.markerChar.repeat(openingFence.fenceLength);
+  if (!rest.startsWith(marker)) return null;
+  let cursor = openingFence.fenceLength;
+  while (rest[cursor] === openingFence.markerChar) cursor += 1;
+  return rest.slice(cursor).trim() ? null : { markerStart, markerLength: cursor };
+}
+
 function isIndentedMarkdownCodeLine(line) {
   return /^(?: {4}|\t)/.test(line || '');
 }
 
-function unindentMarkdownCodeLine(line) {
-  return (line || '').toString().replace(/^(?: {4}|\t)/, '');
+function isIndentedMarkdownListItem(line) {
+  return /^\s{4,}(?:[-*+]|\d+[.)])\s+/.test(line || '');
+}
+
+function indentedMarkdownCodeText(line) {
+  const value = (line || '').toString();
+  if (value.startsWith('\t')) return value.slice(1);
+  return value.replace(/^ {4}/, '');
 }
 
 function isTerminalPromptLine(line) {
-  return /^\s{0,3}(?:(?:[$❯➜λ])|(?:PS [^>]*>)|(?:[A-Za-z]:[\\/][^>]*>)|(?:[\w.-]+@[\w.-]+:[^\s$#>]*[$#]))\s+\S/.test(line || '');
+  return /^\s{0,3}(?:(?:[$\u276f\u279c\u03bb])|(?:PS [^>]*>)|(?:[A-Za-z]:[\\/][^>]*>)|(?:[\w.-]+@[\w.-]+:[^\s$#>]*[$#]))\s+\S/.test(line || '');
 }
 
 function isInsideInlineCode(source, offset) {
@@ -205,20 +326,11 @@ function isInsideInlineCode(source, offset) {
   return open;
 }
 
-function markdownHeadingMatch(line) {
-  const trimmed = line.trim();
-  const standard = trimmed.match(/^(#{1,6})\s+(.+)$/);
-  if (standard) return standard;
-  const compact = trimmed.match(/^(#{2,6})([A-Za-z0-9_].*)$/);
-  if (compact) return [compact[0], compact[1], compact[2]];
-  return null;
-}
-
 function unorderedMarkdownListItemText(line) {
   const trimmed = line.trim();
   const standard = trimmed.match(/^[-*]\s+(.+)$/);
   if (standard) return standard[1];
-  const compact = trimmed.match(/^[-*]((?:[A-Z][A-Za-z0-9_-]{1,40}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,20})[:：].+)$/);
+  const compact = trimmed.match(/^[-*]((?:[A-Z][A-Za-z0-9_-]{1,40}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,20})[:\uFF1A].+)$/);
   return compact?.[1] || '';
 }
 
@@ -230,22 +342,23 @@ function startsSoftMarkdownHeading(source, index) {
   if (level < 2 || level > 6 || !source[cursor]) return false;
   const hasSpace = /\s/.test(source[cursor]);
   if (hasSpace) {
-    return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+    return /[\s\u3002\uff01\uff1f!?；;\uff1a:，,.)）\]}]/.test(source[index - 1]);
   }
   if (!/^[A-Za-z0-9_]/.test(source[cursor])) return false;
-  return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+  return /[\s\u3002\uff01\uff1f!?；;\uff1a:，,.)）\]}]/.test(source[index - 1]);
 }
 
 function compactHeadingPrefixBeforeList(value) {
-  return /^#{2,6}[^:：\s]*$/.test(value.trim());
+  return /^#{2,6}[^:\uFF1A\s]*$/.test(value.trim());
 }
 
 function startsSoftMarkdownList(source, index, segmentStart) {
   if (index <= 0 || source[index] !== '-' || isInsideInlineCode(source, index)) return false;
+  if (!source.slice(0, index).trim()) return false;
   if (compactHeadingPrefixBeforeList(source.slice(segmentStart, index))) return false;
   if (!unorderedMarkdownListItemText(source.slice(index))) return false;
   if (/^-\s+/.test(source.slice(index))) {
-    return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+    return /[\s\u3002\uff01\uff1f!?；;\uff1a:，,.)）\]}]/.test(source[index - 1]);
   }
   return !/[\\/]/.test(source[index - 1]);
 }
@@ -279,8 +392,84 @@ function splitMarkdownSoftBlocks(line) {
   return chunks.length > 0 ? chunks : [source];
 }
 
-function markdownInputLines(text) {
-  return normalizeMessageText(text).split('\n').flatMap(splitMarkdownSoftBlocks);
+function normalizeCompactMarkdownLine(line) {
+  const heading = line.match(/^(\s*)(#{2,6})([A-Za-z0-9_].*)$/);
+  if (heading) return `${heading[1]}${heading[2]} ${heading[3]}`;
+  const compactList = line.match(/^(\s*)([-*])((?:[A-Z][A-Za-z0-9_-]{1,40}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,20})[:\uFF1A].+)$/);
+  if (compactList) return `${compactList[1]}${compactList[2]} ${compactList[3]}`;
+  return line;
+}
+
+function normalizedFenceLine(fence) {
+  const marker = fence.markerChar.repeat(fence.fenceLength);
+  return fence.language ? `${marker}${fence.language}` : marker;
+}
+
+function normalizeMarkdownLinesForRenderer(lines) {
+  const normalized = [];
+  let openFence = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (openFence) {
+      if (markdownClosingFence(line, openFence)) {
+        normalized.push(openFence.markerChar.repeat(openFence.fenceLength));
+        openFence = null;
+      }
+      else {
+        normalized.push(line);
+      }
+      continue;
+    }
+
+    if (isTerminalPromptLine(line)) {
+      normalized.push('```terminal');
+      let cursor = index;
+      while (cursor < lines.length && lines[cursor].trim()) {
+        normalized.push(lines[cursor]);
+        cursor += 1;
+      }
+      normalized.push('```');
+      index = cursor - 1;
+      continue;
+    }
+
+    if (isIndentedMarkdownCodeLine(line) && !isIndentedMarkdownListItem(line)) {
+      normalized.push('```');
+      let cursor = index;
+      while (cursor < lines.length) {
+        const codeLine = lines[cursor];
+        if (codeLine.trim() && (!isIndentedMarkdownCodeLine(codeLine) || isIndentedMarkdownListItem(codeLine))) break;
+        normalized.push(codeLine.trim() ? indentedMarkdownCodeText(codeLine) : '');
+        cursor += 1;
+      }
+      normalized.push('```');
+      index = cursor - 1;
+      continue;
+    }
+
+    const fence = splitMarkdownFenceLine(line);
+    if (fence) {
+      if (fence.prefix.trim()) normalized.push(normalizeCompactMarkdownLine(fence.prefix.trimEnd()));
+      normalized.push(normalizedFenceLine(fence));
+      if (fence.firstCodeLine) normalized.push(fence.firstCodeLine);
+      openFence = fence;
+      continue;
+    }
+
+    normalized.push(normalizeCompactMarkdownLine(line));
+  }
+  return normalized;
+}
+
+function encodeCodexDirectives(text) {
+  return text.replace(CODEX_DIRECTIVE_RE, (token) => `[citation](${DIRECTIVE_HREF_PREFIX}${encodeURIComponent(token)})`);
+}
+
+function markdownRendererText(text) {
+  const lines = normalizeMessageText(text)
+    .split('\n')
+    .flatMap(splitMarkdownSoftBlocks);
+  return encodeCodexDirectives(normalizeMarkdownLinesForRenderer(lines).join('\n'));
 }
 
 function standaloneCodeFence(text) {
@@ -289,7 +478,6 @@ function standaloneCodeFence(text) {
   const opening = splitMarkdownFenceLine(lines[0]);
   if (!opening || opening.prefix.trim()) return null;
 
-  // Find if there is a closing fence in the lines
   let closingIndex = -1;
   for (let i = 1; i < lines.length; i++) {
     if (markdownClosingFence(lines[i], opening)) {
@@ -299,11 +487,7 @@ function standaloneCodeFence(text) {
   }
 
   if (closingIndex !== -1) {
-    // If there is a closing fence, it must be the last line to be a standalone code fence
-    if (closingIndex !== lines.length - 1) {
-      return null; // Closed in the middle, has trailing text -> not standalone
-    }
-    // Complete code fence
+    if (closingIndex !== lines.length - 1) return null;
     const bodyLines = lines.slice(1, closingIndex);
     if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
     return {
@@ -312,7 +496,6 @@ function standaloneCodeFence(text) {
     };
   }
 
-  // No closing fence found -> it is an incomplete/streaming code fence!
   const bodyLines = lines.slice(1);
   if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
   return {
@@ -423,398 +606,182 @@ function StructuredMessage({ kind, text }) {
   );
 }
 
-function markdownBlockContext(lines, actions = {}) {
-  const nodes = [];
+function reactChildrenText(children) {
+  if (children === null || children === undefined) return '';
+  if (typeof children === 'string' || typeof children === 'number' || typeof children === 'boolean') return children.toString();
+  if (Array.isArray(children)) return children.map((child) => reactChildrenText(child)).join('');
+  if (React.isValidElement(children)) return reactChildrenText(children.props.children);
+  return '';
+}
+
+function directiveTokenFromHref(href) {
+  const value = (href || '').toString();
+  if (!value.startsWith(DIRECTIVE_HREF_PREFIX)) return '';
+  try {
+    return decodeURIComponent(value.slice(DIRECTIVE_HREF_PREFIX.length));
+  }
+  catch {
+    return '';
+  }
+}
+
+function markdownLinkToken(label, href) {
+  return `[${(label || '').toString()}](${(href || '').toString()})`;
+}
+
+function MarkdownLink({ href = '', children, actions = EMPTY_MARKDOWN_ACTIONS }) {
+  const directiveToken = directiveTokenFromHref(href);
+  if (directiveToken) {
+    return <MarkdownDirectiveChip chip={directiveChipModel(directiveToken)} actions={actions} />;
+  }
+
+  const label = reactChildrenText(children).trim() || href;
+  const citation = citationMarkdownLinkChipModel(markdownLinkToken(label, href));
+  if (citation) return <MarkdownCitationLinkChip chip={citation} actions={actions} />;
+
+  const fileRef = markdownFileLinkRef(href);
+  const openFile = actions?.onOpenPath || actions?.onFileRef;
+  if (fileRef && openFile) {
+    const handleFileClick = (event) => {
+      event.preventDefault();
+      openFile({ ...fileRef, raw: label });
+    };
+    return (
+      <button
+        type="button"
+        className="chat-md-file-ref chat-md-file-link"
+        aria-label={`\u6253\u5f00\u6587\u4ef6 ${label}`}
+        title={fileRef.path}
+        onClick={handleFileClick}
+      >
+        {children}
+      </button>
+    );
+  }
+  if (fileRef) return <>{children}</>;
+
+  const safeHref = safeMarkdownUrl(href);
+  if (!safeHref) return <>{children}</>;
+  const handleClick = (event) => {
+    event.preventDefault();
+    if (window.wails?.Browser?.OpenURL) {
+      window.wails.Browser.OpenURL(safeHref);
+    } else {
+      window.open(safeHref, '_blank', 'noreferrer');
+    }
+  };
+  return <a href={safeHref} onClick={handleClick} rel="noreferrer">{children}</a>;
+}
+
+function MarkdownImage({ src = '', alt = '' }) {
+  const safeSrc = safeMarkdownUrl(src, { image: true });
+  if (!safeSrc) return alt || basenameFromPath(src) || '';
+  return <MarkdownImagePreview src={safeSrc} label={alt || basenameFromPath(src)} />;
+}
+
+function languageFromClassName(className = '') {
+  const match = className.match(/(?:^|\s)language-([^\s]+)/);
+  return normalizeFenceLanguageToken(match?.[1] || '');
+}
+
+function codeBlockFromPreChildren(children) {
+  const child = React.Children.toArray(children).find((item) => (
+    React.isValidElement(item) && (item.type === 'code' || item.type === MarkdownCode)
+  ));
+  if (!child) return null;
   return {
-    actions,
-    lines,
-    nodes,
-    nextKey: (kind) => `${kind}-${nodes.length}`,
+    language: languageFromClassName(child.props.className || ''),
+    code: reactChildrenText(child.props.children).replace(/\n$/, ''),
   };
 }
 
-function consumeBlankMarkdownLine(context, index) {
-  return context.lines[index].trim() ? null : { index: index + 1 };
+function MarkdownPre({ node: _node, children }) {
+  const block = codeBlockFromPreChildren(children);
+  if (block) return <CodeBlock language={block.language} code={block.code} />;
+  return <pre>{children}</pre>;
 }
 
-function consumeMarkdownSeparator(context, index) {
-  const trimmed = context.lines[index].trim();
-  if (!/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return null;
-  context.nodes.push(<hr key={context.nextKey('separator')} />);
-  return { index: index + 1 };
-}
-
-function markdownClosingFence(line, openingFence) {
-  const value = (line || '').toString();
-  const indentMatch = value.match(/^ {0,3}/);
-  const markerStart = indentMatch?.[0].length || 0;
-  const rest = value.slice(markerStart);
-  const marker = openingFence.markerChar.repeat(openingFence.fenceLength);
-  if (!rest.startsWith(marker)) return null;
-  let cursor = openingFence.fenceLength;
-  while (rest[cursor] === openingFence.markerChar) cursor += 1;
-  return rest.slice(cursor).trim() ? null : { markerStart, markerLength: cursor };
-}
-
-function readMarkdownCodeLines(lines, index, fence) {
-  const codeLines = fence.firstCodeLine ? [fence.firstCodeLine] : [];
-  let cursor = index + 1;
-  while (cursor < lines.length) {
-    const closing = markdownClosingFence(lines[cursor], fence);
-    if (closing) {
-      const beforeClose = lines[cursor].slice(0, closing.markerStart);
-      if (beforeClose.trim()) codeLines.push(beforeClose);
-      return { codeLines, index: cursor + 1 };
-    }
-    codeLines.push(lines[cursor]);
-    cursor += 1;
+function MarkdownCode({ node: _node, className = '', children, ...props }) {
+  const codeText = reactChildrenText(children);
+  if (!className) {
+    const image = renderImagePreview(codeText.trim(), basenameFromPath(codeText.trim()), 'inline-code-image');
+    return image || <code {...props}>{children}</code>;
   }
-  return { codeLines, index: cursor };
+  return <code className={className} {...props}>{children}</code>;
 }
 
-function consumeMarkdownFence(context, index) {
-  const fence = splitMarkdownFenceLine(context.lines[index]);
-  if (!fence) return null;
-  if (fence.prefix.trim()) {
-    const paragraphKey = context.nextKey('paragraph');
-    context.nodes.push(<MarkdownParagraph key={paragraphKey} lines={[fence.prefix.trimEnd()]} paragraphKey={paragraphKey} actions={context.actions} />);
-  }
-  const key = context.nextKey('code');
-  const code = readMarkdownCodeLines(context.lines, index, fence);
-  context.nodes.push(<CodeBlock key={key} language={fence.language} code={code.codeLines.join('\n')} />);
-  return { index: code.index };
+function MarkdownParagraph({ children }) {
+  const text = reactChildrenText(children);
+  const imageParts = renderPlainTextWithImagePreviews(text, 'paragraph-image');
+  if (imageParts.length === 1 && imageParts[0] === text) return <p>{children}</p>;
+  return <p>{imageParts}</p>;
 }
 
-function readIndentedMarkdownCodeLines(lines, index) {
-  const codeLines = [];
-  let cursor = index;
-  while (cursor < lines.length) {
-    if (!lines[cursor].trim()) {
-      codeLines.push('');
-      cursor += 1;
-      continue;
-    }
-    if (!isIndentedMarkdownCodeLine(lines[cursor])) break;
-    codeLines.push(unindentMarkdownCodeLine(lines[cursor]));
-    cursor += 1;
-  }
-  while (codeLines.length > 0 && codeLines.at(-1) === '') codeLines.pop();
-  return { codeLines, index: cursor };
+function MarkdownListItem({ node: _node, className = '', children, ...props }) {
+  if (!className.includes('task-list-item')) return <li {...props} className={className}>{children}</li>;
+  const label = reactChildrenText(children).trim();
+  const patchedChildren = React.Children.map(children, (child) => {
+    if (!React.isValidElement(child) || child.type !== MarkdownInput) return child;
+    return React.cloneElement(child, { 'aria-label': label });
+  });
+  return <li {...props} className={className}>{patchedChildren}</li>;
 }
 
-function consumeIndentedMarkdownCode(context, index) {
-  if (!isIndentedMarkdownCodeLine(context.lines[index])) return null;
-  const result = readIndentedMarkdownCodeLines(context.lines, index);
-  if (result.codeLines.length === 0) return null;
-  context.nodes.push(<CodeBlock key={context.nextKey('code')} code={result.codeLines.join('\n')} />);
-  return { index: result.index };
+function MarkdownUnorderedList({ className = '', children, ...props }) {
+  const classNames = [className];
+  if (className.includes('contains-task-list')) classNames.push('task-list');
+  return <ul {...props} className={classNames.filter(Boolean).join(' ')}>{children}</ul>;
 }
 
-function readTerminalTranscriptLines(lines, index) {
-  const codeLines = [];
-  let cursor = index;
-  while (cursor < lines.length) {
-    if (!lines[cursor].trim()) break;
-    codeLines.push(lines[cursor]);
-    cursor += 1;
-  }
-  return { codeLines, index: cursor };
+function MarkdownInput({ node: _node, checked, ...props }) {
+  return <input {...props} checked={Boolean(checked)} disabled readOnly />;
 }
 
-function consumeTerminalTranscript(context, index) {
-  if (!isTerminalPromptLine(context.lines[index])) return null;
-  const result = readTerminalTranscriptLines(context.lines, index);
-  context.nodes.push(<CodeBlock key={context.nextKey('terminal')} language="terminal" code={result.codeLines.join('\n')} />);
-  return { index: result.index };
+function markdownComponents(actions) {
+  return {
+    a({ node: _node, href, children }) {
+      return <MarkdownLink href={href} actions={actions}>{children}</MarkdownLink>;
+    },
+    img({ node: _node, src, alt }) {
+      return <MarkdownImage src={src} alt={alt} />;
+    },
+    p({ node: _node, children }) {
+      return <MarkdownParagraph>{children}</MarkdownParagraph>;
+    },
+    pre: MarkdownPre,
+    code: MarkdownCode,
+    li: MarkdownListItem,
+    ul({ node: _node, className, children, ...props }) {
+      return <MarkdownUnorderedList className={className} {...props}>{children}</MarkdownUnorderedList>;
+    },
+    input: MarkdownInput,
+  };
 }
 
-function consumeMarkdownHeading(context, index) {
-  const heading = markdownHeadingMatch(context.lines[index]);
-  if (!heading) return null;
-  const level = Math.min(6, heading[1].length);
-  const HeadingTag = `h${level}`;
-  context.nodes.push(
-    <HeadingTag key={context.nextKey('heading')}>
-      <InlineMarkdown text={heading[2]} inlineKey={`heading-${context.nodes.length}`} actions={context.actions} />
-    </HeadingTag>,
-  );
-  return { index: index + 1 };
+function passthroughUrlTransform(url) {
+  return url;
 }
 
-function markdownTableStarts(lines, index) {
+function MarkdownRenderer({ text, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
+  const components = useMemo(() => markdownComponents(actions), [actions]);
+  if (shouldRenderPlainTextMarkdown(text)) return <p>{normalizeMessageText(text)}</p>;
+  const markdownText = markdownRendererText(text);
+  if (!markdownText.trim()) return fallback;
   return (
-    index + 1 < lines.length
-    && lines[index].trim().includes('|')
-    && isMarkdownTableDivider(lines[index + 1])
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      components={components}
+      urlTransform={passthroughUrlTransform}
+    >
+      {markdownText}
+    </ReactMarkdown>
   );
 }
-
-function readMarkdownTableRows(lines, index) {
-  const rows = [];
-  let cursor = index;
-  while (cursor < lines.length && lines[cursor].trim().includes('|')) {
-    rows.push(markdownTableCells(lines[cursor]));
-    cursor += 1;
-  }
-  return { rows, index: cursor };
-}
-
-function MarkdownTableHeaderCell({ cell, cellKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
-  return (
-    <th>
-      <InlineMarkdown text={cell} inlineKey={cellKey} actions={actions} />
-    </th>
-  );
-}
-
-function MarkdownTableCell({ value, cellKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
-  return (
-    <td>
-      <InlineMarkdown text={value} inlineKey={cellKey} actions={actions} />
-    </td>
-  );
-}
-
-function renderMarkdownTable(headers, rows, key, actions = {}) {
-  return (
-    <table key={key}>
-      <thead>
-        <tr>
-          {headers.map((cell, cellIndex) => (
-            <MarkdownTableHeaderCell key={`${key}-h-${cellIndex}`} cell={cell} cellKey={`${key}-h-${cellIndex}`} actions={actions} />
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, rowIndex) => (
-          <tr key={`${key}-r-${rowIndex}`}>
-            {headers.map((_, cellIndex) => (
-              <MarkdownTableCell
-                key={`${key}-r-${rowIndex}-${cellIndex}`}
-                value={row[cellIndex] || ''}
-                cellKey={`${key}-r-${rowIndex}-${cellIndex}`}
-                actions={actions}
-              />
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function consumeMarkdownTable(context, index) {
-  if (!markdownTableStarts(context.lines, index)) return null;
-  const key = context.nextKey('table');
-  const headers = markdownTableCells(context.lines[index]);
-  const body = readMarkdownTableRows(context.lines, index + 2);
-  context.nodes.push(renderMarkdownTable(headers, body.rows, key, context.actions));
-  return { index: body.index };
-}
-
-function consumeMarkdownQuote(context, index) {
-  if (!context.lines[index].trim().startsWith('>')) return null;
-  const key = context.nextKey('quote');
-  const quoteLines = [];
-  let cursor = index;
-  while (cursor < context.lines.length && context.lines[cursor].trim().startsWith('>')) {
-    quoteLines.push(context.lines[cursor].trim().replace(/^>\s?/, ''));
-    cursor += 1;
-  }
-  context.nodes.push(
-    <blockquote key={key}>
-      <MarkdownParagraph lines={quoteLines} paragraphKey={`${key}-p`} actions={context.actions} />
-    </blockquote>,
-  );
-  return { index: cursor };
-}
-
-function readMarkdownTaskItems(lines, index) {
-  const items = [];
-  let cursor = index;
-  while (cursor < lines.length) {
-    const itemMatch = lines[cursor].trim().match(/^[-*]\s*\[([ xX])]\s+(.+)$/);
-    if (!itemMatch) break;
-    items.push({ checked: itemMatch[1].toLowerCase() === 'x', text: itemMatch[2] });
-    cursor += 1;
-  }
-  return { items, index: cursor };
-}
-
-function consumeMarkdownTaskList(context, index) {
-  if (!context.lines[index].trim().match(/^[-*]\s*\[([ xX])]\s+(.+)$/)) return null;
-  const key = context.nextKey('task-list');
-  const result = readMarkdownTaskItems(context.lines, index);
-  context.nodes.push(
-    <ul key={key} className="task-list">
-      {result.items.map((item, itemIndex) => (
-        <li key={`${key}-${itemIndex}`}>
-          <input type="checkbox" checked={item.checked} disabled readOnly aria-label={item.text} />
-          <span><InlineMarkdown text={item.text} inlineKey={`${key}-${itemIndex}`} actions={context.actions} /></span>
-        </li>
-      ))}
-    </ul>,
-  );
-  return { index: result.index };
-}
-
-function readMarkdownListItems(lines, index, ordered) {
-  const items = [];
-  let cursor = index;
-  while (cursor < lines.length) {
-    if (ordered) {
-      const itemMatch = lines[cursor].trim().match(/^\d+\.\s+(.+)$/);
-      if (!itemMatch) break;
-      items.push(itemMatch[1]);
-    }
-    else {
-      const itemText = unorderedMarkdownListItemText(lines[cursor]);
-      if (!itemText) break;
-      items.push(itemText);
-    }
-    cursor += 1;
-  }
-  return { items, index: cursor };
-}
-
-function consumeMarkdownList(context, index) {
-  const trimmed = context.lines[index].trim();
-  const unordered = unorderedMarkdownListItemText(trimmed);
-  const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
-  if (!unordered && !ordered) return null;
-  const key = context.nextKey('list');
-  const ListTag = ordered ? 'ol' : 'ul';
-  const result = readMarkdownListItems(context.lines, index, Boolean(ordered));
-  context.nodes.push(
-    <ListTag key={key}>
-      {result.items.map((item, itemIndex) => (
-        <li key={`${key}-${itemIndex}`}>
-          <InlineMarkdown text={item} inlineKey={`${key}-${itemIndex}`} actions={context.actions} />
-        </li>
-      ))}
-    </ListTag>,
-  );
-  return { index: result.index };
-}
-
-function startsMarkdownBlock(lines, index) {
-  const next = lines[index];
-  const trimmed = next.trim();
-  if (!trimmed) return true;
-  if (fenceMarkerMatch(next) || isIndentedMarkdownCodeLine(next) || isTerminalPromptLine(next) || trimmed.startsWith('>')) return true;
-  if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return true;
-  if (markdownHeadingMatch(trimmed)) return true;
-  if (unorderedMarkdownListItemText(trimmed) || /^\d+\.\s+(.+)$/.test(trimmed)) return true;
-  return markdownTableStarts(lines, index);
-}
-
-function consumeMarkdownParagraphBlock(context, index) {
-  const paragraph = [context.lines[index]];
-  let cursor = index + 1;
-  while (cursor < context.lines.length && !startsMarkdownBlock(context.lines, cursor)) {
-    paragraph.push(context.lines[cursor]);
-    cursor += 1;
-  }
-  const paragraphKey = context.nextKey('paragraph');
-  context.nodes.push(<MarkdownParagraph key={paragraphKey} lines={paragraph} paragraphKey={paragraphKey} actions={context.actions} />);
-  return { index: cursor };
-}
-
-const MARKDOWN_BLOCK_CONSUMERS = [
-  consumeBlankMarkdownLine,
-  consumeMarkdownSeparator,
-  consumeMarkdownFence,
-  consumeIndentedMarkdownCode,
-  consumeTerminalTranscript,
-  consumeMarkdownHeading,
-  consumeMarkdownTable,
-  consumeMarkdownQuote,
-  consumeMarkdownTaskList,
-  consumeMarkdownList,
-  consumeMarkdownParagraphBlock,
-];
-
-function consumeMarkdownBlock(context, index) {
-  for (const consumer of MARKDOWN_BLOCK_CONSUMERS) {
-    const result = consumer(context, index);
-    if (result) return result.index;
-  }
-  throw new Error('markdown block consumer pipeline is incomplete');
-}
-
-function renderMarkdownBlocks(lines, actions = {}, cache = null) {
-  const context = markdownBlockContext(lines, actions);
-  let index = 0;
-  const checkpoints = [];
-
-  if (cache && cache.lines && cache.nodes && cache.checkpoints) {
-    let matchingCount = 0;
-    const maxMatch = Math.min(lines.length, cache.lines.length);
-    while (matchingCount < maxMatch && lines[matchingCount] === cache.lines[matchingCount]) {
-      matchingCount++;
-    }
-
-    let splitIndex = -1;
-    for (let i = matchingCount - 1; i >= 0; i--) {
-      if (cache.checkpoints[i] !== undefined) {
-        splitIndex = i;
-        break;
-      }
-    }
-
-    if (splitIndex >= 0) {
-      index = splitIndex;
-      const reuseCount = cache.checkpoints[splitIndex];
-      for (let i = 0; i < reuseCount; i++) {
-        context.nodes.push(cache.nodes[i]);
-      }
-      for (let i = 0; i <= splitIndex; i++) {
-        if (cache.checkpoints[i] !== undefined) {
-          checkpoints[i] = cache.checkpoints[i];
-        }
-      }
-    }
-  }
-
-  while (index < lines.length) {
-    checkpoints[index] = context.nodes.length;
-    index = consumeMarkdownBlock(context, index);
-  }
-
-  if (cache) {
-    cache.lines = lines;
-    cache.nodes = context.nodes;
-    cache.checkpoints = checkpoints;
-  }
-
-  return context.nodes;
-}
-
-const MarkdownBlocks = React.memo(
-  function MarkdownBlocks({ lines, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
-    const cache = useMemo(() => ({ lines: [], nodes: [], checkpoints: [], actions }), [actions]);
-    const nodes = renderMarkdownBlocks(lines, actions, cache);
-    return <>{nodes.length > 0 ? nodes : fallback}</>;
-  },
-  (prevProps, nextProps) => {
-    if (prevProps.fallback !== nextProps.fallback) return false;
-    if (prevProps.actions !== nextProps.actions) return false;
-    const prevLines = prevProps.lines;
-    const nextLines = nextProps.lines;
-    if (prevLines === nextLines) return true;
-    if (!prevLines || !nextLines) return false;
-    if (prevLines.length !== nextLines.length) return false;
-    for (let i = 0; i < prevLines.length; i++) {
-      if (prevLines[i] !== nextLines[i]) return false;
-    }
-    return true;
-  }
-);
 
 function MarkdownMessage({ text, actions }) {
   return (
     <div className="message-markdown">
-      <MarkdownBlocks lines={markdownInputLines(text)} actions={actions} fallback={<p />} />
+      <MarkdownRenderer text={text} actions={actions} fallback={<p />} />
     </div>
   );
 }

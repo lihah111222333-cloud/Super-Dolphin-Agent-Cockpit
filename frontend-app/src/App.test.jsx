@@ -2322,7 +2322,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    expect(await screen.findByText('下面是当前仓库结构：')).toBeInTheDocument();
+    await screen.findByText('下面是当前仓库结构：', {}, { timeout: 5000 });
+    await waitFor(() => expect(container.querySelector('.message-markdown pre')).toBeInTheDocument());
     const codeBlock = container.querySelector('.message-markdown pre');
     expect(codeBlock).toHaveTextContent('Super-Dolphin/');
     expect(codeBlock).toHaveTextContent('frontend-app/#当前前端');
@@ -2364,7 +2365,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    expect(await screen.findByText('常见代码块：')).toBeInTheDocument();
+    await screen.findByText('常见代码块：', {}, { timeout: 5000 });
+    await waitFor(() => expect(container.querySelectorAll('.message-markdown pre code')).toHaveLength(4));
     const codeBlocks = Array.from(container.querySelectorAll('.message-markdown pre code'));
     expect(codeBlocks).toHaveLength(4);
     expect(codeBlocks[0]).toHaveTextContent('npm run lint');
@@ -2398,7 +2400,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    expect(await screen.findByText('执行结果：')).toBeInTheDocument();
+    await screen.findByText('执行结果：', {}, { timeout: 5000 });
+    await waitFor(() => expect(container.querySelector('.message-markdown pre code')).toBeInTheDocument());
     const codeBlock = container.querySelector('.message-markdown pre code');
     expect(codeBlock).toHaveTextContent('$ npm test');
     expect(codeBlock).toHaveTextContent('> vitest run');
@@ -2445,9 +2448,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '放大图片 ig_lightbox.png' }));
+    await screen.findByRole('button', { name: '放大图片 ig_lightbox.png' });
+    fireEvent.click(screen.getByRole('button', { name: '放大图片 ig_lightbox.png' }));
 
-    const dialog = screen.getByRole('dialog', { name: '图片预览：ig_lightbox.png' });
+    const dialog = await screen.findByRole('dialog', { name: '图片预览：ig_lightbox.png' });
     expect(dialog.tagName).toBe('DIALOG');
     expect(within(dialog).getByRole('img', { name: 'ig_lightbox.png' })).toHaveAttribute('src', routedSrc);
     expect(within(dialog).queryByRole('link', { name: '外部打开' })).not.toBeInTheDocument();
@@ -2469,11 +2473,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    const image = await screen.findByRole('img', { name: 'ig_missing.png' });
+    await screen.findByRole('img', { name: 'ig_missing.png' });
+    const image = screen.getByRole('img', { name: 'ig_missing.png' });
     fireEvent.error(image);
 
-    expect(screen.getByRole('note')).toHaveTextContent('图片无法加载');
-    expect(screen.getByRole('note')).toHaveTextContent('ig_missing.png');
+    const note = await screen.findByRole('note');
+    expect(note).toHaveTextContent('图片无法加载');
+    expect(note).toHaveTextContent('ig_missing.png');
   });
 
   it('renders bare generated local image paths from assistant replies as image previews', async () => {

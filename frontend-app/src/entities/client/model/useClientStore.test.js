@@ -4156,6 +4156,100 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
+  it('preserves markdown block whitespace across assistant delta chunks', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'user-1', role: 'user', text: 'inspect repo', time: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+
+      for (const delta of [
+        '已完成代码库速览。',
+        '\n\n## 代码库画像\n',
+        '- 这是一个多 agent 编排平台',
+      ]) {
+        bridgeCallback({
+          method: 'item/agentMessage/delta',
+          payload: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            delta,
+            stream: 'message',
+          },
+        });
+      }
+
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'user-1', role: 'user', text: 'inspect repo' }),
+        expect.objectContaining({
+          id: 'assistant-stream-turn-1',
+          role: 'assistant',
+          text: '已完成代码库速览。\n\n## 代码库画像\n- 这是一个多 agent 编排平台',
+          done: false,
+        }),
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('merges completion into stream messages stored under provider thread aliases', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{
+        id: 'thread-1',
+        providerThreadId: 'provider-thread-1',
+        agentId: 'agent_123',
+        name: 'Thread 1',
+        provider: 'codex',
+        status: 'running',
+      }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
+        'provider-thread-1': [{
+          id: 'assistant-stream-turn-1',
+          role: 'assistant',
+          kind: 'assistant',
+          text: 'ok',
+          done: false,
+          runtime: true,
+          time: '2026-05-30T00:01:00Z',
+        }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      method: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'assistant-final-turn-1', type: 'agentMessage', text: 'ok' },
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['provider-thread-1']).toEqual([
+      expect.objectContaining({
+        id: 'assistant-final-turn-1',
+        role: 'assistant',
+        text: 'ok',
+        done: true,
+      }),
+    ]);
+  });
+
   it('clears pending assistant delta timers and buffers on store reset', async () => {
     vi.useFakeTimers();
     try {
