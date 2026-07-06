@@ -342,9 +342,9 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 
 	payload := commandApprovalPayload(42, "call-inflight", "echo hi")
-	ownerDone := requestToolApprovalAsync(s, payload)
+	ownerDone := requestToolApprovalAsync(t, s, payload)
 	waitForApprovalRequesterStarted(t, requester.started)
-	waiterDone := requestToolApprovalAsync(s, payload)
+	waiterDone := requestToolApprovalAsync(t, s, payload)
 	assertApprovalRequestStillWaiting(t, waiterDone)
 
 	close(requester.release)
@@ -358,11 +358,13 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 	assertApprovalRespondRequestIDs(t, waitForApprovalRespondParams(t, recorder, 2), 42)
 }
 
-func requestToolApprovalAsync(s *session, payload []byte) <-chan error {
+func requestToolApprovalAsync(t testing.TB, s *session, payload []byte) <-chan error {
+	t.Helper()
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		done <- s.requestToolApprovalWithContext(context.Background(), "item/commandExecution/requestApproval", payload)
-	}()
+	})
 	return done
 }
 

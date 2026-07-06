@@ -2,7 +2,6 @@ package codexapp
 
 import (
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -60,7 +59,7 @@ func TestTurnOutputAccumulator_HardCapTruncates(t *testing.T) {
 	chunk := strings.Repeat("x", chunkSize)
 	turnID := "turn-big"
 	// Fill to just under cap.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		s.appendTurnOutputDelta(turnID, chunk)
 	}
 	// This append would push past 1 MiB → must be dropped + latched.
@@ -88,21 +87,18 @@ func TestTurnOutputAccumulator_PerTurnIsolationConcurrent(t *testing.T) {
 
 	const turns = 16
 	const deltasPerTurn = 32
-	var wg sync.WaitGroup
-	wg.Add(turns)
-	for i := 0; i < turns; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
+	goroutines := newTestGoroutineGroup(t)
+	for i := range turns {
+		goroutines.Go(func() {
 			turnID := "turn-" + string(rune('A'+i))
-			for j := 0; j < deltasPerTurn; j++ {
+			for range deltasPerTurn {
 				s.appendTurnOutputDelta(turnID, "d")
 			}
-		}()
+		})
 	}
-	wg.Wait()
+	goroutines.Wait()
 
-	for i := 0; i < turns; i++ {
+	for i := range turns {
 		turnID := "turn-" + string(rune('A'+i))
 		merged, truncated := s.consumeTurnOutputAccumulator(turnID)
 		if truncated {

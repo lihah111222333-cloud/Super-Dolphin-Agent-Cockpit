@@ -670,10 +670,11 @@ func TestListToolsForCodex_PeerWaitIsConcurrent(t *testing.T) {
 		err       error
 	}
 	done := make(chan result, 1)
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		tools, err := h.ListToolsForCodex(context.Background())
 		done <- result{toolCount: len(tools), err: err}
-	}()
+	})
 
 	seen := map[string]bool{}
 	for len(seen) < 2 {
@@ -688,6 +689,7 @@ func TestListToolsForCodex_PeerWaitIsConcurrent(t *testing.T) {
 	close(release)
 	select {
 	case res := <-done:
+		wg.Wait()
 		if res.err != nil {
 			t.Fatalf("ListToolsForCodex() error = %v", res.err)
 		}

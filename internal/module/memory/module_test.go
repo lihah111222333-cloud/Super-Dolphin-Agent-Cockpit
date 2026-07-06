@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -284,7 +285,8 @@ func TestMemorySubscribersHandleTurnCompletedAsync(t *testing.T) {
 	}()
 
 	published := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		event.Publish(dispatcher, turndto.TurnCompleted{
 			TurnHeader: shareddto.TurnHeader{
 				AgentHeader:  shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"}},
@@ -293,10 +295,11 @@ func TestMemorySubscribersHandleTurnCompletedAsync(t *testing.T) {
 			Success: true,
 		})
 		close(published)
-	}()
+	})
 
 	select {
 	case <-published:
+		wg.Wait()
 	case <-time.After(250 * time.Millisecond):
 		t.Fatal("thread stopped publish blocked; want async extract")
 	}

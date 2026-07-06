@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -54,16 +53,14 @@ func TestImageHashTrackerEmptyBytes(t *testing.T) {
 
 func TestImageHashTrackerConcurrent(t *testing.T) {
 	tr := newImageHashTracker()
-	var wg sync.WaitGroup
+	goroutines := newTestGoroutineGroup(t)
 	const writers = 8
-	wg.Add(writers)
-	for i := 0; i < writers; i++ {
-		go func() {
-			defer wg.Done()
+	for range writers {
+		goroutines.Go(func() {
 			tr.markIfNew([]byte("shared-bytes"))
-		}()
+		})
 	}
-	wg.Wait()
+	goroutines.Wait()
 	_, isNew := tr.markIfNew([]byte("shared-bytes"))
 	if isNew {
 		t.Errorf("concurrent tracker did not record bytes; expected duplicate after Wait")

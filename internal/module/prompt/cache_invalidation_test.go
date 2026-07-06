@@ -60,9 +60,7 @@ func TestConcurrentInvalidateAndAssembleTurnRemainSafe(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	for range 6 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -79,7 +77,7 @@ func TestConcurrentInvalidateAndAssembleTurnRemainSafe(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	for next := int64(2); next <= 6; next++ {

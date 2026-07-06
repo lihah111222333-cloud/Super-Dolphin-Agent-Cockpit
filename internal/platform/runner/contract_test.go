@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,14 +16,16 @@ func startRunnerForTest(t *testing.T, run func(context.Context) error) (context.
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(finished)
 		done <- run(ctx)
-	}()
+	})
 	t.Cleanup(func() {
 		cancel()
 		select {
 		case <-finished:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatal("runner goroutine did not stop")
 		}
@@ -57,9 +60,10 @@ func TestWorkerAsRunnerAdapter(t *testing.T) {
 
 type shutdownProbeWorker struct {
 	stopCtxErr error
+	started    bool
 }
 
-func (w *shutdownProbeWorker) Start() {}
+func (w *shutdownProbeWorker) Start() { w.started = true }
 
 func (w *shutdownProbeWorker) Stop(ctx context.Context) error {
 	w.stopCtxErr = ctx.Err()
@@ -78,6 +82,9 @@ func TestWorkerRunnerStopUsesFreshShutdownContext(t *testing.T) {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("worker did not start")
+	}
+	if !worker.started {
+		t.Fatal("worker Start() was not called before started signal")
 	}
 	cancel()
 	err := <-done

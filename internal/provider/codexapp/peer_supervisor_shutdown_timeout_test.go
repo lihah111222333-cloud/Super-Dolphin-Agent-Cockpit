@@ -96,11 +96,12 @@ func TestPeerSupervisorSuperviseOneCancelDoesNotWaitForeverOnStuckWait(t *testin
 	var wg sync.WaitGroup
 	wg.Add(1)
 	wgDone := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		wg.Wait()
 		close(wgDone)
-	}()
-	go s.superviseOne(ctx, "test-peer", stuck, &wg)
+	})
+	goroutines.Go(func() { s.superviseOne(ctx, "test-peer", stuck, &wg) })
 
 	waitUntil(t, time.Second, stuck.started, "stuck peer Wait never started")
 	cancel()

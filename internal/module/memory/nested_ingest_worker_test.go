@@ -93,14 +93,16 @@ func waitNestedWorkerStarted(t *testing.T, rt *fakeNestedIngestRuntime) {
 func enqueueNestedIngestBurst(t *testing.T, w *nestedIngestWorker) {
 	t.Helper()
 	enqueueDone := make(chan struct{})
-	go func() {
-		for i := 0; i < 16; i++ {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 16 {
 			w.Enqueue("thread-A", "Read", "payload", "/tmp/file")
 		}
 		close(enqueueDone)
-	}()
+	})
 	select {
 	case <-enqueueDone:
+		wg.Wait()
 	case <-time.After(time.Second):
 		t.Fatalf("Enqueue blocked while AddToolReadResult was stuck; callback path must be non-blocking")
 	}
@@ -171,7 +173,7 @@ func TestNestedIngestWorkerStopDrainsPending(t *testing.T) {
 	w := newNestedIngestWorker(rt, pkglogger.Get())
 	// 故意不启动 worker goroutine；Stop 仍要排空 pending，而不是无限等待 doneCh。
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		w.Enqueue("thread-drain", "Read", "payload", "/tmp/file") // 相同 key 只保留 1 个 pending。
 	}
 	w.Enqueue("thread-drain", "Read", "payload-other", "/tmp/other") // 不同 key 额外保留 1 个 pending。

@@ -25,10 +25,12 @@ func TestTimeoutUsesShorterToolLimitWhenParentDeadlineIsLonger(t *testing.T) {
 	})
 
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := handler(parentCtx, nil)
 		done <- err
-	}()
+	})
+	defer goroutines.Wait()
 
 	select {
 	case <-started:
@@ -62,10 +64,12 @@ func TestTimeoutCapacityRejectsWhileTimedOutHandlerIsStillRunning(t *testing.T) 
 	})
 
 	firstDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := handler(context.Background(), nil)
 		firstDone <- err
-	}()
+	})
+	defer goroutines.Wait()
 	waitForTimeoutTestSignal(t, started, "first handler did not start")
 	requireTimeoutCode(t, waitForTimeoutTestError(t, firstDone, "first timeout did not return"), "lsp_timeout")
 

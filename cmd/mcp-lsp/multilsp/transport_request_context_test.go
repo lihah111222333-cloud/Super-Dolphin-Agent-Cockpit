@@ -29,12 +29,13 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{
 			"payload": strings.Repeat("x", 32<<20),
 		})
 		errCh <- err
-	}()
+	})
 
 	select {
 	case err := <-errCh:

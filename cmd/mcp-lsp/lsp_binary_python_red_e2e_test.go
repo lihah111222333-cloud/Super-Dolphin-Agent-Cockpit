@@ -97,8 +97,10 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 	}
 	start := make(chan struct{})
 	outcomes := make(chan completionOutcome, 2)
+	goroutines := newTestGoroutineGroup(t)
 	for i := 0; i < 2; i++ {
-		go func(index int) {
+		index := i
+		goroutines.Go(func() {
 			<-start
 			resp, raw, err := client.callRaw(ctx, "tools/call", map[string]any{
 				"name":            "completion",
@@ -110,7 +112,7 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 				},
 			})
 			outcomes <- completionOutcome{index: index, resp: resp, raw: raw, err: err}
-		}(i)
+		})
 	}
 	close(start)
 
@@ -312,9 +314,10 @@ func startMcpLSPBinaryForTestWithEnv(t *testing.T, ctx context.Context, binary, 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start mcp-lsp binary: %v", err)
 	}
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, _ = io.Copy(&client.stderr, stderrPipe)
-	}()
+	})
 	return client
 }
 
@@ -364,12 +367,13 @@ func startMcpLSPPeerBinaryForTest(t *testing.T, parent context.Context, binary, 
 		cancel()
 		t.Fatalf("start mcp-lsp peer binary: %v", err)
 	}
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, _ = io.Copy(&client.stderr, stderrPipe)
-	}()
-	go func() {
+	})
+	goroutines.Go(func() {
 		client.done <- cmd.Wait()
-	}()
+	})
 	client.addr = waitForMcpLSPPeerAddr(t, token, &client.stderr)
 	return client
 }
@@ -385,7 +389,8 @@ func startMcpLSPPeerControlPlane(t *testing.T) string {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}).Handlers
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		conn, acceptErr := ln.Accept()
 		if acceptErr != nil {
 			done <- acceptErr
@@ -394,7 +399,7 @@ func startMcpLSPPeerControlPlane(t *testing.T) string {
 		_ = ln.Close()
 		stat := jrpc2.NewServer(methods, &jrpc2.ServerOptions{}).Start(channel.Line(conn, conn)).WaitStatus()
 		done <- stat.Err
-	}()
+	})
 	t.Cleanup(func() {
 		_ = ln.Close()
 		select {

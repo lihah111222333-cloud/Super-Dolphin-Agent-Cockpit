@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -397,7 +398,8 @@ func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
 
 	var tools []contract.DynamicToolSchema
 	done := make(chan error, 1)
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		var err error
 		tools, err = h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 			AgentID:          "agent-1",
@@ -409,11 +411,12 @@ func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
 			}},
 		})
 		done <- err
-	}()
+	})
 
 	waitStartedToolLists(t, started, "lsp", "orch")
 	close(release)
 	require.NoError(t, <-done)
+	wg.Wait()
 	assertDynamicToolNames(t, tools, []string{"grep", "launch_agent"})
 }
 

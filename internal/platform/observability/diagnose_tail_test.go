@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,18 +51,20 @@ func TestDiagnoseTraceForceRefreshBypassesInflightTail(t *testing.T) {
 	svc := NewService(cfg, WithTailReader(tail))
 	ordinary := make(chan TraceDiagnosis, 1)
 	ordinaryDone := make(chan struct{})
+	var wg sync.WaitGroup
 	t.Cleanup(func() {
 		select {
 		case <-ordinaryDone:
+			wg.Wait()
 		case <-time.After(time.Second):
 			t.Fatal("ordinary diagnosis goroutine did not stop")
 		}
 	})
-	go func() {
+	wg.Go(func() {
 		defer close(ordinaryDone)
 		diagnosis, _ := svc.DiagnoseTrace(context.Background(), TraceDiagnosisRequest{TraceID: "force-refresh"})
 		ordinary <- diagnosis
-	}()
+	})
 	waitForSignal(t, started, "ordinary diagnosis tail read")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)

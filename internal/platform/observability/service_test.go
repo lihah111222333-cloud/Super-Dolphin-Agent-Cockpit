@@ -127,7 +127,6 @@ func TestServiceQueryTailCoalescesInflightButDoesNotCacheCompletedResult(t *test
 	query := Query{TraceID: "same", IncludeTail: true}
 	results := make(chan QueryResult, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
 	queriesDone := make(chan struct{})
 	t.Cleanup(func() {
 		select {
@@ -137,17 +136,15 @@ func TestServiceQueryTailCoalescesInflightButDoesNotCacheCompletedResult(t *test
 		}
 	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		results <- svc.Query(context.Background(), query)
-	}()
+	})
 	waitForSignal(t, started, "first tail read to start")
 
 	secondCtx, secondWaiting := newDoneSignalContext(context.Background())
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		results <- svc.Query(secondCtx, query)
-	}()
+	})
 	waitForSignal(t, secondWaiting, "second query to wait on in-flight tail read")
 	close(release)
 

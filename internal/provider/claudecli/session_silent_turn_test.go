@@ -59,10 +59,11 @@ func startKeepaliveForTest(t *testing.T, s *session) chan error {
 	t.Helper()
 	errCh := make(chan error, 1)
 	finished := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		defer close(finished)
 		errCh <- s.SendKeepalive(context.Background())
-	}()
+	})
 	t.Cleanup(func() {
 		select {
 		case <-finished:
@@ -187,13 +188,14 @@ func assertSessionMutexHeldDuringSend(t *testing.T, s *session) chan struct{} {
 	t.Helper()
 	lockAcquired := make(chan struct{})
 	finished := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		defer close(finished)
 		s.mu.Lock()
 		_ = s.activeTurn
 		s.mu.Unlock()
 		close(lockAcquired)
-	}()
+	})
 	t.Cleanup(func() {
 		select {
 		case <-finished:

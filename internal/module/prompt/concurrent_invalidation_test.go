@@ -95,19 +95,16 @@ func TestCommitPromptIntentDraft_ConcurrentSubmit(t *testing.T) {
 	start := make(chan struct{})
 	errs := make([]error, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
 	workersDone := make(chan struct{})
 	registerPromptGoroutineCleanup(t, workersDone, "prompt intent commit")
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		_, errs[0] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeA), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		_, errs[1] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeB), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
-	}()
+	})
 	close(start)
 	wg.Wait()
 	close(workersDone)

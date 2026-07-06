@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -354,7 +355,8 @@ func runServeHelper(listenURL string, withChild bool) error {
 	}
 	upgrader := &websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serveErr := make(chan error, 1)
-	go func() {
+	var serveWG sync.WaitGroup
+	serveWG.Go(func() {
 		serveErr <- http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
@@ -362,7 +364,7 @@ func runServeHelper(listenURL string, withChild bool) error {
 			}
 			helperWSHandler(conn)
 		}))
-	}()
+	})
 	return waitForHelperSignal(listener, serveErr)
 }
 

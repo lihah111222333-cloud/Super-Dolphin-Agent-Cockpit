@@ -99,7 +99,8 @@ func TestAgentLaunchedWorkerCoalescesSameKey(t *testing.T) {
 	w.Start()
 	defer func() {
 		// 解除被阻塞的 processor 调用，确保 Stop 能正常返回。
-		go func() {
+		var unblockWG sync.WaitGroup
+		unblockWG.Go(func() {
 			for {
 				select {
 				case stub.block <- struct{}{}:
@@ -107,8 +108,9 @@ func TestAgentLaunchedWorkerCoalescesSameKey(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 		_ = w.Stop(context.Background())
+		unblockWG.Wait()
 	}()
 
 	w.Enqueue("agent-1", newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-first"))
@@ -184,12 +186,14 @@ func TestAgentLaunchedWorkerStopIdempotent(t *testing.T) {
 		t.Fatalf("first Stop = %v", err)
 	}
 	done := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		_ = w.Stop(context.Background())
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
+		wg.Wait()
 	case <-time.After(time.Second):
 		t.Fatal("second Stop did not return")
 	}
@@ -226,13 +230,15 @@ func TestAgentLaunchedCallbackEnqueueOnly(t *testing.T) {
 	}()
 
 	done := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		svc.onAgentLaunched(newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-1"))
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
+		wg.Wait()
 	case <-time.After(2 * time.Second):
 		t.Fatal("onAgentLaunched blocked on synchronous processor; expected Enqueue-only")
 	}

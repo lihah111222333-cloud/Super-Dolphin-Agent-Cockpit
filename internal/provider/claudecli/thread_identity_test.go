@@ -61,10 +61,11 @@ func TestAwaitResolvedThreadID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		time.Sleep(10 * time.Millisecond)
 		s.setResolvedThreadID("thread-123")
-	}()
+	})
 
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
 		t.Fatalf("awaitResolvedThreadID() error = %v", err)

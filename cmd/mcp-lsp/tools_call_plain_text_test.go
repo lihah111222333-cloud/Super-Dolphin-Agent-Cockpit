@@ -14,11 +14,17 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-func init() {
+func registerPlainTextRendererForTest(t *testing.T) {
+	t.Helper()
 	common.RegisterToolResultPlainTextRenderer(lsptools.FormatToPlainText)
+	t.Cleanup(func() {
+		common.RegisterToolResultPlainTextRenderer(nil)
+	})
 }
 
 func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
+	registerPlainTextRendererForTest(t)
+
 	root := canonicalToolTestRoot(t, t.TempDir())
 	target := filepath.Join(root, "main.go")
 	if err := os.WriteFile(target, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
@@ -134,6 +140,8 @@ func mustDirectToolCallRequest(t *testing.T, root, name string, arguments any) [
 
 func runDirectToolCallForPlainText(t *testing.T, request []byte, defs []toolDefinition) directToolsCallResponse {
 	t.Helper()
+	registerPlainTextRendererForTest(t)
+
 	var output bytes.Buffer
 	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
 	if err := server.Run(context.Background()); err != nil {

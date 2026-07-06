@@ -229,7 +229,9 @@ func (c *mcpLSPBinaryClient) close(t *testing.T) {
 	_, _ = c.stdin.Write(append(raw, '\n'))
 	_ = c.stdin.Close()
 	done := make(chan error, 1)
-	go func() { done <- c.cmd.Wait() }()
+	var waiters sync.WaitGroup
+	waiters.Go(func() { done <- c.cmd.Wait() })
+	defer waiters.Wait()
 	select {
 	case err := <-done:
 		if err != nil && !errors.Is(err, os.ErrProcessDone) {
@@ -346,13 +348,16 @@ type fakeLSPPositionParams struct {
 }
 
 type fakeLSPWriter struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu         sync.Mutex
+	w          io.Writer
+	goroutines *sync.WaitGroup
 }
 
 func runFakePyrightLangserver() {
 	reader := bufio.NewReader(os.Stdin)
-	writer := &fakeLSPWriter{w: os.Stdout}
+	var goroutines sync.WaitGroup
+	defer goroutines.Wait()
+	writer := &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
 		if err != nil {
@@ -438,6 +443,10 @@ func (w *fakeLSPWriter) write(payload map[string]any) error {
 	return err
 }
 
+func (w *fakeLSPWriter) goAsync(fn func()) {
+	w.goroutines.Go(fn)
+}
+
 func (w *fakeLSPWriter) handleNotification(req fakeLSPRequest) bool {
 	if len(bytes.TrimSpace(req.ID)) != 0 {
 		return false
@@ -454,12 +463,12 @@ func (w *fakeLSPWriter) handleNotification(req fakeLSPRequest) bool {
 		return true
 	}
 	delay := fakePyrightDiagnosticDelay(uri)
-	go func() {
+	w.goAsync(func() {
 		if delay > 0 {
 			time.Sleep(delay)
 		}
 		_ = w.writeNotification("textDocument/publishDiagnostics", fakePyrightDiagnostics(uri))
-	}()
+	})
 	return true
 }
 

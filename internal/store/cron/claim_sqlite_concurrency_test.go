@@ -58,9 +58,8 @@ func TestClaimDueJobsSameProcessNoDuplicates(t *testing.T) {
 		}
 	})
 	for w := range workers {
-		wg.Add(1)
-		go func(worker int) {
-			defer wg.Done()
+		worker := w
+		wg.Go(func() {
 			claimedBy := fmt.Sprintf("scheduler-%d", worker)
 			for {
 				jobs, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
@@ -83,7 +82,7 @@ func TestClaimDueJobsSameProcessNoDuplicates(t *testing.T) {
 				}
 				mu.Unlock()
 			}
-		}(w)
+		})
 	}
 	wg.Wait()
 	close(workersDone)
@@ -122,7 +121,6 @@ func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
 	}
 	results := make(chan result, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
 	workersDone := make(chan struct{})
 	t.Cleanup(func() {
 		select {
@@ -133,11 +131,10 @@ func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
 	})
 	for i := range 2 {
 		claimedBy := fmt.Sprintf("proc-%d", i)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			out, err := runClaimSubprocess(dbPath, claimedBy, now.UnixMilli(), leaseMS)
 			results <- result{ids: parseClaimedIDs(out), err: err, out: out}
-		}()
+		})
 	}
 
 	claimed := make(map[string]int)

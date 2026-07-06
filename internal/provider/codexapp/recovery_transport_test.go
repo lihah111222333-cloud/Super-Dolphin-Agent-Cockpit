@@ -268,7 +268,7 @@ func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *t
 	defer cancel()
 	transport := newTestTransport(t, ctx, server)
 
-	dead, done := startConnectionDeadReadLoop(ctx, transport)
+	dead, done := startConnectionDeadReadLoop(t, ctx, transport)
 	waitForTransportLooping(t, transport)
 
 	if err := transport.reconnect(ctx); err != nil {
@@ -312,13 +312,15 @@ func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
 	assertConnectionDeadReceived(t, dead)
 }
 
-func startConnectionDeadReadLoop(ctx context.Context, transport *transport) (<-chan RawMessage, <-chan struct{}) {
+func startConnectionDeadReadLoop(t testing.TB, ctx context.Context, transport *transport) (<-chan RawMessage, <-chan struct{}) {
+	t.Helper()
 	dead := make(chan RawMessage, 1)
 	done := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		defer close(done)
 		transport.ReadLoop(ctx, connectionDeadRecorder(dead))
-	}()
+	})
 	return dead, done
 }
 

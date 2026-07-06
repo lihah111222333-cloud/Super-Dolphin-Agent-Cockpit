@@ -255,13 +255,12 @@ func TestMultiCWD_ConcurrentAllLSPMethods(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i, root := range roots {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
+		idx, r := i, root
+		wg.Go(func() {
 			ctx := ctxWithCWD(r, "agent-c"+string(rune('A'+idx)), "thread-c")
 			uri := fileURIFromPath(filepath.Join(r, "main.go"))
 			collectAllLSPMethodErrors(ctx, mgr, uri, pos, rng, errCh)
-		}(i, root)
+		})
 	}
 	wg.Wait()
 	close(errCh)
@@ -279,7 +278,8 @@ func TestMultiCWD_StrictContextEnforcement_MissingCWD(t *testing.T) {
 	defer func() { _ = mgr.Close() }()
 
 	// Context without CWD must fail strict enforcement
-	_, err := mgr.effectiveWorkspaceRoot(nil)
+	var missing context.Context
+	_, err := mgr.effectiveWorkspaceRoot(missing)
 	if err == nil {
 		t.Fatal("nil context should fail strict enforcement")
 	}
@@ -431,12 +431,6 @@ func runEditMethods(t *testing.T, ctx context.Context, mgr *manager, uri string,
 	if _, err := mgr.Format(ctx, uri, protocol.FormattingOptions{}); err != nil {
 		t.Errorf("Format(%s): %v", uri, err)
 	}
-}
-
-func runLifecycleMethods(t *testing.T, ctx context.Context, mgr *manager, uri string) {
-	t.Helper()
-	runOpenChangeMethods(t, ctx, mgr, uri)
-	runCloseMethod(t, ctx, mgr, uri)
 }
 
 func runOpenChangeMethods(t *testing.T, ctx context.Context, mgr *manager, uri string) {

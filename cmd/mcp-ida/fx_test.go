@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -105,10 +106,12 @@ func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	defer stdinRead.Close()
 	defer stdinWrite.Close()
 	os.Stdin = stdinRead
-	go func() {
+	var stdinCloser sync.WaitGroup
+	stdinCloser.Go(func() {
 		time.Sleep(50 * time.Millisecond)
 		_ = stdinWrite.Close()
-	}()
+	})
+	defer stdinCloser.Wait()
 
 	err = run()
 	if err == nil {
@@ -244,13 +247,15 @@ func startRegisterCaptureServer(t *testing.T) (string, <-chan mcp.RegisterReques
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	go func() {
+	var serverWG sync.WaitGroup
+	serverWG.Go(func() {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
 		_ = jrpc2.NewServer(methods, nil).Start(channel.Line(conn, conn)).WaitStatus()
-	}()
+	})
+	t.Cleanup(serverWG.Wait)
 	t.Cleanup(func() { _ = ln.Close() })
 	return ln.Addr().String(), captured
 }

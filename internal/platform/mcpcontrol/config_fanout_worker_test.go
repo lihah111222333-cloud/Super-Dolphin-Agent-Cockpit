@@ -143,13 +143,15 @@ func stopFanoutWorker(t *testing.T, worker *configFanoutWorker, notifier *fakeFa
 	start := time.Now()
 	// Release the block in parallel with Stop; Stop must drive the ctx
 	// cancellation that makes the notifier return.
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		// The fanoutCtx cancellation from Stop already unblocks the
 		// notifier's ctx path; close block so the notifier actually
 		// returns (the fake uses two stages: ctx.Err() + block release).
 		time.Sleep(10 * time.Millisecond)
 		close(notifier.block)
-	}()
+	})
+	defer wg.Wait()
 	if err := worker.Stop(shutdownCtx); err != nil {
 		t.Fatalf("Stop() err = %v, want nil (drain must finish within ctx budget)", err)
 	}
@@ -186,7 +188,7 @@ func assertAgentLaunchFanoutCall(t *testing.T, calls []fakeFanoutCall) {
 
 // TestConfigFanoutWorkerEnqueueNonBlocking mirrors the other P2 workers:
 // even if NotifyConfigChanged is stuck inside a slow peer, bus callback
-// Enqueue must not block. That's the whole reason the `go func()` /
+// Enqueue must not block. That's the whole reason the fire-and-forget /
 // `context.Background()` pattern on the callback path is forbidden.
 func TestConfigFanoutWorkerEnqueueNonBlocking(t *testing.T) {
 	t.Parallel()
@@ -199,14 +201,16 @@ func TestConfigFanoutWorkerEnqueueNonBlocking(t *testing.T) {
 	worker.Start()
 
 	enqueueDone := make(chan struct{})
-	go func() {
-		for i := 0; i < 32; i++ {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 32 {
 			worker.Enqueue(configTopicAgent, map[string]any{"event": "agent/launched"})
 		}
 		close(enqueueDone)
-	}()
+	})
 	select {
 	case <-enqueueDone:
+		wg.Wait()
 	case <-time.After(time.Second):
 		t.Fatal("Enqueue blocked while notifier was stuck; callback path must stay non-blocking")
 	}

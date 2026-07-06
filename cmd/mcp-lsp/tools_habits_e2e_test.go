@@ -31,6 +31,8 @@ type dummyManager struct {
 // and plain-text output wrappers (wrapScopedToolResult) match the optimal
 // model usage habits by returning clean text and preserved raw GUI content.
 func TestToolsHabitsE2E_Inspect(t *testing.T) {
+	registerPlainTextRendererForTest(t)
+
 	root := canonicalToolTestRoot(t, t.TempDir())
 	filePath := filepath.Join(root, "sample.go")
 	content := "package main\n\nfunc main() {\n\t// test target\n}\n"

@@ -34,17 +34,21 @@ func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) 
 				WorkspaceRoots: []string{root},
 				Family:         "lsp",
 			}), 5*time.Second)
-			defer cancel()
+			var goroutines sync.WaitGroup
+			defer func() {
+				cancel()
+				goroutines.Wait()
+			}()
 			uri, _ := resolveDiagnosticsScopeForTarget(t, mgr, ctx, target, "cold-start")
 			published := make(chan struct{})
-			go func() {
+			goroutines.Go(func() {
 				select {
 				case <-time.After(30 * time.Millisecond):
 					_ = mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri})
 					close(published)
 				case <-ctx.Done():
 				}
-			}()
+			})
 
 			if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
 				t.Fatalf("WaitDiagnosticsStable() error = %v, want delayed cold-start diagnostics to satisfy readiness", err)

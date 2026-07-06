@@ -238,7 +238,7 @@ func seedRuntimeNode(t *testing.T, db *fakeTaskDAGDB, now time.Time, runID int64
 		AssignedTo: agent,
 		DependsOn:  encodedDeps,
 		Status:     status,
-		Config:     validAgentConfigForTest(agent),
+		Config:     validAgentConfigForTest(t, agent),
 		CreatedAt:  timestamptzValue(now),
 		UpdatedAt:  timestamptzValue(now),
 	}

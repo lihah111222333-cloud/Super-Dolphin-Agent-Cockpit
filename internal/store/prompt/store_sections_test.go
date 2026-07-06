@@ -15,11 +15,11 @@ import (
 func TestCreatePromptTemplateConflictMapsToConflict(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		createFn: func(context.Context, sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
 			return sqlc.CreatePromptTemplateRow{}, sql.ErrNoRows
 		},
-	}}
+	})}
 	_, err := s.CreatePromptTemplate(context.Background(), promptUpsertInput())
 	if err == nil || !platformdb.IsConflict(err) {
 		t.Fatalf("CreatePromptTemplate() error = %v, want conflict", err)
@@ -30,12 +30,12 @@ func TestCreatePromptTemplateForwardsParamsAndMapsRow(t *testing.T) {
 	t.Parallel()
 	now := promptStoreTestTime()
 	var captured sqlc.CreatePromptTemplateParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		createFn: func(_ context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
 			captured = arg
 			return promptCreateRow(arg, now), nil
 		},
-	}}
+	})}
 
 	got, err := s.CreatePromptTemplate(context.Background(), promptUpsertInput())
 	if err != nil {
@@ -73,12 +73,12 @@ func promptCreateRow(arg sqlc.CreatePromptTemplateParams, now time.Time) sqlc.Cr
 func TestStoreUpsertSectionForwardsTriggerTypeAndRecallTopic(t *testing.T) {
 	t.Parallel()
 	var captured sqlc.UpsertPromptTemplateSectionParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertSectionFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
 			captured = arg
 			return promptSectionRowFromUpsert(arg), nil
 		},
-	}}
+	})}
 
 	got, err := s.UpsertSection(context.Background(), PromptTemplateSection{
 		TemplateID:  7,
@@ -105,12 +105,12 @@ func TestStoreUpsertSectionForwardsTriggerTypeAndRecallTopic(t *testing.T) {
 func TestStoreUpsertSectionDefaultsEmptyTriggerTypeToAlways(t *testing.T) {
 	t.Parallel()
 	var captured sqlc.UpsertPromptTemplateSectionParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertSectionFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
 			captured = arg
 			return promptSectionRowFromUpsert(arg), nil
 		},
-	}}
+	})}
 
 	got, err := s.UpsertSection(context.Background(), PromptTemplateSection{
 		TemplateID: 7,
@@ -141,12 +141,12 @@ func TestStoreUpsertSectionDefaultsEmptyEnableWhenToJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var captured sqlc.UpsertPromptTemplateSectionParams
-			s := &store{q: &promptQuerierStub{
+			s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 				upsertSectionFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
 					captured = arg
 					return promptSectionRowFromUpsert(arg), nil
 				},
-			}}
+			})}
 
 			got, err := s.UpsertSection(context.Background(), PromptTemplateSection{
 				TemplateID:  7,
@@ -173,12 +173,12 @@ func TestStoreUpsertSectionDefaultsEmptyEnableWhenToJSON(t *testing.T) {
 func TestStoreUpsertSectionRejectsInvalidEnableWhen(t *testing.T) {
 	t.Parallel()
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertSectionFn: func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
 			called = true
 			return sqlc.PromptTemplateSection{}, nil
 		},
-	}}
+	})}
 
 	_, err := s.UpsertSection(context.Background(), PromptTemplateSection{
 		TemplateID:  7,
@@ -203,12 +203,12 @@ func TestStoreUpsertSectionRejectsInvalidEnableWhen(t *testing.T) {
 func TestStoreUpsertSectionRejectsInvalidTriggerType(t *testing.T) {
 	t.Parallel()
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertSectionFn: func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
 			called = true
 			return sqlc.PromptTemplateSection{}, nil
 		},
-	}}
+	})}
 
 	_, err := s.UpsertSection(context.Background(), PromptTemplateSection{
 		TemplateID:  7,
@@ -229,12 +229,12 @@ func TestStoreUpsertSectionRejectsInvalidTriggerType(t *testing.T) {
 func TestStoreUpsertSectionRejectsInvalidRecallTopic(t *testing.T) {
 	t.Parallel()
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertSectionFn: func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
 			called = true
 			return sqlc.PromptTemplateSection{}, nil
 		},
-	}}
+	})}
 
 	_, err := s.UpsertSection(context.Background(), PromptTemplateSection{
 		TemplateID:  7,
@@ -255,7 +255,7 @@ func TestStoreUpsertSectionRejectsInvalidRecallTopic(t *testing.T) {
 
 func TestStoreListSectionsMapsTriggerTypeAndRecallTopic(t *testing.T) {
 	t.Parallel()
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listSectionsFn: func(_ context.Context, arg sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error) {
 			if arg.TemplateID != 7 {
 				t.Fatalf("ListPromptTemplateSectionsByTemplate template_id = %d, want 7", arg.TemplateID)
@@ -271,7 +271,7 @@ func TestStoreListSectionsMapsTriggerTypeAndRecallTopic(t *testing.T) {
 				RecallTopic: "project-memory",
 			}}, nil
 		},
-	}}
+	})}
 
 	got, err := s.ListSectionsByTemplateID(context.Background(), 7)
 	if err != nil {
@@ -286,7 +286,7 @@ func TestStoreListSectionsByTemplateIDsForwardsBatchIDsAndMapsRows(t *testing.T)
 	t.Parallel()
 
 	var captured sqlc.ListPromptTemplateSectionsByTemplatesParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listSectionsBatchFn: func(_ context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
 			captured = arg
 			return []sqlc.PromptTemplateSection{
@@ -294,7 +294,7 @@ func TestStoreListSectionsByTemplateIDsForwardsBatchIDsAndMapsRows(t *testing.T)
 				{ID: 12, TemplateID: 8, SectionKey: "workflow", Region: "dynamic", Body: "workflow", Enabled: int64(1), TriggerType: "keyword"},
 			}, nil
 		},
-	}}
+	})}
 
 	got, err := s.ListSectionsByTemplateIDs(context.Background(), []int64{7, 8})
 	if err != nil {
@@ -312,12 +312,12 @@ func TestStoreListSectionsByTemplateIDsSkipsEmptyInput(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listSectionsBatchFn: func(context.Context, sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
 			called = true
 			return nil, nil
 		},
-	}}
+	})}
 
 	got, err := s.ListSectionsByTemplateIDs(context.Background(), nil)
 	if err != nil {

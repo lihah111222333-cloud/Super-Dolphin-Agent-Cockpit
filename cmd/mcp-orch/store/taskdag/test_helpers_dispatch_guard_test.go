@@ -5,9 +5,12 @@ package taskdag
 import (
 	"encoding/json"
 	"strings"
+	"testing"
 )
 
-func validAgentConfigForTest(agent string) json.RawMessage {
+func validAgentConfigForTest(t *testing.T, agent string) json.RawMessage {
+	t.Helper()
+
 	agentKey := strings.TrimSpace(agent)
 	if agentKey == "" {
 		agentKey = "agent-test"
@@ -19,7 +22,7 @@ func validAgentConfigForTest(agent string) json.RawMessage {
 		},
 	})
 	if err != nil {
-		panic(err)
+		t.Fatalf("marshal agent config: %v", err)
 	}
 	return raw
 }

@@ -40,13 +40,11 @@ func TestAddProjectConcurrentPreservesAllAdds(t *testing.T) {
 		}
 	})
 	for _, path := range paths {
-		wg.Add(1)
-		go func(path string) {
-			defer wg.Done()
+		wg.Go(func() {
 			if _, err := svc.AddProject(context.Background(), path); err != nil {
 				t.Errorf("AddProject(%q) error = %v", path, err)
 			}
-		}(path)
+		})
 	}
 	wg.Wait()
 	close(workersDone)
