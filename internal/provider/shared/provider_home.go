@@ -537,33 +537,11 @@ func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []
 	}
 	blocking := make([]contract.SkillMirrorReportItem, 0, len(conflicts))
 	for _, item := range conflicts {
-		if isBlockingSkillMirrorConflict(item) {
+		if contract.IsBlockingSkillMirrorConflict(item) {
 			blocking = append(blocking, item)
 		}
 	}
 	return blocking
-}
-
-func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
-	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
-	case "same_name",
-		"same_name_scope_conflict":
-		return isActiveProviderMirrorTarget(item)
-	case "drift",
-		"mirror_drift",
-		"multi_mirror_drift",
-		"canonical_deleted_with_drift",
-		"unmanaged",
-		"unmanaged_same_name",
-		"unmanaged_provider_skill":
-		return isActiveProviderMirrorTarget(item)
-	case "publish_error",
-		"publish_targets_unconfigured",
-		"mirror_root_symlink":
-		return true
-	default:
-		return true
-	}
 }
 
 func isProviderReadableMirrorDrift(target string, item contract.SkillMirrorReportItem) bool {

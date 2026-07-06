@@ -6,11 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-const datasourceV2PromptChunkLimit = 10
+const (
+	datasourceV2PromptChunkLimit    = 10
+	maxDatasourceV2PromptBytes      = 32 * 1024
+	maxDatasourceV2ChunkPromptBytes = 8 * 1024
+)
 
 var _ contract.DynamicSectionProvider = (*PromptProvider)(nil)
 
@@ -47,7 +52,10 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 	if err != nil {
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasourceV2, err)
 	}
-	text := renderDatasourceV2PromptSection(result.Chunks)
+	text, err := renderDatasourceV2PromptSection(result.Chunks)
+	if err != nil {
+		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasourceV2, err)
+	}
 	if text == "" {
 		return nil, nil
 	}
@@ -64,9 +72,10 @@ func datasourceV2PromptQuery(input contract.SectionContext) string {
 	return ""
 }
 
-func renderDatasourceV2PromptSection(chunks []SemanticChunkResult) string {
+// renderDatasourceV2PromptSection 将检索结果渲染为 prompt 段，并按总量与单块字节预算裁剪。
+func renderDatasourceV2PromptSection(chunks []SemanticChunkResult) (string, error) {
 	if len(chunks) == 0 {
-		return ""
+		return "", nil
 	}
 	lines := make([]string, 0, len(chunks)*4+3)
 	lines = append(lines,
@@ -75,29 +84,76 @@ func renderDatasourceV2PromptSection(chunks []SemanticChunkResult) string {
 		"Uploaded datasource_v2 semantic matches for the current chat request. Chunks are ordered by semantic similarity.",
 	)
 	rank := 0
+	usedBytes := 0
+	omittedChunks := 0
+	clippedChunks := 0
 	for _, chunk := range chunks {
 		content := strings.TrimSpace(chunk.Content)
 		if content == "" {
+			omittedChunks++
 			continue
 		}
+		available := maxDatasourceV2PromptBytes - usedBytes
+		if available <= 0 {
+			omittedChunks++
+			continue
+		}
+		limit := min(maxDatasourceV2ChunkPromptBytes, available)
+		truncatedContent, clipped := truncateDatasourceV2PromptContent(content, limit)
+		truncatedContent = strings.TrimSpace(truncatedContent)
+		if truncatedContent == "" {
+			omittedChunks++
+			continue
+		}
+		if clipped {
+			clippedChunks++
+		}
 		rank++
+		title := datasourceV2PromptChunkTitle(rank, chunk)
 		lines = append(lines,
 			"",
-			datasourceV2PromptChunkTitle(rank, chunk),
-			content,
+			title,
+			truncatedContent,
 		)
+		usedBytes += len(title) + len(truncatedContent) + 2
 	}
 	if rank == 0 {
-		return ""
+		return "", errors.New("datasource_v2 prompt budget removed every chunk")
 	}
-	return strings.Join(lines, "\n")
+	if omittedChunks > 0 || clippedChunks > 0 {
+		lines = append(lines,
+			"",
+			fmt.Sprintf("Datasource v2 prompt truncated: %d chunks omitted; %d chunks clipped; total budget %d bytes; per-chunk budget %d bytes.",
+				omittedChunks, clippedChunks, maxDatasourceV2PromptBytes, maxDatasourceV2ChunkPromptBytes),
+		)
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// truncateDatasourceV2PromptContent 按字节上限截断文本，并避免切断 UTF-8 rune。
+func truncateDatasourceV2PromptContent(content string, limit int) (string, bool) {
+	if limit <= 0 {
+		return "", strings.TrimSpace(content) != ""
+	}
+	if len(content) <= limit {
+		return content, false
+	}
+	if limit > len(content) {
+		limit = len(content)
+	}
+	for limit > 0 && !utf8.ValidString(content[:limit]) {
+		_, size := utf8.DecodeLastRuneInString(content[:limit])
+		if size <= 0 {
+			limit--
+			continue
+		}
+		limit -= size
+	}
+	return content[:limit], true
 }
 
 func datasourceV2PromptChunkTitle(rank int, chunk SemanticChunkResult) string {
 	name := strings.TrimSpace(chunk.FileName)
-	if name == "" {
-		name = strings.TrimSpace(chunk.SourcePath)
-	}
 	if name == "" {
 		name = fmt.Sprintf("document %d", chunk.DocumentID)
 	}
