@@ -430,7 +430,11 @@ func (h *MemoryLifecycleHooks) buildManifest(ctx context.Context) ([]MemoryEntry
 	if err != nil {
 		return nil, err
 	}
-	return h.manifestBuilderOrDefault().BuildManifest(store.Root())
+	manifest, err := h.manifestBuilderOrDefault().BuildManifest(store.Root())
+	if err != nil {
+		return nil, newMemoryExtractManifestError(err)
+	}
+	return manifest, nil
 }
 
 // saveExtractedMemories 将抽取结果逐条写入磁盘记忆存储。

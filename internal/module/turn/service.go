@@ -203,7 +203,10 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	span.turnID = localID
 	mcp := s.manifest.Build(input, threadID)
 	span.metadata = turnPrepareTraceMetadata(input, mcp)
-	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
+	synthetic, err := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
 	if len(synthetic.Inputs) > 0 {

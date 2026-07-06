@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -85,27 +86,25 @@ func TestMemoryContextProviderPrepareTurnInputsSearchesTranscriptWhenEnabled(t *
 	}
 }
 
-func TestMemoryContextProviderPrepareTurnInputsExposesReadHistoryError(t *testing.T) {
-	want := errors.New("history store unavailable")
+func TestMemoryContextProviderHistorySearchErrorDoesNotEnterProviderInputs(t *testing.T) {
+	absPath := filepath.Join(t.TempDir(), "history-store.jsonl")
+	want := errors.New("history store unavailable: " + absPath)
 	cfg := &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}}
 	provider := mustNewContextProvider(t, cfg)
-	inputs := provider.PrepareTurnInputs(context.Background(), historyStubSession{historyErr: want}, contract.BuildCtx{
+	payload := provider.PrepareTurnContext(context.Background(), historyStubSession{historyErr: want}, contract.BuildCtx{
 		SessionFlags: map[string]bool{"search_past_context": true},
 	}, "thread-1", "commit messages")
-	if len(inputs) != 1 {
-		t.Fatalf("len(PrepareTurnInputs()) = %d, want 1 explicit history error input", len(inputs))
+	if len(payload.Inputs) != 0 {
+		t.Fatalf("PrepareTurnContext() history error inputs = %#v, want no provider-visible error input", payload.Inputs)
 	}
-	if inputs[0].Type != "filecontent" {
-		t.Fatalf("input type = %q, want filecontent", inputs[0].Type)
-	}
-	if !strings.Contains(inputs[0].Content, "memory history search failed") ||
-		!strings.Contains(inputs[0].Content, want.Error()) {
-		t.Fatalf("history error input = %q, want explicit ReadHistory failure", inputs[0].Content)
+	if providerInputsContain(payload.Inputs, absPath) {
+		t.Fatalf("PrepareTurnContext() leaked absolute history path %q in inputs: %#v", absPath, payload.Inputs)
 	}
 }
 
-func TestMemoryContextProviderPrepareTurnContextExposesPrefetchError(t *testing.T) {
-	want := errors.New("prefetch finder unavailable")
+func TestMemoryContextProviderPrefetchErrorDoesNotEnterProviderInputs(t *testing.T) {
+	absPath := filepath.Join(t.TempDir(), "project", "commit-style.md")
+	want := errors.New("prefetch finder unavailable: " + absPath)
 	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
@@ -131,12 +130,11 @@ func TestMemoryContextProviderPrepareTurnContextExposesPrefetchError(t *testing.
 	waitForHandle(t, handle)
 
 	payload := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "commit messages")
-	if len(payload.Inputs) != 1 {
-		t.Fatalf("len(payload.Inputs) = %d, want explicit prefetch error input", len(payload.Inputs))
+	if len(payload.Inputs) != 0 {
+		t.Fatalf("PrepareTurnContext() prefetch error inputs = %#v, want no provider-visible error input", payload.Inputs)
 	}
-	if !strings.Contains(payload.Inputs[0].Content, "memory prefetch failed") ||
-		!strings.Contains(payload.Inputs[0].Content, want.Error()) {
-		t.Fatalf("prefetch error input = %q, want explicit finder failure", payload.Inputs[0].Content)
+	if providerInputsContain(payload.Inputs, absPath) {
+		t.Fatalf("PrepareTurnContext() leaked absolute prefetch path %q in inputs: %#v", absPath, payload.Inputs)
 	}
 }
 
@@ -348,6 +346,15 @@ func waitForPrefetchHandle(t *testing.T, provider *MemoryContextProvider, thread
 		case <-ticker.C:
 		}
 	}
+}
+
+func providerInputsContain(inputs []shareddto.InputItem, needle string) bool {
+	for _, input := range inputs {
+		if strings.Contains(input.Name, needle) || strings.Contains(input.Content, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func newTurnStarted(threadID, turnID string) turndto.TurnStarted {
