@@ -2,6 +2,7 @@ package tools
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -59,6 +60,24 @@ func TestCreateDAGNodesFromInputRejectsInvalidTopologyWithStableCode(t *testing.
 	if !errors.As(err, &coded) || coded.Code != "invalid_input" {
 		t.Fatalf("coded error = %#v, want invalid_input (err=%v)", coded, err)
 	}
+}
+
+func TestCreateDAGNodesFromInputPreservesReadsWrites(t *testing.T) {
+	reads := []string{"shared://inputs/source.md"}
+	writes := []string{"shared://outputs/report.md"}
+	node := CreateDAGNodeInput{NodeKey: "rw", Title: "Reads Writes"}
+	setStructStringSliceField(t, &node, "Reads", reads)
+	setStructStringSliceField(t, &node, "Writes", writes)
+
+	got, err := createDAGNodesFromInput([]CreateDAGNodeInput{node})
+	if err != nil {
+		t.Fatalf("createDAGNodesFromInput() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("createDAGNodesFromInput() len = %d, want 1", len(got))
+	}
+	assertStructStringSliceField(t, got[0], "Reads", reads)
+	assertStructStringSliceField(t, got[0], "Writes", writes)
 }
 
 func TestCreateDAGRequestRejectsUnknownFinalNodeKeyWithStableCode(t *testing.T) {
@@ -128,5 +147,40 @@ func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
 	}
 	if slices.Contains(required, "agent_id") {
 		t.Fatalf("task_create_dag required = %#v, want trusted _agentId to supply creator identity", required)
+	}
+}
+
+func setStructStringSliceField(t *testing.T, target any, field string, values []string) {
+	t.Helper()
+	v := reflect.ValueOf(target)
+	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
+		t.Fatalf("target = %T, want pointer to struct", target)
+	}
+	fieldValue := v.Elem().FieldByName(field)
+	if !fieldValue.IsValid() {
+		t.Fatalf("%T missing %s field", target, field)
+	}
+	if !fieldValue.CanSet() || fieldValue.Kind() != reflect.Slice || fieldValue.Type().Elem().Kind() != reflect.String {
+		t.Fatalf("%T.%s type = %v, want settable []string", target, field, fieldValue.Type())
+	}
+	fieldValue.Set(reflect.ValueOf(append([]string(nil), values...)))
+}
+
+func assertStructStringSliceField(t *testing.T, target any, field string, want []string) {
+	t.Helper()
+	v := reflect.ValueOf(target)
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	fieldValue := v.FieldByName(field)
+	if !fieldValue.IsValid() {
+		t.Fatalf("%T missing %s field", target, field)
+	}
+	if fieldValue.Kind() != reflect.Slice || fieldValue.Type().Elem().Kind() != reflect.String {
+		t.Fatalf("%T.%s type = %v, want []string", target, field, fieldValue.Type())
+	}
+	got := fieldValue.Interface().([]string)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%T.%s = %#v, want %#v", target, field, got, want)
 	}
 }

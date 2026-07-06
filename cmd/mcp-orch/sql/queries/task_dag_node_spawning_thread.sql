@@ -17,5 +17,6 @@ RETURNING id, dag_key, node_key, run_id, title,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result,
           started_at, finished_at, created_at,
           updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, spawning_thread_id,
-          '' AS previous_spawning_thread_id;
+          last_event_at, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes,
+          spawning_thread_id,
+          CAST('' AS TEXT) AS previous_spawning_thread_id;

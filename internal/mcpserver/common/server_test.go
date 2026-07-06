@@ -56,6 +56,17 @@ func TestServerHandlesToolsList(t *testing.T) {
 	}
 }
 
+func TestServerToolsListNilProviderReturnsInternalError(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	var output bytes.Buffer
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), nil)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	assertJSONRPCError(t, output.Bytes(), codeInternal, "tool provider unavailable")
+}
+
 func TestServerToolsListRejectsInvalidToolSchema(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var output bytes.Buffer
@@ -329,6 +340,19 @@ func TestHTTPToolsListRejectsInvalidToolSchema(t *testing.T) {
 		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	assertJSONRPCError(t, rec.Body.Bytes(), codeInternal, "inputSchema must be a JSON object")
+}
+
+func TestHTTPToolsListNilProviderReturnsInternalError(t *testing.T) {
+	server := NewHTTPServer("test", "dev", nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":37,"method":"tools/list"}`))
+
+	server.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	assertJSONRPCError(t, rec.Body.Bytes(), codeInternal, "tool provider unavailable")
 }
 
 func TestHTTPRejectsOversizedBody(t *testing.T) {

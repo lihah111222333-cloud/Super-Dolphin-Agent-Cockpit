@@ -211,6 +211,8 @@ func nodeFromSpawnRow(row sqlc.UpdateTaskDagNodeSpawningThreadRow) *Node {
 		NodeType:         row.NodeType,
 		AssignedTo:       row.AssignedTo,
 		DependsOn:        row.DependsOn,
+		Reads:            nodeStringSlice(row.Reads),
+		Writes:           nodeStringSlice(row.Writes),
 		Status:           row.Status,
 		CommandRef:       row.CommandRef,
 		Config:           row.Config,

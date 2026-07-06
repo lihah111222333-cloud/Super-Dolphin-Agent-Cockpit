@@ -58,6 +58,8 @@ type NodeSpec struct {
 	NodeType   string          `json:"node_type"` // agent | automation | hybrid
 	AssignedTo string          `json:"assigned_to,omitempty"`
 	DependsOn  []string        `json:"depends_on,omitempty"`
+	Reads      []string        `json:"reads,omitempty"`
+	Writes     []string        `json:"writes,omitempty"`
 	Config     json.RawMessage `json:"config,omitempty"` // 由 ParseNodeConfig 解码
 }
 
@@ -99,7 +101,7 @@ func (n *NodeSpec) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&plain); err != nil {
-		return addNodeStrictDecodeError(err, "node_key/title/node_type/assigned_to/depends_on/config")
+		return addNodeStrictDecodeError(err, "node_key/title/node_type/assigned_to/depends_on/reads/writes/config")
 	}
 	if err := validateNodeConfigObject(plain.Config); err != nil {
 		return fmt.Errorf("add_node: node config invalid: %w", err)
@@ -117,13 +119,14 @@ func addNodeStrictDecodeError(err error, allowed string) error {
 }
 
 // NodePatch 是 update_node 允许修改的节点字段白名单。
-// patch 顶层 key 只接收 title / assigned_to / depends_on / config。任何其他
+// patch 顶层 key 只接收 title / assigned_to / depends_on / reads / writes / config。任何其他
 // 顶层 key（含禁改的 node_key / node_type / status / agent_key 与拼写错误的
 // 随机字段）由 UnmarshalJSON 严格拒。
 //
 // 三态语义：
 //   - Title / AssignedTo: *string —— nil 不改 / 指向 "" 清空 / 指向 v 改成 v
 //   - DependsOn: *[]string —— nil 不改 / *[] 清空 / *[a,b] 设置
+//   - Reads / Writes: *[]string —— nil 不改 / *[] 清空 / *[a,b] 设置
 //   - Config: json.RawMessage —— 空（len==0 或 "null"）不改 / 非空覆盖整个 JSON
 //     （结构性 patch 留给 schema 解码后再做，当前语义保持"整片替换"）
 //
@@ -136,6 +139,8 @@ type NodePatch struct {
 	Title      *string         `json:"title,omitempty"`
 	AssignedTo *string         `json:"assigned_to,omitempty"`
 	DependsOn  *[]string       `json:"depends_on,omitempty"`
+	Reads      *[]string       `json:"reads,omitempty"`
+	Writes     *[]string       `json:"writes,omitempty"`
 	Config     json.RawMessage `json:"config,omitempty"`
 }
 
@@ -183,7 +188,7 @@ func (p *NodePatch) UnmarshalJSON(data []byte) error {
 	if err := dec.Decode(&plain); err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unknown field") {
-			return fmt.Errorf("%w: %v (allowed: title/assigned_to/depends_on/config)", ErrNodePatchBannedField, err)
+			return fmt.Errorf("%w: %v (allowed: title/assigned_to/depends_on/reads/writes/config)", ErrNodePatchBannedField, err)
 		}
 		return fmt.Errorf("node patch decode: %w", err)
 	}
