@@ -253,25 +253,36 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 	return handleToolCall(ctx, p.defs, name, args)
 }
 
-// withRuntimeWorkspaceScopeFallback 当调用上下文缺少工作区根目录时，从运行时环境变量补全作用域。
+// withRuntimeWorkspaceScopeFallback 将 sidecar 配置的运行时 roots 合并进工具作用域。
+// 缺少 metadata roots 的调用仍会打 runtime fallback 标记，供 grep 等工具阻断 stale-root 搜索。
 func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, error) {
 	scope, ok := common.ToolScopeFromContext(ctx)
-	if ok && len(scope.WorkspaceRoots) > 0 {
-		return ctx, nil
-	}
-	roots, err := runtimeWorkspaceRoots()
+	hadTrustedRoots := ok && len(scope.WorkspaceRoots) > 0
+	runtimeRoots, configured, err := runtimeWorkspaceRootsFromEnv()
 	if err != nil {
 		return ctx, err
 	}
-	if len(roots) == 0 {
-		return ctx, nil
+	if len(runtimeRoots) == 0 {
+		if configured {
+			return ctx, errors.New("runtime workspace roots env is explicitly configured but empty")
+		}
+		if hadTrustedRoots {
+			return ctx, nil
+		}
+		return ctx, errors.New("runtime workspace roots env is required")
 	}
-	scope.CWD = roots[0]
-	scope.WorkspaceRoots = append([]string(nil), roots...)
+	if strings.TrimSpace(scope.CWD) == "" {
+		scope.CWD = runtimeRoots[0]
+	}
+	scope.WorkspaceRoots = append(scope.WorkspaceRoots, runtimeRoots...)
 	if strings.TrimSpace(scope.Family) == "" {
 		scope.Family = mcp.ClientKindLSP
 	}
-	return common.WithRuntimeWorkspaceScopeFallback(common.WithToolScope(ctx, scope)), nil
+	ctx = common.WithToolScope(ctx, scope)
+	if hadTrustedRoots {
+		return ctx, nil
+	}
+	return common.WithRuntimeWorkspaceScopeFallback(ctx), nil
 }
 
 // shouldWarnLSPCWDTrace 判断该工具名是否需要记录工作区追踪日志。
