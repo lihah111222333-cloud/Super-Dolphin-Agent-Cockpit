@@ -337,6 +337,7 @@ docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档�
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2271	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2271	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
+docs/internal-notes/RPC能力E2E覆盖矩阵.md	docs	docs-agent	doc	10526	内部提示词与工程方法记录	docs,internal,notes,RPC能力E2E覆盖矩阵,内部提示词与工程方法记录
 docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	65302	项目文档体系	docs,li,2026,06,27,reasonix,architecture,absorption,plan,项目文档体系
 docs/li/reasonix-absorption-spikes/event-wire-methods.md	docs	docs-agent	doc	1078	项目文档体系	docs,li,reasonix,absorption,spikes,event,wire,methods,项目文档体系
 docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md	docs	docs-agent	doc	530	项目文档体系	docs,li,reasonix,absorption,spikes,mcp,tool,lifecycle,项目文档体系
