@@ -1162,16 +1162,33 @@ git add frontend-app/src/shared/api/backendApi.surface.test.js \
 git commit -m "test(frontend): 用 AST 强化前端守卫"
 ```
 
+## Final Application Smoke
+
+The final application smoke used the startup script through `npm run smoke:desktop:rpc` with isolated ports and an explicit Vite-proxied Wails WebSocket URL:
+
+```bash
+cd frontend-app
+SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4531 \
+VITE_DEV_URL=http://127.0.0.1:5194 \
+FRONTEND_DEVSERVER_URL=http://127.0.0.1:5194 \
+GO_AGENT_CTL_RPC_ADDR=127.0.0.1:8111 \
+SUPER_DOLPHIN_DESKTOP_SMOKE_WS_URL=ws://127.0.0.1:5194/wails/ws \
+SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD=1 \
+npm run smoke:desktop:rpc
+```
+
+Result: 2026-07-07 `run-new-ui-desktop.sh` started Vite at `http://127.0.0.1:5194`, started the desktop backend at `127.0.0.1:4531`, and `ui/sidebar/get`, `ui/dashboard/get`, `observability/status`, `thread/start`, and `observability/frontend/ingest` all returned valid object results. The smoke printed `desktop smoke passed` and stopped the Vite/backend processes. A prior direct backend WebSocket attempt to `127.0.0.1:4530/wails/ws` failed with HTTP 403; this is the expected dev-layout behavior already recorded in Task 5, so the browser-equivalent Vite proxy path is the valid smoke surface.
+
 ---
 
 ## Per-Task Review Checklist
 
 Before each task commit:
 
-- [ ] `git status --short` confirms only owned files changed.
-- [ ] LSP diagnostics for touched files have no Error/Warning/Information/Hint unless recorded as blocker.
-- [ ] Focused tests fail before implementation and pass after implementation.
-- [ ] Full frontend validation is run unless the task is docs-only:
+- [x] `git status --short` was reviewed before commits; exact task files were staged, while unrelated pre-existing/user dirty files were intentionally left unstaged.
+- [x] LSP diagnostics for touched files are either clean or recorded above as LSP tooling gaps with focused tests, lint, build, and full test evidence.
+- [x] Focused tests were run per task; RED/GREEN evidence is recorded for tasks where behavior-changing tests were introduced before implementation.
+- [x] Full frontend validation was run for implementation tasks:
 
 ```bash
 cd frontend-app
@@ -1180,7 +1197,7 @@ npm test
 npm run build
 ```
 
-- [ ] Commit uses an atomic Chinese message and stages exact files, not `git add .`.
+- [x] Commits use atomic Chinese messages and exact staging; `git add .` was not used for the task commits.
 
 ## Recommended Execution Order
 
