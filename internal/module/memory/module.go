@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -350,6 +351,7 @@ var Module = fx.Module("memory",
 		NewMemoryLifecycleHooks,
 		provideAgentMemoryReader,
 		provideAgentMemoryWriter,
+		provideMemoryExtractionDrainer,
 		NewMemoryExtractor,
 		newAutoDreamSchedulerProvider,
 		newNestedIngestWorkerProvider,
@@ -534,6 +536,11 @@ func provideAgentMemoryWriter(hooks *MemoryLifecycleHooks) contract.AgentMemoryW
 	return hooks
 }
 
+// provideMemoryExtractionDrainer 把 runtime 停止前的记忆抽取 drain 接到 app 根图。
+func provideMemoryExtractionDrainer(hooks *MemoryLifecycleHooks) contract.MemoryExtractionDrainer {
+	return hooks
+}
+
 // NewMemoryHandlers 创建记忆 RPC 和工具处理器。
 func NewMemoryHandlers(p memoryHandlerDeps) platformrpc.HandlerMapResult {
 	handlers := handler.Map{
@@ -544,12 +551,8 @@ func NewMemoryHandlers(p memoryHandlerDeps) platformrpc.HandlerMapResult {
 			return map[string]any{"status": "completed"}, nil
 		}),
 	}
-	for name, item := range registerUIMemoryHandlers(p) {
-		handlers[name] = item
-	}
-	for name, item := range registerUIMemoryMutationHandlers(p) {
-		handlers[name] = item
-	}
+	maps.Copy(handlers, registerUIMemoryHandlers(p))
+	maps.Copy(handlers, registerUIMemoryMutationHandlers(p))
 	return platformrpc.HandlerMapResult{Handlers: handlers}
 }
 

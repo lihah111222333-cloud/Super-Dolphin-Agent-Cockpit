@@ -62,7 +62,10 @@ type memoryWriteStore interface {
 	Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
 }
 
-var _ contract.AgentMemoryReader = (*MemoryLifecycleHooks)(nil)
+var (
+	_ contract.AgentMemoryReader       = (*MemoryLifecycleHooks)(nil)
+	_ contract.MemoryExtractionDrainer = (*MemoryLifecycleHooks)(nil)
+)
 
 // MemoryReadEnabled 返回 AgentMemoryReader 是否允许读取记忆。
 // 该开关只表示功能启用，具体 scope/path 权限仍在 ReadAgentMemory 内校验。

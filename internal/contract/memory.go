@@ -183,6 +183,11 @@ type AgentMemoryWriter interface {
 	MemoryWriteToolsEnabled() bool
 }
 
+// MemoryExtractionDrainer 是 app runtime 停止前等待后台记忆抽取收口的窄契约。
+type MemoryExtractionDrainer interface {
+	DrainPendingExtraction(ctx context.Context) error
+}
+
 // AgentMemoryError 携带稳定 code 和底层错误，供 UI 与工具层做可预测展示。
 type AgentMemoryError struct {
 	Code string
