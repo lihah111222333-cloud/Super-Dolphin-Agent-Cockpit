@@ -330,6 +330,7 @@ describe('composer layout styles', () => {
     const providerBadge = declarationsFor('.thread-card b');
     const statusLine = declarationsFor('.thread-status-row');
     const statusDot = declarationsFor('.thread-status-dot');
+    const hiddenProjectSelector = declarationsFor('.sidebar-project-selector');
 
     expect(nav.gap).toBe('10px');
     expect(nav['padding-top']).toBe('0');
@@ -358,6 +359,7 @@ describe('composer layout styles', () => {
     expect(statusLine.display).toBe('inline-flex');
     expect(statusLine['font-size']).toBe('12px');
     expect(statusDot.width).toBe('8px');
+    expect(hiddenProjectSelector.display).toBe('none');
     expect(statusDot.height).toBe('8px');
     expect(statusDot['flex']).toBe('0 0 auto');
   });

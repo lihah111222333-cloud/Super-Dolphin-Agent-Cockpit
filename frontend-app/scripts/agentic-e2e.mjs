@@ -6,6 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { discoverBusinessFlows } from './agentic-e2e-discovery.mjs';
 import { DEFAULT_AGENTIC_GOAL, decideNextAction, normalizeGoal } from './agentic-e2e-planner.mjs';
 import { renderDiscoveryMarkdown, summarizeDiscovery } from './agentic-e2e-reporter.mjs';
+import {
+  agenticE2ESandboxForRun,
+  prepareAgenticE2ESandbox,
+  snapshotAgenticE2ESandbox,
+} from './agentic-e2e-sandbox.mjs';
+import {
+  assertAgenticE2EMockWailsClean,
+  installAgenticE2EMockWails,
+  readAgenticE2EMockWailsState,
+} from './agentic-e2e-wails-mock.mjs';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:5176';
 const DEFAULT_MAX_STEPS = 12;
@@ -14,24 +24,35 @@ export function repoRootFromScript(metaURL = import.meta.url) {
   return path.resolve(path.dirname(fileURLToPath(metaURL)), '..', '..');
 }
 
-export function agenticE2EConfig(env = process.env, repoRoot = repoRootFromScript()) {
+export function agenticE2EConfig(env = process.env, repoRoot = repoRootFromScript(), argv = []) {
+  const cli = parseAgenticE2EArgs(argv);
   const runID = normalizeRunID(env.SUPER_DOLPHIN_AGENTIC_E2E_RUN_ID || new Date().toISOString());
+  const goal = normalizeGoal({
+    id: cli.goal || env.SUPER_DOLPHIN_AGENTIC_E2E_GOAL || DEFAULT_AGENTIC_GOAL.id,
+    composerText: cli.composerText || env.SUPER_DOLPHIN_AGENTIC_E2E_COMPOSER_TEXT || DEFAULT_AGENTIC_GOAL.composerText,
+  });
+  const outputBaseDir = cli.outputDir || env.SUPER_DOLPHIN_AGENTIC_E2E_OUTPUT_DIR || path.join(repoRoot, '.tmp', 'agentic-e2e', runID);
+  const sandbox = agenticE2ESandboxForRun(repoRoot, runID);
   return {
     repoRoot,
-    baseURL: normalizeURL(env.SUPER_DOLPHIN_AGENTIC_E2E_BASE_URL || env.SUPER_DOLPHIN_DESKTOP_UX_BASE_URL || DEFAULT_BASE_URL),
-    outputDir: env.SUPER_DOLPHIN_AGENTIC_E2E_OUTPUT_DIR || path.join(repoRoot, '.tmp', 'agentic-e2e', runID),
-    maxSteps: positiveInt(env.SUPER_DOLPHIN_AGENTIC_E2E_MAX_STEPS, DEFAULT_MAX_STEPS),
-    headless: !truthyEnv(env.SUPER_DOLPHIN_AGENTIC_E2E_HEADED),
+    runID,
+    baseURL: normalizeURL(cli.baseURL || env.SUPER_DOLPHIN_AGENTIC_E2E_BASE_URL || env.SUPER_DOLPHIN_DESKTOP_UX_BASE_URL || DEFAULT_BASE_URL),
+    outputDir: path.join(outputBaseDir, normalizeRunID(goal.id)),
+    maxSteps: positiveInt(cli.maxSteps || env.SUPER_DOLPHIN_AGENTIC_E2E_MAX_STEPS, DEFAULT_MAX_STEPS),
+    headless: cli.headed === undefined ? !truthyEnv(env.SUPER_DOLPHIN_AGENTIC_E2E_HEADED) : !cli.headed,
     chromiumExecutable: normalizeString(env.PLAYWRIGHT_CHROMIUM_EXECUTABLE),
-    goal: normalizeGoal({
-      id: env.SUPER_DOLPHIN_AGENTIC_E2E_GOAL || DEFAULT_AGENTIC_GOAL.id,
-      composerText: env.SUPER_DOLPHIN_AGENTIC_E2E_COMPOSER_TEXT || DEFAULT_AGENTIC_GOAL.composerText,
-    }),
+    mockWails: cli.mockWails === undefined ? truthyEnv(env.SUPER_DOLPHIN_AGENTIC_E2E_MOCK_WAILS) : cli.mockWails,
+    sandbox,
+    goal,
   };
 }
 
 export async function runAgenticE2E(config = agenticE2EConfig()) {
+  assertGoalRuntimeSupported(config);
   await mkdir(config.outputDir, { recursive: true });
+  if (config.mockWails || config.goal.requiresSandbox) {
+    await prepareAgenticE2ESandbox(config);
+  }
   const browser = await chromium.launch({
     headless: config.headless,
     ...(config.chromiumExecutable ? { executablePath: config.chromiumExecutable } : {}),
@@ -39,9 +60,14 @@ export async function runAgenticE2E(config = agenticE2EConfig()) {
   const page = await browser.newPage();
   const consoleMessages = [];
   const networkRequests = [];
+  const pageErrors = [];
   const steps = [];
   let discoveredFlows = [];
 
+  if (config.mockWails) await installAgenticE2EMockWails(page, { sandbox: config.sandbox });
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message || String(error));
+  });
   page.on('console', (message) => {
     consoleMessages.push({
       type: message.type(),
@@ -73,7 +99,8 @@ export async function runAgenticE2E(config = agenticE2EConfig()) {
       await writeStepEvidence(config.outputDir, stepIndex + 1, facts, action);
 
       if (action.type === 'done') {
-        await writeFinalEvidence(config.outputDir, page, steps, consoleMessages, networkRequests, discoveredFlows);
+        await assertCapturedRuntimeClean(page, config, pageErrors, networkRequests);
+        await writeFinalEvidence(config.outputDir, page, steps, consoleMessages, networkRequests, discoveredFlows, await runtimeEvidence(page, config, pageErrors));
         return { success: true, steps, outputDir: config.outputDir };
       }
       if (action.type === 'fail') {
@@ -85,7 +112,7 @@ export async function runAgenticE2E(config = agenticE2EConfig()) {
     throw new Error(`agentic e2e exceeded max steps: ${config.maxSteps}`);
   }
   catch (error) {
-    await writeFailureEvidence(config.outputDir, page, steps, consoleMessages, networkRequests, error, discoveredFlows);
+    await writeFailureEvidence(config.outputDir, page, steps, consoleMessages, networkRequests, error, discoveredFlows, await runtimeEvidence(page, config, pageErrors));
     throw error;
   }
   finally {
@@ -118,9 +145,18 @@ export async function collectPageFacts(page, consoleMessages = []) {
       composerVisible: visibleByTestId('composer-input'),
       composerValue: inputValueByTestId('composer-input'),
       chatActionsMenuVisible: visibleByTestId('chat-actions-menu'),
+      projectMenuVisible: isVisible(document.querySelector('.project-dropdown[role="menu"]')),
+      attachmentCount: document.querySelectorAll('.attachment-pill').length,
       runtimePanelVisible: visibleByTestId('runtime-panel'),
       observabilityPageVisible: visibleByTestId('observability-page'),
       recentLogsVisible: visibleByTestId('observability-recent-logs'),
+      settingsPageVisible: visibleByTestId('settings-page'),
+      settingsApiKeyVisible: isVisible(document.querySelector('#settings-sf-key')),
+      settingsApiKeyValue: String(document.querySelector('#settings-sf-key')?.value || ''),
+      settingsVideoNoticeVisible: visibleByTestId('settings-video-notice'),
+      mockWailsCallMethods: Array.isArray(window.__AGENTIC_E2E_MOCK_WAILS__?.calls)
+        ? window.__AGENTIC_E2E_MOCK_WAILS__.calls.map((call) => String(call?.method || '')).filter(Boolean)
+        : [],
     };
   }).catch(() => ({
     hasFrontendApp: false,
@@ -128,9 +164,16 @@ export async function collectPageFacts(page, consoleMessages = []) {
     composerVisible: false,
     composerValue: '',
     chatActionsMenuVisible: false,
+    projectMenuVisible: false,
+    attachmentCount: 0,
     runtimePanelVisible: false,
     observabilityPageVisible: false,
     recentLogsVisible: false,
+    settingsPageVisible: false,
+    settingsApiKeyVisible: false,
+    settingsApiKeyValue: '',
+    settingsVideoNoticeVisible: false,
+    mockWailsCallMethods: [],
   }));
   const locators = {
     composer: page.getByTestId('composer-input'),
@@ -145,9 +188,16 @@ export async function collectPageFacts(page, consoleMessages = []) {
     hasChatPage: structuralFacts.hasChatPage || summaryFacts.hasChatPage,
     composerVisible: structuralFacts.composerVisible || summaryFacts.composerVisible,
     chatActionsMenuVisible: structuralFacts.chatActionsMenuVisible || summaryFacts.chatActionsMenuVisible,
+    projectMenuVisible: structuralFacts.projectMenuVisible || summaryFacts.projectMenuVisible,
+    attachmentCount: structuralFacts.attachmentCount,
     runtimePanelVisible: structuralFacts.runtimePanelVisible || summaryFacts.runtimePanelVisible,
     observabilityPageVisible: structuralFacts.observabilityPageVisible || summaryFacts.observabilityPageVisible,
     recentLogsVisible: structuralFacts.recentLogsVisible || summaryFacts.recentLogsVisible,
+    settingsPageVisible: structuralFacts.settingsPageVisible || summaryFacts.settingsPageVisible,
+    settingsApiKeyVisible: structuralFacts.settingsApiKeyVisible,
+    settingsApiKeyValue: structuralFacts.settingsApiKeyValue,
+    settingsVideoNoticeVisible: structuralFacts.settingsVideoNoticeVisible || summaryFacts.settingsVideoNoticeVisible,
+    mockWailsCallMethods: structuralFacts.mockWailsCallMethods,
     composerValue: structuralFacts.composerValue || await locators.composer.inputValue({ timeout: 250 }).catch(() => ''),
     consoleErrors,
     accessibilitySnapshot: await accessibilitySnapshot(page),
@@ -200,6 +250,8 @@ export function readinessForAction(action = {}) {
   const name = normalizeString(action.target?.name || action.target?.value || action.reason);
   if (name.includes('链路追踪')) return { type: 'testId', value: 'observability-page' };
   if (name.includes('查询最新日志')) return { type: 'testId', value: 'observability-recent-logs' };
+  if (action.target?.parentTestId === 'settings-video-card') return { type: 'testId', value: 'settings-video-notice' };
+  if (action.expectRoute) return { type: 'urlPath', value: action.expectRoute };
   if (action.type === 'goto') return { type: 'testId', value: 'frontend-app' };
   return { type: 'stableDOM' };
 }
@@ -282,6 +334,9 @@ async function waitForReadiness(page, readiness) {
     const second = JSON.stringify(await domSummary(page));
     if (first !== second) await page.waitForTimeout(100);
   }
+  if (readiness.type === 'urlPath') {
+    await page.waitForURL((url) => normalizePathname(url.pathname) === normalizePathname(readiness.value), { timeout: 5000 });
+  }
 }
 
 async function accessibilitySnapshot(page) {
@@ -317,14 +372,18 @@ async function domSummary(page) {
 
 function factsFromDOMSummary(summary = []) {
   const testIds = new Set(summary.map((item) => item.testId).filter(Boolean));
+  const roles = new Set(summary.map((item) => item.role).filter(Boolean));
   return {
     hasFrontendApp: testIds.has('frontend-app'),
     hasChatPage: testIds.has('chat-page'),
     composerVisible: testIds.has('composer-input'),
     chatActionsMenuVisible: testIds.has('chat-actions-menu'),
+    projectMenuVisible: roles.has('menu'),
     runtimePanelVisible: testIds.has('runtime-panel'),
     observabilityPageVisible: testIds.has('observability-page'),
     recentLogsVisible: testIds.has('observability-recent-logs'),
+    settingsPageVisible: testIds.has('settings-page'),
+    settingsVideoNoticeVisible: testIds.has('settings-video-notice'),
   };
 }
 
@@ -337,14 +396,14 @@ async function writeStepEvidence(outputDir, step, facts, action) {
   await writeJSON(path.join(outputDir, `step-${String(step).padStart(2, '0')}-dom.json`), facts.domSummary || []);
 }
 
-export async function writeFinalEvidence(outputDir, page, steps, consoleMessages, networkRequests, discoveredFlows = []) {
+export async function writeFinalEvidence(outputDir, page, steps, consoleMessages, networkRequests, discoveredFlows = [], runtime = {}) {
   await page.screenshot({ path: path.join(outputDir, 'final.png'), fullPage: true });
-  const resultError = await writeResultEvidence(outputDir, { success: true, steps, consoleMessages, networkRequests }, discoveredFlows);
+  const resultError = await writeResultEvidence(outputDir, { success: true, steps, consoleMessages, networkRequests, ...runtime }, discoveredFlows);
   if (resultError) throw resultError;
   await writeDiscoveryReports(outputDir, discoveredFlows);
 }
 
-export async function writeFailureEvidence(outputDir, page, steps, consoleMessages, networkRequests, error, discoveredFlows = []) {
+export async function writeFailureEvidence(outputDir, page, steps, consoleMessages, networkRequests, error, discoveredFlows = [], runtime = {}) {
   await page.screenshot({ path: path.join(outputDir, 'failure.png'), fullPage: true }).catch(() => {});
   const payload = {
     success: false,
@@ -352,6 +411,7 @@ export async function writeFailureEvidence(outputDir, page, steps, consoleMessag
     steps,
     consoleMessages,
     networkRequests,
+    ...runtime,
   };
   const resultError = await writeResultEvidence(outputDir, payload, discoveredFlows);
   if (resultError) throw error;
@@ -402,12 +462,114 @@ function normalizeURL(value) {
   return normalized.endsWith('/') ? normalized : `${normalized}/`;
 }
 
+function parseAgenticE2EArgs(argv = []) {
+  const parsed = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--headed') {
+      parsed.headed = true;
+      continue;
+    }
+    if (arg === '--mock-wails') {
+      parsed.mockWails = true;
+      continue;
+    }
+    const equalIndex = arg.indexOf('=');
+    const name = equalIndex === -1 ? arg : arg.slice(0, equalIndex);
+    const inlineValue = equalIndex === -1 ? undefined : arg.slice(equalIndex + 1);
+    if (name === '--goal') {
+      const option = argumentValue(name, inlineValue, argv, index);
+      parsed.goal = option.value;
+      index = option.index;
+      continue;
+    }
+    if (name === '--composer-text') {
+      const option = argumentValue(name, inlineValue, argv, index);
+      parsed.composerText = option.value;
+      index = option.index;
+      continue;
+    }
+    if (name === '--base-url') {
+      const option = argumentValue(name, inlineValue, argv, index);
+      parsed.baseURL = option.value;
+      index = option.index;
+      continue;
+    }
+    if (name === '--output-dir') {
+      const option = argumentValue(name, inlineValue, argv, index);
+      parsed.outputDir = option.value;
+      index = option.index;
+      continue;
+    }
+    if (name === '--max-steps') {
+      const option = argumentValue(name, inlineValue, argv, index);
+      parsed.maxSteps = option.value;
+      index = option.index;
+      continue;
+    }
+    throw new Error(`unsupported agentic e2e option: ${arg}`);
+  }
+  return parsed;
+}
+
+function argumentValue(name, inlineValue, argv, index) {
+  if (inlineValue !== undefined) {
+    const normalized = normalizeString(inlineValue);
+    if (!normalized) throw new Error(`agentic e2e option ${name} requires a value`);
+    return { value: normalized, index };
+  }
+  const nextValue = argv[index + 1];
+  const normalized = normalizeString(nextValue);
+  if (!normalized || normalized.startsWith('--')) throw new Error(`agentic e2e option ${name} requires a value`);
+  return { value: normalized, index: index + 1 };
+}
+
 function normalizeRunID(value) {
   return normalizeString(value).replace(/[^a-zA-Z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'run';
 }
 
 function normalizeString(value) {
   return String(value ?? '').trim();
+}
+
+function normalizePathname(value) {
+  const normalized = normalizeString(value).replace(/\/+$/g, '');
+  return normalized || '/';
+}
+
+function assertGoalRuntimeSupported(config) {
+  if (config.goal?.requiresMockWails && !config.mockWails) {
+    throw new Error(`agentic e2e goal ${config.goal.id} requires --mock-wails`);
+  }
+  if (config.goal?.requiresSandbox && !config.sandbox) {
+    throw new Error(`agentic e2e goal ${config.goal.id} requires sandbox config`);
+  }
+}
+
+async function assertCapturedRuntimeClean(page, config, pageErrors, networkRequests) {
+  if (pageErrors.length > 0) throw new Error(`page errors detected: ${pageErrors.join('; ')}`);
+  const networkFailures = capturedNetworkFailures(networkRequests);
+  if (networkFailures.length > 0) {
+    throw new Error(`network failures detected: ${networkFailures.map((item) => item.failure || `${item.status} ${item.url}`).join('; ')}`);
+  }
+  if (config.mockWails) {
+    assertAgenticE2EMockWailsClean(await readAgenticE2EMockWailsState(page));
+  }
+}
+
+async function runtimeEvidence(page, config, pageErrors) {
+  const evidence = { pageErrors };
+  if (config.mockWails || config.goal?.requiresSandbox) {
+    evidence.sandbox = await snapshotAgenticE2ESandbox(config);
+  }
+  if (config.mockWails) {
+    evidence.mockWails = await readAgenticE2EMockWailsState(page);
+  }
+  return evidence;
+}
+
+function capturedNetworkFailures(networkRequests) {
+  return networkRequests.filter((request) => request.failure || Number(request.status || 0) >= 400);
 }
 
 function positiveInt(value, fallback) {
@@ -426,7 +588,7 @@ function isMain(metaURL, argv1) {
 }
 
 if (isMain(import.meta.url, process.argv[1])) {
-  runAgenticE2E().then((result) => {
+  runAgenticE2E(agenticE2EConfig(process.env, repoRootFromScript(), process.argv.slice(2))).then((result) => {
     console.log(`agentic e2e passed: ${result.outputDir}`);
   }).catch((error) => {
     console.error(`agentic e2e failed: ${error.message}`);

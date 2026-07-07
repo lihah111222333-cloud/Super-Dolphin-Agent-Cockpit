@@ -5,14 +5,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { agenticE2EConfig, collectPageFacts, mergeDiscoveredFlows, normalizeDOMSummaryItem, readinessForAction, writeFailureEvidence, writeFinalEvidence } from './agentic-e2e.mjs';
+import { prepareAgenticE2ESandbox, snapshotAgenticE2ESandbox } from './agentic-e2e-sandbox.mjs';
 import {
   BLOCKED_ACTION_KEYWORDS,
   businessActionsFromDOMSummary,
   discoverBusinessFlows,
   safetyForAction,
 } from './agentic-e2e-discovery.mjs';
-import { decideNextAction, normalizeGoal } from './agentic-e2e-planner.mjs';
+import { AGENTIC_GOAL_IDS, decideNextAction, normalizeGoal } from './agentic-e2e-planner.mjs';
 import { renderDiscoveryMarkdown, summarizeDiscovery } from './agentic-e2e-reporter.mjs';
+import { assertAgenticE2EMockWailsClean, installAgenticE2EMockWails, readAgenticE2EMockWailsState } from './agentic-e2e-wails-mock.mjs';
 
 describe('agentic e2e planner', () => {
   it('starts by opening the app root when the page is blank', () => {
@@ -58,13 +60,86 @@ describe('agentic e2e planner', () => {
     });
   });
 
+  it('returns to the chat route without clicking the new conversation action', () => {
+    const action = decideNextAction({
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+      hasChatPage: false,
+    });
+
+    expect(action).toEqual(expect.objectContaining({
+      type: 'goto',
+      path: '/',
+      expectRoute: '/',
+      reason: expect.stringContaining('without invoking new conversation'),
+    }));
+  });
+
   it('finishes only after observability logs are visible', () => {
     expect(decideNextAction({
       url: 'http://127.0.0.1:5176/observability',
       hasFrontendApp: true,
       observabilityPageVisible: true,
       recentLogsVisible: true,
-    }, { composerText: 'probe text' }).type).toBe('done');
+    }, { id: 'observability-latest-logs', composerText: 'probe text' }).type).toBe('done');
+  });
+
+  it('queries latest observability logs for the observability goal', () => {
+    const action = decideNextAction({
+      url: 'http://127.0.0.1:5176/observability',
+      hasFrontendApp: true,
+      observabilityPageVisible: true,
+      recentLogsVisible: false,
+    }, { id: 'observability-latest-logs' });
+
+    expect(action).toEqual(expect.objectContaining({
+      type: 'click',
+      target: { type: 'role', role: 'button', name: '查询最新日志' },
+    }));
+  });
+
+  it('opens stable business navigation goals without filling the composer', () => {
+    const action = decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      composerVisible: true,
+      composerValue: '',
+    }, { id: 'plugins-skills-open' });
+
+    expect(action).toEqual(expect.objectContaining({
+      type: 'click',
+      expectRoute: '/skills',
+      target: {
+        type: 'nestedRole',
+        parentTestId: 'sidebar-nav',
+        role: 'button',
+        name: '插件与技能',
+      },
+    }));
+  });
+
+  it('finishes a stable open goal once its route is active', () => {
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+    }, { id: 'settings-open' })).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('settings-open'),
+    }));
+  });
+
+  it('finishes chat-composer after the composer text is filled', () => {
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      composerVisible: true,
+      composerValue: 'probe text',
+    }, { id: 'chat-composer', composerText: 'probe text' })).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('chat-composer'),
+    }));
   });
 
   it('fails fast on console errors', () => {
@@ -76,6 +151,120 @@ describe('agentic e2e planner', () => {
 
     expect(action.type).toBe('fail');
     expect(action.reason).toContain('console errors detected');
+  });
+
+  it('clicks the real send button for the mocked chat send danger goal', () => {
+    const action = decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      composerVisible: true,
+      composerValue: 'probe text',
+      mockWailsCallMethods: [],
+    }, { id: 'chat-send-mocked', composerText: 'probe text' });
+
+    expect(action).toEqual(expect.objectContaining({
+      type: 'click',
+      target: { type: 'role', role: 'button', name: '发送消息', exact: true },
+    }));
+  });
+
+  it('finishes the mocked chat send goal only after thread and turn RPCs are observed', () => {
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      composerVisible: true,
+      composerValue: '',
+      mockWailsCallMethods: ['thread/start', 'turn/start'],
+    }, { id: 'chat-send-mocked', composerText: 'probe text' })).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('chat-send-mocked'),
+    }));
+  });
+
+  it('drives the project picker through the real sidebar add-project button', () => {
+    const addProject = decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      mockWailsCallMethods: [],
+    }, { id: 'project-add-sandbox' });
+    expect(addProject).toEqual(expect.objectContaining({
+      type: 'click',
+      target: { type: 'nestedRole', parentTestId: 'app-sidebar', role: 'button', name: '添加项目目录' },
+    }));
+  });
+
+  it('finishes the sandbox project add goal after selection and project RPCs', () => {
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      mockWailsCallMethods: ['ui/selectProjectDir', 'ui/projects/add'],
+    }, { id: 'project-add-sandbox' })).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('project-add-sandbox'),
+    }));
+  });
+
+  it('clicks the real composer add-file action and waits for the file picker RPC', () => {
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      mockWailsCallMethods: [],
+    }, { id: 'file-attach-sandbox' })).toEqual(expect.objectContaining({
+      type: 'click',
+      target: { type: 'role', role: 'button', name: '添加文件', exact: true },
+    }));
+
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/',
+      hasFrontendApp: true,
+      hasChatPage: true,
+      attachmentCount: 1,
+      mockWailsCallMethods: ['ui/selectFiles'],
+    }, { id: 'file-attach-sandbox' })).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('file-attach-sandbox'),
+    }));
+  });
+
+  it('saves the settings video key through the real settings form', () => {
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+      settingsPageVisible: true,
+      settingsApiKeyVisible: true,
+      settingsApiKeyValue: '',
+    }, { id: 'settings-video-key-save-mocked' })).toEqual(expect.objectContaining({
+      type: 'fill',
+      target: { type: 'css', value: '#settings-sf-key' },
+      value: 'agentic-e2e-video-key',
+    }));
+
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+      settingsPageVisible: true,
+      settingsApiKeyVisible: true,
+      settingsApiKeyValue: 'agentic-e2e-video-key',
+      mockWailsCallMethods: [],
+    }, { id: 'settings-video-key-save-mocked' })).toEqual(expect.objectContaining({
+      type: 'click',
+      target: { type: 'nestedRole', parentTestId: 'settings-video-card', role: 'button', name: '保存' },
+    }));
+
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+      settingsPageVisible: true,
+      mockWailsCallMethods: ['ui/video/setApiKey'],
+    }, { id: 'settings-video-key-save-mocked' })).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('settings-video-key-save-mocked'),
+    }));
   });
 });
 
@@ -574,15 +763,169 @@ describe('agentic e2e config', () => {
     }, '/repo/app');
 
     expect(config.baseURL).toBe('http://127.0.0.1:5176/');
-    expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run');
+    expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run/frontend_navigation_probe');
+    expect(config.runID).toBe('probe-run');
+    expect(config.sandbox).toEqual({
+      rootDir: '/repo/app/.tmp/agentic-e2e/sandbox/probe-run',
+      homeDir: '/repo/app/.tmp/agentic-e2e/sandbox/probe-run/home',
+      projectDir: '/repo/app/.tmp/agentic-e2e/sandbox/probe-run/project',
+      uploadFile: '/repo/app/.tmp/agentic-e2e/sandbox/probe-run/project/files/sample.txt',
+    });
     expect(config.maxSteps).toBe(12);
     expect(config.headless).toBe(true);
+    expect(config.mockWails).toBe(false);
   });
 
   it('normalizes explicit goal text', () => {
-    expect(normalizeGoal({ id: ' custom ', composerText: ' hello ' })).toEqual({
-      id: 'custom',
+    expect(normalizeGoal({ id: ' chat-composer ', composerText: ' hello ' })).toEqual(expect.objectContaining({
+      id: 'chat-composer',
       composerText: 'hello',
-    });
+    }));
+  });
+
+  it('exposes the stable goal runner candidates', () => {
+    expect(AGENTIC_GOAL_IDS).toEqual(expect.arrayContaining([
+      'chat-composer',
+      'observability-latest-logs',
+      'plugins-skills-open',
+      'automation-open',
+      'prompts-open',
+      'shared-files-open',
+      'memory-open',
+      'settings-open',
+      'chat-send-mocked',
+      'project-add-sandbox',
+      'file-attach-sandbox',
+      'settings-video-key-save-mocked',
+    ]));
+  });
+
+  it('fails fast for unsupported goals', () => {
+    expect(() => normalizeGoal({ id: 'missing-goal' })).toThrow(/unsupported agentic e2e goal/);
+  });
+
+  it('uses command line goal selection and goal-scoped output directories', () => {
+    const config = agenticE2EConfig({
+      SUPER_DOLPHIN_AGENTIC_E2E_RUN_ID: 'probe run',
+      SUPER_DOLPHIN_AGENTIC_E2E_GOAL: 'plugins-skills-open',
+    }, '/repo/app', ['--goal=memory-open']);
+
+    expect(config.goal.id).toBe('memory-open');
+    expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run/memory-open');
+  });
+
+  it('enables strict mock Wails from env or command line', () => {
+    expect(agenticE2EConfig({
+      SUPER_DOLPHIN_AGENTIC_E2E_MOCK_WAILS: '1',
+    }, '/repo/app').mockWails).toBe(true);
+    expect(agenticE2EConfig({}, '/repo/app', ['--mock-wails']).mockWails).toBe(true);
+  });
+
+  it('fails fast for unsupported command line options', () => {
+    expect(() => agenticE2EConfig({}, '/repo/app', ['--unknown'])).toThrow(/unsupported agentic e2e option/);
   });
 });
+
+describe('agentic e2e sandbox fixture', () => {
+  it('creates a bounded test project and returns a deterministic file snapshot', async () => {
+    const repoRoot = await mkdtemp(path.join(tmpdir(), 'agentic-e2e-repo-'));
+    try {
+      const config = agenticE2EConfig({
+        SUPER_DOLPHIN_AGENTIC_E2E_RUN_ID: 'sandbox run',
+      }, repoRoot);
+
+      await prepareAgenticE2ESandbox(config);
+      const readme = await readFile(path.join(config.sandbox.projectDir, 'README.md'), 'utf8');
+      const skill = await readFile(path.join(config.sandbox.projectDir, '.agents/skills/e2e-fixture/SKILL.md'), 'utf8');
+      const snapshot = await snapshotAgenticE2ESandbox(config);
+
+      expect(readme).toContain('Agentic E2E Sandbox Project');
+      expect(skill).toContain('agentic-e2e-fixture');
+      expect(snapshot.files).toEqual(expect.arrayContaining([
+        '.agents/skills/e2e-fixture/SKILL.md',
+        'README.md',
+        'docs/note.md',
+        'files/sample.txt',
+        'src/app.js',
+      ]));
+    }
+    finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('agentic e2e strict Wails mock', () => {
+  it('responds to known RPCs and records unhandled RPCs', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const sandbox = sandboxFixture('/tmp/agentic-e2e-known');
+      await installAgenticE2EMockWails(page, { sandbox });
+      await page.goto('data:text/html,<main>mock</main>');
+
+      const known = await callMockWailsRPC(page, 'config/read', {});
+      expect(known.result).toEqual({ cwd: sandbox.projectDir });
+
+      const unknown = await callMockWailsRPC(page, 'missing/method', {});
+      expect(unknown.error.message).toMatch(/unhandled agentic e2e mock RPC/);
+
+      const state = await readAgenticE2EMockWailsState(page);
+      expect(state.calls.map((call) => call.method)).toEqual(['config/read', 'missing/method']);
+      expect(state.unhandledRPC).toEqual(['missing/method']);
+    }
+    finally {
+      await browser.close();
+    }
+  });
+
+  it('returns sandbox paths for project and file pickers and fails on out-of-sandbox project paths', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const sandbox = sandboxFixture('/tmp/agentic-e2e-boundary');
+      await installAgenticE2EMockWails(page, { sandbox });
+      await page.goto('data:text/html,<main>mock</main>');
+
+      await expect(callMockWailsRPC(page, 'ui/selectProjectDir', { defaultPath: sandbox.projectDir }))
+        .resolves.toEqual(expect.objectContaining({ result: { path: sandbox.projectDir } }));
+      await expect(callMockWailsRPC(page, 'ui/selectFiles', {}))
+        .resolves.toEqual(expect.objectContaining({ result: { paths: [sandbox.uploadFile] } }));
+      const outside = await callMockWailsRPC(page, 'ui/projects/add', { cwd: sandbox.projectDir, path: '/tmp/outside-project' });
+      expect(outside.error.message).toMatch(/outside sandbox/);
+
+      const state = await readAgenticE2EMockWailsState(page);
+      expect(state.sandboxViolations).toEqual([expect.objectContaining({
+        method: 'ui/projects/add',
+        path: '/tmp/outside-project',
+      })]);
+      expect(() => assertAgenticE2EMockWailsClean(state)).toThrow(/outside sandbox/);
+    }
+    finally {
+      await browser.close();
+    }
+  });
+});
+
+async function callMockWailsRPC(page, method, params) {
+  return page.evaluate(({ method: rpcMethod, params: rpcParams }) => new Promise((resolve, reject) => {
+    const socket = new WebSocket('ws://127.0.0.1/wails/ws');
+    socket.onerror = () => reject(new Error('mock socket failed'));
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: rpcMethod, params: rpcParams }));
+    };
+    socket.onmessage = (event) => {
+      socket.close();
+      resolve(JSON.parse(event.data));
+    };
+  }), { method, params });
+}
+
+function sandboxFixture(rootDir) {
+  return {
+    rootDir,
+    homeDir: `${rootDir}/home`,
+    projectDir: `${rootDir}/project`,
+    uploadFile: `${rootDir}/project/files/sample.txt`,
+  };
+}

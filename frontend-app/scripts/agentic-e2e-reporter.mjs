@@ -1,3 +1,5 @@
+import { suggestedGoalForLabel } from './agentic-e2e-goals.mjs';
+
 export function summarizeDiscovery({ flows = [] } = {}) {
   const actions = [];
   flows.forEach((flow, flowIndex) => {
@@ -51,17 +53,6 @@ export function renderDiscoveryMarkdown({ summary, flows = [] } = {}) {
   renderFlowTable(lines, 'Raw Flow Index', flowRecords, true);
   return `${lines.join('\n').trim()}\n`;
 }
-
-const STABLE_GOAL_BY_LABEL = Object.freeze([
-  { pattern: /^新对话$/u, goal: 'chat-composer' },
-  { pattern: /^链路追踪$/u, goal: 'observability-latest-logs' },
-  { pattern: /^插件与技能$/u, goal: 'plugins-skills-open' },
-  { pattern: /^自动化$/u, goal: 'automation-open' },
-  { pattern: /^提示词$/u, goal: 'prompts-open' },
-  { pattern: /^共享文件$/u, goal: 'shared-files-open' },
-  { pattern: /^记忆中心$/u, goal: 'memory-open' },
-  { pattern: /^设置$/u, goal: 'settings-open' },
-]);
 
 const SHELL_CONTROL_LABELS = Object.freeze([
   /^切换到\s*English$/iu,
@@ -138,10 +129,6 @@ function reviewCategoryForLabel(label) {
   if (SHELL_CONTROL_LABELS.some((pattern) => pattern.test(label))) return 'shell-control';
   if (CONTEXTUAL_CONTROL_LABELS.some((pattern) => pattern.test(label))) return 'contextual-control';
   return 'business-candidate';
-}
-
-function suggestedGoalForLabel(label) {
-  return STABLE_GOAL_BY_LABEL.find((candidate) => candidate.pattern.test(label))?.goal || '';
 }
 
 function discoveryActionsFromFlows(flows = []) {
