@@ -104,7 +104,7 @@ describe('filesPageService', () => {
     });
   });
 
-  it('keeps the saveTextFile DTO golden stable', async () => {
+  it('preserves explicit saveTextFile defaults when saving empty content', async () => {
     const api = createApi();
     const service = createFilesPageService(api);
 

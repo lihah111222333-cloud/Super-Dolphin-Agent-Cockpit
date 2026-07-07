@@ -16,6 +16,11 @@ const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const rawNamedImportScanDirs = ['pages', 'features', 'entities'];
 const pageSurfaceScanDirs = ['pages', 'features'];
 const rawFacadeNames = new Set(['callAPI', 'callBackend']);
+const featureModuleServices = new Map([
+  ['files', 'fileService.js'],
+  ['memory', 'memoryService.js'],
+  ['observability', 'observabilityService.js'],
+]);
 const featureViewSurfaces = new Map([
   ['features/prompts/PromptPageView.jsx', pageSurfaceManifest.prompts],
 ]);
@@ -70,6 +75,13 @@ function referencesModuleService(specifier) {
   return specifier.includes('services/modules/');
 }
 
+function featureForSurface(surface) {
+  for (const [feature, candidate] of Object.entries(pageSurfaceManifest)) {
+    if (candidate === surface) return feature;
+  }
+  return '';
+}
+
 function resolveImportSpecifier(relativePath, specifier) {
   if (!specifier.startsWith('.')) return specifier;
   return path.normalize(path.join(path.dirname(relativePath), specifier)).split(path.sep).join('/');
@@ -93,6 +105,17 @@ function serviceEntryPaths() {
 
 function isFeatureServiceEntry(relativePath) {
   return serviceEntryPaths().has(relativePath);
+}
+
+function moduleServiceViolation(relativePath, specifier, surface, serviceEntry) {
+  if (!referencesModuleService(specifier)) return '';
+  if (!serviceEntry) return `${relativePath} imports ${specifier}`;
+  const feature = featureForSurface(surface);
+  const allowedModule = featureModuleServices.get(feature);
+  if (!allowedModule || !specifier.endsWith(`/services/modules/${allowedModule}`)) {
+    return `${relativePath} imports non-owned module service ${specifier}`;
+  }
+  return '';
 }
 
 function isGuardedSurface(relativePath) {
@@ -147,9 +170,8 @@ function surfaceImportViolations(relativePath, source) {
     if (!serviceEntry && referencesBackendApi(specifier)) {
       violations.push(`${relativePath} imports ${specifier}`);
     }
-    if (!serviceEntry && referencesModuleService(specifier)) {
-      violations.push(`${relativePath} imports ${specifier}`);
-    }
+    const moduleViolation = moduleServiceViolation(relativePath, specifier, surface, serviceEntry);
+    if (moduleViolation) violations.push(moduleViolation);
   }
 
   violations.push(...crossFeatureSurfaceViolations(relativePath, source));
@@ -319,6 +341,12 @@ describe('backend API consumer guardrails', () => {
       import { saveTextFile } from '../../../shared/api/backendApi.js';
       import * as fileService from '../../../services/modules/fileService.js';
     `)).toEqual([]);
+
+    expect(surfaceImportViolations('pages/files/services/filesPageService.js', `
+      import * as memoryService from '../../../services/modules/memoryService.js';
+    `)).toEqual([
+      'pages/files/services/filesPageService.js imports non-owned module service ../../../services/modules/memoryService.js',
+    ]);
   });
 
   it('allows ordinary non-Vitest apply calls', () => {

@@ -12,6 +12,13 @@ import { pageSurfaceManifest } from './pageSurfaceManifest.js';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ownershipModes = new Set(['dto-golden', 'service-boundary']);
 const requiredFields = ['entry', 'servicePrefix', 'adapterPrefix', 'serviceEntry', 'ownershipMode', 'ownedStateFiles'];
+const sharedDtoGoldenTest = 'pages/shared/featureDtoGolden.test.js';
+const dtoGoldenFactories = new Map([
+  ['files', 'createFilesPageService'],
+  ['memory', 'createMemoryPageService'],
+  ['observability', 'createObservabilityPageService'],
+  ['prompts', 'createPromptPageService'],
+]);
 
 function read(relPath) {
   return fs.readFileSync(path.join(sourceRoot, relPath), 'utf8');
@@ -119,6 +126,28 @@ describe('page surface manifest', () => {
         ownedStateFiles: ['pages/chat/ChatPage.jsx'],
       },
     })).toContain('chat service-boundary entry must not declare placeholder dtoGoldenTest');
+  });
+
+  it('keeps dto-golden entries on the shared service DTO golden harness', () => {
+    const violations = [];
+    for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
+      if (surface.ownershipMode !== 'dto-golden') continue;
+      if (surface.dtoGoldenTest !== sharedDtoGoldenTest) {
+        violations.push(`${feature} dtoGoldenTest must be ${sharedDtoGoldenTest}`);
+      }
+      const harnessSource = read(surface.dtoGoldenTest);
+      const serviceFactory = dtoGoldenFactories.get(feature);
+      if (!serviceFactory) {
+        violations.push(`${feature} dto-golden entry must declare a shared harness factory expectation`);
+        continue;
+      }
+      const harnessImports = importSpecifiers(harnessSource)
+        .map((specifier) => resolveEntryImport(surface.dtoGoldenTest, specifier));
+      if (!harnessImports.includes(surface.serviceEntry) || !harnessSource.includes(serviceFactory)) {
+        violations.push(`${feature} dtoGoldenTest does not cover ${surface.serviceEntry}`);
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   it('declares a feature service boundary for every page entry', () => {

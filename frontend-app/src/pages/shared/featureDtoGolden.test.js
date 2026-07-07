@@ -20,6 +20,7 @@ async function expectDtoGolden({ factory, methods, method, input, expectedPayloa
   const { api, calls } = capturedApi(methods);
   const service = factory(api);
 
+  expect(service[method]).toEqual(expect.any(Function));
   await service[method](input);
 
   expect(calls).toEqual([{ method, payload: expectedPayload }]);
@@ -45,6 +46,7 @@ async function expectSyncDtoError({ factory, methods, method, input, message }) 
   }
 
   expect(thrown?.message).toBe(message);
+  expect(returned).toBeUndefined();
   expect(asyncError?.message).toBeUndefined();
   expect(calls).toEqual([]);
 }
@@ -180,7 +182,7 @@ describe('feature service DTO golden harness', () => {
       methods: ['writePrompt'],
       method: 'writePrompt',
       input: { cwd: '/repo/app', name: 'Missing identity' },
-      message: 'id is required',
+      message: 'id or key is required',
     });
   });
 });

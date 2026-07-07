@@ -28,7 +28,7 @@ describe('observabilityPageService', () => {
     expect(api.listObservabilityRecent).toHaveBeenCalledWith({ limit: 25, status: 'error', traceId: '' });
   });
 
-  it('keeps recent observability DTO golden normalization stable', async () => {
+  it('normalizes recent observability numeric string limits before forwarding', async () => {
     const api = createApi();
     const service = createObservabilityPageService(api);
 

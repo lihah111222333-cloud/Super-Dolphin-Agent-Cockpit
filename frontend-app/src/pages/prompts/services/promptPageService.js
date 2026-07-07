@@ -59,7 +59,7 @@ function requirePromptId(payload, methodName) {
 
 function requireWritablePromptKey(payload, methodName) {
   const request = requirePayload(payload, methodName);
-  if (!textValue(request.id) && !textValue(request.key)) throw new Error('id is required');
+  if (!textValue(request.id) && !textValue(request.key)) throw new Error('id or key is required');
 }
 
 function requireDraftKey(payload, methodName) {
