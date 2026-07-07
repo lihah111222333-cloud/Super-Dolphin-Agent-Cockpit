@@ -55,18 +55,7 @@ func resumeTemplateContractSession(_ context.Context, req dto.ResumeSessionReque
 func templateEventTranslationContractCase() contracttest.Case {
 	return contracttest.Case{Name: "event translation", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		raw := dto.RawProviderEvent{
-			EventType: "template/turn_completed",
-			Data: map[string]any{
-				"threadId": "thread-template-contract",
-				"agentId":  "agent-template-contract",
-				"turnId":   "turn-template-contract",
-				"status":   "completed",
-			},
-		}
-		got := contracttest.CaptureProviderEventTranslation(t, "template-event-capture", raw, translateTemplateEvent)
-		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, "turn_completed"))
-		e.RecordEventTranslation(t, "template turn completed", got, want)
+		t.Fatal("replace templateEventTranslationContractCase with provider raw-event capture and translator evidence")
 	}}
 }
 
@@ -87,93 +76,49 @@ func translateTemplateEvent(raw dto.RawProviderEvent, emit func(any)) {
 func templatePromptParityContractCase() contracttest.Case {
 	return contracttest.Case{Name: "start and resume prompt parity", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		startGot := contracttest.NewProviderPromptEvidence("template-start-prompt-capture", contracttest.PromptParityFields{
-			BaseInstructions:      "template base instructions",
-			DeveloperInstructions: "template developer instructions",
-			PrefixHash:            "template-hash",
-			Boundary:              `{"cachedPrefix":"template base instructions","uncachedTail":"runtime context"}`,
-			SectionSnapshot:       `{"developer":"template developer instructions","system":"template base instructions"}`,
-		})
-		startWant := contracttest.NewExpectedPromptEvidence(contracttest.LoadExpectedPromptSnapshot(t, "start_prompt_parity"))
-		e.RecordPromptParity(t, startGot, startWant)
-
-		resumeGot := contracttest.NewProviderPromptEvidence("template-resume-prompt-capture", contracttest.PromptParityFields{
-			BaseInstructions:      "template base instructions",
-			DeveloperInstructions: "template developer instructions",
-			PrefixHash:            "template-hash",
-			Boundary:              `{"cachedPrefix":"template base instructions","uncachedTail":"runtime context"}`,
-			SectionSnapshot:       `{"developer":"template developer instructions","system":"template base instructions"}`,
-		})
-		resumeWant := contracttest.NewExpectedPromptEvidence(contracttest.LoadExpectedPromptSnapshot(t, "resume_prompt_parity"))
-		e.RecordPromptParity(t, resumeGot, resumeWant)
+		t.Fatal("replace templatePromptParityContractCase with provider start/resume prompt capture; do not hard-code prompt evidence")
 	}}
 }
 
 func templateApprovalContractCase() contracttest.Case {
 	return contracttest.Case{Name: "approval bridge or policy", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		e.RecordOutcome(t, contracttest.EvidenceApprovalOutcome, contracttest.OutcomeEvidence{
-			ObservedActionID: "template-approval-policy",
-			StateBefore:      "approval_policy:provider-default",
-			StateAfter:       "approval_policy:checked",
-		})
+		t.Fatal("replace templateApprovalContractCase with provider approval bridge or policy capture")
 	}}
 }
 
 func templateInterruptContractCase() contracttest.Case {
 	return contracttest.Case{Name: "session interrupt", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		e.RecordOutcome(t, contracttest.EvidenceInterruptOutcome, contracttest.OutcomeEvidence{
-			ObservedActionID: "template-interrupt",
-			StateBefore:      "active_turn:turn-template-contract",
-			StateAfter:       "interrupted:turn-template-contract",
-		})
+		t.Fatal("replace templateInterruptContractCase with provider interrupt capture")
 	}}
 }
 
 func templateForceCompleteContractCase() contracttest.Case {
 	return contracttest.Case{Name: "session force complete", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		e.RecordOutcome(t, contracttest.EvidenceForceCompleteOutcome, contracttest.OutcomeEvidence{
-			ObservedActionID: "template-force-complete",
-			StateBefore:      "active_turn:turn-template-contract",
-			StateAfter:       "completed:turn-template-contract",
-		})
+		t.Fatal("replace templateForceCompleteContractCase with provider force-complete capture")
 	}}
 }
 
 func templateResumeIdentityContractCase() contracttest.Case {
 	return contracttest.Case{Name: "provider thread id resume", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		e.RecordResumeIdentity(t, contracttest.ResumeIdentityEvidence{
-			PublicThreadID:   "public-thread-template-contract",
-			ProviderThreadID: "provider-thread-template-contract",
-			ResumedThreadID:  "provider-thread-template-contract",
-		})
+		t.Fatal("replace templateResumeIdentityContractCase with provider resume identity capture")
 	}}
 }
 
 func templateToolbridgeContractCase() contracttest.Case {
 	return contracttest.Case{Name: "toolbridge proxy dependency", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		e.RecordOutcome(t, contracttest.EvidenceToolbridgeDependency, contracttest.OutcomeEvidence{
-			ObservedActionID: "template-toolbridge-proxy",
-			StateBefore:      "toolbridge_proxy:required",
-			StateAfter:       "toolbridge_proxy:ready",
-			DependencyName:   "provider.template.toolbridge_proxy",
-			Profile:          contract.DependencyProfileProduction,
-		})
+		t.Fatal("replace templateToolbridgeContractCase with provider toolbridge/proxy readiness capture")
 	}}
 }
 
 func templateRuntimeReportContractCase() contracttest.Case {
 	return contracttest.Case{Name: "runtime report", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		e.RecordRuntimeReport(t, contracttest.RuntimeReportEvidence{
-			AgentID:        "agent-template-contract",
-			Provider:       "template",
-			SessionURLPort: "4242",
-		})
+		t.Fatal("replace templateRuntimeReportContractCase with provider runtime reporter capture")
 	}}
 }
 
