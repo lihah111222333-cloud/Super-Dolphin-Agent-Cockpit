@@ -52,6 +52,10 @@ function hasOwn(value, key) {
   return Boolean(value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key));
 }
 
+/**
+ * @param {Record<string, unknown>} source
+ * @param {readonly string[]} keys
+ */
 function firstFieldValue(source, keys = []) {
   const record = objectRecord(source);
   for (const key of keys) {
@@ -61,6 +65,10 @@ function firstFieldValue(source, keys = []) {
   return undefined;
 }
 
+/**
+ * @param {Record<string, unknown>} source
+ * @param {readonly string[]} keys
+ */
 function positiveNumberFromFields(source, keys = []) {
   const numeric = Number(firstFieldValue(source, keys));
   return Math.max(0, Number.isFinite(numeric) ? numeric : 0);

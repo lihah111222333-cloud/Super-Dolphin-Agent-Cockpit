@@ -14,6 +14,18 @@ import {
   THREAD_MESSAGES_PAGE_SIZE,
 } from './threadMessagesPagination.js';
 
+/**
+ * @typedef {{
+ *   nowMillis?: () => number,
+ *   getThreadMessages?: (params: Record<string, unknown>) => Promise<Record<string, unknown>>,
+ * }} ThreadMessageFetcherDeps
+ *
+ * @typedef {{
+ *   includeArchived?: boolean,
+ *   historyFallback?: unknown[],
+ * }} ThreadMessageLoadOptions
+ */
+
 function normalizeString(value) {
   return (value || '').toString().trim();
 }
@@ -97,6 +109,9 @@ export function applyThreadMessageItemsPatch(state, id, pageItems, pageMeta = {}
   };
 }
 
+/**
+ * @param {ThreadMessageFetcherDeps} [deps]
+ */
 export function createThreadMessagePageFetcher({ getThreadMessages, nowMillis = () => Date.now() } = {}) {
   if (typeof getThreadMessages !== 'function') throw new Error('getThreadMessages is required');
   return async function fetchThreadMessagePage(id, before = '') {
@@ -159,7 +174,12 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
     });
   };
 
+  /**
+   * @param {string} threadId
+   * @param {ThreadMessageLoadOptions} [options]
+   */
   const loadThreadMessages = async (threadId, options = {}) => {
+    /** @type {ThreadMessageLoadOptions} */
     const loadOptions = options && typeof options === 'object' ? options : {};
     const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
     if (!id) return;
@@ -187,6 +207,10 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
     }
   };
 
+  /**
+   * @param {string} threadId
+   * @param {ThreadMessageLoadOptions & { loadMessages?: boolean }} syncOptions
+   */
   const startThreadMessagesLoad = async (threadId, syncOptions) => {
     if (syncOptions.loadMessages === false) return;
     await loadThreadMessages(threadId, {
@@ -195,7 +219,12 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
     });
   };
 
+  /**
+   * @param {string} threadId
+   * @param {ThreadMessageLoadOptions} [options]
+   */
   const loadOlderThreadMessages = async (threadId, options = {}) => {
+    /** @type {ThreadMessageLoadOptions} */
     const loadOptions = options && typeof options === 'object' ? options : {};
     const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
     if (!id) return false;

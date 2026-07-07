@@ -4,6 +4,12 @@ import {
   normalizeThreadId,
 } from './threadIdentity.js';
 
+/**
+ * @typedef {{
+ *   readSharedFile?: (request: { path: string }) => Promise<{ path?: unknown, content?: unknown }>,
+ * }} ForkSharedFileDeps
+ */
+
 function normalizeString(value) {
   return (value || '').toString().trim();
 }
@@ -75,6 +81,9 @@ export function mergeForkSharedFilesWithSelected(availableSharedFiles = [], sele
   return merged;
 }
 
+/**
+ * @param {ForkSharedFileDeps} [deps]
+ */
 export function createLoadForkSharedFiles({ readSharedFile } = {}) {
   if (typeof readSharedFile !== 'function') throw new Error('readSharedFile is required');
   return async function loadForkSharedFiles(paths = []) {
