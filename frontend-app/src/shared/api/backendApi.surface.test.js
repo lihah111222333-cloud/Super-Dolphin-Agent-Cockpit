@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parseStaticImports } from '../../test-utils/importAst.js';
 import { RPC_METHODS } from './backendApi.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -40,36 +41,31 @@ function isRawBridgeModule(specifier) {
 
 function parseRawBridgeReferences(source) {
   const directImports = [];
+  const defaultImports = [];
   const namespaces = [];
-  const importPattern = /import\s*(?:(?:\{([^}]+)\})|(?:\*\s+as\s+([A-Za-z_$][\w$]*)))\s*from\s*['"]([^'"]+)['"]/g;
-  for (const match of source.matchAll(importPattern)) {
-    const [, names, namespaceName, specifier] = match;
-    if (!isRawBridgeModule(specifier)) continue;
-    if (namespaceName) {
-      namespaces.push({ local: namespaceName, specifier });
+  for (const entry of parseStaticImports(source)) {
+    if (!isRawBridgeModule(entry.specifier)) continue;
+    if (entry.kind === 'default') {
+      defaultImports.push({ local: entry.local, specifier: entry.specifier });
       continue;
     }
-    for (const part of names.split(',')) {
-      const [importedPart, aliasPart] = part.trim().split(/\s+as\s+/);
-      const imported = importedPart?.trim();
-      const local = aliasPart?.trim() || imported;
-      if (rawBridgeNames.has(imported)) {
-        directImports.push({ imported, local, specifier });
-      }
+    if (entry.kind === 'namespace') {
+      namespaces.push({ local: entry.local, specifier: entry.specifier });
+      continue;
+    }
+    if (entry.kind === 'named' && rawBridgeNames.has(entry.imported)) {
+      directImports.push({ imported: entry.imported, local: entry.local, specifier: entry.specifier });
     }
   }
-  return { directImports, namespaces };
+  return { defaultImports, directImports, namespaces };
 }
 
 function parseBackendApiSessionImports(source) {
   const imports = [];
-  const importPattern = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]*\/backendApi(?:\.js)?)['"]/g;
-  for (const match of source.matchAll(importPattern)) {
-    const [, names, specifier] = match;
-    if (!isRawBridgeModule(specifier)) continue;
-    for (const part of names.split(',')) {
-      const imported = part.trim().split(/\s+as\s+/)[0]?.trim();
-      if (sessionBackendApiNames.has(imported)) imports.push({ imported, specifier });
+  for (const entry of parseStaticImports(source)) {
+    if (entry.kind !== 'named' || !isRawBridgeModule(entry.specifier)) continue;
+    if (sessionBackendApiNames.has(entry.imported)) {
+      imports.push({ imported: entry.imported, specifier: entry.specifier });
     }
   }
   return imports;
@@ -88,14 +84,58 @@ function escapeRegExp(value) {
 }
 
 describe('backend API surface gate', () => {
+  it('parses raw backend imports with the TypeScript AST', () => {
+    const source = [
+      "import rawDefault from '../../shared/api/backendApi.js';",
+      "import * as bridge from '../../shared/api/wailsBridge.js';",
+      'import {',
+      '  callAPI as rawCall,',
+      '  callBackend,',
+      '  getDashboardPage,',
+      "} from '../../shared/api/backendApi.js';",
+      'const ignored = "import { callAPI } from \'../../shared/api/backendApi.js\'";',
+      "// import { callBackend } from '../../shared/api/backendApi.js';",
+    ].join('\n');
+
+    expect(parseRawBridgeReferences(source)).toEqual({
+      defaultImports: [{ local: 'rawDefault', specifier: '../../shared/api/backendApi.js' }],
+      directImports: [
+        { imported: 'callAPI', local: 'rawCall', specifier: '../../shared/api/backendApi.js' },
+        { imported: 'callBackend', local: 'callBackend', specifier: '../../shared/api/backendApi.js' },
+      ],
+      namespaces: [{ local: 'bridge', specifier: '../../shared/api/wailsBridge.js' }],
+    });
+    expect(parseBackendApiSessionImports(source)).toEqual([]);
+  });
+
+  it('parses multiline session imports and ignores comments or strings', () => {
+    const source = [
+      'import {',
+      '  startThread as beginThread,',
+      '  startTurn,',
+      '  getThreadMessages,',
+      "} from '../../shared/api/backendApi.js';",
+      'const ignored = "import { startThread } from \'../../shared/api/backendApi.js\'";',
+      "// import { startTurn } from '../../shared/api/backendApi.js';",
+    ].join('\n');
+
+    expect(parseBackendApiSessionImports(source)).toEqual([
+      { imported: 'startThread', specifier: '../../shared/api/backendApi.js' },
+      { imported: 'startTurn', specifier: '../../shared/api/backendApi.js' },
+    ]);
+  });
+
   it('keeps all product code behind named backend facade methods', () => {
     const violations = [];
 
     for (const filePath of collectProductFiles()) {
       const relativePath = rel(filePath);
       const source = fs.readFileSync(filePath, 'utf8');
-      const { directImports, namespaces } = parseRawBridgeReferences(source);
+      const { defaultImports, directImports, namespaces } = parseRawBridgeReferences(source);
 
+      for (const { local, specifier } of defaultImports) {
+        violations.push(`${relativePath} imports raw default as ${local} from ${specifier}`);
+      }
       for (const { imported, local, specifier } of directImports) {
         violations.push(`${relativePath} imports raw ${imported} as ${local} from ${specifier}`);
         if (directCallPattern(local).test(source)) {
@@ -103,6 +143,7 @@ describe('backend API surface gate', () => {
         }
       }
       for (const { local, specifier } of namespaces) {
+        violations.push(`${relativePath} imports raw namespace ${local} from ${specifier}`);
         const callMatch = namespaceCallPattern(local).exec(source);
         if (callMatch) {
           violations.push(`${relativePath} calls raw ${local}.${callMatch[1]}() from ${specifier}`);

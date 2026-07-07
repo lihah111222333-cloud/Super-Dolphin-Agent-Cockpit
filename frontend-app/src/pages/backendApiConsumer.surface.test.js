@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parseStaticImports } from '../test-utils/importAst.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const scannedDirs = ['pages', 'features', 'entities'];
@@ -52,20 +53,22 @@ function rel(filePath) {
   return path.relative(sourceRoot, filePath).split(path.sep).join('/');
 }
 
+function isBackendApiModule(specifier) {
+  return /shared\/api\/backendApi(?:\.js)?$/.test(specifier);
+}
+
+function backendApiImports(source) {
+  return parseStaticImports(source).filter((entry) => isBackendApiModule(entry.specifier));
+}
+
 function backendApiNamedImports(source) {
-  const imports = [];
-  const importPattern = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]*shared\/api\/backendApi(?:\.js)?)['"]/g;
-  for (const match of source.matchAll(importPattern)) {
-    for (const part of match[1].split(',')) {
-      const imported = part.trim().split(/\s+as\s+/)[0]?.trim();
-      if (imported) imports.push(imported);
-    }
-  }
-  return imports;
+  return backendApiImports(source)
+    .filter((entry) => entry.kind === 'named')
+    .map((entry) => entry.imported);
 }
 
 function importsBackendApi(source) {
-  return /from\s*['"][^'"]*shared\/api\/backendApi(?:\.js)?['"]/.test(source);
+  return backendApiImports(source).length > 0;
 }
 
 function isMigratedBackendApiConsumer(relativePath) {
@@ -78,6 +81,42 @@ function isBackendApiServiceConsumer(relativePath) {
 }
 
 describe('backend API consumer guardrails', () => {
+  it('parses backendApi imports with the TypeScript AST', () => {
+    const source = [
+      "import backendApiDefault from '../shared/api/backendApi.js';",
+      "import * as backend from '../shared/api/backendApi.js';",
+      'import {',
+      '  callAPI as rawCall,',
+      '  callBackend,',
+      '  getDashboardPage,',
+      "} from '../shared/api/backendApi.js';",
+      'const ignored = "from \'../shared/api/backendApi.js\'";',
+      "// import { callAPI } from '../shared/api/backendApi.js';",
+    ].join('\n');
+
+    expect(backendApiImports(source)).toEqual([
+      { kind: 'default', imported: 'default', local: 'backendApiDefault', specifier: '../shared/api/backendApi.js' },
+      { kind: 'namespace', imported: '*', local: 'backend', specifier: '../shared/api/backendApi.js' },
+      { kind: 'named', imported: 'callAPI', local: 'rawCall', specifier: '../shared/api/backendApi.js' },
+      { kind: 'named', imported: 'callBackend', local: 'callBackend', specifier: '../shared/api/backendApi.js' },
+      { kind: 'named', imported: 'getDashboardPage', local: 'getDashboardPage', specifier: '../shared/api/backendApi.js' },
+    ]);
+    expect(backendApiNamedImports(source)).toEqual(['callAPI', 'callBackend', 'getDashboardPage']);
+    expect(importsBackendApi(source)).toBe(true);
+  });
+
+  it('ignores commented and string backendApi references', () => {
+    const source = [
+      'const fixture = "import { callAPI } from \'../shared/api/backendApi.js\'";',
+      "// import * as backend from '../shared/api/backendApi.js';",
+      "/* import backendApiDefault from '../shared/api/backendApi.js'; */",
+    ].join('\n');
+
+    expect(backendApiImports(source)).toEqual([]);
+    expect(backendApiNamedImports(source)).toEqual([]);
+    expect(importsBackendApi(source)).toBe(false);
+  });
+
   it('keeps page, feature, and entity consumers on named backend facade imports', () => {
     const violations = [];
 

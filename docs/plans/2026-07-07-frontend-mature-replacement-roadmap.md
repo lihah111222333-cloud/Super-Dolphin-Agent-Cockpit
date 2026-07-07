@@ -1078,7 +1078,7 @@ npx vitest run
 
 Counts: RuntimePanelComponents focused tests passed with 1 file and 10 tests after RED showed 240 rendered rows. Styles + runtime focused tests passed with 2 files and 71 tests. App/Chat integration focused tests passed with 3 files and 277 tests. Full `npm test` and stop-gate-style bare `npx vitest run` both passed with 86 files and 1084 tests. Build passed and synced frontend dist. LSP grep/read/xref succeeded for `RuntimeDiffView`; diagnostics repeatedly timed out for `RuntimeDiffView.jsx` and `RuntimePanelComponents.test.jsx` after narrowed open-file retries, so lint/test/build are the recorded fallback evidence for this subtask.
 
-- [ ] **Step 4: Verify each subtask separately**
+- [x] **Step 4: Verify each subtask separately**
 
 Each subtask gets its own commit and runs:
 
@@ -1095,12 +1095,12 @@ npm run build
 
 **Files:**
 - Modify: `frontend-app/src/shared/api/backendApi.surface.test.js`
-- Modify: `frontend-app/src/pages/backendApiConsumer.surface.test.jsx`
+- Modify: `frontend-app/src/pages/backendApiConsumer.surface.test.js`
 - Modify: `frontend-app/src/styles.test.js`
 - Modify: `frontend-app/scripts/no-critical-skip.mjs`
 - Optional shared test helper under `frontend-app/src/test-utils/` or `frontend-app/scripts/`
 
-- [ ] **Step 1: Replace regex import guards with TypeScript AST**
+- [x] **Step 1: Replace regex import guards with TypeScript AST**
 
 Use the existing `typescript` dependency to parse imports. Support:
 
@@ -1114,11 +1114,15 @@ commented strings that should not count
 
 Add fail-first fixtures for each shape.
 
-- [ ] **Step 2: Keep PostCSS guards, add computed-style checks selectively**
+Actual: 2026-07-07 added `frontend-app/src/test-utils/importAst.js` around TypeScript `ImportDeclaration` parsing and replaced regex import extraction in `backendApi.surface.test.js` and the actual consumer guard file `backendApiConsumer.surface.test.js`. Fixtures now cover named import aliases, namespace imports, default imports, multiline imports, and commented/string import text that must not count. The raw bridge guard now also fails on default and namespace raw bridge imports instead of only detecting some namespace call sites via regex.
+
+- [x] **Step 2: Keep PostCSS guards, add computed-style checks selectively**
 
 Do not replace `styles.test.js` with screenshot-only testing. Keep PostCSS for import/token contract checks and add Playwright/computed-style checks only for critical cascade bugs.
 
-- [ ] **Step 3: Verify**
+Actual: no computed-style check was added in this subtask because the import-surface risk is static and already covered by AST fixtures. The existing PostCSS `styles.test.js` suite was retained and included in focused/full validation. `no-critical-skip.mjs` was reviewed and left unchanged because it scans `.skip` test declarations rather than import declarations; its guard was run directly.
+
+- [x] **Step 3: Verify**
 
 Run:
 
@@ -1134,7 +1138,21 @@ npm test
 npm run build
 ```
 
-- [ ] **Step 4: Commit**
+Actual validation:
+
+```bash
+npx vitest run --no-file-parallelism --maxWorkers=1 src/shared/api/backendApi.surface.test.js src/pages/backendApiConsumer.surface.test.js
+npm run guard:critical-skip
+npx vitest run --no-file-parallelism --maxWorkers=1 src/shared/api/backendApi.surface.test.js src/pages/backendApiConsumer.surface.test.js src/styles.test.js
+npm run lint
+npm test
+npm run build
+npx vitest run
+```
+
+Counts: surface focused tests passed with 2 files and 9 tests. Surface + styles focused tests passed with 3 files and 70 tests. Full `npm test` and stop-gate-style bare `npx vitest run` both passed with 86 files and 1088 tests. Build passed and synced frontend dist. LSP diagnostics were clean for the new `importAst.js` helper after changing TypeScript to a default import. Diagnostics for the two surface test files timed out after narrowed retries; lint/test/build are the recorded fallback evidence.
+
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend-app/src/shared/api/backendApi.surface.test.js \
