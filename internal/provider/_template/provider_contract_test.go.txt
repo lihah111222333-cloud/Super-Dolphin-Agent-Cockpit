@@ -1,0 +1,240 @@
+package template
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
+)
+
+// TestTemplateProviderContract is the provider scaffold contract entrypoint.
+// New providers should replace only the provider-specific capture helpers below;
+// keep contracttest.Run and the required case map intact.
+func TestTemplateProviderContract(t *testing.T) {
+	contracttest.Run(t, CompleteTemplateContractSpec())
+}
+
+func CompleteTemplateContractSpec() contracttest.Spec {
+	return contracttest.Spec{
+		Name:       "template",
+		Start:      startTemplateContractSession,
+		Resume:     resumeTemplateContractSession,
+		EventCases: []contracttest.Case{templateEventTranslationContractCase()},
+		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
+			contracttest.CasePromptParity:  templatePromptParityContractCase(),
+			contracttest.CaseApproval:      templateApprovalContractCase(),
+			contracttest.CaseInterrupt:     templateInterruptContractCase(),
+			contracttest.CaseForceComplete: templateForceCompleteContractCase(),
+			contracttest.CaseResume:        templateResumeIdentityContractCase(),
+			contracttest.CaseToolbridge:    templateToolbridgeContractCase(),
+			contracttest.CaseRuntimeReport: templateRuntimeReportContractCase(),
+		},
+	}
+}
+
+func startTemplateContractSession(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	threadID := strings.TrimSpace(req.AgentID)
+	if threadID == "" {
+		threadID = "template-contract-start-thread"
+	}
+	return newTemplateContractSession(threadID), nil
+}
+
+func resumeTemplateContractSession(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	threadID := strings.TrimSpace(req.ProviderThreadID)
+	if threadID == "" {
+		return nil, errors.New("template contract resume requires provider thread id")
+	}
+	return newTemplateContractSession(threadID), nil
+}
+
+func templateEventTranslationContractCase() contracttest.Case {
+	return contracttest.Case{Name: "event translation", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		raw := dto.RawProviderEvent{
+			EventType: "template/turn_completed",
+			Data: map[string]any{
+				"threadId": "thread-template-contract",
+				"agentId":  "agent-template-contract",
+				"turnId":   "turn-template-contract",
+				"status":   "completed",
+			},
+		}
+		got := contracttest.CaptureProviderEventTranslation(t, "template-event-capture", raw, translateTemplateEvent)
+		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, "turn_completed"))
+		e.RecordEventTranslation(t, "template turn completed", got, want)
+	}}
+}
+
+func translateTemplateEvent(raw dto.RawProviderEvent, emit func(any)) {
+	data, ok := raw.Data.(map[string]any)
+	if !ok {
+		panic("template event data must be map[string]any")
+	}
+	emit(map[string]any{
+		"type":      raw.EventType,
+		"threadId": data["threadId"],
+		"agentId":  data["agentId"],
+		"turnId":   data["turnId"],
+		"status":   data["status"],
+	})
+}
+
+func templatePromptParityContractCase() contracttest.Case {
+	return contracttest.Case{Name: "start and resume prompt parity", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		startGot := contracttest.NewProviderPromptEvidence("template-start-prompt-capture", contracttest.PromptParityFields{
+			BaseInstructions:      "template base instructions",
+			DeveloperInstructions: "template developer instructions",
+			PrefixHash:            "template-hash",
+			Boundary:              `{"cachedPrefix":"template base instructions","uncachedTail":"runtime context"}`,
+			SectionSnapshot:       `{"developer":"template developer instructions","system":"template base instructions"}`,
+		})
+		startWant := contracttest.NewExpectedPromptEvidence(contracttest.LoadExpectedPromptSnapshot(t, "start_prompt_parity"))
+		e.RecordPromptParity(t, startGot, startWant)
+
+		resumeGot := contracttest.NewProviderPromptEvidence("template-resume-prompt-capture", contracttest.PromptParityFields{
+			BaseInstructions:      "template base instructions",
+			DeveloperInstructions: "template developer instructions",
+			PrefixHash:            "template-hash",
+			Boundary:              `{"cachedPrefix":"template base instructions","uncachedTail":"runtime context"}`,
+			SectionSnapshot:       `{"developer":"template developer instructions","system":"template base instructions"}`,
+		})
+		resumeWant := contracttest.NewExpectedPromptEvidence(contracttest.LoadExpectedPromptSnapshot(t, "resume_prompt_parity"))
+		e.RecordPromptParity(t, resumeGot, resumeWant)
+	}}
+}
+
+func templateApprovalContractCase() contracttest.Case {
+	return contracttest.Case{Name: "approval bridge or policy", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordOutcome(t, contracttest.EvidenceApprovalOutcome, contracttest.OutcomeEvidence{
+			ObservedActionID: "template-approval-policy",
+			StateBefore:      "approval_policy:provider-default",
+			StateAfter:       "approval_policy:checked",
+		})
+	}}
+}
+
+func templateInterruptContractCase() contracttest.Case {
+	return contracttest.Case{Name: "session interrupt", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordOutcome(t, contracttest.EvidenceInterruptOutcome, contracttest.OutcomeEvidence{
+			ObservedActionID: "template-interrupt",
+			StateBefore:      "active_turn:turn-template-contract",
+			StateAfter:       "interrupted:turn-template-contract",
+		})
+	}}
+}
+
+func templateForceCompleteContractCase() contracttest.Case {
+	return contracttest.Case{Name: "session force complete", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordOutcome(t, contracttest.EvidenceForceCompleteOutcome, contracttest.OutcomeEvidence{
+			ObservedActionID: "template-force-complete",
+			StateBefore:      "active_turn:turn-template-contract",
+			StateAfter:       "completed:turn-template-contract",
+		})
+	}}
+}
+
+func templateResumeIdentityContractCase() contracttest.Case {
+	return contracttest.Case{Name: "provider thread id resume", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordResumeIdentity(t, contracttest.ResumeIdentityEvidence{
+			PublicThreadID:   "public-thread-template-contract",
+			ProviderThreadID: "provider-thread-template-contract",
+			ResumedThreadID:  "provider-thread-template-contract",
+		})
+	}}
+}
+
+func templateToolbridgeContractCase() contracttest.Case {
+	return contracttest.Case{Name: "toolbridge proxy dependency", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordOutcome(t, contracttest.EvidenceToolbridgeDependency, contracttest.OutcomeEvidence{
+			ObservedActionID: "template-toolbridge-proxy",
+			StateBefore:      "toolbridge_proxy:required",
+			StateAfter:       "toolbridge_proxy:ready",
+			DependencyName:   "provider.template.toolbridge_proxy",
+			Profile:          contract.DependencyProfileProduction,
+		})
+	}}
+}
+
+func templateRuntimeReportContractCase() contracttest.Case {
+	return contracttest.Case{Name: "runtime report", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordRuntimeReport(t, contracttest.RuntimeReportEvidence{
+			AgentID:        "agent-template-contract",
+			Provider:       "template",
+			SessionURLPort: "4242",
+		})
+	}}
+}
+
+type templateContractSession struct {
+	threadID string
+	closed   chan struct{}
+}
+
+func newTemplateContractSession(threadID string) *templateContractSession {
+	return &templateContractSession{threadID: strings.TrimSpace(threadID), closed: make(chan struct{})}
+}
+
+func (s *templateContractSession) ThreadID() string { return s.threadID }
+func (*templateContractSession) RolloutPath() string {
+	return "/tmp/template-provider-contract-rollout.jsonl"
+}
+func (*templateContractSession) Capabilities() dto.CapabilitySet { return dto.CapabilitySet{} }
+func (*templateContractSession) StartTurn(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+	return newTemplateContractTurnHandle(req.LocalID, "provider-"+req.ThreadID), nil
+}
+func (*templateContractSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
+func (*templateContractSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+	return nil
+}
+func (*templateContractSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+	return nil, contract.NewCapabilityError(dto.CapThreadList, "template")
+}
+func (*templateContractSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
+	return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "template")
+}
+func (*templateContractSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+	return []dto.Message{}, nil
+}
+func (*templateContractSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
+func (s *templateContractSession) Close(context.Context) error {
+	select {
+	case <-s.closed:
+	default:
+		close(s.closed)
+	}
+	return nil
+}
+func (s *templateContractSession) ForceStop() error {
+	return s.Close(context.Background())
+}
+
+type templateContractTurnHandle struct {
+	localID    string
+	providerID string
+	done       chan struct{}
+}
+
+func newTemplateContractTurnHandle(localID, providerID string) *templateContractTurnHandle {
+	done := make(chan struct{})
+	close(done)
+	return &templateContractTurnHandle{localID: localID, providerID: providerID, done: done}
+}
+
+func (h *templateContractTurnHandle) LocalID() string    { return h.localID }
+func (h *templateContractTurnHandle) ProviderID() string { return h.providerID }
+func (h *templateContractTurnHandle) Done() <-chan struct{} {
+	return h.done
+}
+func (*templateContractTurnHandle) Err() error { return nil }

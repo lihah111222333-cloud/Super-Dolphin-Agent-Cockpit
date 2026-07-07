@@ -149,16 +149,16 @@ rpc.NewApprovalManager -(concrete injection)-> codex provider approval bridge
 
 ## 5. Claude parity / memory prompt mapping 细节
 
-### 5.1 provider bridge 已统一承接 prompt snapshot 的核心字段
+### 5.1 provider bridge 已统一承接 prompt snapshot 与边界字段
 
-- thread 层在 `startSession()` / `resumeSession()` 统一把 `StartAssembly`、`PromptSnapshot` 转成 provider DTO，但当前主链稳定透传的是 `DisplayName / BaseInstructions / DeveloperInstructions / Provider / Version / Hash / Generation` 这组核心字段。锚点：`internal/module/thread/start_session.go:142-194`、`internal/module/thread/start_session_helpers.go:96-116`。
-- Claude `resolveStartAssembly()` 会补齐 `BaseInstructions / DeveloperInstructions / Snapshot.Provider / Snapshot.Version`；Codex 则把相同信息变成 `thread/start` / `thread/resume` 参数。锚点：`internal/provider/claudecli/config.go:52-69`、`internal/provider/codexapp/support.go:307-320`、`internal/provider/codexapp/driver.go:278-287`。
+- thread 层在 `startSession()` / `resumeSession()` 统一把 `StartAssembly`、`PromptSnapshot` 转成 provider DTO；当前主链会克隆 `Boundary`、`ResolvedSections`、`SectionSnapshot`、`PrefixShape`、`UserContext`、`SystemContext` 等字段，而不是只透传旧核心字段。锚点：`internal/module/thread/start_session.go:142-194`、`internal/module/thread/start_session_helpers.go:308-347`。
+- Claude `resolveStartAssembly()` 会补齐 `BaseInstructions / DeveloperInstructions / Snapshot.Provider / Snapshot.Version`，并在有 `Boundary` 时把 runtime context 追加到 snapshot boundary 的 uncached tail。Codex 则从 `StartAssembly.Snapshot.Boundary` / `PromptSnapshot.Boundary` 重建 `thread/start` 与 `thread/resume` 的 base instructions。锚点：`internal/provider/claudecli/config.go:283-325`、`internal/provider/codexapp/driver.go:500-529`。
+- Wave 4 provider 契约测试用 checked-in golden 固定这条链路：`contracttest` 要求 provider prompt evidence 对比独立 `LoadExpectedPromptSnapshot()`，并覆盖 `Boundary` 与 `SectionSnapshot`。锚点：`internal/provider/contracttest/evidence.go:31-39`、`internal/provider/contracttest/suite.go:85-91`、`internal/provider/codexapp/provider_contract_test.go:81-92`、`internal/provider/claudecli/provider_contract_test.go:103-113`。
 
 ### 5.2 Claude parity 的当前物化方式
 
 - Claude provider 代码本身支持 boundary：若 snapshot 携带 `CachedPrefix / UncachedTail`，`transport_config.go` 会拆成多个 `--system-prompt` block。锚点：`internal/provider/claudecli/transport_config.go:139-162`。
-- 但 thread 主链当前 **没有** 把 `Boundary / SectionSnapshot` 从 contract snapshot 抄到 provider DTO；因此这部分更像“provider-ready、bridge 未全接通”，不能直接当成 thread 主链已落地。锚点：`internal/dto/provider/session.go:29`、`internal/dto/provider/session.go:41`、`internal/module/thread/start_session_helpers.go:96-116`。
-- Codex 不走 CLI block，而是把同一组 prompt 字段放进 `thread/start` / `thread/resume` JSON-RPC 参数。锚点：`internal/provider/codexapp/support.go:307-320`、`internal/provider/codexapp/driver.go:278-287`。
+- thread 主链已经把 `Boundary / SectionSnapshot` 从 contract snapshot 克隆进 provider DTO；Claude 再按 CLI block 物化，Codex 则放进 `thread/start` / `thread/resume` JSON-RPC 参数。两者 transport 不同，但 contracttest 的 prompt golden 要求它们在 `BaseInstructions / DeveloperInstructions / PrefixHash / Boundary / SectionSnapshot` 上保持可比。锚点：`internal/module/thread/start_session_helpers.go:308-347`、`internal/provider/claudecli/provider_contract_test.go:103-113`、`internal/provider/codexapp/provider_contract_test.go:81-92`。
 
 ### 5.3 per-turn 注入已收口到 session-start carrier
 
@@ -174,11 +174,25 @@ rpc.NewApprovalManager -(concrete injection)-> codex provider approval bridge
 
 ---
 
-## 6. 新增 provider 如何接入（3 步）
+## 6. 新增 provider 如何接入
 
-1. **接入统一注册面**：新包提供 `DriverFactory{Name, Create}`，在 `Module` 里以 `group:"drivers"` 注册，并 `fx.Invoke(RegisterTranslators)`。可选地注册 dream executor；skills 走 provider-native mirror reconcile，不再走 provider 专属注入端口。参考锚点：`internal/provider/claudecli/module.go:23-31`、`internal/provider/codexapp/module.go:24-36`。
-2. **实现最小 session 闭环**：至少实现 `StartSession / ResumeSession / StartTurn / Interrupt / ForceComplete / Close / ForceStop / ThreadID / Capabilities / RuntimeConfigSnapshot`；区分 public thread id 与 provider thread id，并决定恢复策略（CLI resume、WS reconnect、HTTP reconnect 等）。参考锚点：`internal/contract/provider.go:10-48`、`internal/provider/claudecli/session.go:99-327`、`internal/provider/codexapp/session.go:170-325`。
-3. **产出 RawProviderEvent 并翻译成内部 DTO**：provider transport 只负责吐 raw event；统一 EventDispatcher 负责公共 translator，provider 自己补 `translateXxxEvent()`。同时确认 `SessionResolver.autoResumeSession()` 能用你的 `ProviderThreadID` 恢复。参考锚点：`internal/provider/unified/event_map.go:103-124`、`internal/provider/claudecli/event_map.go:25-168`、`internal/provider/codexapp/event_map.go:44-302`、`internal/provider/unified/session_resolver.go:172-222`。
+从 `internal/provider/_template` 复制脚手架开始，而不是手写一套相似但缺契约的 provider：
+
+1. **注册统一入口**：新包暴露 `Module`，用 `fx.Annotate(NewDriverFactory, fx.ResultTags(\`group:"drivers"\`))` 注册 `contract.DriverFactory`，并显式 `fx.Invoke(RegisterEventTranslators)`。如果 provider 支持 dream executor，再单独注册到 `group:"dream_executors"`。参考锚点：`internal/provider/_template/module.go.txt`、`internal/provider/claudecli/module.go:23-31`、`internal/provider/codexapp/module.go:24-36`。
+2. **声明生产依赖契约**：`driverFactoryParams` 必须把 runtime reporter、toolbridge/proxy、provider mirror、session recovery、dependency profile 作为可见依赖面；`NewDriverFactory` 先调用 `ValidateProviderDependencies`，production 缺关键依赖要 fail-fast，desktop/test 允许的缺省必须通过 typed dependency outcome 表达。参考锚点：`internal/provider/_template/module.go.txt`、`internal/app/dependency_contract_test.go:12-72`、`internal/app/modules_graph_test.go:193-251`。
+3. **实现 session 闭环**：至少实现 `StartSession / ResumeSession / StartTurn / Interrupt / ForceComplete / Close / ForceStop / ThreadID / Capabilities / RuntimeConfigSnapshot`；区分 public thread id 与 provider thread id，并决定恢复策略（CLI resume、WS reconnect、HTTP reconnect 等）。参考锚点：`internal/contract/provider.go:10-48`、`internal/provider/claudecli/session.go:99-327`、`internal/provider/codexapp/session.go:170-325`。
+4. **声明 NativeTools 治理**：provider-native 工具必须通过 `DriverFactory.NativeTools` 暴露 ID、provider、filter mode 和默认禁用策略，不能绕过项目文件工具、命令治理和 toolbridge。参考锚点：`internal/provider/_template/module.go.txt`、`internal/provider/claudecli/module.go:39-89`、`internal/provider/codexapp/driver.go:135-160`。
+5. **实现 event translation 与 prompt parity**：provider transport 只负责吐 raw event；统一 `EventDispatcher` 负责公共 translator，provider 自己补 `translateXxxEvent()`。prompt parity 必须用 `contracttest.LoadExpectedPromptSnapshot()` 对比 checked-in golden，并覆盖 `Boundary` / `SectionSnapshot`。参考锚点：`internal/provider/unified/event_map.go:103-124`、`internal/provider/contracttest/snapshot.go:17-57`、`internal/provider/claudecli/provider_contract_test.go:93-113`、`internal/provider/codexapp/provider_contract_test.go:71-92`。
+6. **跑标准验收**：新增 provider 必须先通过 `contracttest.Run`，覆盖 event translation、prompt parity、approval 或 approval policy、interrupt、force-complete、resume identity、toolbridge/proxy、runtime report。脚手架和清单守卫由 `internal/provider/provider_template_compile_test.go` 与 `internal/provider/provider_contract_manifest_test.go` 固定。
+
+最小命令：
+
+```bash
+./scripts/test_with_guard.sh ./internal/provider -run 'TestProviderTemplateSnippetsCompile|TestProviderPackagesHaveContractTests' -count=1
+./scripts/test_with_guard.sh ./internal/app ./internal/provider/contracttest ./internal/provider/codexapp ./internal/provider/claudecli ./internal/provider -run 'ProviderScaffoldProductionGraphRequiresCriticalDependencies|ProviderContract|TestProviderPackagesHaveContractTests' -count=1
+make codemap-check
+make project-map-check
+```
 
 ---
 

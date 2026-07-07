@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
+	"os"
 	"strings"
 	"testing"
 
@@ -188,6 +192,84 @@ func TestToolbridgeCodexProductionBindingWrapsSessionStarter(t *testing.T) {
 	if starter == contract.SessionStarter(inner) {
 		t.Fatal("contract.SessionStarter was not wrapped with toolbridge readiness")
 	}
+}
+
+func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		path       string
+		structName string
+		fields     []string
+	}{
+		{
+			name:       "codexapp driver factory params",
+			path:       "../provider/codexapp/module.go",
+			structName: "DriverFactoryParams",
+			fields:     []string{"Reporter", "Dependency", "Manager", "Pool", "Mirror"},
+		},
+		{
+			name:       "claudecli driver factory params",
+			path:       "../provider/claudecli/module.go",
+			structName: "driverFactoryParams",
+			fields:     []string{"Reporter", "Dependency", "Reg", "ProxyAddrFn", "ProxyTokenFn", "Mirror"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fields := parseGraphTestStructFields(t, tc.path, tc.structName)
+			for _, field := range tc.fields {
+				if !fields[field] {
+					t.Fatalf("%s missing production dependency field %s", tc.structName, field)
+				}
+			}
+		})
+	}
+}
+
+func parseGraphTestStructFields(t *testing.T, path, structName string) map[string]bool {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), path, raw, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != structName {
+				continue
+			}
+			st, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				t.Fatalf("%s is %T, want struct", structName, typeSpec.Type)
+			}
+			return graphTestStructFieldSet(st)
+		}
+	}
+	t.Fatalf("%s not found in %s", structName, path)
+	return nil
+}
+
+func graphTestStructFieldSet(st *ast.StructType) map[string]bool {
+	fields := map[string]bool{}
+	for _, field := range st.Fields.List {
+		for _, name := range field.Names {
+			fields[name.Name] = true
+		}
+	}
+	return fields
 }
 
 func appGraphValidationOptions() []fx.Option {
