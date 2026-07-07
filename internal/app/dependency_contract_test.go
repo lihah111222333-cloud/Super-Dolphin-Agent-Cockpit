@@ -19,8 +19,21 @@ func TestDependencyContractRequiresProductionRuntimeReporter(t *testing.T) {
 
 func TestDependencyContractAllowsDesktopRuntimeReporterNoop(t *testing.T) {
 	policy := newDependencyContract(contract.DependencyProfileDesktopHost)
+	if !contract.AllowsMissingDependency("runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost) {
+		t.Fatal("shared policy does not allow desktop runtime reporter absence")
+	}
 	if err := policy.Require("runtime_reporter.orchestration_service", nil); err != nil {
 		t.Fatalf("desktop runtime reporter dependency error = %v", err)
+	}
+}
+
+func TestDependencyContractAllowsTestRuntimeReporterNoop(t *testing.T) {
+	policy := newDependencyContract(contract.DependencyProfileTest)
+	if !contract.AllowsMissingDependency("runtime_reporter.orchestration_service", contract.DependencyProfileTest) {
+		t.Fatal("shared policy does not allow test runtime reporter absence")
+	}
+	if err := policy.Require("runtime_reporter.orchestration_service", nil); err != nil {
+		t.Fatalf("test runtime reporter dependency error = %v", err)
 	}
 }
 

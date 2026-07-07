@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // SkillConfig 保存技能发现和加载时使用的运行配置。
@@ -91,6 +92,151 @@ func IsDependencyModeError(err error, name string, profile DependencyProfile, ta
 		return false
 	}
 	return errors.Is(modeErr.Err, target) && modeErr.Name == name && modeErr.Profile == profile
+}
+
+// DependencyAbsenceReason 命名非生产 profile 允许依赖缺席的原因。
+type DependencyAbsenceReason string
+
+const (
+	// DependencyAbsenceDesktopExternal 表示该依赖由桌面宿主边界承接。
+	DependencyAbsenceDesktopExternal DependencyAbsenceReason = "desktop_external"
+	// DependencyAbsenceTestHarness 表示该依赖由测试装配显式提供或省略。
+	DependencyAbsenceTestHarness DependencyAbsenceReason = "test_harness"
+)
+
+// DependencyAbsencePolicy 记录单个 profile 下允许缺席的依赖策略。
+type DependencyAbsencePolicy struct {
+	Name    string
+	Profile DependencyProfile
+	Reason  DependencyAbsenceReason
+	Owner   string
+	Error   error
+}
+
+var registeredDependencyAbsencePolicies = []DependencyAbsencePolicy{
+	{
+		Name:    "runtime_reporter.orchestration_service",
+		Profile: DependencyProfileDesktopHost,
+		Reason:  DependencyAbsenceDesktopExternal,
+		Owner:   "Lane D",
+		Error:   ErrDependencyDeferred,
+	},
+	{
+		Name:    "runtime_reporter.orchestration_service",
+		Profile: DependencyProfileTest,
+		Reason:  DependencyAbsenceDesktopExternal,
+		Owner:   "Lane D",
+		Error:   ErrDependencyDeferred,
+	},
+	{
+		Name:    "toolbridge.agent_thread_lookup",
+		Profile: DependencyProfileDesktopHost,
+		Reason:  DependencyAbsenceDesktopExternal,
+		Owner:   "Lane D",
+		Error:   ErrUnsupportedDependencyMode,
+	},
+	{
+		Name:    "toolbridge.thread_config_override_store",
+		Profile: DependencyProfileDesktopHost,
+		Reason:  DependencyAbsenceDesktopExternal,
+		Owner:   "Lane D",
+		Error:   ErrUnsupportedDependencyMode,
+	},
+	{
+		Name:    "toolbridge.lifecycle_backfiller",
+		Profile: DependencyProfileTest,
+		Reason:  DependencyAbsenceTestHarness,
+		Owner:   "Lane D",
+		Error:   ErrUnsupportedDependencyMode,
+	},
+	{
+		Name:    "toolbridge.skill_tools",
+		Profile: DependencyProfileTest,
+		Reason:  DependencyAbsenceTestHarness,
+		Owner:   "Lane D",
+		Error:   ErrUnsupportedDependencyMode,
+	},
+	{
+		Name:    "thread.bind_session_generation",
+		Profile: DependencyProfileDesktopHost,
+		Reason:  DependencyAbsenceDesktopExternal,
+		Owner:   "Lane D",
+		Error:   ErrUnsupportedDependencyMode,
+	},
+	{
+		Name:    "thread.bind_session_generation",
+		Profile: DependencyProfileTest,
+		Reason:  DependencyAbsenceDesktopExternal,
+		Owner:   "Lane D",
+		Error:   ErrUnsupportedDependencyMode,
+	},
+}
+
+// RegisteredDependencyAbsencePolicies 返回当前注册的依赖缺席策略副本，防止调用方改写全局策略。
+func RegisteredDependencyAbsencePolicies() []DependencyAbsencePolicy {
+	out := make([]DependencyAbsencePolicy, len(registeredDependencyAbsencePolicies))
+	copy(out, registeredDependencyAbsencePolicies)
+	return out
+}
+
+// AllowsMissingDependency 判断指定 profile 是否允许该依赖缺席；未知依赖和生产 profile 都返回 false。
+func AllowsMissingDependency(name string, profile DependencyProfile) bool {
+	_, ok := lookupDependencyAbsencePolicy(name, profile)
+	return ok
+}
+
+// MissingDependencyModeError 为缺席依赖返回 fail-fast 错误，只有已注册非生产策略才返回 typed mode error。
+func MissingDependencyModeError(name string, profile DependencyProfile) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("dependency name is required")
+	}
+	if strings.TrimSpace(string(profile)) == "" {
+		return fmt.Errorf("dependency profile is required for %q", name)
+	}
+	if !isKnownDependencyProfile(profile) {
+		return fmt.Errorf("dependency profile %q is not supported for %q", profile, name)
+	}
+	if policy, ok := lookupDependencyAbsencePolicy(name, profile); ok {
+		return NewDependencyModeError(policy.Error, policy.Name, policy.Profile)
+	}
+	if dependencyAbsencePolicyNameExists(name) {
+		return fmt.Errorf("dependency %q is required in %s profile", name, profile)
+	}
+	return fmt.Errorf("unknown dependency absence policy %q in %s profile", name, profile)
+}
+
+// lookupDependencyAbsencePolicy 按 name/profile 精确查找注册策略，空值或未注册时返回 false。
+func lookupDependencyAbsencePolicy(name string, profile DependencyProfile) (DependencyAbsencePolicy, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.TrimSpace(string(profile)) == "" {
+		return DependencyAbsencePolicy{}, false
+	}
+	for _, policy := range registeredDependencyAbsencePolicies {
+		if policy.Name == name && policy.Profile == profile {
+			return policy, true
+		}
+	}
+	return DependencyAbsencePolicy{}, false
+}
+
+func dependencyAbsencePolicyNameExists(name string) bool {
+	name = strings.TrimSpace(name)
+	for _, policy := range registeredDependencyAbsencePolicies {
+		if policy.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func isKnownDependencyProfile(profile DependencyProfile) bool {
+	switch profile {
+	case DependencyProfileDesktopHost, DependencyProfileProduction, DependencyProfileTest:
+		return true
+	default:
+		return false
+	}
 }
 
 const (

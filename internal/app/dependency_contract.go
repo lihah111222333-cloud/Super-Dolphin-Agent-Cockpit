@@ -25,26 +25,10 @@ func (c dependencyContract) Require(name string, value any) error {
 	if strings.TrimSpace(string(c.profile)) == "" {
 		return fmt.Errorf("app dependency profile is required before resolving %q", name)
 	}
-	if c.allowsMissing(name) {
+	if contract.AllowsMissingDependency(name, c.profile) {
 		return nil
 	}
-	return fmt.Errorf("app dependency %q is required in %s profile", name, c.profile)
-}
-
-func (c dependencyContract) allowsMissing(name string) bool {
-	switch c.profile {
-	case contract.DependencyProfileDesktopHost, contract.DependencyProfileTest:
-		switch name {
-		case "runtime_reporter.orchestration_service":
-			return true
-		default:
-			return false
-		}
-	case contract.DependencyProfileProduction:
-		return false
-	default:
-		return false
-	}
+	return contract.MissingDependencyModeError(name, c.profile)
 }
 
 func appDependencyProfile(dependency contract.DependencyConfig, cfg *contract.Config) (contract.DependencyProfile, error) {
@@ -63,7 +47,7 @@ func appDependencyProfile(dependency contract.DependencyConfig, cfg *contract.Co
 }
 
 func dependencyUnsupported(name string, profile contract.DependencyProfile) error {
-	return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, name, profile)
+	return contract.MissingDependencyModeError(name, profile)
 }
 
 func dependencyDeferred(name string, profile contract.DependencyProfile) error {

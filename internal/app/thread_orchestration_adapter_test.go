@@ -36,6 +36,9 @@ func TestBindSessionGenerationReturnsTypedUnsupportedForDesktopExternalMode(t *t
 	facade := &mcpOrchOrchestrationFacade{
 		dependency: contract.DependencyConfig{Profile: contract.DependencyProfileDesktopHost},
 	}
+	if !contract.AllowsMissingDependency("thread.bind_session_generation", contract.DependencyProfileDesktopHost) {
+		t.Fatal("shared policy does not allow desktop bind session generation absence")
+	}
 
 	err := facade.BindSessionGeneration(context.Background(), "agent-1", 7)
 	if !contract.IsDependencyModeError(
@@ -66,6 +69,9 @@ func TestMCPOrchOrchestrationFacadeDependencyConfig(t *testing.T) {
 	t.Run("test_profile_typed_unsupported", func(t *testing.T) {
 		facade := &mcpOrchOrchestrationFacade{
 			dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
+		}
+		if !contract.AllowsMissingDependency("thread.bind_session_generation", contract.DependencyProfileTest) {
+			t.Fatal("shared policy does not allow test bind session generation absence")
 		}
 
 		err := facade.BindSessionGeneration(context.Background(), "agent-1", 7)
