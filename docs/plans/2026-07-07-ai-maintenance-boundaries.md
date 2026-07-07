@@ -1,6 +1,7 @@
 # AI Maintenance Boundaries Implementation Plan
 
 > **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. In super-agent-v3, subagents may use platform-native dispatch directly; use mcp-orch DAG runs and nodes (`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`) only when persistent orchestration records are needed. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Parallel dispatch companion:** Use [2026-07-07-ai-maintenance-boundaries-parallel-agents.md](./2026-07-07-ai-maintenance-boundaries-parallel-agents.md) when converting this plan into multi-agent implementation, review, recovery, and adjudication work.
 
 **Goal:** Make the architecture easier for AI workers to maintain by replacing ambiguous production optional/noop/fallback paths with explicit mode-aware contracts, moving frontend work behind feature-owned surfaces, and turning provider onboarding into a repeatable scaffold plus contract-test suite.
 

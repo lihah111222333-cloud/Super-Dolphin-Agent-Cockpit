@@ -403,7 +403,8 @@ docs/plans/2026-07-06-skill-resolution-partial-failure.md	docs	docs-agent	doc	43
 docs/plans/2026-07-06-skill-resolution-payload-required-fields.md	docs	docs-agent	doc	4177	历史计划与迁移执行文档	docs,plans,2026,07,06,skill,resolution,payload,required,fields,历史计划与迁移执行文档
 docs/plans/2026-07-06-test-code-guard-baseline-zero-plan.md	docs	docs-agent	doc	30353	历史计划与迁移执行文档	docs,plans,2026,07,06,test,code,guard,baseline,zero,plan,历史计划与迁移执行文档
 docs/plans/2026-07-06-workflow-refresh-failure-notice.md	docs	docs-agent	doc	3728	历史计划与迁移执行文档	docs,plans,2026,07,06,workflow,refresh,failure,notice,历史计划与迁移执行文档
-docs/plans/2026-07-07-ai-maintenance-boundaries.md	docs	docs-agent	doc	193174	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,历史计划与迁移执行文档
+docs/plans/2026-07-07-ai-maintenance-boundaries-parallel-agents.md	docs	docs-agent	doc	17513	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,parallel,agents,历史计划与迁移执行文档
+docs/plans/2026-07-07-ai-maintenance-boundaries.md	docs	docs-agent	doc	193430	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,历史计划与迁移执行文档
 docs/plans/claude缓存保活计划.md	docs	docs-agent	doc	27030	历史计划与迁移执行文档	docs,plans,claude缓存保活计划,历史计划与迁移执行文档
 docs/plans/context-optimization-per-tool-budget.md	docs	docs-agent	doc	13782	历史计划与迁移执行文档	docs,plans,context,optimization,per,tool,budget,历史计划与迁移执行文档
 docs/plans/dag-lifecycle-c-a-implementation.md	docs	docs-agent	doc	49805	历史计划与迁移执行文档	docs,plans,dag,lifecycle,c,a,implementation,历史计划与迁移执行文档
