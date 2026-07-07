@@ -10,6 +10,15 @@ function createApi() {
 }
 
 describe('observabilityPageService', () => {
+  it('keeps recent observability request shape stable', async () => {
+    const api = createApi();
+    const service = createObservabilityPageService(api);
+
+    await service.listObservabilityRecent({ limit: 25, status: 'error', traceId: 'trace-1', includeTail: true });
+
+    expect(api.listObservabilityRecent).toHaveBeenCalledWith({ limit: 25, status: 'error', traceId: 'trace-1', includeTail: true });
+  });
+
   it('normalizes positive string limits before listing recent events', async () => {
     const api = createApi();
     const service = createObservabilityPageService(api);
@@ -46,9 +55,18 @@ describe('observabilityPageService', () => {
     const api = createApi();
     const service = createObservabilityPageService(api);
 
-    await service.getObservabilityTrace({ traceId: ' trace-1 ', limit: '5' });
+    await service.getObservabilityTrace({ traceId: ' trace-1 ', limit: '25' });
 
-    expect(api.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 5 });
+    expect(api.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 25 });
+  });
+
+  it('keeps clipboard copy request shape stable', async () => {
+    const api = createApi();
+    const service = createObservabilityPageService(api);
+
+    await service.copyTextToClipboard('trace-1');
+
+    expect(api.copyTextToClipboard).toHaveBeenCalledWith('trace-1');
   });
 
   it('requires clipboard text before copying', async () => {

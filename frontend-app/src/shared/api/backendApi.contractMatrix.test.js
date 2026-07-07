@@ -120,4 +120,55 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.DASHBOARD_DAG_CREATE_AND_START.responseValidator).toBe('dashboardDagCreateAndStartResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePassthroughReason).toContain('command result envelope');
   });
+
+  it('anchors migrated page service DTO golden coverage in route metadata', () => {
+    const expectations = {
+      UI_SHARED_FILE_GET: {
+        facade: 'filesPageService.readSharedFile',
+        tests: ['src/pages/files/services/filesPageService.test.js'],
+      },
+      UI_MEMORY_ENTRY_GET: {
+        facade: 'memoryPageService.getMemoryEntry',
+        tests: ['src/pages/memory/services/memoryPageService.test.js'],
+      },
+      UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS: {
+        facade: 'memoryPageService.getMemoryConsolidationStatus',
+        tests: ['src/pages/memory/services/memoryPageService.test.js'],
+      },
+      OBSERVABILITY_TRACE_GET: {
+        facade: 'observabilityPageService.getObservabilityTrace',
+        tests: ['src/pages/observability/services/observabilityPageService.test.js'],
+      },
+      OBSERVABILITY_RECENT_LIST: {
+        facade: 'observabilityPageService.listObservabilityRecent',
+        tests: ['src/pages/observability/services/observabilityPageService.test.js'],
+      },
+      PROMPT_ASSETS_LIST: {
+        facade: 'promptPageService.listPromptAssets',
+        tests: ['src/pages/prompts/services/promptPageService.test.js'],
+      },
+      DASHBOARD_PROMPTS: {
+        facade: 'promptPageService.getDashboardPrompts',
+        tests: ['src/pages/prompts/services/promptPageService.test.js'],
+      },
+      PROMPTS_GET: {
+        facade: 'promptPageService.getPrompt',
+        tests: ['src/pages/prompts/services/promptPageService.test.js'],
+      },
+      PROMPTS_WRITE: {
+        facade: 'promptPageService.writePrompt',
+        tests: ['src/pages/prompts/services/promptPageService.test.js'],
+      },
+    };
+
+    for (const [key, expected] of Object.entries(expectations)) {
+      expect(RPC_CONTRACT_REGISTRY[key]).toEqual(expect.objectContaining({
+        facade: expected.facade,
+        rawLiteralRpc: false,
+        responsePassthroughReason: '',
+        responseValidator: '',
+        tests: expect.arrayContaining(expected.tests),
+      }));
+    }
+  });
 });
