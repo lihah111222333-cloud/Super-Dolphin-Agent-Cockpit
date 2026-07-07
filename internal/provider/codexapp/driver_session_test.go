@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -184,7 +185,9 @@ func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
 	got := newDriver(nil, nil, nil, reporter, nil, nil, nil, nil, nil).(*driver)
-	got.reportRuntime(" agent-1 ", got.serverURL)
+	if err := got.reportRuntime(" agent-1 ", got.serverURL); err != nil {
+		t.Fatalf("reportRuntime() error = %v", err)
+	}
 	if reporter.calls != 1 {
 		t.Fatalf("ReportRuntime() calls = %d, want 1", reporter.calls)
 	}
@@ -196,6 +199,149 @@ func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	}
 	if reporter.last.Port != 9123 {
 		t.Fatalf("Port = %d, want 9123", reporter.last.Port)
+	}
+}
+
+func TestCodexDriverFactoryRequiresDependencyProfile(t *testing.T) {
+	params := completeCodexDriverFactoryParamsForTest()
+	params.Dependency = contract.DependencyConfig{}
+	_, err := provideDriverFactory(params)
+	if err == nil || !strings.Contains(err.Error(), "dependency profile") {
+		t.Fatalf("provideDriverFactory() error = %v, want missing dependency profile", err)
+	}
+}
+
+func completeCodexDriverFactoryParamsForTest() DriverFactoryParams {
+	return DriverFactoryParams{
+		Reporter:   &stubRuntimeReporter{},
+		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
+	}
+}
+
+func TestCodexDriverReportRuntimeProductionFailsOnDeferredReporter(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileProduction)}
+	driver, _ := newCodexDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileProduction)
+
+	err := driver.reportRuntime("agent-1", driver.serverURL)
+	if !errors.Is(err, contract.ErrDependencyDeferred) {
+		t.Fatalf("reportRuntime() error = %v, want ErrDependencyDeferred", err)
+	}
+}
+
+func TestCodexDriverReportRuntimeDesktopRecordsDeferredStatus(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost)}
+	driver, modeReporter := newCodexDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileDesktopHost)
+
+	if err := driver.reportRuntime("agent-1", driver.serverURL); err != nil {
+		t.Fatalf("reportRuntime() error = %v", err)
+	}
+	if !modeReporter.runtimeReportDeferredForTest("agent-1") {
+		t.Fatal("runtime report deferred status was not recorded")
+	}
+}
+
+func TestCodexStartSessionFailsWhenRuntimeReporterReturnsDeferredInProduction(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileProduction)}
+	driver, _ := newCodexDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileProduction)
+
+	_, err := driver.StartSession(context.Background(), codexStartRequestForRuntimeReportTest(t))
+	if !errors.Is(err, contract.ErrDependencyDeferred) {
+		t.Fatalf("StartSession() error = %v, want ErrDependencyDeferred", err)
+	}
+}
+
+func TestCodexResumeSessionFailsWhenRuntimeReporterReturnsDeferredInProduction(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileProduction)}
+	driver, _ := newCodexDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileProduction)
+
+	_, err := driver.ResumeSession(context.Background(), codexResumeRequestForRuntimeReportTest(t))
+	if !errors.Is(err, contract.ErrDependencyDeferred) {
+		t.Fatalf("ResumeSession() error = %v, want ErrDependencyDeferred", err)
+	}
+}
+
+func TestCodexStartSessionGenericReporterErrorFailsInEveryProfile(t *testing.T) {
+	for _, profile := range []contract.DependencyProfile{contract.DependencyProfileProduction, contract.DependencyProfileDesktopHost, contract.DependencyProfileTest} {
+		t.Run(string(profile), func(t *testing.T) {
+			reportErr := errors.New("runtime reporter down")
+			reporter := &stubRuntimeReporter{err: reportErr}
+			driver, _ := newCodexDriverWithRuntimeReporterForTest(t, reporter, profile)
+
+			_, err := driver.StartSession(context.Background(), codexStartRequestForRuntimeReportTest(t))
+			if !errors.Is(err, reportErr) {
+				t.Fatalf("StartSession() error = %v, want %v", err, reportErr)
+			}
+		})
+	}
+}
+
+func TestCodexResumeSessionGenericReporterErrorFailsInEveryProfile(t *testing.T) {
+	for _, profile := range []contract.DependencyProfile{contract.DependencyProfileProduction, contract.DependencyProfileDesktopHost, contract.DependencyProfileTest} {
+		t.Run(string(profile), func(t *testing.T) {
+			reportErr := errors.New("runtime reporter down")
+			reporter := &stubRuntimeReporter{err: reportErr}
+			driver, _ := newCodexDriverWithRuntimeReporterForTest(t, reporter, profile)
+
+			_, err := driver.ResumeSession(context.Background(), codexResumeRequestForRuntimeReportTest(t))
+			if !errors.Is(err, reportErr) {
+				t.Fatalf("ResumeSession() error = %v, want %v", err, reportErr)
+			}
+		})
+	}
+}
+
+func newCodexDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.RuntimeReporter, profile contract.DependencyProfile) (*driver, *modeAwareRuntimeReporter) {
+	t.Helper()
+	setDefaultCodexHomeEnvForTest(t)
+	modeReporter, err := newModeAwareRuntimeReporter(reporter, contract.DependencyConfig{Profile: profile}, nil, nil, "codex")
+	if err != nil {
+		t.Fatalf("newModeAwareRuntimeReporter() error = %v", err)
+	}
+	serverURL := startCodexRPCServer(t, runtimeReportCodexRPCResult)
+	driver := &driver{
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
+		reporter:  modeReporter,
+		listTools: noopCodexToolLister,
+	}
+	return driver, modeReporter
+}
+
+func runtimeReportCodexRPCResult(method string) json.RawMessage {
+	switch method {
+	case "thread/start":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}, "model": "gpt-5"})
+	case "thread/resume":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
+	case "thread/config/get":
+		return mustJSON(map[string]any{"threadId": "provider-thread-1", "effective": map[string]any{"approvals": "on-request"}})
+	default:
+		return mustJSON(map[string]any{"ok": true})
+	}
+}
+
+func codexStartRequestForRuntimeReportTest(t *testing.T) dto.StartSessionRequest {
+	t.Helper()
+	return dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	}
+}
+
+func codexResumeRequestForRuntimeReportTest(t *testing.T) dto.ResumeSessionRequest {
+	t.Helper()
+	codexHome := setDefaultCodexHomeEnvForTest(t)
+	return dto.ResumeSessionRequest{
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "thread-public",
+		ProviderThreadID:   "provider-thread-1",
+		CWD:                t.TempDir(),
+		PromptSnapshot:     validResumePromptSnapshotForTest(),
+		CodexHome:          codexHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
 	}
 }
 

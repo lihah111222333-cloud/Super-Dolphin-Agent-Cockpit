@@ -400,7 +400,12 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		cleanupFailedSession(s, "force stop failed on start tool surface bind error")
 		return nil, err
 	}
-	return d.finishStartedSession(s, req, result), nil
+	started, err := d.finishStartedSession(s, req, result)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on start runtime report error")
+		return nil, err
+	}
+	return started, nil
 }
 
 // prepareStartDynamicTools 为 thread/start 准备需要交给 Codex 的动态工具声明。
@@ -538,7 +543,7 @@ func normalizeCodexDisabledToolsConfig(key string, raw any) ([]string, error) {
 	}
 }
 
-func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
+func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) (contract.Session, error) {
 	s.setThreadID(result.threadID)
 	if result.model != "" {
 		s.setRuntimeConfigValue("model", result.model)
@@ -549,8 +554,10 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
 		s.setRuntimeConfigValue("port", port)
 	}
-	d.reportRuntime(s.agentID, s.transport.serverURL)
-	return s
+	if err := d.reportRuntime(s.agentID, s.transport.serverURL); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
@@ -596,7 +603,9 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 	if err := applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools); err != nil {
 		return nil, err
 	}
-	d.reportRuntime(s.agentID, s.transport.serverURL)
+	if err := d.reportRuntime(s.agentID, s.transport.serverURL); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -748,13 +757,13 @@ func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID
 	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
 }
 
-func (d *driver) reportRuntime(agentID, serverURL string) {
+func (d *driver) reportRuntime(agentID, serverURL string) error {
 	if d == nil || d.reporter == nil {
-		return
+		return nil
 	}
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
-		return
+		return nil
 	}
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -766,6 +775,7 @@ func (d *driver) reportRuntime(agentID, serverURL string) {
 		Port:     parsePortFromURL(serverURL),
 		Provider: d.Name(),
 	}); err != nil {
-		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
+		return err
 	}
+	return nil
 }
