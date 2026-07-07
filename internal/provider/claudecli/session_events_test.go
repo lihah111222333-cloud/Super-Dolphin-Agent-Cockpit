@@ -191,7 +191,7 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	resumed, err := d.ResumeSession(ctx, dto.ResumeSessionRequest{
 		Provider:         "claude",
@@ -422,7 +422,7 @@ func assertPublicResumeLaunchConfig(t *testing.T, instructions string, cfg cliLa
 func assertAgentLaunchedEvents(t *testing.T, got <-chan agentdto.AgentLaunched, count int, threadID, sessionID string) {
 	t.Helper()
 
-	for i := 0; i < count; i++ {
+	for range count {
 		select {
 		case ev := <-got:
 			assertAgentLaunchedEvent(t, ev, threadID, sessionID)

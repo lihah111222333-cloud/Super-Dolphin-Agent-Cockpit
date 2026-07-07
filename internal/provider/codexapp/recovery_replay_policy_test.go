@@ -205,6 +205,39 @@ func TestTurnStartReturnsRecoverableWhenWriteOutcomeUnknown(t *testing.T) {
 	}
 }
 
+func TestTurnStartWriteTimeoutTriggersRecoveryWithoutReplay(t *testing.T) {
+	recorder := &rpcMethodRecorder{}
+	releaseTurnStart := make(chan struct{})
+	server := newTurnStartHangServer(t, recorder, releaseTurnStart)
+	t.Cleanup(func() {
+		close(releaseTurnStart)
+		server.Close()
+	})
+	s := newRecoveryTestSession(t, server)
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("thread-1")
+	s.setRuntimeConfigValue("model", "gpt-5")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	_, err := s.StartTurn(ctx, dto.TurnRequest{
+		ThreadID: "thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	cancel()
+	if err == nil {
+		t.Fatal("StartTurn() error = nil, want uncertain write outcome error")
+	}
+	var recoverable interface{ Recoverable() bool }
+	if !errors.As(err, &recoverable) || !recoverable.Recoverable() {
+		t.Fatalf("StartTurn() error = %T %[1]v, want recoverable error", err)
+	}
+
+	waitForRecordedMethod(t, recorder, "thread/resume")
+	if got := recorder.count("turn/start"); got != 1 {
+		t.Fatalf("turn/start count = %d, want 1; recovery must not replay uncertain user input", got)
+	}
+}
+
 func runTurnStartWithDroppedResponse(t *testing.T) (*rpcMethodRecorder, error) {
 	t.Helper()
 	recorder := &rpcMethodRecorder{}
@@ -221,6 +254,58 @@ func runTurnStartWithDroppedResponse(t *testing.T) (*rpcMethodRecorder, error) {
 		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
 	})
 	return recorder, err
+}
+
+func newTurnStartHangServer(t *testing.T, recorder *rpcMethodRecorder, releaseTurnStart <-chan struct{}) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serveTurnStartHangConn(t, conn, recorder, releaseTurnStart)
+	}))
+}
+
+func serveTurnStartHangConn(t *testing.T, conn *websocket.Conn, recorder *rpcMethodRecorder, releaseTurnStart <-chan struct{}) {
+	t.Helper()
+	defer conn.Close()
+	for {
+		_, rawBytes, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeRecoveryTransportRPCMessage(rawBytes)
+		if !ok {
+			continue
+		}
+		recorder.record(msg.Method)
+		if msg.Method == "turn/start" {
+			<-releaseTurnStart
+			return
+		}
+		if len(msg.ID) != 0 {
+			writeRecoveryTransportRPCResponse(t, conn, msg, turnStartDisconnectResult(msg.Method))
+		}
+	}
+}
+
+func waitForRecordedMethod(t *testing.T, recorder *rpcMethodRecorder, method string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if recorder.count(method) > 0 {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s; methods=%v", method, recorder.snapshot())
+		case <-ticker.C:
+		}
+	}
 }
 
 func newTurnStartDisconnectServer(t *testing.T, recorder *rpcMethodRecorder) *httptest.Server {

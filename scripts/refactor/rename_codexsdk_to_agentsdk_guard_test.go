@@ -1,7 +1,5 @@
 package main
 
-/* ROLLBACK_SKIP_START
-
 import (
 	"go/ast"
 	"go/parser"
@@ -34,13 +32,13 @@ func TestSplitGuard_RenameScriptWorkflowAnchors(t *testing.T) {
 	for _, marker := range []string{
 		"flag.Bool(\"dry-run\"",
 		"flag.Bool(\"apply\"",
+		"runRename(opts, collectEdits, applyEdits)",
 		"filepath.WalkDir(rootAbs",
 		"planRenameWalkDir(rootAbs",
-		"collectEdits(path, src)",
-		"applyEdits(src, edits)",
+		"collectRenamePlans(rootAbs, collect)",
 		"applyRenamePlans(plans, applyEditSet)",
-		"rollbackRenamePlans(plans)",
-		"trimmedReportOut := strings.TrimSpace(*reportOut)",
+		"writeReportWithRollback(trimmedReportOut, rep, opts.Apply, plans)",
+		"trimmedReportOut := strings.TrimSpace(opts.ReportOut)",
 		"func collectEdits(",
 		"func writeReport(",
 	} {
@@ -55,17 +53,22 @@ func TestSplitGuard_RenameScriptHelperPlacement(t *testing.T) {
 
 	content := readRenameScriptSourceFile(t, "rename_codexsdk_to_agentsdk.go")
 	for _, marker := range []string{
+		"type edit struct {",
 		"type renamePlan struct {",
+		"type editCollector func(",
+		"type editApplier func(",
 		"func planRenameWalkDir(",
+		"func collectRenamePlans(",
 		"func buildRenamePlan(",
-		"func recordRenamePlan(",
-		"func applyEdits(",
+		"func renameWalkDir(",
+		"func processRenameFile(",
 		"func applyRenamePlans(",
 		"func rollbackRenamePlans(",
+		"func writeReportWithRollback(",
+		"func applyEdits(",
 		"func rewriteImportPath(",
 		"func writeReport(",
 		"func fatalf(",
-		"FileMode     fs.FileMode",
 		"sort.Slice(edits",
 		"json.MarshalIndent(rep, \"\", \"  \")",
 		"return os.WriteFile(path, append(data, '\\n'), 0o644)",
@@ -99,70 +102,100 @@ func TestRenameScriptMainASTShapeAndOwnership(t *testing.T) {
 		t.Fatalf("main results = %d, want 0", got)
 	}
 
-	boolFlags := map[string]bool{"dry-run": false, "apply": false}
-	stringFlags := map[string]bool{"report": false, "root": false}
-	callTargets := map[string]bool{
-		"filepath.WalkDir":    false,
-		"planRenameWalkDir":   false,
-		"collectEdits":        false,
-		"applyEdits":          false,
-		"applyRenamePlans":    false,
-		"rollbackRenamePlans": false,
-		"writeReport":         false,
-	}
+	shape := collectRenameScriptWorkflowShape(fileAST)
+	assertSeenMap(t, "main missing flag.Bool for %q", shape.boolFlags)
+	assertSeenMap(t, "main missing flag.String for %q", shape.stringFlags)
+	assertSeenMap(t, "main missing call to %s", shape.callTargets)
+}
 
-	ast.Inspect(mainDecl.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
+type renameScriptMainShape struct {
+	boolFlags   map[string]bool
+	stringFlags map[string]bool
+	callTargets map[string]bool
+}
+
+func newRenameScriptMainShape() renameScriptMainShape {
+	return renameScriptMainShape{
+		boolFlags:   map[string]bool{"dry-run": false, "apply": false},
+		stringFlags: map[string]bool{"report": false, "root": false},
+		callTargets: map[string]bool{
+			"runRename":               false,
+			"collectRenamePlans":      false,
+			"filepath.WalkDir":        false,
+			"planRenameWalkDir":       false,
+			"applyRenamePlans":        false,
+			"rollbackRenamePlans":     false,
+			"writeReportWithRollback": false,
+			"writeReport":             false,
+		},
+	}
+}
+
+func collectRenameScriptWorkflowShape(fileAST *ast.File) renameScriptMainShape {
+	shape := newRenameScriptMainShape()
+	for _, decl := range fileAST.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if ok {
+				observeRenameScriptMainCall(&shape, call)
+			}
 			return true
-		}
-		switch fun := call.Fun.(type) {
-		case *ast.SelectorExpr:
-			pkgIdent, ok := fun.X.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			switch {
-			case pkgIdent.Name == "flag" && fun.Sel.Name == "Bool":
-				if len(call.Args) > 0 {
-					if name, ok := stringLiteralValue(call.Args[0]); ok {
-						if _, exists := boolFlags[name]; exists {
-							boolFlags[name] = true
-						}
-					}
-				}
-			case pkgIdent.Name == "flag" && fun.Sel.Name == "String":
-				if len(call.Args) > 0 {
-					if name, ok := stringLiteralValue(call.Args[0]); ok {
-						if _, exists := stringFlags[name]; exists {
-							stringFlags[name] = true
-						}
-					}
-				}
-			case pkgIdent.Name == "filepath" && fun.Sel.Name == "WalkDir":
-				callTargets["filepath.WalkDir"] = true
-			}
-		case *ast.Ident:
-			if _, exists := callTargets[fun.Name]; exists {
-				callTargets[fun.Name] = true
-			}
-		}
-		return true
-	})
+		})
+	}
+	return shape
+}
 
-	for name, seen := range boolFlags {
-		if !seen {
-			t.Fatalf("main missing flag.Bool for %q", name)
-		}
+func observeRenameScriptMainCall(shape *renameScriptMainShape, call *ast.CallExpr) {
+	if ident, ok := call.Fun.(*ast.Ident); ok {
+		markSeen(shape.callTargets, ident.Name)
+		return
 	}
-	for name, seen := range stringFlags {
-		if !seen {
-			t.Fatalf("main missing flag.String for %q", name)
-		}
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
 	}
-	for name, seen := range callTargets {
+	pkgIdent, ok := selector.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+	markRenameScriptSelectorCall(shape, pkgIdent.Name, selector.Sel.Name, call.Args)
+}
+
+func markRenameScriptSelectorCall(shape *renameScriptMainShape, pkgName, selectorName string, args []ast.Expr) {
+	if pkgName == "filepath" && selectorName == "WalkDir" {
+		shape.callTargets["filepath.WalkDir"] = true
+		return
+	}
+	if pkgName != "flag" || len(args) == 0 {
+		return
+	}
+	name, ok := stringLiteralValue(args[0])
+	if !ok {
+		return
+	}
+	switch selectorName {
+	case "Bool":
+		markSeen(shape.boolFlags, name)
+	case "String":
+		markSeen(shape.stringFlags, name)
+	}
+}
+
+func markSeen(target map[string]bool, name string) {
+	if _, exists := target[name]; exists {
+		target[name] = true
+	}
+}
+
+func assertSeenMap(t *testing.T, message string, seenByName map[string]bool) {
+	t.Helper()
+	for name, seen := range seenByName {
 		if !seen {
-			t.Fatalf("main missing call to %s", name)
+			t.Fatalf(message, name)
 		}
 	}
 }
@@ -172,26 +205,33 @@ func TestRenameScriptPlanTypeAndHelperOwnership(t *testing.T) {
 
 	content := readRenameScriptSourceFile(t, "rename_codexsdk_to_agentsdk.go")
 	for _, marker := range []string{
-		"type renamePlan struct {",
-		"Path         string",
-		"Rel          string",
-		"Src          []byte",
-		"Edits        []edit",
-		"Replacements []replacement",
-		"FileMode     fs.FileMode",
+		"type edit struct {",
+		"Start  int",
+		"End    int",
+		"OldLit string",
+		"NewLit string",
+		"Line   int",
 	} {
 		if !strings.Contains(content, marker) {
-			t.Fatalf("rename plan shape missing marker %q", marker)
+			t.Fatalf("edit shape missing marker %q", marker)
 		}
 	}
 
 	_, fileAST := parseRenameScriptAST(t)
 	for _, funcName := range []string{
+		"parseRenameOptions",
+		"runRename",
+		"collectRenamePlans",
 		"planRenameWalkDir",
 		"buildRenamePlan",
-		"recordRenamePlan",
+		"renameWalkDir",
+		"processRenameFile",
 		"applyRenamePlans",
 		"rollbackRenamePlans",
+		"writeReportWithRollback",
+		"collectEdits",
+		"applyEdits",
+		"writeReport",
 	} {
 		fn := findTopLevelFuncDecl(t, fileAST, funcName)
 		if fn.Recv != nil {
@@ -219,29 +259,53 @@ func findMainOwnerInRefactorDir(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("read dir %s: %v", dir, err)
 	}
-	owners := make([]string, 0, 1)
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		path := filepath.Join(dir, name)
-		fset := token.NewFileSet()
-		fileAST, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", path, err)
-		}
-		for _, decl := range fileAST.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if ok && fn.Name.Name == "main" {
-				owners = append(owners, path)
-			}
-		}
-	}
+	owners := collectMainOwnersInRefactorDir(t, dir, entries)
 	if len(owners) != 1 {
 		t.Fatalf("non-test main owner count = %d, want 1 (%v)", len(owners), owners)
 	}
 	return owners[0]
+}
+
+func collectMainOwnersInRefactorDir(t *testing.T, dir string, entries []os.DirEntry) []string {
+	t.Helper()
+
+	owners := make([]string, 0, 1)
+	for _, entry := range entries {
+		if skipRefactorOwnerEntry(entry) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if fileDeclaresTopLevelFunc(t, path, "main") {
+			owners = append(owners, path)
+		}
+	}
+	return owners
+}
+
+func skipRefactorOwnerEntry(entry os.DirEntry) bool {
+	name := entry.Name()
+	return entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go")
+}
+
+func fileDeclaresTopLevelFunc(t *testing.T, path, name string) bool {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	fileAST, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	return astFileDeclaresTopLevelFunc(fileAST, name)
+}
+
+func astFileDeclaresTopLevelFunc(fileAST *ast.File, name string) bool {
+	for _, decl := range fileAST.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Name.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func findTopLevelFuncDecl(t *testing.T, fileAST *ast.File, name string) *ast.FuncDecl {
@@ -297,5 +361,3 @@ func renameScriptSourcePath(t *testing.T) string {
 	}
 	return filepath.Join(filepath.Dir(thisFile), "rename_codexsdk_to_agentsdk.go")
 }
-
-ROLLBACK_SKIP_END */

@@ -1705,9 +1705,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
   fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
 
   const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
-  expect(inlineTrace).toHaveTextContent('Trace 结果');
-  expect(inlineTrace).toHaveTextContent('source=mixed');
-  expect(inlineTrace).toHaveTextContent('thread/start');
+  await waitFor(() => {
+    expect(inlineTrace).toHaveTextContent('Trace 结果');
+    expect(inlineTrace).toHaveTextContent('source=mixed');
+    expect(inlineTrace).toHaveTextContent('thread/start');
+  });
   expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
   expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-frontend-1', limit: 50 });
   expect(backend.listObservabilityRecent).toHaveBeenCalledTimes(1);
@@ -4438,7 +4440,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.getThreadState).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: 'essay_agent_15' }));
   });
 
-  it('connects attachments and conversation operation buttons', async () => {
+  it('connects ComposerMeta attachments as plain arrays and conversation operation buttons', async () => {
     backend.selectFiles.mockResolvedValue(['/tmp/a.txt']);
     backend.resolveThreadIdentity.mockResolvedValue({ id: 'thread-1', providerThreadId: 'provider-thread-1', agent_id: 'agent-1' });
 
@@ -4455,7 +4457,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('归档会话')).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(backend.selectFiles).toHaveBeenCalled();
+      expect(backend.selectFiles).toHaveBeenCalledWith();
       expect(JSON.parse(backend.copyTextToClipboard.mock.calls[0][0])).toEqual(expect.objectContaining({
         agentId: 'agent-1',
         providerThreadId: 'provider-thread-1',

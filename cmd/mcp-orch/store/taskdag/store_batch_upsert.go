@@ -27,6 +27,8 @@ func (s *store) BatchUpsertNodes(ctx context.Context, nodes []Node) (int64, erro
 			NodeType:   node.NodeType,
 			AssignedTo: node.AssignedTo,
 			DependsOn:  node.DependsOn,
+			Reads:      stringSliceJSON(node.Reads),
+			Writes:     stringSliceJSON(node.Writes),
 			CommandRef: node.CommandRef,
 			Config:     node.Config,
 		}); err != nil {

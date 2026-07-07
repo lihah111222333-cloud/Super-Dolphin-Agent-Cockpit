@@ -1771,7 +1771,11 @@ function resolveInitialLevel() {
     }
   }
   catch (error) {
-    void error;
+    emitFrontendTraceEvent({
+      phase: 'frontend.log_level.preference_read.failed',
+      status: 'error',
+      error: error?.message || String(error),
+    });
   }
   return 'info';
 }
@@ -1966,7 +1970,11 @@ function attachLogRuntime(runtime) {
       }
     }
     catch (error) {
-      void error;
+      addWarning('error', 'log_level.preference_save.failed', {
+        status: 'storage_write_failed',
+        error: error?.message || String(error),
+      });
+      return;
     }
     set({ logLevel: level });
   };

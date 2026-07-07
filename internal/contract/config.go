@@ -22,12 +22,31 @@ type NotifyConfig struct {
 }
 
 const (
-	LSPServiceJSTS   = "jsts"
-	LSPServicePython = "python"
-	LSPServiceRust   = "rust"
-	LSPServiceJava   = "java"
-	LSPServiceCSS    = "css"
-	LSPServiceShell  = "shell"
+	LSPServiceJSTS      = "jsts"
+	LSPServicePython    = "python"
+	LSPServiceRust      = "rust"
+	LSPServiceJava      = "java"
+	LSPServiceCSS       = "css"
+	LSPServiceHTML      = "html"
+	LSPServiceJSON      = "json"
+	LSPServiceYAML      = "yaml"
+	LSPServiceMarkdown  = "markdown"
+	LSPServiceVue       = "vue"
+	LSPServiceSvelte    = "svelte"
+	LSPServiceClangd    = "clangd"
+	LSPServiceSwift     = "swift"
+	LSPServiceCSharp    = "csharp"
+	LSPServicePHP       = "php"
+	LSPServiceRuby      = "ruby"
+	LSPServiceKotlin    = "kotlin"
+	LSPServiceDart      = "dart"
+	LSPServiceLua       = "lua"
+	LSPServiceDocker    = "docker"
+	LSPServiceTerraform = "terraform"
+	LSPServiceGraphQL   = "graphql"
+	LSPServicePrisma    = "prisma"
+	LSPServiceShell     = "shell"
+	LSPServiceSQL       = "sql"
 )
 
 // LSPConfig 保存 language-service 启动、索引和项目适配配置。

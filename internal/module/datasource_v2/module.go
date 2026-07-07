@@ -22,7 +22,7 @@ var Module = fx.Module("datasource_v2",
 	fx.Provide(
 		newDatasourceV2StorePort,
 		NewService,
-		NewHandlers,
+		fx.Annotate(NewHandlers, fx.ParamTags("", `optional:"true"`)),
 		NewPromptProvider,
 	),
 	fx.Invoke(registerPromptProvider),

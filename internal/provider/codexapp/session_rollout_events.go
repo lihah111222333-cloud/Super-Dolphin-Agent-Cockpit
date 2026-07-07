@@ -167,9 +167,9 @@ func codexFunctionCallArgumentsPreview(item map[string]any) string {
 	for _, key := range []string{"arguments", "args"} {
 		if value, ok := item[key]; ok && value != nil {
 			if text, ok := value.(string); ok {
-				return strings.TrimSpace(text)
+				return providershared.SafeToolArgumentsPreviewString(strings.TrimSpace(text))
 			}
-			return previewAny(value)
+			return providershared.SafeToolArgumentsPreview(value)
 		}
 	}
 	return ""

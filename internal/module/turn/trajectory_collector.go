@@ -13,6 +13,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -213,7 +214,7 @@ func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 	p.toolCalls[callID] = &ToolCall{
 		CallID:    callID,
 		Name:      strings.TrimSpace(ev.ToolName),
-		Args:      ev.ArgumentsPreview,
+		Args:      observability.SafeToolArgumentsPreviewString(ev.ArgumentsPreview),
 		StartedAt: ev.Timestamp,
 	}
 	p.callOrder = append(p.callOrder, callID)

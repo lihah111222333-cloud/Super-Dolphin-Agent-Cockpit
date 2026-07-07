@@ -430,5 +430,5 @@ func fromPendingOrDispatchingWakeup(row sqlc.ListPendingOrDispatchingTaskDagWake
 }
 
 func fromDispatchIncompleteRecoveryRow(row sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
+	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
 }

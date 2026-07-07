@@ -46,6 +46,8 @@ type transport struct {
 	doneErr error
 	doneMu  sync.Mutex
 	writeMu sync.Mutex
+	// writeFailed is protected by writeMu and marks stdin unsafe after an attempted write fails.
+	writeFailed bool
 }
 
 // newTransport 启动 Claude CLI 子进程并建立 stdin/stdout 流式通道。
@@ -163,8 +165,16 @@ func (t *transport) Send(msg []byte) error {
 	if t.stdin == nil {
 		return errors.New("transport stdin is not ready")
 	}
-	_, err := t.stdin.Write(payload)
-	return err
+	n, err := t.stdin.Write(payload)
+	if err != nil {
+		t.writeFailed = true
+		return err
+	}
+	if n != len(payload) {
+		t.writeFailed = true
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 // Receive 从底层传输读取事件。
@@ -238,7 +248,7 @@ func (t *transport) readyForSend() bool {
 	default:
 	}
 	t.writeMu.Lock()
-	stdinReady := t.stdin != nil
+	stdinReady := t.stdin != nil && !t.writeFailed
 	t.writeMu.Unlock()
 	if !stdinReady {
 		return false

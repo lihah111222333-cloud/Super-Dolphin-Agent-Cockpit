@@ -6,11 +6,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
@@ -76,6 +79,66 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	if !strings.Contains(err.Error(), `unknown field "schema_forbidden_field"`) {
 		t.Fatalf("direct handler error = %v, want unknown field rejection", err)
 	}
+}
+
+func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake installer")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write go fixture: %v", err)
+	}
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir)
+	marker := filepath.Join(t.TempDir(), "installer-ran")
+	t.Setenv("INSTALL_MARKER", marker)
+	t.Setenv("FAKE_BIN_DIR", binDir)
+	installScript := filepath.Join(t.TempDir(), "install-lsp")
+	if err := os.WriteFile(installScript, []byte("#!/bin/sh\nset -eu\n: >> \"$INSTALL_MARKER\"\ntarget=\"$1\"\nprintf '#!/bin/sh\\nexit 0\\n' > \"$FAKE_BIN_DIR/$target\"\n/bin/chmod +x \"$FAKE_BIN_DIR/$target\"\n"), 0o755); err != nil {
+		t.Fatalf("write fake installer: %v", err)
+	}
+	inst := lspinstaller.NewProvider()
+	inst.Register("go", lspinstaller.InstallerConfig{
+		BinaryName:          "gopls",
+		InstallCmd:          installScript,
+		InstallArgs:         []string{"gopls"},
+		AllowInstallCommand: true,
+	})
+	inst.Register("typescript", lspinstaller.InstallerConfig{
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          installScript,
+		InstallArgs:         []string{"typescript-language-server"},
+		AllowInstallCommand: true,
+	})
+	registry := lspmanager.NewRegistryWithInstaller(inst)
+	registry.Register("go", &structureTestManager{})
+	registry.Register("typescript", &structureTestManager{})
+
+	t.Run("inspect", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{
+			"action": "hover",
+			"pos":    filepath.Join(root, "main.go") + ":1:1",
+		})
+		_, err := NewInspectHandler(registry)(testToolContext(root), payload)
+		if err != nil {
+			t.Fatalf("inspect handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
+	})
+
+	t.Run("structure", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{
+			"action":   "workspace_symbol",
+			"language": "typescript",
+			"query":    "anything",
+		})
+		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
+		if err != nil {
+			t.Fatalf("structure handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
+	})
 }
 
 // TestWrapperRejectsEmptyWorkDir ensures wrapper-owned work_dir cannot be silently stripped when empty.
@@ -319,5 +382,12 @@ func requireExplicitWorkDirScope(t *testing.T, gotScope common.ToolScope, gotExp
 	}
 	if !slices.Contains(gotScope.WorkspaceRoots, filepath.Clean(root)) {
 		t.Fatalf("workspace roots = %#v, want original root %q preserved", gotScope.WorkspaceRoots, filepath.Clean(root))
+	}
+}
+
+func requireInstallerMarkerPresent(t *testing.T, marker string) {
+	t.Helper()
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("stat installer marker: %v", err)
 	}
 }

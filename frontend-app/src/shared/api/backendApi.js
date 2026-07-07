@@ -15,6 +15,7 @@ import {
   previewSharedFile as previewSharedFileViaBridge,
   beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
   copyTextToClipboard as copyTextToClipboardViaBridge,
+  selectDatasourceImportFile as selectDatasourceImportFileViaBridge,
   selectFiles as selectFilesViaBridge,
   selectProjectDir as selectProjectDirViaBridge,
   selectProjectDirs as selectProjectDirsViaBridge,
@@ -432,11 +433,15 @@ function normalizeSkillSummarySuggestion(raw) {
   throw new Error(`${RPC_METHODS.SKILLS_SUMMARY_SUGGEST}: description is required`);
 }
 
-function skillResolutionPayload(params = {}) {
-  const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params);
+function skillResolutionPayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  const conflictID = normalizeString(payload.conflict_id ?? payload.conflictId);
+  const action = normalizeString(payload.action);
+  if (!conflictID) throw new Error(`${method}: conflict_id is required`);
+  if (!action) throw new Error(`${method}: action is required`);
   const entries = [
-    ['conflict_id', payload.conflict_id ?? payload.conflictId],
-    ['action', payload.action],
+    ['conflict_id', conflictID],
+    ['action', action],
     ['name', payload.name],
     ['scope', payload.scope],
     ['personal_type', payload.personal_type ?? payload.personalType],
@@ -1231,6 +1236,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['previewSharedFile', previewSharedFileViaBridge],
   ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
   ['copyTextToClipboard', copyTextToClipboardViaBridge],
+  ['selectDatasourceImportFile', selectDatasourceImportFileViaBridge],
   ['selectFiles', selectFilesViaBridge],
   ['selectProjectDir', selectProjectDirViaBridge],
   ['selectProjectDirs', selectProjectDirsViaBridge],
@@ -1337,6 +1343,13 @@ function datasourceCreatePayload(method, params) {
   return { sourcePath };
 }
 
+function datasourceImportLocalFilePayload(params) {
+  const method = RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE;
+  const payload = datasourceCreatePayload(method, params);
+  const pickerToken = normalizeString(params?.pickerToken || params?.picker_token);
+  return cleanObject({ ...payload, pickerToken });
+}
+
 function datasourceListPayload(params = {}) {
   const method = RPC_METHODS.DATASOURCE_V2_LIST;
   const payload = assertPlainObject(method, params);
@@ -1400,7 +1413,7 @@ function createDatasourceApi(callBackend) {
     ),
     importDatasourceLocalFile: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE,
-      datasourceCreatePayload(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, params),
+      datasourceImportLocalFilePayload(params),
     ),
     listDatasourceDocuments: (params = {}) => callBackend(
       RPC_METHODS.DATASOURCE_V2_LIST,
@@ -1676,7 +1689,7 @@ function createSkillApi(callBackend) {
     listSkillResolutions: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_LIST, requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params)),
     previewSkillResolution: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, {
       cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params).cwd,
-      ...skillResolutionPayload(params),
+      ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params),
     }),
     applySkillResolution: (params) => applySkillResolutionPayload(callBackend, params),
     deleteSkill: (params) => deleteSkillPayload(callBackend, params),
@@ -1786,7 +1799,7 @@ function applySkillResolutionPayload(callBackend, params) {
   if (!previewHash) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_hash is required`);
   return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
     cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
-    ...skillResolutionPayload(payload),
+    ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload),
     preview_id: previewID,
     preview_hash: previewHash,
   }));
@@ -2177,6 +2190,7 @@ function createNativeApi(native) {
     previewSharedFile: (params) => native.previewSharedFile(requireKey('previewSharedFile', assertPlainObject('previewSharedFile', params), 'path')),
     beginTextClipboardWrite: native.beginTextClipboardWrite,
     copyTextToClipboard: native.copyTextToClipboard,
+    selectDatasourceImportFile: native.selectDatasourceImportFile,
     selectFiles: native.selectFiles,
     selectProjectDir: native.selectProjectDir,
     selectProjectDirs: native.selectProjectDirs,
@@ -2353,6 +2367,7 @@ export const previewSharedFile = backendApi.previewSharedFile;
 export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
 export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;
+export const selectDatasourceImportFile = backendApi.selectDatasourceImportFile;
 export const selectProjectDir = backendApi.selectProjectDir;
 export const selectProjectDirs = backendApi.selectProjectDirs;
 export { registerBridgeLogStore, sendFrontendLogBatch, emitFrontendTraceEvent };

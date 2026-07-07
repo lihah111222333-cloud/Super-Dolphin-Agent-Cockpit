@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,6 +181,25 @@ func TestScanHeadersSafeReturnsReadError(t *testing.T) {
 	headers, err := ScanHeadersSafe(root)
 	if err == nil || !strings.Contains(err.Error(), "broken.md") {
 		t.Fatalf("ScanHeadersSafe() error = %v entries=%#v, want typed read/header error", err, headers)
+	}
+}
+
+func TestManifestScanErrorSafeMessageOmitsPathAndCause(t *testing.T) {
+	absPath := filepath.Join(t.TempDir(), "project", "broken.md")
+	err := &ManifestScanError{
+		Path:      absPath,
+		Operation: "scan memory header",
+		Err:       errors.New("permission denied for " + absPath),
+	}
+
+	got := err.SafeMessage()
+	if got != "memory_manifest_scan_error stage=scan_memory_header" {
+		t.Fatalf("SafeMessage() = %q, want code/stage only", got)
+	}
+	for _, leak := range []string{absPath, "permission denied", "broken.md"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("SafeMessage() = %q, leaked %q", got, leak)
+		}
 	}
 }
 

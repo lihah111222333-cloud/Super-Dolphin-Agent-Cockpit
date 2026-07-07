@@ -180,6 +180,23 @@ func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
 	}
 }
 
+func TestImportLocalDirPublishErrorBlocksAndRollsBackCanonical(t *testing.T) {
+	svc, projectRoot := newImportDirTestService(t)
+	claudeHome := filepath.Join(projectRoot, ".claude")
+	mustMkdirAll(t, claudeHome)
+	if err := os.Chmod(claudeHome, 0o555); err != nil {
+		t.Fatalf("Chmod readonly Claude home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(claudeHome, 0o755) })
+	source := filepath.Join(t.TempDir(), "demo-skill")
+	mustMkdirAll(t, source)
+	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
+
+	_, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	assertMirrorPublishBlockingError(t, err)
+	assertImportTargetMissing(t, projectRoot, "demo-skill")
+}
+
 func TestImportLocalDirRejectsSymlinkSkillsRoot(t *testing.T) {
 	svc, projectRoot := newImportDirTestService(t)
 	outsideRoot := filepath.Join(t.TempDir(), "outside-skills")

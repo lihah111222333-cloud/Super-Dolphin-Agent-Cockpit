@@ -3,6 +3,7 @@ package multilsp
 import (
 	"context"
 	"fmt"
+	"go/build/constraint"
 	"maps"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
+
+const goBuildTagsLanguageSpecificKey = "goBuildTags"
 
 // LanguageAdapter 封装每种语言接入 LSP manager/pool/cache 所需的差异策略。
 // manager 只消费解析后的 scope、启动命令、环境、引导缓存和能力开关，避免调用层感知具体语言。
@@ -156,13 +159,21 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 		return ResolvedLanguageScope{}, err
 	}
 	parts := goWorkspaceKeyPartsFor(info)
+	languageSpecific := copyLanguageSpecific(parts.LanguageSpecific)
+	buildTags, err := goBuildTagsForTarget(scope.CWD, firstNonEmpty(target, scope.TargetPath, scope.CWD))
+	if err != nil {
+		return ResolvedLanguageScope{}, err
+	}
+	if len(buildTags) > 0 {
+		languageSpecific[goBuildTagsLanguageSpecificKey] = strings.Join(buildTags, ",")
+	}
 	return ResolvedLanguageScope{
 		LanguageID:            languageID,
 		WorkspaceRoot:         parts.WorkspaceRoot,
 		LanguageWorkspaceRoot: parts.LanguageWorkspaceRoot,
 		ProjectRoot:           parts.ProjectRoot,
 		RootKind:              parts.RootKind,
-		LanguageSpecific:      copyLanguageSpecific(parts.LanguageSpecific),
+		LanguageSpecific:      languageSpecific,
 		WorkspaceFolders:      workspaceFolders(info),
 	}, nil
 }
@@ -175,11 +186,124 @@ func (goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (
 
 // InitOptions 生成 gopls 初始化选项。
 // directoryFilters 来自 adapter 配置或默认配置，用于把噪声目录排除在 LSP 索引之外。
-func (a goLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any {
-	return map[string]any{
+func (a goLanguageAdapter) InitOptions(scope ResolvedLanguageScope) map[string]any {
+	options := map[string]any{
 		"semanticTokens":   true,
 		"directoryFilters": a.resolvedDirectoryFilters(),
 	}
+	buildFlags := goBuildFlagsForScope(scope)
+	if len(buildFlags) > 0 {
+		options["buildFlags"] = buildFlags
+		options["settings"] = map[string]any{
+			"gopls": map[string]any{"buildFlags": buildFlags},
+		}
+	}
+	return options
+}
+
+// goBuildTagsForTarget 提取目标 Go 文件头部声明的 build tags。
+// tags 会进入 gopls buildFlags 和 cache key，避免 e2e 等带 tag 文件被诊断成 orphan。
+func goBuildTagsForTarget(cwd, target string) ([]string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" || filepath.Ext(target) != ".go" {
+		return nil, nil
+	}
+	path, err := normalizeGoBuildTagTarget(cwd, target)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+	case os.IsNotExist(err):
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("read Go build tags: %w", err)
+	}
+	return goBuildTagsFromSource(string(data))
+}
+
+func normalizeGoBuildTagTarget(cwd, target string) (string, error) {
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target), nil
+	}
+	base := strings.TrimSpace(cwd)
+	if base == "" {
+		base = "."
+	}
+	path, err := filepath.Abs(filepath.Join(base, target))
+	if err != nil {
+		return "", fmt.Errorf("resolve Go build tag target: %w", err)
+	}
+	return filepath.Clean(path), nil
+}
+
+// goBuildTagsFromSource 扫描 Go 文件头部 build constraint 并提取正向 tag。
+// 非约束注释和空行会被跳过，遇到 package 前的真实代码后停止扫描。
+func goBuildTagsFromSource(source string) ([]string, error) {
+	tags := map[string]struct{}{}
+	for rawLine := range strings.SplitSeq(source, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if goBuildConstraintLine(line) {
+			if err := collectGoBuildConstraintTags(line, tags); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		break
+	}
+	return sortedGoBuildTags(tags), nil
+}
+
+func goBuildConstraintLine(line string) bool {
+	return constraint.IsGoBuild(line) || constraint.IsPlusBuild(line)
+}
+
+func collectGoBuildConstraintTags(line string, tags map[string]struct{}) error {
+	expr, err := constraint.Parse(line)
+	if err != nil {
+		return fmt.Errorf("parse Go build constraint: %w", err)
+	}
+	collectPositiveGoBuildTags(expr, tags)
+	return nil
+}
+
+func collectPositiveGoBuildTags(expr constraint.Expr, tags map[string]struct{}) {
+	switch typed := expr.(type) {
+	case *constraint.TagExpr:
+		if typed.Tag != "" {
+			tags[typed.Tag] = struct{}{}
+		}
+	case *constraint.AndExpr:
+		collectPositiveGoBuildTags(typed.X, tags)
+		collectPositiveGoBuildTags(typed.Y, tags)
+	case *constraint.OrExpr:
+		collectPositiveGoBuildTags(typed.X, tags)
+		collectPositiveGoBuildTags(typed.Y, tags)
+	}
+}
+
+func sortedGoBuildTags(tags map[string]struct{}) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(tags))
+	for tag := range tags {
+		out = append(out, tag)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func goBuildFlagsForScope(scope ResolvedLanguageScope) []string {
+	tags := strings.TrimSpace(scope.LanguageSpecific[goBuildTagsLanguageSpecificKey])
+	if tags == "" {
+		return nil
+	}
+	return []string{"-tags=" + tags}
 }
 
 func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
@@ -191,9 +315,9 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 }
 
 // EnvPolicy 为 gopls 进程生成与当前 Go scope 匹配的环境覆盖。
-// 只覆盖 GOWORK/PATH/GOTOOLCHAIN，避免把请求外的环境策略混入 adapter。
+// 只覆盖 GOWORK/PATH/GOTOOLCHAIN/GOFLAGS，避免把请求外的环境策略混入 adapter。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
-	env := make([]string, 0, 3)
+	env := make([]string, 0, 4)
 	mode := scope.LanguageSpecific["goworkMode"]
 	switch mode {
 	case goworkModeOff:
@@ -206,10 +330,21 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	if pathEnv := scope.LanguageSpecific["goToolchainPathEnv"]; pathEnv != "" {
 		env = append(env, "PATH="+pathEnv, "GOTOOLCHAIN=local")
 	}
+	if buildFlags := goBuildFlagsForScope(scope); len(buildFlags) > 0 {
+		env = append(env, "GOFLAGS="+goGOFlagsEnvValue(buildFlags))
+	}
 	if len(env) == 0 {
 		return nil
 	}
 	return env
+}
+
+func goGOFlagsEnvValue(buildFlags []string) string {
+	current := strings.TrimSpace(os.Getenv("GOFLAGS"))
+	if current == "" {
+		return strings.Join(buildFlags, " ")
+	}
+	return current + " " + strings.Join(buildFlags, " ")
 }
 
 // BootstrapPolicy 声明 Go LSP 启动后需要打开目标文档。
@@ -241,6 +376,7 @@ type projectLanguageAdapter struct {
 	firstSourceExtensions          []string
 	ignoredDirNames                map[string]struct{}
 	initOptions                    map[string]any
+	envPolicy                      func(ResolvedLanguageScope) []string
 	retryEmptyCallHierarchyPrepare bool
 }
 
@@ -362,17 +498,56 @@ func (a projectLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]an
 	return cloneAnyMap(a.initOptions)
 }
 
-// EnvPolicy 当前不为项目型语言追加环境覆盖。
-// 这些服务继承 manager 统一筛选后的环境，避免 adapter 私自扩展进程变量。
-func (a projectLanguageAdapter) EnvPolicy(ResolvedLanguageScope) []string { return nil }
+// EnvPolicy 返回项目型语言服务需要的最小环境覆盖。
+// 默认继承 manager 统一筛选后的环境，只有 adapter 明确声明时才补充语言运行时路径。
+func (a projectLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
+	if a.envPolicy == nil {
+		return nil
+	}
+	return a.envPolicy(scope)
+}
+
+func dotnetRootEnvPolicy(ResolvedLanguageScope) []string {
+	if strings.TrimSpace(os.Getenv("DOTNET_ROOT")) != "" || strings.TrimSpace(os.Getenv("DOTNET_ROOT_ARM64")) != "" {
+		return nil
+	}
+	for _, root := range dotnetRootCandidates() {
+		if dotnetRootUsable(root) {
+			return []string{"DOTNET_ROOT=" + root}
+		}
+	}
+	return nil
+}
+
+func dotnetRootCandidates() []string {
+	return []string{
+		"/opt/homebrew/opt/dotnet/libexec",
+		"/usr/local/opt/dotnet/libexec",
+	}
+}
+
+// dotnetRootUsable 判断候选 DOTNET_ROOT 是否同时具备运行时和 SDK 目录。
+func dotnetRootUsable(root string) bool {
+	if strings.TrimSpace(root) == "" {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(root, "shared", "Microsoft.NETCore.App")); err != nil || !info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(root, "sdk")); err != nil || !info.IsDir() {
+		return false
+	}
+	return true
+}
 
 // BootstrapPolicy 声明项目型语言启动后的文档打开和首选源码扩展。
 // ignoredDirNames 会复制返回，供 bootstrap 扫描时跳过依赖和构建产物。
 func (a projectLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
-		OpenTarget:            true,
-		FirstSourceExtensions: append([]string(nil), a.firstSourceExtensions...),
-		IgnoredDirNames:       copyStringSet(a.ignoredDirNames),
+		OpenTarget:                     true,
+		TreatMissingDiagnosticsAsEmpty: true,
+		FirstSourceExtensions:          append([]string(nil), a.firstSourceExtensions...),
+		IgnoredDirNames:                copyStringSet(a.ignoredDirNames),
 	}
 }
 
@@ -407,7 +582,11 @@ func (a documentFallbackAdapter) LanguageIDs() []string {
 // ResolveRoot 为文档降级路径生成最小 scope。
 // 它只需要稳定的 workspace root，后续工具会走非 LSP 的符号提取。
 func (a documentFallbackAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
-	root := firstNonEmpty(scope.CWD, filepath.Dir(firstNonEmpty(target, scope.TargetPath)))
+	targetPath := firstNonEmpty(target, scope.TargetPath)
+	root := scope.CWD
+	if strings.TrimSpace(targetPath) != "" {
+		root = filepath.Dir(targetPath)
+	}
 	normalized, err := normalizeRegistryWorkspaceRoot(root)
 	if err != nil {
 		return ResolvedLanguageScope{}, err

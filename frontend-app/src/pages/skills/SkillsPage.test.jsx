@@ -23,6 +23,7 @@ const backend = vi.hoisted(() => ({
   previewSkillResolution: vi.fn(),
   readSkill: vi.fn(),
   selectFiles: vi.fn(),
+  selectDatasourceImportFile: vi.fn(),
   selectProjectDirs: vi.fn(),
   startPlaywrightMCPServer: vi.fn(),
   startSQLiteMCPServer: vi.fn(),
@@ -179,6 +180,10 @@ beforeEach(() => {
   });
   backend.deleteDatasourceDocument.mockResolvedValue({ documentId: 101, deleted: true });
   backend.selectFiles.mockResolvedValue(['C:\\data\\new.pdf']);
+  backend.selectDatasourceImportFile.mockResolvedValue({
+    sourcePath: 'C:\\data\\new.pdf',
+    pickerToken: 'picker-token',
+  });
 });
 
 describe('SkillsPage module', () => {
@@ -277,10 +282,14 @@ describe('SkillsPage backend migration', () => {
 
     fireEvent.click(screen.getByTestId('datasource-import-button'));
     await waitFor(() => {
-      expect(backend.selectFiles).toHaveBeenCalledWith({
+      expect(backend.selectDatasourceImportFile).toHaveBeenCalledWith({
         filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
       });
-      expect(backend.importDatasourceLocalFile).toHaveBeenCalledWith({ sourcePath: 'C:\\data\\new.pdf' });
+      expect(backend.selectFiles).not.toHaveBeenCalled();
+      expect(backend.importDatasourceLocalFile).toHaveBeenCalledWith({
+        sourcePath: 'C:\\data\\new.pdf',
+        pickerToken: 'picker-token',
+      });
     });
 
     fireEvent.click(screen.getByTestId('datasource-view-101'));

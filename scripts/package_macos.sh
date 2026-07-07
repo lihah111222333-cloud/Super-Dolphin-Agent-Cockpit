@@ -63,6 +63,7 @@ lsp_server_specs=(
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
   "bash-language-server|bin/bash-language-server"
+  "sql-language-server|bin/sql-language-server"
   "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
@@ -879,7 +880,7 @@ verify_lsp_checksums_file() {
 resolve_packaged_lsp_bundle() {
   packaged_lsp_bundle_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-}"
   if [[ -z "$packaged_lsp_bundle_dir" ]]; then
-    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, shellcheck, sg, and jdtls only for full profile" >&2
+    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sql-language-server, shellcheck, sg, and jdtls only for full profile" >&2
     exit 1
   fi
   if [[ ! -d "$packaged_lsp_bundle_dir" ]]; then
@@ -1710,13 +1711,35 @@ fi
 phase_end
 
 phase_start "go binaries"
-if ! phase_cache_check "go-binaries" "$root/cmd" "$root/internal" "$root/pkg" "$root/go.sum"; then
+macos_cgo_enabled="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
+macos_cgo_cflags="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=$macos_min_version"
+macos_cgo_cxxflags="${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version"
+macos_cgo_ldflags="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version"
+go_binary_cache_paths=(
+  "$root/cmd"
+  "$root/internal"
+  "$root/pkg"
+  "$root/go.mod"
+  "$root/go.sum"
+)
+go_binary_cache_inputs=(
+  "input:GOVERSION=$(go env GOVERSION)"
+  "input:GOOS=$goos"
+  "input:GOARCH=$goarch"
+  "input:CGO_ENABLED=$macos_cgo_enabled"
+  "input:MACOSX_DEPLOYMENT_TARGET=$macos_min_version"
+  "input:CGO_CFLAGS=$macos_cgo_cflags"
+  "input:CGO_CXXFLAGS=$macos_cgo_cxxflags"
+  "input:CGO_LDFLAGS=$macos_cgo_ldflags"
+)
+if ! phase_cache_check "go-binaries" "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"; then
   (
     cd "$root"
+    export CGO_ENABLED="$macos_cgo_enabled"
     export MACOSX_DEPLOYMENT_TARGET="$macos_min_version"
-    export CGO_CFLAGS="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=$macos_min_version"
-    export CGO_CXXFLAGS="${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version"
-    export CGO_LDFLAGS="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version"
+    export CGO_CFLAGS="$macos_cgo_cflags"
+    export CGO_CXXFLAGS="$macos_cgo_cxxflags"
+    export CGO_LDFLAGS="$macos_cgo_ldflags"
     make build-peer-binaries
     go build -o bin/agent-terminal ./cmd/agent-terminal
     go build -o bin/mcp-ida ./cmd/mcp-ida

@@ -142,8 +142,14 @@ function enterpriseTemplateVersionNumber(template) {
 function enterpriseAvailableVersions(template) {
   const raw = template?.available_versions || template?.availableVersions || [];
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))]
-    .sort((left, right) => left - right);
+  const versions = new Set();
+  for (const item of raw) {
+    const version = Number(item);
+    if (Number.isInteger(version) && version > 0) versions.add(version);
+  }
+  const sortedVersions = Array.from(versions);
+  sortedVersions.sort((left, right) => left - right);
+  return sortedVersions;
 }
 
 function enterpriseRollbackVersion(template) {
@@ -163,17 +169,25 @@ function enterpriseTemplateCompatibilityRuntime(template) {
 function enterpriseTemplateNodeTypes(template) {
   const nodeTypes = template?.compatibility?.node_types || template?.compatibility?.nodeTypes || [];
   if (!Array.isArray(nodeTypes)) return '';
-  return nodeTypes.map((item) => textValue(item)).filter(Boolean).join(', ');
+  return nodeTypes.flatMap((item) => {
+    const nodeType = textValue(item);
+    return nodeType ? [nodeType] : [];
+  }).join(', ');
 }
 
 function enterpriseTemplateSearchText(template) {
-  return [
+  const terms = [];
+  for (const item of [
     enterpriseTemplateId(template),
     enterpriseTemplateTitle(template),
     enterpriseTemplateDescription(template),
     textValue(template?.business_flow || template?.businessFlow),
     ...(Array.isArray(template?.tags) ? template.tags : []),
-  ].map((item) => textValue(item).toLowerCase()).filter(Boolean).join(' ');
+  ]) {
+    const term = textValue(item).toLowerCase();
+    if (term) terms.push(term);
+  }
+  return terms.join(' ');
 }
 
 function enterpriseTemplateOutputSlug(templateId) {
@@ -1164,17 +1178,11 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
   const list = useWorkflowListQuery(workflowCwd);
   const { refreshDags } = list;
   useWorkflowListFocusRefresh(workflowCwd, refreshDags);
-  const activePage = store?.activePage;
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    if (!mountedRef.current) { mountedRef.current = true; return; }
-    if (activePage === 'workflows' && workflowCwd) void refreshDags();
-  }, [activePage, refreshDags, workflowCwd]);
   const selection = useWorkflowSelection(list.items);
   const detail = useWorkflowDetailQuery({ items: list.items, selectedDag: selection.selectedDag, selectedDagKey: selection.selectedDagKey, workflowCwd });
   const run = useWorkflowRunDetail({ activeRun: detail.activeRun, runs: detail.runs, workflowCwd });
   const notices = useWorkflowNotice(selection.selectedDagKey);
-  const refresh = useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
+  const refresh = useWorkflowRefresh({ refreshDags, refreshKey, reportRefreshError: list.reportSyncFailure, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
   const actionState = useWorkflowActionState(detail.activeDetailDag);
   const [designSession, setDesignSession] = useState(null);
   const templates = useWorkflowTemplatesQuery();
@@ -1228,6 +1236,14 @@ function useWorkflowListQuery(workflowCwd) {
   const workflowSyncFailure = workflowSyncFailureState.message && dagsDataUpdatedAt <= workflowSyncFailureState.dataUpdatedAt
     ? workflowSyncFailureState.message
     : '';
+  const reportSyncFailure = useCallback((err) => {
+    if (!workflowCwd || isCancelledError(err)) return;
+    const key = dashboardQueryKey(workflowCwd, 'dags');
+    setWorkflowSyncFailureState({
+      dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0,
+      message: '同步失败，显示的是上次成功的数据：' + errorMessage(err),
+    });
+  }, [queryClient, workflowCwd]);
   const refreshDags = useCallback(async () => {
     if (!workflowCwd) return [];
     const key = dashboardQueryKey(workflowCwd, 'dags');
@@ -1237,12 +1253,7 @@ function useWorkflowListQuery(workflowCwd) {
         await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true, cancelRefetch: false });
         setWorkflowSyncFailureState({ dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0, message: '' });
       } catch (err) {
-        if (!isCancelledError(err)) {
-          setWorkflowSyncFailureState({
-            dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0,
-            message: '同步失败，显示的是上次成功的数据：' + errorMessage(err),
-          });
-        }
+        reportSyncFailure(err);
       }
       return queryClient.getQueryData(key) || [];
     })();
@@ -1251,8 +1262,8 @@ function useWorkflowListQuery(workflowCwd) {
       if (refreshPromiseRef.current?.promise === refreshPromise) refreshPromiseRef.current = null;
     });
     return refreshPromise;
-  }, [queryClient, workflowCwd]);
-  return { errorState, items, loading, refreshDags, syncFailure: workflowSyncFailure };
+  }, [queryClient, reportSyncFailure, workflowCwd]);
+  return { errorState, items, loading, refreshDags, reportSyncFailure, syncFailure: workflowSyncFailure };
 }
 
 function useWorkflowListFocusRefresh(workflowCwd, refreshDags) {
@@ -1416,7 +1427,40 @@ function useWorkflowNotice(selectedDagKey) {
   return { clearNotice, notice, showTaskNotice };
 }
 
-function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, selectedRunKey, setSelectedRunKey, workflowCwd }) {
+function workflowRefreshNotice(message, refreshError) {
+  if (!refreshError) return message;
+  return `${message}，但刷新状态失败：${errorMessage(refreshError)}`;
+}
+
+async function refreshWorkflowListResult(list, fallbackItems) {
+  try {
+    return { error: null, items: await list.refreshDags() };
+  } catch (err) {
+    return { error: err, items: fallbackItems };
+  }
+}
+
+async function refreshWorkflowDetailResult(refresh, targetDagKey, runKey = '') {
+  if (!refresh || !textValue(targetDagKey)) return null;
+  try {
+    await refresh.refreshDetail(targetDagKey, runKey);
+    return null;
+  } catch (err) {
+    return err;
+  }
+}
+
+function firstWorkflowRefreshError(...errors) {
+  return errors.find(Boolean) || null;
+}
+
+async function refreshWorkflowAfterAction({ fallbackItems, list, refresh, runKey = '', targetDagKey }) {
+  const listResult = list ? await refreshWorkflowListResult(list, fallbackItems) : { error: null, items: fallbackItems };
+  const detailError = refresh ? await refreshWorkflowDetailResult(refresh, targetDagKey, runKey) : null;
+  return { error: firstWorkflowRefreshError(listResult.error, detailError), items: listResult.items };
+}
+
+function useWorkflowRefresh({ refreshDags, refreshKey, reportRefreshError, selectedDagKeyRef, selectedRunKey, setSelectedRunKey, workflowCwd }) {
   const queryClient = useQueryClient();
   const handledWorkflowRefreshRef = useRef(0);
   const workflowRefreshKey = Number(refreshKey || 0);
@@ -1441,8 +1485,8 @@ function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, select
   useEffect(() => {
     if (workflowRefreshKey <= 0 || handledWorkflowRefreshRef.current === workflowRefreshKey) return;
     handledWorkflowRefreshRef.current = workflowRefreshKey;
-    void refreshWorkflowSurface().catch(() => {});
-  }, [refreshWorkflowSurface, workflowRefreshKey]);
+    void refreshWorkflowSurface().catch(reportRefreshError);
+  }, [refreshWorkflowSurface, reportRefreshError, workflowRefreshKey]);
   return { refreshDetail, refreshWorkflowSurface };
 }
 
@@ -1552,10 +1596,10 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
     try {
       const result = await withWorkflowActionTimeout(startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2) }));
       const runKey = runKeyOf(result);
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(targetDagKey, runKey).catch(() => {});
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey });
       const warning = textValue(result?.warning);
-      notices.showTaskNotice(warning ? '已启动，后端提示：' + warning : '已启动自动化', targetDagKey);
+      const message = warning ? '已启动，后端提示：' + warning : '已启动自动化';
+      notices.showTaskNotice(workflowRefreshNotice(message, refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('启动自动化失败：' + errorMessage(err));
     } finally {
@@ -1573,12 +1617,11 @@ function useStopSelectedDagAction({ actionState, derived, list, notices, refresh
     notices.clearNotice();
     try {
       await withWorkflowActionTimeout(terminateDagRun({ dagKey: targetDagKey, runKey: derived.activeRunKey, reason: 'user_requested' }));
-      notices.showTaskNotice('已停止运行', targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice('已停止运行', refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('停止运行失败：' + errorMessage(err));
     } finally {
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(targetDagKey).catch(() => {});
       actionState.setActioning('');
     }
   }, [actionState, derived, list, notices, refresh]);
@@ -1601,9 +1644,10 @@ function useDeleteDagAction({ actionState, derived, list, notices, selection }) 
       await withWorkflowActionTimeout(deleteDag({ dagKey: targetKey }));
       actionState.setDeleteTarget(null);
       const fallback = list.items.filter((item) => item.dagKey !== targetKey);
-      const nextItems = await list.refreshDags().catch(() => fallback);
+      const refreshResult = await refreshWorkflowAfterAction({ fallbackItems: fallback, list, targetDagKey: targetKey });
+      const nextItems = refreshResult.items || fallback;
       selection.setSelectedDagKey(nextWorkflowSelectionKey(nextItems, selection.activeCategory));
-      notices.showTaskNotice('已删除 ' + (target?.title || targetKey), targetKey);
+      notices.showTaskNotice(workflowRefreshNotice('已删除 ' + (target?.title || targetKey), refreshResult.error), targetKey);
     } catch (err) {
       actionState.setError('删除自动化失败：' + errorMessage(err));
     } finally {
@@ -1635,11 +1679,8 @@ function useSaveScheduleAction({ actionState, derived, list, notices, refresh })
       }
       await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: schedulePatch }] }));
       actionState.setScheduleOpen(false);
-      await Promise.all([
-        list.refreshDags().catch(() => []),
-        refresh.refreshDetail(targetDagKey).catch(() => {}),
-      ]);
-      notices.showTaskNotice('已保存定时任务', targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice('已保存定时任务', refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('保存定时任务失败：' + errorMessage(err));
     } finally {
@@ -1659,11 +1700,8 @@ function useToggleScheduleAction({ actionState, derived, list, notices, refresh 
     notices.clearNotice();
     try {
       await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }] }));
-      await Promise.all([
-        list.refreshDags().catch(() => []),
-        refresh.refreshDetail(targetDagKey).catch(() => {}),
-      ]);
-      notices.showTaskNotice(enabled ? '已启用自动运行' : '已暂停自动运行', targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice(enabled ? '已启用自动运行' : '已暂停自动运行', refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('切换自动运行失败：' + errorMessage(err));
     } finally {
@@ -1682,8 +1720,8 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
     notices.clearNotice();
     try {
       await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_node', node_key: node.nodeKey, patch: dagNodePatchFromForm(form, node) }] }));
-      await refresh.refreshDetail(targetDagKey).catch(() => {});
-      notices.showTaskNotice('已保存步骤 ' + node.title, targetDagKey);
+      const refreshError = await refreshWorkflowDetailResult(refresh, targetDagKey);
+      notices.showTaskNotice(workflowRefreshNotice('已保存步骤 ' + node.title, refreshError), targetDagKey);
     } catch (err) {
       actionState.setError('保存步骤失败：' + errorMessage(err));
     } finally {
@@ -1709,11 +1747,8 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
         nodeKey: node.nodeKey,
         assignedTo: assignee,
       }));
-      await Promise.all([
-        list.refreshDags().catch(() => []),
-        refresh.refreshDetail(targetDagKey).catch(() => {}),
-      ]);
-      notices.showTaskNotice(`已派发步骤 ${node.title || node.nodeKey}`, targetDagKey);
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
+      notices.showTaskNotice(workflowRefreshNotice(`已派发步骤 ${node.title || node.nodeKey}`, refreshResult.error), targetDagKey);
     } catch (err) {
       actionState.setError('派发节点失败：' + errorMessage(err));
     } finally {
@@ -1745,10 +1780,10 @@ function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, 
       const result = await withWorkflowActionTimeout(createAndStartDag(enterpriseCreateAndStartDAGPayload(draft)));
       const dagKey = textValue(result?.dagKey || result?.dag_key || draft.dag_key || draft.dagKey);
       const runKey = runKeyOf(result);
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(dagKey, runKey).catch(() => {});
+      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey: dagKey });
       const warning = textValue(result?.warning);
-      notices.showTaskNotice(warning ? '已创建并启动，后端提示：' + warning : '已创建并启动自动化', dagKey);
+      const message = warning ? '已创建并启动，后端提示：' + warning : '已创建并启动自动化';
+      notices.showTaskNotice(workflowRefreshNotice(message, refreshResult.error), dagKey);
       return { ok: true, dagKey, runKey, warning };
     } catch (err) {
       actionState.setError('创建模板工作流失败：' + errorMessage(err));
@@ -2621,23 +2656,14 @@ function WorkflowSubpageHeader({ onBack, title }) {
   );
 }
 
-function WorkflowMessages({ copy, model }) {
+function WorkflowMessages({ model }) {
   const { actionState, derived, refresh } = model;
   return (
     <>
-      {derived.syncError ? <WorkflowSyncAlert copy={copy} message={derived.syncError} onRetry={refresh.refreshWorkflowSurface} /> : null}
+      <RetryableSyncError className="danger-text workflow-sync-alert" message={derived.syncError} onRetry={refresh.refreshWorkflowSurface} />
       {actionState.error ? <p className="danger-text" role="alert">{actionState.error}</p> : null}
       <RetryableSyncError className="danger-text workflow-sync-alert" message={derived.blockingLoadError} onRetry={refresh.refreshWorkflowSurface} />
     </>
-  );
-}
-
-function WorkflowSyncAlert({ copy, message, onRetry }) {
-  return (
-    <div className="danger-text workflow-sync-alert" role="alert">
-      <span>{message}</span>
-      <button type="button" className="ghost" onClick={() => { void onRetry().catch(() => {}); }}>{copy.retrySync}</button>
-    </div>
   );
 }
 

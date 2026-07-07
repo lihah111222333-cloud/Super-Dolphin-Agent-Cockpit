@@ -152,12 +152,16 @@ func (s *session) rememberPendingTurn(handle *turnHandle, params turnStartParams
 // turn/start 没有 idempotency key，写入已尝试后必须返回 recoverable error，不能自动再发一次。
 func (s *session) callTransport(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	raw, err := s.transport.Call(ctx, method, params)
-	if err == nil || !shouldReconnect(err) {
+	if err == nil {
 		return raw, err
 	}
 	policy := retryPolicyForTransportMethod(method)
 	if transportWriteAttempted(err) && !policy.retryAfterWrite {
+		s.notifyWriteOutcomeUnknown(method, err)
 		return nil, newRecoverableTransportWriteError(method, err)
+	}
+	if !shouldReconnect(err) {
+		return raw, err
 	}
 	// 同步调用方正在等待 RPC 结果，因此由当前 goroutine 直接恢复并重试一次。
 	// 异步信号只适合后台连接事件，否则调用方还要额外协调恢复完成时机。
@@ -165,6 +169,30 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 		return nil, errors.Join(err, recoverErr)
 	}
 	return s.transport.Call(ctx, method, params)
+}
+
+// notifyWriteOutcomeUnknown 在非幂等写入结果未知时只触发恢复，不自动重放请求。
+func (s *session) notifyWriteOutcomeUnknown(method string, err error) {
+	if s == nil || s.runtime == nil || strings.TrimSpace(s.ThreadID()) == "" {
+		return
+	}
+	if shutdownErr := s.recoveryShutdownErr(); shutdownErr != nil {
+		pkglogger.Warn("codexapp: write-outcome recovery suppressed during shutdown",
+			"agent_id", s.agentID,
+			"thread_id", s.ThreadID(),
+			"method", strings.TrimSpace(method),
+			"error", err,
+			"shutdown_error", shutdownErr,
+		)
+		return
+	}
+	reason := strings.TrimSpace(method) + " write outcome unknown"
+	if err != nil {
+		if safeReason := observability.SafeProviderErrorReason(err.Error()); strings.TrimSpace(safeReason.Message) != "" {
+			reason += ": " + safeReason.Message
+		}
+	}
+	s.runtime.NotifyRecovery("write-outcome-unknown", reason)
 }
 
 // handleConnectionDead 处理 provider 主动上报的连接断开事件。

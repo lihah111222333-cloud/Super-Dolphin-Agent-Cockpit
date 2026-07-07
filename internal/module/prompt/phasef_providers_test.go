@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -362,6 +363,39 @@ func TestInputScopedSectionKeysProjectDefaultRulesEmptyCWDDoesNotUseProcessCWD(t
 	keyB, _ := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/a"}})
 	if keyA == keyB {
 		t.Fatalf("empty cwd reused cwd-scoped project_default_rules key: %q", keyA)
+	}
+}
+
+func TestEveryInputScopedSectionAddsExplicitCacheDependencies(t *testing.T) {
+	input := SectionContext{
+		BuildCtx: BuildCtx{
+			CWD:          "/repo/a",
+			GitRoot:      "/repo/a",
+			Language:     "zh",
+			EnabledTools: []string{"agent_run", "mcp_lsp.grep"},
+			SessionFlags: map[string]bool{"team_memory": true, "quiet": false},
+		},
+		Start: &StartInput{CWD: "/repo/start", Prompt: "start prompt", PromptKey: "start-key"},
+		Turn:  &TurnInput{CWD: "/repo/turn", ThreadID: "thread-1", UserText: "turn text", PromptKey: "turn-key"},
+	}
+	for _, spec := range dynamicSectionSpecs {
+		if spec.cachePolicy != InputScoped {
+			continue
+		}
+		section := PromptSection{Name: spec.name, CachePolicy: InputScoped}
+		raw, err := json.Marshal(inputScopedCacheDependency(section, input))
+		if err != nil {
+			t.Fatalf("marshal dependency for %s: %v", spec.name, err)
+		}
+		bare, err := json.Marshal(struct {
+			Section string `json:"section"`
+		}{Section: spec.name})
+		if err != nil {
+			t.Fatalf("marshal bare dependency for %s: %v", spec.name, err)
+		}
+		if string(raw) == string(bare) {
+			t.Fatalf("input-scoped section %q uses bare section-only cache dependency", spec.name)
+		}
 	}
 }
 

@@ -30,6 +30,7 @@ type diagnosticStableWait struct {
 	readiness diagnosticReadiness
 	last      time.Time
 	lastPull  time.Time
+	missingAt time.Time
 }
 
 func (m *manager) newDiagnosticStableWait(ctx context.Context, filter diagnosticFilter, uris []string) (*diagnosticStableWait, error) {
@@ -37,14 +38,16 @@ func (m *manager) newDiagnosticStableWait(ctx context.Context, filter diagnostic
 	if err != nil {
 		return nil, err
 	}
-	return &diagnosticStableWait{
+	wait := &diagnosticStableWait{
 		manager:   m,
 		ctx:       ctx,
 		filter:    filter,
 		uris:      uris,
 		readiness: readiness,
 		last:      readiness.latest,
-	}, nil
+	}
+	wait.trackMissingSince(time.Now())
+	return wait, nil
 }
 
 // wait 等待LSP。
@@ -91,16 +94,38 @@ func (w *diagnosticStableWait) refresh(resetLast bool) error {
 		if err := w.pullMissingDiagnosticsIfDue(); err != nil {
 			return err
 		}
+		if w.missingDiagnosticsMayBeEmpty(time.Now()) {
+			if err := w.manager.markReadyForOmittedEmptyDiagnostics(w.ctx, w.filter, w.uris); err != nil {
+				return err
+			}
+		}
 	}
 	readiness, err := w.manager.diagnosticReadiness(w.ctx, w.filter, w.uris)
 	if err != nil {
 		return err
 	}
 	w.readiness = readiness
+	w.trackMissingSince(time.Now())
 	if resetLast || readiness.latest.After(w.last) {
 		w.last = readiness.latest
 	}
 	return nil
+}
+
+func (w *diagnosticStableWait) trackMissingSince(now time.Time) {
+	if len(w.readiness.missing) == 0 {
+		w.missingAt = time.Time{}
+		return
+	}
+	if w.missingAt.IsZero() {
+		w.missingAt = now
+	}
+}
+
+func (w *diagnosticStableWait) missingDiagnosticsMayBeEmpty(now time.Time) bool {
+	return len(w.readiness.missing) > 0 &&
+		!w.missingAt.IsZero() &&
+		now.Sub(w.missingAt) >= diagnosticsMissingEmptyGrace(w.manager.diagPoll)
 }
 
 // pullMissingDiagnosticsIfDue 在等待窗口内节流重试 pull diagnostics。
@@ -128,6 +153,10 @@ func diagnosticsPullRetryInterval(poll time.Duration) time.Duration {
 		return 500 * time.Millisecond
 	}
 	return interval
+}
+
+func diagnosticsMissingEmptyGrace(poll time.Duration) time.Duration {
+	return diagnosticsPullRetryInterval(poll)
 }
 
 func (m *manager) diagnosticReadiness(ctx context.Context, filter diagnosticFilter, uris []string) (diagnosticReadiness, error) {

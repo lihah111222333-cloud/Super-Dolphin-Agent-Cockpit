@@ -314,8 +314,8 @@ func TestTranslateCodexRolloutFunctionCallPublishesToolCallBegin(t *testing.T) {
 	if begin.CallID != "call-file" || begin.ToolName != "mcp__lsp__file" {
 		t.Fatalf("ToolCallBegin = %+v, want call-file/mcp__lsp__file", begin)
 	}
-	if begin.ArgumentsPreview != `{"action":"read_file","file_path":"smoke.go"}` {
-		t.Fatalf("ArgumentsPreview = %q, want raw JSON arguments", begin.ArgumentsPreview)
+	if begin.ArgumentsPreview != `{"action":"read_file","file_path":"[REDACTED]"}` {
+		t.Fatalf("ArgumentsPreview = %q, want sanitized JSON arguments", begin.ArgumentsPreview)
 	}
 }
 

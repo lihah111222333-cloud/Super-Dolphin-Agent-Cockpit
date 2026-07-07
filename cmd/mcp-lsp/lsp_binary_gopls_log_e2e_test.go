@@ -19,6 +19,7 @@ import (
 const fakeGoplsOrphanedFilesWarning = "warning: while diagnosing orphaned files: session is shut down"
 const fakeGoplsPullDiagnosticsOnlyEnv = "MCP_LSP_FAKE_GOPLS_PULL_DIAGNOSTICS_ONLY"
 const fakeGoplsSuppressDiagnosticProviderEnv = "MCP_LSP_FAKE_GOPLS_SUPPRESS_DIAGNOSTIC_PROVIDER"
+const fakeGoplsRequireE2EBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_E2E_BUILDFLAG"
 
 func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testing.T) {
 	if testing.Short() {
@@ -131,6 +132,33 @@ func TestMcpLSPBinaryGoplsDiagnosticsTreatsReadyBootstrapWithoutPublishAsEmpty_E
 	}
 }
 
+func TestMcpLSPBinaryGoplsDiagnosticsUsesBuildTagsForE2EFile_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsE2EBuildTagFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsPullDiagnosticsOnlyEnv + "=1",
+		fakeGoplsRequireE2EBuildFlagEnv + "=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   target,
+		"language_id": "go",
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "go e2e build-tag diagnostics")
+}
+
 func TestFakeGoplsShutdownWarningHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_GOPLS_SHUTDOWN_WARNING") != "1" {
 		return
@@ -147,6 +175,30 @@ func writeFakeGoplsGoFixture(t *testing.T, root string) string {
 	target := filepath.Join(root, "main.go")
 	if err := os.WriteFile(target, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
 		t.Fatalf("write Go fixture: %v", err)
+	}
+	return target
+}
+
+func writeFakeGoplsE2EBuildTagFixture(t *testing.T, root string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/gopls-e2e\n\ngo 1.25.0\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod fixture: %v", err)
+	}
+	target := filepath.Join(root, "lsp_binary_e2e_probe_test.go")
+	content := strings.Join([]string{
+		"//go:build e2e",
+		"",
+		"package main",
+		"",
+		"func TestE2EProbe(t testingT) {}",
+		"",
+		"type testingT interface {",
+		"\tHelper()",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write e2e Go fixture: %v", err)
 	}
 	return target
 }
@@ -185,8 +237,57 @@ func runFakeGoplsShutdownWarningLangserver() {
 		if len(bytes.TrimSpace(req.ID)) == 0 {
 			continue
 		}
+		if fakeGoplsRequiresE2EBuildFlag(req) && !fakeGoplsInitializeHasBuildTag(req.Params, "e2e") {
+			_ = writer.writeError(req.ID, -32002, "missing gopls buildFlags -tags=e2e")
+			continue
+		}
 		_ = writer.writeResponse(req.ID, fakeGoplsResult(req))
 	}
+}
+
+func fakeGoplsRequiresE2EBuildFlag(req fakeLSPRequest) bool {
+	return req.Method == "initialize" && os.Getenv(fakeGoplsRequireE2EBuildFlagEnv) == "1"
+}
+
+func fakeGoplsInitializeHasBuildTag(raw json.RawMessage, tag string) bool {
+	if buildFlagsContainTag(strings.Fields(os.Getenv("GOFLAGS")), tag) {
+		return true
+	}
+	var params struct {
+		InitializationOptions struct {
+			BuildFlags []string `json:"buildFlags"`
+			Settings   struct {
+				BuildFlags []string `json:"buildFlags"`
+				Gopls      struct {
+					BuildFlags []string `json:"buildFlags"`
+				} `json:"gopls"`
+			} `json:"settings"`
+		} `json:"initializationOptions"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return false
+	}
+	for _, flags := range [][]string{
+		params.InitializationOptions.BuildFlags,
+		params.InitializationOptions.Settings.BuildFlags,
+		params.InitializationOptions.Settings.Gopls.BuildFlags,
+	} {
+		if buildFlagsContainTag(flags, tag) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildFlagsContainTag(flags []string, tag string) bool {
+	for _, flag := range flags {
+		for _, part := range strings.Split(flag, "=") {
+			if part == tag || strings.Contains(part, tag+",") || strings.Contains(part, ","+tag) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool {

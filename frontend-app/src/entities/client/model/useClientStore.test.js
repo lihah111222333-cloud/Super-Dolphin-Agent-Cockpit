@@ -147,6 +147,45 @@ function registerBridgeEventHandlersForTest() {
     backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({ path, content: `content for ${path}` }));
   });
 
+  it('reports log level preference save failures without changing the selected level', () => {
+    const setItemSpy = vi.spyOn(Object.getPrototypeOf(window.localStorage), 'setItem').mockImplementation(() => {
+      throw new Error('storage denied');
+    });
+    try {
+      useClientStore.getState().setLogLevel('error');
+
+      const state = useClientStore.getState();
+      expect(state.logLevel).toBe('info');
+      expect(state.warningEntries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          level: 'error',
+          event: 'log_level.preference_save.failed',
+          fields: expect.objectContaining({
+            status: 'storage_write_failed',
+          }),
+        }),
+      ]));
+    } finally {
+      setItemSpy.mockRestore();
+    }
+  });
+
+  it('keeps composer file selection on plain path arrays without picker tokens', async () => {
+    backend.selectFiles.mockResolvedValue(['/tmp/plain.txt']);
+
+    const attachments = await useClientStore.getState().selectFilesForComposer();
+
+    expect(backend.selectFiles).toHaveBeenCalledWith();
+    expect(attachments).toEqual([expect.objectContaining({
+      path: '/tmp/plain.txt',
+      name: 'plain.txt',
+    })]);
+    expect(useClientStore.getState().attachments).toEqual([expect.objectContaining({
+      path: '/tmp/plain.txt',
+      name: 'plain.txt',
+    })]);
+  });
+
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
     await useClientStore.getState().bootstrap();
 

@@ -151,6 +151,7 @@ func (s *session) sendRetryLocked(retry *turnRetryState, handle *turnHandle, pay
 	}
 	if err := s.transport.Send(payload); err != nil {
 		s.takeActiveTurnLocked()
+		s.recoverTransportAfterWriteFailure()
 		return err
 	}
 	return nil
@@ -240,7 +241,11 @@ func (s *session) sendSteer(payload []byte, expectedTurnID string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return turnID, s.transport.Send(payload)
+	err = s.transport.Send(payload)
+	if err != nil {
+		s.recoverTransportAfterWriteFailure()
+	}
+	return turnID, err
 }
 
 // activeSteerTurnLocked 在持锁状态下确认 steer 目标仍是当前打开的 turn。

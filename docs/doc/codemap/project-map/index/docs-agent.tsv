@@ -1,808 +1,10 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-.agent/skills/.super-dolphin-skill-policy.json	.agent	docs-agent	json	11565	项目级 agent 技能 canonical	agent,skills,super,dolphin,skill,policy,项目级,技能,canonical
-.agent/skills/Agent工程学/SKILL.md	.agent	docs-agent	doc	2815	项目级 agent 技能 canonical	agent,skills,Agent工程学,SKILL,项目级,技能,canonical
-.agent/skills/Git原子提交规范/SKILL.md	.agent	docs-agent	doc	1314	项目级 agent 技能 canonical	agent,skills,Git原子提交规范,SKILL,项目级,技能,canonical
-.agent/skills/Git工作树/SKILL.md	.agent	docs-agent	doc	856	项目级 agent 技能 canonical	agent,skills,Git工作树,SKILL,项目级,技能,canonical
-.agent/skills/MCP协议/SKILL.md	.agent	docs-agent	doc	3665	项目级 agent 技能 canonical	agent,skills,MCP协议,SKILL,项目级,技能,canonical
-.agent/skills/MCP服务器构建/SKILL.md	.agent	docs-agent	doc	804	项目级 agent 技能 canonical	agent,skills,MCP服务器构建,SKILL,项目级,技能,canonical
-.agent/skills/react-doctor/SKILL.md	.agent	docs-agent	doc	2646	项目级 agent 技能 canonical	agent,skills,react,doctor,SKILL,项目级,技能,canonical
-.agent/skills/refactoring-guardrails/SKILL.md	.agent	docs-agent	doc	1618	项目级 agent 技能 canonical	agent,skills,refactoring,guardrails,SKILL,项目级,技能,canonical
-.agent/skills/skill-11/SKILL.md	.agent	docs-agent	doc	55	项目级 agent 技能 canonical	agent,skills,skill,11,SKILL,项目级,技能,canonical
-.agent/skills/super-dolphin-workflow/agents/openai.yaml	.agent	docs-agent	yaml	263	项目级 agent 技能 canonical	agent,skills,super,dolphin,workflow,agents,openai,项目级,技能,canonical
-.agent/skills/super-dolphin-workflow/SKILL.md	.agent	docs-agent	doc	6168	项目级 agent 技能 canonical	agent,skills,super,dolphin,workflow,SKILL,项目级,技能,canonical
-.agent/skills/TailwindCSS样式规范/SKILL.md	.agent	docs-agent	doc	978	项目级 agent 技能 canonical	agent,skills,TailwindCSS样式规范,SKILL,项目级,技能,canonical
-.agent/skills/trace-diagnosis/SKILL.md	.agent	docs-agent	doc	764	项目级 agent 技能 canonical	agent,skills,trace,diagnosis,SKILL,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/cip/deliverables.csv	.agent	docs-agent	csv	13385	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,deliverables,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/cip/industries.csv	.agent	docs-agent	csv	4935	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,industries,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/cip/mockup-contexts.csv	.agent	docs-agent	csv	5205	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,mockup,contexts,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/cip/styles.csv	.agent	docs-agent	csv	5967	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/icon/styles.csv	.agent	docs-agent	csv	2250	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,icon,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/logo/colors.csv	.agent	docs-agent	csv	10674	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,logo,colors,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/logo/industries.csv	.agent	docs-agent	csv	13274	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,logo,industries,项目级,技能,canonical
-.agent/skills/ui-ux-design/data-design/logo/styles.csv	.agent	docs-agent	csv	13678	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,logo,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/_sync_all.py	.agent	docs-agent	py	21832	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,sync,all,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/app-interface.csv	.agent	docs-agent	csv	9743	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,app,interface,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/charts.csv	.agent	docs-agent	csv	19391	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,charts,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/colors.csv	.agent	docs-agent	csv	32432	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,colors,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/design.csv	.agent	docs-agent	csv	106144	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/draft.csv	.agent	docs-agent	csv	106266	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,draft,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/google-fonts.csv	.agent	docs-agent	csv	745196	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,google,fonts,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/icons.csv	.agent	docs-agent	csv	20637	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,icons,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/landing.csv	.agent	docs-agent	csv	16720	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,landing,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/products.csv	.agent	docs-agent	csv	58006	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,products,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/react-performance.csv	.agent	docs-agent	csv	14822	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,react,performance,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/angular.csv	.agent	docs-agent	csv	18269	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,angular,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/astro.csv	.agent	docs-agent	csv	11868	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,astro,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/flutter.csv	.agent	docs-agent	csv	10416	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,flutter,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/html-tailwind.csv	.agent	docs-agent	csv	11305	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,html,tailwind,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/jetpack-compose.csv	.agent	docs-agent	csv	8195	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,jetpack,compose,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/laravel.csv	.agent	docs-agent	csv	18378	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,laravel,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/nextjs.csv	.agent	docs-agent	csv	12493	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,nextjs,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/nuxt-ui.csv	.agent	docs-agent	csv	14010	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,nuxt,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/nuxtjs.csv	.agent	docs-agent	csv	16539	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,nuxtjs,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/react-native.csv	.agent	docs-agent	csv	10035	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,react,native,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/react.csv	.agent	docs-agent	csv	12962	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,react,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/shadcn.csv	.agent	docs-agent	csv	15921	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,shadcn,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/svelte.csv	.agent	docs-agent	csv	11009	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,svelte,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/swiftui.csv	.agent	docs-agent	csv	10821	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,swiftui,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/threejs.csv	.agent	docs-agent	csv	44787	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,threejs,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/stacks/vue.csv	.agent	docs-agent	csv	11006	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,stacks,vue,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/styles.csv	.agent	docs-agent	csv	142673	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/typography.csv	.agent	docs-agent	csv	49667	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,typography,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/ui-reasoning.csv	.agent	docs-agent	csv	53070	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,reasoning,项目级,技能,canonical
-.agent/skills/ui-ux-design/data/ux-guidelines.csv	.agent	docs-agent	csv	18766	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,guidelines,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/banner-design/GUIDE.md	.agent	docs-agent	doc	8146	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,banner,GUIDE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/banner-design/references/banner-sizes-and-styles.md	.agent	docs-agent	doc	4993	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,banner,sizes,and,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/banner-sizes-and-styles.md	.agent	docs-agent	doc	4993	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,banner,sizes,and,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/GUIDE.md	.agent	docs-agent	doc	2943	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,GUIDE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/approval-checklist.md	.agent	docs-agent	doc	4245	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,approval,checklist,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/asset-organization.md	.agent	docs-agent	doc	5110	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,asset,organization,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/brand-guideline-template.md	.agent	docs-agent	doc	3572	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,guideline,template,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/color-palette-management.md	.agent	docs-agent	doc	4254	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,color,palette,management,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/consistency-checklist.md	.agent	docs-agent	doc	1926	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,consistency,checklist,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/logo-usage-rules.md	.agent	docs-agent	doc	5464	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,logo,usage,rules,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/messaging-framework.md	.agent	docs-agent	doc	1763	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,messaging,framework,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/typography-specifications.md	.agent	docs-agent	doc	5042	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,typography,specifications,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/update.md	.agent	docs-agent	doc	3365	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,update,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/visual-identity.md	.agent	docs-agent	doc	1884	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,visual,identity,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/references/voice-framework.md	.agent	docs-agent	doc	1997	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,voice,framework,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/scripts/extract-colors.cjs	.agent	docs-agent	js-source	9328	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,scripts,extract,colors,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/scripts/inject-brand-context.cjs	.agent	docs-agent	js-source	9677	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,scripts,inject,context,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/scripts/sync-brand-to-tokens.cjs	.agent	docs-agent	js-source	10134	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,scripts,sync,to,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/scripts/validate-asset.cjs	.agent	docs-agent	js-source	10173	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,scripts,validate,asset,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/brand/templates/brand-guidelines-starter.md	.agent	docs-agent	doc	6638	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,brand,templates,guidelines,starter,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/cip-deliverable-guide.md	.agent	docs-agent	doc	1735	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,cip,deliverable,guide,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/cip-design.md	.agent	docs-agent	doc	4589	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,cip,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/cip-prompt-engineering.md	.agent	docs-agent	doc	2493	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,cip,prompt,engineering,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/cip-style-guide.md	.agent	docs-agent	doc	2357	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,cip,style,guide,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-routing.md	.agent	docs-agent	doc	5826	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,routing,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-backgrounds.csv	.agent	docs-agent	csv	1038	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,backgrounds,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-charts.csv	.agent	docs-agent	csv	8631	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,charts,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-color-logic.csv	.agent	docs-agent	csv	877	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,color,logic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-copy.csv	.agent	docs-agent	csv	6427	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,copy,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-layout-logic.csv	.agent	docs-agent	csv	981	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,layout,logic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-layouts.csv	.agent	docs-agent	csv	8760	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,layouts,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-strategies.csv	.agent	docs-agent	csv	8232	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,strategies,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/data/slide-typography.csv	.agent	docs-agent	csv	735	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,data,slide,typography,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/GUIDE.md	.agent	docs-agent	doc	6879	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,GUIDE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/component-specs.md	.agent	docs-agent	doc	6914	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,component,specs,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/component-tokens.md	.agent	docs-agent	doc	4986	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,component,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/primitive-tokens.md	.agent	docs-agent	doc	4562	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,primitive,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/semantic-tokens.md	.agent	docs-agent	doc	4245	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,semantic,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/states-and-variants.md	.agent	docs-agent	doc	4771	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,states,and,variants,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/tailwind-integration.md	.agent	docs-agent	doc	5633	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,tailwind,integration,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/references/token-architecture.md	.agent	docs-agent	doc	5365	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,token,architecture,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/embed-tokens.cjs	.agent	docs-agent	js-source	2558	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,embed,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/fetch-background.py	.agent	docs-agent	py	12287	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,fetch,background,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/generate-slide.py	.agent	docs-agent	py	27785	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,generate,slide,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/generate-tokens.cjs	.agent	docs-agent	js-source	4968	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,generate,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/html-token-validator.py	.agent	docs-agent	py	11894	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,html,token,validator,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/search-slides.py	.agent	docs-agent	py	9210	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,search,slides,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/slide_search_core.py	.agent	docs-agent	py	14756	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,slide,search,core,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/slide-token-validator.py	.agent	docs-agent	py	973	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,slide,token,validator,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/scripts/validate-tokens.cjs	.agent	docs-agent	js-source	6047	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,scripts,validate,tokens,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/design-system/templates/design-tokens-starter.json	.agent	docs-agent	json	7184	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,system,templates,tokens,starter,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/icon-design.md	.agent	docs-agent	doc	4343	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,icon,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/logo-color-psychology.md	.agent	docs-agent	doc	3341	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,logo,color,psychology,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/logo-design.md	.agent	docs-agent	doc	3163	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,logo,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/logo-prompt-engineering.md	.agent	docs-agent	doc	4314	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,logo,prompt,engineering,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/logo-style-guide.md	.agent	docs-agent	doc	3435	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,logo,style,guide,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides-copywriting-formulas.md	.agent	docs-agent	doc	2604	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,copywriting,formulas,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides-create.md	.agent	docs-agent	doc	153	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,create,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides-html-template.md	.agent	docs-agent	doc	9004	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,html,template,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides-layout-patterns.md	.agent	docs-agent	doc	3691	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,layout,patterns,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides-strategies.md	.agent	docs-agent	doc	2715	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,strategies,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides.md	.agent	docs-agent	doc	1742	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides/GUIDE.md	.agent	docs-agent	doc	1166	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,GUIDE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides/references/copywriting-formulas.md	.agent	docs-agent	doc	2604	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,copywriting,formulas,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides/references/create.md	.agent	docs-agent	doc	153	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,create,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides/references/html-template.md	.agent	docs-agent	doc	9004	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,html,template,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides/references/layout-patterns.md	.agent	docs-agent	doc	3691	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,layout,patterns,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/slides/references/slide-strategies.md	.agent	docs-agent	doc	2715	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,slides,slide,strategies,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/social-photos-design.md	.agent	docs-agent	doc	11251	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,social,photos,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/ArsenalSC-OFL.txt	.agent	docs-agent	txt	4373	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,ArsenalSC,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/ArsenalSC-Regular.ttf	.agent	docs-agent	ttf	165848	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,ArsenalSC,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/BigShoulders-Bold.ttf	.agent	docs-agent	ttf	94528	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,BigShoulders,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/BigShoulders-OFL.txt	.agent	docs-agent	txt	4397	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,BigShoulders,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/BigShoulders-Regular.ttf	.agent	docs-agent	ttf	94396	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,BigShoulders,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Boldonse-OFL.txt	.agent	docs-agent	txt	4390	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Boldonse,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Boldonse-Regular.ttf	.agent	docs-agent	ttf	77168	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Boldonse,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/BricolageGrotesque-Bold.ttf	.agent	docs-agent	ttf	90952	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,BricolageGrotesque,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/BricolageGrotesque-OFL.txt	.agent	docs-agent	txt	4403	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,BricolageGrotesque,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/BricolageGrotesque-Regular.ttf	.agent	docs-agent	ttf	90920	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,BricolageGrotesque,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-Bold.ttf	.agent	docs-agent	ttf	107352	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-Italic.ttf	.agent	docs-agent	ttf	108828	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,Italic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-OFL.txt	.agent	docs-agent	txt	4394	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-Regular.ttf	.agent	docs-agent	ttf	106696	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/DMMono-OFL.txt	.agent	docs-agent	txt	4392	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,DMMono,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/DMMono-Regular.ttf	.agent	docs-agent	ttf	48852	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,DMMono,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/EricaOne-OFL.txt	.agent	docs-agent	txt	4410	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,EricaOne,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/EricaOne-Regular.ttf	.agent	docs-agent	ttf	24872	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,EricaOne,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/GeistMono-Bold.ttf	.agent	docs-agent	ttf	78304	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,GeistMono,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/GeistMono-OFL.txt	.agent	docs-agent	txt	4388	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,GeistMono,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/GeistMono-Regular.ttf	.agent	docs-agent	ttf	78232	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,GeistMono,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Gloock-OFL.txt	.agent	docs-agent	txt	4381	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Gloock,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Gloock-Regular.ttf	.agent	docs-agent	ttf	95156	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Gloock,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexMono-Bold.ttf	.agent	docs-agent	ttf	136008	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexMono,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexMono-OFL.txt	.agent	docs-agent	txt	4363	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexMono,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexMono-Regular.ttf	.agent	docs-agent	ttf	133796	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexMono,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-Bold.ttf	.agent	docs-agent	ttf	161000	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-BoldItalic.ttf	.agent	docs-agent	ttf	169840	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,BoldItalic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-Italic.ttf	.agent	docs-agent	ttf	170004	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,Italic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-Regular.ttf	.agent	docs-agent	ttf	160380	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-Bold.ttf	.agent	docs-agent	ttf	68084	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-BoldItalic.ttf	.agent	docs-agent	ttf	70004	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,BoldItalic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-Italic.ttf	.agent	docs-agent	ttf	69900	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,Italic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-OFL.txt	.agent	docs-agent	txt	4403	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-Regular.ttf	.agent	docs-agent	ttf	68028	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSerif-Italic.ttf	.agent	docs-agent	ttf	70868	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSerif,Italic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSerif-Regular.ttf	.agent	docs-agent	ttf	69312	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSerif,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Italiana-OFL.txt	.agent	docs-agent	txt	4394	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Italiana,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Italiana-Regular.ttf	.agent	docs-agent	ttf	27184	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Italiana,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/JetBrainsMono-Bold.ttf	.agent	docs-agent	ttf	114828	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,JetBrainsMono,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/JetBrainsMono-OFL.txt	.agent	docs-agent	txt	4399	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,JetBrainsMono,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/JetBrainsMono-Regular.ttf	.agent	docs-agent	ttf	114904	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,JetBrainsMono,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Jura-Light.ttf	.agent	docs-agent	ttf	154308	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Jura,Light,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Jura-Medium.ttf	.agent	docs-agent	ttf	154488	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Jura,Medium,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Jura-OFL.txt	.agent	docs-agent	txt	4380	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Jura,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/LibreBaskerville-OFL.txt	.agent	docs-agent	txt	4449	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,LibreBaskerville,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/LibreBaskerville-Regular.ttf	.agent	docs-agent	ttf	147584	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,LibreBaskerville,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-Bold.ttf	.agent	docs-agent	ttf	133828	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Lora,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-BoldItalic.ttf	.agent	docs-agent	ttf	140332	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Lora,BoldItalic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-Italic.ttf	.agent	docs-agent	ttf	139328	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Lora,Italic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-OFL.txt	.agent	docs-agent	txt	4423	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Lora,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-Regular.ttf	.agent	docs-agent	ttf	133888	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Lora,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/NationalPark-Bold.ttf	.agent	docs-agent	ttf	79208	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,NationalPark,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/NationalPark-OFL.txt	.agent	docs-agent	txt	4399	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,NationalPark,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/NationalPark-Regular.ttf	.agent	docs-agent	ttf	76424	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,NationalPark,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/NothingYouCouldDo-OFL.txt	.agent	docs-agent	txt	4363	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,NothingYouCouldDo,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/NothingYouCouldDo-Regular.ttf	.agent	docs-agent	ttf	32020	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,NothingYouCouldDo,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Outfit-Bold.ttf	.agent	docs-agent	ttf	55392	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Outfit,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Outfit-OFL.txt	.agent	docs-agent	txt	4389	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Outfit,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Outfit-Regular.ttf	.agent	docs-agent	ttf	54912	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Outfit,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/PixelifySans-Medium.ttf	.agent	docs-agent	ttf	51072	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,PixelifySans,Medium,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/PixelifySans-OFL.txt	.agent	docs-agent	txt	4395	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,PixelifySans,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/PoiretOne-OFL.txt	.agent	docs-agent	txt	4366	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,PoiretOne,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/PoiretOne-Regular.ttf	.agent	docs-agent	ttf	45244	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,PoiretOne,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/RedHatMono-Bold.ttf	.agent	docs-agent	ttf	34420	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,RedHatMono,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/RedHatMono-OFL.txt	.agent	docs-agent	txt	4394	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,RedHatMono,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/RedHatMono-Regular.ttf	.agent	docs-agent	ttf	34488	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,RedHatMono,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Silkscreen-OFL.txt	.agent	docs-agent	txt	4394	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Silkscreen,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Silkscreen-Regular.ttf	.agent	docs-agent	ttf	31960	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Silkscreen,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/SmoochSans-Medium.ttf	.agent	docs-agent	ttf	59704	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,SmoochSans,Medium,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/SmoochSans-OFL.txt	.agent	docs-agent	txt	4396	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,SmoochSans,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Tektur-Medium.ttf	.agent	docs-agent	ttf	76248	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Tektur,Medium,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Tektur-OFL.txt	.agent	docs-agent	txt	4385	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Tektur,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/Tektur-Regular.ttf	.agent	docs-agent	ttf	75604	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,Tektur,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-Bold.ttf	.agent	docs-agent	ttf	191304	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,Bold,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-BoldItalic.ttf	.agent	docs-agent	ttf	175772	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,BoldItalic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-Italic.ttf	.agent	docs-agent	ttf	174280	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,Italic,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-OFL.txt	.agent	docs-agent	txt	4397	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-Regular.ttf	.agent	docs-agent	ttf	188916	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/YoungSerif-OFL.txt	.agent	docs-agent	txt	4398	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,YoungSerif,OFL,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/canvas-fonts/YoungSerif-Regular.ttf	.agent	docs-agent	ttf	105136	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,fonts,YoungSerif,Regular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/GUIDE.md	.agent	docs-agent	doc	10049	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,GUIDE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/LICENSE.txt	.agent	docs-agent	txt	11357	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,LICENSE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/canvas-design-system.md	.agent	docs-agent	doc	7888	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,canvas,system,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/shadcn-accessibility.md	.agent	docs-agent	doc	9976	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,shadcn,accessibility,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/shadcn-components.md	.agent	docs-agent	doc	11155	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,shadcn,components,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/shadcn-theming.md	.agent	docs-agent	doc	8672	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,shadcn,theming,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/tailwind-customization.md	.agent	docs-agent	doc	10171	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,tailwind,customization,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/tailwind-responsive.md	.agent	docs-agent	doc	8270	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,tailwind,responsive,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/references/tailwind-utilities.md	.agent	docs-agent	doc	9980	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,tailwind,utilities,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/.coverage	.agent	docs-agent	file	53248	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/requirements.txt	.agent	docs-agent	txt	444	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,requirements,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/shadcn_add.py	.agent	docs-agent	py	7991	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,shadcn,add,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/tailwind_config_gen.py	.agent	docs-agent	py	13625	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,tailwind,config,gen,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/tests/coverage-ui.json	.agent	docs-agent	json	35121	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,tests,coverage,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/tests/requirements.txt	.agent	docs-agent	txt	52	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,tests,requirements,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/tests/test_shadcn_add.py	.agent	docs-agent	py	9920	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,tests,test,shadcn,add,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-styling/scripts/tests/test_tailwind_config_gen.py	.agent	docs-agent	py	12158	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,styling,scripts,tests,test,tailwind,config,gen,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/_sync_all.py	.agent	docs-agent	py	21832	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,sync,all,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/app-interface.csv	.agent	docs-agent	csv	9743	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,app,interface,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/charts.csv	.agent	docs-agent	csv	19391	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,charts,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/colors.csv	.agent	docs-agent	csv	32432	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,colors,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/design.csv	.agent	docs-agent	csv	106144	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/draft.csv	.agent	docs-agent	csv	106266	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,draft,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/google-fonts.csv	.agent	docs-agent	csv	745196	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,google,fonts,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/icons.csv	.agent	docs-agent	csv	20637	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,icons,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/landing.csv	.agent	docs-agent	csv	16720	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,landing,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/products.csv	.agent	docs-agent	csv	58006	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,products,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/react-performance.csv	.agent	docs-agent	csv	14822	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,react,performance,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/angular.csv	.agent	docs-agent	csv	18269	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,angular,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/astro.csv	.agent	docs-agent	csv	11868	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,astro,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/flutter.csv	.agent	docs-agent	csv	10416	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,flutter,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/html-tailwind.csv	.agent	docs-agent	csv	11305	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,html,tailwind,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/jetpack-compose.csv	.agent	docs-agent	csv	8195	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,jetpack,compose,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/laravel.csv	.agent	docs-agent	csv	18378	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,laravel,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/nextjs.csv	.agent	docs-agent	csv	12493	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,nextjs,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/nuxt-ui.csv	.agent	docs-agent	csv	14010	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,nuxt,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/nuxtjs.csv	.agent	docs-agent	csv	16539	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,nuxtjs,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/react-native.csv	.agent	docs-agent	csv	10035	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,react,native,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/react.csv	.agent	docs-agent	csv	12962	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,react,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/shadcn.csv	.agent	docs-agent	csv	15921	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,shadcn,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/svelte.csv	.agent	docs-agent	csv	11009	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,svelte,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/swiftui.csv	.agent	docs-agent	csv	10821	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,swiftui,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/threejs.csv	.agent	docs-agent	csv	44787	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,threejs,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/vue.csv	.agent	docs-agent	csv	11006	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,stacks,vue,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/styles.csv	.agent	docs-agent	csv	142673	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,styles,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/typography.csv	.agent	docs-agent	csv	49667	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,typography,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/ui-reasoning.csv	.agent	docs-agent	csv	53070	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,reasoning,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/data/ux-guidelines.csv	.agent	docs-agent	csv	18766	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,data,guidelines,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/GUIDE.md	.agent	docs-agent	doc	44776	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,GUIDE,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/scripts/core.py	.agent	docs-agent	py	12393	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,scripts,core,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/scripts/design_system.py	.agent	docs-agent	py	47070	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,scripts,system,项目级,技能,canonical
-.agent/skills/ui-ux-design/references/ui-ux-pro-max/scripts/search.py	.agent	docs-agent	py	5607	项目级 agent 技能 canonical	agent,skills,ui,ux,design,references,pro,max,scripts,search,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/cip/core.py	.agent	docs-agent	py	8062	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,cip,core,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/cip/generate.py	.agent	docs-agent	py	19430	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,cip,generate,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/cip/render-html.py	.agent	docs-agent	py	13941	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,cip,render,html,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/cip/search.py	.agent	docs-agent	py	4524	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,cip,search,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/icon/generate.py	.agent	docs-agent	py	17151	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,icon,generate,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/logo/core.py	.agent	docs-agent	py	6023	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,logo,core,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/logo/generate.py	.agent	docs-agent	py	14630	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,logo,generate,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts-design/logo/search.py	.agent	docs-agent	py	4745	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,logo,search,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts/core.py	.agent	docs-agent	py	12393	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,core,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts/design_system.py	.agent	docs-agent	py	47070	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,system,项目级,技能,canonical
-.agent/skills/ui-ux-design/scripts/search.py	.agent	docs-agent	py	5607	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,search,项目级,技能,canonical
-.agent/skills/ui-ux-design/SKILL.md	.agent	docs-agent	doc	13486	项目级 agent 技能 canonical	agent,skills,ui,ux,design,SKILL,项目级,技能,canonical
-.agent/skills/UI设计/SKILL.md	.agent	docs-agent	doc	1026	项目级 agent 技能 canonical	agent,skills,UI设计,SKILL,项目级,技能,canonical
-.agent/skills/video-generate/SKILL.md	.agent	docs-agent	doc	1347	项目级 agent 技能 canonical	agent,skills,video,generate,SKILL,项目级,技能,canonical
-.agent/skills/代码审查维度/SKILL.md	.agent	docs-agent	doc	4689	项目级 agent 技能 canonical	agent,skills,代码审查维度,SKILL,项目级,技能,canonical
-.agent/skills/使用git工作区/SKILL.md	.agent	docs-agent	doc	3194	项目级 agent 技能 canonical	agent,skills,使用git工作区,SKILL,项目级,技能,canonical
-.agent/skills/使用超能力/references/codex-tools.md	.agent	docs-agent	doc	5875	项目级 agent 技能 canonical	agent,skills,使用超能力,references,codex,tools,项目级,技能,canonical
-.agent/skills/使用超能力/references/copilot-tools.md	.agent	docs-agent	doc	2180	项目级 agent 技能 canonical	agent,skills,使用超能力,references,copilot,tools,项目级,技能,canonical
-.agent/skills/使用超能力/references/gemini-tools.md	.agent	docs-agent	doc	1499	项目级 agent 技能 canonical	agent,skills,使用超能力,references,gemini,tools,项目级,技能,canonical
-.agent/skills/使用超能力/SKILL.md	.agent	docs-agent	doc	5370	项目级 agent 技能 canonical	agent,skills,使用超能力,SKILL,项目级,技能,canonical
-.agent/skills/全量项目地图生成/SKILL.md	.agent	docs-agent	doc	1100	项目级 agent 技能 canonical	agent,skills,全量项目地图生成,SKILL,项目级,技能,canonical
-.agent/skills/前端/SKILL.md	.agent	docs-agent	doc	1500	项目级 agent 技能 canonical	agent,skills,前端,SKILL,项目级,技能,canonical
-.agent/skills/后端/code_organization.md	.agent	docs-agent	doc	3594	项目级 agent 技能 canonical	agent,skills,后端,code,organization,项目级,技能,canonical
-.agent/skills/后端/concurrency_basics.md	.agent	docs-agent	doc	3926	项目级 agent 技能 canonical	agent,skills,后端,concurrency,basics,项目级,技能,canonical
-.agent/skills/后端/effective_go_rules.md	.agent	docs-agent	doc	4117	项目级 agent 技能 canonical	agent,skills,后端,effective,go,rules,项目级,技能,canonical
-.agent/skills/后端/error_handling.md	.agent	docs-agent	doc	4002	项目级 agent 技能 canonical	agent,skills,后端,error,handling,项目级,技能,canonical
-.agent/skills/后端/naming_formatting.md	.agent	docs-agent	doc	3111	项目级 agent 技能 canonical	agent,skills,后端,naming,formatting,项目级,技能,canonical
-.agent/skills/后端/project_structure.md	.agent	docs-agent	doc	4335	项目级 agent 技能 canonical	agent,skills,后端,project,structure,项目级,技能,canonical
-.agent/skills/后端/SKILL.md	.agent	docs-agent	doc	5212	项目级 agent 技能 canonical	agent,skills,后端,SKILL,项目级,技能,canonical
-.agent/skills/后端/testing_pitfalls.md	.agent	docs-agent	doc	4607	项目级 agent 技能 canonical	agent,skills,后端,testing,pitfalls,项目级,技能,canonical
-.agent/skills/头脑风暴/scripts/frame-template.html	.agent	docs-agent	html	7703	项目级 agent 技能 canonical	agent,skills,头脑风暴,scripts,frame,template,项目级,技能,canonical
-.agent/skills/头脑风暴/scripts/helper.js	.agent	docs-agent	js-source	2707	项目级 agent 技能 canonical	agent,skills,头脑风暴,scripts,helper,项目级,技能,canonical
-.agent/skills/头脑风暴/scripts/server.cjs	.agent	docs-agent	js-source	11218	项目级 agent 技能 canonical	agent,skills,头脑风暴,scripts,server,项目级,技能,canonical
-.agent/skills/头脑风暴/scripts/start-server.sh	.agent	docs-agent	script	4606	项目级 agent 技能 canonical	agent,skills,头脑风暴,scripts,start,server,项目级,技能,canonical
-.agent/skills/头脑风暴/scripts/stop-server.sh	.agent	docs-agent	script	1314	项目级 agent 技能 canonical	agent,skills,头脑风暴,scripts,stop,server,项目级,技能,canonical
-.agent/skills/头脑风暴/SKILL.md	.agent	docs-agent	doc	9511	项目级 agent 技能 canonical	agent,skills,头脑风暴,SKILL,项目级,技能,canonical
-.agent/skills/头脑风暴/spec-document-reviewer-prompt.md	.agent	docs-agent	doc	1895	项目级 agent 技能 canonical	agent,skills,头脑风暴,spec,document,reviewer,prompt,项目级,技能,canonical
-.agent/skills/头脑风暴/visual-companion.md	.agent	docs-agent	doc	11345	项目级 agent 技能 canonical	agent,skills,头脑风暴,visual,companion,项目级,技能,canonical
-.agent/skills/子代理开发/SKILL.md	.agent	docs-agent	doc	1047	项目级 agent 技能 canonical	agent,skills,子代理开发,SKILL,项目级,技能,canonical
-.agent/skills/子代理驱动开发/code-quality-reviewer-prompt.md	.agent	docs-agent	doc	1454	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,code,quality,reviewer,prompt,项目级,技能,canonical
-.agent/skills/子代理驱动开发/implementer-prompt.md	.agent	docs-agent	doc	4787	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,implementer,prompt,项目级,技能,canonical
-.agent/skills/子代理驱动开发/SKILL.md	.agent	docs-agent	doc	12719	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,SKILL,项目级,技能,canonical
-.agent/skills/子代理驱动开发/spec-reviewer-prompt.md	.agent	docs-agent	doc	2530	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,spec,reviewer,prompt,项目级,技能,canonical
-.agent/skills/安全工程师/SKILL.md	.agent	docs-agent	doc	907	项目级 agent 技能 canonical	agent,skills,安全工程师,SKILL,项目级,技能,canonical
-.agent/skills/安全工程师规范/SKILL.md	.agent	docs-agent	doc	7916	项目级 agent 技能 canonical	agent,skills,安全工程师规范,SKILL,项目级,技能,canonical
-.agent/skills/完成前验证/SKILL.md	.agent	docs-agent	doc	4097	项目级 agent 技能 canonical	agent,skills,完成前验证,SKILL,项目级,技能,canonical
-.agent/skills/完成开发分支/SKILL.md	.agent	docs-agent	doc	816	项目级 agent 技能 canonical	agent,skills,完成开发分支,SKILL,项目级,技能,canonical
-.agent/skills/并行代理调度/SKILL.md	.agent	docs-agent	doc	939	项目级 agent 技能 canonical	agent,skills,并行代理调度,SKILL,项目级,技能,canonical
-.agent/skills/思维与决策辅助/SKILL.md	.agent	docs-agent	doc	2883	项目级 agent 技能 canonical	agent,skills,思维与决策辅助,SKILL,项目级,技能,canonical
-.agent/skills/执行计划/SKILL.md	.agent	docs-agent	doc	2635	项目级 agent 技能 canonical	agent,skills,执行计划,SKILL,项目级,技能,canonical
-.agent/skills/接收代码审查/SKILL.md	.agent	docs-agent	doc	6122	项目级 agent 技能 canonical	agent,skills,接收代码审查,SKILL,项目级,技能,canonical
-.agent/skills/日志与错误处理/SKILL.md	.agent	docs-agent	doc	1302	项目级 agent 技能 canonical	agent,skills,日志与错误处理,SKILL,项目级,技能,canonical
-.agent/skills/架构设计/SKILL.md	.agent	docs-agent	doc	1612	项目级 agent 技能 canonical	agent,skills,架构设计,SKILL,项目级,技能,canonical
-.agent/skills/核心信息提取与总结/SKILL.md	.agent	docs-agent	doc	3310	项目级 agent 技能 canonical	agent,skills,核心信息提取与总结,SKILL,项目级,技能,canonical
-.agent/skills/注释规范/SKILL.md	.agent	docs-agent	doc	1966	项目级 agent 技能 canonical	agent,skills,注释规范,SKILL,项目级,技能,canonical
-.agent/skills/测试规范/SKILL.md	.agent	docs-agent	doc	1864	项目级 agent 技能 canonical	agent,skills,测试规范,SKILL,项目级,技能,canonical
-.agent/skills/测试驱动开发/SKILL.md	.agent	docs-agent	doc	10321	项目级 agent 技能 canonical	agent,skills,测试驱动开发,SKILL,项目级,技能,canonical
-.agent/skills/测试驱动开发/testing-anti-patterns.md	.agent	docs-agent	doc	8022	项目级 agent 技能 canonical	agent,skills,测试驱动开发,testing,anti,patterns,项目级,技能,canonical
-.agent/skills/系统化调试/condition-based-waiting-example.ts	.agent	docs-agent	ts-source	5054	项目级 agent 技能 canonical	agent,skills,系统化调试,condition,based,waiting,example,项目级,技能,canonical
-.agent/skills/系统化调试/condition-based-waiting.md	.agent	docs-agent	doc	3460	项目级 agent 技能 canonical	agent,skills,系统化调试,condition,based,waiting,项目级,技能,canonical
-.agent/skills/系统化调试/CREATION-LOG.md	.agent	docs-agent	doc	4000	项目级 agent 技能 canonical	agent,skills,系统化调试,CREATION,LOG,项目级,技能,canonical
-.agent/skills/系统化调试/defense-in-depth.md	.agent	docs-agent	doc	3524	项目级 agent 技能 canonical	agent,skills,系统化调试,defense,in,depth,项目级,技能,canonical
-.agent/skills/系统化调试/find-polluter.sh	.agent	docs-agent	script	1528	项目级 agent 技能 canonical	agent,skills,系统化调试,find,polluter,项目级,技能,canonical
-.agent/skills/系统化调试/root-cause-tracing.md	.agent	docs-agent	doc	5260	项目级 agent 技能 canonical	agent,skills,系统化调试,root,cause,tracing,项目级,技能,canonical
-.agent/skills/系统化调试/SKILL.md	.agent	docs-agent	doc	9448	项目级 agent 技能 canonical	agent,skills,系统化调试,SKILL,项目级,技能,canonical
-.agent/skills/系统化调试/test-academic.md	.agent	docs-agent	doc	573	项目级 agent 技能 canonical	agent,skills,系统化调试,test,academic,项目级,技能,canonical
-.agent/skills/系统化调试/test-pressure-1.md	.agent	docs-agent	doc	1750	项目级 agent 技能 canonical	agent,skills,系统化调试,test,pressure,1,项目级,技能,canonical
-.agent/skills/系统化调试/test-pressure-2.md	.agent	docs-agent	doc	2215	项目级 agent 技能 canonical	agent,skills,系统化调试,test,pressure,2,项目级,技能,canonical
-.agent/skills/系统化调试/test-pressure-3.md	.agent	docs-agent	doc	2628	项目级 agent 技能 canonical	agent,skills,系统化调试,test,pressure,3,项目级,技能,canonical
-.agent/skills/结束开发分支/SKILL.md	.agent	docs-agent	doc	2838	项目级 agent 技能 canonical	agent,skills,结束开发分支,SKILL,项目级,技能,canonical
-.agent/skills/编写技能/SKILL.md	.agent	docs-agent	doc	2477	项目级 agent 技能 canonical	agent,skills,编写技能,SKILL,项目级,技能,canonical
-.agent/skills/编写计划/plan-document-reviewer-prompt.md	.agent	docs-agent	doc	1860	项目级 agent 技能 canonical	agent,skills,编写计划,plan,document,reviewer,prompt,项目级,技能,canonical
-.agent/skills/编写计划/SKILL.md	.agent	docs-agent	doc	6258	项目级 agent 技能 canonical	agent,skills,编写计划,SKILL,项目级,技能,canonical
-.agent/skills/请求代码审查/code-reviewer.md	.agent	docs-agent	doc	3462	项目级 agent 技能 canonical	agent,skills,请求代码审查,code,reviewer,项目级,技能,canonical
-.agent/skills/请求代码审查/SKILL.md	.agent	docs-agent	doc	3515	项目级 agent 技能 canonical	agent,skills,请求代码审查,SKILL,项目级,技能,canonical
-.agent/skills/调度并行代理/SKILL.md	.agent	docs-agent	doc	7503	项目级 agent 技能 canonical	agent,skills,调度并行代理,SKILL,项目级,技能,canonical
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P00.md	.agent	docs-agent	doc	4315	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P00,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P01.md	.agent	docs-agent	doc	4150	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P01,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P02.md	.agent	docs-agent	doc	8575	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P02,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P03.md	.agent	docs-agent	doc	4304	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P03,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P04.md	.agent	docs-agent	doc	8107	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P04,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P05.md	.agent	docs-agent	doc	4149	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P05,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P06.md	.agent	docs-agent	doc	6900	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P06,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P07.md	.agent	docs-agent	doc	2353	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P07,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P08.md	.agent	docs-agent	doc	7042	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P08,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P09.md	.agent	docs-agent	doc	7103	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P09,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P10.md	.agent	docs-agent	doc	7843	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P10,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P11.md	.agent	docs-agent	doc	4193	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P11,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P12.md	.agent	docs-agent	doc	5881	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P12,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P13.md	.agent	docs-agent	doc	3578	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P13,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P14.md	.agent	docs-agent	doc	6812	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P14,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P15.md	.agent	docs-agent	doc	4739	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P15,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P16.md	.agent	docs-agent	doc	4360	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P16,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P17.md	.agent	docs-agent	doc	5570	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P17,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P18.md	.agent	docs-agent	doc	4121	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P18,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P19.md	.agent	docs-agent	doc	3585	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P19,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P20.md	.agent	docs-agent	doc	4191	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P20,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P21.md	.agent	docs-agent	doc	8964	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P21,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P22.md	.agent	docs-agent	doc	7913	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P22,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P23.md	.agent	docs-agent	doc	8390	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P23,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P24.md	.agent	docs-agent	doc	3014	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P24,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P25.md	.agent	docs-agent	doc	4477	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P25,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P26.md	.agent	docs-agent	doc	4249	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P26,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P27.md	.agent	docs-agent	doc	2712	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P27,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P28.md	.agent	docs-agent	doc	9172	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P28,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/AGENT_REPORTS/P29.md	.agent	docs-agent	doc	3090	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,AGENT,REPORTS,P29,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/DISPATCH.md	.agent	docs-agent	doc	1960	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,DISPATCH,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/EVIDENCE.md	.agent	docs-agent	doc	183	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,EVIDENCE,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P00.md	.agent	docs-agent	doc	1934	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P00,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P03.md	.agent	docs-agent	doc	3632	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P03,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P05.md	.agent	docs-agent	doc	4518	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P05,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P10.md	.agent	docs-agent	doc	2573	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P10,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P18.md	.agent	docs-agent	doc	3316	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P18,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P19.md	.agent	docs-agent	doc	2442	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P19,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P26.md	.agent	docs-agent	doc	4202	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P26,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/P29.md	.agent	docs-agent	doc	3068	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,P29,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/REGRESSION.md	.agent	docs-agent	doc	363	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,REGRESSION,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CHECKS/RESULT_GATES.md	.agent	docs-agent	doc	417	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CHECKS,RESULT,GATES,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/CONTEXT.md	.agent	docs-agent	doc	1270	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,CONTEXT,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/DAG.json	.agent	docs-agent	json	2654	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,DAG,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/HANDOFF.md	.agent	docs-agent	doc	590	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,HANDOFF,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P00.files	.agent	docs-agent	files	1269	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P00,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P01.files	.agent	docs-agent	files	1316	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P01,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P02.files	.agent	docs-agent	files	1378	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P02,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P03.files	.agent	docs-agent	files	1890	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P03,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P04.files	.agent	docs-agent	files	1591	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P04,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P05.files	.agent	docs-agent	files	1590	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P05,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P06.files	.agent	docs-agent	files	1428	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P06,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P07.files	.agent	docs-agent	files	1278	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P07,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P08.files	.agent	docs-agent	files	1258	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P08,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P09.files	.agent	docs-agent	files	1384	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P09,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P10.files	.agent	docs-agent	files	1464	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P10,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P11.files	.agent	docs-agent	files	1438	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P11,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P12.files	.agent	docs-agent	files	1541	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P12,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P13.files	.agent	docs-agent	files	1566	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P13,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P14.files	.agent	docs-agent	files	1497	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P14,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P15.files	.agent	docs-agent	files	1581	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P15,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P16.files	.agent	docs-agent	files	1525	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P16,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P17.files	.agent	docs-agent	files	1452	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P17,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P18.files	.agent	docs-agent	files	1421	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P18,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P19.files	.agent	docs-agent	files	1431	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P19,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P20.files	.agent	docs-agent	files	1543	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P20,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P21.files	.agent	docs-agent	files	1453	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P21,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P22.files	.agent	docs-agent	files	1598	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P22,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P23.files	.agent	docs-agent	files	1798	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P23,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P24.files	.agent	docs-agent	files	1707	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P24,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P25.files	.agent	docs-agent	files	1626	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P25,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P26.files	.agent	docs-agent	files	1384	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P26,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P27.files	.agent	docs-agent	files	1308	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P27,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P28.files	.agent	docs-agent	files	1289	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P28,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/PARTITIONS/P29.files	.agent	docs-agent	files	1109	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,PARTITIONS,P29,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/README.md	.agent	docs-agent	doc	1525	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,README,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/RISK_REGISTER.md	.agent	docs-agent	doc	965	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,RISK,REGISTER,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/STATE.json	.agent	docs-agent	json	815	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,STATE,工作流与执行档案
-.agent/workflows/20260626-0651-backend-comments/WORKER_PROMPT.md	.agent	docs-agent	doc	2749	agent 工作流与执行档案	agent,workflows,20260626,0651,backend,comments,WORKER,PROMPT,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/CHECKS/EVIDENCE.md	.agent	docs-agent	doc	2864	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,CHECKS,EVIDENCE,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/CHECKS/RESULT_GATES.md	.agent	docs-agent	doc	964	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,CHECKS,RESULT,GATES,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/CONTEXT.md	.agent	docs-agent	doc	972	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,CONTEXT,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/DAG.json	.agent	docs-agent	json	1217	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,DAG,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/FILE_OWNERSHIP.tsv	.agent	docs-agent	tsv	1336	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,FILE,OWNERSHIP,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/HANDOFF.md	.agent	docs-agent	doc	1639	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,HANDOFF,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/README.md	.agent	docs-agent	doc	1341	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,README,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/RISK_REGISTER.md	.agent	docs-agent	doc	1385	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,RISK,REGISTER,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/STATE.json	.agent	docs-agent	json	806	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,STATE,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/TASKS/P1-cron.md	.agent	docs-agent	doc	2089	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,TASKS,P1,cron,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/TASKS/P2-turn-memory-prompt.md	.agent	docs-agent	doc	2112	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,TASKS,P2,turn,memory,prompt,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/TASKS/P3-skill.md	.agent	docs-agent	doc	1817	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,TASKS,P3,skill,工作流与执行档案
-.agent/workflows/20260626-1224-core-review-fixes/TASKS/P4-contract-app.md	.agent	docs-agent	doc	2019	agent 工作流与执行档案	agent,workflows,20260626,1224,core,review,fixes,TASKS,P4,contract,app,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/CHECKS/EVIDENCE.md	.agent	docs-agent	doc	6325	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,CHECKS,EVIDENCE,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/CHECKS/RESULT_GATES.md	.agent	docs-agent	doc	1081	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,CHECKS,RESULT,GATES,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/CONTEXT.md	.agent	docs-agent	doc	1524	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,CONTEXT,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/DAG.json	.agent	docs-agent	json	4691	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,DAG,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/FILE_OWNERSHIP.tsv	.agent	docs-agent	tsv	4996	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,FILE,OWNERSHIP,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/HANDOFF.md	.agent	docs-agent	doc	1738	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,HANDOFF,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/README.md	.agent	docs-agent	doc	1514	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,README,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/RISK_REGISTER.md	.agent	docs-agent	doc	1442	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,RISK,REGISTER,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/STATE.json	.agent	docs-agent	json	5528	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,STATE,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L01-mcp-lsp.md	.agent	docs-agent	doc	1648	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L01,mcp,lsp,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L02-orch-dag.md	.agent	docs-agent	doc	2113	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L02,orch,dag,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L03-workspace-sharedfile.md	.agent	docs-agent	doc	1555	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L03,workspace,sharedfile,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L04-codexapp-provider.md	.agent	docs-agent	doc	1558	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L04,codexapp,provider,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L05-claudecli.md	.agent	docs-agent	doc	1285	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L05,claudecli,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L06-unified-provider.md	.agent	docs-agent	doc	1232	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L06,unified,provider,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L07-cron-appupdate.md	.agent	docs-agent	doc	1315	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L07,cron,appupdate,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L08-datasource-mcp-server.md	.agent	docs-agent	doc	1539	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L08,datasource,mcp,server,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L09-dashboard-store-sql.md	.agent	docs-agent	doc	1722	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L09,dashboard,store,sql,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L10-platform-queues.md	.agent	docs-agent	doc	1580	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L10,platform,queues,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L11-config-cache-pidregistry.md	.agent	docs-agent	doc	1520	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L11,config,cache,pidregistry,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L12-wails-host.md	.agent	docs-agent	doc	1318	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L12,wails,host,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L13-frontend-runtime.md	.agent	docs-agent	doc	1363	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L13,frontend,runtime,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L14-thread-lifecycle.md	.agent	docs-agent	doc	1270	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L14,thread,lifecycle,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L15-memory.md	.agent	docs-agent	doc	1211	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L15,memory,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L16-skill-caps.md	.agent	docs-agent	doc	1259	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L16,skill,caps,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L17-logger-ida-redaction.md	.agent	docs-agent	doc	1125	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L17,logger,ida,redaction,工作流与执行档案
-.agent/workflows/20260626-1444-production-risk/TASKS/L18-updater.md	.agent	docs-agent	doc	1216	agent 工作流与执行档案	agent,workflows,20260626,1444,production,risk,TASKS,L18,updater,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p0-准备阶段.md	.agent	docs-agent	doc	1410	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p0,准备阶段,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p1-A-状态机严格化.md	.agent	docs-agent	doc	4040	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p1,A,状态机严格化,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p1-B-RPC契约收口.md	.agent	docs-agent	doc	3983	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p1,B,RPC契约收口,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p1-C-Store-Parity.md	.agent	docs-agent	doc	3530	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p1,C,Store,Parity,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p1-D-EventBus完善.md	.agent	docs-agent	doc	3454	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p1,D,EventBus完善,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p1-E-Lifecycle-Hardening.md	.agent	docs-agent	doc	4696	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p1,E,Lifecycle,Hardening,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p1-F-错误处理收口.md	.agent	docs-agent	doc	4171	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p1,F,错误处理收口,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p2-测试覆盖.md	.agent	docs-agent	doc	3997	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p2,测试覆盖,工作流与执行档案
-.agent/workflows/framework-audit-fixes/p3-集成验证.md	.agent	docs-agent	doc	3361	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,p3,集成验证,工作流与执行档案
-.agent/workflows/framework-audit-fixes/README.md	.agent	docs-agent	doc	10510	agent 工作流与执行档案	agent,workflows,framework,audit,fixes,README,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p0-skeleton.md	.agent	docs-agent	doc	1921	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p0,skeleton,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p1-protocol-format.md	.agent	docs-agent	doc	1554	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p1,protocol,format,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p2-patch-engine.md	.agent	docs-agent	doc	1045	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p2,patch,engine,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p3-gopls-client.md	.agent	docs-agent	doc	1278	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p3,gopls,client,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p4-gopls-manager.md	.agent	docs-agent	doc	1754	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p4,gopls,manager,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p5-file-search.md	.agent	docs-agent	doc	1314	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p5,file,search,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p6-bootstrap-health.md	.agent	docs-agent	doc	1006	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p6,bootstrap,health,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p7-navigation-structure.md	.agent	docs-agent	doc	1099	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p7,navigation,structure,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p8-edit-exec.md	.agent	docs-agent	doc	1639	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p8,edit,exec,工作流与执行档案
-.agent/workflows/p9-lsp-tools/p9-verify.md	.agent	docs-agent	doc	1637	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,verify,工作流与执行档案
-.agent/workflows/p9-lsp-tools/README.md	.agent	docs-agent	doc	3910	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,README,工作流与执行档案
-.agents/skills/.super-dolphin-skill-policy.json	.agents	docs-agent	json	11565	Codex/agent mirror 入口	agents,skills,super,dolphin,skill,policy,Codex,agent,mirror,入口
-.agents/skills/Agent工程学/SKILL.md	.agents	docs-agent	doc	2815	Codex/agent mirror 入口	agents,skills,Agent工程学,SKILL,Codex,agent,mirror,入口
-.agents/skills/Git原子提交规范/SKILL.md	.agents	docs-agent	doc	1314	Codex/agent mirror 入口	agents,skills,Git原子提交规范,SKILL,Codex,agent,mirror,入口
-.agents/skills/Git工作树/SKILL.md	.agents	docs-agent	doc	856	Codex/agent mirror 入口	agents,skills,Git工作树,SKILL,Codex,agent,mirror,入口
-.agents/skills/MCP协议/SKILL.md	.agents	docs-agent	doc	3665	Codex/agent mirror 入口	agents,skills,MCP协议,SKILL,Codex,agent,mirror,入口
-.agents/skills/MCP服务器构建/SKILL.md	.agents	docs-agent	doc	804	Codex/agent mirror 入口	agents,skills,MCP服务器构建,SKILL,Codex,agent,mirror,入口
-.agents/skills/react-doctor/SKILL.md	.agents	docs-agent	doc	2646	Codex/agent mirror 入口	agents,skills,react,doctor,SKILL,Codex,agent,mirror,入口
-.agents/skills/refactoring-guardrails/SKILL.md	.agents	docs-agent	doc	1618	Codex/agent mirror 入口	agents,skills,refactoring,guardrails,SKILL,Codex,agent,mirror,入口
-.agents/skills/skill-11/SKILL.md	.agents	docs-agent	doc	55	Codex/agent mirror 入口	agents,skills,skill,11,SKILL,Codex,agent,mirror,入口
-.agents/skills/super-dolphin-workflow/agents/openai.yaml	.agents	docs-agent	yaml	263	Codex/agent mirror 入口	agents,skills,super,dolphin,workflow,openai,Codex,agent,mirror,入口
-.agents/skills/super-dolphin-workflow/SKILL.md	.agents	docs-agent	doc	6168	Codex/agent mirror 入口	agents,skills,super,dolphin,workflow,SKILL,Codex,agent,mirror,入口
-.agents/skills/TailwindCSS样式规范/SKILL.md	.agents	docs-agent	doc	978	Codex/agent mirror 入口	agents,skills,TailwindCSS样式规范,SKILL,Codex,agent,mirror,入口
-.agents/skills/trace-diagnosis/SKILL.md	.agents	docs-agent	doc	764	Codex/agent mirror 入口	agents,skills,trace,diagnosis,SKILL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/cip/deliverables.csv	.agents	docs-agent	csv	13385	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,deliverables,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/cip/industries.csv	.agents	docs-agent	csv	4935	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,industries,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/cip/mockup-contexts.csv	.agents	docs-agent	csv	5205	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,mockup,contexts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/cip/styles.csv	.agents	docs-agent	csv	5967	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/icon/styles.csv	.agents	docs-agent	csv	2250	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,icon,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/logo/colors.csv	.agents	docs-agent	csv	10674	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,logo,colors,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/logo/industries.csv	.agents	docs-agent	csv	13274	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,logo,industries,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data-design/logo/styles.csv	.agents	docs-agent	csv	13678	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,logo,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/_sync_all.py	.agents	docs-agent	py	21832	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,sync,all,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/app-interface.csv	.agents	docs-agent	csv	9743	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,app,interface,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/charts.csv	.agents	docs-agent	csv	19365	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,charts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/colors.csv	.agents	docs-agent	csv	32271	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,colors,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/design.csv	.agents	docs-agent	csv	106143	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/draft.csv	.agents	docs-agent	csv	106265	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,draft,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/google-fonts.csv	.agents	docs-agent	csv	743272	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,google,fonts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/icons.csv	.agents	docs-agent	csv	20637	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,icons,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/landing.csv	.agents	docs-agent	csv	16685	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,landing,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/products.csv	.agents	docs-agent	csv	58006	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,products,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/react-performance.csv	.agents	docs-agent	csv	14822	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,react,performance,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/angular.csv	.agents	docs-agent	csv	18269	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,angular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/astro.csv	.agents	docs-agent	csv	11868	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,astro,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/flutter.csv	.agents	docs-agent	csv	10416	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,flutter,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/html-tailwind.csv	.agents	docs-agent	csv	11305	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,html,tailwind,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/jetpack-compose.csv	.agents	docs-agent	csv	8195	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,jetpack,compose,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/laravel.csv	.agents	docs-agent	csv	18378	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,laravel,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/nextjs.csv	.agents	docs-agent	csv	12493	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,nextjs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/nuxt-ui.csv	.agents	docs-agent	csv	14010	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,nuxt,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/nuxtjs.csv	.agents	docs-agent	csv	16539	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,nuxtjs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/react-native.csv	.agents	docs-agent	csv	9983	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,react,native,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/react.csv	.agents	docs-agent	csv	12962	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,react,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/shadcn.csv	.agents	docs-agent	csv	15921	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,shadcn,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/svelte.csv	.agents	docs-agent	csv	11009	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,svelte,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/swiftui.csv	.agents	docs-agent	csv	10821	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,swiftui,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/threejs.csv	.agents	docs-agent	csv	44787	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,threejs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/stacks/vue.csv	.agents	docs-agent	csv	11006	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,stacks,vue,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/styles.csv	.agents	docs-agent	csv	142605	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/typography.csv	.agents	docs-agent	csv	49667	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,typography,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/ui-reasoning.csv	.agents	docs-agent	csv	52908	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,reasoning,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/data/ux-guidelines.csv	.agents	docs-agent	csv	18667	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,guidelines,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/banner-design/GUIDE.md	.agents	docs-agent	doc	8146	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,banner,GUIDE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/banner-design/references/banner-sizes-and-styles.md	.agents	docs-agent	doc	4993	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,banner,sizes,and,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/banner-sizes-and-styles.md	.agents	docs-agent	doc	4993	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,banner,sizes,and,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/GUIDE.md	.agents	docs-agent	doc	2943	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,GUIDE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/approval-checklist.md	.agents	docs-agent	doc	4245	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,approval,checklist,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/asset-organization.md	.agents	docs-agent	doc	5110	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,asset,organization,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/brand-guideline-template.md	.agents	docs-agent	doc	3572	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,guideline,template,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/color-palette-management.md	.agents	docs-agent	doc	4254	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,color,palette,management,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/consistency-checklist.md	.agents	docs-agent	doc	1926	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,consistency,checklist,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/logo-usage-rules.md	.agents	docs-agent	doc	5464	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,logo,usage,rules,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/messaging-framework.md	.agents	docs-agent	doc	1763	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,messaging,framework,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/typography-specifications.md	.agents	docs-agent	doc	5042	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,typography,specifications,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/update.md	.agents	docs-agent	doc	3365	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,update,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/visual-identity.md	.agents	docs-agent	doc	1884	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,visual,identity,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/references/voice-framework.md	.agents	docs-agent	doc	1997	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,voice,framework,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/scripts/extract-colors.cjs	.agents	docs-agent	js-source	9328	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,scripts,extract,colors,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/scripts/inject-brand-context.cjs	.agents	docs-agent	js-source	9677	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,scripts,inject,context,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/scripts/sync-brand-to-tokens.cjs	.agents	docs-agent	js-source	10134	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,scripts,sync,to,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/scripts/validate-asset.cjs	.agents	docs-agent	js-source	10173	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,scripts,validate,asset,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/brand/templates/brand-guidelines-starter.md	.agents	docs-agent	doc	6638	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,brand,templates,guidelines,starter,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/cip-deliverable-guide.md	.agents	docs-agent	doc	1735	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,cip,deliverable,guide,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/cip-design.md	.agents	docs-agent	doc	4589	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,cip,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/cip-prompt-engineering.md	.agents	docs-agent	doc	2493	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,cip,prompt,engineering,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/cip-style-guide.md	.agents	docs-agent	doc	2357	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,cip,style,guide,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-routing.md	.agents	docs-agent	doc	5826	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,routing,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-backgrounds.csv	.agents	docs-agent	csv	1038	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,backgrounds,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-charts.csv	.agents	docs-agent	csv	8631	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,charts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-color-logic.csv	.agents	docs-agent	csv	877	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,color,logic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-copy.csv	.agents	docs-agent	csv	6427	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,copy,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-layout-logic.csv	.agents	docs-agent	csv	981	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,layout,logic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-layouts.csv	.agents	docs-agent	csv	8760	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,layouts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-strategies.csv	.agents	docs-agent	csv	8232	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,strategies,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/data/slide-typography.csv	.agents	docs-agent	csv	735	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,data,slide,typography,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/GUIDE.md	.agents	docs-agent	doc	6879	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,GUIDE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/component-specs.md	.agents	docs-agent	doc	6914	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,component,specs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/component-tokens.md	.agents	docs-agent	doc	4986	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,component,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/primitive-tokens.md	.agents	docs-agent	doc	4562	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,primitive,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/semantic-tokens.md	.agents	docs-agent	doc	4245	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,semantic,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/states-and-variants.md	.agents	docs-agent	doc	4771	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,states,and,variants,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/tailwind-integration.md	.agents	docs-agent	doc	5633	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,tailwind,integration,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/references/token-architecture.md	.agents	docs-agent	doc	5365	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,token,architecture,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/embed-tokens.cjs	.agents	docs-agent	js-source	2558	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,embed,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/fetch-background.py	.agents	docs-agent	py	12287	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,fetch,background,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/generate-slide.py	.agents	docs-agent	py	27785	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,generate,slide,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/generate-tokens.cjs	.agents	docs-agent	js-source	4968	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,generate,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/html-token-validator.py	.agents	docs-agent	py	11894	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,html,token,validator,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/search-slides.py	.agents	docs-agent	py	9210	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,search,slides,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/slide_search_core.py	.agents	docs-agent	py	14756	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,slide,search,core,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/slide-token-validator.py	.agents	docs-agent	py	973	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,slide,token,validator,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/scripts/validate-tokens.cjs	.agents	docs-agent	js-source	6047	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,scripts,validate,tokens,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/design-system/templates/design-tokens-starter.json	.agents	docs-agent	json	7184	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,system,templates,tokens,starter,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/icon-design.md	.agents	docs-agent	doc	4343	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,icon,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/logo-color-psychology.md	.agents	docs-agent	doc	3341	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,logo,color,psychology,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/logo-design.md	.agents	docs-agent	doc	3163	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,logo,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/logo-prompt-engineering.md	.agents	docs-agent	doc	4314	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,logo,prompt,engineering,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/logo-style-guide.md	.agents	docs-agent	doc	3435	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,logo,style,guide,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides-copywriting-formulas.md	.agents	docs-agent	doc	2604	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,copywriting,formulas,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides-create.md	.agents	docs-agent	doc	153	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,create,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides-html-template.md	.agents	docs-agent	doc	9004	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,html,template,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides-layout-patterns.md	.agents	docs-agent	doc	3691	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,layout,patterns,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides-strategies.md	.agents	docs-agent	doc	2715	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,strategies,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides.md	.agents	docs-agent	doc	1742	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides/GUIDE.md	.agents	docs-agent	doc	1166	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,GUIDE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides/references/copywriting-formulas.md	.agents	docs-agent	doc	2604	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,copywriting,formulas,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides/references/create.md	.agents	docs-agent	doc	153	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,create,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides/references/html-template.md	.agents	docs-agent	doc	9004	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,html,template,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides/references/layout-patterns.md	.agents	docs-agent	doc	3691	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,layout,patterns,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/slides/references/slide-strategies.md	.agents	docs-agent	doc	2715	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,slides,slide,strategies,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/social-photos-design.md	.agents	docs-agent	doc	11251	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,social,photos,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/ArsenalSC-OFL.txt	.agents	docs-agent	txt	4372	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,ArsenalSC,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/ArsenalSC-Regular.ttf	.agents	docs-agent	ttf	165848	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,ArsenalSC,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/BigShoulders-Bold.ttf	.agents	docs-agent	ttf	94528	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,BigShoulders,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/BigShoulders-OFL.txt	.agents	docs-agent	txt	4396	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,BigShoulders,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/BigShoulders-Regular.ttf	.agents	docs-agent	ttf	94396	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,BigShoulders,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Boldonse-OFL.txt	.agents	docs-agent	txt	4389	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Boldonse,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Boldonse-Regular.ttf	.agents	docs-agent	ttf	77168	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Boldonse,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/BricolageGrotesque-Bold.ttf	.agents	docs-agent	ttf	90952	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,BricolageGrotesque,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/BricolageGrotesque-OFL.txt	.agents	docs-agent	txt	4402	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,BricolageGrotesque,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/BricolageGrotesque-Regular.ttf	.agents	docs-agent	ttf	90920	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,BricolageGrotesque,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-Bold.ttf	.agents	docs-agent	ttf	107352	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-Italic.ttf	.agents	docs-agent	ttf	108828	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,Italic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-OFL.txt	.agents	docs-agent	txt	4393	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/CrimsonPro-Regular.ttf	.agents	docs-agent	ttf	106696	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,CrimsonPro,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/DMMono-OFL.txt	.agents	docs-agent	txt	4391	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,DMMono,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/DMMono-Regular.ttf	.agents	docs-agent	ttf	48852	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,DMMono,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/EricaOne-OFL.txt	.agents	docs-agent	txt	4408	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,EricaOne,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/EricaOne-Regular.ttf	.agents	docs-agent	ttf	24872	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,EricaOne,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/GeistMono-Bold.ttf	.agents	docs-agent	ttf	78304	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,GeistMono,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/GeistMono-OFL.txt	.agents	docs-agent	txt	4387	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,GeistMono,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/GeistMono-Regular.ttf	.agents	docs-agent	ttf	78232	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,GeistMono,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Gloock-OFL.txt	.agents	docs-agent	txt	4380	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Gloock,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Gloock-Regular.ttf	.agents	docs-agent	ttf	95156	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Gloock,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexMono-Bold.ttf	.agents	docs-agent	ttf	136008	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexMono,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexMono-OFL.txt	.agents	docs-agent	txt	4362	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexMono,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexMono-Regular.ttf	.agents	docs-agent	ttf	133796	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexMono,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-Bold.ttf	.agents	docs-agent	ttf	161000	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-BoldItalic.ttf	.agents	docs-agent	ttf	169840	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,BoldItalic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-Italic.ttf	.agents	docs-agent	ttf	170004	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,Italic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/IBMPlexSerif-Regular.ttf	.agents	docs-agent	ttf	160380	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,IBMPlexSerif,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-Bold.ttf	.agents	docs-agent	ttf	68084	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-BoldItalic.ttf	.agents	docs-agent	ttf	70004	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,BoldItalic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-Italic.ttf	.agents	docs-agent	ttf	69900	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,Italic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-OFL.txt	.agents	docs-agent	txt	4402	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSans-Regular.ttf	.agents	docs-agent	ttf	68028	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSans,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSerif-Italic.ttf	.agents	docs-agent	ttf	70868	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSerif,Italic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/InstrumentSerif-Regular.ttf	.agents	docs-agent	ttf	69312	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,InstrumentSerif,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Italiana-OFL.txt	.agents	docs-agent	txt	4393	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Italiana,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Italiana-Regular.ttf	.agents	docs-agent	ttf	27184	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Italiana,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/JetBrainsMono-Bold.ttf	.agents	docs-agent	ttf	114828	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,JetBrainsMono,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/JetBrainsMono-OFL.txt	.agents	docs-agent	txt	4398	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,JetBrainsMono,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/JetBrainsMono-Regular.ttf	.agents	docs-agent	ttf	114904	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,JetBrainsMono,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Jura-Light.ttf	.agents	docs-agent	ttf	154308	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Jura,Light,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Jura-Medium.ttf	.agents	docs-agent	ttf	154488	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Jura,Medium,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Jura-OFL.txt	.agents	docs-agent	txt	4379	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Jura,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/LibreBaskerville-OFL.txt	.agents	docs-agent	txt	4448	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,LibreBaskerville,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/LibreBaskerville-Regular.ttf	.agents	docs-agent	ttf	147584	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,LibreBaskerville,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-Bold.ttf	.agents	docs-agent	ttf	133828	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Lora,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-BoldItalic.ttf	.agents	docs-agent	ttf	140332	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Lora,BoldItalic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-Italic.ttf	.agents	docs-agent	ttf	139328	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Lora,Italic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-OFL.txt	.agents	docs-agent	txt	4422	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Lora,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Lora-Regular.ttf	.agents	docs-agent	ttf	133888	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Lora,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/NationalPark-Bold.ttf	.agents	docs-agent	ttf	79208	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,NationalPark,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/NationalPark-OFL.txt	.agents	docs-agent	txt	4398	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,NationalPark,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/NationalPark-Regular.ttf	.agents	docs-agent	ttf	76424	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,NationalPark,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/NothingYouCouldDo-OFL.txt	.agents	docs-agent	txt	4362	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,NothingYouCouldDo,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/NothingYouCouldDo-Regular.ttf	.agents	docs-agent	ttf	32020	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,NothingYouCouldDo,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Outfit-Bold.ttf	.agents	docs-agent	ttf	55392	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Outfit,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Outfit-OFL.txt	.agents	docs-agent	txt	4388	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Outfit,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Outfit-Regular.ttf	.agents	docs-agent	ttf	54912	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Outfit,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/PixelifySans-Medium.ttf	.agents	docs-agent	ttf	51072	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,PixelifySans,Medium,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/PixelifySans-OFL.txt	.agents	docs-agent	txt	4394	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,PixelifySans,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/PoiretOne-OFL.txt	.agents	docs-agent	txt	4365	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,PoiretOne,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/PoiretOne-Regular.ttf	.agents	docs-agent	ttf	45244	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,PoiretOne,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/RedHatMono-Bold.ttf	.agents	docs-agent	ttf	34420	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,RedHatMono,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/RedHatMono-OFL.txt	.agents	docs-agent	txt	4393	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,RedHatMono,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/RedHatMono-Regular.ttf	.agents	docs-agent	ttf	34488	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,RedHatMono,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Silkscreen-OFL.txt	.agents	docs-agent	txt	4393	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Silkscreen,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Silkscreen-Regular.ttf	.agents	docs-agent	ttf	31960	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Silkscreen,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/SmoochSans-Medium.ttf	.agents	docs-agent	ttf	59704	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,SmoochSans,Medium,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/SmoochSans-OFL.txt	.agents	docs-agent	txt	4395	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,SmoochSans,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Tektur-Medium.ttf	.agents	docs-agent	ttf	76248	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Tektur,Medium,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Tektur-OFL.txt	.agents	docs-agent	txt	4384	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Tektur,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/Tektur-Regular.ttf	.agents	docs-agent	ttf	75604	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,Tektur,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-Bold.ttf	.agents	docs-agent	ttf	191304	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,Bold,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-BoldItalic.ttf	.agents	docs-agent	ttf	175772	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,BoldItalic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-Italic.ttf	.agents	docs-agent	ttf	174280	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,Italic,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-OFL.txt	.agents	docs-agent	txt	4396	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/WorkSans-Regular.ttf	.agents	docs-agent	ttf	188916	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,WorkSans,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/YoungSerif-OFL.txt	.agents	docs-agent	txt	4397	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,YoungSerif,OFL,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/canvas-fonts/YoungSerif-Regular.ttf	.agents	docs-agent	ttf	105136	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,fonts,YoungSerif,Regular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/GUIDE.md	.agents	docs-agent	doc	10049	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,GUIDE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/LICENSE.txt	.agents	docs-agent	txt	11357	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,LICENSE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/canvas-design-system.md	.agents	docs-agent	doc	7888	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,canvas,system,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/shadcn-accessibility.md	.agents	docs-agent	doc	9976	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,shadcn,accessibility,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/shadcn-components.md	.agents	docs-agent	doc	11155	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,shadcn,components,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/shadcn-theming.md	.agents	docs-agent	doc	8672	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,shadcn,theming,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/tailwind-customization.md	.agents	docs-agent	doc	10171	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,tailwind,customization,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/tailwind-responsive.md	.agents	docs-agent	doc	8270	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,tailwind,responsive,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/references/tailwind-utilities.md	.agents	docs-agent	doc	9980	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,tailwind,utilities,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/requirements.txt	.agents	docs-agent	txt	444	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,requirements,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/shadcn_add.py	.agents	docs-agent	py	7991	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,shadcn,add,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/tailwind_config_gen.py	.agents	docs-agent	py	13625	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,tailwind,config,gen,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/tests/coverage-ui.json	.agents	docs-agent	json	35121	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,tests,coverage,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/tests/requirements.txt	.agents	docs-agent	txt	52	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,tests,requirements,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/tests/test_shadcn_add.py	.agents	docs-agent	py	9920	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,tests,test,shadcn,add,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-styling/scripts/tests/test_tailwind_config_gen.py	.agents	docs-agent	py	12158	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,styling,scripts,tests,test,tailwind,config,gen,Codex,agent,mirror
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/_sync_all.py	.agents	docs-agent	py	21832	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,sync,all,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/app-interface.csv	.agents	docs-agent	csv	9743	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,app,interface,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/charts.csv	.agents	docs-agent	csv	19365	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,charts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/colors.csv	.agents	docs-agent	csv	32271	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,colors,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/design.csv	.agents	docs-agent	csv	106143	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/draft.csv	.agents	docs-agent	csv	106265	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,draft,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/google-fonts.csv	.agents	docs-agent	csv	743272	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,google,fonts,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/icons.csv	.agents	docs-agent	csv	20637	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,icons,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/landing.csv	.agents	docs-agent	csv	16685	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,landing,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/products.csv	.agents	docs-agent	csv	58006	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,products,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/react-performance.csv	.agents	docs-agent	csv	14822	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,react,performance,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/angular.csv	.agents	docs-agent	csv	18269	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,angular,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/astro.csv	.agents	docs-agent	csv	11868	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,astro,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/flutter.csv	.agents	docs-agent	csv	10416	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,flutter,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/html-tailwind.csv	.agents	docs-agent	csv	11305	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,html,tailwind,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/jetpack-compose.csv	.agents	docs-agent	csv	8195	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,jetpack,compose,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/laravel.csv	.agents	docs-agent	csv	18378	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,laravel,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/nextjs.csv	.agents	docs-agent	csv	12493	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,nextjs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/nuxt-ui.csv	.agents	docs-agent	csv	14010	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,nuxt,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/nuxtjs.csv	.agents	docs-agent	csv	16539	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,nuxtjs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/react-native.csv	.agents	docs-agent	csv	9983	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,react,native,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/react.csv	.agents	docs-agent	csv	12962	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,react,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/shadcn.csv	.agents	docs-agent	csv	15921	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,shadcn,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/svelte.csv	.agents	docs-agent	csv	11009	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,svelte,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/swiftui.csv	.agents	docs-agent	csv	10821	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,swiftui,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/threejs.csv	.agents	docs-agent	csv	44787	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,threejs,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/stacks/vue.csv	.agents	docs-agent	csv	11006	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,stacks,vue,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/styles.csv	.agents	docs-agent	csv	142605	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,styles,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/typography.csv	.agents	docs-agent	csv	49667	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,typography,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/ui-reasoning.csv	.agents	docs-agent	csv	52908	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,reasoning,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/data/ux-guidelines.csv	.agents	docs-agent	csv	18667	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,data,guidelines,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/GUIDE.md	.agents	docs-agent	doc	44776	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,GUIDE,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/scripts/core.py	.agents	docs-agent	py	12393	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,scripts,core,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/scripts/design_system.py	.agents	docs-agent	py	46805	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,scripts,system,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/references/ui-ux-pro-max/scripts/search.py	.agents	docs-agent	py	5483	Codex/agent mirror 入口	agents,skills,ui,ux,design,references,pro,max,scripts,search,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/cip/core.py	.agents	docs-agent	py	8062	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,cip,core,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/cip/generate.py	.agents	docs-agent	py	19430	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,cip,generate,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/cip/render-html.py	.agents	docs-agent	py	13941	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,cip,render,html,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/cip/search.py	.agents	docs-agent	py	4524	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,cip,search,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/icon/generate.py	.agents	docs-agent	py	17151	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,icon,generate,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/logo/core.py	.agents	docs-agent	py	6023	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,logo,core,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/logo/generate.py	.agents	docs-agent	py	14630	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,logo,generate,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts-design/logo/search.py	.agents	docs-agent	py	4745	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,logo,search,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts/core.py	.agents	docs-agent	py	12393	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,core,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts/design_system.py	.agents	docs-agent	py	46805	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,system,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/scripts/search.py	.agents	docs-agent	py	5483	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,search,Codex,agent,mirror,入口
-.agents/skills/ui-ux-design/SKILL.md	.agents	docs-agent	doc	13486	Codex/agent mirror 入口	agents,skills,ui,ux,design,SKILL,Codex,agent,mirror,入口
-.agents/skills/UI设计/SKILL.md	.agents	docs-agent	doc	1026	Codex/agent mirror 入口	agents,skills,UI设计,SKILL,Codex,agent,mirror,入口
-.agents/skills/video-generate/SKILL.md	.agents	docs-agent	doc	1347	Codex/agent mirror 入口	agents,skills,video,generate,SKILL,Codex,agent,mirror,入口
-.agents/skills/代码审查维度/SKILL.md	.agents	docs-agent	doc	4689	Codex/agent mirror 入口	agents,skills,代码审查维度,SKILL,Codex,agent,mirror,入口
-.agents/skills/使用git工作区/SKILL.md	.agents	docs-agent	doc	3194	Codex/agent mirror 入口	agents,skills,使用git工作区,SKILL,Codex,agent,mirror,入口
-.agents/skills/使用超能力/references/codex-tools.md	.agents	docs-agent	doc	5875	Codex/agent mirror 入口	agents,skills,使用超能力,references,codex,tools,Codex,agent,mirror,入口
-.agents/skills/使用超能力/references/copilot-tools.md	.agents	docs-agent	doc	2180	Codex/agent mirror 入口	agents,skills,使用超能力,references,copilot,tools,Codex,agent,mirror,入口
-.agents/skills/使用超能力/references/gemini-tools.md	.agents	docs-agent	doc	1499	Codex/agent mirror 入口	agents,skills,使用超能力,references,gemini,tools,Codex,agent,mirror,入口
-.agents/skills/使用超能力/SKILL.md	.agents	docs-agent	doc	5370	Codex/agent mirror 入口	agents,skills,使用超能力,SKILL,Codex,agent,mirror,入口
-.agents/skills/全量项目地图生成/SKILL.md	.agents	docs-agent	doc	1100	Codex/agent mirror 入口	agents,skills,全量项目地图生成,SKILL,Codex,agent,mirror,入口
-.agents/skills/前端/SKILL.md	.agents	docs-agent	doc	1500	Codex/agent mirror 入口	agents,skills,前端,SKILL,Codex,agent,mirror,入口
-.agents/skills/后端/code_organization.md	.agents	docs-agent	doc	3594	Codex/agent mirror 入口	agents,skills,后端,code,organization,Codex,agent,mirror,入口
-.agents/skills/后端/concurrency_basics.md	.agents	docs-agent	doc	3916	Codex/agent mirror 入口	agents,skills,后端,concurrency,basics,Codex,agent,mirror,入口
-.agents/skills/后端/effective_go_rules.md	.agents	docs-agent	doc	4115	Codex/agent mirror 入口	agents,skills,后端,effective,go,rules,Codex,agent,mirror,入口
-.agents/skills/后端/error_handling.md	.agents	docs-agent	doc	4002	Codex/agent mirror 入口	agents,skills,后端,error,handling,Codex,agent,mirror,入口
-.agents/skills/后端/naming_formatting.md	.agents	docs-agent	doc	3111	Codex/agent mirror 入口	agents,skills,后端,naming,formatting,Codex,agent,mirror,入口
-.agents/skills/后端/project_structure.md	.agents	docs-agent	doc	4333	Codex/agent mirror 入口	agents,skills,后端,project,structure,Codex,agent,mirror,入口
-.agents/skills/后端/SKILL.md	.agents	docs-agent	doc	5212	Codex/agent mirror 入口	agents,skills,后端,SKILL,Codex,agent,mirror,入口
-.agents/skills/后端/testing_pitfalls.md	.agents	docs-agent	doc	4607	Codex/agent mirror 入口	agents,skills,后端,testing,pitfalls,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/scripts/frame-template.html	.agents	docs-agent	html	7703	Codex/agent mirror 入口	agents,skills,头脑风暴,scripts,frame,template,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/scripts/helper.js	.agents	docs-agent	js-source	2707	Codex/agent mirror 入口	agents,skills,头脑风暴,scripts,helper,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/scripts/server.cjs	.agents	docs-agent	js-source	11218	Codex/agent mirror 入口	agents,skills,头脑风暴,scripts,server,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/scripts/start-server.sh	.agents	docs-agent	script	4606	Codex/agent mirror 入口	agents,skills,头脑风暴,scripts,start,server,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/scripts/stop-server.sh	.agents	docs-agent	script	1314	Codex/agent mirror 入口	agents,skills,头脑风暴,scripts,stop,server,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/SKILL.md	.agents	docs-agent	doc	9511	Codex/agent mirror 入口	agents,skills,头脑风暴,SKILL,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/spec-document-reviewer-prompt.md	.agents	docs-agent	doc	1895	Codex/agent mirror 入口	agents,skills,头脑风暴,spec,document,reviewer,prompt,Codex,agent,mirror,入口
-.agents/skills/头脑风暴/visual-companion.md	.agents	docs-agent	doc	11345	Codex/agent mirror 入口	agents,skills,头脑风暴,visual,companion,Codex,agent,mirror,入口
-.agents/skills/子代理开发/SKILL.md	.agents	docs-agent	doc	1047	Codex/agent mirror 入口	agents,skills,子代理开发,SKILL,Codex,agent,mirror,入口
-.agents/skills/子代理驱动开发/code-quality-reviewer-prompt.md	.agents	docs-agent	doc	1454	Codex/agent mirror 入口	agents,skills,子代理驱动开发,code,quality,reviewer,prompt,Codex,agent,mirror,入口
-.agents/skills/子代理驱动开发/implementer-prompt.md	.agents	docs-agent	doc	4787	Codex/agent mirror 入口	agents,skills,子代理驱动开发,implementer,prompt,Codex,agent,mirror,入口
-.agents/skills/子代理驱动开发/SKILL.md	.agents	docs-agent	doc	12719	Codex/agent mirror 入口	agents,skills,子代理驱动开发,SKILL,Codex,agent,mirror,入口
-.agents/skills/子代理驱动开发/spec-reviewer-prompt.md	.agents	docs-agent	doc	2530	Codex/agent mirror 入口	agents,skills,子代理驱动开发,spec,reviewer,prompt,Codex,agent,mirror,入口
-.agents/skills/安全工程师/SKILL.md	.agents	docs-agent	doc	907	Codex/agent mirror 入口	agents,skills,安全工程师,SKILL,Codex,agent,mirror,入口
-.agents/skills/安全工程师规范/SKILL.md	.agents	docs-agent	doc	7915	Codex/agent mirror 入口	agents,skills,安全工程师规范,SKILL,Codex,agent,mirror,入口
-.agents/skills/完成前验证/SKILL.md	.agents	docs-agent	doc	4097	Codex/agent mirror 入口	agents,skills,完成前验证,SKILL,Codex,agent,mirror,入口
-.agents/skills/完成开发分支/SKILL.md	.agents	docs-agent	doc	816	Codex/agent mirror 入口	agents,skills,完成开发分支,SKILL,Codex,agent,mirror,入口
-.agents/skills/并行代理调度/SKILL.md	.agents	docs-agent	doc	939	Codex/agent mirror 入口	agents,skills,并行代理调度,SKILL,Codex,agent,mirror,入口
-.agents/skills/思维与决策辅助/SKILL.md	.agents	docs-agent	doc	2882	Codex/agent mirror 入口	agents,skills,思维与决策辅助,SKILL,Codex,agent,mirror,入口
-.agents/skills/执行计划/SKILL.md	.agents	docs-agent	doc	2635	Codex/agent mirror 入口	agents,skills,执行计划,SKILL,Codex,agent,mirror,入口
-.agents/skills/接收代码审查/SKILL.md	.agents	docs-agent	doc	6122	Codex/agent mirror 入口	agents,skills,接收代码审查,SKILL,Codex,agent,mirror,入口
-.agents/skills/日志与错误处理/SKILL.md	.agents	docs-agent	doc	1302	Codex/agent mirror 入口	agents,skills,日志与错误处理,SKILL,Codex,agent,mirror,入口
-.agents/skills/架构设计/SKILL.md	.agents	docs-agent	doc	1612	Codex/agent mirror 入口	agents,skills,架构设计,SKILL,Codex,agent,mirror,入口
-.agents/skills/核心信息提取与总结/SKILL.md	.agents	docs-agent	doc	3309	Codex/agent mirror 入口	agents,skills,核心信息提取与总结,SKILL,Codex,agent,mirror,入口
-.agents/skills/注释规范/SKILL.md	.agents	docs-agent	doc	1966	Codex/agent mirror 入口	agents,skills,注释规范,SKILL,Codex,agent,mirror,入口
-.agents/skills/测试规范/SKILL.md	.agents	docs-agent	doc	1864	Codex/agent mirror 入口	agents,skills,测试规范,SKILL,Codex,agent,mirror,入口
-.agents/skills/测试驱动开发/SKILL.md	.agents	docs-agent	doc	10321	Codex/agent mirror 入口	agents,skills,测试驱动开发,SKILL,Codex,agent,mirror,入口
-.agents/skills/测试驱动开发/testing-anti-patterns.md	.agents	docs-agent	doc	8022	Codex/agent mirror 入口	agents,skills,测试驱动开发,testing,anti,patterns,Codex,agent,mirror,入口
-.agents/skills/系统化调试/condition-based-waiting-example.ts	.agents	docs-agent	ts-source	5054	Codex/agent mirror 入口	agents,skills,系统化调试,condition,based,waiting,example,Codex,agent,mirror,入口
-.agents/skills/系统化调试/condition-based-waiting.md	.agents	docs-agent	doc	3454	Codex/agent mirror 入口	agents,skills,系统化调试,condition,based,waiting,Codex,agent,mirror,入口
-.agents/skills/系统化调试/CREATION-LOG.md	.agents	docs-agent	doc	3996	Codex/agent mirror 入口	agents,skills,系统化调试,CREATION,LOG,Codex,agent,mirror,入口
-.agents/skills/系统化调试/defense-in-depth.md	.agents	docs-agent	doc	3522	Codex/agent mirror 入口	agents,skills,系统化调试,defense,in,depth,Codex,agent,mirror,入口
-.agents/skills/系统化调试/find-polluter.sh	.agents	docs-agent	script	1528	Codex/agent mirror 入口	agents,skills,系统化调试,find,polluter,Codex,agent,mirror,入口
-.agents/skills/系统化调试/root-cause-tracing.md	.agents	docs-agent	doc	5254	Codex/agent mirror 入口	agents,skills,系统化调试,root,cause,tracing,Codex,agent,mirror,入口
-.agents/skills/系统化调试/SKILL.md	.agents	docs-agent	doc	9448	Codex/agent mirror 入口	agents,skills,系统化调试,SKILL,Codex,agent,mirror,入口
-.agents/skills/系统化调试/test-academic.md	.agents	docs-agent	doc	573	Codex/agent mirror 入口	agents,skills,系统化调试,test,academic,Codex,agent,mirror,入口
-.agents/skills/系统化调试/test-pressure-1.md	.agents	docs-agent	doc	1750	Codex/agent mirror 入口	agents,skills,系统化调试,test,pressure,1,Codex,agent,mirror,入口
-.agents/skills/系统化调试/test-pressure-2.md	.agents	docs-agent	doc	2215	Codex/agent mirror 入口	agents,skills,系统化调试,test,pressure,2,Codex,agent,mirror,入口
-.agents/skills/系统化调试/test-pressure-3.md	.agents	docs-agent	doc	2628	Codex/agent mirror 入口	agents,skills,系统化调试,test,pressure,3,Codex,agent,mirror,入口
-.agents/skills/结束开发分支/SKILL.md	.agents	docs-agent	doc	2838	Codex/agent mirror 入口	agents,skills,结束开发分支,SKILL,Codex,agent,mirror,入口
-.agents/skills/编写技能/SKILL.md	.agents	docs-agent	doc	2477	Codex/agent mirror 入口	agents,skills,编写技能,SKILL,Codex,agent,mirror,入口
-.agents/skills/编写计划/plan-document-reviewer-prompt.md	.agents	docs-agent	doc	1860	Codex/agent mirror 入口	agents,skills,编写计划,plan,document,reviewer,prompt,Codex,agent,mirror,入口
-.agents/skills/编写计划/SKILL.md	.agents	docs-agent	doc	6258	Codex/agent mirror 入口	agents,skills,编写计划,SKILL,Codex,agent,mirror,入口
-.agents/skills/请求代码审查/code-reviewer.md	.agents	docs-agent	doc	3462	Codex/agent mirror 入口	agents,skills,请求代码审查,code,reviewer,Codex,agent,mirror,入口
-.agents/skills/请求代码审查/SKILL.md	.agents	docs-agent	doc	3515	Codex/agent mirror 入口	agents,skills,请求代码审查,SKILL,Codex,agent,mirror,入口
-.agents/skills/调度并行代理/SKILL.md	.agents	docs-agent	doc	7503	Codex/agent mirror 入口	agents,skills,调度并行代理,SKILL,Codex,agent,mirror,入口
-AGENTS.md	(root)	docs-agent	doc	7159	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	10469	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	7418	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	6642	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
 docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11811	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
+docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16906	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
 docs/ai01-docs/agent-implementation-plan.md	docs	docs-agent	doc	8571	项目文档体系	docs,ai01,agent,implementation,plan,项目文档体系
 docs/ai01-docs/agent-manus-like-spec.md	docs	docs-agent	doc	23793	项目文档体系	docs,ai01,agent,manus,like,spec,项目文档体系
 docs/ai01-docs/frontend-backend-interface-audit-2026-06-12.md	docs	docs-agent	doc	14309	项目文档体系	docs,ai01,frontend,backend,interface,audit,2026,06,12,项目文档体系
@@ -817,7 +19,7 @@ docs/ai01-docs/plan/每人任务.md	docs	docs-agent	doc	952	项目文档体系	d
 docs/ai01-docs/project-sop/01-handoff-goal-and-intake.md	docs	docs-agent	doc	4569	项目文档体系	docs,ai01,project,sop,01,handoff,goal,and,intake,项目文档体系
 docs/ai01-docs/project-sop/02-business-requirements-agile.md	docs	docs-agent	doc	6799	项目文档体系	docs,ai01,project,sop,02,business,requirements,agile,项目文档体系
 docs/ai01-docs/project-sop/03-architecture-diagrams.md	docs	docs-agent	doc	4841	项目文档体系	docs,ai01,project,sop,03,architecture,diagrams,项目文档体系
-docs/ai01-docs/project-sop/04-data-model.md	docs	docs-agent	doc	6658	项目文档体系	docs,ai01,project,sop,04,data,model,项目文档体系
+docs/ai01-docs/project-sop/04-data-model.md	docs	docs-agent	doc	6691	项目文档体系	docs,ai01,project,sop,04,data,model,项目文档体系
 docs/ai01-docs/project-sop/05-interfaces-and-sequences.md	docs	docs-agent	doc	5447	项目文档体系	docs,ai01,project,sop,05,interfaces,and,sequences,项目文档体系
 docs/ai01-docs/project-sop/06-codebase-startup-quality.md	docs	docs-agent	doc	5404	项目文档体系	docs,ai01,project,sop,06,codebase,startup,quality,项目文档体系
 docs/ai01-docs/project-sop/07-ci-cd-ops-incident.md	docs	docs-agent	doc	5381	项目文档体系	docs,ai01,project,sop,07,ci,cd,ops,incident,项目文档体系
@@ -976,6 +178,8 @@ docs/before/packaging/release-notes-2026-05-28.md	docs	docs-agent	doc	2535	项�
 docs/before/packaging/windows-packaging-guide.md	docs	docs-agent	doc	2463	项目文档体系	docs,before,packaging,windows,guide,项目文档体系
 docs/cc/agent-trace-diagnostics/traceid-agent-diagnostics-finding-2026-06-03.md	docs	docs-agent	doc	14663	项目文档体系	docs,cc,agent,trace,diagnostics,traceid,finding,2026,06,03,项目文档体系
 docs/cc/attachment-atomic-cleanup-removed-findings-20260604.md	docs	docs-agent	doc	3219	项目文档体系	docs,cc,attachment,atomic,cleanup,removed,findings,20260604,项目文档体系
+docs/cc/codex-cli-permission-sync.md	docs	docs-agent	doc	9961	项目文档体系	docs,cc,codex,cli,permission,sync,项目文档体系
+docs/cc/codex-environment-restore-20260703.md	docs	docs-agent	doc	11989	项目文档体系	docs,cc,codex,environment,restore,20260703,项目文档体系
 docs/cc/dag-node-conversation-jump-root-cause-20260606.md	docs	docs-agent	doc	13987	项目文档体系	docs,cc,dag,node,conversation,jump,root,cause,20260606,项目文档体系
 docs/cc/dag/01-create-dag-contract.md	docs	docs-agent	doc	3021	项目文档体系	docs,cc,dag,01,create,contract,项目文档体系
 docs/cc/dag/02-assignee-exec-runtime-guards.md	docs	docs-agent	doc	3130	项目文档体系	docs,cc,dag,02,assignee,exec,runtime,guards,项目文档体系
@@ -994,6 +198,7 @@ docs/cc/dag创建失败/dags/02-dag创建入口校验.md	docs	docs-agent	doc	108
 docs/cc/dag创建失败/dags/03-端到端验收与历史坏数据诊断.md	docs	docs-agent	doc	7297	项目文档体系	docs,cc,dag创建失败,dags,03,端到端验收与历史坏数据诊断,项目文档体系
 docs/cc/dag创建失败/dags/04-agent首轮输入缺失修正.md	docs	docs-agent	doc	8845	项目文档体系	docs,cc,dag创建失败,dags,04,agent首轮输入缺失修正,项目文档体系
 docs/cc/dag创建失败/README.md	docs	docs-agent	doc	8911	项目文档体系	docs,cc,dag创建失败,README,项目文档体系
+docs/cc/desktop-agent-launch-e2e-structured-output-design-20260702.md	docs	docs-agent	doc	13271	项目文档体系	docs,cc,desktop,agent,launch,e2e,structured,output,design,20260702,项目文档体系
 docs/cc/lsp-shell-diagnostics-review-findings-20260604.md	docs	docs-agent	doc	6983	项目文档体系	docs,cc,lsp,shell,diagnostics,review,findings,20260604,项目文档体系
 docs/cc/lsp-shell-diagnostics-root-cause-20260604.md	docs	docs-agent	doc	10571	项目文档体系	docs,cc,lsp,shell,diagnostics,root,cause,20260604,项目文档体系
 docs/cc/lsp-shell-tdd-packaged-evidence-20260604.md	docs	docs-agent	doc	9380	项目文档体系	docs,cc,lsp,shell,tdd,packaged,evidence,20260604,项目文档体系
@@ -1108,7 +313,7 @@ docs/cc/数据库切换/sqlite-data-reset.md	docs	docs-agent	doc	1625	项目文�
 docs/cc/数据库切换/sqlite-release-gate-report.md	docs	docs-agent	doc	4839	项目文档体系	docs,cc,数据库切换,sqlite,release,gate,report,项目文档体系
 docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-14.md	docs	docs-agent	doc	6524	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,14,项目文档体系
 docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-15.md	docs	docs-agent	doc	4804	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,15,项目文档体系
-docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25334	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25340	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	3872	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3962	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
 docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	67927	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
@@ -1121,13 +326,15 @@ docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	37707	手写代码地图
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6108	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
 docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54974	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
 docs/doc/codemap/09-provider.md	docs	docs-agent	doc	77836	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
-docs/doc/codemap/10-store.md	docs	docs-agent	doc	62227	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
+docs/doc/codemap/10-store.md	docs	docs-agent	doc	62448	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59144	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1269659	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
+docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1322309	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3030	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
+docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
+docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2271	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2271	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	65302	项目文档体系	docs,li,2026,06,27,reasonix,architecture,absorption,plan,项目文档体系
@@ -1153,10 +360,53 @@ docs/plans/2026-06-01-lsp-output-unification.md	docs	docs-agent	doc	11351	历史
 docs/plans/2026-06-06-code-guard-thaw-dag-plan.md	docs	docs-agent	doc	11416	历史计划与迁移执行文档	docs,plans,2026,06,code,guard,thaw,dag,plan,历史计划与迁移执行文档
 docs/plans/2026-06-06-code-guard-thaw-n0-b1-review.md	docs	docs-agent	doc	45715	历史计划与迁移执行文档	docs,plans,2026,06,code,guard,thaw,n0,b1,review,历史计划与迁移执行文档
 docs/plans/2026-06-26-production-reachable-risk-remediation.md	docs	docs-agent	doc	26034	历史计划与迁移执行文档	docs,plans,2026,06,26,production,reachable,risk,remediation,历史计划与迁移执行文档
-docs/plans/2026-06-27-20agent-production-risk-remediation.md	docs	docs-agent	doc	40550	历史计划与迁移执行文档	docs,plans,2026,06,27,20agent,production,risk,remediation,历史计划与迁移执行文档
+docs/plans/2026-06-27-20agent-production-risk-remediation.md	docs	docs-agent	doc	40723	历史计划与迁移执行文档	docs,plans,2026,06,27,20agent,production,risk,remediation,历史计划与迁移执行文档
 docs/plans/2026-06-27-d01-module-store-decoupling.md	docs	docs-agent	doc	31490	历史计划与迁移执行文档	docs,plans,2026,06,27,d01,module,store,decoupling,历史计划与迁移执行文档
 docs/plans/2026-06-28-20agent-production-risk-remediation.md	docs	docs-agent	doc	40765	历史计划与迁移执行文档	docs,plans,2026,06,28,20agent,production,risk,remediation,历史计划与迁移执行文档
-docs/plans/2026-06-29-reasonix-design-absorption-plan.md	docs	docs-agent	doc	31258	历史计划与迁移执行文档	docs,plans,2026,06,29,reasonix,design,absorption,plan,历史计划与迁移执行文档
+docs/plans/2026-06-29-reasonix-design-absorption-plan.md	docs	docs-agent	doc	31510	历史计划与迁移执行文档	docs,plans,2026,06,29,reasonix,design,absorption,plan,历史计划与迁移执行文档
+docs/plans/2026-06-30-reasonix-hardening-absorption-review.md	docs	docs-agent	doc	19631	历史计划与迁移执行文档	docs,plans,2026,06,30,reasonix,hardening,absorption,review,历史计划与迁移执行文档
+docs/plans/2026-07-01-20agent-production-risk-remediation.md	docs	docs-agent	doc	37009	历史计划与迁移执行文档	docs,plans,2026,07,01,20agent,production,risk,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-03-codex-cli-permission-sync.md	docs	docs-agent	doc	20877	历史计划与迁移执行文档	docs,plans,2026,07,03,codex,cli,permission,sync,历史计划与迁移执行文档
+docs/plans/2026-07-04-20agent-production-risk-remediation.md	docs	docs-agent	doc	38846	历史计划与迁移执行文档	docs,plans,2026,07,04,20agent,production,risk,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-04-code-preview-open-race.md	docs	docs-agent	doc	740	历史计划与迁移执行文档	docs,plans,2026,07,04,code,preview,open,race,历史计划与迁移执行文档
+docs/plans/2026-07-04-code-preview-snippet-readonly.md	docs	docs-agent	doc	5289	历史计划与迁移执行文档	docs,plans,2026,07,04,code,preview,snippet,readonly,历史计划与迁移执行文档
+docs/plans/2026-07-04-frontend-api-failfast-response-guards.md	docs	docs-agent	doc	14360	历史计划与迁移执行文档	docs,plans,2026,07,04,frontend,api,failfast,response,guards,历史计划与迁移执行文档
+docs/plans/2026-07-04-safe-rpc-error-trace.md	docs	docs-agent	doc	894	历史计划与迁移执行文档	docs,plans,2026,07,04,safe,rpc,error,trace,历史计划与迁移执行文档
+docs/plans/2026-07-04-safe-rpc-result-preview.md	docs	docs-agent	doc	893	历史计划与迁移执行文档	docs,plans,2026,07,04,safe,rpc,result,preview,历史计划与迁移执行文档
+docs/plans/2026-07-04-send-rollback-request-scope.md	docs	docs-agent	doc	9867	历史计划与迁移执行文档	docs,plans,2026,07,04,send,rollback,request,scope,历史计划与迁移执行文档
+docs/plans/2026-07-04-skill-read-response-contract.md	docs	docs-agent	doc	6574	历史计划与迁移执行文档	docs,plans,2026,07,04,skill,read,response,contract,历史计划与迁移执行文档
+docs/plans/2026-07-05-30agent-production-risk-remediation.md	docs	docs-agent	doc	56058	历史计划与迁移执行文档	docs,plans,2026,07,05,30agent,production,risk,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-05-app-update-install-validator.md	docs	docs-agent	doc	2564	历史计划与迁移执行文档	docs,plans,2026,07,05,app,update,install,validator,历史计划与迁移执行文档
+docs/plans/2026-07-05-approval-request-id-strict.md	docs	docs-agent	doc	2844	历史计划与迁移执行文档	docs,plans,2026,07,05,approval,request,id,strict,历史计划与迁移执行文档
+docs/plans/2026-07-05-claude-mcp-stdio-allowlist.md	docs	docs-agent	doc	3163	历史计划与迁移执行文档	docs,plans,2026,07,05,claude,mcp,stdio,allowlist,历史计划与迁移执行文档
+docs/plans/2026-07-05-code-guard-baseline-parallel-remediation.md	docs	docs-agent	doc	24509	历史计划与迁移执行文档	docs,plans,2026,07,05,code,guard,baseline,parallel,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-05-codex-readonly-roots.md	docs	docs-agent	doc	4352	历史计划与迁移执行文档	docs,plans,2026,07,05,codex,readonly,roots,历史计划与迁移执行文档
+docs/plans/2026-07-05-codex-sandbox-policy-wire.md	docs	docs-agent	doc	4518	历史计划与迁移执行文档	docs,plans,2026,07,05,codex,sandbox,policy,wire,历史计划与迁移执行文档
+docs/plans/2026-07-05-composer-send-failure-draft-cache.md	docs	docs-agent	doc	7715	历史计划与迁移执行文档	docs,plans,2026,07,05,composer,send,failure,draft,cache,历史计划与迁移执行文档
+docs/plans/2026-07-05-mcp-server-public-config-redaction.md	docs	docs-agent	doc	900	历史计划与迁移执行文档	docs,plans,2026,07,05,mcp,server,public,config,redaction,历史计划与迁移执行文档
+docs/plans/2026-07-05-memory-modal-cwd-guard.md	docs	docs-agent	doc	3438	历史计划与迁移执行文档	docs,plans,2026,07,05,memory,modal,cwd,guard,历史计划与迁移执行文档
+docs/plans/2026-07-05-preserve-paused-dag-schedule.md	docs	docs-agent	doc	4310	历史计划与迁移执行文档	docs,plans,2026,07,05,preserve,paused,dag,schedule,历史计划与迁移执行文档
+docs/plans/2026-07-05-production-guard-one-shot-parallel-remediation.md	docs	docs-agent	doc	35295	历史计划与迁移执行文档	docs,plans,2026,07,05,production,guard,one,shot,parallel,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-05-runtime-mcp-stdio-policy.md	docs	docs-agent	doc	5235	历史计划与迁移执行文档	docs,plans,2026,07,05,runtime,mcp,stdio,policy,历史计划与迁移执行文档
+docs/plans/2026-07-05-runtime-result-fields-redaction.md	docs	docs-agent	doc	9879	历史计划与迁移执行文档	docs,plans,2026,07,05,runtime,result,fields,redaction,历史计划与迁移执行文档
+docs/plans/2026-07-05-runtime-tool-result-redaction.md	docs	docs-agent	doc	2426	历史计划与迁移执行文档	docs,plans,2026,07,05,runtime,tool,result,redaction,历史计划与迁移执行文档
+docs/plans/2026-07-05-warning-correlation-token-redaction.md	docs	docs-agent	doc	3673	历史计划与迁移执行文档	docs,plans,2026,07,05,warning,correlation,token,redaction,历史计划与迁移执行文档
+docs/plans/2026-07-05-warning-runtime-redaction.md	docs	docs-agent	doc	7371	历史计划与迁移执行文档	docs,plans,2026,07,05,warning,runtime,redaction,历史计划与迁移执行文档
+docs/plans/2026-07-05-workflow-dag-response-validation.md	docs	docs-agent	doc	1464	历史计划与迁移执行文档	docs,plans,2026,07,05,workflow,dag,response,validation,历史计划与迁移执行文档
+docs/plans/2026-07-06-chat-ui-action-error-reporting.md	docs	docs-agent	doc	3646	历史计划与迁移执行文档	docs,plans,2026,07,06,chat,ui,action,error,reporting,历史计划与迁移执行文档
+docs/plans/2026-07-06-code-preview-save-snapshot.md	docs	docs-agent	doc	4366	历史计划与迁移执行文档	docs,plans,2026,07,06,code,preview,save,snapshot,历史计划与迁移执行文档
+docs/plans/2026-07-06-files-detail-request-guard.md	docs	docs-agent	doc	4120	历史计划与迁移执行文档	docs,plans,2026,07,06,files,detail,request,guard,历史计划与迁移执行文档
+docs/plans/2026-07-06-memory-target-payload-validation.md	docs	docs-agent	doc	4532	历史计划与迁移执行文档	docs,plans,2026,07,06,memory,target,payload,validation,历史计划与迁移执行文档
+docs/plans/2026-07-06-retryable-sync-error-failure.md	docs	docs-agent	doc	3753	历史计划与迁移执行文档	docs,plans,2026,07,06,retryable,sync,error,failure,历史计划与迁移执行文档
+docs/plans/2026-07-06-skill-resolution-apply-proof-validation.md	docs	docs-agent	doc	3891	历史计划与迁移执行文档	docs,plans,2026,07,06,skill,resolution,apply,proof,validation,历史计划与迁移执行文档
+docs/plans/2026-07-06-skill-resolution-partial-failure.md	docs	docs-agent	doc	4338	历史计划与迁移执行文档	docs,plans,2026,07,06,skill,resolution,partial,failure,历史计划与迁移执行文档
+docs/plans/2026-07-06-skill-resolution-payload-required-fields.md	docs	docs-agent	doc	4177	历史计划与迁移执行文档	docs,plans,2026,07,06,skill,resolution,payload,required,fields,历史计划与迁移执行文档
+docs/plans/2026-07-06-test-code-guard-baseline-zero-plan.md	docs	docs-agent	doc	30353	历史计划与迁移执行文档	docs,plans,2026,07,06,test,code,guard,baseline,zero,plan,历史计划与迁移执行文档
+docs/plans/2026-07-06-workflow-refresh-failure-notice.md	docs	docs-agent	doc	3728	历史计划与迁移执行文档	docs,plans,2026,07,06,workflow,refresh,failure,notice,历史计划与迁移执行文档
+docs/plans/2026-07-07-ai-maintenance-boundaries-p0-baseline.md	docs	docs-agent	doc	4676	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,p0,baseline,历史计划与迁移执行文档
+docs/plans/2026-07-07-ai-maintenance-boundaries-parallel-agents.md	docs	docs-agent	doc	17513	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,parallel,agents,历史计划与迁移执行文档
+docs/plans/2026-07-07-ai-maintenance-boundaries.md	docs	docs-agent	doc	193430	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,历史计划与迁移执行文档
+docs/plans/2026-07-07-frontend-mature-replacement-roadmap.md	docs	docs-agent	doc	60577	历史计划与迁移执行文档	docs,plans,2026,07,frontend,mature,replacement,roadmap,历史计划与迁移执行文档
 docs/plans/claude缓存保活计划.md	docs	docs-agent	doc	27030	历史计划与迁移执行文档	docs,plans,claude缓存保活计划,历史计划与迁移执行文档
 docs/plans/context-optimization-per-tool-budget.md	docs	docs-agent	doc	13782	历史计划与迁移执行文档	docs,plans,context,optimization,per,tool,budget,历史计划与迁移执行文档
 docs/plans/dag-lifecycle-c-a-implementation.md	docs	docs-agent	doc	49805	历史计划与迁移执行文档	docs,plans,dag,lifecycle,c,a,implementation,历史计划与迁移执行文档
@@ -1558,6 +808,7 @@ docs/superpowers/specs/2026-06-16-custom-role-personalization-design.md	docs	doc
 docs/superpowers/specs/2026-06-16-project-governance-design.md	docs	docs-agent	doc	10790	项目文档体系	docs,superpowers,specs,2026,06,16,project,governance,design,项目文档体系
 docs/superpowers/specs/2026-06-23-model-provider-management-design.md	docs	docs-agent	doc	5548	项目文档体系	docs,superpowers,specs,2026,06,23,model,provider,management,design,项目文档体系
 docs/superpowers/specs/2026-06-23-p1a-codex-identity-inheritance-design.md	docs	docs-agent	doc	4668	项目文档体系	docs,superpowers,specs,2026,06,23,p1a,codex,identity,inheritance,design,项目文档体系
+docs/superpowers/specs/2026-07-03-codex-cli-permission-sync-design.md	docs	docs-agent	doc	9639	项目文档体系	docs,superpowers,specs,2026,07,03,codex,cli,permission,sync,design,项目文档体系
 docs/superpowers/需求文档/全功能UI重构-未完成.md	docs	docs-agent	doc	5711	项目文档体系	docs,superpowers,需求文档,全功能UI重构,未完成,项目文档体系
 docs/superpowers/需求文档/发布验收清单-未完成.md	docs	docs-agent	doc	3472	项目文档体系	docs,superpowers,需求文档,发布验收清单,未完成,项目文档体系
 docs/superpowers/需求文档/后台页面字段清单-未完成.md	docs	docs-agent	doc	3991	项目文档体系	docs,superpowers,需求文档,后台页面字段清单,未完成,项目文档体系
@@ -1593,3 +844,4 @@ docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	�
 docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
+README.md	(root)	docs-agent	doc	8959	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件

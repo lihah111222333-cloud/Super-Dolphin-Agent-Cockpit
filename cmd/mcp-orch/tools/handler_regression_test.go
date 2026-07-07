@@ -403,6 +403,32 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score","cwd":"/repo","workspace_roots":["/repo"]}}}}]`)
 }
 
+func TestHandleApplyOpsBuildsFlatAddNodeReadsWrites(t *testing.T) {
+	var got contract.ApplyOpsRequest
+	handler := HandleApplyOps(&golden.OrchestrationStub{
+		ApplyOpsFunc: func(_ context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+			got = req
+			return contract.ApplyOpsResponse{NewVersion: 6}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"dag_key":"dag-flat",
+		"base_version":5,
+		"action":"add_node",
+		"node_key":"materialize",
+		"title":"Materialize",
+		"node_type":"agent",
+		"assigned_to":"agent-materialize",
+		"reads":["shared://inputs/source.md"],
+		"writes":["shared://outputs/report.md"]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleApplyOps() error = %v", err)
+	}
+	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"materialize","title":"Materialize","node_type":"agent","assigned_to":"agent-materialize","reads":["shared://inputs/source.md"],"writes":["shared://outputs/report.md"]}}]`)
+}
+
 func TestHandleApplyOpsBuildsFlatUpdateNode(t *testing.T) {
 	var got contract.ApplyOpsRequest
 	handler := HandleApplyOps(&golden.OrchestrationStub{
@@ -424,6 +450,29 @@ func TestHandleApplyOpsBuildsFlatUpdateNode(t *testing.T) {
 		t.Fatalf("HandleApplyOps() error = %v", err)
 	}
 	assertJSONEqual(t, got.Ops, `[{"op":"update_node","node_key":"score","patch":{"title":"Score v2","depends_on":[]}}]`)
+}
+
+func TestHandleApplyOpsBuildsFlatUpdateNodeReadsWrites(t *testing.T) {
+	var got contract.ApplyOpsRequest
+	handler := HandleApplyOps(&golden.OrchestrationStub{
+		ApplyOpsFunc: func(_ context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+			got = req
+			return contract.ApplyOpsResponse{NewVersion: 6}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"dag_key":"dag-flat",
+		"base_version":5,
+		"action":"update_node",
+		"node_key":"materialize",
+		"reads":["shared://inputs/new-source.md"],
+		"writes":[]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleApplyOps() error = %v", err)
+	}
+	assertJSONEqual(t, got.Ops, `[{"op":"update_node","node_key":"materialize","patch":{"reads":["shared://inputs/new-source.md"],"writes":[]}}]`)
 }
 
 func TestHandleApplyOpsRejectsPatchFlatConflict(t *testing.T) {

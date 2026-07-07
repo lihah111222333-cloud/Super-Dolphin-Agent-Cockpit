@@ -140,13 +140,11 @@ func TestDirectStdioServerMcpLSPFamilyUsesRuntimeWorkspaceRootsWhenMetadataMissi
 	assertDirectToolOutputOK(t, output.Bytes())
 }
 
-func TestHandleScopedToolsCallMergesRuntimeWorkspaceRootsWithMetadataRoots(t *testing.T) {
+func TestHandleScopedToolsCallKeepsMetadataRootsImmutableWhenRuntimeEnvIsInvalid(t *testing.T) {
 	metadataRoot := canonicalToolTestRoot(t, t.TempDir())
 	runtimeRoot := canonicalToolTestRoot(t, t.TempDir())
-	rawRoots, err := json.Marshal([]string{runtimeRoot})
-	require.NoError(t, err)
 	t.Setenv("GO_AGENT_LSP_ROOT", runtimeRoot)
-	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+	t.Setenv("GO_AGENT_LSP_ROOTS", "[")
 
 	called := false
 	defs := []toolDefinition{{
@@ -155,11 +153,10 @@ func TestHandleScopedToolsCallMergesRuntimeWorkspaceRootsWithMetadataRoots(t *te
 			called = true
 			scope := requireToolScope(t, ctx)
 			require.Equal(t, metadataRoot, scope.CWD)
-			require.Contains(t, scope.WorkspaceRoots, metadataRoot)
-			require.Contains(t, scope.WorkspaceRoots, runtimeRoot)
+			require.Equal(t, []string{metadataRoot}, scope.WorkspaceRoots)
 			roots, err := common.WorkspaceRootsFromContextStrict(ctx)
 			require.NoError(t, err)
-			require.Contains(t, roots, runtimeRoot)
+			require.Equal(t, []string{metadataRoot}, roots)
 			return map[string]any{"ok": true}, nil
 		},
 	}}
@@ -176,7 +173,7 @@ func TestHandleScopedToolsCallMergesRuntimeWorkspaceRootsWithMetadataRoots(t *te
 	require.True(t, called, "tools/call did not reach handler")
 }
 
-func TestHandleScopedToolsCallAllowsConfiguredRuntimeRootWorkDir(t *testing.T) {
+func TestHandleScopedToolsCallRejectsRuntimeRootWorkDirWhenMetadataRootsPresent(t *testing.T) {
 	metadataRoot := canonicalToolTestRoot(t, t.TempDir())
 	runtimeRoot := canonicalToolTestRoot(t, t.TempDir())
 	writeTestFile(t, filepath.Join(runtimeRoot, "main.go"), "package main\n")
@@ -206,6 +203,41 @@ func TestHandleScopedToolsCallAllowsConfiguredRuntimeRootWorkDir(t *testing.T) {
 	require.NoError(t, err)
 
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
+	require.NoError(t, err)
+	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "outside workspace roots")
+	require.NotContains(t, string(raw), "package main")
+}
+
+func TestHandleScopedToolsCallAllowsRuntimeRootWorkDirWithExplicitCapability(t *testing.T) {
+	metadataRoot := canonicalToolTestRoot(t, t.TempDir())
+	runtimeRoot := canonicalToolTestRoot(t, t.TempDir())
+	writeTestFile(t, filepath.Join(runtimeRoot, "main.go"), "package main\n")
+
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "file"},
+		Handler: ToolHandler(lsptools.NewFileHandler(lsptools.Config{
+			WorkspaceRoot: metadataRoot,
+		})),
+	}}
+	params, err := json.Marshal(map[string]any{
+		"name": "file",
+		"arguments": map[string]any{
+			"action":    "read_file",
+			"file_path": "main.go",
+			"scope":     "lines",
+			"limit":     5,
+			"work_dir":  runtimeRoot,
+		},
+		"_cwd":            metadataRoot,
+		"_workspaceRoots": []string{metadataRoot},
+	})
+	require.NoError(t, err)
+	ctx, err := lsptools.WithRuntimeWorkspaceRootCapability(context.Background(), []string{runtimeRoot})
+	require.NoError(t, err)
+
+	result, err := handleScopedToolsCall(ctx, registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
 	raw, err := json.Marshal(result)
 	require.NoError(t, err)

@@ -229,6 +229,24 @@ func (s *session) restartReasonLocked() string {
 	return "settings_changed"
 }
 
+// recoverTransportAfterWriteFailure 在 stdin 写入结果未知后后台重启 Claude transport。
+// 它只恢复会话传输，不重放失败 payload，避免重复提交用户输入。
+func (s *session) recoverTransportAfterWriteFailure() {
+	if s == nil {
+		return
+	}
+	safego.Go(context.Background(), nil, "claudecli.session.writeFailureRecovery", func(ctx context.Context) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.transport == nil || s.transport.readyForSend() {
+			return
+		}
+		if err := s.restartIfNeededLocked(ctx, dto.TurnRequest{}); err != nil && s.logger != nil {
+			s.logger.Warn("claudecli: write failure recovery failed", "error", err)
+		}
+	})
+}
+
 func (s *session) logRestartLocked(reason string, next stagedSessionState, resumeID string) {
 	if s.logger == nil {
 		return

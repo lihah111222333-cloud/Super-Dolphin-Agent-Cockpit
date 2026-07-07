@@ -4,7 +4,7 @@ import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, Refres
 import { defaultUrlTransform } from 'react-markdown';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceChunks, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
+import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceChunks, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectDatasourceImportFile, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './SkillsPage.css';
@@ -1460,12 +1460,14 @@ function DataSourceView({ copy }) {
     setNotice('');
     setActionError('');
     try {
-      const selected = await selectFiles({ filters: DATASOURCE_IMPORT_FILTERS });
-      const selectedPath = cleanScalar(selected[0]);
+      const selected = await selectDatasourceImportFile({ filters: DATASOURCE_IMPORT_FILTERS });
+      const selectedPath = cleanScalar(selected?.sourcePath);
       if (!selectedPath) return;
+      const pickerToken = cleanScalar(selected?.pickerToken);
+      if (!pickerToken) throw new Error('pickerToken is required');
       setSourcePath(selectedPath);
       await runAction(async () => {
-        await importDatasourceLocalFile({ sourcePath: selectedPath });
+        await importDatasourceLocalFile({ sourcePath: selectedPath, pickerToken });
         setSourcePath('');
       }, DATASOURCE_UI.importSuccess);
     } catch (error) {

@@ -309,7 +309,7 @@ func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
 	}
 }
 
-func TestWriteLocalPublishReportsSameNameConflictButContinuesSafeMirrorWrites(t *testing.T) {
+func TestWriteLocalPublishConflictBlocksBeforeCanonicalWrite(t *testing.T) {
 	projectRoot := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agents", "skills", "old"), "old")
@@ -337,61 +337,76 @@ func TestWriteLocalPublishReportsSameNameConflictButContinuesSafeMirrorWrites(t 
 		t.Fatalf("WriteFile safe canonical skill: %v", err)
 	}
 
-	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nproject", skillScopeProject)
-	if err != nil {
-		t.Fatalf("WriteLocal() error = %v", err)
-	}
-
-	report := mustMirrorPublishReport(t, out.(map[string]any))
-	assertConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "", "same_name")
-	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\nproject")
+	_, err = svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nproject", skillScopeProject)
+	assertMirrorBlockingErrorContains(t, err, "canonical_deleted_with_drift")
+	assertMissing(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile))
 	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile))
-	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "old", skillMainFile))
-	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "safe", skillMainFile), "---\nname: safe\n---\nsafe")
-	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "safe", "project/safe")
-	assertDeletedReportItem(t, report.Deleted, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "old", "project/old")
+	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "old", skillMainFile), "---\nname: old\n---\nold")
+	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "safe", skillMainFile))
 }
 
-func TestWriteLocalPublishConflictKeepsCanonicalResult(t *testing.T) {
+func TestWriteLocalPublishConflictBlocksCanonicalWrite(t *testing.T) {
 	projectRoot := t.TempDir()
 	claudeMirror := filepath.Join(projectRoot, ".claude", "skills", "build")
 	mustMkdirAll(t, claudeMirror)
 	mustWriteFile(t, filepath.Join(claudeMirror, skillMainFile), "unmanaged")
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
 
-	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
-	if err != nil {
-		t.Fatalf("WriteLocal() error = %v", err)
-	}
-
-	result := out.(map[string]any)
-	report := mustMirrorPublishReport(t, result)
-	assertConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build", "unmanaged")
-	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
+	assertMirrorBlockingErrorContains(t, err, "unmanaged")
+	assertMissing(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile))
 	assertFileContent(t, filepath.Join(claudeMirror, skillMainFile), "unmanaged")
 }
 
-func TestWriteLocalPublishErrorReportIncludesDetail(t *testing.T) {
+func TestWriteLocalPublishErrorBlocksAndRollsBackCanonical(t *testing.T) {
 	projectRoot := t.TempDir()
-	legacyRoot := filepath.Join(projectRoot, ".claude", "skills")
-	mustMkdirAll(t, filepath.Dir(legacyRoot))
-	if err := os.Symlink(filepath.Join(t.TempDir(), "skills-cache"), legacyRoot); err != nil {
-		skipIfSymlinkPrivilegeNotHeld(t, err)
-		t.Fatalf("Symlink legacy root: %v", err)
+	claudeHome := filepath.Join(projectRoot, ".claude")
+	mustMkdirAll(t, claudeHome)
+	if err := os.Chmod(claudeHome, 0o555); err != nil {
+		t.Fatalf("Chmod readonly Claude home: %v", err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(claudeHome, 0o755) })
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
 
-	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
-	if err != nil {
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
+	assertMirrorPublishBlockingError(t, err)
+	assertMissing(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile))
+}
+
+func TestDeleteLocalPublishErrorBlocksAndRestoresCanonical(t *testing.T) {
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject); err != nil {
 		t.Fatalf("WriteLocal() error = %v", err)
 	}
-
-	report := mustMirrorPublishReport(t, out.(map[string]any))
-	item := findConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build", "publish_error")
-	if !strings.Contains(item.Error, "symlink") {
-		t.Fatalf("publish error detail = %q, want symlink detail", item.Error)
+	claudeRoot := providerProjectMirrorRoot(SkillProviderClaude, projectRoot)
+	if err := os.Chmod(claudeRoot, 0o555); err != nil {
+		t.Fatalf("Chmod readonly Claude mirror root: %v", err)
 	}
-	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
+	t.Cleanup(func() { _ = os.Chmod(claudeRoot, 0o755) })
+
+	_, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "build", Scope: skillScopeProject})
+	assertMirrorPublishBlockingError(t, err)
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+}
+
+func assertMirrorPublishBlockingError(t *testing.T, err error) {
+	t.Helper()
+
+	assertMirrorBlockingErrorContains(t, err, "publish_error")
+}
+
+func assertMirrorBlockingErrorContains(t *testing.T, err error, wants ...string) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatal("mirror blocking error = nil")
+	}
+	for _, want := range append([]string{"mirror"}, wants...) {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("mirror blocking error = %q, want detail %q", err.Error(), want)
+		}
+	}
 }
 
 func TestWriteLocalPersonalPublishesUserGlobalMirrors(t *testing.T) {

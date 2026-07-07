@@ -173,6 +173,24 @@ func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
 	}
 }
 
+func writePreCommitFakeCodemapMakefile(t *testing.T, root string) {
+	t.Helper()
+	content := ".PHONY: codemap-refresh project-map-refresh\n\n" +
+		"codemap-refresh:\n" +
+		"\t@mkdir -p docs/doc/codemap\n" +
+		"\t@printf 'readme refreshed\\n' > docs/doc/codemap/README.md\n" +
+		"\t@printf '{\"generated\":true}\\n' > docs/doc/codemap/ai-index.json\n\n" +
+		"project-map-refresh:\n" +
+		"\t@mkdir -p docs/doc/codemap/project-map/index\n" +
+		"\t@printf 'project map refreshed\\n' > docs/doc/codemap/project-map/AI_PROJECT_MAP.md\n" +
+		"\t@printf 'drift refreshed\\n' > docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\n" +
+		"\t@printf '{\"generated\":true}\\n' > docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json\n" +
+		"\t@printf 'path\\tmodule\\n' > docs/doc/codemap/project-map/index/other.tsv\n"
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write fake Makefile: %v", err)
+	}
+}
+
 func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 	t.Helper()
 	binDir := t.TempDir()

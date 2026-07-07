@@ -124,6 +124,7 @@ func TestPackageMacOSScriptRequiresVerifiedLSPBundle(t *testing.T) {
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
+		"sql-language-server",
 		"shellcheck",
 		"sg",
 		"bin/sg",
@@ -160,10 +161,10 @@ func TestPackageMacOSScriptStandardProfileDoesNotRequireJDTLS(t *testing.T) {
 	assertScriptDoesNotContain(t, standardSpecs, "jdtls")
 }
 
-func TestPackageMacOSScriptRequiresAndCopiesShellLSPTools(t *testing.T) {
+func TestPackageMacOSScriptRequiresAndCopiesShellAndSQLLSPTools(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
-	for _, spec := range []string{"\"bash-language-server|bin/bash-language-server\"", "\"shellcheck|bin/shellcheck\""} {
+	for _, spec := range []string{"\"bash-language-server|bin/bash-language-server\"", "\"sql-language-server|bin/sql-language-server\"", "\"shellcheck|bin/shellcheck\""} {
 		assertScriptContains(t, script, spec)
 		assertScriptOrder(t, script, spec, "resolve_packaged_lsp_bundle")
 	}

@@ -181,10 +181,7 @@ type boundaryCandidate struct {
 // bestBoundary 在 min/max token 窗口内寻找最接近目标大小的自然切分点。
 func bestBoundary(text string, tokens []chunkToken, startToken int, opts ChunkOptions) (boundaryCandidate, bool) {
 	left := startToken + opts.MinTokens
-	right := startToken + opts.MaxTokens
-	if right > len(tokens) {
-		right = len(tokens)
-	}
+	right := min(startToken+opts.MaxTokens, len(tokens))
 	target := startToken + opts.TargetTokens
 
 	var best boundaryCandidate

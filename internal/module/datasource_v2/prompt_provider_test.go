@@ -3,6 +3,7 @@ package datasourcev2_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -98,6 +99,87 @@ func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *te
 	}
 }
 
+func TestPromptAssemblyDoesNotLeakDatasourceV2SourcePathWhenFileNameMissing(t *testing.T) {
+	t.Parallel()
+
+	secretPath := "/Users/alice/private/strategy.txt"
+	chunk := promptSemanticChunkForTest(303, 1, "", "source path should not appear")
+	chunk.SourcePath = secretPath
+
+	start, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2store.SemanticChunk{chunk})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	content := promptSectionContent(start.ResolvedSections, contract.DynamicSectionDatasourceV2)
+	for _, body := range []string{content, start.BaseInstructions} {
+		if strings.Contains(body, secretPath) {
+			t.Fatalf("datasource_v2 prompt leaked source path %q:\n%s", secretPath, body)
+		}
+		if !strings.Contains(body, "### 1. document 303 [chunk 1]") {
+			t.Fatalf("datasource_v2 prompt missing document fallback title:\n%s", body)
+		}
+	}
+}
+
+func TestPromptAssemblyTruncatesDatasourceV2ChunkAndReportsDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	chunk := strings.Repeat("A", 64*1024) + "TAIL_SHOULD_NOT_APPEAR"
+	start, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2store.SemanticChunk{
+		promptSemanticChunkForTest(1, 0, "large.txt", chunk),
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	content := promptSectionContent(start.ResolvedSections, contract.DynamicSectionDatasourceV2)
+	if len(content) >= len(chunk) {
+		t.Fatalf("datasource_v2 prompt length = %d, want capped below original chunk length %d", len(content), len(chunk))
+	}
+	if strings.Contains(content, "TAIL_SHOULD_NOT_APPEAR") {
+		t.Fatalf("datasource_v2 prompt kept content past chunk byte cap")
+	}
+	if !strings.Contains(strings.ToLower(content), "truncated") {
+		t.Fatalf("datasource_v2 prompt missing truncation diagnostic:\n%s", content)
+	}
+}
+
+func TestPromptAssemblyTruncatesDatasourceV2TotalBudgetAndReportsDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	chunks := make([]datasourcev2store.SemanticChunk, 0, 10)
+	for i := range 10 {
+		chunks = append(chunks, promptSemanticChunkForTest(int64(i+1), int32(i), fmt.Sprintf("chunk-%02d.txt", i), strings.Repeat(fmt.Sprintf("%d", i), 12*1024)))
+	}
+	start, _, err := assembleDatasourceV2PromptForTest(t, chunks)
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	content := promptSectionContent(start.ResolvedSections, contract.DynamicSectionDatasourceV2)
+	if len(content) >= 120*1024 {
+		t.Fatalf("datasource_v2 prompt length = %d, want total byte budget below full chunk set", len(content))
+	}
+	if strings.Contains(content, "chunk-09.txt") {
+		t.Fatalf("datasource_v2 prompt included final chunk despite total byte cap:\n%s", content)
+	}
+	if !strings.Contains(strings.ToLower(content), "truncated") {
+		t.Fatalf("datasource_v2 prompt missing total truncation diagnostic:\n%s", content)
+	}
+}
+
+func TestPromptAssemblyFailsWhenDatasourceV2PromptBudgetRemovesEveryChunk(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2store.SemanticChunk{
+		promptSemanticChunkForTest(1, 0, "empty.txt", strings.Repeat(" ", 64)),
+	})
+	if err == nil {
+		t.Fatal("AssembleStart() error = nil, want critical datasource_v2 prompt error")
+	}
+	if !contract.IsCriticalPromptSectionError(err) {
+		t.Fatalf("AssembleStart() error = %T %[1]v, want critical prompt section error", err)
+	}
+}
+
 type promptDatasourceV2Store struct {
 	promptDatasourceV2UnusedStore
 
@@ -135,6 +217,50 @@ func (s *promptDatasourceV2Store) SearchChunks(
 ) ([]datasourcev2store.SemanticChunk, error) {
 	s.capturedSearch = params
 	return append([]datasourcev2store.SemanticChunk(nil), s.semanticChunks...), nil
+}
+
+func assembleDatasourceV2PromptForTest(
+	t *testing.T,
+	chunks []datasourcev2store.SemanticChunk,
+) (contract.StartAssembly, *promptDatasourceV2Store, error) {
+	t.Helper()
+
+	store := &promptDatasourceV2Store{semanticChunks: chunks}
+	var assembly contract.PromptAssemblyService
+	app := fxtest.New(t,
+		fx.Supply(&contract.Config{}),
+		fx.Supply(fx.Annotate(store, fx.As(new(datasourcev2store.Store)))),
+		prompt.Module,
+		datasourcev2.Module,
+		fx.Populate(&assembly),
+	)
+	app.RequireStart()
+	t.Cleanup(app.RequireStop)
+
+	start, err := assembly.AssembleStart(context.Background(), contract.StartInput{
+		CWD:    t.TempDir(),
+		Prompt: "Find datasource evidence",
+	})
+	return start, store, err
+}
+
+func promptSemanticChunkForTest(documentID int64, chunkIndex int32, fileName, content string) datasourcev2store.SemanticChunk {
+	return datasourcev2store.SemanticChunk{
+		TextChunk: datasourcev2store.TextChunk{
+			ID:             documentID*100 + int64(chunkIndex),
+			DocumentID:     documentID,
+			ChunkIndex:     chunkIndex,
+			Content:        content,
+			CharCount:      int32(len([]rune(content))),
+			ByteCount:      int32(len(content)),
+			EmbeddingModel: "local-token-hash-v1",
+			EmbeddingDim:   384,
+			TokenCount:     3,
+		},
+		SourcePath: "/tmp/" + fileName,
+		FileName:   fileName,
+		Distance:   0.01,
+	}
 }
 
 func (promptDatasourceV2UnusedStore) UpsertImporting(

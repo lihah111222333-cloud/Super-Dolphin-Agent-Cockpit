@@ -111,6 +111,17 @@ func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 	}
 }
 
+func TestReviewerPreset_DeniesOrchestrationLegacyAndShortAliases(t *testing.T) {
+	got := ReviewerDecision()
+	assertAllow(t, got)
+
+	for _, name := range orchestrationAliasDenylistForTest() {
+		if !toolDenied(got, name) {
+			t.Fatalf("reviewer denied missing orchestration alias %q: %#v", name, got.DeniedTools)
+		}
+	}
+}
+
 func TestReviewerPreset_DoesNotUseDeniedToolPrefixes(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
@@ -167,9 +178,33 @@ func toolDenied(decision mcp.BeforeDecision, name string) bool {
 func TestWorkerPreset_DeniesOrchestration(t *testing.T) {
 	got := WorkerDecision()
 	assertAllow(t, got)
-	want := []string{"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent", "orchestration_list_agents", "orchestration_get_agent_report"}
+	want := orchestrationAliasDenylistForTest()
 	if !slices.Equal(got.DeniedTools, want) {
 		t.Fatalf("denied = %#v, want %#v", got.DeniedTools, want)
+	}
+}
+
+func TestWorkerPreset_DeniesOrchestrationLegacyAndShortAliases(t *testing.T) {
+	got := WorkerDecision()
+	assertAllow(t, got)
+
+	for _, name := range orchestrationAliasDenylistForTest() {
+		if !toolDenied(got, name) {
+			t.Fatalf("worker denied missing orchestration alias %q: %#v", name, got.DeniedTools)
+		}
+	}
+}
+
+func TestWorkerPreset_OrchestrationDenylistMatchesReviewerAliases(t *testing.T) {
+	worker := WorkerDecision()
+	reviewer := ReviewerDecision()
+	assertAllow(t, worker)
+	assertAllow(t, reviewer)
+
+	for _, name := range orchestrationAliasDenylistForTest() {
+		if toolDenied(reviewer, name) != toolDenied(worker, name) {
+			t.Fatalf("orchestration alias %q reviewer denied=%v worker denied=%v", name, toolDenied(reviewer, name), toolDenied(worker, name))
+		}
 	}
 }
 
@@ -186,5 +221,15 @@ func TestFullAccessPreset_NoRestrictions(t *testing.T) {
 	assertAllow(t, got)
 	if got.AllowedTools != nil || got.DeniedTools != nil {
 		t.Fatalf("preset = %#v, want no restrictions", got)
+	}
+}
+
+func orchestrationAliasDenylistForTest() []string {
+	return []string{
+		"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
+		"list_agents", "get_agent_report", "get_agent_reports",
+		"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent",
+		"orchestration_recover_agent", "orchestration_interrupt_agent", "orchestration_list_agents",
+		"orchestration_get_agent_report", "orchestration_get_agent_reports",
 	}
 }

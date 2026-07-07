@@ -40,6 +40,7 @@ func (s *session) SendKeepalive(ctx context.Context) error {
 	if err := s.transport.Send(payload); err != nil {
 		s.clearSilentTurnStateLocked(handle)
 		s.mu.Unlock()
+		s.recoverTransportAfterWriteFailure()
 		handle.finish(err)
 		return err
 	}

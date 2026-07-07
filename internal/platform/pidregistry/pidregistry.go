@@ -1,8 +1,12 @@
 package pidregistry
 
 import (
+	cryptorand "crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +21,8 @@ const (
 	// filePrefix 和 fileSuffix 定义 PID registry 文件命名。
 	filePrefix = "super-agent-pids-"
 	fileSuffix = ".json"
+	// registryFilePerm 限制 PID registry 只允许当前用户读写。
+	registryFilePerm = 0o600
 	// orphanKillGrace 是 SIGTERM 后等待进程自行退出的时间。
 	orphanKillGrace = 3 * time.Second
 )
@@ -37,17 +43,23 @@ type ChildInfo struct {
 
 // registryFile 是 PID registry 的磁盘 JSON 结构。
 type registryFile struct {
-	AppPID   int         `json:"app_pid"`
-	Children []ChildInfo `json:"children"`
+	AppPID                      int         `json:"app_pid"`
+	Nonce                       string      `json:"nonce"`
+	CreatedAt                   string      `json:"created_at"`
+	ParentExecutableFingerprint string      `json:"parent_executable_fingerprint"`
+	Children                    []ChildInfo `json:"children"`
 }
 
 // Registry 跟踪子进程 PID，用于应用异常退出后的清理。
 // 每个应用进程独占一个以 app PID 命名的 registry 文件。
 type Registry struct {
-	mu       sync.Mutex
-	appPID   int
-	path     string
-	children map[int]ChildInfo
+	mu                          sync.Mutex
+	appPID                      int
+	path                        string
+	nonce                       string
+	createdAt                   string
+	parentExecutableFingerprint string
+	children                    map[int]ChildInfo
 }
 
 // New 为当前进程创建 PID registry。
@@ -225,9 +237,17 @@ func sigkillSurvivors(sigtermed []staleOrphan) int {
 // persist 通过临时文件加 rename 原子写入 registry。
 // 写入失败必须返回给调用方，不能让新子进程在无 registry 保护下继续运行。
 func (r *Registry) persist() error {
+	if err := r.ensureProvenance(); err != nil {
+		err = fmt.Errorf("pidregistry: prepare registry provenance: %w", err)
+		pkglogger.Warn("pidregistry: provenance failed", "error", err)
+		return err
+	}
 	data := registryFile{
-		AppPID:   r.appPID,
-		Children: make([]ChildInfo, 0, len(r.children)),
+		AppPID:                      r.appPID,
+		Nonce:                       r.nonce,
+		CreatedAt:                   r.createdAt,
+		ParentExecutableFingerprint: r.parentExecutableFingerprint,
+		Children:                    make([]ChildInfo, 0, len(r.children)),
 	}
 	for _, child := range r.children {
 		data.Children = append(data.Children, child)
@@ -239,9 +259,15 @@ func (r *Registry) persist() error {
 		return err
 	}
 	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := os.WriteFile(tmp, raw, registryFilePerm); err != nil {
 		err = fmt.Errorf("pidregistry: write registry: %w", err)
 		pkglogger.Warn("pidregistry: write failed", "error", err)
+		return err
+	}
+	if err := os.Chmod(tmp, registryFilePerm); err != nil {
+		err = fmt.Errorf("pidregistry: chmod registry: %w", err)
+		pkglogger.Warn("pidregistry: chmod failed", "error", err)
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, r.path); err != nil {
@@ -251,6 +277,58 @@ func (r *Registry) persist() error {
 		return err
 	}
 	return nil
+}
+
+// ensureProvenance 为本进程 registry 初始化只写一次的来源元数据。
+func (r *Registry) ensureProvenance() error {
+	if strings.TrimSpace(r.nonce) == "" {
+		nonce, err := newRegistryNonce()
+		if err != nil {
+			return err
+		}
+		r.nonce = nonce
+	}
+	if strings.TrimSpace(r.createdAt) == "" {
+		r.createdAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if strings.TrimSpace(r.parentExecutableFingerprint) == "" {
+		fingerprint, err := executableFingerprint()
+		if err != nil {
+			return err
+		}
+		r.parentExecutableFingerprint = fingerprint
+	}
+	return nil
+}
+
+// newRegistryNonce 生成写入 registry 文件的随机 nonce。
+func newRegistryNonce() (string, error) {
+	var nonce [16]byte
+	if _, err := cryptorand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	return hex.EncodeToString(nonce[:]), nil
+}
+
+// executableFingerprint 计算当前可执行文件内容的 SHA-256 指纹。
+func executableFingerprint() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	file, err := os.Open(exe)
+	if err != nil {
+		return "", fmt.Errorf("open executable: %w", err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("hash executable: %w", err)
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // registryPath 返回指定 app PID 对应的 registry 文件路径。
@@ -275,26 +353,59 @@ func findStaleRegistryFiles() []staleFile {
 	myPID := os.Getpid()
 	var stale []staleFile
 	for _, path := range matches {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
+		if sf, ok := readTrustedStaleRegistryFile(path, myPID); ok {
+			stale = append(stale, sf)
 		}
-		var rf registryFile
-		if err := json.Unmarshal(data, &rf); err != nil {
-			// 损坏的 registry 文件无法恢复，直接删除以免后续反复扫描。
-			_ = os.Remove(path)
-			continue
-		}
-		// 当前进程自己的 registry 文件仍在维护中，不能作为 stale 文件处理。
-		if rf.AppPID == myPID {
-			continue
-		}
-		if isProcessAlive(rf.AppPID) {
-			continue // app 仍在运行，不能清理它登记的子进程。
-		}
-		stale = append(stale, staleFile{path: path, registryFile: rf})
 	}
 	return stale
+}
+
+// readTrustedStaleRegistryFile 读取并验证单个 registry 文件是否可信且已过期。
+func readTrustedStaleRegistryFile(path string, myPID int) (staleFile, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !trustedRegistryFileInfo(path, info) {
+		return staleFile{}, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return staleFile{}, false
+	}
+	var rf registryFile
+	if err := json.Unmarshal(data, &rf); err != nil {
+		// 损坏的 registry 文件无法恢复，直接删除以免后续反复扫描。
+		_ = os.Remove(path)
+		return staleFile{}, false
+	}
+	if !trustedRegistryFileProvenance(path, rf, myPID) {
+		return staleFile{}, false
+	}
+	return staleFile{path: path, registryFile: rf}, true
+}
+
+// trustedRegistryFileProvenance 校验 registry JSON 与文件名、nonce 和活跃 AppPID 一致性。
+func trustedRegistryFileProvenance(path string, rf registryFile, myPID int) bool {
+	filenamePID, ok := ParsePIDFromFilename(filepath.Base(path))
+	if !ok || filenamePID != rf.AppPID {
+		return false
+	}
+	if strings.TrimSpace(rf.Nonce) == "" {
+		return false
+	}
+	if rf.AppPID == myPID {
+		return false
+	}
+	return !isProcessAlive(rf.AppPID)
+}
+
+// trustedRegistryFileInfo 校验 registry 文件权限和 owner 是否可信。
+func trustedRegistryFileInfo(path string, info os.FileInfo) bool {
+	if info.IsDir() {
+		return false
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return false
+	}
+	return registryFileOwnedByCurrentUser(path, info)
 }
 
 // cleanupStaleFiles 删除已经处理完的过期 registry 文件。

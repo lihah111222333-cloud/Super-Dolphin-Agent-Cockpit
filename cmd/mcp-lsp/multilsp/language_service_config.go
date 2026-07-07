@@ -22,7 +22,26 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(rustAdapterDefaults(), cfg, contract.LSPServiceRust),
 		projectAdapterFromConfig(javaAdapterDefaults(), cfg, contract.LSPServiceJava),
 		projectAdapterFromConfig(cssAdapterDefaults(), cfg, contract.LSPServiceCSS),
+		projectAdapterFromConfig(htmlAdapterDefaults(), cfg, contract.LSPServiceHTML),
+		projectAdapterFromConfig(jsonAdapterDefaults(), cfg, contract.LSPServiceJSON),
+		projectAdapterFromConfig(yamlAdapterDefaults(), cfg, contract.LSPServiceYAML),
+		projectAdapterFromConfig(markdownAdapterDefaults(), cfg, contract.LSPServiceMarkdown),
+		projectAdapterFromConfig(vueAdapterDefaults(), cfg, contract.LSPServiceVue),
+		projectAdapterFromConfig(svelteAdapterDefaults(), cfg, contract.LSPServiceSvelte),
+		projectAdapterFromConfig(clangdAdapterDefaults(), cfg, contract.LSPServiceClangd),
+		projectAdapterFromConfig(swiftAdapterDefaults(), cfg, contract.LSPServiceSwift),
+		projectAdapterFromConfig(csharpAdapterDefaults(), cfg, contract.LSPServiceCSharp),
+		projectAdapterFromConfig(phpAdapterDefaults(), cfg, contract.LSPServicePHP),
+		projectAdapterFromConfig(rubyAdapterDefaults(), cfg, contract.LSPServiceRuby),
+		projectAdapterFromConfig(kotlinAdapterDefaults(), cfg, contract.LSPServiceKotlin),
+		projectAdapterFromConfig(dartAdapterDefaults(), cfg, contract.LSPServiceDart),
+		projectAdapterFromConfig(luaAdapterDefaults(), cfg, contract.LSPServiceLua),
+		projectAdapterFromConfig(dockerAdapterDefaults(), cfg, contract.LSPServiceDocker),
+		projectAdapterFromConfig(terraformAdapterDefaults(), cfg, contract.LSPServiceTerraform),
+		projectAdapterFromConfig(graphqlAdapterDefaults(), cfg, contract.LSPServiceGraphQL),
+		projectAdapterFromConfig(prismaAdapterDefaults(), cfg, contract.LSPServicePrisma),
 		projectAdapterFromConfig(shellAdapterDefaults(), cfg, contract.LSPServiceShell),
+		projectAdapterFromConfig(sqlAdapterDefaults(), cfg, contract.LSPServiceSQL),
 		documentFallbackAdapter{languageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs)},
 	)
 }
@@ -114,11 +133,164 @@ func cssAdapterDefaults() projectLanguageAdapter {
 	}
 }
 
+func htmlAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"html"},
+		command:     ServerCommand{Executable: "vscode-html-language-server", Args: []string{"--stdio"}},
+		rootKind:    "html_project",
+	}
+}
+
+func jsonAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"json"},
+		command:     ServerCommand{Executable: "vscode-json-language-server", Args: []string{"--stdio"}},
+		rootKind:    "json_project",
+	}
+}
+
+func yamlAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"yaml"},
+		command:     ServerCommand{Executable: "yaml-language-server", Args: []string{"--stdio"}},
+		rootKind:    "yaml_project",
+	}
+}
+
+func markdownAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"markdown"},
+		command:     ServerCommand{Executable: "vscode-markdown-language-server", Args: []string{"--stdio"}},
+		rootKind:    "markdown_project",
+	}
+}
+
+func vueAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"vue"},
+		command:     ServerCommand{Executable: "vue-language-server", Args: []string{"--stdio"}},
+		rootKind:    "vue_project",
+	}
+}
+
+func svelteAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"svelte"},
+		command:     ServerCommand{Executable: "svelteserver", Args: []string{"--stdio"}},
+		rootKind:    "svelte_project",
+	}
+}
+
+func clangdAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"c", "cpp", "objective-c", "objective-cpp"},
+		command:     ServerCommand{Executable: "clangd"},
+		rootKind:    "clangd_project",
+	}
+}
+
+func swiftAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"swift"},
+		command:     ServerCommand{Executable: "sourcekit-lsp"},
+		rootKind:    "swift_project",
+	}
+}
+
+func csharpAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"csharp"},
+		command:     ServerCommand{Executable: "csharp-ls"},
+		rootKind:    "csharp_project",
+		envPolicy:   dotnetRootEnvPolicy,
+	}
+}
+
+func phpAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"php"},
+		command:     ServerCommand{Executable: "intelephense", Args: []string{"--stdio"}},
+		rootKind:    "php_project",
+	}
+}
+
+func rubyAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"ruby"},
+		command:     ServerCommand{Executable: "solargraph", Args: []string{"stdio"}},
+		rootKind:    "ruby_project",
+	}
+}
+
+func kotlinAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"kotlin"},
+		command:     ServerCommand{Executable: "kotlin-language-server"},
+		rootKind:    "kotlin_project",
+	}
+}
+
+func dartAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"dart"},
+		command:     ServerCommand{Executable: "dart", Args: []string{"language-server", "--protocol=lsp"}},
+		rootKind:    "dart_project",
+	}
+}
+
+func luaAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"lua"},
+		command:     ServerCommand{Executable: "lua-language-server"},
+		rootKind:    "lua_project",
+	}
+}
+
+func dockerAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"dockerfile"},
+		command:     ServerCommand{Executable: "docker-langserver", Args: []string{"--stdio"}},
+		rootKind:    "docker_project",
+	}
+}
+
+func terraformAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"terraform"},
+		command:     ServerCommand{Executable: "terraform-ls", Args: []string{"serve"}},
+		rootKind:    "terraform_project",
+	}
+}
+
+func graphqlAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"graphql"},
+		command:     ServerCommand{Executable: "graphql-lsp", Args: []string{"server", "-m", "stream"}},
+		rootKind:    "graphql_project",
+	}
+}
+
+func prismaAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"prisma"},
+		command:     ServerCommand{Executable: "prisma-language-server", Args: []string{"--stdio"}},
+		rootKind:    "prisma_project",
+	}
+}
+
 func shellAdapterDefaults() projectLanguageAdapter {
 	return projectLanguageAdapter{
 		languageIDs: []string{"shellscript"},
 		command:     ServerCommand{Executable: "bash-language-server", Args: []string{"start"}},
 		rootKind:    "shell_project",
+	}
+}
+
+func sqlAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"sql"},
+		command:     ServerCommand{Executable: "sql-language-server", Args: []string{"up", "--method", "stdio"}},
+		rootKind:    "sql_project",
 	}
 }
 

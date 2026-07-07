@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,14 +19,6 @@ func (e skillNotFoundError) Error() string { return fmt.Sprintf("skill not found
 
 // Unwrap 返回底层错误。
 func (skillNotFoundError) Unwrap() error { return os.ErrNotExist }
-
-func requireCWDOrLog(ctx context.Context, op string) string {
-	cwd, err := requireCWD(ctx)
-	if err != nil {
-		slog.Warn("skill: requireCWD failed", "op", op, "error", err)
-	}
-	return cwd
-}
 
 // ListSkills 列出当前 cwd 可见的有效 skill。
 // 同名冲突会 fail-fast 返回错误，避免调用方在不确定来源时读取错误内容。
@@ -277,15 +268,18 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAnd
 		return nil, err
 	}
 	if target.scope == skillScopePersonal {
-		return s.writePersonalLocal(ctx, target.path, content, target.scope, target.personalType)
+		return s.writePersonalLocal(ctx, cwd, target.path, content, target.scope, target.personalType)
 	}
 	return s.writeProjectLocal(ctx, cwd, target.path, content, target.scope, target.personalType)
 }
 
 // writePersonalLocal 写入 personal skill 并保留可回滚备份。
 // 审计、目录写入或 mirror 发布前校验失败都会返回错误，不把半写状态当成功。
-func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, personalType string) (any, error) {
+func (s *service) writePersonalLocal(ctx context.Context, cwd, path, content, scope, personalType string) (any, error) {
 	name := filepath.Base(filepath.Dir(path))
+	if err := s.ensureWriteTimeMirrorPublishAllowed(ctx, cwd, scope, personalType, name); err != nil {
+		return nil, err
+	}
 	record, err := s.preparePersonalMutation(ctx, "personal_write", name, filepath.Dir(path), scope, personalType)
 	if err != nil {
 		return nil, err
@@ -302,20 +296,18 @@ func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, 
 		return nil, err
 	}
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		if rollbackErr := rollbackPersonalSkillDir(filepath.Dir(path), backupDir); rollbackErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("rollback personal write: %w", rollbackErr))
-		}
-		return nil, err
+		return nil, rollbackPersonalWriteError(err, filepath.Dir(path), backupDir)
 	}
 	if err := s.finalizePersonalMutation(ctx, "personal_write", filepath.Dir(path), record); err != nil {
-		if rollbackErr := rollbackPersonalSkillDir(filepath.Dir(path), backupDir); rollbackErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("rollback personal write: %w", rollbackErr))
-		}
-		return nil, err
+		return nil, rollbackPersonalWriteError(err, filepath.Dir(path), backupDir)
 	}
 	s.publishSkillsChanged(ctx, "local_write", name, scope)
 	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "WriteLocal"), scope, personalType, name)), nil
+	report, err := s.publishWriteTimeMirrorsBlocking(ctx, cwd, scope, personalType, name)
+	if err != nil {
+		return nil, rollbackPersonalWriteError(err, filepath.Dir(path), backupDir)
+	}
+	return attachMirrorPublish(result, report), nil
 }
 
 // ImportLocalDir 从本地目录导入一个或一批 skill。
@@ -338,7 +330,14 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 		}
 		resolvedScope, resolvedPersonalType, _ := normalizeSkillTarget(p.Scope, p.PersonalType)
 		s.publishSkillsChanged(ctx, "import_dir", name, resolvedScope)
-		response["mirror_publish"] = s.publishWriteTimeMirrors(ctx, cwd, resolvedScope, resolvedPersonalType, name)
+		report, err := s.publishWriteTimeMirrorsBlocking(ctx, cwd, resolvedScope, resolvedPersonalType, name)
+		if err != nil {
+			if rollbackErr := rollbackImportedSkillResults(results); rollbackErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("rollback imported skills: %w", rollbackErr))
+			}
+			return nil, err
+		}
+		response["mirror_publish"] = report
 	}
 	return response, nil
 }
@@ -398,19 +397,38 @@ func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, er
 		return nil, err
 	}
 	if scope == skillScopePersonal {
-		return s.deletePersonalLocal(ctx, name, dir, scope, personalType)
+		return s.deletePersonalLocal(ctx, cwd, name, dir, scope, personalType)
+	}
+	return s.deleteProjectLocal(ctx, cwd, name, dir, scope, personalType)
+}
+
+// deleteProjectLocal 删除 project skill，并在 mirror 发布失败时恢复原目录。
+func (s *service) deleteProjectLocal(ctx context.Context, cwd, name, dir, scope, personalType string) (any, error) {
+	backupDir, err := backupExistingProjectSkill(dir)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
 	s.publishSkillsChanged(ctx, "delete_local", name, scope)
 	result := map[string]any{"ok": true, "name": name, "dir": dir, "removed_agent_bindings": 0}
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+	report, err := s.publishWriteTimeMirrorsBlocking(ctx, cwd, scope, personalType, name)
+	if err != nil {
+		if rollbackErr := rollbackProjectSkillDir(dir, backupDir); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback project delete: %w", rollbackErr))
+		}
+		return nil, err
+	}
+	if err := cleanupProjectSkillBackup(backupDir); err != nil {
+		return nil, err
+	}
+	return attachMirrorPublish(result, report), nil
 }
 
 // deletePersonalLocal 归档删除 personal skill。
 // intent/finalize 审计任一步失败都会尝试恢复原目录，防止删除状态不可追踪。
-func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, personalType string) (any, error) {
+func (s *service) deletePersonalLocal(ctx context.Context, cwd, name, dir, scope, personalType string) (any, error) {
 	archiveDir := s.personalSkillArchiveDir(scope, personalType, name)
 	canonicalHash, err := skillDirContentHash(dir)
 	if err != nil {
@@ -431,18 +449,30 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 		return nil, err
 	}
 	if err := s.writePersonalArchiveRecord(record, archiveDir); err != nil {
-		if restoreErr := restoreDeletedPersonalSkill(dir, archiveDir); restoreErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("restore personal delete: %w", restoreErr))
-		}
-		return nil, err
+		return nil, restorePersonalDeleteError(err, dir, archiveDir)
 	}
 	if err := s.writeSkillMutationAudit(ctx, "personal_delete_finalize", record); err != nil {
-		if restoreErr := restoreDeletedPersonalSkill(dir, archiveDir); restoreErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("restore personal delete: %w", restoreErr))
-		}
-		return nil, err
+		return nil, restorePersonalDeleteError(err, dir, archiveDir)
 	}
 	s.publishSkillsChanged(ctx, "delete_local", name, scope)
 	result := map[string]any{"ok": true, "name": name, "dir": dir, "archive_dir": archiveDir, "removed_agent_bindings": 0}
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "DeleteLocal"), scope, personalType, name)), nil
+	report, err := s.publishWriteTimeMirrorsBlocking(ctx, cwd, scope, personalType, name)
+	if err != nil {
+		return nil, restorePersonalDeleteError(err, dir, archiveDir)
+	}
+	return attachMirrorPublish(result, report), nil
+}
+
+func rollbackPersonalWriteError(err error, targetDir, backupDir string) error {
+	if rollbackErr := rollbackPersonalSkillDir(targetDir, backupDir); rollbackErr != nil {
+		return errors.Join(err, fmt.Errorf("rollback personal write: %w", rollbackErr))
+	}
+	return err
+}
+
+func restorePersonalDeleteError(err error, dir, archiveDir string) error {
+	if restoreErr := restoreDeletedPersonalSkill(dir, archiveDir); restoreErr != nil {
+		return errors.Join(err, fmt.Errorf("restore personal delete: %w", restoreErr))
+	}
+	return err
 }

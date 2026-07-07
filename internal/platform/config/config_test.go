@@ -437,29 +437,35 @@ func TestNew_DefaultsLSPConfig(t *testing.T) {
 	cfg := mustNewConfig(t)
 
 	jsts := cfg.LSP.ProjectAdapters[contract.LSPServiceJSTS]
-	if !slices.Contains(jsts.RootMarkers, "package.json") {
-		t.Fatalf("LSP jsts root markers = %#v, missing package.json", jsts.RootMarkers)
-	}
-	if !slices.Contains(cfg.LSP.NoiseDirNames, "docs") {
-		t.Fatalf("LSP noise dirs = %#v, missing docs", cfg.LSP.NoiseDirNames)
-	}
-	if !slices.Contains(cfg.LSP.GoDirectoryFilters, "-**/docs") {
-		t.Fatalf("LSP gopls directory filters = %#v, missing -**/docs", cfg.LSP.GoDirectoryFilters)
-	}
-	if !slices.Contains(cfg.LSP.GoDirectoryFilters, "-docs") {
-		t.Fatalf("LSP gopls directory filters = %#v, missing -docs", cfg.LSP.GoDirectoryFilters)
-	}
+	requireStringSliceContains(t, "LSP jsts root markers", jsts.RootMarkers, "package.json")
+	requireStringSliceContains(t, "LSP noise dirs", cfg.LSP.NoiseDirNames, "docs")
+	requireStringSliceContains(t, "LSP gopls directory filters", cfg.LSP.GoDirectoryFilters, "-**/docs")
+	requireStringSliceContains(t, "LSP gopls directory filters", cfg.LSP.GoDirectoryFilters, "-docs")
 	if !cfg.LSP.DisableInitialWorkspaceBootstrap {
 		t.Fatal("LSP disable initial workspace bootstrap default = false, want true")
 	}
-	shell, ok := cfg.LSP.ProjectAdapters["shell"]
-	if !ok {
-		t.Fatal("LSP project adapters missing shell")
-	}
+	shell := requireLSPProjectAdapter(t, cfg, contract.LSPServiceShell)
 	for _, ext := range []string{".sh", ".bash", ".zsh", ".ksh", ".bats"} {
-		if !slices.Contains(shell.FirstSourceExtensions, ext) {
-			t.Fatalf("LSP shell first source extensions = %#v, missing %s", shell.FirstSourceExtensions, ext)
-		}
+		requireStringSliceContains(t, "LSP shell first source extensions", shell.FirstSourceExtensions, ext)
+	}
+	sql := requireLSPProjectAdapter(t, cfg, contract.LSPServiceSQL)
+	requireStringSliceContains(t, "LSP sql root markers", sql.RootMarkers, "sqlc.yaml")
+	requireStringSliceContains(t, "LSP sql first source extensions", sql.FirstSourceExtensions, ".sql")
+}
+
+func requireLSPProjectAdapter(t *testing.T, cfg *Config, service string) contract.LSPProjectAdapterConfig {
+	t.Helper()
+	adapter, ok := cfg.LSP.ProjectAdapters[service]
+	if !ok {
+		t.Fatalf("LSP project adapters missing %s", service)
+	}
+	return adapter
+}
+
+func requireStringSliceContains(t *testing.T, label string, got []string, want string) {
+	t.Helper()
+	if !slices.Contains(got, want) {
+		t.Fatalf("%s = %#v, missing %s", label, got, want)
 	}
 }
 
@@ -477,6 +483,7 @@ func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
 		"LSP_GO_DIRECTORY_FILTERS=-**/docs,-**/.agent",
 		"LSP_JSTS_ROOT_MARKERS=custom.workspace,package.json",
 		"LSP_PYTHON_ROOT_MARKERS=pyproject.toml,requirements.txt",
+		"LSP_SQL_ROOT_MARKERS=.sqllsrc.json,sqlc.yaml",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte(body+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -491,6 +498,9 @@ func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
 	}
 	if got := cfg.LSP.ProjectAdapters[contract.LSPServicePython].RootMarkers; !slices.Equal(got, []string{"pyproject.toml", "requirements.txt"}) {
 		t.Fatalf("LSP python root markers = %#v", got)
+	}
+	if got := cfg.LSP.ProjectAdapters[contract.LSPServiceSQL].RootMarkers; !slices.Equal(got, []string{".sqllsrc.json", "sqlc.yaml"}) {
+		t.Fatalf("LSP sql root markers = %#v", got)
 	}
 }
 
@@ -535,13 +545,16 @@ func clearLSPConfigEnv(t *testing.T) {
 		"LSP_JAVA_ROOT_MARKERS",
 		"LSP_CSS_ROOT_MARKERS",
 		"LSP_SHELL_ROOT_MARKERS",
+		"LSP_SQL_ROOT_MARKERS",
 		"LSP_JSTS_IGNORED_DIRS",
 		"LSP_PYTHON_IGNORED_DIRS",
 		"LSP_RUST_IGNORED_DIRS",
 		"LSP_JAVA_IGNORED_DIRS",
 		"LSP_CSS_IGNORED_DIRS",
 		"LSP_SHELL_IGNORED_DIRS",
+		"LSP_SQL_IGNORED_DIRS",
 		"LSP_SHELL_FIRST_SOURCE_EXTENSIONS",
+		"LSP_SQL_FIRST_SOURCE_EXTENSIONS",
 		"LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP",
 	} {
 		t.Setenv(key, "")

@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -27,7 +26,7 @@ const (
 	binaryColdStartDiagnosticsSlack = 250 * time.Millisecond
 )
 
-func TestMcpLSPBinaryDiagnosticsColdStartCoversAllLSPClientLanguages_E2E(t *testing.T) {
+func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
 	}
@@ -95,18 +94,40 @@ func binaryColdStartLanguageCases(t *testing.T) []binaryColdStartLanguageCase {
 	t.Helper()
 	cases := []binaryColdStartLanguageCase{
 		{languageID: "css", write: writeBinaryColdStartCSSFixture},
+		{languageID: "c", write: writeBinaryColdStartCFixture},
+		{languageID: "cpp", write: writeBinaryColdStartCPPFixture},
+		{languageID: "csharp", write: writeBinaryColdStartCSharpFixture},
+		{languageID: "dart", write: writeBinaryColdStartDartFixture},
+		{languageID: "dockerfile", write: writeBinaryColdStartDockerFixture},
 		{languageID: "go", write: writeBinaryColdStartGoFixture},
 		{languageID: "gomod", write: writeBinaryColdStartGoModFixture},
 		{languageID: "gosum", write: writeBinaryColdStartGoSumFixture},
 		{languageID: "gowork", write: writeBinaryColdStartGoWorkFixture},
+		{languageID: "graphql", write: writeBinaryColdStartGraphQLFixture},
+		{languageID: "html", write: writeBinaryColdStartHTMLFixture},
 		{languageID: "java", write: writeBinaryColdStartJavaFixture},
 		{languageID: "javascript", write: writeBinaryColdStartJavaScriptFixture},
 		{languageID: "javascriptreact", write: writeBinaryColdStartJavaScriptReactFixture},
+		{languageID: "json", write: writeBinaryColdStartJSONFixture},
+		{languageID: "kotlin", write: writeBinaryColdStartKotlinFixture},
+		{languageID: "lua", write: writeBinaryColdStartLuaFixture},
+		{languageID: "markdown", write: writeBinaryColdStartMarkdownFixture},
+		{languageID: "objective-c", write: writeBinaryColdStartObjectiveCFixture},
+		{languageID: "objective-cpp", write: writeBinaryColdStartObjectiveCPPFixture},
+		{languageID: "php", write: writeBinaryColdStartPHPFixture},
+		{languageID: "prisma", write: writeBinaryColdStartPrismaFixture},
 		{languageID: "python", write: writeBinaryColdStartPythonFixture},
+		{languageID: "ruby", write: writeBinaryColdStartRubyFixture},
 		{languageID: "rust", write: writeBinaryColdStartRustFixture},
 		{languageID: "shellscript", write: writeBinaryColdStartShellFixture},
+		{languageID: "sql", write: writeBinaryColdStartSQLFixture},
+		{languageID: "svelte", write: writeBinaryColdStartSvelteFixture},
+		{languageID: "swift", write: writeBinaryColdStartSwiftFixture},
+		{languageID: "terraform", write: writeBinaryColdStartTerraformFixture},
 		{languageID: "typescript", write: writeBinaryColdStartTypeScriptFixture},
 		{languageID: "typescriptreact", write: writeBinaryColdStartTypeScriptReactFixture},
+		{languageID: "vue", write: writeBinaryColdStartVueFixture},
+		{languageID: "yaml", write: writeBinaryColdStartYAMLFixture},
 	}
 	assertBinaryColdStartCasesCoverDefaultLSPClientLanguages(t, cases)
 	return cases
@@ -150,12 +171,31 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		" -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- \"$@\"\n"
 	for _, name := range []string{
 		"bash-language-server",
+		"clangd",
+		"csharp-ls",
+		"dart",
+		"docker-langserver",
+		"graphql-lsp",
 		"gopls",
+		"intelephense",
 		"jdtls",
+		"kotlin-language-server",
+		"lua-language-server",
 		"pyright-langserver",
+		"prisma-language-server",
 		"rust-analyzer",
+		"sql-language-server",
+		"sourcekit-lsp",
+		"solargraph",
+		"svelteserver",
+		"terraform-ls",
 		"typescript-language-server",
 		"vscode-css-language-server",
+		"vscode-html-language-server",
+		"vscode-json-language-server",
+		"vscode-markdown-language-server",
+		"vue-language-server",
+		"yaml-language-server",
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
@@ -309,6 +349,128 @@ func writeBinaryColdStartCSSFixture(t *testing.T, root string) string {
 	return writeBinaryColdStartFile(t, root, "style.css", "body { color: black; }\n")
 }
 
+func writeBinaryColdStartHTMLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-html"}`)
+	return writeBinaryColdStartFile(t, root, "index.html", "<main>Hello</main>\n")
+}
+
+func writeBinaryColdStartJSONFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-json"}`+"\n")
+}
+
+func writeBinaryColdStartYAMLFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeBinaryColdStartFile(t, root, "config.yaml", "name: binary-cold-yaml\n")
+}
+
+func writeBinaryColdStartMarkdownFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeBinaryColdStartFile(t, root, "README.md", "# Binary Cold Markdown\n")
+}
+
+func writeBinaryColdStartVueFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-vue"}`)
+	return writeBinaryColdStartFile(t, root, "App.vue", "<template><main>Hello</main></template>\n")
+}
+
+func writeBinaryColdStartSvelteFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-svelte"}`)
+	return writeBinaryColdStartFile(t, root, "App.svelte", "<main>Hello</main>\n")
+}
+
+func writeBinaryColdStartCFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeBinaryColdStartFile(t, root, "main.c", "int main(void) { return 0; }\n")
+}
+
+func writeBinaryColdStartCPPFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeBinaryColdStartFile(t, root, "main.cpp", "int main() { return 0; }\n")
+}
+
+func writeBinaryColdStartObjectiveCFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeBinaryColdStartFile(t, root, "main.m", "int main(void) { return 0; }\n")
+}
+
+func writeBinaryColdStartObjectiveCPPFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeBinaryColdStartFile(t, root, "main.mm", "int main() { return 0; }\n")
+}
+
+func writeBinaryColdStartSwiftFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "Package.swift", "// swift-tools-version: 6.0\n")
+	return writeBinaryColdStartFile(t, root, "Sources/App/main.swift", "print(\"hello\")\n")
+}
+
+func writeBinaryColdStartCSharpFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "global.json", `{"sdk":{"rollForward":"latestFeature"}}`)
+	writeBinaryColdStartFile(t, root, "App.csproj", `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>`)
+	return writeBinaryColdStartFile(t, root, "Program.cs", "class Program { static void Main() {} }\n")
+}
+
+func writeBinaryColdStartPHPFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "composer.json", `{"name":"example/binary-cold-php"}`)
+	return writeBinaryColdStartFile(t, root, "index.php", "<?php echo 'hello';\n")
+}
+
+func writeBinaryColdStartRubyFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "Gemfile", "source 'https://rubygems.org'\n")
+	return writeBinaryColdStartFile(t, root, "app.rb", "puts 'hello'\n")
+}
+
+func writeBinaryColdStartKotlinFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "settings.gradle.kts", "pluginManagement {}\n")
+	return writeBinaryColdStartFile(t, root, "src/Main.kt", "fun main() {}\n")
+}
+
+func writeBinaryColdStartDartFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "pubspec.yaml", "name: binary_cold_dart\n")
+	return writeBinaryColdStartFile(t, root, "lib/main.dart", "void main() {}\n")
+}
+
+func writeBinaryColdStartLuaFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, ".luarc.json", "{}\n")
+	return writeBinaryColdStartFile(t, root, "init.lua", "local value = 1\n")
+}
+
+func writeBinaryColdStartDockerFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeBinaryColdStartFile(t, root, "Dockerfile", "FROM scratch\n")
+}
+
+func writeBinaryColdStartTerraformFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeBinaryColdStartFile(t, root, "main.tf", "terraform {}\n")
+}
+
+func writeBinaryColdStartGraphQLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-graphql"}`)
+	return writeBinaryColdStartFile(t, root, "schema.graphql", "type Query { hello: String }\n")
+}
+
+func writeBinaryColdStartPrismaFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-prisma"}`)
+	return writeBinaryColdStartFile(t, root, "schema.prisma", "datasource db { provider = \"sqlite\" url = \"file:dev.db\" }\n")
+}
+
 func writeBinaryColdStartGoFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeBinaryColdStartFile(t, root, "go.mod", "module example.test/binarycoldgo\n\ngo 1.25.0\n")
@@ -366,6 +528,12 @@ func writeBinaryColdStartShellFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeBinaryColdStartFile(t, root, "Makefile", "all:\n\t@true\n")
 	return writeBinaryColdStartFile(t, root, "scripts/run.sh", "#!/usr/bin/env bash\n")
+}
+
+func writeBinaryColdStartSQLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: '2'\n")
+	return writeBinaryColdStartFile(t, root, "schema.sql", "select 1;\n")
 }
 
 func writeBinaryColdStartTypeScriptFixture(t *testing.T, root string) string {

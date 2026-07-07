@@ -151,10 +151,26 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 			NodeType:   node.NodeType,
 			AssignedTo: node.AssignedTo,
 			DependsOn:  node.DependsOn,
+			Reads:      stringSliceJSON(node.Reads),
+			Writes:     stringSliceJSON(node.Writes),
 			CommandRef: node.CommandRef,
 			Config:     node.Config,
 		})
 	}, "upsert", "task_dag_node", fromNodeUpsertRow)
+}
+
+func stringSliceJSON(values []string) json.RawMessage {
+	trimmed := make([]string, 0, len(values))
+	for _, value := range values {
+		if candidate := strings.TrimSpace(value); candidate != "" {
+			trimmed = append(trimmed, candidate)
+		}
+	}
+	if len(trimmed) == 0 {
+		return json.RawMessage("[]")
+	}
+	raw, _ := json.Marshal(trimmed)
+	return raw
 }
 
 // PatchNodeConfigIfUnchanged 以 previous_config CAS fence 原子更新 runtime 节点的 config。

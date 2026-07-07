@@ -14,71 +14,136 @@ import (
 // 默认值会过滤大型或生成目录，并按语言声明 root marker，避免初始索引扫进无关工作区。
 func DefaultLSPConfig() contract.LSPConfig {
 	return contract.LSPConfig{
-		NoiseDirNames: []string{
-			".agent", ".agents", ".claude", ".git", ".workspace", ".worktrees",
-			"coverage", "dist", "docs", "node_modules", "vendor",
-		},
-		GoDirectoryFilters: []string{
-			"-.agent",
-			"-.agents",
-			"-.claude",
-			"-.git",
-			"-.workspace",
-			"-.worktrees",
-			"-coverage",
-			"-dist",
-			"-docs",
-			"-node_modules",
-			"-vendor",
-			"-**/.agent",
-			"-**/.agents",
-			"-**/.claude",
-			"-**/.git",
-			"-**/.workspace",
-			"-**/.worktrees",
-			"-**/coverage",
-			"-**/dist",
-			"-**/docs",
-			"-**/node_modules",
-			"-**/vendor",
-		},
-		ProjectAdapters: map[string]contract.LSPProjectAdapterConfig{
-			contract.LSPServiceJSTS: {
-				RootMarkers:           []string{"tsconfig.json", "jsconfig.json", "package.json"},
-				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
-				FirstSourceExtensions: []string{".js", ".jsx", ".ts", ".tsx"},
-			},
-			contract.LSPServicePython: {
-				RootMarkers: []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"},
-				IgnoredDirNames: []string{
-					".build-cache", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-					".venv", ".workspace", "__pycache__", "node_modules", "vendor",
-				},
-				FirstSourceExtensions: []string{".py", ".pyi"},
-			},
-			contract.LSPServiceRust: {
-				RootMarkers:           []string{"Cargo.toml"},
-				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "node_modules", "target", "vendor"},
-				FirstSourceExtensions: []string{".rs"},
-			},
-			contract.LSPServiceJava: {
-				RootMarkers:           []string{"pom.xml", "build.gradle", "build.gradle.kts"},
-				IgnoredDirNames:       []string{".build-cache", ".git", ".gradle", ".idea", ".workspace", "build", "node_modules", "target", "vendor"},
-				FirstSourceExtensions: []string{".java"},
-			},
-			contract.LSPServiceCSS: {
-				RootMarkers:           []string{"package.json"},
-				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
-				FirstSourceExtensions: []string{".css"},
-			},
-			contract.LSPServiceShell: {
-				RootMarkers:           []string{".git", "package.json", "go.mod", "Makefile"},
-				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
-				FirstSourceExtensions: []string{".sh", ".bash", ".zsh", ".ksh", ".bats"},
-			},
-		},
-		DocumentFallbackLanguageIDs:      []string{"markdown", "json", "yaml"},
+		NoiseDirNames:                    defaultLSPNoiseDirNames(),
+		GoDirectoryFilters:               defaultLSPGoDirectoryFilters(),
+		ProjectAdapters:                  defaultLSPProjectAdapters(),
+		DocumentFallbackLanguageIDs:      nil,
 		DisableInitialWorkspaceBootstrap: true,
+	}
+}
+
+func defaultLSPNoiseDirNames() []string {
+	return []string{
+		".agent", ".agents", ".claude", ".git", ".workspace", ".worktrees",
+		"coverage", "dist", "docs", "node_modules", "vendor",
+	}
+}
+
+func defaultLSPGoDirectoryFilters() []string {
+	return []string{
+		"-.agent", "-.agents", "-.claude", "-.git", "-.workspace", "-.worktrees",
+		"-coverage", "-dist", "-docs", "-node_modules", "-vendor",
+		"-**/.agent", "-**/.agents", "-**/.claude", "-**/.git", "-**/.workspace",
+		"-**/.worktrees", "-**/coverage", "-**/dist", "-**/docs", "-**/node_modules",
+		"-**/vendor",
+	}
+}
+
+type lspProjectAdapterEntry struct {
+	service string
+	cfg     contract.LSPProjectAdapterConfig
+}
+
+func defaultLSPProjectAdapters() map[string]contract.LSPProjectAdapterConfig {
+	adapters := map[string]contract.LSPProjectAdapterConfig{}
+	addLSPProjectAdapters(adapters, defaultCoreLSPProjectAdapters())
+	addLSPProjectAdapters(adapters, defaultWebDocumentLSPProjectAdapters())
+	addLSPProjectAdapters(adapters, defaultNativeLSPProjectAdapters())
+	addLSPProjectAdapters(adapters, defaultInfraLSPProjectAdapters())
+	return adapters
+}
+
+func addLSPProjectAdapters(adapters map[string]contract.LSPProjectAdapterConfig, entries []lspProjectAdapterEntry) {
+	for _, entry := range entries {
+		adapters[entry.service] = entry.cfg
+	}
+}
+
+func lspProjectAdapter(markers, ignored, extensions []string) contract.LSPProjectAdapterConfig {
+	return contract.LSPProjectAdapterConfig{
+		RootMarkers:           markers,
+		IgnoredDirNames:       ignored,
+		FirstSourceExtensions: extensions,
+	}
+}
+
+func commonLSPIgnoredDirs() []string {
+	return []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"}
+}
+
+func defaultCoreLSPProjectAdapters() []lspProjectAdapterEntry {
+	return []lspProjectAdapterEntry{
+		{contract.LSPServiceJSTS, lspProjectAdapter(
+			[]string{"tsconfig.json", "jsconfig.json", "package.json"},
+			commonLSPIgnoredDirs(), []string{".js", ".jsx", ".ts", ".tsx"})},
+		{contract.LSPServicePython, lspProjectAdapter(
+			[]string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"},
+			[]string{".build-cache", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv", ".workspace", "__pycache__", "node_modules", "vendor"},
+			[]string{".py", ".pyi"})},
+		{contract.LSPServiceRust, lspProjectAdapter(
+			[]string{"Cargo.toml"},
+			[]string{".build-cache", ".git", ".workspace", "node_modules", "target", "vendor"},
+			[]string{".rs"})},
+		{contract.LSPServiceJava, lspProjectAdapter(
+			[]string{"pom.xml", "build.gradle", "build.gradle.kts"},
+			[]string{".build-cache", ".git", ".gradle", ".idea", ".workspace", "build", "node_modules", "target", "vendor"},
+			[]string{".java"})},
+		{contract.LSPServiceShell, lspProjectAdapter(
+			[]string{".git", "package.json", "go.mod", "Makefile"},
+			commonLSPIgnoredDirs(), []string{".sh", ".bash", ".zsh", ".ksh", ".bats"})},
+		{contract.LSPServiceSQL, lspProjectAdapter(
+			[]string{".sqllsrc.json", "sqlc.yaml", "sqlc.yml", "go.mod", "package.json"},
+			commonLSPIgnoredDirs(), []string{".sql"})},
+	}
+}
+
+func defaultWebDocumentLSPProjectAdapters() []lspProjectAdapterEntry {
+	return []lspProjectAdapterEntry{
+		{contract.LSPServiceCSS, lspProjectAdapter([]string{"package.json"}, commonLSPIgnoredDirs(), []string{".css"})},
+		{contract.LSPServiceHTML, lspProjectAdapter([]string{"package.json", "index.html"}, commonLSPIgnoredDirs(), []string{".html", ".htm"})},
+		{contract.LSPServiceJSON, lspProjectAdapter([]string{"package.json"}, commonLSPIgnoredDirs(), []string{".json", ".jsonc"})},
+		{contract.LSPServiceYAML, lspProjectAdapter([]string{".yamllint", ".yaml-language-server", "package.json"}, commonLSPIgnoredDirs(), []string{".yaml", ".yml"})},
+		{contract.LSPServiceMarkdown, lspProjectAdapter([]string{"README.md", "readme.md", "package.json", ".git"}, commonLSPIgnoredDirs(), []string{".md", ".markdown"})},
+		{contract.LSPServiceVue, lspProjectAdapter([]string{"package.json", "tsconfig.json", "jsconfig.json", "vite.config.ts", "vite.config.js"}, commonLSPIgnoredDirs(), []string{".vue"})},
+		{contract.LSPServiceSvelte, lspProjectAdapter([]string{"package.json", "svelte.config.js", "svelte.config.ts", "vite.config.ts", "vite.config.js"}, commonLSPIgnoredDirs(), []string{".svelte"})},
+	}
+}
+
+func defaultNativeLSPProjectAdapters() []lspProjectAdapterEntry {
+	return []lspProjectAdapterEntry{
+		{contract.LSPServiceClangd, lspProjectAdapter(
+			[]string{"compile_commands.json", "compile_flags.txt", "CMakeLists.txt", ".clangd"},
+			[]string{".build-cache", ".git", ".workspace", "build", "dist", "node_modules", "vendor"},
+			[]string{".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm"})},
+		{contract.LSPServiceSwift, lspProjectAdapter(
+			[]string{"Package.swift", ".swiftpm"},
+			[]string{".build", ".build-cache", ".git", ".workspace", "DerivedData", "node_modules", "vendor"},
+			[]string{".swift"})},
+		{contract.LSPServiceCSharp, lspProjectAdapter(
+			[]string{"global.json", "Directory.Build.props", "Directory.Build.targets"},
+			[]string{".build-cache", ".git", ".workspace", "bin", "node_modules", "obj", "vendor"},
+			[]string{".cs"})},
+		{contract.LSPServicePHP, lspProjectAdapter([]string{"composer.json", "index.php"},
+			[]string{".build-cache", ".git", ".workspace", "node_modules", "vendor"}, []string{".php", ".phtml"})},
+		{contract.LSPServiceRuby, lspProjectAdapter([]string{"Gemfile", ".ruby-version", ".solargraph.yml"},
+			[]string{".bundle", ".build-cache", ".git", ".workspace", "node_modules", "vendor"}, []string{".rb", ".rake"})},
+		{contract.LSPServiceKotlin, lspProjectAdapter(
+			[]string{"settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts", "pom.xml"},
+			[]string{".build-cache", ".git", ".gradle", ".workspace", "build", "node_modules", "target", "vendor"},
+			[]string{".kt", ".kts"})},
+		{contract.LSPServiceDart, lspProjectAdapter([]string{"pubspec.yaml"},
+			[]string{".build-cache", ".dart_tool", ".git", ".workspace", "build", "node_modules", "vendor"}, []string{".dart"})},
+		{contract.LSPServiceLua, lspProjectAdapter([]string{".luarc.json", ".luarc.jsonc", "stylua.toml"},
+			[]string{".build-cache", ".git", ".workspace", "node_modules", "vendor"}, []string{".lua"})},
+	}
+}
+
+func defaultInfraLSPProjectAdapters() []lspProjectAdapterEntry {
+	return []lspProjectAdapterEntry{
+		{contract.LSPServiceDocker, lspProjectAdapter([]string{"Dockerfile", "Containerfile", "docker-compose.yml", "docker-compose.yaml"}, commonLSPIgnoredDirs(), []string{".dockerfile"})},
+		{contract.LSPServiceTerraform, lspProjectAdapter([]string{".terraform", "main.tf", "versions.tf"}, []string{".build-cache", ".git", ".terraform", ".workspace", "node_modules", "vendor"}, []string{".tf", ".tfvars"})},
+		{contract.LSPServiceGraphQL, lspProjectAdapter([]string{".graphqlrc", ".graphqlrc.json", ".graphqlrc.yml", "graphql.config.js", "package.json"}, commonLSPIgnoredDirs(), []string{".graphql", ".gql"})},
+		{contract.LSPServicePrisma, lspProjectAdapter([]string{"schema.prisma", "package.json"}, commonLSPIgnoredDirs(), []string{".prisma"})},
 	}
 }
 
@@ -108,7 +173,26 @@ func lspConfigFromEnv() (contract.LSPConfig, error) {
 		{service: contract.LSPServiceRust, prefix: "LSP_RUST"},
 		{service: contract.LSPServiceJava, prefix: "LSP_JAVA"},
 		{service: contract.LSPServiceCSS, prefix: "LSP_CSS"},
+		{service: contract.LSPServiceHTML, prefix: "LSP_HTML"},
+		{service: contract.LSPServiceJSON, prefix: "LSP_JSON"},
+		{service: contract.LSPServiceYAML, prefix: "LSP_YAML"},
+		{service: contract.LSPServiceMarkdown, prefix: "LSP_MARKDOWN"},
+		{service: contract.LSPServiceVue, prefix: "LSP_VUE"},
+		{service: contract.LSPServiceSvelte, prefix: "LSP_SVELTE"},
+		{service: contract.LSPServiceClangd, prefix: "LSP_CLANGD"},
+		{service: contract.LSPServiceSwift, prefix: "LSP_SWIFT"},
+		{service: contract.LSPServiceCSharp, prefix: "LSP_CSHARP"},
+		{service: contract.LSPServicePHP, prefix: "LSP_PHP"},
+		{service: contract.LSPServiceRuby, prefix: "LSP_RUBY"},
+		{service: contract.LSPServiceKotlin, prefix: "LSP_KOTLIN"},
+		{service: contract.LSPServiceDart, prefix: "LSP_DART"},
+		{service: contract.LSPServiceLua, prefix: "LSP_LUA"},
+		{service: contract.LSPServiceDocker, prefix: "LSP_DOCKER"},
+		{service: contract.LSPServiceTerraform, prefix: "LSP_TERRAFORM"},
+		{service: contract.LSPServiceGraphQL, prefix: "LSP_GRAPHQL"},
+		{service: contract.LSPServicePrisma, prefix: "LSP_PRISMA"},
 		{service: contract.LSPServiceShell, prefix: "LSP_SHELL"},
+		{service: contract.LSPServiceSQL, prefix: "LSP_SQL"},
 	} {
 		if err := applyProjectAdapterEnv(cfg.ProjectAdapters, adapter.service, adapter.prefix); err != nil {
 			return contract.LSPConfig{}, err

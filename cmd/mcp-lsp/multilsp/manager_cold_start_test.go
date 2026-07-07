@@ -146,18 +146,40 @@ func coldStartLanguageCases(t *testing.T) []coldStartLanguageCase {
 	t.Helper()
 	cases := []coldStartLanguageCase{
 		{languageID: "css", write: writeColdStartCSSFixture},
+		{languageID: "c", write: writeColdStartCFixture},
+		{languageID: "cpp", write: writeColdStartCPPFixture},
+		{languageID: "csharp", write: writeColdStartCSharpFixture},
+		{languageID: "dart", write: writeColdStartDartFixture},
+		{languageID: "dockerfile", write: writeColdStartDockerFixture},
 		{languageID: "go", write: writeColdStartGoFixture},
 		{languageID: "gomod", write: writeColdStartGoModFixture},
 		{languageID: "gosum", write: writeColdStartGoSumFixture},
 		{languageID: "gowork", write: writeColdStartGoWorkFixture},
+		{languageID: "graphql", write: writeColdStartGraphQLFixture},
+		{languageID: "html", write: writeColdStartHTMLFixture},
 		{languageID: "java", write: writeColdStartJavaFixture},
 		{languageID: "javascript", write: writeColdStartJavaScriptFixture},
 		{languageID: "javascriptreact", write: writeColdStartJavaScriptReactFixture},
+		{languageID: "json", write: writeColdStartJSONFixture},
+		{languageID: "kotlin", write: writeColdStartKotlinFixture},
+		{languageID: "lua", write: writeColdStartLuaFixture},
+		{languageID: "markdown", write: writeColdStartMarkdownFixture},
+		{languageID: "objective-c", write: writeColdStartObjectiveCFixture},
+		{languageID: "objective-cpp", write: writeColdStartObjectiveCPPFixture},
+		{languageID: "php", write: writeColdStartPHPFixture},
+		{languageID: "prisma", write: writeColdStartPrismaFixture},
 		{languageID: "python", write: writeColdStartPythonFixture},
+		{languageID: "ruby", write: writeColdStartRubyFixture},
 		{languageID: "rust", write: writeColdStartRustFixture},
 		{languageID: "shellscript", write: writeColdStartShellFixture},
+		{languageID: "sql", write: writeColdStartSQLFixture},
+		{languageID: "svelte", write: writeColdStartSvelteFixture},
+		{languageID: "swift", write: writeColdStartSwiftFixture},
+		{languageID: "terraform", write: writeColdStartTerraformFixture},
 		{languageID: "typescript", write: writeColdStartTypeScriptFixture},
 		{languageID: "typescriptreact", write: writeColdStartTypeScriptReactFixture},
+		{languageID: "vue", write: writeColdStartVueFixture},
+		{languageID: "yaml", write: writeColdStartYAMLFixture},
 	}
 	assertColdStartCasesCoverDefaultLSPClientLanguages(t, cases)
 	return cases
@@ -197,6 +219,128 @@ func writeColdStartCSSFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeColdStartFile(t, root, "package.json", `{"name":"cold-css"}`)
 	return writeColdStartFile(t, root, "style.css", "body { color: black; }\n")
+}
+
+func writeColdStartHTMLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "package.json", `{"name":"cold-html"}`)
+	return writeColdStartFile(t, root, "index.html", "<main>Hello</main>\n")
+}
+
+func writeColdStartJSONFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeColdStartFile(t, root, "package.json", `{"name":"cold-json"}`+"\n")
+}
+
+func writeColdStartYAMLFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeColdStartFile(t, root, "config.yaml", "name: cold-yaml\n")
+}
+
+func writeColdStartMarkdownFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeColdStartFile(t, root, "README.md", "# Cold Markdown\n")
+}
+
+func writeColdStartVueFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "package.json", `{"name":"cold-vue"}`)
+	return writeColdStartFile(t, root, "App.vue", "<template><main>Hello</main></template>\n")
+}
+
+func writeColdStartSvelteFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "package.json", `{"name":"cold-svelte"}`)
+	return writeColdStartFile(t, root, "App.svelte", "<main>Hello</main>\n")
+}
+
+func writeColdStartCFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeColdStartFile(t, root, "main.c", "int main(void) { return 0; }\n")
+}
+
+func writeColdStartCPPFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeColdStartFile(t, root, "main.cpp", "int main() { return 0; }\n")
+}
+
+func writeColdStartObjectiveCFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeColdStartFile(t, root, "main.m", "int main(void) { return 0; }\n")
+}
+
+func writeColdStartObjectiveCPPFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
+	return writeColdStartFile(t, root, "main.mm", "int main() { return 0; }\n")
+}
+
+func writeColdStartSwiftFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "Package.swift", "// swift-tools-version: 6.0\n")
+	return writeColdStartFile(t, root, "Sources/App/main.swift", "print(\"hello\")\n")
+}
+
+func writeColdStartCSharpFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "global.json", `{"sdk":{"rollForward":"latestFeature"}}`)
+	writeColdStartFile(t, root, "App.csproj", `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>`)
+	return writeColdStartFile(t, root, "Program.cs", "class Program { static void Main() {} }\n")
+}
+
+func writeColdStartPHPFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "composer.json", `{"name":"example/cold-php"}`)
+	return writeColdStartFile(t, root, "index.php", "<?php echo 'hello';\n")
+}
+
+func writeColdStartRubyFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "Gemfile", "source 'https://rubygems.org'\n")
+	return writeColdStartFile(t, root, "app.rb", "puts 'hello'\n")
+}
+
+func writeColdStartKotlinFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "settings.gradle.kts", "pluginManagement {}\n")
+	return writeColdStartFile(t, root, "src/Main.kt", "fun main() {}\n")
+}
+
+func writeColdStartDartFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "pubspec.yaml", "name: cold_dart\n")
+	return writeColdStartFile(t, root, "lib/main.dart", "void main() {}\n")
+}
+
+func writeColdStartLuaFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, ".luarc.json", "{}\n")
+	return writeColdStartFile(t, root, "init.lua", "local value = 1\n")
+}
+
+func writeColdStartDockerFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeColdStartFile(t, root, "Dockerfile", "FROM scratch\n")
+}
+
+func writeColdStartTerraformFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeColdStartFile(t, root, "main.tf", "terraform {}\n")
+}
+
+func writeColdStartGraphQLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "package.json", `{"name":"cold-graphql"}`)
+	return writeColdStartFile(t, root, "schema.graphql", "type Query { hello: String }\n")
+}
+
+func writeColdStartPrismaFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "package.json", `{"name":"cold-prisma"}`)
+	return writeColdStartFile(t, root, "schema.prisma", "datasource db { provider = \"sqlite\" url = \"file:dev.db\" }\n")
 }
 
 func writeColdStartGoFixture(t *testing.T, root string) string {
@@ -256,6 +400,12 @@ func writeColdStartShellFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeColdStartFile(t, root, "Makefile", "all:\n\t@true\n")
 	return writeColdStartFile(t, root, "scripts/run.sh", "#!/usr/bin/env bash\n")
+}
+
+func writeColdStartSQLFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "sqlc.yaml", "version: '2'\n")
+	return writeColdStartFile(t, root, "schema.sql", "select 1;\n")
 }
 
 func writeColdStartTypeScriptFixture(t *testing.T, root string) string {
