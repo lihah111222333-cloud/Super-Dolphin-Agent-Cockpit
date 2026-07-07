@@ -2,30 +2,32 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4050
+> 已索引文件：4053
 >
-> 未细分职责文件：53
+> 未细分职责文件：56
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 53 |
-| 未细分职责占比 | 1.31% |
+| 未细分职责文件数 | 56 |
+| 未细分职责占比 | 1.38% |
 
 ## 2. 未细分职责分布
 
 | 模块 | 文件数 |
 |---|---:|
-| `internal` | 26 |
+| `internal` | 27 |
+| `cmd` | 9 |
 | `test` | 9 |
 | `third_party` | 9 |
-| `cmd` | 7 |
 | `sql` | 1 |
 | `tests` | 1 |
 
 ## 3. 样例文件
 
+- `cmd/agent-runtime/main.go`
+- `cmd/agent-runtime/main_test.go`
 - `cmd/super-dolphin-release-manifest/main.go`
 - `cmd/super-dolphin-release-manifest/main_test.go`
 - `cmd/super-dolphin-updater/detach_darwin.go`
@@ -33,6 +35,7 @@
 - `cmd/super-dolphin-updater/install.go`
 - `cmd/super-dolphin-updater/install_test.go`
 - `cmd/super-dolphin-updater/main.go`
+- `internal/e2e/rpc_runtime/runtime_e2e_test.go`
 - `internal/guards/code_size_guard_test.go`
 - `internal/guards/guard_manifest.json`
 - `internal/guards/refactor_baseline.json`
@@ -73,9 +76,6 @@
 - `third_party/kelindar-event/LICENSE`
 - `third_party/kelindar-event/README.md`
 - `third_party/kelindar-event/default.go`
-- `third_party/kelindar-event/default_test.go`
-- `third_party/kelindar-event/event.go`
-- `third_party/kelindar-event/event_test.go`
 
 ## 4. 修复方式
 

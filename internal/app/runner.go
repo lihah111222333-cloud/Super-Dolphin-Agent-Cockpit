@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -264,9 +265,7 @@ type runtimeParams struct {
 	Logger            *slog.Logger
 	Runners           []platformrunner.Runner `group:"runners"`
 	Shutdowner        fx.Shutdowner
-	RootCtx           RootCtxProvider         `optional:"true"`
-	Lifecycle         *uiwails.WailsLifecycle `optional:"true"`
-	ExtractionDrainer interface {
-		DrainPendingExtraction(ctx context.Context) error
-	} `optional:"true"`
+	RootCtx           RootCtxProvider                  `optional:"true"`
+	Lifecycle         *uiwails.WailsLifecycle          `optional:"true"`
+	ExtractionDrainer contract.MemoryExtractionDrainer `optional:"true"`
 }

@@ -119,6 +119,16 @@ func TestAppModuleGraphProvidesThreadOrchestrationFacade(t *testing.T) {
 	}
 }
 
+func TestAppModuleGraphProvidesMemoryExtractionDrainer(t *testing.T) {
+	t.Parallel()
+
+	var drainer contract.MemoryExtractionDrainer
+	opts := append(appGraphValidationOptions(), fx.Populate(&drainer))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing memory extraction drainer: %v", err)
+	}
+}
+
 func TestToolbridgeCodexProductionBindingRequiresCriticalDependencies(t *testing.T) {
 	t.Parallel()
 

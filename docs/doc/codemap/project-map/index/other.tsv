@@ -1,4 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
+cmd/agent-runtime/main_test.go	cmd	other	go-test	3587	未细分职责：请结合路径、文件名和相邻代码判断	cmd,agent,runtime,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/agent-runtime/main.go	cmd	other	go-source	1143	未细分职责：请结合路径、文件名和相邻代码判断	cmd,agent,runtime,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6944	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9997	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,darwin,未细分职责：请结合路径,文件名和相邻代码判断
@@ -16,7 +18,7 @@ internal/app/frontend_embed_contract_test.go	internal	other	go-test	2482	root Fx
 internal/app/mcpcontrol_log_sink.go	internal	other	go-source	1489	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,mcpcontrol,log,sink,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_builtin_tools_test.go	internal	other	go-test	3631	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,builtin,tools,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_e2efixture_test.go	internal	other	go-test	3845	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/modules_graph_test.go	internal	other	go-test	16248	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules_graph_test.go	internal	other	go-test	16575	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules.go	internal	other	go-source	9387	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -28,7 +30,7 @@ internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	16
 internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	12622	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/provider_hooks_contract_test.go	internal	other	go-test	1071	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/runner_test.go	internal	other	go-test	7363	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,test,root,Fx,装配,与,toolbridge,adapters
-internal/app/runner.go	internal	other	go-source	7940	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,root,Fx,装配,与,toolbridge,adapters
+internal/app/runner.go	internal	other	go-source	7984	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,root,Fx,装配,与,toolbridge,adapters
 internal/app/runtime_reporter_adapter.go	internal	other	go-source	2206	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/session_ports_test.go	internal	other	go-test	1277	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/session_ports.go	internal	other	go-source	525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,root,Fx,装配,runner,与,toolbridge,adapters
@@ -179,7 +181,7 @@ internal/contract/manifest_test.go	internal	other	go-test	4768	跨模块稳定�
 internal/contract/manifest.go	internal	other	go-source	12725	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
 internal/contract/mcp_control_test.go	internal	other	go-test	1303	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/mcp_control.go	internal	other	go-source	23286	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
-internal/contract/memory.go	internal	other	go-source	7570	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
+internal/contract/memory.go	internal	other	go-source	7763	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
 internal/contract/message_notifier.go	internal	other	go-source	1872	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration_workbench_test.go	internal	other	go-test	1783	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,workbench,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration.go	internal	other	go-source	29333	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
@@ -248,6 +250,7 @@ internal/dto/turn/progress.go	internal	other	go-source	2524	provider/shared DTO 
 internal/dto/ui/event_test.go	internal	other	go-test	642	provider/shared DTO 与事件协议	internal,dto,ui,event,test,provider,shared,DTO,与事件协议
 internal/dto/ui/event.go	internal	other	go-source	7831	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议
 internal/dto/ui/patch_types.go	internal	other	go-source	1405	provider/shared DTO 与事件协议	internal,dto,ui,patch,types,provider,shared,DTO,与事件协议
+internal/e2e/rpc_runtime/runtime_e2e_test.go	internal	other	go-test	9527	未细分职责：请结合路径、文件名和相邻代码判断	internal,e2e,rpc,runtime,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/guards/code_size_guard_test.go	internal	other	go-test	1945	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,code,size,guard,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/guards/guard_manifest.json	internal	other	json	345	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,guard,manifest,未细分职责：请结合路径,文件名和相邻代码判断
 internal/guards/refactor_baseline.json	internal	other	json	2096	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,refactor,baseline,未细分职责：请结合路径,文件名和相邻代码判断
