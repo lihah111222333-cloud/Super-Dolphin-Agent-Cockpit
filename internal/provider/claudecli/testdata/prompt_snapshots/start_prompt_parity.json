@@ -1,0 +1,7 @@
+{
+  "baseInstructions": "claude contract base instructions",
+  "developerInstructions": "claude contract developer instructions",
+  "prefixHash": "claude-contract-prefix-hash",
+  "boundary": "{\"cachedPrefix\":\"claude contract base instructions\",\"uncachedTail\":\"claude contract runtime context\"}",
+  "sectionSnapshot": "{\"developer\":\"claude contract developer instructions\",\"system\":\"claude contract base instructions\"}"
+}
