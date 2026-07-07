@@ -632,7 +632,7 @@ function expectTraceDashboardRpcCalls() {
 
 async function expectTraceDashboardRows(table) {
   const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-1');
-  expect(inlineTrace).toHaveTextContent('source=mixed');
+  await waitFor(() => expect(inlineTrace).toHaveTextContent('source=mixed'));
   expect(screen.getAllByText(/internal\/platform\/rpc\/server.go:270/).length).toBeGreaterThan(0);
   let traceRows = [];
   await waitFor(() => {

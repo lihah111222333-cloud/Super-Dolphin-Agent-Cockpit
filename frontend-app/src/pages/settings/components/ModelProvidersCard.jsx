@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Panel } from '../../shared/pageComponents.jsx';
 import { applyModelProvider, listModelProviders, saveModelProviders } from '../services/settingsPageService.js';
 import {
@@ -15,23 +16,26 @@ import {
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
 import './SettingsPageComponents.css';
 
+function modelProvidersQueryKey(cwd) {
+  return ['settings', 'modelProviders', textValue(cwd)];
+}
+
 // 从当前项目 cwd 加载模型厂商注册表，编辑态只留在本组件内，保存时再写回后端。
 function ModelProvidersCard({ copy, cwd }) {
   const modelCopy = copy.modelProviders;
+  const queryClient = useQueryClient();
   const currentCwd = textValue(cwd);
   const currentCwdRef = useRef(currentCwd);
-  const loadRequestRef = useRef(0);
   const [registryState, setRegistryState] = useState(null);
   const [selectedVendorId, setSelectedVendorId] = useState('');
-  const [busy, setBusy] = useState({ loading: false, saving: false, applying: false });
+  const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const hasCurrentRegistry = Boolean(registryState && registryState.cwd === currentCwd);
   const currentRegistry = hasCurrentRegistry ? registryState.registry : EMPTY_REGISTRY;
-  const { applying, loading, saving } = busy;
+  const queryKey = useMemo(() => modelProvidersQueryKey(currentCwd), [currentCwd]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     currentCwdRef.current = currentCwd;
-    loadRequestRef.current += 1;
   }, [currentCwd]);
 
   const applyRegistryState = useCallback((payload, preferredVendorId = '', registryCwd = '') => {
@@ -40,38 +44,99 @@ function ModelProvidersCard({ copy, cwd }) {
     setSelectedVendorId(selectVendorId(nextRegistry, preferredVendorId));
   }, []);
 
-  const load = useCallback(async () => {
-    const requestCwd = currentCwd;
-    const requestId = loadRequestRef.current + 1;
-    loadRequestRef.current = requestId;
-    const isCurrentLoad = () => loadRequestRef.current === requestId && currentCwdRef.current === requestCwd;
-
-    if (!requestCwd) {
-      setRegistryState(null);
-      setSelectedVendorId('');
-      setBusy((current) => ({ ...current, loading: false, saving: false, applying: false }));
-      return;
-    }
-
-    setRegistryState(null);
-    setSelectedVendorId('');
-    setBusy((current) => ({ ...current, loading: true, saving: false, applying: false }));
-    try {
-      const payload = await listModelProviders({ cwd: requestCwd });
-      if (isCurrentLoad()) {
-        applyRegistryState(payload, payload?.activeVendorId, requestCwd);
-        setNotice({ level: 'info', message: '' });
+  const registryQuery = useQuery({
+    queryKey,
+    queryFn: () => listModelProviders({ cwd: currentCwd }),
+    enabled: Boolean(currentCwd),
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const saveMutation = useMutation({
+    mutationFn: async ({ registry, requestCwd }) => {
+      await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registry) });
+      return { registry, requestCwd };
+    },
+    onSuccess: ({ registry, requestCwd }) => {
+      if (currentCwdRef.current !== requestCwd) return;
+      queryClient.setQueryData(modelProvidersQueryKey(requestCwd), registry);
+      setDirty(false);
+      setNotice({ level: 'info', message: modelCopy.saved });
+    },
+    onError: (error, variables) => {
+      if (currentCwdRef.current === variables?.requestCwd) {
+        setNotice({ level: 'error', message: modelCopy.saveFailed + (error?.message || error) });
       }
-    } catch (error) {
-      if (isCurrentLoad()) setNotice({ level: 'warning', message: modelCopy.loadFailed + (error?.message || error) });
-    } finally {
-      if (isCurrentLoad()) setBusy((current) => ({ ...current, loading: false }));
-    }
-  }, [applyRegistryState, currentCwd, modelCopy]);
+    },
+    retry: false,
+  });
+  const applyMutation = useMutation({
+    mutationFn: async ({ registry, requestCwd, vendor }) => {
+      let phase = 'save';
+      try {
+        await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registry) });
+        phase = 'apply';
+        const payload = await applyModelProvider({ cwd: requestCwd, vendorId: vendor.id });
+        return { payload, requestCwd, vendor };
+      } catch (error) {
+        if (error && typeof error === 'object') error.phase = phase;
+        throw error;
+      }
+    },
+    onSuccess: ({ payload, requestCwd, vendor }) => {
+      if (currentCwdRef.current !== requestCwd) return;
+      queryClient.setQueryData(modelProvidersQueryKey(requestCwd), payload);
+      applyRegistryState(payload, vendor.id, requestCwd);
+      setDirty(false);
+      setNotice({ level: 'info', message: modelCopy.applied.replace('{label}', vendor.label || vendor.id) });
+    },
+    onError: (error, variables) => {
+      if (currentCwdRef.current === variables?.requestCwd) {
+        const prefix = error?.phase === 'save' ? modelCopy.saveFailed : modelCopy.applyFailed;
+        setNotice({ level: 'error', message: prefix + (error?.message || error) });
+      }
+    },
+    retry: false,
+  });
+  const loading = registryQuery.isFetching;
+  const saving = saveMutation.isPending;
+  const applying = applyMutation.isPending;
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!currentCwd) {
+      setRegistryState(null);
+      setSelectedVendorId('');
+      setDirty(false);
+      setNotice({ level: 'info', message: '' });
+      return;
+    }
+    setRegistryState(null);
+    setSelectedVendorId('');
+    setDirty(false);
+    setNotice({ level: 'info', message: '' });
+  }, [currentCwd]);
+
+  useEffect(() => {
+    if (!currentCwd || dirty || !registryQuery.data) return;
+    applyRegistryState(registryQuery.data, registryQuery.data?.activeVendorId, currentCwd);
+    setNotice({ level: 'info', message: '' });
+  }, [applyRegistryState, currentCwd, dirty, registryQuery.data]);
+
+  useEffect(() => {
+    if (!registryQuery.error) return;
+    setNotice({ level: 'warning', message: modelCopy.loadFailed + (registryQuery.error?.message || registryQuery.error) });
+  }, [modelCopy.loadFailed, registryQuery.error]);
+
+  const load = useCallback(() => {
+    if (!currentCwd) {
+      setRegistryState(null);
+      setSelectedVendorId('');
+      setDirty(false);
+      return;
+    }
+    setDirty(false);
+    setNotice({ level: 'info', message: '' });
+    void queryClient.invalidateQueries({ queryKey, exact: true });
+  }, [currentCwd, queryClient, queryKey]);
 
   const selectedVendor = useMemo(
     () => currentRegistry.vendors.find((vendor) => vendor.id === selectedVendorId) || currentRegistry.vendors[0] || null,
@@ -81,6 +146,7 @@ function ModelProvidersCard({ copy, cwd }) {
   const updateVendor = useCallback((field, value) => {
     setRegistryState((current) => {
       if (!current || current.cwd !== currentCwd) return current;
+      setDirty(true);
       return {
         ...current,
         registry: updateSelectedVendor(current.registry, selectedVendorId, (vendor) => ({ ...vendor, [field]: value })),
@@ -91,6 +157,7 @@ function ModelProvidersCard({ copy, cwd }) {
   const updateNestedVendor = useCallback((group, field, value) => {
     setRegistryState((current) => {
       if (!current || current.cwd !== currentCwd) return current;
+      setDirty(true);
       return {
         ...current,
         registry: updateSelectedVendor(current.registry, selectedVendorId, (vendor) => ({
@@ -101,46 +168,15 @@ function ModelProvidersCard({ copy, cwd }) {
     });
   }, [currentCwd, selectedVendorId]);
 
-  const save = useCallback(async () => {
+  const save = useCallback(() => {
     if (!currentCwd || saving || !registryState || registryState.cwd !== currentCwd) return;
-    const requestCwd = currentCwd;
-    const registryToSave = registryState.registry;
-    setBusy((current) => ({ ...current, saving: true }));
-    try {
-      await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registryToSave) });
-      if (currentCwdRef.current === requestCwd) setNotice({ level: 'info', message: modelCopy.saved });
-    } catch (error) {
-      if (currentCwdRef.current === requestCwd) setNotice({ level: 'error', message: modelCopy.saveFailed + (error?.message || error) });
-    } finally {
-      if (currentCwdRef.current === requestCwd) setBusy((current) => ({ ...current, saving: false }));
-    }
-  }, [currentCwd, modelCopy, registryState, saving]);
+    saveMutation.mutate({ registry: registryState.registry, requestCwd: currentCwd });
+  }, [currentCwd, registryState, saveMutation, saving]);
 
-  const apply = useCallback(async () => {
+  const apply = useCallback(() => {
     if (!currentCwd || applying || !registryState || registryState.cwd !== currentCwd || !selectedVendor || !selectedVendor.enabled || !selectedVendor.configured) return;
-    const requestCwd = currentCwd;
-    const vendorToApply = selectedVendor;
-    const registryToApply = registryState.registry;
-    let phase = 'save';
-    setBusy((current) => ({ ...current, applying: true }));
-    try {
-      await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registryToApply) });
-      if (currentCwdRef.current !== requestCwd) return;
-      phase = 'apply';
-      const payload = await applyModelProvider({ cwd: requestCwd, vendorId: vendorToApply.id });
-      if (currentCwdRef.current === requestCwd) {
-        applyRegistryState(payload, vendorToApply.id, requestCwd);
-        setNotice({ level: 'info', message: modelCopy.applied.replace('{label}', vendorToApply.label || vendorToApply.id) });
-      }
-    } catch (error) {
-      if (currentCwdRef.current === requestCwd) {
-        const prefix = phase === 'save' ? modelCopy.saveFailed : modelCopy.applyFailed;
-        setNotice({ level: 'error', message: prefix + (error?.message || error) });
-      }
-    } finally {
-      if (currentCwdRef.current === requestCwd) setBusy((current) => ({ ...current, applying: false }));
-    }
-  }, [applying, applyRegistryState, currentCwd, modelCopy, registryState, selectedVendor]);
+    applyMutation.mutate({ registry: registryState.registry, requestCwd: currentCwd, vendor: selectedVendor });
+  }, [applying, applyMutation, currentCwd, registryState, selectedVendor]);
 
   return (
     <div className="settings-model-providers" data-testid={hasCurrentRegistry ? 'settings-model-providers-card' : undefined}>

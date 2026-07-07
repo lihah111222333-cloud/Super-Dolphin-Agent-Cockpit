@@ -43,8 +43,8 @@ Highest-priority findings:
 | Task 1 Markdown URL 安全过滤 | 已完成 | Chat/Skills 曾绕过 `react-markdown` 默认 URL 安全策略，安全收益高且改动面可控。 | 用默认策略做基线，只为产品链接和本地图片 token 保留显式 allowlist。 | 以前能渲染的 `data:*` 或不安全协议会被拒绝；需要正向用例覆盖 `agent://`、`app://`、`SKILL.md` 等产品路径。 | Markdown/Skills focused tests + `/skills` smoke。 |
 | Task 2 Wails 大整数 JSON 解析 | 已完成 | regex 改 JSON 文本容易误伤字符串内容，也无法表达真实 JSON number 策略。 | 使用 `lossless-json` 解析 runtime event payload；安全整数仍转 Number，非安全整数转字符串，避免 BigInt 污染 JSON-serializable UI state。 | 下游如果依赖大整数 Number 比较会改变类型；本轮策略是显式字符串化，并用测试固定。 | `wailsBridge.test.js` + full frontend checks + Wails RPC smoke。 |
 | Task 3 高风险静默兜底移除 | 已完成 | 缺失目录、畸形 shared-file detail、chat UI action 异常被吞会制造“看似成功”的 UI 状态。 | 守卫脚本缺根 fail-fast；shared-file detail 由 zod/RPC 边界校验；chat 复用共享 `runUIAction`。 | 以前被空数组/ fallback 掩盖的问题会直接报错；这是预期行为。 | guard + adapter/API/chat focused tests + `/files` smoke。 |
-| Task 4 扩展 zod 响应边界 | 进行中 | adapter 仍承担过多手写 shape 校验，容易把后端坏数据标准化成可显示数据。 | 把 observability、memory、shared files dashboard、model provider registry 的入口 shape 放进 `backendSchemas.js` 和 `BACKEND_RESPONSE_VALIDATORS`；adapter 只保留 UI 字段转换。 | `observability.events` 缺失保留 degraded parse failure，不改成直接崩；memory/provider/files 的必需数组/对象缺失应 fail-fast。 | adapter/API/settings/files focused tests + typecheck contracts + audit rpc contracts + full checks + `/settings` smoke。 |
-| Task 5 纯 RPC 状态迁移到 TanStack Query | 未开始 | settings/observability 仍有 reducer、request sequence、手写 cache；已有 Query 依赖可承接查询状态。 | 先迁移 observability recent/trace，再迁移 settings read/write；dirty draft state 保留本地，不让 background refetch 覆盖用户输入。 | Query 默认 focus refetch、retry、stale 策略可能改变请求时机；所有 query key 和 refetch 策略必须显式。 | Observability/Settings focused tests + full checks。 |
+| Task 4 扩展 zod 响应边界 | 已完成 | adapter 仍承担过多手写 shape 校验，容易把后端坏数据标准化成可显示数据。 | 把 observability、memory、shared files dashboard、model provider registry 的入口 shape 放进 `backendSchemas.js` 和 `BACKEND_RESPONSE_VALIDATORS`；adapter 只保留 UI 字段转换。 | `observability.events` 缺失保留 degraded parse failure，不改成直接崩；memory/provider/files 的必需数组/对象缺失应 fail-fast。 | adapter/API/settings/files focused tests + typecheck contracts + audit rpc contracts + full checks + `/settings` smoke。 |
+| Task 5 纯 RPC 状态迁移到 TanStack Query | 已完成 | settings/observability 仍有 reducer、request sequence、手写 cache；已有 Query 依赖可承接查询状态。 | 先迁移 observability recent/trace，再迁移 settings read/write；dirty draft state 保留本地，不让 background refetch 覆盖用户输入。 | Query 默认 focus refetch、retry、stale 策略可能改变请求时机；所有 query key 和 refetch 策略必须显式。 | Observability/Settings focused tests + full checks。 |
 | Task 6 低风险交互控件迁移 React Aria | 未开始 | Memory create menu、Prompt scope、Composer model selector 有手写 outside-click/Escape/dialog 行为，易出现可访问性和焦点回归。 | 引入或使用 `react-aria-components` 的 Menu/Popover/Dialog/RadioGroup；保持现有 props、copy、CSS 结构尽量不动。 | DOM 结构和焦点顺序会改变；需要键盘、Escape、outside click、focus restore 测试先行。 | Memory/Prompt/Composer focused tests + full checks。 |
 | Task 7 图片与 Mermaid SVG 安全边界 | 未开始 | 本地图片和 SVG sanitizer 是安全边界，不能依赖字符串拼接和宽泛协议。 | 用 `URL`/`URLSearchParams` 验证 generated/local image route；禁止 frontend 直接生成 `file://` 预览；Mermaid 先补 fixture，再决定是否引入 DOMPurify。 | 旧的 raw file path preview 可能不可见，必须走后端 token URL；DOMPurify 若引入会改变 SVG 属性保留集合。 | Markdown/Mermaid/code preview focused tests + full checks。 |
 | Task 8 后续 Query/virtualization | 延后 | Memory polling、Skills chunk loading、大 diff 渲染有性能/状态收益，但副作用较大。 | 分成三个子任务：memory polling -> `useQuery`/polling；skills chunks -> `useInfiniteQuery`；runtime diff -> `@tanstack/react-virtual`。 | 请求并发、取消、滚动锚点和局部渲染都可能改变 UX；必须一项一项做。 | 每个子任务单独 focused tests + full checks + 必要页面 smoke。 |
@@ -689,7 +689,7 @@ git commit -m "refactor(frontend): 用 zod 收敛前端响应边界"
 - Modify: `frontend-app/src/pages/settings/components/ModelProvidersCard.jsx`
 - Test: observability/settings suites
 
-- [ ] **Step 1: Observability query tests**
+- [x] **Step 1: Observability query tests**
 
 Add tests for:
 
@@ -699,7 +699,7 @@ rapid trace id switches do not write stale trace detail
 trace detail cache is keyed by trace id and limit
 ```
 
-- [ ] **Step 2: Replace reducer sequence guards with Query keys**
+- [x] **Step 2: Replace reducer sequence guards with Query keys**
 
 Use Query for recent results and trace details. Keep user-triggered submit semantics and disable unwanted refetches.
 
@@ -710,7 +710,7 @@ Expected query key shape:
 ['observability', 'trace', cwd, traceId, eventLimit]
 ```
 
-- [ ] **Step 3: Settings query/mutation tests**
+- [x] **Step 3: Settings query/mutation tests**
 
 Add tests for:
 
@@ -720,11 +720,11 @@ save mutation disables only relevant controls
 app update install is a mutation, not a window-focus query
 ```
 
-- [ ] **Step 4: Migrate Settings reads and writes**
+- [x] **Step 4: Migrate Settings reads and writes**
 
 Use `useQuery` for read snapshots and `useMutation` for button-triggered writes. Keep form draft state local; do not let background refetch overwrite a dirty draft.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 
@@ -746,6 +746,39 @@ git add frontend-app/src/pages/observability/ObservabilityPage.jsx \
   frontend-app/src/pages/settings/components/ModelProvidersCard.jsx
 git commit -m "refactor(frontend): 用 TanStack Query 收敛纯 RPC 状态"
 ```
+
+Actual: 2026-07-07 focused Settings RED showed the dirty provider draft/refetch case timing out before the Query migration. After implementation, focused Settings passed with 33 tests, and the combined focused suite passed with 4 files and 66 tests:
+
+```bash
+cd frontend-app
+npm test -- src/pages/settings/SettingsPage.test.jsx
+npm test -- src/pages/observability/ObservabilityPage.test.jsx \
+  src/pages/settings/SettingsPage.test.jsx src/SettingsPage.test.jsx \
+  src/services/modules/observabilityPage.degradation.test.jsx
+```
+
+Full validation passed:
+
+```bash
+npm run lint
+npm test
+npx vitest run
+npm run build
+```
+
+Counts: full `npm test` and bare `npx vitest run` both passed with 86 files and 1064 tests. Build passed and synced the frontend dist. `run_frontend_size_guard` is a stop-hook local function; its implementation falls back to `npm run lint`, which passed. LSP structure/read/xref evidence was captured for `ModelProvidersCard.jsx`, `SettingsPage.jsx`, and `ObservabilityPage.jsx`; LSP diagnostics for the touched JSX files timed out after narrowed single-file retries with `context deadline exceeded`, covered by lint/typecheck/focused/full tests/build.
+
+Milestone app smoke used isolated ports:
+
+```bash
+SUPER_DOLPHIN_HOME=/tmp/sd-task5-browser-smoke-${USER:-user}/super-dolphin-home \
+SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4530 \
+VITE_DEV_URL=http://127.0.0.1:5193 \
+GO_AGENT_CTL_RPC_ADDR=127.0.0.1:8110 \
+./run-new-ui-desktop.sh
+```
+
+Verified `/settings` and `/observability` returned Vite HTML through port 5193. The Vite-proxied WebSocket `ws://127.0.0.1:5193/wails/ws` returned object results for `ui/sidebar/get`, `ui/dashboard/get page=settings`, `ui/dashboard/get page=observability`, and `observability/status`. Direct backend WS on port 4530 was rejected in this dev layout, so smoke used the same Vite proxy path as the browser. The smoke process was stopped and ports 4530/5193 were confirmed closed.
 
 ---
 

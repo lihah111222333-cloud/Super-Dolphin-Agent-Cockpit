@@ -1,5 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityPage } from './ObservabilityPage.jsx';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from '../../services/modules/observabilityService.js';
@@ -45,8 +46,25 @@ const traceResult = {
   ],
 };
 
-function renderObservabilityPage() {
-  return render(<ObservabilityPage />);
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+}
+
+function renderObservabilityPage(props = {}) {
+  const queryClient = createTestQueryClient();
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <ObservabilityPage {...props} />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 function queryRecentLogs() {
@@ -291,6 +309,81 @@ describe('ObservabilityPage module', () => {
     expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('keeps rapid trace expansions bound to their own trace id', async () => {
+    let resolveTraceA;
+    let resolveTraceB;
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ...recentResult.events[0],
+          ts: '2026-06-02T09:01:22.000Z',
+          traceId: 'trace-a',
+          spanId: 'span-a',
+          method: 'thread/start',
+        },
+        {
+          ...recentResult.events[0],
+          ts: '2026-06-02T09:01:23.000Z',
+          traceId: 'trace-b',
+          spanId: 'span-b',
+          method: 'turn/start',
+        },
+      ],
+    });
+    getObservabilityTrace.mockImplementation(({ traceId }) => new Promise((resolve) => {
+      if (traceId === 'trace-a') resolveTraceA = resolve;
+      if (traceId === 'trace-b') resolveTraceB = resolve;
+    }));
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-a' }));
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-b' }));
+    resolveTraceB({
+      source: 'memory',
+      truncated: false,
+      events: [{ ...traceResult.events[0], traceId: 'trace-b', spanId: 'span-b-detail', method: 'turn/start' }],
+    });
+    const traceBDetail = await within(table).findByTestId('observability-inline-trace-trace-b');
+
+    await waitFor(() => expect(traceBDetail).toHaveTextContent('turn/start'));
+    expect(traceBDetail).toHaveTextContent('span-b-detail');
+    expect(traceBDetail).not.toHaveTextContent('span-a-detail');
+
+    resolveTraceA({
+      source: 'memory',
+      truncated: false,
+      events: [{ ...traceResult.events[0], traceId: 'trace-a', spanId: 'span-a-detail', method: 'thread/start' }],
+    });
+    await within(table).findByTestId('observability-inline-trace-trace-a');
+
+    expect(traceBDetail).toHaveTextContent('span-b-detail');
+    expect(traceBDetail).not.toHaveTextContent('span-a-detail');
+  });
+
+  it('caches trace detail by trace id and refetches when the limit changes', async () => {
+    const table = await queryRecentLogs();
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+    await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+    await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' }));
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+    await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText('Limit'), { target: { value: '25' } });
+    await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledTimes(2));
+    expect(getObservabilityTrace.mock.calls.map(([payload]) => payload)).toEqual([
+      { traceId: 'trace-frontend-1', limit: 50 },
+      { traceId: 'trace-frontend-1', limit: 25 },
+    ]);
+  });
+
   it('groups and expands backend snake_case trace fields', async () => {
     const snakeCaseEvent = {
       ts: '2026-06-02T09:01:22.459Z',
@@ -334,7 +427,7 @@ describe('ObservabilityPage module', () => {
     fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-snake' }));
     const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-snake');
 
-    expect(inlineTrace).toHaveTextContent('total_duration_ms=42');
+    await waitFor(() => expect(inlineTrace).toHaveTextContent('total_duration_ms=42'));
     expect(inlineTrace).toHaveTextContent('span-snake');
     expect(inlineTrace).toHaveTextContent('span-parent');
     expect(inlineTrace).toHaveTextContent('thread-snake');

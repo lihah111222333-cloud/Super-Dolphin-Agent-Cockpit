@@ -1,5 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityPage } from '../../pages/observability/ObservabilityPage.jsx';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from './observabilityService.js';
@@ -38,7 +39,14 @@ describe('ObservabilityPage tail degradation display', () => {
   });
 
   it('shows degraded tail diagnostics on recent results', async () => {
-    render(<ObservabilityPage />);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ObservabilityPage />
+      </QueryClientProvider>,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
     const table = await screen.findByTestId('observability-recent-logs');

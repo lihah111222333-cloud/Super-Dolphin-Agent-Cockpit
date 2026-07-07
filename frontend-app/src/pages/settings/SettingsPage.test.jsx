@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from './SettingsPage.jsx';
 
@@ -60,8 +61,31 @@ function preferenceFixture(overrides = {}) {
   };
 }
 
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+}
+
+function settingsPageView(queryClient, projectPath) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SettingsPage projectPath={projectPath} />
+    </QueryClientProvider>
+  );
+}
+
 function renderSettingsPage(projectPath = '/repo/app') {
-  render(<SettingsPage projectPath={projectPath} />);
+  const queryClient = createTestQueryClient();
+  const result = render(settingsPageView(queryClient, projectPath));
+  return {
+    queryClient,
+    ...result,
+    rerenderSettingsPage: (nextProjectPath) => result.rerender(settingsPageView(queryClient, nextProjectPath)),
+  };
 }
 
 function deferred() {
@@ -575,12 +599,12 @@ describe('SettingsPage model provider management', () => {
       .mockReturnValueOnce(firstLoad.promise)
       .mockReturnValueOnce(secondLoad.promise);
 
-    const { rerender } = render(<SettingsPage projectPath="/repo/one" />);
+    const { rerenderSettingsPage } = renderSettingsPage('/repo/one');
     await waitFor(() => {
       expect(backend.listModelProviders).toHaveBeenCalledWith({ cwd: '/repo/one' });
     });
 
-    rerender(<SettingsPage projectPath="/repo/two" />);
+    rerenderSettingsPage('/repo/two');
     await waitFor(() => {
       expect(backend.listModelProviders).toHaveBeenCalledWith({ cwd: '/repo/two' });
     });
@@ -615,6 +639,38 @@ describe('SettingsPage model provider management', () => {
     const payload = backend.saveModelProviders.mock.calls.at(-1)[0];
     expect(payload.registry.vendors).toHaveLength(1);
     expect(payload.registry.vendors[0].id).toBe('two-vendor');
+  });
+
+  it('keeps dirty model provider drafts when cached registry data refetches in the background', async () => {
+    backend.listModelProviders
+      .mockResolvedValueOnce({
+        activeVendorId: 'openrouter',
+        vendors: [
+          { id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 5, monthlyUsd: 100 }, tokenPool: { priority: 10, fallbackVendorId: '' } },
+        ],
+      })
+      .mockResolvedValueOnce({
+        activeVendorId: 'openrouter',
+        vendors: [
+          { id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1-refetched', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 5, monthlyUsd: 100 }, tokenPool: { priority: 10, fallbackVendorId: '' } },
+        ],
+      });
+
+    const { queryClient } = renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    fireEvent.change(within(card).getByLabelText('Default Model'), { target: { value: 'openai/gpt-4.1-draft' } });
+
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === 'settings' && query.queryKey[1] === 'modelProviders',
+      });
+    });
+
+    await waitFor(() => {
+      expect(backend.listModelProviders).toHaveBeenCalledTimes(2);
+    });
+    expect(within(card).getByLabelText('Default Model')).toHaveValue('openai/gpt-4.1-draft');
+    expect(card).not.toHaveTextContent('openai/gpt-4.1-refetched');
   });
 
   it('shows missing env status without API key input fields', async () => {
@@ -691,12 +747,12 @@ describe('SettingsPage prompt settings', () => {
       .mockReturnValueOnce(firstLoad.promise)
       .mockReturnValueOnce(secondLoad.promise);
 
-    const { rerender } = render(<SettingsPage projectPath="/repo/one" />);
+    const { rerenderSettingsPage } = renderSettingsPage('/repo/one');
     await waitFor(() => {
       expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/one' });
     });
 
-    rerender(<SettingsPage projectPath="/repo/two" />);
+    rerenderSettingsPage('/repo/two');
     await waitFor(() => {
       expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/two' });
     });
@@ -760,12 +816,12 @@ describe('SettingsPage builtin tools migration', () => {
       .mockReturnValueOnce(firstLoad.promise)
       .mockReturnValueOnce(secondLoad.promise);
 
-    const { rerender } = render(<SettingsPage projectPath="/repo/one" />);
+    const { rerenderSettingsPage } = renderSettingsPage('/repo/one');
     await waitFor(() => {
       expect(backend.readBuiltinTools).toHaveBeenCalledWith({ cwd: '/repo/one' });
     });
 
-    rerender(<SettingsPage projectPath="/repo/two" />);
+    rerenderSettingsPage('/repo/two');
     await waitFor(() => {
       expect(backend.readBuiltinTools).toHaveBeenCalledWith({ cwd: '/repo/two' });
     });

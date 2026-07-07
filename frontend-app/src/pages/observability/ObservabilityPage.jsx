@@ -1,32 +1,17 @@
-import React, { useCallback, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy } from 'lucide-react';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from '../../services/modules/observabilityService.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
 import './ObservabilityPage.css';
 
-const OBSERVABILITY_PAGE_INITIAL_STATE = Object.freeze({
-  copiedTraceId: '',
-  loading: false,
-  notice: '',
-  recentResult: null,
-});
+function observabilityRecentQueryKey(cwd, params) {
+  return ['observability', 'recent', textValue(cwd), Number(params?.limit) || 0, params || null];
+}
 
-function observabilityPageReducer(state, action) {
-  switch (action.type) {
-    case 'copy/success':
-      return { ...state, copiedTraceId: action.traceId };
-    case 'notice/set':
-      return { ...state, notice: action.message };
-    case 'query/finish':
-      return { ...state, loading: false };
-    case 'query/start':
-      return { ...state, copiedTraceId: '', loading: true, notice: '' };
-    case 'recent/set':
-      return { ...state, notice: action.clearNotice ? '' : state.notice, recentResult: action.result };
-    default:
-      return state;
-  }
+function observabilityTraceQueryKey(cwd, traceId, limit) {
+  return ['observability', 'trace', textValue(cwd), textValue(traceId), Number(limit) || 0];
 }
 
 function stableBackendLogValue(value, seen = new WeakSet()) {
@@ -172,9 +157,9 @@ function useObservabilityFilters() {
   return { buildRecentParams, filters, queryLimit, setFilter };
 }
 
-function useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice }) {
+function useObservabilityTraceExpansion({ setFilter, setNotice }) {
   const [expandedTraces, setExpandedTraces] = useState({});
-  const toggleTraceExpansion = useCallback(async (value) => {
+  const toggleTraceExpansion = useCallback((value) => {
     const nextTraceId = textValue(value);
     if (!nextTraceId) return;
     const currentEntry = expandedTraces[nextTraceId];
@@ -184,67 +169,39 @@ function useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice }) {
     }
     setNotice('');
     setFilter('traceId', nextTraceId);
-    if (currentEntry?.result && currentEntry.limit === queryLimit) {
-      setExpandedTraces((current) => ({
-        ...current,
-        [nextTraceId]: { ...current[nextTraceId], expanded: true, loading: false, error: '' },
-      }));
-      return;
-    }
     setExpandedTraces((current) => ({
       ...current,
-      [nextTraceId]: { ...current[nextTraceId], expanded: true, loading: true, error: '', limit: queryLimit },
+      [nextTraceId]: { ...current[nextTraceId], expanded: true },
     }));
-    try {
-      const trace = await getObservabilityTrace({ traceId: nextTraceId, limit: queryLimit });
-      setExpandedTraces((current) => expandedTraceLoadedState(current, nextTraceId, trace, queryLimit));
-    }
-    catch (error) {
-      const message = errorMessage(error);
-      setNotice(message);
-      setExpandedTraces((current) => expandedTraceErrorState(current, nextTraceId, message, queryLimit));
-    }
-  }, [expandedTraces, queryLimit, setExpandedTraces, setFilter, setNotice]);
+  }, [expandedTraces, setFilter, setNotice]);
   return { expandedTraces, setExpandedTraces, toggleTraceExpansion };
 }
 
-function expandedTraceLoadedState(current, traceId, trace, queryLimit) {
-  const latestEntry = current[traceId] || {};
-  return {
-    ...current,
-    [traceId]: {
-      ...latestEntry,
-      expanded: latestEntry.expanded !== false,
-      loading: false,
-      error: '',
-      result: trace,
-      limit: queryLimit,
-    },
-  };
-}
-
-function expandedTraceErrorState(current, traceId, message, queryLimit) {
-  return {
-    ...current,
-    [traceId]: {
-      ...current[traceId],
-      expanded: true,
-      loading: false,
-      error: message,
-      limit: queryLimit,
-    },
-  };
-}
-
-function ObservabilityPage({ copy = APP_COPY.zh.observability }) {
+function ObservabilityPage({ copy = APP_COPY.zh.observability, cwd = '' }) {
+  const queryClient = useQueryClient();
+  const queryCwd = textValue(cwd);
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
-  const [pageState, dispatchPageState] = useReducer(observabilityPageReducer, OBSERVABILITY_PAGE_INITIAL_STATE);
-  const recentRequestSequenceRef = useRef(0);
-  const { copiedTraceId, loading, notice, recentResult } = pageState;
-  const setNotice = useCallback((message) => {
-    dispatchPageState({ type: 'notice/set', message });
-  }, []);
-  const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice });
+  const [submittedRecentParams, setSubmittedRecentParams] = useState(null);
+  const [copiedTraceId, setCopiedTraceId] = useState('');
+  const [notice, setNotice] = useState('');
+  const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ setFilter, setNotice });
+  const recentQueryKey = useMemo(
+    () => observabilityRecentQueryKey(queryCwd, submittedRecentParams),
+    [queryCwd, submittedRecentParams],
+  );
+  const recentQuery = useQuery({
+    queryKey: recentQueryKey,
+    queryFn: () => getObservabilityRecent(submittedRecentParams),
+    enabled: Boolean(submittedRecentParams),
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const loading = recentQuery.isFetching;
+  const recentResult = recentQuery.data || null;
+
+  useEffect(() => {
+    if (recentQuery.error) setNotice(errorMessage(recentQuery.error));
+  }, [recentQuery.error]);
 
   const copyTraceId = useCallback(async (value) => {
     const nextTraceId = textValue(value);
@@ -252,34 +209,21 @@ function ObservabilityPage({ copy = APP_COPY.zh.observability }) {
     setNotice('');
     try {
       await copyTextToClipboard(nextTraceId);
-      dispatchPageState({ type: 'copy/success', traceId: nextTraceId });
+      setCopiedTraceId(nextTraceId);
     }
     catch (error) {
       setNotice(`复制 Trace ID 失败：${errorMessage(error)}`);
     }
   }, [setNotice]);
 
-  const runQuery = useCallback(async () => {
-    dispatchPageState({ type: 'query/start' });
-    const requestSequence = recentRequestSequenceRef.current + 1;
-    recentRequestSequenceRef.current = requestSequence;
+  const runQuery = useCallback(() => {
+    setCopiedTraceId('');
+    setNotice('');
     setExpandedTraces({});
     const params = { ...buildRecentParams(), includeTail: true };
-    try {
-      const result = await getObservabilityRecent(params);
-      if (recentRequestSequenceRef.current === requestSequence) {
-        dispatchPageState({ type: 'recent/set', result, clearNotice: false });
-      }
-    }
-    catch (error) {
-      if (recentRequestSequenceRef.current === requestSequence) setNotice(errorMessage(error));
-    }
-    finally {
-      if (recentRequestSequenceRef.current === requestSequence) {
-        dispatchPageState({ type: 'query/finish' });
-      }
-    }
-  }, [buildRecentParams, setExpandedTraces, setNotice]);
+    void queryClient.invalidateQueries({ queryKey: observabilityRecentQueryKey(queryCwd, params), exact: true });
+    setSubmittedRecentParams(params);
+  }, [buildRecentParams, queryClient, queryCwd, setExpandedTraces]);
 
   return (
     <section className="settings-page observability-page" data-testid="observability-page">
@@ -292,6 +236,9 @@ function ObservabilityPage({ copy = APP_COPY.zh.observability }) {
         onCopyTrace={copyTraceId}
         copiedTraceId={copiedTraceId}
         expandedTraces={expandedTraces}
+        queryCwd={queryCwd}
+        queryLimit={queryLimit}
+        onTraceError={setNotice}
       />
     </section>
   );
@@ -357,7 +304,7 @@ function ObservabilityStatusFilter({ copy, value, onChange }) {
   );
 }
 
-function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTraceId, expandedTraces }) {
+function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTraceId, expandedTraces, queryCwd, queryLimit, onTraceError }) {
   if (!result) return null;
   const traceRows = groupObservabilityTraceRows(result.events);
   const eventCount = traceRows.reduce((total, row) => total + row.events.length, 0);
@@ -390,6 +337,9 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
                 onCopyTrace={onCopyTrace}
                 copied={Boolean(row.traceID) && row.traceID === copiedTraceId}
                 traceState={row.traceID ? expandedTraces[row.traceID] : undefined}
+                queryCwd={queryCwd}
+                queryLimit={queryLimit}
+                onTraceError={onTraceError}
                 key={row.key}
               />
             ))}
@@ -500,7 +450,7 @@ function latestObservabilityTimestamp(events) {
   return latestText;
 }
 
-function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, traceState }) {
+function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, traceState, queryCwd, queryLimit, onTraceError }) {
   const event = row.representative || {};
   const traceID = row.traceID;
   const summary = observabilityTraceSummary(row);
@@ -555,7 +505,14 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
       {expanded ? (
         <div className="observability-log-table-detail-row" role="row">
           <div className="observability-log-table-detail-cell" role="cell">
-            <ObservabilityInlineTraceResult traceID={traceID} detailId={detailId} state={traceState} />
+            <ObservabilityInlineTraceResult
+              traceID={traceID}
+              detailId={detailId}
+              state={traceState}
+              queryCwd={queryCwd}
+              queryLimit={queryLimit}
+              onTraceError={onTraceError}
+            />
           </div>
         </div>
       ) : null}
@@ -583,17 +540,30 @@ function observabilityTraceSummary(row) {
   return parts.join(' · ');
 }
 
-function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
-  if (!state?.expanded) return null;
-  const result = state.result;
+function ObservabilityInlineTraceResult({ traceID, detailId, state, queryCwd, queryLimit, onTraceError }) {
+  const expanded = Boolean(state?.expanded);
+  const traceQuery = useQuery({
+    queryKey: observabilityTraceQueryKey(queryCwd, traceID, queryLimit),
+    queryFn: () => getObservabilityTrace({ traceId: traceID, limit: queryLimit }),
+    enabled: expanded && Boolean(traceID),
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: Infinity,
+  });
+  const result = traceQuery.data;
+  const traceError = traceQuery.error ? errorMessage(traceQuery.error) : '';
   const tailDiagnostics = observabilityTailDiagnosticText(result);
+  useEffect(() => {
+    if (traceError) onTraceError(traceError);
+  }, [onTraceError, traceError]);
+  if (!expanded) return null;
   return (
     <section
       className="observability-log-trace-detail"
       data-testid={`observability-inline-trace-${traceID}`}
       id={detailId}
       aria-label={`Trace ${traceID || '-'} 结果`}
-      aria-busy={state.loading}
+      aria-busy={traceQuery.isFetching}
     >
       <div className="observability-inline-trace-header">
         <div>
@@ -603,10 +573,10 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
           ) : null}
         </div>
       </div>
-      {state.loading ? <output className="empty-state">Trace 加载中...</output> : null}
-      {state.error ? <div className="settings-alert error" role="alert">Trace 加载失败：{state.error}</div> : null}
-      {!state.loading && !state.error && result ? <TraceEventTable events={result.events || []} /> : null}
-      {!state.loading && !state.error && !result ? <div className="empty-state">没有匹配的 trace events</div> : null}
+      {traceQuery.isFetching && !result ? <output className="empty-state">Trace 加载中...</output> : null}
+      {traceError ? <div className="settings-alert error" role="alert">Trace 加载失败：{traceError}</div> : null}
+      {!traceQuery.isFetching && !traceError && result ? <TraceEventTable events={result.events || []} /> : null}
+      {!traceQuery.isFetching && !traceError && !result ? <div className="empty-state">没有匹配的 trace events</div> : null}
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Menu, Settings } from 'lucide-react';
 import { normalizeRuntimeProviderName } from '../../entities/client/model/providerPreferences.js';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
@@ -388,8 +389,7 @@ function useSettingsRuntime(cwd, copy) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [updateInfo, setUpdateInfo] = useState(null);
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateInstalled, setUpdateInstalled] = useState(false);
   const [updateNotice, setUpdateNotice] = useState({ level: 'info', message: '' });
   const preferenceRequestSeq = useRef(0);
   const nextPreferenceRequest = useCallback(() => {
@@ -416,53 +416,67 @@ function useSettingsRuntime(cwd, copy) {
   const changeActiveProvider = useCallback((event) => changeActiveProviderPreference({ copy, cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus }), [copy, cwd, nextPreferenceRequest]);
   const saveRuntimeSettings = useCallback(() => saveRuntimePreferences({ copy, cwd, form, setError, setStatus }), [copy, cwd, form]);
   const saveProviderSettings = useCallback(() => saveProviderRuntimePreferences({ copy, cwd, form, setError, setStatus }), [copy, cwd, form]);
-  const checkForUpdate = useCallback(() => checkForAppUpdate({ copy, setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }), [copy, updateBusy, updateInstalling]);
-  const installUpdate = useCallback(() => installAvailableAppUpdate({ copy, setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }), [copy, updateInfo, updateInstalling]);
+  const checkUpdateMutation = useMutation({
+    mutationFn: checkAppUpdate,
+    onMutate: () => {
+      setUpdateInstalled(false);
+      setUpdateInfo(null);
+      setUpdateNotice({ level: 'info', message: copy.update.checking });
+    },
+    onSuccess: (info) => {
+      applyCheckedAppUpdateInfo({ copy, info, setUpdateInfo, setUpdateNotice });
+    },
+    onError: (mutationError) => {
+      setUpdateInfo(null);
+      setUpdateNotice({ level: 'error', message: copy.update.checkFailed + (mutationError?.message || mutationError) });
+    },
+    retry: false,
+  });
+  const installUpdateMutation = useMutation({
+    mutationFn: installLatestAppUpdate,
+    onMutate: ({ pendingInfo }) => {
+      const installingMessage = appUpdateInstallingMessage(pendingInfo, copy);
+      setUpdateInfo(null);
+      setUpdateNotice({ level: 'info', message: installingMessage });
+      return { installingMessage, pendingInfo };
+    },
+    onSuccess: (_payload, _variables, context) => {
+      setUpdateInstalled(true);
+      setUpdateNotice({ level: 'info', message: context?.installingMessage || copy.update.installing });
+    },
+    onError: (mutationError, _variables, context) => {
+      setUpdateInfo(context?.pendingInfo || null);
+      setUpdateInstalled(false);
+      setUpdateNotice({ level: 'error', message: copy.update.installFailed + (mutationError?.message || mutationError) });
+    },
+    retry: false,
+  });
+  const updateBusy = checkUpdateMutation.isPending;
+  const updateInstalling = installUpdateMutation.isPending || updateInstalled;
+  const checkForUpdate = useCallback(() => {
+    if (updateBusy || updateInstalling) return;
+    checkUpdateMutation.mutate();
+  }, [checkUpdateMutation, updateBusy, updateInstalling]);
+  const installUpdate = useCallback(() => {
+    if (!updateInfo?.available || updateInstalling) return;
+    installUpdateMutation.mutate({ pendingInfo: updateInfo });
+  }, [installUpdateMutation, updateInfo, updateInstalling]);
   useEffect(() => { void refreshBuildInfo(); }, [refreshBuildInfo]);
   useEffect(() => { void loadPreferences(); }, [loadPreferences]);
   return { buildInfo, changeActiveProvider, checkForUpdate, error, form, installUpdate, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateBusy, updateInfo, updateInstalling, updateNotice, updateForm };
 }
 
-async function checkForAppUpdate({ copy, setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }) {
+function applyCheckedAppUpdateInfo({ copy, info, setUpdateInfo, setUpdateNotice }) {
   const updateCopy = copy.update;
-  if (updateBusy || updateInstalling) return;
-  setUpdateInfo(null);
-  setUpdateBusy(true);
-  setUpdateNotice({ level: 'info', message: updateCopy.checking });
-  try {
-    const info = await checkAppUpdate();
-    if (info?.enabled === false) {
-      setUpdateInfo(null);
-      setUpdateNotice({ level: 'warning', message: updateCopy.disabled });
-    } else if (info?.available) {
-      setUpdateInfo(info);
-      setUpdateNotice({ level: 'info', message: updateCopy.found + ' ' + appUpdateVersionLabel(info, copy) });
-    } else {
-      setUpdateInfo(null);
-      setUpdateNotice({ level: 'info', message: updateCopy.latest });
-    }
-  } catch (error) {
+  if (info?.enabled === false) {
     setUpdateInfo(null);
-    setUpdateNotice({ level: 'error', message: updateCopy.checkFailed + (error?.message || error) });
-  } finally {
-    setUpdateBusy(false);
-  }
-}
-
-async function installAvailableAppUpdate({ copy, setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }) {
-  if (!updateInfo?.available || updateInstalling) return;
-  const pendingInfo = updateInfo;
-  const installingMessage = appUpdateInstallingMessage(pendingInfo, copy);
-  setUpdateInstalling(true);
-  setUpdateInfo(null);
-  setUpdateNotice({ level: 'info', message: installingMessage });
-  try {
-    await installLatestAppUpdate();
-    setUpdateNotice({ level: 'info', message: installingMessage });
-  } catch (error) {
-    setUpdateInfo(pendingInfo);
-    setUpdateInstalling(false);
-    setUpdateNotice({ level: 'error', message: copy.update.installFailed + (error?.message || error) });
+    setUpdateNotice({ level: 'warning', message: updateCopy.disabled });
+  } else if (info?.available) {
+    setUpdateInfo(info);
+    setUpdateNotice({ level: 'info', message: updateCopy.found + ' ' + appUpdateVersionLabel(info, copy) });
+  } else {
+    setUpdateInfo(null);
+    setUpdateNotice({ level: 'info', message: updateCopy.latest });
   }
 }
 
