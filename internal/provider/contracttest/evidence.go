@@ -13,7 +13,7 @@ import (
 type promptEvidenceOrigin string
 
 const (
-	promptOriginProviderRequest  promptEvidenceOrigin = "provider_request"
+	promptOriginProviderCarrier  promptEvidenceOrigin = "provider_carrier"
 	promptOriginExpectedSnapshot promptEvidenceOrigin = "expected_snapshot"
 )
 
@@ -48,6 +48,21 @@ type EventTranslationEvidence struct {
 	canonicalJSON      []byte
 	loadedFromSnapshot bool
 	captured           bool
+}
+
+// EventMatrixEvidence 记录关键 provider event 类别的 snapshot 或 typed unsupported 证据。
+type EventMatrixEvidence struct {
+	Provider   string
+	Categories []EventMatrixCategoryEvidence
+}
+
+// EventMatrixCategoryEvidence 是 event matrix 中一个类别的覆盖证明。
+type EventMatrixCategoryEvidence struct {
+	Category     string
+	SnapshotIDs  []string
+	Unsupported  *UnsupportedOutcomeEvidence
+	Reason       string
+	TranslatorID string
 }
 
 // ExpectedPromptSnapshot 是 LoadExpectedPromptSnapshot 读取出的独立 prompt golden。
@@ -86,9 +101,9 @@ type CaseEvidence struct {
 	invalid    []string
 }
 
-// NewProviderPromptEvidence 创建 provider request 来源的 prompt parity 证据。
+// NewProviderPromptEvidence 创建 provider runtime carrier 来源的 prompt parity 证据。
 func NewProviderPromptEvidence(captureID string, fields PromptParityFields) PromptParityEvidence {
-	return PromptParityEvidence{origin: promptOriginProviderRequest, evidenceID: strings.TrimSpace(captureID), fields: fields}
+	return PromptParityEvidence{origin: promptOriginProviderCarrier, evidenceID: strings.TrimSpace(captureID), fields: fields}
 }
 
 // NewExpectedPromptEvidence 创建 expected snapshot 来源的 prompt parity 证据。
@@ -186,7 +201,25 @@ func (e *CaseEvidence) RecordEventTranslation(t *testing.T, name string, got, wa
 	e.assertions[EvidenceEventTranslated] = fmt.Sprintf("%s/%s/%s", name, got.evidenceID, want.evidenceID)
 }
 
-// RecordPromptParity 记录 provider request 与独立 snapshot 字段相等的 prompt parity 证据。
+// RecordEventMatrix 记录关键 event 类别的 snapshot manifest；无法覆盖的类别必须给 typed unsupported。
+func (e *CaseEvidence) RecordEventMatrix(t *testing.T, matrix EventMatrixEvidence) {
+	t.Helper()
+	if err := validateEventMatrixEvidence(matrix); err != nil {
+		e.invalid = append(e.invalid, err.Error())
+		return
+	}
+	parts := make([]string, 0, len(matrix.Categories))
+	for _, category := range matrix.Categories {
+		if category.Unsupported != nil {
+			parts = append(parts, strings.TrimSpace(category.Category)+":unsupported:"+category.Unsupported.dependencyName)
+			continue
+		}
+		parts = append(parts, strings.TrimSpace(category.Category)+":"+strings.Join(trimmedNonEmptyStrings(category.SnapshotIDs...), "+"))
+	}
+	e.assertions[EvidenceEventMatrixManifest] = strings.TrimSpace(matrix.Provider) + "/" + strings.Join(parts, ";")
+}
+
+// RecordPromptParity 记录 provider carrier 与独立 snapshot 字段相等的 prompt parity 证据。
 func (e *CaseEvidence) RecordPromptParity(t *testing.T, got, want PromptParityEvidence) {
 	t.Helper()
 	if err := validatePromptEvidenceOrigins(got, want); err != nil {
@@ -198,6 +231,18 @@ func (e *CaseEvidence) RecordPromptParity(t *testing.T, got, want PromptParityEv
 	e.recordPromptField(t, EvidencePromptPrefixHash, got.fields.PrefixHash, want.fields.PrefixHash)
 	e.recordPromptField(t, EvidencePromptBoundary, got.fields.Boundary, want.fields.Boundary)
 	e.recordPromptField(t, EvidencePromptSectionSnapshot, got.fields.SectionSnapshot, want.fields.SectionSnapshot)
+}
+
+// RecordPromptMaterializedCarrier 只记录 provider RPC payload 中实际存在的 materialized prompt 字段。
+func (e *CaseEvidence) RecordPromptMaterializedCarrier(t *testing.T, got, want PromptParityEvidence) {
+	t.Helper()
+	if err := validatePromptEvidenceOrigins(got, want); err != nil {
+		e.invalid = append(e.invalid, err.Error())
+		return
+	}
+	e.recordPromptField(t, EvidencePromptBaseInstructions, got.fields.BaseInstructions, want.fields.BaseInstructions)
+	e.recordPromptField(t, EvidencePromptDeveloperInstructions, got.fields.DeveloperInstructions, want.fields.DeveloperInstructions)
+	e.assertions[EvidencePromptMaterializedCarrier] = got.evidenceID + "/" + want.evidenceID
 }
 
 // RecordResumeIdentity 记录 resume identity 证据。
@@ -293,17 +338,74 @@ func validateEventTranslationEvidence(got, want EventTranslationEvidence) error 
 	}
 }
 
+// validateEventMatrixEvidence 校验 matrix 覆盖了 contract 关心的关键 event 类别。
+func validateEventMatrixEvidence(matrix EventMatrixEvidence) error {
+	if strings.TrimSpace(matrix.Provider) == "" {
+		return fmt.Errorf("event matrix evidence requires provider")
+	}
+	seen := map[string]bool{}
+	for _, category := range matrix.Categories {
+		name := strings.TrimSpace(category.Category)
+		if name == "" {
+			return fmt.Errorf("event matrix category is required")
+		}
+		if seen[name] {
+			return fmt.Errorf("event matrix category %s is duplicated", name)
+		}
+		seen[name] = true
+		if err := validateEventMatrixCategory(category); err != nil {
+			return err
+		}
+	}
+	for _, required := range []string{"interrupt", "tool_end", "failed_or_status", "approval_or_tool_diff"} {
+		if !seen[required] {
+			return fmt.Errorf("event matrix missing category %s", required)
+		}
+	}
+	return nil
+}
+
+// validateEventMatrixCategory 校验单个 event 类别有 snapshot 或 typed unsupported 证明。
+func validateEventMatrixCategory(category EventMatrixCategoryEvidence) error {
+	if category.Unsupported != nil {
+		if err := validateUnsupportedOutcome(category.Unsupported); err != nil {
+			return fmt.Errorf("event matrix category %s unsupported evidence: %w", category.Category, err)
+		}
+		if strings.TrimSpace(category.Reason) == "" {
+			return fmt.Errorf("event matrix category %s unsupported evidence requires reason", category.Category)
+		}
+		return nil
+	}
+	if strings.TrimSpace(category.TranslatorID) == "" {
+		return fmt.Errorf("event matrix category %s requires translator id", category.Category)
+	}
+	if len(trimmedNonEmptyStrings(category.SnapshotIDs...)) == 0 {
+		return fmt.Errorf("event matrix category %s requires snapshot id or typed unsupported", category.Category)
+	}
+	return nil
+}
+
+func trimmedNonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // validatePromptEvidenceOrigins 校验 prompt evidence 的来源、独立 snapshot 和不同证据 ID。
 func validatePromptEvidenceOrigins(got, want PromptParityEvidence) error {
 	switch {
 	case got == want:
-		return fmt.Errorf("prompt parity evidence must compare captured provider_request to an independent expected_snapshot")
-	case got.origin != promptOriginProviderRequest || want.origin != promptOriginExpectedSnapshot:
-		return fmt.Errorf("prompt parity evidence must compare provider_request to expected_snapshot")
+		return fmt.Errorf("prompt parity evidence must compare captured provider_carrier to an independent expected_snapshot")
+	case got.origin != promptOriginProviderCarrier || want.origin != promptOriginExpectedSnapshot:
+		return fmt.Errorf("prompt parity evidence must compare provider_carrier to expected_snapshot")
 	case !want.loadedFromSnapshot:
-		return fmt.Errorf("prompt parity evidence must compare captured provider_request to an independent expected_snapshot")
+		return fmt.Errorf("prompt parity evidence must compare captured provider_carrier to an independent expected_snapshot")
 	case got.evidenceID == "" || want.evidenceID == "" || got.evidenceID == want.evidenceID:
-		return fmt.Errorf("prompt parity evidence must compare captured provider_request to an independent expected_snapshot")
+		return fmt.Errorf("prompt parity evidence must compare captured provider_carrier to an independent expected_snapshot")
 	default:
 		return nil
 	}

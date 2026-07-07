@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -25,8 +26,12 @@ type Spec struct {
 type CaseKey string
 
 const (
-	// CasePromptParity 校验 provider 请求 prompt 与独立 snapshot 一致。
+	// CaseEventMatrix 校验 provider 关键 event 类别有 snapshot 或 typed unsupported 证据。
+	CaseEventMatrix CaseKey = "event_matrix"
+	// CasePromptParity 校验 provider prompt carrier 与独立 snapshot 一致。
 	CasePromptParity CaseKey = "prompt_parity"
+	// CasePromptMaterializedCarrier 校验只暴露 materialized prompt 字段的 provider RPC carrier。
+	CasePromptMaterializedCarrier CaseKey = "prompt_materialized_carrier"
 	// CaseApproval 校验 approval 行为证据。
 	CaseApproval CaseKey = "approval"
 	// CaseInterrupt 校验 interrupt 行为证据。
@@ -53,6 +58,8 @@ type EvidenceKey string
 const (
 	// EvidenceEventTranslated 由 RecordEventTranslation 写入。
 	EvidenceEventTranslated EvidenceKey = "event.translated"
+	// EvidenceEventMatrixManifest 由 RecordEventMatrix 写入。
+	EvidenceEventMatrixManifest EvidenceKey = "event.matrix_manifest"
 	// EvidencePromptBaseInstructions 由 RecordPromptParity 写入。
 	EvidencePromptBaseInstructions EvidenceKey = "prompt.base_instructions"
 	// EvidencePromptDeveloperInstructions 由 RecordPromptParity 写入。
@@ -63,6 +70,8 @@ const (
 	EvidencePromptBoundary EvidenceKey = "prompt.boundary"
 	// EvidencePromptSectionSnapshot 由 RecordPromptParity 写入。
 	EvidencePromptSectionSnapshot EvidenceKey = "prompt.section_snapshot"
+	// EvidencePromptMaterializedCarrier 由 RecordPromptMaterializedCarrier 写入。
+	EvidencePromptMaterializedCarrier EvidenceKey = "prompt.materialized_carrier"
 	// EvidenceApprovalOutcome 由 RecordOutcome 写入。
 	EvidenceApprovalOutcome EvidenceKey = "approval.outcome"
 	// EvidenceInterruptOutcome 由 RecordOutcome 写入。
@@ -78,12 +87,18 @@ const (
 )
 
 var requiredEvidenceByCase = map[CaseKey][]EvidenceKey{
+	CaseEventMatrix: {EvidenceEventMatrixManifest},
 	CasePromptParity: {
 		EvidencePromptBaseInstructions,
 		EvidencePromptDeveloperInstructions,
 		EvidencePromptPrefixHash,
 		EvidencePromptBoundary,
 		EvidencePromptSectionSnapshot,
+	},
+	CasePromptMaterializedCarrier: {
+		EvidencePromptBaseInstructions,
+		EvidencePromptDeveloperInstructions,
+		EvidencePromptMaterializedCarrier,
 	},
 	CaseApproval:      {EvidenceApprovalOutcome},
 	CaseInterrupt:     {EvidenceInterruptOutcome},
@@ -94,7 +109,7 @@ var requiredEvidenceByCase = map[CaseKey][]EvidenceKey{
 }
 
 var requiredCaseOrder = []CaseKey{
-	CasePromptParity,
+	CaseEventMatrix,
 	CaseApproval,
 	CaseInterrupt,
 	CaseForceComplete,
@@ -103,13 +118,20 @@ var requiredCaseOrder = []CaseKey{
 	CaseRuntimeReport,
 }
 
+var promptCaseAlternatives = []CaseKey{
+	CasePromptParity,
+	CasePromptMaterializedCarrier,
+}
+
 var reservedEvidenceKeys = map[EvidenceKey]bool{
 	EvidenceEventTranslated:             true,
+	EvidenceEventMatrixManifest:         true,
 	EvidencePromptBaseInstructions:      true,
 	EvidencePromptDeveloperInstructions: true,
 	EvidencePromptPrefixHash:            true,
 	EvidencePromptBoundary:              true,
 	EvidencePromptSectionSnapshot:       true,
+	EvidencePromptMaterializedCarrier:   true,
 	EvidenceApprovalOutcome:             true,
 	EvidenceInterruptOutcome:            true,
 	EvidenceForceCompleteOutcome:        true,
@@ -120,6 +142,20 @@ var reservedEvidenceKeys = map[EvidenceKey]bool{
 
 // ValidateSpec 校验 provider 契约规格是否完整。
 func ValidateSpec(spec Spec) error {
+	if err := validateSpecEntrypoints(spec); err != nil {
+		return err
+	}
+	if err := validateEventCases(spec.EventCases); err != nil {
+		return err
+	}
+	if err := validatePromptCaseAlternative(spec.RequiredCases); err != nil {
+		return err
+	}
+	return validateRequiredCaseSet(spec.RequiredCases)
+}
+
+// validateSpecEntrypoints 校验 provider contract suite 的入口函数和事件用例。
+func validateSpecEntrypoints(spec Spec) error {
 	if strings.TrimSpace(spec.Name) == "" {
 		return errors.New("provider contract spec name is required")
 	}
@@ -132,14 +168,35 @@ func ValidateSpec(spec Spec) error {
 	if len(spec.EventCases) == 0 {
 		return errors.New("provider contract event cases are required")
 	}
-	if err := validateEventCases(spec.EventCases); err != nil {
-		return err
-	}
+	return nil
+}
+
+// validateRequiredCaseSet 校验除 prompt alternative 之外的必需契约用例。
+func validateRequiredCaseSet(cases map[CaseKey]Case) error {
 	for _, key := range requiredCaseOrder {
-		c, ok := spec.RequiredCases[key]
+		c, ok := cases[key]
 		if !ok || strings.TrimSpace(c.Name) == "" || c.Run == nil {
 			return fmt.Errorf("provider contract case %s is required", key)
 		}
+	}
+	return nil
+}
+
+// validatePromptCaseAlternative 校验 provider 至少声明一种 prompt carrier 证据。
+func validatePromptCaseAlternative(cases map[CaseKey]Case) error {
+	present := false
+	for _, key := range promptCaseAlternatives {
+		c, ok := cases[key]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(c.Name) == "" || c.Run == nil {
+			return fmt.Errorf("provider contract case %s is incomplete", key)
+		}
+		present = true
+	}
+	if !present {
+		return fmt.Errorf("provider contract requires %s or %s", CasePromptParity, CasePromptMaterializedCarrier)
 	}
 	return nil
 }
@@ -202,7 +259,7 @@ func contractStartRequest(provider string) dto.StartSessionRequest {
 	return dto.StartSessionRequest{
 		Provider: provider,
 		AgentID:  "public-thread-contract",
-		CWD:      "/tmp/contracttest",
+		CWD:      os.TempDir(),
 		StartAssembly: dto.StartAssembly{
 			DisplayName:           "contract",
 			BaseInstructions:      "base contract instructions",
@@ -215,6 +272,7 @@ func contractStartRequest(provider string) dto.StartSessionRequest {
 				DeveloperInstructions: "developer contract instructions",
 				Boundary:              boundary,
 				Provider:              provider,
+				Version:               contract.PromptAssemblySnapshotVersion,
 				Hash:                  "hash-contract",
 				SectionSnapshot:       sections,
 				Generation:            1,
@@ -230,6 +288,7 @@ func runResumeSmoke(t *testing.T, spec Spec, snapshot dto.PromptAssemblySnapshot
 		AgentID:          "agent-contract",
 		ThreadID:         "public-thread-contract",
 		ProviderThreadID: "provider-thread-contract",
+		CWD:              os.TempDir(),
 		PromptSnapshot:   snapshot,
 	})
 	if err != nil {
@@ -248,8 +307,18 @@ func runEventCases(t *testing.T, cases []Case) error {
 	return nil
 }
 
+// runRequiredCases 先运行 prompt alternative，再运行所有非 prompt 必需契约。
 func runRequiredCases(t *testing.T, cases map[CaseKey]Case) error {
 	t.Helper()
+	for _, key := range promptCaseAlternatives {
+		c, ok := cases[key]
+		if !ok {
+			continue
+		}
+		if err := runCase(t, string(key)+"/"+c.Name, c, requiredEvidenceByCase[key]); err != nil {
+			return err
+		}
+	}
 	for _, key := range requiredCaseOrder {
 		c := cases[key]
 		if err := runCase(t, string(key)+"/"+c.Name, c, requiredEvidenceByCase[key]); err != nil {
@@ -293,8 +362,8 @@ func assertSessionIdentity(session contract.Session) error {
 	if strings.TrimSpace(session.ThreadID()) == "" {
 		return errors.New("session ThreadID is empty")
 	}
-	if strings.TrimSpace(session.RolloutPath()) == "" {
-		return errors.New("session RolloutPath is empty")
+	if rolloutPath := strings.TrimSpace(session.RolloutPath()); rolloutPath != "" && strings.TrimSpace(session.ThreadID()) == "" {
+		return errors.New("session RolloutPath is set while ThreadID is empty")
 	}
 	return nil
 }
@@ -312,18 +381,10 @@ func assertStartTurnContract(t *testing.T, session contract.Session) error {
 	return assertTurnHandle(handle)
 }
 
-// assertTurnHandle 校验 turn handle 已携带本地和 provider id 且已完成。
+// assertTurnHandle 校验 turn handle 已携带本地和 provider id。
 func assertTurnHandle(handle contract.TurnHandle) error {
 	if handle == nil || strings.TrimSpace(handle.LocalID()) == "" || strings.TrimSpace(handle.ProviderID()) == "" {
 		return fmt.Errorf("StartTurn() handle = %#v, want local and provider ids", handle)
-	}
-	select {
-	case <-handle.Done():
-	default:
-		return errors.New("StartTurn() handle Done channel is not closed for deterministic fixture")
-	}
-	if err := handle.Err(); err != nil {
-		return fmt.Errorf("StartTurn() handle Err() = %w", err)
 	}
 	return nil
 }

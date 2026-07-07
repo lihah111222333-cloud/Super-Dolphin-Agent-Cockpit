@@ -1,12 +1,15 @@
 package claudecli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -24,6 +27,7 @@ func CompleteClaudeCLIContractSpec() contracttest.Spec {
 		Resume:     resumeClaudeContractSession,
 		EventCases: claudeContractEventCases(),
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
+			contracttest.CaseEventMatrix:   claudeEventMatrixContractCase(),
 			contracttest.CasePromptParity:  claudePromptParityContractCase(),
 			contracttest.CaseApproval:      claudeApprovalContractCase(),
 			contracttest.CaseInterrupt:     claudeInterruptContractCase(),
@@ -35,20 +39,38 @@ func CompleteClaudeCLIContractSpec() contracttest.Spec {
 	}
 }
 
-func startClaudeContractSession(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	threadID := strings.TrimSpace(req.AgentID)
-	if threadID == "" {
-		threadID = "public-thread-contract"
+func startClaudeContractSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	scripted, err := newClaudeContractBufferedTransport("provider-thread-contract-start")
+	if err != nil {
+		return nil, err
 	}
-	return newClaudeContractSession(threadID), nil
+	launchFn := func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+		return scripted.tr, scripted.finish, nil
+	}
+	session, err := claudeContractDriverWithLaunch(launchFn).StartSession(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return session, waitClaudeContractThreadID(ctx, session)
 }
 
-func resumeClaudeContractSession(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	threadID := strings.TrimSpace(req.ProviderThreadID)
-	if threadID == "" {
+func resumeClaudeContractSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	providerThreadID := strings.TrimSpace(req.ProviderThreadID)
+	if providerThreadID == "" {
 		return nil, errors.New("claude contract resume requires provider thread id")
 	}
-	return newClaudeContractSession(threadID), nil
+	scripted, err := newClaudeContractBufferedTransport(providerThreadID)
+	if err != nil {
+		return nil, err
+	}
+	launchFn := func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+		return scripted.tr, scripted.finish, nil
+	}
+	session, err := claudeContractDriverWithLaunch(launchFn).ResumeSession(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return session, waitClaudeContractThreadID(ctx, session)
 }
 
 func claudeContractEventCases() []contracttest.Case {
@@ -88,6 +110,39 @@ func claudeContractEventCases() []contracttest.Case {
 				"arguments_preview": `{"file_path":"README.md"}`,
 			},
 		}),
+		claudeEventTranslationContractCase("turn interrupted", "turn_interrupted", dto.RawProviderEvent{
+			EventType: "turn:interrupted",
+			Data: map[string]any{
+				"timestamp": "2026-04-13T00:00:00Z",
+				"thread_id": "thread-contract",
+				"agent_id":  "agent-contract",
+				"turn_id":   "turn-contract",
+				"reason":    "user_interrupt",
+			},
+		}),
+		claudeEventTranslationContractCase("tool end failed", "tool_end_failed", dto.RawProviderEvent{
+			EventType: "tool:use_end",
+			Data: map[string]any{
+				"timestamp": "2026-04-13T00:00:00Z",
+				"thread_id": "thread-contract",
+				"agent_id":  "agent-contract",
+				"turn_id":   "turn-contract",
+				"call_id":   "call-contract",
+				"tool_name": "Read",
+				"success":   false,
+				"error":     "read failed",
+				"result":    "read failed",
+			},
+		}),
+		claudeEventTranslationContractCase("agent failed", "agent_failed", dto.RawProviderEvent{
+			EventType: "agent:failed",
+			Data: map[string]any{
+				"timestamp": "2026-04-13T00:00:00Z",
+				"thread_id": "thread-contract",
+				"agent_id":  "agent-contract",
+				"error":     "provider failed",
+			},
+		}),
 	}
 }
 
@@ -97,6 +152,34 @@ func claudeEventTranslationContractCase(name, snapshotID string, raw dto.RawProv
 		got := contracttest.CaptureProviderEventTranslation(t, "claude-"+snapshotID+"-capture", raw, translateClaudeEvent)
 		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, snapshotID))
 		e.RecordEventTranslation(t, name, got, want)
+	}}
+}
+
+func claudeEventMatrixContractCase() contracttest.Case {
+	return contracttest.Case{Name: "event translation matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		unsupported := contracttest.CaptureUnsupportedOutcome(
+			t,
+			"claude-approval-tool-diff-event-matrix",
+			"approval_or_tool_diff",
+			contract.DependencyProfileTest,
+			func() error {
+				return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, "approval_or_tool_diff", contract.DependencyProfileTest)
+			},
+		)
+		e.RecordEventMatrix(t, contracttest.EventMatrixEvidence{
+			Provider: "claude",
+			Categories: []contracttest.EventMatrixCategoryEvidence{
+				{Category: "interrupt", SnapshotIDs: []string{"turn_interrupted"}, TranslatorID: "translateClaudeEvent"},
+				{Category: "tool_end", SnapshotIDs: []string{"tool_end_failed"}, TranslatorID: "translateClaudeEvent"},
+				{Category: "failed_or_status", SnapshotIDs: []string{"agent_failed", "turn_complete"}, TranslatorID: "translateClaudeEvent"},
+				{
+					Category:    "approval_or_tool_diff",
+					Unsupported: unsupported,
+					Reason:      "Claude CLI provider has approval policy flags but no provider-to-UI approval callback bridge or tool diff raw event translator.",
+				},
+			},
+		})
 	}}
 }
 
@@ -438,99 +521,48 @@ func canonicalJSONForContract(t *testing.T, value any) string {
 	return string(raw)
 }
 
-type claudeContractSession struct {
-	*claudeContractSessionState
-	claudeContractTurnOps
-	claudeContractThreadOps
-	claudeContractLifecycle
+func newClaudeContractBufferedTransport(threadID string) (*scriptedTransport, error) {
+	payload, err := json.Marshal(streamEvent{
+		Type:      "system",
+		Subtype:   "init",
+		SessionID: strings.TrimSpace(threadID),
+		Timestamp: "2026-04-13T00:00:00Z",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal contract system init: %w", err)
+	}
+	stdin := &recordingWriteCloser{writes: make(chan string, 8)}
+	scanner := bufio.NewScanner(strings.NewReader(string(payload) + "\n"))
+	scanner.Buffer(make([]byte, 64*1024), maxCLILineBytes)
+	return &scriptedTransport{
+		tr: &transport{
+			stdin:  stdin,
+			stdout: scanner,
+			stderr: newLimitedBuffer(stderrLimitBytes),
+			done:   make(chan struct{}),
+		},
+		stdin: stdin,
+	}, nil
 }
 
-func newClaudeContractSession(threadID string) *claudeContractSession {
-	state := &claudeContractSessionState{threadID: threadID}
-	return &claudeContractSession{
-		claudeContractSessionState: state,
-		claudeContractLifecycle:    claudeContractLifecycle{state: state},
+func waitClaudeContractThreadID(ctx context.Context, session contract.Session) error {
+	if strings.TrimSpace(session.ThreadID()) != "" {
+		return nil
+	}
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return errors.New("claude contract session did not observe system init thread id")
+		case <-ticker.C:
+			if strings.TrimSpace(session.ThreadID()) != "" {
+				return nil
+			}
+		}
 	}
 }
-
-type claudeContractSessionState struct {
-	threadID string
-	closed   bool
-}
-
-func (s *claudeContractSessionState) ThreadID() string { return s.threadID }
-
-func (s *claudeContractSessionState) RolloutPath() string {
-	return "/tmp/claude-contract-rollout.jsonl"
-}
-
-func (s *claudeContractSessionState) Capabilities() dto.CapabilitySet { return dto.CapabilitySet{} }
-
-type claudeContractTurnOps struct{}
-
-func (claudeContractTurnOps) StartTurn(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	localID := strings.TrimSpace(req.LocalID)
-	if localID == "" {
-		localID = "turn-contract"
-	}
-	return newClosedClaudeContractTurnHandle(localID, "claude-"+localID), nil
-}
-
-func (claudeContractTurnOps) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
-
-func (claudeContractTurnOps) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
-	return nil
-}
-
-func (claudeContractTurnOps) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return []dto.Message{}, nil
-}
-
-func (claudeContractTurnOps) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-
-type claudeContractThreadOps struct{}
-
-func (claudeContractThreadOps) ListThreads(context.Context) ([]dto.ThreadRef, error) {
-	return nil, contract.NewCapabilityError(dto.CapThreadList, "claude")
-}
-
-func (claudeContractThreadOps) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "claude")
-}
-
-type claudeContractLifecycle struct {
-	state *claudeContractSessionState
-}
-
-func (l claudeContractLifecycle) Close(context.Context) error {
-	l.state.closed = true
-	return nil
-}
-
-func (l claudeContractLifecycle) ForceStop() error {
-	l.state.closed = true
-	return nil
-}
-
-type claudeContractTurnHandle struct {
-	localID    string
-	providerID string
-	done       chan struct{}
-}
-
-func newClosedClaudeContractTurnHandle(localID, providerID string) *claudeContractTurnHandle {
-	done := make(chan struct{})
-	close(done)
-	return &claudeContractTurnHandle{localID: localID, providerID: providerID, done: done}
-}
-
-func (h *claudeContractTurnHandle) LocalID() string { return h.localID }
-
-func (h *claudeContractTurnHandle) ProviderID() string { return h.providerID }
-
-func (h *claudeContractTurnHandle) Done() <-chan struct{} { return h.done }
-
-func (h *claudeContractTurnHandle) Err() error { return nil }
-
-var _ contract.Session = (*claudeContractSession)(nil)
-var _ contract.TurnHandle = (*claudeContractTurnHandle)(nil)

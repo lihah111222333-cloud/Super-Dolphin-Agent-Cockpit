@@ -1,0 +1,12 @@
+{
+  "agent_id": "agent-codex-contract",
+  "approval_id": "approval-codex-contract",
+  "approved": true,
+  "call_id": "call-codex-contract",
+  "decision": "approved",
+  "reviewed_by": "contract",
+  "thread_id": "agent-codex-contract",
+  "timestamp": "2026-07-07T01:02:03Z",
+  "tool_name": "shell",
+  "turn_id": "turn-codex-contract"
+}
