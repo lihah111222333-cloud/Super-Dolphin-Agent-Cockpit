@@ -90,6 +90,17 @@ describe('promptPageService', () => {
     expect(api.savePersonalizationProfile).toHaveBeenCalledWith({ cwd: '/repo/app', profile: { role: '架构师' } });
   });
 
+  it('keeps prompt intent and write DTO golden requirements stable', async () => {
+    const api = createApi();
+    const service = createPromptPageService(api);
+
+    await service.draftPromptIntent({ cwd: '/repo/app', kind: 'expert', rawInput: 'review', sourceType: 'user_input' });
+    await service.writePrompt({ cwd: '/repo/app', key: 'project/reviewer', name: 'Reviewer', content: 'Check risks first' });
+
+    expect(api.draftPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', kind: 'expert', rawInput: 'review', sourceType: 'user_input' });
+    expect(api.writePrompt).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'project/reviewer', name: 'Reviewer', content: 'Check risks first' });
+  });
+
   it('throws synchronously before API calls when cwd is blank', () => {
     const api = createApi();
     const service = createPromptPageService(api);

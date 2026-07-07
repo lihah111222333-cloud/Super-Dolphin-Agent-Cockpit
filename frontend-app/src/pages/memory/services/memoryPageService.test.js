@@ -90,6 +90,33 @@ describe('memoryPageService', () => {
     expect(api.upsertMemoryEntry).toHaveBeenCalledWith(payload);
   });
 
+  it('keeps memory upsert DTO golden normalization stable', async () => {
+    const api = createApi();
+    const service = createMemoryPageService(api);
+
+    await service.upsertMemoryEntry({
+      cwd: ' /repo ',
+      target: ' private ',
+      existingPath: ' memory/existing.md ',
+      name: ' feedback-rule ',
+      description: ' write tests first ',
+      title: '',
+      type: ' feedback ',
+      content: ' 规则 ',
+    });
+
+    expect(api.upsertMemoryEntry).toHaveBeenCalledWith({
+      cwd: '/repo',
+      target: 'private',
+      existingPath: 'memory/existing.md',
+      name: 'feedback-rule',
+      description: 'write tests first',
+      title: '',
+      type: 'feedback',
+      content: '规则',
+    });
+  });
+
   it('fails fast for malformed memory upsert identity and content', () => {
     const api = createApi();
     const service = createMemoryPageService(api);
@@ -160,6 +187,20 @@ describe('memoryPageService', () => {
 
     expect(api.mergeMemoryEntries).toHaveBeenCalledWith(payload);
     expect(api.ignoreMemorySimilarity).toHaveBeenCalledWith(payload);
+  });
+
+  it('keeps memory merge DTO golden identity validation stable', () => {
+    const api = createApi();
+    const service = createMemoryPageService(api);
+
+    expect(() => service.mergeMemoryEntries({
+      cwd: '/repo',
+      targetA: 'private',
+      pathA: ' memory/a.md ',
+      targetB: 'private',
+      pathB: 'memory/a.md',
+    })).toThrow('source and target memory identity must be different');
+    expect(api.mergeMemoryEntries).not.toHaveBeenCalled();
   });
 
   it('fails fast for missing or identical source and target similarity identity', () => {

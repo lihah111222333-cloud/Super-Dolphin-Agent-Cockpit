@@ -104,6 +104,19 @@ describe('filesPageService', () => {
     });
   });
 
+  it('keeps the saveTextFile DTO golden stable', async () => {
+    const api = createApi();
+    const service = createFilesPageService(api);
+
+    await service.saveTextFile({ defaultPath: '/tmp/explicit', defaultFilename: ' draft.md ', content: '' });
+
+    expect(api.saveTextFile).toHaveBeenCalledWith({
+      defaultPath: '/tmp/explicit',
+      defaultFilename: 'draft.md',
+      content: '',
+    });
+  });
+
   it('fails fast for malformed save text file DTOs', () => {
     const api = createApi();
     const service = createFilesPageService(api);

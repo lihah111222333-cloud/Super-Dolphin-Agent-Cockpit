@@ -16,8 +16,9 @@ const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const rawNamedImportScanDirs = ['pages', 'features', 'entities'];
 const pageSurfaceScanDirs = ['pages', 'features'];
 const rawFacadeNames = new Set(['callAPI', 'callBackend']);
-const promptFeatureSurface = 'features/prompts/PromptPageView.jsx';
-const promptPageServicePath = 'pages/prompts/services/promptPageService.js';
+const featureViewSurfaces = new Map([
+  ['features/prompts/PromptPageView.jsx', pageSurfaceManifest.prompts],
+]);
 
 function collectSourceFiles(dirs) {
   const files = [];
@@ -69,35 +70,71 @@ function referencesModuleService(specifier) {
   return specifier.includes('services/modules/');
 }
 
-function isFeatureServiceConsumer(relativePath) {
-  return Object.values(pageSurfaceManifest)
-    .some((surface) => relativePath.startsWith(surface.servicePrefix));
-}
-
-function isGuardedSurface(relativePath) {
-  return relativePath.startsWith('pages/') || relativePath === promptFeatureSurface;
-}
-
 function resolveImportSpecifier(relativePath, specifier) {
   if (!specifier.startsWith('.')) return specifier;
   return path.normalize(path.join(path.dirname(relativePath), specifier)).split(path.sep).join('/');
 }
 
-function importsPromptPageService(relativePath, source) {
+function surfaceForPath(relativePath) {
+  if (featureViewSurfaces.has(relativePath)) return featureViewSurfaces.get(relativePath);
+  return Object.values(pageSurfaceManifest)
+    .find((surface) => (
+      relativePath === surface.entry
+      || relativePath === surface.serviceEntry
+      || relativePath.startsWith(surface.servicePrefix)
+      || relativePath.startsWith(surface.adapterPrefix)
+      || surface.ownedStateFiles.includes(relativePath)
+    ));
+}
+
+function serviceEntryPaths() {
+  return new Set(Object.values(pageSurfaceManifest).map((surface) => surface.serviceEntry));
+}
+
+function isFeatureServiceEntry(relativePath) {
+  return serviceEntryPaths().has(relativePath);
+}
+
+function isGuardedSurface(relativePath) {
+  return relativePath.startsWith('pages/') || featureViewSurfaces.has(relativePath);
+}
+
+function importsOwnServiceEntry(relativePath, source, surface) {
+  if (!surface) return false;
   return staticImportSpecifiers(source)
-    .some((specifier) => resolveImportSpecifier(relativePath, specifier) === promptPageServicePath);
+    .some((specifier) => resolveImportSpecifier(relativePath, specifier) === surface.serviceEntry);
+}
+
+function crossFeatureSurfaceViolations(relativePath, source) {
+  const owner = surfaceForPath(relativePath);
+  if (!owner) return [];
+  const violations = [];
+  for (const specifier of importSpecifiers(source)) {
+    if (specifier === NON_LITERAL_DYNAMIC_IMPORT || specifier === COMPUTED_VITEST_MODULE_MOCK) continue;
+    const resolved = resolveImportSpecifier(relativePath, specifier);
+    for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
+      if (surface === owner) continue;
+      if (resolved.startsWith(surface.servicePrefix) || resolved.startsWith(surface.adapterPrefix)) {
+        violations.push(`${relativePath} imports ${feature} surface ${specifier}`);
+      }
+    }
+  }
+  return violations;
 }
 
 function backendApiRawFacadeViolations(relativePath, source) {
-  if (isFeatureServiceConsumer(relativePath)) return [];
+  if (isFeatureServiceEntry(relativePath)) return [];
   return namedImportsFrom(source, referencesBackendApi)
     .filter((imported) => rawFacadeNames.has(imported))
     .map((imported) => `${relativePath} imports raw ${imported}`);
 }
 
 function surfaceImportViolations(relativePath, source) {
-  if (!isGuardedSurface(relativePath) || isFeatureServiceConsumer(relativePath)) return [];
+  if (!isGuardedSurface(relativePath)) return [];
   const violations = [];
+  const surface = surfaceForPath(relativePath);
+  const serviceEntry = isFeatureServiceEntry(relativePath);
+
   for (const specifier of importSpecifiers(source)) {
     if (specifier === NON_LITERAL_DYNAMIC_IMPORT) {
       violations.push(`${relativePath} uses non-literal dynamic import`);
@@ -107,16 +144,20 @@ function surfaceImportViolations(relativePath, source) {
       violations.push(`${relativePath} uses computed Vitest module mock`);
       continue;
     }
-    if (referencesBackendApi(specifier)) {
+    if (!serviceEntry && referencesBackendApi(specifier)) {
       violations.push(`${relativePath} imports ${specifier}`);
     }
-    if (referencesModuleService(specifier)) {
+    if (!serviceEntry && referencesModuleService(specifier)) {
       violations.push(`${relativePath} imports ${specifier}`);
     }
   }
-  if (relativePath === promptFeatureSurface && !importsPromptPageService(relativePath, source)) {
-    violations.push(`${relativePath} does not import promptPageService`);
+
+  violations.push(...crossFeatureSurfaceViolations(relativePath, source));
+
+  if (featureViewSurfaces.has(relativePath) && !importsOwnServiceEntry(relativePath, source, surface)) {
+    violations.push(`${relativePath} does not import ${surface.serviceEntry}`);
   }
+
   return violations;
 }
 
@@ -169,7 +210,7 @@ describe('backend API consumer guardrails', () => {
     expect(violations).toEqual([]);
   });
 
-  it('keeps page and prompt feature surfaces behind manifest service modules', () => {
+  it('allows backend facade and module service imports only from manifest service entries', () => {
     const violations = [];
 
     for (const filePath of collectSourceFiles(pageSurfaceScanDirs)) {
@@ -223,24 +264,60 @@ describe('backend API consumer guardrails', () => {
     ]);
   });
 
-  it('does not accept promptPageService mentions without a real import', () => {
-    expect(surfaceImportViolations(promptFeatureSurface, `
+  it('does not accept feature service mentions without a real static import', () => {
+    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
       // promptPageService appears in a comment but is not imported.
       const x = 'promptPageService';
       export function PromptPageView() {
         return x;
       }
-    `)).toContain('features/prompts/PromptPageView.jsx does not import promptPageService');
+    `)).toContain('features/prompts/PromptPageView.jsx does not import pages/prompts/services/promptPageService.js');
 
-    expect(surfaceImportViolations(promptFeatureSurface, `
+    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
       export { promptPageService } from '../../pages/prompts/services/promptPageService.js';
-    `)).toContain('features/prompts/PromptPageView.jsx does not import promptPageService');
+    `)).toContain('features/prompts/PromptPageView.jsx does not import pages/prompts/services/promptPageService.js');
 
-    expect(surfaceImportViolations(promptFeatureSurface, `
+    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
       import { promptPageService } from '../../pages/prompts/services/promptPageService.js';
       export function PromptPageView() {
         return promptPageService;
       }
+    `)).toEqual([]);
+  });
+
+  it('detects cross-feature service and adapter imports', () => {
+    expect(surfaceImportViolations('pages/files/FilesPage.jsx', `
+      import { memoryPageService } from '../memory/services/memoryPageService.js';
+      import { threadStatusBusy } from '../chat/adapters/threadStateAdapter.js';
+    `)).toEqual([
+      'pages/files/FilesPage.jsx imports memory surface ../memory/services/memoryPageService.js',
+      'pages/files/FilesPage.jsx imports chat surface ../chat/adapters/threadStateAdapter.js',
+    ]);
+  });
+
+  it('allows same-feature service helper files when they do not import backend facades', () => {
+    expect(surfaceImportViolations('pages/files/services/fileDtoHelper.js', `
+      import { normalizeFilePath } from '../adapters/filePathAdapter.js';
+      export function normalizeSavePayload(payload) {
+        return { ...payload, path: normalizeFilePath(payload.path) };
+      }
+    `)).toEqual([]);
+  });
+
+  it('rejects backend facades from same-feature service helper files', () => {
+    expect(surfaceImportViolations('pages/files/services/fileDtoHelper.js', `
+      import { saveTextFile } from '../../../shared/api/backendApi.js';
+      import * as fileService from '../../../services/modules/fileService.js';
+    `)).toEqual([
+      'pages/files/services/fileDtoHelper.js imports ../../../shared/api/backendApi.js',
+      'pages/files/services/fileDtoHelper.js imports ../../../services/modules/fileService.js',
+    ]);
+  });
+
+  it('keeps manifest serviceEntry as the only feature surface that may import backend facades', () => {
+    expect(surfaceImportViolations('pages/files/services/filesPageService.js', `
+      import { saveTextFile } from '../../../shared/api/backendApi.js';
+      import * as fileService from '../../../services/modules/fileService.js';
     `)).toEqual([]);
   });
 
