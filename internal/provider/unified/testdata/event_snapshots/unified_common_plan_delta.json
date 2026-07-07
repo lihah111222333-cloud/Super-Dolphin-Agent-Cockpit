@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-07-07T00:00:00Z",
+  "thread_id": "thread-contract",
+  "agent_id": "agent-contract",
+  "turn_id": "turn-contract",
+  "raw_type": "item/plan/delta",
+  "delta": "contract plan step",
+  "payload": {
+    "event_type": "item/plan/delta",
+    "payload_field_names": [
+      "agent_id",
+      "thread_id",
+      "turn_id"
+    ],
+    "payload_sha256": "85cab5e56b3890d329f0e6bd2d1c01f6e99d9c7ac889756bf16b6035d0d88683",
+    "payload_size_bytes": 178,
+    "thread_id": "thread-contract",
+    "agent_id": "agent-contract",
+    "turn_id": "turn-contract"
+  }
+}
