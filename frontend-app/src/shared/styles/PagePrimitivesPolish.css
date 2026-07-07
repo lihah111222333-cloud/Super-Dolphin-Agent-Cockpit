@@ -57,6 +57,7 @@
 .prompt-tabs button,
 .prompt-kind-tabs button,
 .prompt-scope-choice button,
+.prompt-scope-choice [role="radio"],
 .prompt-segment button {
   border-radius: var(--radius-sm);
   font-size: 13px;
@@ -73,6 +74,7 @@
 .prompt-tabs button[aria-selected="true"],
 .prompt-kind-tabs button.active,
 .prompt-scope-choice button.active,
+.prompt-scope-choice [role="radio"].active,
 .prompt-segment button.active {
   background: color-mix(in srgb, var(--accent-2) 16%, var(--surface-3));
   color: var(--text-pri);

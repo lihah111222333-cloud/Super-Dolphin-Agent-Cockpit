@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from 'react-aria-components';
 import { AlertTriangle, MemoryStick, Plus, Search } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
@@ -752,10 +753,14 @@ function MemoryPageHeader({ copy, disabled, editor, searchText, setSearchText })
             />
           </label>
           <div className="memory-create">
-            <button type="button" className="light" aria-label={`+ ${copy.new} ▾`} onClick={() => editor.setCreateMenuOpen((open) => !open)} disabled={disabled}>
-              <Plus size={15} /> {copy.new} ▾
-            </button>
-            {editor.createMenuOpen ? <MemoryCreateMenu copy={copy} onCreate={editor.openCreate} /> : null}
+            <MenuTrigger isOpen={editor.createMenuOpen} onOpenChange={editor.setCreateMenuOpen}>
+              <AriaButton type="button" className="light" aria-label={`+ ${copy.new} ▾`} isDisabled={disabled}>
+                <Plus size={15} /> {copy.new} ▾
+              </AriaButton>
+              <Popover className="memory-create-menu" placement="bottom end">
+                <MemoryCreateMenu copy={copy} onCreate={editor.openCreate} />
+              </Popover>
+            </MenuTrigger>
           </div>
         </>
       )}
@@ -765,10 +770,10 @@ function MemoryPageHeader({ copy, disabled, editor, searchText, setSearchText })
 
 function MemoryCreateMenu({ copy, onCreate }) {
   return (
-    <div className="memory-create-menu">
-      <button type="button" onClick={() => onCreate('feedback')}>{copy.newPreference}</button>
-      <button type="button" onClick={() => onCreate('project')}>{copy.newProject}</button>
-    </div>
+    <Menu aria-label="新建记忆" className="memory-create-menu-list" onAction={(key) => onCreate(String(key))}>
+      <MenuItem id="feedback">{copy.newPreference}</MenuItem>
+      <MenuItem id="project">{copy.newProject}</MenuItem>
+    </Menu>
   );
 }
 

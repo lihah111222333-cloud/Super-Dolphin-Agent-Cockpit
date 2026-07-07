@@ -286,6 +286,12 @@
   font-size: 12px;
 }
 
+.model-dropdown-dialog {
+  display: grid;
+  gap: 10px;
+  outline: none;
+}
+
 .model-dropdown select {
   width: 100%;
   min-height: 32px;

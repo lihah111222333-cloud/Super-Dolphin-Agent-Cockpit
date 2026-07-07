@@ -134,12 +134,25 @@ describe('MemoryPage dashboard loading', () => {
 });
 
 describe('MemoryPage editor', () => {
+  it('opens the create menu with accessible menu items', async () => {
+    renderMemoryPage();
+
+    expect(await screen.findByText('暂无记忆')).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: '+ 新建 ▾' });
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole('menu');
+    const preferenceItem = within(menu).getByRole('menuitem', { name: '新建偏好' });
+    expect(within(menu).getByRole('menuitem', { name: '新建项目' })).toBeInTheDocument();
+
+    expect(preferenceItem).toBeInTheDocument();
+  });
+
 	it('creates a preference memory entry with the upsert payload expected by backendApi', async () => {
 		renderMemoryPage();
 
     expect(await screen.findByText('暂无记忆')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '+ 新建 ▾' }));
-    fireEvent.click(screen.getByRole('button', { name: '新建偏好' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '新建偏好' }));
 
     const editor = await screen.findByRole('dialog', { name: '新建记忆' });
     expect(within(editor).getByLabelText('分类')).toHaveValue('feedback');

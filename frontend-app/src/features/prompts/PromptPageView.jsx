@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { Radio, RadioGroup } from 'react-aria-components';
 import { CheckCircle2, File, FileText } from 'lucide-react';
 import {
   commitPromptIntent,
@@ -419,14 +420,17 @@ function errorMessage(error) {
   return error?.message || String(error);
 }
 
-function withTimeout(promise, timeoutMs, message) {
+async function withTimeout(promise, timeoutMs, message) {
   let timeoutID;
   const timeout = new Promise((_, reject) => {
     timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => {
+  try {
+    return await Promise.race([promise, timeout]);
+  }
+  finally {
     if (timeoutID) globalThis.clearTimeout(timeoutID);
-  });
+  }
 }
 
 function promptAssetsQueryKey(cwd) {
@@ -1212,11 +1216,11 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
         </header>
         <div className="prompt-scope-copy">
           <div>可用范围：{scopeLabel}</div>
-          <fieldset className="prompt-scope-choice">
-            <legend className="sr-only">可用范围</legend>
-            <button type="button" className={form.scope !== 'global' ? 'active' : ''} onClick={() => onChange({ ...form, scope: 'project' })}>这个项目</button>
-            <button type="button" className={form.scope === 'global' ? 'active' : ''} onClick={() => onChange({ ...form, scope: 'global' })}>全局可用</button>
-          </fieldset>
+          <PromptScopeChoice
+            ariaLabel="可用范围"
+            scope={form.scope}
+            onChange={(value) => onChange({ ...form, scope: value })}
+          />
           <div>{scopeHint}</div>
         </div>
         <div className="prompt-editor-grid">
@@ -1277,11 +1281,15 @@ function PromptKindTabs({ kind, onChange }) {
 
 function PromptScopeChoice({ scope, onChange, ariaLabel = '草稿范围' }) {
   return (
-    <fieldset className="prompt-scope-choice">
-      <legend className="sr-only">{ariaLabel}</legend>
-      <button type="button" className={scope !== 'global' ? 'active' : ''} onClick={() => onChange('project')}>这个项目</button>
-      <button type="button" className={scope === 'global' ? 'active' : ''} onClick={() => onChange('global')}>全局可用</button>
-    </fieldset>
+    <RadioGroup
+      aria-label={ariaLabel}
+      className="prompt-scope-choice"
+      onChange={onChange}
+      value={scope === 'global' ? 'global' : 'project'}
+    >
+      <Radio className={({ isSelected }) => (isSelected ? 'active' : '')} value="project">这个项目</Radio>
+      <Radio className={({ isSelected }) => (isSelected ? 'active' : '')} value="global">全局可用</Radio>
+    </RadioGroup>
   );
 }
 

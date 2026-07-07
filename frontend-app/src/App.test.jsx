@@ -5110,8 +5110,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
       expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.4 中');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
-    expect(screen.getByRole('dialog', { name: '模型配置' }).tagName).toBe('DIALOG');
+    const modelButton = screen.getByRole('button', { name: '选择模型' });
+    fireEvent.click(modelButton);
+    expect(screen.getByRole('dialog', { name: '模型配置' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '默认（当前：GPT-5.4）' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '默认（当前：中）' })).toBeInTheDocument();
     expect(screen.queryByText('渠道')).not.toBeInTheDocument();
@@ -5125,7 +5126,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
         model: 'gpt-5.5',
         effort: '',
       });
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.5 中');
+      expect(modelButton).toHaveTextContent('5.5 中');
       expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程配置已保存');
     });
   });
@@ -5676,7 +5677,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
     expect(within(editor).queryByLabelText('关闭编辑器')).not.toBeInTheDocument();
-    const firstScopeButton = within(editor).getByRole('button', { name: '这个项目' });
+    const firstScopeButton = within(editor).getByRole('radio', { name: '这个项目' });
     await waitFor(() => {
       expect(document.activeElement).toBe(firstScopeButton);
     });
@@ -6627,7 +6628,7 @@ async function createGeneratedPromptIntent() {
 	});
 
     fireEvent.click(screen.getByRole('button', { name: '+ 新建 ▾' }));
-    fireEvent.click(screen.getByRole('button', { name: '新建偏好' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '新建偏好' }));
     const createEditor = await screen.findByRole('dialog', { name: '新建记忆' });
     expect(within(createEditor).getByLabelText('分类')).toHaveValue('feedback');
     expect(within(createEditor).queryByLabelText('目标')).not.toBeInTheDocument();

@@ -97,11 +97,18 @@ meter {
   box-shadow: var(--shadow);
 }
 
-.memory-create-menu button {
+.memory-create-menu button,
+.memory-create-menu [role="menuitem"] {
   width: 100%;
   justify-content: flex-start;
   border: 0;
   background: transparent;
+}
+
+.memory-create-menu-list {
+  display: grid;
+  gap: 2px;
+  outline: none;
 }
 
 .memory-health-track {

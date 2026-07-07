@@ -247,6 +247,30 @@ describe('PromptPageView backend wiring', () => {
     expect(await screen.findByText('提示词已保存：审查提示词')).toBeInTheDocument();
   });
 
+  it('exposes editor scope as radios and saves the selected scope', async () => {
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    const scopeGroup = within(editor).getByRole('radiogroup', { name: '可用范围' });
+    const projectScope = within(scopeGroup).getByRole('radio', { name: '这个项目' });
+    const globalScope = within(scopeGroup).getByRole('radio', { name: '全局可用' });
+
+    expect(projectScope).toBeChecked();
+    expect(globalScope).not.toBeChecked();
+
+    fireEvent.click(globalScope);
+    expect(projectScope).not.toBeChecked();
+    expect(globalScope).toBeChecked();
+    fireEvent.click(within(editor).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(backend.writePrompt).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'main/reviewer',
+        scope: 'global',
+      }));
+    });
+  });
+
   it('shows created, started, and disabled prompt lifecycle states', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
@@ -422,6 +446,29 @@ describe('PromptPageView backend wiring', () => {
   it('does not render a duplicate top-right close button in the prompt intent wizard', async () => {
     const wizard = await openPendingDraftWizard();
     expect(within(wizard).getAllByRole('button', { name: '关闭' })).toHaveLength(1);
+  });
+
+  it('exposes wizard scope as radios and submits the selected draft scope', async () => {
+    const wizard = await openPendingDraftWizard();
+    const scopeGroup = within(wizard).getByRole('radiogroup', { name: '草稿范围' });
+    const projectScope = within(scopeGroup).getByRole('radio', { name: '这个项目' });
+    const globalScope = within(scopeGroup).getByRole('radio', { name: '全局可用' });
+
+    expect(projectScope).toBeChecked();
+    expect(globalScope).not.toBeChecked();
+
+    fireEvent.click(globalScope);
+    fireEvent.change(within(wizard).getByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '跨项目都要使用这条审查规则。' },
+    });
+    fireEvent.click(within(wizard).getByRole('button', { name: '帮我生成' }));
+
+    await waitFor(() => {
+      expect(backend.draftPromptIntent).toHaveBeenCalledWith(expect.objectContaining({
+        rawInput: '跨项目都要使用这条审查规则。',
+        scope: 'global',
+      }));
+    });
   });
 
   it('shows a waiting reminder and allows closing while prompt intent generation is still running', async () => {
