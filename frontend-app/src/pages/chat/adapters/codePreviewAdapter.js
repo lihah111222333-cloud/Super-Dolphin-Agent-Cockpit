@@ -1,3 +1,5 @@
+import { trustedImagePreviewSource } from '../components/markdownMessageModel.js';
+
 function normalizeCodeOpenSnippet(snippet) {
   if (typeof snippet === 'string') return snippet;
   if (!Array.isArray(snippet)) return '';
@@ -29,14 +31,6 @@ function isCodePreviewMarkdownPath(path) {
 
 function isCodePreviewImagePath(path) {
   return /\.(png|jpe?g|gif|webp|svg|ico)$/i.test((path || '').toString().trim());
-}
-
-function codePreviewFileUrl(path) {
-  const raw = (path || '').toString().trim();
-  if (!raw) return '';
-  if (/^(?:file|https?):\/\//i.test(raw) || /^data:image\//i.test(raw)) return raw;
-  if (/^[A-Za-z]:[\\/]/.test(raw)) return `file:///${raw.replace(/\\/g, '/')}`;
-  return `file://${raw}`;
 }
 
 function codePreviewLanguage(result, relative, previewKind) {
@@ -129,7 +123,10 @@ function codePreviewStateAfterSave(current, result, relative, savedDraft) {
 function codePreviewImageState(result, filePath, relative, mediaType) {
   const previewUrl = (result?.previewURL || result?.previewUrl || '').toString().trim();
   const thumbnailUrl = (result?.thumbnailURL || result?.thumbnailUrl || '').toString().trim();
-  const imageSrc = thumbnailUrl || previewUrl || codePreviewFileUrl(filePath);
+  const previewSrc = trustedImagePreviewSource(previewUrl);
+  const thumbnailSrc = trustedImagePreviewSource(thumbnailUrl);
+  const imageSrc = thumbnailSrc || previewSrc;
+  const imageFullSrc = previewSrc || imageSrc;
   return {
     ...emptyCodePreviewState(),
     open: true,
@@ -142,8 +139,9 @@ function codePreviewImageState(result, filePath, relative, mediaType) {
     editable: false,
     editing: false,
     image: true,
+    error: imageSrc ? '' : '图片预览需要后端提供安全预览 URL',
     imageSrc,
-    imageFullSrc: previewUrl || imageSrc,
+    imageFullSrc,
     mediaType: mediaType || 'image/*',
     sizeBytes: Number.isFinite(Number(result?.sizeBytes)) ? Math.floor(Number(result.sizeBytes)) : 0,
   };

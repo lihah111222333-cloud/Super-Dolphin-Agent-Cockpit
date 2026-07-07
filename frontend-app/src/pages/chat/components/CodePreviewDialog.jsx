@@ -24,6 +24,7 @@ function CodePreviewDialog({
     onClose();
   };
   const meta = codePreviewMeta(preview);
+  const imageSrc = preview.imageSrc || preview.imageFullSrc;
   return (
     <FocusTrapDialog ariaLabel="文件预览" className="modal-box code-preview-modal" initialFocusSelector={preview.editing && !preview.image ? 'textarea' : ''} onClose={requestClose}>
       <header>
@@ -40,7 +41,11 @@ function CodePreviewDialog({
         <div className="code-preview-loading">正在打开文件</div>
       ) : preview.image ? (
         <figure className="code-preview-image">
-          <img src={preview.imageSrc || preview.imageFullSrc} alt={preview.relative || preview.filePath || '图片预览'} />
+          {imageSrc ? (
+            <img src={imageSrc} alt={preview.relative || preview.filePath || '图片预览'} />
+          ) : (
+            <figcaption role="note">{preview.error || '图片预览需要后端提供安全预览 URL'}</figcaption>
+          )}
         </figure>
       ) : preview.editing ? (
         <>

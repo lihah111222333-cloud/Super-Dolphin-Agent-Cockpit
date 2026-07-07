@@ -46,7 +46,7 @@ Highest-priority findings:
 | Task 4 扩展 zod 响应边界 | 已完成 | adapter 仍承担过多手写 shape 校验，容易把后端坏数据标准化成可显示数据。 | 把 observability、memory、shared files dashboard、model provider registry 的入口 shape 放进 `backendSchemas.js` 和 `BACKEND_RESPONSE_VALIDATORS`；adapter 只保留 UI 字段转换。 | `observability.events` 缺失保留 degraded parse failure，不改成直接崩；memory/provider/files 的必需数组/对象缺失应 fail-fast。 | adapter/API/settings/files focused tests + typecheck contracts + audit rpc contracts + full checks + `/settings` smoke。 |
 | Task 5 纯 RPC 状态迁移到 TanStack Query | 已完成 | settings/observability 仍有 reducer、request sequence、手写 cache；已有 Query 依赖可承接查询状态。 | 先迁移 observability recent/trace，再迁移 settings read/write；dirty draft state 保留本地，不让 background refetch 覆盖用户输入。 | Query 默认 focus refetch、retry、stale 策略可能改变请求时机；所有 query key 和 refetch 策略必须显式。 | Observability/Settings focused tests + full checks。 |
 | Task 6 低风险交互控件迁移 React Aria | 已完成 | Memory create menu、Prompt scope、Composer model selector 有手写 outside-click/Escape/dialog 行为，易出现可访问性和焦点回归。 | 引入 `react-aria-components`，用 Menu/Popover/Dialog/RadioGroup 收敛轻量交互；保持现有 props、copy、CSS 结构尽量不动。 | DOM 结构和焦点顺序已改变：Prompt scope 从 button 变 radio，Composer dialog 从 native `<dialog>` 变 `section[role=dialog]`，Memory create item 从 button 变 menuitem。 | Memory/Prompt/Composer focused tests + full checks + desktop smoke。 |
-| Task 7 图片与 Mermaid SVG 安全边界 | 未开始 | 本地图片和 SVG sanitizer 是安全边界，不能依赖字符串拼接和宽泛协议。 | 用 `URL`/`URLSearchParams` 验证 generated/local image route；禁止 frontend 直接生成 `file://` 预览；Mermaid 先补 fixture，再决定是否引入 DOMPurify。 | 旧的 raw file path preview 可能不可见，必须走后端 token URL；DOMPurify 若引入会改变 SVG 属性保留集合。 | Markdown/Mermaid/code preview focused tests + full checks。 |
+| Task 7 图片与 Mermaid SVG 安全边界 | 已完成 | 本地图片和 SVG sanitizer 是安全边界，不能依赖字符串拼接和宽泛协议。 | 用 `URL`/`URLSearchParams` 验证 generated/local image route；禁止 frontend 直接生成 `file://` 预览；Mermaid 当前不引入 DOMPurify，先用 fixture 收紧现有 sanitizer。 | 旧的 raw file path preview 不再可见，必须走后端 token URL；Mermaid `<image>` 外链和非本地 `url(...)` 会被移除。 | Markdown/Mermaid/code preview focused tests + full checks。 |
 | Task 8 后续 Query/virtualization | 延后 | Memory polling、Skills chunk loading、大 diff 渲染有性能/状态收益，但副作用较大。 | 分成三个子任务：memory polling -> `useQuery`/polling；skills chunks -> `useInfiniteQuery`；runtime diff -> `@tanstack/react-virtual`。 | 请求并发、取消、滚动锚点和局部渲染都可能改变 UX；必须一项一项做。 | 每个子任务单独 focused tests + full checks + 必要页面 smoke。 |
 | Task 9 测试/CSS 守卫强化 | 未开始 | regex import guard 容易误判 multiline/default/namespace import，也会被注释字符串干扰。 | 使用已有 TypeScript compiler API 解析 import；CSS 继续保留 PostCSS 守卫，只对关键 cascade 加 computed-style/Playwright 检查。 | AST guard 会更严格，可能暴露已有测试绕行；这是测试守卫收益。 | guard/script focused tests + `npm run guard:critical-skip` + full checks。 |
 
@@ -898,7 +898,7 @@ git commit -m "refactor(frontend): 用 React Aria 收敛轻量交互控件"
 - Optional dependency: DOMPurify if selected
 - Test: chat markdown/code preview/Mermaid tests
 
-- [ ] **Step 1: Validate generated-image routes structurally**
+- [x] **Step 1: Validate generated-image routes structurally**
 
 Use `URL` and `URLSearchParams` to reject direct `/generated-image?path=/tmp/secret.png` strings unless they were derived from `.codex/generated_images`.
 
@@ -909,13 +909,17 @@ expect(imagePreviewSource('/generated-image?path=/tmp/secret.png')).toBe('');
 expect(imagePreviewSource('/repo/.codex/generated_images/a.png')).toContain('/generated-image');
 ```
 
-- [ ] **Step 2: Remove frontend-generated `file://` image previews**
+Actual: 2026-07-07 added structured `/generated-image` route validation with `URL`/`URLSearchParams`. Direct `/generated-image?path=/tmp/secret.png` and traversal under `.codex/generated_images/../` are rejected, while generated image paths under `.codex/generated_images` still normalize to the backend route.
+
+- [x] **Step 2: Remove frontend-generated `file://` image previews**
 
 Align code preview with workflow final output behavior: image preview must use backend token URLs such as `/local-image?id=...`, not raw `file://`.
 
 Add tests that current `file://` fallback is rejected or replaced.
 
-- [ ] **Step 3: Decide Mermaid sanitizer dependency**
+Actual: 2026-07-07 removed frontend-generated `file://` fallbacks from code preview image state. Image preview now requires backend-issued safe URLs such as `/local-image?id=...`; unsafe or missing image URLs produce a visible error and no empty `<img src="">`.
+
+- [x] **Step 3: Decide Mermaid sanitizer dependency**
 
 If the current Mermaid SVG sanitizer remains, add fixtures for:
 
@@ -936,7 +940,9 @@ npm install dompurify
 
 Configure SVG profile narrowly and keep dimension normalization as post-processing.
 
-- [ ] **Step 4: Verify and commit**
+Actual: 2026-07-07 did not introduce DOMPurify. The existing sanitizer was kept but covered with fixtures for `style=url(...)`, `xlink:href`, `<image href>`, `data:image/svg+xml`, and namespace attributes. The sanitizer now removes SVG `<image>` nodes, strips `data:image/svg+xml`, and only allows `url(#localRef)` references.
+
+- [x] **Step 4: Verify and commit**
 
 Run:
 
@@ -950,6 +956,25 @@ npm run lint
 npm test
 npm run build
 ```
+
+Actual validation:
+
+```bash
+npx vitest run --no-file-parallelism --maxWorkers=1 \
+  src/pages/chat/components/markdownMessageModel.test.js \
+  src/pages/chat/components/MarkdownMessage.test.jsx \
+  src/pages/chat/components/TimelineMessage.test.jsx \
+  src/pages/chat/components/MermaidDiagram.test.jsx \
+  src/pages/chat/components/CodePreviewDialog.test.jsx \
+  src/pages/chat/adapters/codePreviewAdapter.test.js
+npx vitest run --no-file-parallelism --maxWorkers=1 src/App.test.jsx \
+  -t "renders image runtime diff previews without the text editor|renders generated local image paths from assistant replies as image previews|renders local image paths in markdown image syntax through the generated image route"
+npm run lint
+npm test
+npm run build
+```
+
+Counts: focused component/model tests passed with 6 files and 39 tests. Focused App integration recheck passed with 3 selected tests. Full `npm test` passed with 86 files and 1077 tests. Build passed and synced frontend dist. LSP diagnostics were clean for the JSX files that became ready; pure JS model diagnostics repeatedly timed out before publishing after narrowed single-file retries, so lint/focused tests/full checks cover the gap.
 
 Commit:
 

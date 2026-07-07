@@ -129,6 +129,26 @@ describe('MermaidDiagram', () => {
     expect(svg).not.toContain('javascript:alert');
   });
 
+  it('removes SVG image and namespace href payloads that can load scriptable content', () => {
+    const svg = sanitizeMermaidSvg([
+      '<svg role="img" aria-label="unsafe mermaid" xmlns:xlink="http://www.w3.org/1999/xlink">',
+      '<defs><linearGradient id="safeGradient"><stop offset="0%" stop-color="red"/></linearGradient></defs>',
+      '<rect style="fill:url(data:image/svg+xml,%3Csvg%20onload=alert(1)%3E)" width="10" height="10"></rect>',
+      '<rect style="fill:url(#safeGradient)" width="10" height="10"></rect>',
+      '<a xlink:href="javascript:alert(1)" href="data:image/svg+xml,%3Csvg%3E"><text>unsafe link</text></a>',
+      '<image href="https://example.invalid/tracker.png" xlink:href="data:image/svg+xml,%3Csvg%3E"></image>',
+      '<text>safe mermaid</text>',
+      '</svg>',
+    ].join(''));
+
+    expect(svg).toContain('safe mermaid');
+    expect(svg).toContain('fill:url(#safeGradient)');
+    expect(svg).not.toContain('<image');
+    expect(svg).not.toContain('javascript:alert');
+    expect(svg).not.toContain('data:image/svg+xml');
+    expect(svg).not.toContain('example.invalid');
+  });
+
   it('adds concrete dimensions to Mermaid SVGs that only expose a percentage width', () => {
     const svg = sanitizeMermaidSvg([
       '<svg role="img" aria-label="wide mermaid" width="100%" viewBox="0 0 5010.72412109375 1489.6917724609375">',

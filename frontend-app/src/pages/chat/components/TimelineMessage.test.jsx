@@ -119,6 +119,7 @@ describe('UserMessageAttachments', () => {
     expect(resolveAttachmentImageSrc({ previewUrl: 'blob:screen-preview' })).toBe('blob:screen-preview');
     expect(resolveAttachmentImageSrc({ previewUrl: '/clipboard/a.png' })).toBe('/clipboard/a.png');
     expect(resolveAttachmentImageSrc({ previewUrl: 'https://example.test/a.png' })).toBe('https://example.test/a.png');
+    expect(resolveAttachmentImageSrc({ previewUrl: '/generated-image?path=/tmp/secret.png' })).toBe('');
     expect(resolveAttachmentImageSrc({ path: 'C:/Users/ai/AppData/Local/Temp/clipboard-222.png' })).toBe('/clipboard/clipboard-222.png');
     expect(resolveAttachmentImageSrc({ path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png' })).toBe('/clipboard/codex-clipboard-f05.png');
     expect(resolveAttachmentImageSrc({ path: screenshotPath })).toBe('');

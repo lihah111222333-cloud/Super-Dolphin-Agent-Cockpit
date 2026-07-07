@@ -23,12 +23,16 @@ function isDangerousSvgAttributeValue(value) {
   if (
     normalized.startsWith('javascript:') ||
     normalized.startsWith('vbscript:') ||
-    normalized.startsWith('data:text/html')
+    normalized.startsWith('data:text/html') ||
+    normalized.startsWith('data:image/svg+xml')
   ) {
     return true;
   }
+  for (const match of normalized.matchAll(/url\(([^)]*)\)/g)) {
+    const target = (match[1] || '').replace(/^['"]|['"]$/g, '');
+    if (!target.startsWith('#')) return true;
+  }
   return (
-    /url\((['"]?)(?:javascript:|vbscript:|data:text\/html)/.test(normalized) ||
     normalized.includes('expression(')
   );
 }
@@ -77,7 +81,7 @@ function sanitizeMermaidSvg(svg) {
 
   ensureSvgImageDimensions(documentNode.documentElement);
 
-  documentNode.querySelectorAll('script, foreignObject, iframe, object, embed').forEach((node) => {
+  documentNode.querySelectorAll('script, foreignObject, iframe, object, embed, image').forEach((node) => {
     node.remove();
   });
 

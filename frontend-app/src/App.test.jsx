@@ -2907,8 +2907,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       filePath: '/repo/app/assets/logo.png',
       relative: 'assets/logo.png',
       mediaType: 'image/png',
-      previewURL: 'file:///repo/app/assets/logo.png',
-      thumbnailURL: 'file:///repo/app/assets/logo-thumb.png',
+      previewURL: '/local-image?id=logo_full',
+      thumbnailURL: '/local-image?id=logo_thumb',
       sizeBytes: 2048,
     });
     backend.getThreadState.mockResolvedValue({
@@ -2936,7 +2936,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const previewDialog = await screen.findByRole('dialog', { name: '文件预览' });
     const image = within(previewDialog).getByRole('img', { name: 'assets/logo.png' });
-    expect(image).toHaveAttribute('src', 'file:///repo/app/assets/logo-thumb.png');
+    expect(image).toHaveAttribute('src', '/local-image?id=logo_thumb');
     expect(within(previewDialog).getByText('image/png · 2.0 KB')).toBeInTheDocument();
     expect(within(previewDialog).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
     expect(within(previewDialog).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();

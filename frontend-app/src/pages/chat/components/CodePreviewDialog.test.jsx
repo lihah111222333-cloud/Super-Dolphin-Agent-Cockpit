@@ -49,4 +49,18 @@ describe('CodePreviewDialog', () => {
 
     expect(screen.queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
   });
+
+  it('does not render an empty image src when the preview URL is unsafe', () => {
+    renderDialog({
+      image: true,
+      imageSrc: '',
+      imageFullSrc: '',
+      relative: 'assets/logo.png',
+      error: '图片预览需要后端提供安全预览 URL',
+    });
+
+    expect(screen.queryByRole('img', { name: 'assets/logo.png' })).not.toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent('图片预览需要后端提供安全预览 URL');
+    expect(screen.getByRole('alert')).toHaveTextContent('图片预览需要后端提供安全预览 URL');
+  });
 });
