@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from '../../services/modules/fileService.js';
+import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from './services/filesPageService.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { dashboardQueryErrorState, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
@@ -362,7 +362,7 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
       if (binaryMedia) {
         setBusyPath(path);
         try {
-          await openSharedFile({ path });
+          await openSharedFile(path);
         } finally {
           if (isCurrentRequest()) setBusyPath('');
         }
@@ -421,7 +421,7 @@ function useSharedFileDetailLoader(setBusyPath) {
     if (!path) throw new Error('shared file path is required');
     setBusyPath(path);
     try {
-      return await readSharedFile({ path }, file);
+      return await readSharedFile(path, file);
     } finally {
       if (!options.shouldClearBusy || options.shouldClearBusy(path)) setBusyPath('');
     }
@@ -457,7 +457,7 @@ function useSharedFileDelete({ deleteTarget, deletingPath, refreshFiles, selecte
     setNotice(null);
     setDeletingPath(target.path);
     try {
-      await deleteSharedFile({ path: target.path });
+      await deleteSharedFile(target.path);
       if (selectedFile?.path === target.path) setSelectedFile(null);
       setDeleteTarget(null);
       setNotice({ level: 'info', message: `已删除文件：${target.path}` });

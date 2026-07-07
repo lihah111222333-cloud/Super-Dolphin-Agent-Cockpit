@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, MemoryStick, Plus, Search } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
-import { deleteMemoryEntry, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from '../../services/modules/memoryService.js';
-import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, fetchMemoryDashboard, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue } from '../shared/pageShared.js';
+import { deleteMemoryEntry, fetchMemoryDashboard, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from './services/memoryPageService.js';
+import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue } from '../shared/pageShared.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx';
 import './MemoryPage.css';
 

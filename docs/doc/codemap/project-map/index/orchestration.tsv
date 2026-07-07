@@ -213,7 +213,7 @@ cmd/mcp-orch/sql/queries/task_dag_worker_lease.sql	cmd	orchestration	sql	1126	mc
 cmd/mcp-orch/sql/queries/workspace_run.sql	cmd	orchestration	sql	4604	mcp-orch SQL query 源文件	cmd,mcp,orch,sql,queries,workspace,run,mcp-orch,SQL,query,源文件
 cmd/mcp-orch/sql/schema_sqlc_patch.sql	cmd	orchestration	sql	424	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,sql,schema,sqlc,patch,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/sqlc.yaml	cmd	orchestration	yaml	3051	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,sqlc,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
-cmd/mcp-orch/sqlite_smoke_test.go	cmd	orchestration	go-test	2431	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,sqlite,smoke,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
+cmd/mcp-orch/sqlite_smoke_test.go	cmd	orchestration	go-test	2537	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,sqlite,smoke,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/store/agent/store.go	cmd	orchestration	go-source	5935	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,agent,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/commandcard/contract.go	cmd	orchestration	go-source	2033	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,commandcard,contract,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/commandcard/module.go	cmd	orchestration	go-source	169	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,commandcard,module,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口

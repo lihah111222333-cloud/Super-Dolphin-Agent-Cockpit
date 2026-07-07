@@ -1,5 +1,10 @@
 package contract
 
+import (
+	"errors"
+	"fmt"
+)
+
 // SkillConfig 保存技能发现和加载时使用的运行配置。
 type SkillConfig struct {
 	ProgressiveDisclosure bool
@@ -19,6 +24,73 @@ type NotifyConfig struct {
 	TimeoutSeconds   int
 	QueueCapacity    int
 	DrainSeconds     int
+}
+
+// DependencyProfile declares which runtime dependency set a process is allowed to use.
+type DependencyProfile string
+
+const (
+	// DependencyProfileDesktopHost allows desktop-only dependencies that are absent from sidecars.
+	DependencyProfileDesktopHost DependencyProfile = "desktop_host"
+	// DependencyProfileProduction requires production dependencies to be explicitly wired.
+	DependencyProfileProduction DependencyProfile = "production"
+	// DependencyProfileTest is reserved for Go test binaries with explicit test bootstrap.
+	DependencyProfileTest DependencyProfile = "test"
+)
+
+// DependencyBootstrapMode describes the process bootstrap context used to resolve a profile.
+type DependencyBootstrapMode string
+
+const (
+	// DependencyBootstrapDesktopHost is the trusted desktop host bootstrap.
+	DependencyBootstrapDesktopHost DependencyBootstrapMode = "desktop_host"
+	// DependencyBootstrapProduction is the default sidecar and packaged runtime bootstrap.
+	DependencyBootstrapProduction DependencyBootstrapMode = "production"
+	// DependencyBootstrapTest is allowed only inside Go test binaries.
+	DependencyBootstrapTest DependencyBootstrapMode = "test"
+)
+
+// DependencyConfig is the typed dependency-mode envelope shared through Fx config.
+type DependencyConfig struct {
+	Profile DependencyProfile
+}
+
+var (
+	// ErrUnsupportedDependencyMode marks a dependency that is intentionally absent in the current profile.
+	ErrUnsupportedDependencyMode = errors.New("unsupported dependency mode")
+	// ErrDependencyDeferred marks a dependency that is deferred by runtime mode instead of silently noop'd.
+	ErrDependencyDeferred = errors.New("dependency deferred by runtime mode")
+)
+
+// DependencyModeError carries the dependency name and profile that produced a typed mode error.
+type DependencyModeError struct {
+	Err     error
+	Name    string
+	Profile DependencyProfile
+}
+
+// Error 输出包含依赖名和 profile 的可诊断文本，供启动失败和测试断言定位。
+func (e DependencyModeError) Error() string {
+	return fmt.Sprintf("%v: %s in %s profile", e.Err, e.Name, e.Profile)
+}
+
+// Unwrap 让调用方可以继续用 errors.Is/As 识别底层哨兵错误。
+func (e DependencyModeError) Unwrap() error {
+	return e.Err
+}
+
+// NewDependencyModeError 把依赖名称和 profile 写进错误，避免后续把 unsupported/deferred 当成普通成功。
+func NewDependencyModeError(err error, name string, profile DependencyProfile) error {
+	return DependencyModeError{Err: err, Name: name, Profile: profile}
+}
+
+// IsDependencyModeError 同时校验哨兵、依赖名和 profile，防止跨依赖误吞 typed mode error。
+func IsDependencyModeError(err error, name string, profile DependencyProfile, target error) bool {
+	var modeErr DependencyModeError
+	if !errors.As(err, &modeErr) {
+		return false
+	}
+	return errors.Is(modeErr.Err, target) && modeErr.Name == name && modeErr.Profile == profile
 }
 
 const (
@@ -76,6 +148,7 @@ type Config struct {
 	Agent       AgentConfig
 	Notify      NotifyConfig
 	LSP         LSPConfig
+	Dependency  DependencyConfig
 }
 
 // RuntimeConfigField 描述 runtime 配置字段的规范名和可接受别名。

@@ -4,7 +4,8 @@ import { Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLef
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './shared/api/backendApi.js';
-import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
+import { dashboardQueryKey, errorMessage, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
+import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { threadStatusBusy } from './pages/chat/adapters/threadStateAdapter.js';
 import { runUIAction } from './shared/ui/runUIAction.js';
@@ -204,7 +205,7 @@ function useMemoryBadgeState(store, projectPath) {
     queryKey: dashboardQueryKey(memoryCwd, 'memory'),
     queryFn: async () => {
       try {
-        return await fetchMemoryDashboard(memoryCwd);
+        return await memoryPageService.loadDashboard(memoryCwd);
       }
       catch (error) {
         addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(error) });

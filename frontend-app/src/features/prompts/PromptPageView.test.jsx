@@ -24,7 +24,7 @@ const backend = vi.hoisted(() => ({
   deletePromptSection: vi.fn(),
 }));
 
-vi.mock('../../shared/api/backendApi.js', () => backend);
+vi.mock('../../pages/prompts/services/promptPageService.js', () => backend);
 
 function renderPromptPage(props = {}) {
   const queryClient = new QueryClient({

@@ -94,8 +94,23 @@ function adaptSharedFilesDashboard(response) {
   };
 }
 
-function adaptSharedFileDetail(response, fallbackFile = {}) {
-  return adaptSharedFile(response || {}, 0, fallbackFile);
+function detailResponseFile(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('shared file detail response must be an object');
+  }
+  if (Object.prototype.hasOwnProperty.call(response, 'file')) {
+    if (!response.file || typeof response.file !== 'object' || Array.isArray(response.file)) {
+      throw new Error('shared file detail file must be an object');
+    }
+    return response.file;
+  }
+  return response;
+}
+
+function adaptSharedFileDetail(response, fallbackFile) {
+  const detail = detailResponseFile(response);
+  if (!textValue(detail.path)) throw new Error('shared file detail path is required');
+  return adaptSharedFile(detail, 0, fallbackFile);
 }
 
 export { adaptFinalOutputRefs, adaptSharedFile, adaptSharedFileDetail, adaptSharedFileRetention, adaptSharedFilesDashboard };

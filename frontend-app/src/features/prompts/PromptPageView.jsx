@@ -16,7 +16,7 @@ import {
   savePersonalizationProfile,
   setPreference,
   writePrompt,
-} from '../../shared/api/backendApi.js';
+} from '../../pages/prompts/services/promptPageService.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import './PromptPageView.css';
@@ -419,7 +419,7 @@ function errorMessage(error) {
   return error?.message || String(error);
 }
 
-function withTimeout(promise, timeoutMs, message) {
+async function withTimeout(promise, timeoutMs, message) {
   let timeoutID;
   const timeout = new Promise((_, reject) => {
     timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);

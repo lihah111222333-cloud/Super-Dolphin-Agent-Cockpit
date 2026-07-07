@@ -142,7 +142,7 @@ cmd/mcp-lsp/protocol/methods.go	cmd	platform-provider	go-source	1778	代码智�
 cmd/mcp-lsp/protocol/notification.go	cmd	platform-provider	go-source	2388	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,notification,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/protocol/types.go	cmd	platform-provider	go-source	15171	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,types,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_bind_test.go	cmd	platform-provider	go-test	1606	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,bind,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/runtime_test.go	cmd	platform-provider	go-test	22374	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/runtime_test.go	cmd	platform-provider	go-test	22687	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime.go	cmd	platform-provider	go-source	25597	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/schema_test.go	cmd	platform-provider	go-test	3710	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/schema.go	cmd	platform-provider	go-source	9138	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,代码智能,LSP,MCP,peer
@@ -279,8 +279,9 @@ internal/platform/cachekeepalive/module.go	internal	platform-provider	go-source	
 internal/platform/cachekeepalive/relay.go	internal	platform-provider	go-source	2225	基础设施层	internal,platform,cachekeepalive,relay,基础设施层
 internal/platform/cachekeepalive/subscribers_test.go	internal	platform-provider	go-test	3848	基础设施层	internal,platform,cachekeepalive,subscribers,test,基础设施层
 internal/platform/cachekeepalive/subscribers.go	internal	platform-provider	go-source	1136	基础设施层	internal,platform,cachekeepalive,subscribers,基础设施层
-internal/platform/config/config_test.go	internal	platform-provider	go-test	22369	运行配置、env、provider 与超时策略	internal,platform,config,test,运行配置,env,provider,与超时策略
-internal/platform/config/config.go	internal	platform-provider	go-source	17114	运行配置、env、provider 与超时策略	internal,platform,config,运行配置,env,provider,与超时策略
+internal/platform/config/config_test.go	internal	platform-provider	go-test	22647	运行配置、env、provider 与超时策略	internal,platform,config,test,运行配置,env,provider,与超时策略
+internal/platform/config/config.go	internal	platform-provider	go-source	21269	运行配置、env、provider 与超时策略	internal,platform,config,运行配置,env,provider,与超时策略
+internal/platform/config/dependency_profile_test.go	internal	platform-provider	go-test	5519	运行配置、env、provider 与超时策略	internal,platform,config,dependency,profile,test,运行配置,env,provider,与超时策略
 internal/platform/config/dev_mode_test.go	internal	platform-provider	go-test	1397	运行配置、env、provider 与超时策略	internal,platform,config,dev,mode,test,运行配置,env,provider,与超时策略
 internal/platform/config/lsp.go	internal	platform-provider	go-source	12555	运行配置、env、provider 与超时策略	internal,platform,config,lsp,运行配置,env,provider,与超时策略
 internal/platform/config/module.go	internal	platform-provider	go-source	91	运行配置、env、provider 与超时策略	internal,platform,config,module,运行配置,env,provider,与超时策略

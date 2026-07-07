@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,11 +16,22 @@ import (
 
 // 这些别名保留 platform/config 的旧导入面；字段定义以 internal/contract 为准。
 type (
-	Config       = contract.Config
-	SkillConfig  = contract.SkillConfig
-	AgentConfig  = contract.AgentConfig
-	NotifyConfig = contract.NotifyConfig
-	LSPConfig    = contract.LSPConfig
+	Config           = contract.Config
+	SkillConfig      = contract.SkillConfig
+	AgentConfig      = contract.AgentConfig
+	NotifyConfig     = contract.NotifyConfig
+	LSPConfig        = contract.LSPConfig
+	DependencyConfig = contract.DependencyConfig
+)
+
+const (
+	DependencyProfileDesktopHost = contract.DependencyProfileDesktopHost
+	DependencyProfileProduction  = contract.DependencyProfileProduction
+	DependencyProfileTest        = contract.DependencyProfileTest
+
+	DependencyBootstrapDesktopHost = contract.DependencyBootstrapDesktopHost
+	DependencyBootstrapProduction  = contract.DependencyBootstrapProduction
+	DependencyBootstrapTest        = contract.DependencyBootstrapTest
 )
 
 type parsedEnvConfig struct {
@@ -47,6 +59,10 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	profile, err := dependencyProfileFromEnv()
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		SQLitePath:  sqlitePath,
@@ -67,12 +83,108 @@ func New() (*Config, error) {
 			QueueCapacity:    envCfg.notifyQueueCapacity,
 			DrainSeconds:     envCfg.notifyDrainSeconds,
 		},
-		LSP: envCfg.lsp,
+		LSP:        envCfg.lsp,
+		Dependency: DependencyConfig{Profile: profile},
 	}
 	if err := exportRPCAddrIfMissing(os.Setenv, cfg.RPCAddr); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func dependencyProfileFromEnv() (contract.DependencyProfile, error) {
+	bootstrap, err := dependencyBootstrapModeFromEnv()
+	if err != nil {
+		return "", err
+	}
+	return resolveDependencyProfile(os.Getenv("SUPER_DOLPHIN_DEPENDENCY_PROFILE"), bootstrap)
+}
+
+// resolveDependencyProfile 根据 bootstrap 模式解析 profile；生产默认必须显式声明，避免缺依赖时静默走桌面或测试路径。
+func resolveDependencyProfile(raw string, bootstrap contract.DependencyBootstrapMode) (contract.DependencyProfile, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		switch bootstrap {
+		case contract.DependencyBootstrapDesktopHost:
+			return contract.DependencyProfileDesktopHost, nil
+		case contract.DependencyBootstrapTest:
+			return contract.DependencyProfileTest, nil
+		default:
+			return "", fmt.Errorf("SUPER_DOLPHIN_DEPENDENCY_PROFILE is required for %s bootstrap", bootstrap)
+		}
+	}
+
+	profile := contract.DependencyProfile(raw)
+	switch profile {
+	case contract.DependencyProfileDesktopHost, contract.DependencyProfileProduction, contract.DependencyProfileTest:
+		if profile == contract.DependencyProfileTest && bootstrap != contract.DependencyBootstrapTest {
+			return "", fmt.Errorf("test dependency profile is allowed only with test bootstrap")
+		}
+		if bootstrap == contract.DependencyBootstrapProduction && profile != contract.DependencyProfileProduction {
+			return "", fmt.Errorf("%s dependency profile is not allowed for production bootstrap", profile)
+		}
+		return profile, nil
+	default:
+		return "", fmt.Errorf("invalid SUPER_DOLPHIN_DEPENDENCY_PROFILE %q", raw)
+	}
+}
+
+// dependencyBootstrapModeFromEnv 解析当前进程的 dependency bootstrap，测试模式只能由 Go test 显式打开。
+func dependencyBootstrapModeFromEnv() (contract.DependencyBootstrapMode, error) {
+	return dependencyBootstrapMode(
+		os.Getenv("SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP"),
+		os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE"),
+		os.Getenv("SUPER_DOLPHIN_PROCESS_ROLE"),
+		runningUnderGoTest,
+	)
+}
+
+func dependencyBootstrapMode(raw string, runtimeMode string, role string, goTestBinary func() bool) (contract.DependencyBootstrapMode, error) {
+	raw = strings.TrimSpace(raw)
+	packaged := strings.EqualFold(strings.TrimSpace(runtimeMode), "packaged")
+	role = strings.TrimSpace(role)
+	if raw != "" {
+		return explicitDependencyBootstrapMode(raw, packaged, role, goTestBinary)
+	}
+	if packaged {
+		return contract.DependencyBootstrapProduction, nil
+	}
+	return dependencyBootstrapModeForProcessRole(role), nil
+}
+
+func explicitDependencyBootstrapMode(raw string, packaged bool, role string, goTestBinary func() bool) (contract.DependencyBootstrapMode, error) {
+	switch raw {
+	case "test":
+		if !testDependencyBootstrapAllowed(packaged, role, goTestBinary) {
+			return "", errors.New("test dependency bootstrap is allowed only in Go test binaries")
+		}
+		return contract.DependencyBootstrapTest, nil
+	case "desktop_host":
+		return contract.DependencyBootstrapDesktopHost, nil
+	case "production":
+		return contract.DependencyBootstrapProduction, nil
+	default:
+		return "", fmt.Errorf("invalid SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP %q", raw)
+	}
+}
+
+func testDependencyBootstrapAllowed(packaged bool, role string, goTestBinary func() bool) bool {
+	return !packaged && role != "sidecar" && goTestBinary()
+}
+
+func dependencyBootstrapModeForProcessRole(role string) contract.DependencyBootstrapMode {
+	switch role {
+	case "desktop":
+		return contract.DependencyBootstrapDesktopHost
+	case "sidecar":
+		return contract.DependencyBootstrapProduction
+	default:
+		return contract.DependencyBootstrapProduction
+	}
+}
+
+func runningUnderGoTest() bool {
+	return strings.HasSuffix(filepath.Base(os.Args[0]), ".test")
 }
 
 // parseConfigEnv 解析会影响运行行为的环境变量。
@@ -180,14 +292,6 @@ func applyDotEnv(setenv func(string, string) error, path, content string, strict
 		}
 	}
 	return nil
-}
-
-func parseDotEnvLine(line string) (string, string, bool) {
-	key, value, ok, err := parseDotEnvLineStrict(line, 0)
-	if err != nil {
-		return "", "", false
-	}
-	return key, value, ok
 }
 
 // parseDotEnvLineStrict 解析单行 key=value，并返回空行或注释行的跳过标记。

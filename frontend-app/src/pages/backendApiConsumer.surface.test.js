@@ -2,35 +2,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import {
+  COMPUTED_VITEST_MODULE_MOCK,
+  importSpecifiers,
+  namedImportsFrom,
+  NON_LITERAL_DYNAMIC_IMPORT,
+  staticImportSpecifiers,
+} from './importSurfaceGuard.test-helper.js';
+import { pageSurfaceManifest } from './pageSurfaceManifest.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const scannedDirs = ['pages', 'features', 'entities'];
+const rawNamedImportScanDirs = ['pages', 'features', 'entities'];
+const pageSurfaceScanDirs = ['pages', 'features'];
 const rawFacadeNames = new Set(['callAPI', 'callBackend']);
-const migratedBackendApiConsumers = new Set([
-  'pages/chat/ChatPage.jsx',
-  'pages/files/FilesPage.jsx',
-  'pages/memory/MemoryPage.jsx',
-  'pages/observability/ObservabilityPage.jsx',
-  'pages/settings/SettingsPage.jsx',
-  'pages/shared/pageShared.js',
-  'pages/workflows/WorkflowPage.jsx',
-]);
-const migratedBackendApiConsumerPrefixes = [
-  'pages/chat/',
-  'pages/settings/',
-  'pages/skills/',
-  'pages/workflows/',
-];
-const backendApiServiceConsumerPrefixes = [
-  'pages/chat/services/',
-  'pages/settings/services/',
-  'pages/skills/services/',
-  'pages/workflows/services/',
-];
+const promptFeatureSurface = 'features/prompts/PromptPageView.jsx';
+const promptPageServicePath = 'pages/prompts/services/promptPageService.js';
 
-function collectSourceFiles() {
+function collectSourceFiles(dirs) {
   const files = [];
-  for (const dir of scannedDirs) {
+  for (const dir of dirs) {
     walk(path.join(sourceRoot, dir), files);
   }
   return files;
@@ -52,60 +42,155 @@ function rel(filePath) {
   return path.relative(sourceRoot, filePath).split(path.sep).join('/');
 }
 
-function backendApiNamedImports(source) {
-  const imports = [];
-  const importPattern = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]*shared\/api\/backendApi(?:\.js)?)['"]/g;
-  for (const match of source.matchAll(importPattern)) {
-    for (const part of match[1].split(',')) {
-      const imported = part.trim().split(/\s+as\s+/)[0]?.trim();
-      if (imported) imports.push(imported);
+function referencesBackendApi(specifier) {
+  return specifier.includes('shared/api/backendApi');
+}
+
+function referencesModuleService(specifier) {
+  return specifier.includes('services/modules/');
+}
+
+function isFeatureServiceConsumer(relativePath) {
+  return Object.values(pageSurfaceManifest)
+    .some((surface) => relativePath.startsWith(surface.servicePrefix));
+}
+
+function isGuardedSurface(relativePath) {
+  return relativePath.startsWith('pages/') || relativePath === promptFeatureSurface;
+}
+
+function resolveImportSpecifier(relativePath, specifier) {
+  if (!specifier.startsWith('.')) return specifier;
+  return path.normalize(path.join(path.dirname(relativePath), specifier)).split(path.sep).join('/');
+}
+
+function importsPromptPageService(relativePath, source) {
+  return staticImportSpecifiers(source)
+    .some((specifier) => resolveImportSpecifier(relativePath, specifier) === promptPageServicePath);
+}
+
+function backendApiRawFacadeViolations(relativePath, source) {
+  if (isFeatureServiceConsumer(relativePath)) return [];
+  return namedImportsFrom(source, referencesBackendApi)
+    .filter((imported) => rawFacadeNames.has(imported))
+    .map((imported) => `${relativePath} imports raw ${imported}`);
+}
+
+function surfaceImportViolations(relativePath, source) {
+  if (!isGuardedSurface(relativePath) || isFeatureServiceConsumer(relativePath)) return [];
+  const violations = [];
+  for (const specifier of importSpecifiers(source)) {
+    if (specifier === NON_LITERAL_DYNAMIC_IMPORT) {
+      violations.push(`${relativePath} uses non-literal dynamic import`);
+      continue;
+    }
+    if (specifier === COMPUTED_VITEST_MODULE_MOCK) {
+      violations.push(`${relativePath} uses computed Vitest module mock`);
+      continue;
+    }
+    if (referencesBackendApi(specifier)) {
+      violations.push(`${relativePath} imports ${specifier}`);
+    }
+    if (referencesModuleService(specifier)) {
+      violations.push(`${relativePath} imports ${specifier}`);
     }
   }
-  return imports;
-}
-
-function importsBackendApi(source) {
-  return /from\s*['"][^'"]*shared\/api\/backendApi(?:\.js)?['"]/.test(source);
-}
-
-function isMigratedBackendApiConsumer(relativePath) {
-  return migratedBackendApiConsumers.has(relativePath)
-    || migratedBackendApiConsumerPrefixes.some((prefix) => relativePath.startsWith(prefix));
-}
-
-function isBackendApiServiceConsumer(relativePath) {
-  return backendApiServiceConsumerPrefixes.some((prefix) => relativePath.startsWith(prefix));
+  if (relativePath === promptFeatureSurface && !importsPromptPageService(relativePath, source)) {
+    violations.push(`${relativePath} does not import promptPageService`);
+  }
+  return violations;
 }
 
 describe('backend API consumer guardrails', () => {
   it('keeps page, feature, and entity consumers on named backend facade imports', () => {
     const violations = [];
 
-    for (const filePath of collectSourceFiles()) {
+    for (const filePath of collectSourceFiles(rawNamedImportScanDirs)) {
       const relativePath = rel(filePath);
       const source = fs.readFileSync(filePath, 'utf8');
-      for (const imported of backendApiNamedImports(source)) {
-        if (rawFacadeNames.has(imported)) {
-          violations.push(`${relativePath} imports raw ${imported}`);
-        }
-      }
+      violations.push(...backendApiRawFacadeViolations(relativePath, source));
     }
 
     expect(violations).toEqual([]);
   });
 
-  it('keeps migrated page surfaces behind service modules', () => {
+  it('keeps page and prompt feature surfaces behind manifest service modules', () => {
     const violations = [];
 
-    for (const filePath of collectSourceFiles()) {
+    for (const filePath of collectSourceFiles(pageSurfaceScanDirs)) {
       const relativePath = rel(filePath);
-      if (!isMigratedBackendApiConsumer(relativePath) || isBackendApiServiceConsumer(relativePath)) continue;
       const source = fs.readFileSync(filePath, 'utf8');
-      if (importsBackendApi(source)) {
-        violations.push(`${relativePath} imports shared/api/backendApi.js directly`);
-      }
+      violations.push(...surfaceImportViolations(relativePath, source));
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it('detects recursive backend import bypasses in guarded surfaces', () => {
+    expect(surfaceImportViolations('pages/files/FilesPage.jsx', `
+      await import('../../shared/api/backendApi.js');
+      await import('../../shared/api/' + 'backendApi.js');
+      export { callAPI } from '../../shared/api/backendApi.js';
+      export * from '../../shared/api/backendApi.js';
+      const api = require('../../shared/api/backendApi.js');
+      vi.mock('../../shared/api/backendApi.js', () => ({}));
+      vi.doMock('../../shared/api/backendApi.js', () => ({}));
+      vi.unstable_mockModule('../../shared/api/backendApi.js', () => ({}));
+      vi['mock']('../../shared/api/backendApi.js', () => ({}));
+      vi['doMock']('../../shared/api/backendApi.js', () => ({}));
+      vi[mockName]('../../shared/api/backendApi.js', () => ({}));
+      vi['doMock'].call(vi, '../../shared/api/backendApi.js', () => ({}));
+      vi[mockName].call(vi, '../../shared/api/backendApi.js', () => ({}));
+      vi['doMock'].apply(vi, ['../../shared/api/backendApi.js', () => ({})]);
+      vi['doMock'].apply(vi, [backendApiPath, () => ({})]);
+      vi[mockName].apply(vi, [backendApiPath, () => ({})]);
+      Reflect.apply(vi.doMock, vi, ['../../shared/api/backendApi.js', () => ({})]);
+      Reflect.apply(vi[mockName], vi, [backendApiPath, () => ({})]);
+    `)).toEqual([
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx uses non-literal dynamic import',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx uses computed Vitest module mock',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx uses computed Vitest module mock',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx uses computed Vitest module mock',
+      'pages/files/FilesPage.jsx uses computed Vitest module mock',
+      'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx uses computed Vitest module mock',
+    ]);
+  });
+
+  it('does not accept promptPageService mentions without a real import', () => {
+    expect(surfaceImportViolations(promptFeatureSurface, `
+      // promptPageService appears in a comment but is not imported.
+      const x = 'promptPageService';
+      export function PromptPageView() {
+        return x;
+      }
+    `)).toContain('features/prompts/PromptPageView.jsx does not import promptPageService');
+
+    expect(surfaceImportViolations(promptFeatureSurface, `
+      export { promptPageService } from '../../pages/prompts/services/promptPageService.js';
+    `)).toContain('features/prompts/PromptPageView.jsx does not import promptPageService');
+
+    expect(surfaceImportViolations(promptFeatureSurface, `
+      import { promptPageService } from '../../pages/prompts/services/promptPageService.js';
+      export function PromptPageView() {
+        return promptPageService;
+      }
+    `)).toEqual([]);
+  });
+
+  it('allows ordinary non-Vitest apply calls', () => {
+    expect(importSpecifiers('handler.apply(thisArg, argsArray);')).toEqual([]);
+    expect(surfaceImportViolations('pages/chat/ChatPage.jsx', 'handler.apply(thisArg, argsArray);')).toEqual([]);
   });
 });
