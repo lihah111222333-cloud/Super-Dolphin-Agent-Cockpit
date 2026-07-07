@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from '@babel/parser';
 import { describe, expect, it } from 'vitest';
 import {
   COMPUTED_VITEST_MODULE_MOCK,
   importSpecifiers,
   NON_LITERAL_DYNAMIC_IMPORT,
+  NON_LITERAL_REQUIRE,
 } from './importSurfaceGuard.test-helper.js';
 import { pageSurfaceManifest } from './pageSurfaceManifest.js';
 
@@ -14,10 +16,10 @@ const ownershipModes = new Set(['dto-golden', 'service-boundary']);
 const requiredFields = ['entry', 'servicePrefix', 'adapterPrefix', 'serviceEntry', 'ownershipMode', 'ownedStateFiles'];
 const sharedDtoGoldenTest = 'pages/shared/featureDtoGolden.test.js';
 const dtoGoldenFactories = new Map([
-  ['files', 'createFilesPageService'],
-  ['memory', 'createMemoryPageService'],
-  ['observability', 'createObservabilityPageService'],
-  ['prompts', 'createPromptPageService'],
+  ['files', { factory: 'createFilesPageService', methods: ['saveTextFile'] }],
+  ['memory', { factory: 'createMemoryPageService', methods: ['upsertMemoryEntry', 'mergeMemoryEntries'] }],
+  ['observability', { factory: 'createObservabilityPageService', methods: ['listObservabilityRecent'] }],
+  ['prompts', { factory: 'createPromptPageService', methods: ['draftPromptIntent', 'writePrompt'] }],
 ]);
 
 function read(relPath) {
@@ -28,6 +30,76 @@ function resolveEntryImport(entry, specifier) {
   if (!specifier.startsWith('.')) return '';
   const resolved = path.normalize(path.join(path.dirname(entry), specifier));
   return resolved.split(path.sep).join('/');
+}
+
+function parseModule(source) {
+  return parse(source, {
+    sourceType: 'module',
+    createImportExpressions: true,
+    plugins: ['jsx', 'typescript', 'dynamicImport', 'importAttributes'],
+  });
+}
+
+function visit(node, visitor) {
+  if (!node || typeof node !== 'object') return;
+  visitor(node);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child, visitor);
+    } else if (value && typeof value === 'object' && typeof value.type === 'string') {
+      visit(value, visitor);
+    }
+  }
+}
+
+function propertyName(property) {
+  if (property?.type === 'Identifier') return property.name;
+  if (property?.type === 'StringLiteral') return property.value;
+  return '';
+}
+
+function objectPropertyValue(node, name) {
+  if (node?.type !== 'ObjectExpression') return null;
+  return node.properties
+    .find((property) => property.type === 'ObjectProperty' && propertyName(property.key) === name)
+    ?.value ?? null;
+}
+
+function stringArrayValues(node) {
+  if (node?.type !== 'ArrayExpression') return [];
+  return node.elements
+    .filter((element) => element?.type === 'StringLiteral')
+    .map((element) => element.value);
+}
+
+function dtoGoldenHarnessCases(source) {
+  const cases = [];
+  visit(parseModule(source), (node) => {
+    if (
+      node.type !== 'CallExpression'
+      || node.callee?.type !== 'Identifier'
+      || !['expectDtoGolden', 'expectSyncDtoError'].includes(node.callee.name)
+    ) {
+      return;
+    }
+    const options = node.arguments?.[0];
+    const factory = objectPropertyValue(options, 'factory');
+    const method = objectPropertyValue(options, 'method');
+    cases.push({
+      factory: factory?.type === 'Identifier' ? factory.name : '',
+      method: method?.type === 'StringLiteral' ? method.value : '',
+      methods: stringArrayValues(objectPropertyValue(options, 'methods')),
+    });
+  });
+  return cases;
+}
+
+function harnessCoversFactoryMethod(cases, factory, method) {
+  return cases.some((entry) => (
+    entry.factory === factory
+    && entry.method === method
+    && entry.methods.includes(method)
+  ));
 }
 
 function manifestContractViolations(manifest) {
@@ -136,14 +208,18 @@ describe('page surface manifest', () => {
         violations.push(`${feature} dtoGoldenTest must be ${sharedDtoGoldenTest}`);
       }
       const harnessSource = read(surface.dtoGoldenTest);
-      const serviceFactory = dtoGoldenFactories.get(feature);
-      if (!serviceFactory) {
+      const coverage = dtoGoldenFactories.get(feature);
+      if (!coverage) {
         violations.push(`${feature} dto-golden entry must declare a shared harness factory expectation`);
         continue;
       }
       const harnessImports = importSpecifiers(harnessSource)
         .map((specifier) => resolveEntryImport(surface.dtoGoldenTest, specifier));
-      if (!harnessImports.includes(surface.serviceEntry) || !harnessSource.includes(serviceFactory)) {
+      const harnessCases = dtoGoldenHarnessCases(harnessSource);
+      const missingMethods = coverage.methods.filter(
+        (method) => !harnessCoversFactoryMethod(harnessCases, coverage.factory, method),
+      );
+      if (!harnessImports.includes(surface.serviceEntry) || missingMethods.length > 0) {
         violations.push(`${feature} dtoGoldenTest does not cover ${surface.serviceEntry}`);
       }
     }
@@ -182,6 +258,8 @@ describe('page surface manifest', () => {
       export { callAPI } from '../../shared/api/backendApi.js';
       export * from '../../services/modules/fileService.js';
       const api = require('../../shared/api/backendApi.js');
+      const computedApi = require(backendApiPath);
+      const joinedApi = require('../../shared/api/' + 'backendApi.js');
       vi.mock('../../shared/api/backendApi.js', () => ({}));
       vi.doMock('../../shared/api/backendApi.js', () => ({}));
       vi.unstable_mockModule('../../shared/api/backendApi.js', () => ({}));
@@ -202,6 +280,8 @@ describe('page surface manifest', () => {
       '../../shared/api/backendApi.js',
       '../../services/modules/fileService.js',
       '../../shared/api/backendApi.js',
+      NON_LITERAL_REQUIRE,
+      NON_LITERAL_REQUIRE,
       '../../shared/api/backendApi.js',
       '../../shared/api/backendApi.js',
       '../../shared/api/backendApi.js',
