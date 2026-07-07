@@ -10,6 +10,8 @@ import {
 import { pageSurfaceManifest } from './pageSurfaceManifest.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ownershipModes = new Set(['dto-golden', 'service-boundary']);
+const requiredFields = ['entry', 'servicePrefix', 'adapterPrefix', 'serviceEntry', 'ownershipMode', 'ownedStateFiles'];
 
 function read(relPath) {
   return fs.readFileSync(path.join(sourceRoot, relPath), 'utf8');
@@ -21,17 +23,112 @@ function resolveEntryImport(entry, specifier) {
   return resolved.split(path.sep).join('/');
 }
 
+function manifestContractViolations(manifest) {
+  const violations = [];
+  for (const [feature, surface] of Object.entries(manifest)) {
+    for (const field of requiredFields) {
+      if (!(field in surface)) violations.push(`${feature} is missing ${field}`);
+    }
+    if (surface.servicePrefix !== `pages/${feature}/services/`) {
+      violations.push(`${feature} servicePrefix must be pages/${feature}/services/`);
+    }
+    if (surface.adapterPrefix !== `pages/${feature}/adapters/`) {
+      violations.push(`${feature} adapterPrefix must be pages/${feature}/adapters/`);
+    }
+    if (surface.serviceEntry && !surface.serviceEntry.startsWith(surface.servicePrefix)) {
+      violations.push(`${feature} serviceEntry must be under ${surface.servicePrefix}`);
+    }
+    if (!ownershipModes.has(surface.ownershipMode)) {
+      violations.push(`${feature} ownershipMode must be dto-golden or service-boundary`);
+    }
+    if (!Array.isArray(surface.ownedStateFiles) || surface.ownedStateFiles.length === 0) {
+      violations.push(`${feature} ownedStateFiles must name at least one file`);
+    }
+    if (surface.ownershipMode === 'dto-golden' && !surface.dtoGoldenTest) {
+      violations.push(`${feature} dto-golden entry is missing dtoGoldenTest`);
+    }
+    if (surface.ownershipMode === 'service-boundary' && 'dtoGoldenTest' in surface) {
+      violations.push(`${feature} service-boundary entry must not declare placeholder dtoGoldenTest`);
+    }
+  }
+  return violations;
+}
+
 describe('page surface manifest', () => {
+  it('declares feature ownership fields for every page entry', () => {
+    expect(manifestContractViolations(pageSurfaceManifest)).toEqual([]);
+  });
+
+  it('fails closed when a feature omits required ownership metadata', () => {
+    const missingServiceEntry = {
+      files: {
+        entry: 'pages/files/FilesPage.jsx',
+        servicePrefix: 'pages/files/services/',
+        adapterPrefix: 'pages/files/adapters/',
+        ownershipMode: 'dto-golden',
+        dtoGoldenTest: 'pages/files/services/filesPageService.test.js',
+        ownedStateFiles: ['pages/files/FilesPage.jsx'],
+      },
+    };
+    expect(manifestContractViolations(missingServiceEntry)).toContain('files is missing serviceEntry');
+
+    const missingOwnershipMode = {
+      files: {
+        entry: 'pages/files/FilesPage.jsx',
+        servicePrefix: 'pages/files/services/',
+        adapterPrefix: 'pages/files/adapters/',
+        serviceEntry: 'pages/files/services/filesPageService.js',
+        ownedStateFiles: ['pages/files/FilesPage.jsx'],
+      },
+    };
+    expect(manifestContractViolations(missingOwnershipMode)).toContain('files is missing ownershipMode');
+
+    const missingOwnedStateFiles = {
+      files: {
+        entry: 'pages/files/FilesPage.jsx',
+        servicePrefix: 'pages/files/services/',
+        adapterPrefix: 'pages/files/adapters/',
+        serviceEntry: 'pages/files/services/filesPageService.js',
+        ownershipMode: 'dto-golden',
+        dtoGoldenTest: 'pages/files/services/filesPageService.test.js',
+      },
+    };
+    expect(manifestContractViolations(missingOwnedStateFiles)).toContain('files is missing ownedStateFiles');
+  });
+
+  it('requires real dto golden tests only for dto-golden ownership', () => {
+    expect(manifestContractViolations({
+      files: {
+        entry: 'pages/files/FilesPage.jsx',
+        servicePrefix: 'pages/files/services/',
+        adapterPrefix: 'pages/files/adapters/',
+        serviceEntry: 'pages/files/services/filesPageService.js',
+        ownershipMode: 'dto-golden',
+        ownedStateFiles: ['pages/files/FilesPage.jsx'],
+      },
+    })).toContain('files dto-golden entry is missing dtoGoldenTest');
+
+    expect(manifestContractViolations({
+      chat: {
+        entry: 'pages/chat/ChatPage.jsx',
+        servicePrefix: 'pages/chat/services/',
+        adapterPrefix: 'pages/chat/adapters/',
+        serviceEntry: 'pages/chat/services/chatCodeService.js',
+        ownershipMode: 'service-boundary',
+        dtoGoldenTest: 'pages/chat/services/chatCodeService.test.js',
+        ownedStateFiles: ['pages/chat/ChatPage.jsx'],
+      },
+    })).toContain('chat service-boundary entry must not declare placeholder dtoGoldenTest');
+  });
+
   it('declares a feature service boundary for every page entry', () => {
     const missing = [];
     for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
-      expect(surface.servicePrefix).toBe(`pages/${feature}/services/`);
-      expect(surface.adapterPrefix).toBe(`pages/${feature}/adapters/`);
       const entrySource = read(surface.entry);
       const imports = importSpecifiers(entrySource)
         .map((specifier) => resolveEntryImport(surface.entry, specifier));
-      if (!imports.some((resolved) => resolved.startsWith(surface.servicePrefix))) {
-        missing.push(`${feature}:${surface.entry} does not import a service under ${surface.servicePrefix}`);
+      if (!imports.includes(surface.serviceEntry)) {
+        missing.push(`${feature}:${surface.entry} does not import ${surface.serviceEntry}`);
       }
     }
     expect(missing).toEqual([]);

@@ -50,16 +50,16 @@ function withNormalizedLimit(params = {}) {
 
 function createObservabilityPageService(api = defaultObservabilityPageApi) {
   return {
-    async copyTextToClipboard(text) {
+    copyTextToClipboard(text) {
       return api.copyTextToClipboard(requiredText(text, 'text'));
     },
-    async getObservabilityTrace(params = {}) {
+    getObservabilityTrace(params = {}) {
       return api.getObservabilityTrace(withNormalizedLimit({
         ...params,
         traceId: requiredText(params.traceId, 'traceId'),
       }));
     },
-    async listObservabilityRecent(params = {}) {
+    listObservabilityRecent(params = {}) {
       return api.listObservabilityRecent(withNormalizedLimit(params));
     },
   };
