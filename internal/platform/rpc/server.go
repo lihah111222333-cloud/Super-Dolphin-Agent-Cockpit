@@ -409,6 +409,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := validateControlRPCAddr(s.addr); err != nil {
 		return err
 	}
+	inheritedCanonicalSessionToken := inheritedCanonicalControlRPCSessionToken()
+	if err := requireRPCReadyFileInheritedSessionToken(inheritedCanonicalSessionToken); err != nil {
+		return err
+	}
 	authToken, err := ensureControlRPCSessionToken()
 	if err != nil {
 		return err
@@ -422,6 +426,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	activeAddr := listener.Addr().String()
 	_ = os.Setenv(controlRPCAddrEnv, activeAddr)
+	if err := maybePublishRPCReadyFile(activeAddr, inheritedCanonicalSessionToken); err != nil {
+		return err
+	}
 	s.logger.Info("rpc server listening", "addr", activeAddr)
 	err = s.acceptLoop(ctx, jrpcserver.NetAccepter(listener, channel.Line))
 	if err != nil && !isExpectedCloseErr(err) {

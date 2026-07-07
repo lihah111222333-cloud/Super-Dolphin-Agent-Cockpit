@@ -517,12 +517,14 @@ internal/platform/rpc/push_test.go	internal	platform-provider	go-test	7269	JSON-
 internal/platform/rpc/push_worker_test.go	internal	platform-provider	go-test	14600	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,test,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push_worker.go	internal	platform-provider	go-source	7336	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push.go	internal	platform-provider	go-source	10950	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,JSON-RPC,transport,dispatch,与审批框架
+internal/platform/rpc/ready_file_test.go	internal	platform-provider	go-test	5680	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,ready,file,test,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/ready_file.go	internal	platform-provider	go-source	3746	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,ready,file,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/runner_provider.go	internal	platform-provider	go-source	307	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,runner,provider,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/safe_log_summary.go	internal	platform-provider	go-source	2911	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,safe,log,summary,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/server_minimal_test.go	internal	platform-provider	go-test	8208	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,minimal,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/server_test.go	internal	platform-provider	go-test	4391	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/server_trace_privacy_test.go	internal	platform-provider	go-test	5294	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,trace,privacy,test,JSON-RPC,transport,dispatch,push,与审批框架
-internal/platform/rpc/server.go	internal	platform-provider	go-source	18765	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/server.go	internal	platform-provider	go-source	19067	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/strict.go	internal	platform-provider	go-source	847	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,strict,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/subscribers_test.go	internal	platform-provider	go-test	2685	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/subscribers.go	internal	platform-provider	go-source	1278	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,JSON-RPC,transport,dispatch,push,与审批框架
