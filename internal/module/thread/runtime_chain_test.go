@@ -147,7 +147,7 @@ func newRuntimeChainService(
 		&stubThreadOrchestration{},
 		nil,
 		promptAssembly,
-		&contract.Config{},
+		testThreadDependencyConfig(),
 		nil,
 		nil,
 		store,

@@ -284,9 +284,10 @@ func (s *stubSessionStarter) ResumeSession(ctx context.Context, req dto.ResumeSe
 }
 
 type stubSessionProvider struct {
-	session  contract.Session
-	sessions map[string]contract.Session
-	removed  []string
+	session    contract.Session
+	sessions   map[string]contract.Session
+	removed    []string
+	generation uint64
 }
 
 func (p *stubSessionProvider) GetSession(agentID string) (contract.Session, error) {
@@ -308,6 +309,13 @@ func (p *stubSessionProvider) RemoveSession(agentID string) {
 		delete(p.sessions, agentID)
 	}
 	p.session = nil
+}
+
+func (p *stubSessionProvider) SessionGeneration(string) uint64 {
+	if p.generation != 0 {
+		return p.generation
+	}
+	return 1
 }
 
 type stubSession struct {

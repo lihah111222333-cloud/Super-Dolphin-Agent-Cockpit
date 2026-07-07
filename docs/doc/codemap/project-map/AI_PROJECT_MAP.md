@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-07
 >
-> 已索引文件：**4004**
+> 已索引文件：**4005**
 >
 > 漂移状态：**OK**（详见 `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`）
 
@@ -23,7 +23,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 |---|---:|---|
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 302 | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 406 | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 716 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 717 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 964 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 306 | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 845 | 代码地图、ADR/决策、计划与 docs 项目知识 |
@@ -35,7 +35,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 1927 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 1928 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 842 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 641 | 可执行入口与 MCP peer |
 | `frontend-app` | 300 | 其他项目资源 |

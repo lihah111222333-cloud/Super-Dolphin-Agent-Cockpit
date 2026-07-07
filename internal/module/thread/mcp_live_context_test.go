@@ -29,7 +29,7 @@ func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
 			"mcpInstructionsDeltaEnabled": true,
 			"frcConfig":                   map[string]any{"enabled": true, "supportedModels": []any{"gpt-5.5"}, "keepRecent": 2},
 		},
-	}, &contract.Config{ProjectRoot: repoRoot}, mcpLiveToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}})
+	}, testThreadDependencyConfigWithProjectRoot(repoRoot), mcpLiveToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}})
 
 	if got := mcpLiveSortedStrings(ctx.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp"}) {
 		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp]", ctx.MCPSnapshot.Servers)

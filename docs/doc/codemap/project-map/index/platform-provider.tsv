@@ -696,7 +696,7 @@ internal/platform/toolbridge/observability_trace_tool.go	internal	platform-provi
 internal/platform/toolbridge/observability_trace.go	internal	platform-provider	go-source	9645	provider 与 MCP tools 桥接	internal,platform,toolbridge,observability,trace,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/p4_s3a_fail_closed_test.go	internal	platform-provider	go-test	2500	provider 与 MCP tools 桥接	internal,platform,toolbridge,p4,s3a,fail,closed,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/p4_s3c_compat_fallback_test.go	internal	platform-provider	go-test	1635	provider 与 MCP tools 桥接	internal,platform,toolbridge,p4,s3c,compat,fallback,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/persistent_subagent_flow_test.go	internal	platform-provider	go-test	9680	provider 与 MCP tools 桥接	internal,platform,toolbridge,persistent,subagent,flow,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/persistent_subagent_flow_test.go	internal	platform-provider	go-test	9773	provider 与 MCP tools 桥接	internal,platform,toolbridge,persistent,subagent,flow,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/phase1_diff_test.go	internal	platform-provider	go-test	15178	provider 与 MCP tools 桥接	internal,platform,toolbridge,phase1,diff,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/ports.go	internal	platform-provider	go-source	4379	provider 与 MCP tools 桥接	internal,platform,toolbridge,ports,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/protocol_contract.go	internal	platform-provider	go-source	6573	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,provider,与,MCP,tools,桥接
