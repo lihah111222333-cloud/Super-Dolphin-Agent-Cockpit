@@ -225,6 +225,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (out contr
 	if err := s.transport.Send(payload); err != nil {
 		s.takeActiveTurnLocked()
 		s.mu.Unlock()
+		s.recoverTransportAfterWriteFailure()
 		s.finishTurnWithError(handle, err)
 		return nil, err
 	}
