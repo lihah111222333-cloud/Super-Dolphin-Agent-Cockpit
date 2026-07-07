@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
+import { defaultUrlTransform } from 'react-markdown';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceChunks, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
@@ -199,6 +200,35 @@ function buildSkillMarkdown(form) {
   return lines.join('\n');
 }
 
+function skillPreviewUrlProtocol(value) {
+  if (/^[A-Za-z]:[\\/]/.test(value)) return '';
+  const text = (value || '').toString().trim();
+  const colon = text.indexOf(':');
+  if (colon <= 0) return '';
+  const beforeSpecial = text.search(/[/?#]/);
+  if (beforeSpecial >= 0 && beforeSpecial < colon) return '';
+  const protocol = text.slice(0, colon).toLowerCase();
+  return /^[a-z][a-z0-9+.-]*$/.test(protocol) ? `${protocol}:` : '';
+}
+
+function safeSkillPreviewButtonTarget(target, label = '') {
+  const value = (target || '').toString().trim();
+  if (!value) return '';
+  if (skillCitationFromLink(value, label)) return value;
+  if (/^[A-Za-z]:[\\/]/.test(value)) return value;
+  if (skillPreviewUrlProtocol(value)) return '';
+  return defaultUrlTransform(value) ? value : '';
+}
+
+function safeSkillPreviewExternalHref(target) {
+  const value = (target || '').toString().trim();
+  if (!value) return '';
+  const transformed = defaultUrlTransform(value);
+  if (!transformed) return '';
+  const protocol = skillPreviewUrlProtocol(transformed);
+  return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:' ? transformed : '';
+}
+
 function SkillMarkdownInline({ text, onOpenPath, keyPrefix }) {
   const source = (text || '').toString();
   const parts = [];
@@ -207,8 +237,16 @@ function SkillMarkdownInline({ text, onOpenPath, keyPrefix }) {
   let match;
   while ((match = linkPattern.exec(source)) !== null) {
     const [raw, label, target] = match;
+    const imageStart = match.index > 0 && source[match.index - 1] === '!';
+    if (imageStart) {
+      if (match.index - 1 > lastIndex) parts.push(source.slice(lastIndex, match.index - 1));
+      parts.push(`!${raw}`);
+      lastIndex = match.index + raw.length;
+      continue;
+    }
     if (match.index > lastIndex) parts.push(source.slice(lastIndex, match.index));
-    const cleanTarget = (target || '').trim();
+    const cleanTarget = safeSkillPreviewButtonTarget(target, label);
+    const externalHref = cleanTarget ? '' : safeSkillPreviewExternalHref(target);
     parts.push(
       cleanTarget && typeof onOpenPath === 'function'
         ? (
@@ -221,6 +259,18 @@ function SkillMarkdownInline({ text, onOpenPath, keyPrefix }) {
             {label}
           </button>
         )
+        : externalHref
+          ? (
+            <a
+              className="skills-preview-link"
+              href={externalHref}
+              key={`${keyPrefix}-link-${match.index}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {label}
+            </a>
+          )
         : raw,
     );
     lastIndex = match.index + raw.length;

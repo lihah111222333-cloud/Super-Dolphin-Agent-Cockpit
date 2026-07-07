@@ -491,7 +491,9 @@ describe('SkillsPage backend migration', () => {
             'description: "当你需要 Go 后端开发时使用。"',
             '---',
             '',
-            '参考 [Docs Skill](/repo/app/.agent/skills/docs/SKILL.md) 或 [thread-active](agent://thread-active)。',
+            '参考 [Docs Skill](/repo/app/.agent/skills/docs/SKILL.md) 或 [agent://thread-active](agent://thread-active)。',
+            '入口 [SKILL.md](SKILL.md) 与 [app://backend](app://backend)。',
+            '拒绝 ![unsafe-image](javascript:alert(1))、![unsafe-html](data:text/html,%3Cscript%3E) 和 [unsafe-link](javascript:alert(1))。',
           ].join('\n'),
       },
     }));
@@ -506,7 +508,12 @@ describe('SkillsPage backend migration', () => {
     fireEvent.click(within(card).getByRole('button', { name: '编辑详情' }));
 
     const dialog = await screen.findByRole('dialog', { name: '编辑技能' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'thread-active' }));
+    expect(within(dialog).getByRole('button', { name: 'SKILL.md' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'app://backend' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'agent://thread-active' })).toBeEnabled();
+    expect(within(dialog).queryByRole('button', { name: /unsafe/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'agent://thread-active' }));
     expect(await screen.findByText('暂不支持会话跳转：thread-active')).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Docs Skill' }));

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownCitationLinkChip, MarkdownDirectiveChip } from './MarkdownDirectiveChip.jsx';
 import { MarkdownImagePreview } from './MarkdownImagePreview.jsx';
@@ -12,6 +12,7 @@ const EMPTY_MARKDOWN_ACTIONS = Object.freeze({});
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 const DIRECTIVE_HREF_PREFIX = 'codex-directive:';
 const PLAIN_TEXT_MARKDOWN_TOKEN_RE = /[#>*_[\]()`|~!]/;
+const SAFE_MARKDOWN_RASTER_DATA_URL_RE = /^data:image\/(?:png|jpe?g|webp|gif|bmp);base64,[a-z0-9+/=\s]+$/i;
 
 const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
   'mermaid',
@@ -77,7 +78,8 @@ function parsedMarkdownUrl(value) {
 }
 
 function markdownImageUrl(value, protocol) {
-  const allowed = new Set(['http:', 'https:', 'data:']);
+  if (protocol === 'data:') return SAFE_MARKDOWN_RASTER_DATA_URL_RE.test(value) ? value : '';
+  const allowed = new Set(['http:', 'https:']);
   return allowed.has(protocol) ? value : '';
 }
 
@@ -144,6 +146,16 @@ function safeMarkdownUrl(rawUrl, options = {}) {
   const protocol = parsed.protocol.toLowerCase();
   if (options.image) return markdownImageUrl(value, protocol);
   return markdownLinkUrl(parsed, protocol);
+}
+
+function productMarkdownUrl(rawUrl, options = {}) {
+  const value = (rawUrl || '').toString().trim();
+  if (!value) return '';
+  if (options.image) return safeMarkdownUrl(value, { image: true });
+  if (value.startsWith(DIRECTIVE_HREF_PREFIX)) return value;
+  if (/^(?:agent|app):\/\//i.test(value)) return value;
+  if (isLikelyLocalMarkdownPath(value)) return value;
+  return '';
 }
 
 function renderImagePreview(rawSource, altText, key) {
@@ -758,8 +770,12 @@ function markdownComponents(actions) {
   };
 }
 
-function passthroughUrlTransform(url) {
-  return url;
+function markdownUrlTransform(url, key, node) {
+  const value = (url || '').toString().trim();
+  if (!value) return '';
+  const productUrl = productMarkdownUrl(value, { image: key === 'src' || node?.tagName === 'img' });
+  if (productUrl) return productUrl;
+  return defaultUrlTransform(value);
 }
 
 function MarkdownRenderer({ text, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
@@ -771,7 +787,7 @@ function MarkdownRenderer({ text, actions = EMPTY_MARKDOWN_ACTIONS, fallback = n
     <ReactMarkdown
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
       components={components}
-      urlTransform={passthroughUrlTransform}
+      urlTransform={markdownUrlTransform}
     >
       {markdownText}
     </ReactMarkdown>

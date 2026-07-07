@@ -170,7 +170,7 @@ git commit -m "chore(frontend): 清理运行时模型 LSP 诊断"
 - Modify: `frontend-app/src/pages/skills/SkillsPage.jsx`
 - Test: Chat markdown tests, Skills page tests
 
-- [ ] **Step 1: Write failing tests for unsafe image URLs**
+- [x] **Step 1: Write failing tests for unsafe image URLs**
 
 Add tests that prove current passthrough behavior is unsafe:
 
@@ -195,7 +195,7 @@ expect(screen.getByRole('button', { name: /SKILL.md/ })).toBeEnabled();
 expect(screen.getByRole('button', { name: /agent:\/\// })).toBeEnabled();
 ```
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 Run:
 
@@ -206,7 +206,9 @@ npm test -- src/pages/chat/components/MarkdownMessage.test.jsx src/pages/skills/
 
 Expected before implementation: at least one unsafe URL case fails.
 
-- [ ] **Step 3: Replace passthrough transforms with default-backed allowlists**
+Actual: 2026-07-07 focused tests failed before implementation on Chat `data:text/html` image rendering and Skills unsafe image/link buttons.
+
+- [x] **Step 3: Replace passthrough transforms with default-backed allowlists**
 
 In `MarkdownMessage.jsx`, import or reference `defaultUrlTransform` from `react-markdown` if exported by the installed version. If direct import is unavailable, implement a small wrapper that calls the same allowed-protocol policy and document the fallback.
 
@@ -231,7 +233,7 @@ Policy:
 
 In `SkillsPage.jsx`, remove `passthroughMarkdownUrlTransform` and use the same default-backed policy while preserving `agent://`, `app://`, and `SKILL.md` button handling.
 
-- [ ] **Step 4: Verify focused and full frontend checks**
+- [x] **Step 4: Verify focused and full frontend checks**
 
 Run:
 
@@ -245,7 +247,22 @@ npm run build
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+Actual: 2026-07-07 focused tests passed after implementation; `npm run lint`, full `npm test`, and `npm run build` passed. LSP diagnostics were clean for Chat implementation and tests; `SkillsPage.jsx` diagnostics timed out twice because the large file did not publish diagnostics, so this is recorded as an LSP tooling gap covered by lint/test/build.
+
+- [x] **Step 5: Milestone app smoke**
+
+Run an isolated `run-new-ui-desktop.sh` instance after validation:
+
+```bash
+SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4525 \
+VITE_DEV_URL=http://127.0.0.1:5188 \
+GO_AGENT_CTL_RPC_ADDR=127.0.0.1:8105 \
+./run-new-ui-desktop.sh
+```
+
+Expected: `/skills` returns the Vite app entry, the Vite `/wails/ws` proxy accepts a WebSocket, and `ui/sidebar/get`, `ui/dashboard/get` with `page: 'skills'`, and `observability/status` return object results. Browser Playwright smoke remained unavailable because Chrome was missing.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend-app/src/pages/chat/components/MarkdownMessage.jsx \

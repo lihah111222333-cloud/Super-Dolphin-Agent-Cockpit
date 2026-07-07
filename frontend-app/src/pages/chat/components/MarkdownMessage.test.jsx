@@ -153,6 +153,22 @@ describe('MarkdownMessage', () => {
     expect(screen.getByText('secret')).toBeInTheDocument();
   });
 
+  it('blocks unsafe markdown image URLs before preview rendering', () => {
+    render(
+      <MessageContent
+        text={[
+          '![js](javascript:alert(1))',
+          '![html](data:text/html,%3Cscript%3Ealert(1)%3C/script%3E)',
+          '![svg](data:image/svg+xml,%3Csvg%20onload=alert(1)%3E%3C/svg%3E)',
+        ].join('\n\n')}
+      />,
+    );
+
+    expect(screen.queryByRole('img', { name: 'js' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'html' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'svg' })).not.toBeInTheDocument();
+  });
+
   it('opens and closes local image previews in a lightbox', () => {
     render(<MarkdownImagePreview src="data:image/png;base64,AA==" label="sample.png" />);
 
