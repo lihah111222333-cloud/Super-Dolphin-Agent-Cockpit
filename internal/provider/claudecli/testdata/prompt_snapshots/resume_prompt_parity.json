@@ -1,0 +1,7 @@
+{
+  "baseInstructions": "claude resume base instructions",
+  "developerInstructions": "claude resume developer instructions",
+  "prefixHash": "claude-resume-prefix-hash",
+  "boundary": "{\"cachedPrefix\":\"claude resume base instructions\",\"uncachedTail\":\"claude resume runtime context\"}",
+  "sectionSnapshot": "{\"developer\":\"claude resume developer instructions\",\"system\":\"claude resume base instructions\"}"
+}
