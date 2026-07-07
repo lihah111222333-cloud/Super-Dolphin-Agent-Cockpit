@@ -19,6 +19,26 @@ function parseLineEntries() {
   ];
 }
 
+function largeDiffFile(lineCount = 240) {
+  return {
+    filename: 'src/Large.jsx',
+    additions: lineCount,
+    deletions: 0,
+    text: Array.from({ length: lineCount }, (_, index) => `+line ${index}`).join('\n'),
+  };
+}
+
+function parseLargeLineEntries(text) {
+  return text.split('\n').map((line, index) => ({
+    key: `large-line-${index}`,
+    type: 'add',
+    oldNo: '',
+    newNo: index + 1,
+    prefix: '+',
+    content: line.slice(1),
+  }));
+}
+
 function renderRuntimeActivityPanel(overrides = {}) {
   return render(
     <RuntimeActivityPanel
@@ -227,5 +247,48 @@ describe('RuntimeDiffView', () => {
     expect(onLocateFile).toHaveBeenCalledWith(diffFile);
     expect(onOpenFile).toHaveBeenCalledWith(diffFile);
     expect(onToggleFile).toHaveBeenCalledWith('src/App.jsx:0');
+  });
+
+  it('renders only visible rows for a large diff file', () => {
+    const file = largeDiffFile();
+    const { container } = render(
+      <RuntimeDiffView
+        diffText={file.text}
+        diffSummary={{ files: [file] }}
+        collapsedFiles={new Set()}
+        actionNotice=""
+        onLocateFile={vi.fn()}
+        onOpenFile={vi.fn()}
+        onToggleFile={vi.fn()}
+        parseLineEntries={parseLargeLineEntries}
+      />,
+    );
+
+    const renderedRows = container.querySelectorAll('.diff-line');
+    expect(renderedRows.length).toBeGreaterThan(0);
+    expect(renderedRows.length).toBeLessThan(80);
+    expect(screen.queryByText('line 239')).not.toBeInTheDocument();
+  });
+
+  it('renders no diff rows for a collapsed file and keeps action labels accessible', () => {
+    const parseCollapsedLines = vi.fn(parseLineEntries);
+    const { container } = render(
+      <RuntimeDiffView
+        diffText="diff --git a/src/App.jsx b/src/App.jsx"
+        diffSummary={{ files: [diffFile] }}
+        collapsedFiles={new Set(['src/App.jsx:0'])}
+        actionNotice=""
+        onLocateFile={vi.fn()}
+        onOpenFile={vi.fn()}
+        onToggleFile={vi.fn()}
+        parseLineEntries={parseCollapsedLines}
+      />,
+    );
+
+    expect(container.querySelectorAll('.diff-line')).toHaveLength(0);
+    expect(parseCollapsedLines).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '展开 src/App.jsx' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: '定位 src/App.jsx' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开 src/App.jsx' })).toBeInTheDocument();
   });
 });

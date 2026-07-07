@@ -1170,6 +1170,7 @@ describe('runtime resize styles', () => {
     const diffFileCaret = declarationsFor('.diff-file-caret');
     const diffFileStats = declarationsFor('.diff-file-stats');
     const diffFileLines = declarationsFor('.diff-file-lines');
+    const diffFileLinesVirtual = declarationsFor('.diff-file-lines-virtual');
     const diffLine = declarationsFor('.diff-line');
     const diffContent = declarationsFor('.diff-line-content');
     const icons = declarationsFor('.runtime-icons');
@@ -1193,7 +1194,10 @@ describe('runtime resize styles', () => {
     expect(diffFileCaret.height).toBe('14px');
     expect(diffFileCaret['flex-shrink']).toBe('0');
     expect(diffFileStats['justify-content']).toBe('flex-end');
-    expect(diffFileLines.overflow).toBe('hidden');
+    expect(diffFileLines['max-height']).toBe('420px');
+    expect(diffFileLines.overflow).toBe('auto');
+    expect(diffFileLines.position).toBe('relative');
+    expect(diffFileLinesVirtual.position).toBe('relative');
     expect(diffLine['grid-template-columns']).toBe('42px 42px 14px minmax(0, 1fr)');
     expect(diffContent['white-space']).toBe('pre-wrap');
     expect(diffContent['overflow-wrap']).toBe('anywhere');

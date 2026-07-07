@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",
+    "@tanstack/react-virtual": "^3.14.5",
     "cron-parser": "^4.9.0",
     "lossless-json": "^4.3.0",
     "lucide-react": "^0.475.0",

@@ -245,9 +245,16 @@
 
 .diff-file-lines {
   min-width: 0;
-  overflow: hidden;
+  max-height: 420px;
+  overflow: auto;
+  position: relative;
   background: var(--surface-code);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.diff-file-lines-virtual {
+  min-width: 0;
+  position: relative;
 }
 
 .diff-line {
@@ -257,6 +264,13 @@
   border-top: 1px solid var(--border);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.diff-file-lines .diff-line {
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
 }
 
 .diff-line:first-child {

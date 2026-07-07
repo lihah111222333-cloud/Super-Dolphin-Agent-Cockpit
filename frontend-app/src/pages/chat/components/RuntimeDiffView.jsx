@@ -1,5 +1,20 @@
-import React from 'react';
+import React, { useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, File, Search } from 'lucide-react';
+
+const DIFF_LINE_ESTIMATE_PX = 20;
+const DIFF_LINE_OVERSCAN = 8;
+const DIFF_LINES_VIEWPORT_PX = 420;
+
+function observeDiffLineViewport(_instance, callback) {
+  callback({ width: 0, height: DIFF_LINES_VIEWPORT_PX });
+  return undefined;
+}
+
+function measureDiffLineElement(element) {
+  const height = Math.ceil(element.getBoundingClientRect().height || 0);
+  return Math.max(DIFF_LINE_ESTIMATE_PX, height);
+}
 
 function RuntimeDiffView({
   diffText,
@@ -60,16 +75,48 @@ function RuntimeDiffFile({ file, index, collapsed, onLocate, onOpen, onToggle, p
 }
 
 function RuntimeDiffLines({ file, index, parseLineEntries }) {
+  const lines = useMemo(() => parseLineEntries(file.text), [file.text, parseLineEntries]);
+  const scrollRef = useRef(null);
+  // TanStack Virtual exposes imperative methods; keep the waiver local to this hook call.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: lines.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => DIFF_LINE_ESTIMATE_PX,
+    overscan: DIFF_LINE_OVERSCAN,
+    initialRect: { width: 0, height: DIFF_LINES_VIEWPORT_PX },
+    observeElementRect: observeDiffLineViewport,
+    measureElement: measureDiffLineElement,
+  });
+
   return (
-    <div className="diff-file-lines" id={`runtime-diff-file-${index}`}>
-      {parseLineEntries(file.text).map((line) => (
-        <div className={`diff-line ${line.type}`} key={line.key}>
-          <span className="diff-line-num diff-line-old">{line.oldNo}</span>
-          <span className="diff-line-num diff-line-new">{line.newNo}</span>
-          <span className="diff-line-prefix">{line.prefix}</span>
-          <span className="diff-line-content">{line.content}</span>
-        </div>
-      ))}
+    <div className="diff-file-lines" id={`runtime-diff-file-${index}`} ref={scrollRef}>
+      <div className="diff-file-lines-virtual" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => (
+          <RuntimeDiffLine
+            key={lines[virtualRow.index].key}
+            line={lines[virtualRow.index]}
+            measureElement={virtualizer.measureElement}
+            virtualRow={virtualRow}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RuntimeDiffLine({ line, measureElement, virtualRow }) {
+  return (
+    <div
+      className={`diff-line ${line.type}`}
+      data-index={virtualRow.index}
+      ref={measureElement}
+      style={{ transform: `translateY(${virtualRow.start}px)` }}
+    >
+      <span className="diff-line-num diff-line-old">{line.oldNo}</span>
+      <span className="diff-line-num diff-line-new">{line.newNo}</span>
+      <span className="diff-line-prefix">{line.prefix}</span>
+      <span className="diff-line-content">{line.content}</span>
     </div>
   );
 }

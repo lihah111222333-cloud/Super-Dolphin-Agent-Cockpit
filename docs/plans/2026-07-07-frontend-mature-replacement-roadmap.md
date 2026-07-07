@@ -1050,7 +1050,7 @@ npx vitest run
 
 Counts: SkillsPage focused tests passed with 1 file and 15 tests. Full `npm test` and stop-gate-style bare `npx vitest run` both passed with 86 files and 1082 tests. Build passed and synced frontend dist. LSP diagnostics for `SkillsPage.jsx` and `SkillsPage.test.jsx` were clean after opening the files and retrying diagnostics individually; the first batch diagnostics request timed out on the large `SkillsPage.jsx`.
 
-- [ ] **Step 3: Runtime diff rendering**
+- [x] **Step 3: Runtime diff rendering**
 
 Only introduce `@tanstack/react-virtual` for `RuntimeDiffView`, not for chat timeline.
 
@@ -1061,6 +1061,22 @@ large diff renders visible lines only
 collapsed file renders no diff rows
 open/locate buttons keep accessible labels
 ```
+
+Actual: 2026-07-07 added `@tanstack/react-virtual` only to `RuntimeDiffView`. Large per-file runtime diffs now render a fixed-height virtualized row window instead of mapping every parsed diff line into the DOM. Collapsed files still skip line parsing/rendering, and the existing locate/open/toggle accessible labels remain unchanged. The virtualizer uses a fixed 420px line viewport and a defensive row measurement floor so jsdom and zero-height first measurements do not produce an empty initial range.
+
+Focused validation:
+
+```bash
+npx vitest run --no-file-parallelism --maxWorkers=1 src/pages/chat/components/RuntimePanelComponents.test.jsx
+npx vitest run --no-file-parallelism --maxWorkers=1 src/styles.test.js src/pages/chat/components/RuntimePanelComponents.test.jsx
+npx vitest run --no-file-parallelism --maxWorkers=1 src/pages/chat/components/RuntimePanelComponents.test.jsx src/App.test.jsx src/pages/chat/ChatPage.test.jsx
+npm run lint
+npm test
+npm run build
+npx vitest run
+```
+
+Counts: RuntimePanelComponents focused tests passed with 1 file and 10 tests after RED showed 240 rendered rows. Styles + runtime focused tests passed with 2 files and 71 tests. App/Chat integration focused tests passed with 3 files and 277 tests. Full `npm test` and stop-gate-style bare `npx vitest run` both passed with 86 files and 1084 tests. Build passed and synced frontend dist. LSP grep/read/xref succeeded for `RuntimeDiffView`; diagnostics repeatedly timed out for `RuntimeDiffView.jsx` and `RuntimePanelComponents.test.jsx` after narrowed open-file retries, so lint/test/build are the recorded fallback evidence for this subtask.
 
 - [ ] **Step 4: Verify each subtask separately**
 
