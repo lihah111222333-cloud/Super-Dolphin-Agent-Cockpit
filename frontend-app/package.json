@@ -15,7 +15,8 @@
     "guard:critical-skip": "node scripts/no-critical-skip.mjs && node scripts/no-silent-async-failure.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
-    "test": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --no-file-parallelism --maxWorkers=1"
+    "test": "npm run test:hook",
+    "test:hook": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --no-file-parallelism --maxWorkers=1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",

@@ -296,7 +296,7 @@ run_frontend_app_package_tests() {
   echo "[pre-push] frontend-app tests..."
   (
     cd frontend-app
-    if ! npm test; then
+    if ! npm run test:hook; then
       echo "❌ frontend-app 测试失败，push 已拒绝" >&2
       echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
       exit 1
