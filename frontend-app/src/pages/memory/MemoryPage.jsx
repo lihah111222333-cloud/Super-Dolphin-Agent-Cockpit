@@ -14,7 +14,6 @@ const MEMORY_CONSOLIDATION_POLL_MS = 2000;
 const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 
 const MEMORY_CATEGORY_KEYS = Object.freeze(['preference', 'project', 'all']);
-const activeMemoryConsolidationPollers = new Map();
 
 const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
@@ -29,27 +28,6 @@ function memoryPollingAbortError() {
 
 function throwIfMemoryPollingAborted(signal) {
   if (signal?.aborted) throw memoryPollingAbortError();
-}
-
-function delay(ms, signal) {
-  throwIfMemoryPollingAborted(signal);
-  return new Promise((resolve, reject) => {
-    let timerID = null;
-    let abortDelay = () => {};
-    const cleanup = () => {
-      if (timerID !== null) globalThis.clearTimeout(timerID);
-      signal?.removeEventListener?.('abort', abortDelay);
-    };
-    abortDelay = () => {
-      cleanup();
-      reject(memoryPollingAbortError());
-    };
-    timerID = globalThis.setTimeout(() => {
-      cleanup();
-      resolve();
-    }, ms);
-    signal?.addEventListener?.('abort', abortDelay, { once: true });
-  });
 }
 
 function memoryTemplateForType(type) {
@@ -237,19 +215,22 @@ function clearMemorySimilarGroups(snapshot) {
   return memorySnapshotWithClearedSimilarGroups(validSnapshot, overview, health);
 }
 
-async function waitForMemoryConsolidationJob(cwd, jobID, { signal } = {}) {
-  for (let attempt = 0; attempt < MEMORY_CONSOLIDATION_MAX_POLLS; attempt += 1) {
-    throwIfMemoryPollingAborted(signal);
-    const status = await getMemoryConsolidationStatus({ cwd, jobId: jobID });
-    throwIfMemoryPollingAborted(signal);
-    if (status?.status === 'succeeded') return status.result || {};
-    if (status?.status === 'failed') throw memoryConsolidationJobFailed(status);
-    if (status?.status !== 'running') {
-      throw new Error('智能整合状态异常，请稍后重试');
-    }
-    await delay(MEMORY_CONSOLIDATION_POLL_MS, signal);
+async function fetchMemoryConsolidationPoll(cwd, jobID, { signal } = {}) {
+  throwIfMemoryPollingAborted(signal);
+  const status = await getMemoryConsolidationStatus({ cwd, jobId: jobID });
+  throwIfMemoryPollingAborted(signal);
+  if (status?.status === 'failed') throw memoryConsolidationJobFailed(status);
+  if (status?.status !== 'running' && status?.status !== 'succeeded') {
+    throw new Error('智能整合状态异常，请稍后重试');
   }
-  throw new Error('智能整合仍在进行，请稍后查看结果');
+  return status;
+}
+
+function memoryConsolidationSucceededResult(status) {
+  if (!plainMemoryObject(status?.result)) {
+    throw new Error('智能整合完成但没有返回结果');
+  }
+  return status.result;
 }
 
 function useMemoryDashboard(projectPath) {
@@ -589,7 +570,7 @@ function assertMemoryConsolidationStarted(started, jobID) {
 
 async function applyStartedMemoryConsolidation({ applyConsolidationResult, cwd, jobID, setConsolidationJob, showNotice, started }) {
   if (started?.status === 'succeeded') {
-    await applyConsolidationResult(cwd, started.result || {});
+    await applyConsolidationResult(cwd, memoryConsolidationSucceededResult(started));
     return;
   }
   setConsolidationJob({ cwd, jobId: jobID });
@@ -625,32 +606,57 @@ function memoryConsolidationStartPayload(cwd, launchPreferences) {
 }
 
 function useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidationJob, showNotice, similarity }) {
+  const job = similarity.consolidationJob;
+  const jobKey = job?.cwd && job?.jobId ? `${job.cwd}\u0000${job.jobId}` : '';
+  const pollCountRef = useRef(0);
+  const completedJobRef = useRef('');
   useEffect(() => {
-    if (!similarity.consolidationJob?.jobId || !similarity.consolidationJob?.cwd) return undefined;
-    const pollerKey = `${similarity.consolidationJob.cwd}\u0000${similarity.consolidationJob.jobId}`;
-    if (activeMemoryConsolidationPollers.has(pollerKey)) return undefined;
-    const controller = new AbortController();
-    activeMemoryConsolidationPollers.set(pollerKey, controller);
+    pollCountRef.current = 0;
+    completedJobRef.current = '';
+  }, [jobKey]);
+
+  const pollQuery = useQuery({
+    queryKey: ['memory', 'consolidation-job', job?.cwd || '', job?.jobId || ''],
+    enabled: Boolean(jobKey),
+    retry: false,
+    refetchInterval: (query) => {
+      if (!jobKey || query.state.error) return false;
+      return query.state.data?.status === 'succeeded' ? false : MEMORY_CONSOLIDATION_POLL_MS;
+    },
+    queryFn: ({ signal }) => {
+      if (!job?.cwd || !job?.jobId) throw new Error('智能整合任务缺少必要信息');
+      pollCountRef.current += 1;
+      if (pollCountRef.current > MEMORY_CONSOLIDATION_MAX_POLLS) {
+        throw new Error('智能整合仍在进行，请稍后查看结果');
+      }
+      return fetchMemoryConsolidationPoll(job.cwd, job.jobId, { signal });
+    },
+  });
+
+  useEffect(() => {
+    if (!jobKey || !pollQuery.error) return;
+    showMemoryConsolidationError(pollQuery.error, showNotice);
+    setConsolidationJob(null);
+  }, [jobKey, pollQuery.error, setConsolidationJob, showNotice]);
+
+  useEffect(() => {
+    if (!jobKey || pollQuery.data?.status !== 'succeeded' || completedJobRef.current === jobKey) return undefined;
+    completedJobRef.current = jobKey;
+    let cancelled = false;
     (async () => {
       try {
-        const result = await waitForMemoryConsolidationJob(similarity.consolidationJob.cwd, similarity.consolidationJob.jobId, { signal: controller.signal });
-        if (!controller.signal.aborted) await applyConsolidationResult(similarity.consolidationJob.cwd, result);
+        const result = memoryConsolidationSucceededResult(pollQuery.data);
+        await applyConsolidationResult(job.cwd, result);
       } catch (err) {
-        if (!controller.signal.aborted) showMemoryConsolidationError(err, showNotice);
+        if (!cancelled) showMemoryConsolidationError(err, showNotice);
       } finally {
-        if (activeMemoryConsolidationPollers.get(pollerKey) === controller) {
-          activeMemoryConsolidationPollers.delete(pollerKey);
-        }
-        if (!controller.signal.aborted) setConsolidationJob(null);
+        if (!cancelled) setConsolidationJob(null);
       }
     })();
     return () => {
-      controller.abort();
-      if (activeMemoryConsolidationPollers.get(pollerKey) === controller) {
-        activeMemoryConsolidationPollers.delete(pollerKey);
-      }
+      cancelled = true;
     };
-  }, [applyConsolidationResult, setConsolidationJob, showNotice, similarity.consolidationJob]);
+  }, [applyConsolidationResult, job?.cwd, jobKey, pollQuery.data, setConsolidationJob, showNotice]);
 }
 
 function showMemoryConsolidationError(err, showNotice) {

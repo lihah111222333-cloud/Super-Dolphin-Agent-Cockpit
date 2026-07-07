@@ -47,7 +47,7 @@ Highest-priority findings:
 | Task 5 纯 RPC 状态迁移到 TanStack Query | 已完成 | settings/observability 仍有 reducer、request sequence、手写 cache；已有 Query 依赖可承接查询状态。 | 先迁移 observability recent/trace，再迁移 settings read/write；dirty draft state 保留本地，不让 background refetch 覆盖用户输入。 | Query 默认 focus refetch、retry、stale 策略可能改变请求时机；所有 query key 和 refetch 策略必须显式。 | Observability/Settings focused tests + full checks。 |
 | Task 6 低风险交互控件迁移 React Aria | 已完成 | Memory create menu、Prompt scope、Composer model selector 有手写 outside-click/Escape/dialog 行为，易出现可访问性和焦点回归。 | 引入 `react-aria-components`，用 Menu/Popover/Dialog/RadioGroup 收敛轻量交互；保持现有 props、copy、CSS 结构尽量不动。 | DOM 结构和焦点顺序已改变：Prompt scope 从 button 变 radio，Composer dialog 从 native `<dialog>` 变 `section[role=dialog]`，Memory create item 从 button 变 menuitem。 | Memory/Prompt/Composer focused tests + full checks + desktop smoke。 |
 | Task 7 图片与 Mermaid SVG 安全边界 | 已完成 | 本地图片和 SVG sanitizer 是安全边界，不能依赖字符串拼接和宽泛协议。 | 用 `URL`/`URLSearchParams` 验证 generated/local image route；禁止 frontend 直接生成 `file://` 预览；Mermaid 当前不引入 DOMPurify，先用 fixture 收紧现有 sanitizer。 | 旧的 raw file path preview 不再可见，必须走后端 token URL；Mermaid `<image>` 外链和非本地 `url(...)` 会被移除。 | Markdown/Mermaid/code preview focused tests + full checks。 |
-| Task 8 后续 Query/virtualization | 延后 | Memory polling、Skills chunk loading、大 diff 渲染有性能/状态收益，但副作用较大。 | 分成三个子任务：memory polling -> `useQuery`/polling；skills chunks -> `useInfiniteQuery`；runtime diff -> `@tanstack/react-virtual`。 | 请求并发、取消、滚动锚点和局部渲染都可能改变 UX；必须一项一项做。 | 每个子任务单独 focused tests + full checks + 必要页面 smoke。 |
+| Task 8 后续 Query/virtualization | 进行中 | Memory polling、Skills chunk loading、大 diff 渲染有性能/状态收益，但副作用较大。 | 分成三个子任务：memory polling -> `useQuery`/polling；skills chunks -> `useInfiniteQuery`；runtime diff -> `@tanstack/react-virtual`。 | 请求并发、取消、滚动锚点和局部渲染都可能改变 UX；必须一项一项做。 | 每个子任务单独 focused tests + full checks + 必要页面 smoke。 |
 | Task 9 测试/CSS 守卫强化 | 未开始 | regex import guard 容易误判 multiline/default/namespace import，也会被注释字符串干扰。 | 使用已有 TypeScript compiler API 解析 import；CSS 继续保留 PostCSS 守卫，只对关键 cascade 加 computed-style/Playwright 检查。 | AST guard 会更严格，可能暴露已有测试绕行；这是测试守卫收益。 | guard/script focused tests + `npm run guard:critical-skip` + full checks。 |
 
 ### 执行顺序和停机条件
@@ -998,7 +998,7 @@ Omit `package.json` and `package-lock.json` from staging if DOMPurify is not int
 - Modify later: `frontend-app/src/pages/chat/components/RuntimeDiffView.jsx`
 - Optional dependency: `@tanstack/react-virtual`
 
-- [ ] **Step 1: Memory consolidation polling**
+- [x] **Step 1: Memory consolidation polling**
 
 Migrate only the consolidation job polling loop to Query after Tasks 0-6 are stable.
 
@@ -1010,6 +1010,19 @@ max poll count produces explicit error
 succeeded without result is an error
 success invalidates memory dashboard
 ```
+
+Actual: 2026-07-07 migrated only the background consolidation job polling from the manual async loop/map to TanStack Query `useQuery` with `enabled`, `refetchInterval`, `retry:false`, per-job poll count, and signal-aware status fetch. A `succeeded` status without an object result now fails fast instead of being treated as an empty successful consolidation.
+
+Focused validation:
+
+```bash
+npx vitest run --no-file-parallelism --maxWorkers=1 src/pages/memory/MemoryPage.test.jsx
+npm run lint
+npm test
+npm run build
+```
+
+Counts: MemoryPage focused tests passed with 1 file and 13 tests. Full `npm test` passed with 86 files and 1080 tests. Build passed and synced frontend dist. LSP diagnostics for `MemoryPage.jsx` and `MemoryPage.test.jsx` were clean after a narrowed single-file retry.
 
 - [ ] **Step 2: Skills datasource chunks**
 

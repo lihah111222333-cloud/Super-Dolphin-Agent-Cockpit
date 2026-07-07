@@ -356,7 +356,7 @@ describe('MemoryPage editor', () => {
 });
 
 describe('MemoryPage consolidation polling', () => {
-  it('aborts the background consolidation poller when the page unmounts', async () => {
+  function mockDashboardWithSimilarGroup() {
     fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
       similarGroups: [{
         targetA: 'team',
@@ -368,6 +368,17 @@ describe('MemoryPage consolidation polling', () => {
         score: 0.91,
       }],
     })));
+  }
+
+  async function startMergeAllPolling(mergeAll) {
+    fireEvent.click(mergeAll);
+    await act(async () => {
+      await flushPromises();
+    });
+  }
+
+  it('aborts the background consolidation poller when the page unmounts', async () => {
+    mockDashboardWithSimilarGroup();
     backend.startConsolidateMemorySimilarities.mockResolvedValue({ status: 'running', jobId: 'job-1' });
     backend.getMemoryConsolidationStatus.mockResolvedValue({ status: 'running' });
 
@@ -375,10 +386,7 @@ describe('MemoryPage consolidation polling', () => {
     const mergeAll = await screen.findByRole('button', { name: '一键整合全部' });
 
     vi.useFakeTimers();
-    fireEvent.click(mergeAll);
-    await act(async () => {
-      await flushPromises();
-    });
+    await startMergeAllPolling(mergeAll);
     await act(async () => {
       await flushPromises();
     });
@@ -395,5 +403,54 @@ describe('MemoryPage consolidation polling', () => {
     });
 
     expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an explicit error when the consolidation job exceeds max polling attempts', async () => {
+    mockDashboardWithSimilarGroup();
+    backend.startConsolidateMemorySimilarities.mockResolvedValue({ status: 'running', jobId: 'job-1' });
+    backend.getMemoryConsolidationStatus.mockResolvedValue({ status: 'running' });
+
+    renderMemoryPage();
+    const mergeAll = await screen.findByRole('button', { name: '一键整合全部' });
+
+    vi.useFakeTimers();
+    await startMergeAllPolling(mergeAll);
+    await act(async () => {
+      for (let attempt = 0; attempt < 181; attempt += 1) {
+        vi.advanceTimersByTime(2000);
+        await flushPromises(2);
+      }
+    });
+
+    expect(screen.getByText('智能整合仍在进行，请稍后查看结果')).toBeInTheDocument();
+  }, 10_000);
+
+  it('treats a succeeded consolidation status without result as an error', async () => {
+    mockDashboardWithSimilarGroup();
+    backend.startConsolidateMemorySimilarities.mockResolvedValue({ status: 'running', jobId: 'job-1' });
+    backend.getMemoryConsolidationStatus.mockResolvedValue({ status: 'succeeded' });
+
+    renderMemoryPage();
+    const mergeAll = await screen.findByRole('button', { name: '一键整合全部' });
+
+    await startMergeAllPolling(mergeAll);
+
+    expect(await screen.findByText('智能整合失败：智能整合完成但没有返回结果')).toBeInTheDocument();
+  });
+
+  it('invalidates the memory dashboard when consolidation succeeds with a result', async () => {
+    mockDashboardWithSimilarGroup();
+    backend.startConsolidateMemorySimilarities.mockResolvedValue({ status: 'running', jobId: 'job-1' });
+    backend.getMemoryConsolidationStatus.mockResolvedValue({ status: 'succeeded', result: { merged: 1, ignored: 0, failed: 0, skipped: 0 } });
+
+    renderMemoryPage();
+    const mergeAll = await screen.findByRole('button', { name: '一键整合全部' });
+
+    await startMergeAllPolling(mergeAll);
+
+    await waitFor(() => {
+      expect(fetchMemoryDashboard).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText('已整合 1 组')).toBeInTheDocument();
   });
 });
