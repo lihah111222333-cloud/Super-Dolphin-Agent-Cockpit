@@ -44,10 +44,7 @@ func TestToolbridgeProductionProfileRequiresCriticalDependencies(t *testing.T) {
 }
 
 func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T) {
-	allowed := map[string]bool{
-		"toolbridge.agent_thread_lookup":          true,
-		"toolbridge.thread_config_override_store": true,
-	}
+	allowed := toolbridgeAllowedMissingDependenciesForTest(contract.DependencyProfileDesktopHost)
 	for _, dependency := range allToolbridgeDependencyNamesForTest() {
 		err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
 			profile: contract.DependencyProfileDesktopHost,
@@ -66,10 +63,7 @@ func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T
 }
 
 func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.T) {
-	allowed := map[string]bool{
-		"toolbridge.lifecycle_backfiller": true,
-		"toolbridge.skill_tools":          true,
-	}
+	allowed := toolbridgeAllowedMissingDependenciesForTest(contract.DependencyProfileTest)
 	for _, dependency := range allToolbridgeDependencyNamesForTest() {
 		err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
 			profile: contract.DependencyProfileTest,
@@ -85,6 +79,16 @@ func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.
 			t.Fatalf("%s error = %v, want required dependency failure", dependency, err)
 		}
 	}
+}
+
+func toolbridgeAllowedMissingDependenciesForTest(profile contract.DependencyProfile) map[string]bool {
+	allowed := make(map[string]bool)
+	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
+		if policy.Profile == profile && strings.HasPrefix(policy.Name, "toolbridge.") {
+			allowed[policy.Name] = true
+		}
+	}
+	return allowed
 }
 
 func TestToolbridgeNewHandlerRequiresDependencyContractBeforeConstruction(t *testing.T) {
