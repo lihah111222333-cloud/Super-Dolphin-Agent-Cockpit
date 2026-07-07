@@ -25,6 +25,7 @@ func CompleteTemplateContractSpec() contracttest.Spec {
 		Resume:     resumeTemplateContractSession,
 		EventCases: []contracttest.Case{templateEventTranslationContractCase()},
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
+			contracttest.CaseEventMatrix:   templateEventMatrixContractCase(),
 			contracttest.CasePromptParity:  templatePromptParityContractCase(),
 			contracttest.CaseApproval:      templateApprovalContractCase(),
 			contracttest.CaseInterrupt:     templateInterruptContractCase(),
@@ -50,6 +51,13 @@ func resumeTemplateContractSession(_ context.Context, req dto.ResumeSessionReque
 		return nil, errors.New("template contract resume requires provider thread id")
 	}
 	return newTemplateContractSession(threadID), nil
+}
+
+func templateEventMatrixContractCase() contracttest.Case {
+	return contracttest.Case{Name: "event translation matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		t.Fatal("replace templateEventMatrixContractCase with provider event category snapshot matrix")
+	}}
 }
 
 func templateEventTranslationContractCase() contracttest.Case {

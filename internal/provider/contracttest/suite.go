@@ -148,10 +148,7 @@ func ValidateSpec(spec Spec) error {
 	if err := validateEventCases(spec.EventCases); err != nil {
 		return err
 	}
-	if err := validatePromptCaseAlternative(spec.RequiredCases); err != nil {
-		return err
-	}
-	return validateRequiredCaseSet(spec.RequiredCases)
+	return ValidateAcceptanceSpec(spec)
 }
 
 // validateSpecEntrypoints 校验 provider contract suite 的入口函数和事件用例。
@@ -213,6 +210,9 @@ func Run(t *testing.T, spec Spec) {
 func RunSpecForTest(t *testing.T, spec Spec) error {
 	t.Helper()
 	if err := ValidateSpec(spec); err != nil {
+		return err
+	}
+	if err := ValidateAcceptanceSpec(spec); err != nil {
 		return err
 	}
 	if err := runStartResumeSmoke(t, spec); err != nil {
