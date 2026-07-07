@@ -129,6 +129,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (method === 'thread/config/get') return threadConfig(params.threadId || params.thread_id || state.nextThreadId);
       if (method === 'thread/start') return startThread(params, method);
       if (method === 'turn/start') return startTurn(params, method);
+      if (method === 'thread/delete') return { ok: true };
       if (method === 'app/update/check') return { enabled: false, available: false };
       if (method === 'ui/dashboard/get') return dashboardPage(params.page);
       if (method === 'ui/memory/get') return memorySnapshot();
@@ -183,12 +184,16 @@ export async function installAgenticE2EMockWails(page, options = {}) {
 
     function startThread(params = {}, method) {
       assertSandboxPath(method, params.cwd);
-      return { thread: { id: state.nextThreadId, agentId: 'agent-agentic-e2e', provider: 'codex' } };
+      return {
+        threadId: state.nextThreadId,
+        thread_id: state.nextThreadId,
+        thread: { id: state.nextThreadId, agentId: 'agent-agentic-e2e', provider: 'codex' },
+      };
     }
 
     function startTurn(params = {}, method) {
       assertSandboxPath(method, params.cwd);
-      return { ok: true };
+      return { turn_id: 'turn-agentic-e2e' };
     }
 
     function saveVideoApiKey(params = {}, method) {

@@ -363,8 +363,13 @@ async function installStrictWailsMock(page) {
       if (method === 'ui/state/get') return threadState(params.threadId || params.thread_id || state.nextThreadId);
       if (method === 'thread/messages') return { messages: [] };
       if (method === 'thread/config/get') return threadConfig(params.threadId || params.thread_id || state.nextThreadId);
-      if (method === 'thread/start') return { thread: { id: state.nextThreadId, agentId: 'agent-business-e2e', provider: 'codex' } };
-      if (method === 'turn/start') return { ok: true };
+      if (method === 'thread/start') return {
+        threadId: state.nextThreadId,
+        thread_id: state.nextThreadId,
+        thread: { id: state.nextThreadId, agentId: 'agent-business-e2e', provider: 'codex' },
+      };
+      if (method === 'turn/start') return { turn_id: 'turn-business-e2e' };
+      if (method === 'thread/delete') return { ok: true };
       if (method === 'app/update/check') return { enabled: false, available: false };
       if (method === 'ui/dashboard/get') return dashboardPage(params.page);
       if (method === 'ui/memory/get') return memorySnapshot();
