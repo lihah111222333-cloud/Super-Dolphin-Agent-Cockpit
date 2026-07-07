@@ -22,6 +22,7 @@ import {
   emitFrontendTraceEvent,
 } from './wailsBridge';
 import { positiveApprovalRequestIdFromFields } from './approvalRequestId.js';
+import { parseSharedFileDetailResponse } from './backendSchemas.js';
 
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
@@ -1164,6 +1165,15 @@ function validateMCPServerControlResponse(method, response) {
   return value;
 }
 
+function validateSharedFileDetailResponse(method, response) {
+  try {
+    return parseSharedFileDetailResponse(response);
+  }
+  catch (error) {
+    throw new TypeError(`${method} response ${error.message || 'shared file detail is invalid'}`, { cause: error });
+  }
+}
+
 const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.APP_UPDATE_INSTALL]: validateAppUpdateInstallResponse,
   [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
@@ -1175,6 +1185,7 @@ const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: validateMCPServerControlResponse,
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: validateMCPServerControlResponse,
   [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
+  [RPC_METHODS.UI_SHARED_FILE_GET]: validateSharedFileDetailResponse,
   [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
   [RPC_METHODS.THREAD_START]: validateThreadStartResponse,
   [RPC_METHODS.THREAD_MESSAGES]: validateThreadMessagesResponse,

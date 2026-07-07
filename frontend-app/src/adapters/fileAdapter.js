@@ -95,7 +95,14 @@ function adaptSharedFilesDashboard(response) {
 }
 
 function adaptSharedFileDetail(response, fallbackFile = {}) {
-  return adaptSharedFile(response || {}, 0, fallbackFile);
+  if (!firstText(response?.path)) throw new Error('shared file detail path is required');
+  const detail = adaptSharedFile(response || {}, 0);
+  return {
+    ...detail,
+    updatedBy: firstText(detail.updatedBy, fallbackFile.updatedBy, fallbackFile.updated_by),
+    updatedAt: firstText(detail.updatedAt, fallbackFile.updatedAt, fallbackFile.updated_at),
+    createdAt: firstText(detail.createdAt, fallbackFile.createdAt, fallbackFile.created_at),
+  };
 }
 
 export { adaptFinalOutputRefs, adaptSharedFile, adaptSharedFileDetail, adaptSharedFileRetention, adaptSharedFilesDashboard };

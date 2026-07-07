@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CRITICAL_SKIP_ROOTS,
+  collectCriticalSkipViolations,
   criticalSkipViolationsFromSources,
   skippedTestsInSource,
 } from './no-critical-skip.mjs';
@@ -8,6 +9,11 @@ import {
 describe('critical skip guard', () => {
   it('scans frontend source and script tests', () => {
     expect(CRITICAL_SKIP_ROOTS).toEqual(['src', 'scripts']);
+  });
+
+  it('fails fast when a configured root is missing', () => {
+    expect(() => collectCriticalSkipViolations({ roots: ['missing-critical-root'] }))
+      .toThrow(/critical skip root does not exist/);
   });
 
   it('flags critical skipped tests by name or file path', () => {

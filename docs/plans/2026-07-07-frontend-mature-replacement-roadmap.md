@@ -391,15 +391,19 @@ git commit -m "fix(frontend): 使用成熟 JSON 解析处理桥接大整数"
 ## Task 3: Remove High-Risk Silent Fallbacks
 
 **Files:**
+- Modify: `frontend-app/package.json`
+- Modify: `frontend-app/package-lock.json`
 - Modify: `frontend-app/scripts/no-critical-skip.mjs`
 - Modify: `frontend-app/scripts/no-critical-skip.test.mjs`
 - Modify: `frontend-app/src/adapters/fileAdapter.js`
-- Modify: `frontend-app/src/shared/api/backendSchemas.js`
+- Create: `frontend-app/src/adapters/fileAdapter.test.js`
+- Create: `frontend-app/src/shared/api/backendSchemas.js`
 - Modify: `frontend-app/src/shared/api/backendApi.js`
 - Modify: `frontend-app/src/pages/chat/components/chatUiActions.js`
+- Create: `frontend-app/src/pages/chat/components/chatUiActions.test.js`
 - Test: relevant script, adapter, backendApi, and chat component tests
 
-- [ ] **Step 1: Make critical-skip guard fail on missing roots**
+- [x] **Step 1: Make critical-skip guard fail on missing roots**
 
 Write a failing test proving a missing root is not accepted:
 
@@ -418,7 +422,9 @@ npm run guard:critical-skip
 npm test -- scripts/no-critical-skip.test.mjs --no-file-parallelism --maxWorkers=1
 ```
 
-- [ ] **Step 2: Stop shared-file detail fallback from fabricating valid data**
+Actual: 2026-07-07 added a fail-fast missing-root test and changed `walkTestFiles(dir)` to throw when the configured root is missing or is not a directory. RED focused run failed before implementation because missing roots returned no violations. GREEN focused run passed after implementation.
+
+- [x] **Step 2: Stop shared-file detail fallback from fabricating valid data**
 
 Add failing tests for malformed detail responses:
 
@@ -439,7 +445,9 @@ cd frontend-app
 npm test -- src/shared/api/backendApi.test.js src/adapters/fileAdapter.test.js src/pages/files/FilesPage.test.jsx --no-file-parallelism --maxWorkers=1
 ```
 
-- [ ] **Step 3: Use shared UI action error reporting in chat**
+Actual: 2026-07-07 added `zod` and created `backendSchemas.js` with `sharedFileDetailResponseSchema`. `backendApi.js` now validates `ui/memory/shared-file/get` responses and preserves the schema error as `cause` when wrapping it with RPC method context. `adaptSharedFileDetail` rejects missing response `path` instead of fabricating it from fallback data, and only uses fallback metadata for display fields such as `updatedBy`, `updatedAt`, and `createdAt`. RED tests failed before implementation for both adapter and RPC boundary; GREEN focused run passed after implementation.
+
+- [x] **Step 3: Use shared UI action error reporting in chat**
 
 Replace private swallowing helper in `frontend-app/src/pages/chat/components/chatUiActions.js` with the shared helper in `frontend-app/src/shared/ui/runUIAction.js`.
 
@@ -458,7 +466,9 @@ cd frontend-app
 npm test -- src/shared/ui/runUIAction.test.js src/pages/chat/ChatPage.test.jsx --no-file-parallelism --maxWorkers=1
 ```
 
-- [ ] **Step 4: Verify and commit**
+Actual: 2026-07-07 `chatUiActions.js` now re-exports the shared `runUIAction`; `chatUiActions.test.js` verifies synchronous and asynchronous chat action failures call injected `logger` and `onError`. Focused run also covered `src/shared/ui/runUIAction.test.js` and `src/pages/chat/ChatPage.test.jsx`.
+
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -470,15 +480,39 @@ npm test
 npm run build
 ```
 
+Actual: 2026-07-07 focused Task 3 run passed with 7 files and 135 tests. `npm run guard:critical-skip` exited 0. `npm run lint` exited 0 after preserving the wrapped schema error cause. Full `npm test` passed with 84 files and 1057 tests. `npm run build` exited 0. LSP diagnostics were clean for the new schema and new tests; `fileAdapter.js` diagnostics timed out and `backendApi.js` diagnostics exceeded the LSP output budget because of existing large-file diagnostic volume, so those are recorded as LSP tooling gaps covered by lint/typecheck/focused/full tests.
+
+- [x] **Step 5: Milestone app smoke**
+
+Run an isolated `run-new-ui-desktop.sh` instance after validation:
+
+```bash
+SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4527 \
+VITE_DEV_URL=http://127.0.0.1:5190 \
+GO_AGENT_CTL_RPC_ADDR=127.0.0.1:8107 \
+./run-new-ui-desktop.sh
+```
+
+Expected: Vite and backend start, `/files` returns the Vite app entry, the Vite `/wails/ws` proxy accepts a WebSocket, and `ui/sidebar/get`, `ui/dashboard/get` with `page: 'files'`, and `observability/status` return object results.
+
+Actual: 2026-07-07 Vite became ready at `http://127.0.0.1:5190`, backend became ready at `http://127.0.0.1:4527/metrics`, `/files` returned the Vite app entry, and direct WebSocket RPCs through `ws://127.0.0.1:5190/wails/ws` passed for `ui/sidebar/get`, `ui/dashboard/get` with `page: 'files'`, and `observability/status`. The isolated 4527/5190/8107 ports were released after the smoke run.
+
+- [x] **Step 6: Commit**
+
 Commit:
 
 ```bash
-git add frontend-app/scripts/no-critical-skip.mjs \
+git add frontend-app/package.json frontend-app/package-lock.json \
+  docs/plans/2026-07-07-frontend-mature-replacement-roadmap.md \
+  frontend-app/scripts/no-critical-skip.mjs \
   frontend-app/scripts/no-critical-skip.test.mjs \
   frontend-app/src/adapters/fileAdapter.js \
+  frontend-app/src/adapters/fileAdapter.test.js \
   frontend-app/src/shared/api/backendSchemas.js \
   frontend-app/src/shared/api/backendApi.js \
-  frontend-app/src/pages/chat/components/chatUiActions.js
+  frontend-app/src/shared/api/backendApi.test.js \
+  frontend-app/src/pages/chat/components/chatUiActions.js \
+  frontend-app/src/pages/chat/components/chatUiActions.test.js \
 git commit -m "fix(frontend): 移除前端静默兜底路径"
 ```
 

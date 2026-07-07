@@ -1862,7 +1862,11 @@ function expectMemoryCenterValidation(api) {
   });
 
   it('wraps shared file list, read, delete, open and preview helpers with the expected payload shapes', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockImplementation((method) => Promise.resolve(
+      method === RPC_METHODS.UI_SHARED_FILE_GET
+        ? { path: 'reports/final.md', content: 'final markdown' }
+        : { ok: true },
+    ));
     const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
     const previewSharedFile = vi.fn().mockResolvedValue({ url: '/shared-file-preview?id=sf_1' });
     const api = createBackendApi({ callAPI, openSharedFile, previewSharedFile });
@@ -1886,6 +1890,14 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.previewSharedFile({ path: '' })).toThrow('path is required');
+  });
+
+  it('rejects malformed shared file detail responses at the RPC boundary', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ content: 'missing path' });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.readSharedFile({ path: 'reports/final.md' }))
+      .rejects.toThrow(/shared file detail path is required/);
   });
 
   it('wraps runtime code locate, open and save RPCs with scoped payloads', async () => {

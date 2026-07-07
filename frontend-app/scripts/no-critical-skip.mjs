@@ -9,7 +9,12 @@ export const CRITICAL_SKIP_ROOTS = Object.freeze(['src', 'scripts']);
 export const criticalPattern = /\b(provider|thread|turn|workflow|rpc|contract|desktop|smoke)\b/i;
 
 function walkTestFiles(dir) {
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) {
+    throw new Error(`critical skip root does not exist: ${dir}`);
+  }
+  if (!fs.statSync(dir).isDirectory()) {
+    throw new Error(`critical skip root is not a directory: ${dir}`);
+  }
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
