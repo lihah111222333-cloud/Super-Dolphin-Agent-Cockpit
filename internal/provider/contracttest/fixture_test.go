@@ -56,6 +56,7 @@ func CompleteFixtureSpec(provider string) Spec {
 		Resume:     fixtureResume(name),
 		EventCases: []Case{fixtureEventCase()},
 		RequiredCases: map[CaseKey]Case{
+			CaseEventMatrix:   fixtureEventMatrixCase(name),
 			CasePromptParity:  fixturePromptParityCase(),
 			CaseApproval:      fixtureOutcomeCase("approval", EvidenceApprovalOutcome),
 			CaseInterrupt:     fixtureOutcomeCase("interrupt", EvidenceInterruptOutcome),
@@ -65,6 +66,21 @@ func CompleteFixtureSpec(provider string) Spec {
 			CaseRuntimeReport: fixtureRuntimeReportCase(name),
 		},
 	}
+}
+
+func fixtureEventMatrixCase(provider string) Case {
+	return Case{Name: "event matrix", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		e.RecordEventMatrix(t, EventMatrixEvidence{
+			Provider: provider,
+			Categories: []EventMatrixCategoryEvidence{
+				{Category: "interrupt", SnapshotIDs: []string{"valid"}, TranslatorID: "fixtureTranslateEvent"},
+				{Category: "tool_end", SnapshotIDs: []string{"valid"}, TranslatorID: "fixtureTranslateEvent"},
+				{Category: "failed_or_status", SnapshotIDs: []string{"valid"}, TranslatorID: "fixtureTranslateEvent"},
+				{Category: "approval_or_tool_diff", SnapshotIDs: []string{"valid"}, TranslatorID: "fixtureTranslateEvent"},
+			},
+		})
+	}}
 }
 
 func fixtureStart(provider string) func(context.Context, dto.StartSessionRequest) (contract.Session, error) {

@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +19,7 @@ import (
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/gorilla/websocket"
 )
 
 func TestCodexAppProviderContract(t *testing.T) {
@@ -26,39 +31,51 @@ func CompleteCodexAppContractSpec() contracttest.Spec {
 		Name:       "codex",
 		Start:      startCodexAppContractSession,
 		Resume:     resumeCodexAppContractSession,
-		EventCases: []contracttest.Case{codexAppEventTranslationContractCase()},
+		EventCases: codexAppEventTranslationContractCases(),
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
-			contracttest.CasePromptParity:  codexAppPromptParityContractCase(),
-			contracttest.CaseApproval:      codexAppApprovalContractCase(),
-			contracttest.CaseInterrupt:     codexAppInterruptContractCase(),
-			contracttest.CaseForceComplete: codexAppForceCompleteContractCase(),
-			contracttest.CaseResume:        codexAppResumeIdentityContractCase(),
-			contracttest.CaseToolbridge:    codexAppToolbridgeContractCase(),
-			contracttest.CaseRuntimeReport: codexAppRuntimeReportContractCase(),
+			contracttest.CaseEventMatrix:               codexAppEventMatrixContractCase(),
+			contracttest.CasePromptMaterializedCarrier: codexAppPromptMaterializedCarrierContractCase(),
+			contracttest.CaseApproval:                  codexAppApprovalContractCase(),
+			contracttest.CaseInterrupt:                 codexAppInterruptContractCase(),
+			contracttest.CaseForceComplete:             codexAppForceCompleteContractCase(),
+			contracttest.CaseResume:                    codexAppResumeIdentityContractCase(),
+			contracttest.CaseToolbridge:                codexAppToolbridgeContractCase(),
+			contracttest.CaseRuntimeReport:             codexAppRuntimeReportContractCase(),
 		},
 	}
 }
 
-func startCodexAppContractSession(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	threadID := strings.TrimSpace(req.AgentID)
-	if threadID == "" {
-		threadID = "codex-contract-start-thread"
+func startCodexAppContractSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	env := newCodexAppContractDriverEnv()
+	session, err := env.driver.StartSession(ctx, req)
+	if err != nil {
+		env.close()
+		return nil, err
 	}
-	return newCodexAppContractSession(threadID), nil
+	return &codexAppContractHarnessSession{Session: session, cleanup: env.close}, nil
 }
 
-func resumeCodexAppContractSession(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	threadID := strings.TrimSpace(req.ProviderThreadID)
-	if threadID == "" {
+func resumeCodexAppContractSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	if strings.TrimSpace(req.ProviderThreadID) == "" {
 		return nil, errors.New("codexapp contract resume requires provider thread id")
 	}
-	return newCodexAppContractSession(threadID), nil
+	env := newCodexAppContractDriverEnv()
+	session, err := env.driver.ResumeSession(ctx, req)
+	if err != nil {
+		env.close()
+		return nil, err
+	}
+	return &codexAppContractHarnessSession{Session: session, cleanup: env.close}, nil
 }
 
-func codexAppEventTranslationContractCase() contracttest.Case {
-	return contracttest.Case{Name: "turn completed translation", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
-		t.Helper()
-		raw := dto.RawProviderEvent{
+func codexAppEventTranslationContractCases() []contracttest.Case {
+	cases := codexAppTurnEventTranslationContractCases()
+	return append(cases, codexAppToolEventTranslationContractCases()...)
+}
+
+func codexAppTurnEventTranslationContractCases() []contracttest.Case {
+	return []contracttest.Case{
+		codexAppEventTranslationContractCase("turn completed translation", "turn_completed", dto.RawProviderEvent{
 			EventType: "turn/completed",
 			Data: map[string]any{
 				"timestamp":   "2026-07-07T01:02:03Z",
@@ -71,58 +88,160 @@ func codexAppEventTranslationContractCase() contracttest.Case {
 				"result":      "done",
 				"stop_reason": "end_turn",
 			},
-		}
-		got := contracttest.CaptureProviderEventTranslation(t, "codex-turn-completed-capture", raw, translateCodexEvent)
-		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, "turn_completed"))
-		e.RecordEventTranslation(t, "codex turn completed", got, want)
+		}),
+		codexAppEventTranslationContractCase("turn interrupted translation", "turn_interrupted", dto.RawProviderEvent{
+			EventType: "turn/interrupted",
+			Data: map[string]any{
+				"timestamp": "2026-07-07T01:02:03Z",
+				"threadId":  "thread-codex-contract",
+				"agentId":   "agent-codex-contract",
+				"turnId":    "turn-codex-contract",
+				"reason":    "user_interrupt",
+			},
+		}),
+		codexAppEventTranslationContractCase("turn failed translation", "turn_failed", dto.RawProviderEvent{
+			EventType: "turn/failed",
+			Data: map[string]any{
+				"timestamp": "2026-07-07T01:02:03Z",
+				"threadId":  "thread-codex-contract",
+				"agentId":   "agent-codex-contract",
+				"turnId":    "turn-codex-contract",
+				"status":    "failed",
+				"error":     "provider failed",
+				"message":   "provider failed",
+			},
+		}),
+	}
+}
+
+func codexAppToolEventTranslationContractCases() []contracttest.Case {
+	return []contracttest.Case{
+		codexAppEventTranslationContractCase("tool end failed translation", "tool_end_failed", dto.RawProviderEvent{
+			EventType: "item/completed",
+			Data: map[string]any{
+				"timestamp": "2026-07-07T01:02:03Z",
+				"threadId":  "thread-codex-contract",
+				"agentId":   "agent-codex-contract",
+				"turnId":    "turn-codex-contract",
+				"callId":    "call-codex-contract",
+				"name":      "grep",
+				"result": map[string]any{
+					"success": false,
+					"error":   "grep failed",
+				},
+			},
+		}),
+		codexAppEventTranslationContractCase("approval requested translation", "approval_requested", dto.RawProviderEvent{
+			EventType: "item/commandExecution/requestApproval",
+			Data: map[string]any{
+				"timestamp": "2026-07-07T01:02:03Z",
+				"threadId":  "thread-codex-contract",
+				"agentId":   "agent-codex-contract",
+				"turnId":    "turn-codex-contract",
+				"callId":    "call-codex-contract",
+				"toolName":  "shell",
+				"requestId": 41,
+				"reason":    "needs review",
+			},
+		}),
+		codexAppEventTranslationContractCase("approval resolved translation", "approval_resolved", dto.RawProviderEvent{
+			EventType: "approval/resolved",
+			Data: map[string]any{
+				"timestamp":  "2026-07-07T01:02:03Z",
+				"threadId":   "thread-codex-contract",
+				"agentId":    "agent-codex-contract",
+				"turnId":     "turn-codex-contract",
+				"callId":     "call-codex-contract",
+				"toolName":   "shell",
+				"approvalId": "approval-codex-contract",
+				"approved":   true,
+				"decision":   "approved",
+				"reviewedBy": "contract",
+			},
+		}),
+		codexAppEventTranslationContractCase("tool diff translation", "tool_diff_updated", dto.RawProviderEvent{
+			EventType: "turn/diff/updated",
+			Data: map[string]any{
+				"timestamp": "2026-07-07T01:02:03Z",
+				"threadId":  "thread-codex-contract",
+				"agentId":   "agent-codex-contract",
+				"diff":      "diff --git a/contract b/contract\n",
+			},
+		}),
+	}
+}
+
+func codexAppEventTranslationContractCase(name, snapshotID string, raw dto.RawProviderEvent) contracttest.Case {
+	return contracttest.Case{Name: name, Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		got := contracttest.CaptureProviderEventTranslation(t, "codex-"+snapshotID+"-capture", raw, translateCodexEvent)
+		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, snapshotID))
+		e.RecordEventTranslation(t, name, got, want)
 	}}
 }
 
-func codexAppPromptParityContractCase() contracttest.Case {
-	return contracttest.Case{Name: "start and resume prompt parity", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+func codexAppEventMatrixContractCase() contracttest.Case {
+	return contracttest.Case{Name: "event translation matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordEventMatrix(t, contracttest.EventMatrixEvidence{
+			Provider: "codex",
+			Categories: []contracttest.EventMatrixCategoryEvidence{
+				{Category: "interrupt", SnapshotIDs: []string{"turn_interrupted"}, TranslatorID: "translateCodexEvent"},
+				{Category: "tool_end", SnapshotIDs: []string{"tool_end_failed"}, TranslatorID: "translateCodexEvent"},
+				{Category: "failed_or_status", SnapshotIDs: []string{"turn_failed", "turn_completed"}, TranslatorID: "translateCodexEvent"},
+				{Category: "approval_or_tool_diff", SnapshotIDs: []string{"approval_requested", "approval_resolved", "tool_diff_updated"}, TranslatorID: "translateCodexEvent"},
+			},
+		})
+	}}
+}
+
+func codexAppPromptMaterializedCarrierContractCase() contracttest.Case {
+	return contracttest.Case{Name: "start and resume materialized prompt carrier", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
 		startGot := captureCodexAppStartPromptParity(t)
 		startWant := contracttest.NewExpectedPromptEvidence(contracttest.LoadExpectedPromptSnapshot(t, "start_prompt_parity"))
-		e.RecordPromptParity(t, startGot, startWant)
+		e.RecordPromptMaterializedCarrier(t, startGot, startWant)
 
 		resumeGot := captureCodexAppResumePromptParity(t)
 		resumeWant := contracttest.NewExpectedPromptEvidence(contracttest.LoadExpectedPromptSnapshot(t, "resume_prompt_parity"))
-		e.RecordPromptParity(t, resumeGot, resumeWant)
+		e.RecordPromptMaterializedCarrier(t, resumeGot, resumeWant)
 	}}
 }
 
 func captureCodexAppStartPromptParity(t *testing.T) contracttest.PromptParityEvidence {
 	t.Helper()
 	req := codexAppStartPromptParityRequest(t)
-	params, err := (&driver{}).buildThreadStartParams(req)
+	env := newCodexAppContractDriverEnv()
+	t.Cleanup(env.close)
+	session, err := env.driver.StartSession(context.Background(), req)
 	if err != nil {
-		t.Fatalf("buildThreadStartParams() error = %v", err)
+		t.Fatalf("StartSession() error = %v", err)
 	}
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+	params := decodeCodexAppContractThreadStartParams(t, env.recorder.lastParams(t, "thread/start"))
 	fields := contracttest.PromptParityFields{
 		BaseInstructions:      params.BaseInstructions,
 		DeveloperInstructions: params.DeveloperInstructions,
-		PrefixHash:            req.StartAssembly.PrefixShape.Hash,
-		Boundary:              codexAppContractJSON(t, req.StartAssembly.Boundary),
-		SectionSnapshot:       codexAppContractJSON(t, req.StartAssembly.Snapshot.SectionSnapshot),
 	}
-	return contracttest.NewProviderPromptEvidence("codex-start-prompt-capture", fields)
+	return contracttest.NewProviderPromptEvidence("codex-start-rpc-payload-capture", fields)
 }
 
 func captureCodexAppResumePromptParity(t *testing.T) contracttest.PromptParityEvidence {
 	t.Helper()
 	req := codexAppResumePromptParityRequest(t)
-	params, err := buildThreadResumeParams(req)
+	env := newCodexAppContractDriverEnv()
+	t.Cleanup(env.close)
+	session, err := env.driver.ResumeSession(context.Background(), req)
 	if err != nil {
-		t.Fatalf("buildThreadResumeParams() error = %v", err)
+		t.Fatalf("ResumeSession() error = %v", err)
 	}
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+	params := decodeCodexAppContractThreadResumeParams(t, env.recorder.lastParams(t, "thread/resume"))
 	fields := contracttest.PromptParityFields{
 		BaseInstructions:      params.BaseInstructions,
 		DeveloperInstructions: params.DeveloperInstructions,
-		PrefixHash:            req.PromptSnapshot.Hash,
-		Boundary:              codexAppContractJSON(t, req.PromptSnapshot.Boundary),
-		SectionSnapshot:       codexAppContractJSON(t, req.PromptSnapshot.SectionSnapshot),
 	}
-	return contracttest.NewProviderPromptEvidence("codex-resume-prompt-capture", fields)
+	return contracttest.NewProviderPromptEvidence("codex-resume-rpc-payload-capture", fields)
 }
 
 func codexAppApprovalContractCase() contracttest.Case {
@@ -361,15 +480,6 @@ func codexAppResumePromptParityRequest(t *testing.T) dto.ResumeSessionRequest {
 	}
 }
 
-func codexAppContractJSON(t *testing.T, value any) string {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal codex contract evidence: %v", err)
-	}
-	return string(raw)
-}
-
 func decodeCodexContractParams(t *testing.T, raw json.RawMessage) map[string]any {
 	t.Helper()
 	var params map[string]any
@@ -401,88 +511,196 @@ func receiveCodexContractParams(t *testing.T, paramsCh <-chan map[string]any, na
 	}
 }
 
-type codexAppContractSession struct {
-	*codexAppContractSessionIdentity
-	codexAppContractTurnOps
-	codexAppContractHistoryOps
-	codexAppContractLifecycle
+type codexAppContractDriverEnv struct {
+	driver   *driver
+	pool     *ServerPool
+	recorder *codexAppContractRPCRecorder
+	close    func()
 }
 
-func newCodexAppContractSession(threadID string) *codexAppContractSession {
-	return &codexAppContractSession{
-		codexAppContractSessionIdentity: &codexAppContractSessionIdentity{threadID: strings.TrimSpace(threadID)},
+func newCodexAppContractDriverEnv() *codexAppContractDriverEnv {
+	recorder := newCodexAppContractRPCRecorder()
+	serverURL, closeServer := startCodexAppContractRPCServer(recorder)
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
+		return newFakeServer(serverURL), nil
+	}, PoolConfig{})
+	env := &codexAppContractDriverEnv{pool: pool, recorder: recorder}
+	env.close = func() {
+		_ = pool.Close(context.Background())
+		closeServer()
+	}
+	env.driver = &driver{
+		pool:      pool,
+		mirror:    &recordingSkillMirrorReconciler{},
+		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) { return nil, nil },
+	}
+	return env
+}
+
+func startCodexAppContractRPCServer(recorder *codexAppContractRPCRecorder) (string, func()) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serveCodexAppContractRPCConnection(conn, recorder)
+	}))
+	return "ws" + strings.TrimPrefix(server.URL, "http"), server.Close
+}
+
+func serveCodexAppContractRPCConnection(conn *websocket.Conn, recorder *codexAppContractRPCRecorder) {
+	defer conn.Close()
+	for {
+		_, rawBytes, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeCodexTestRPCMessage(rawBytes)
+		if !ok {
+			continue
+		}
+		if recorder != nil {
+			recorder.record(msg)
+		}
+		if err := writeCodexAppContractRPCResponse(conn, msg.ID, codexAppContractRPCResult(msg)); err != nil {
+			return
+		}
 	}
 }
 
-type codexAppContractSessionIdentity struct {
-	threadID string
-}
-
-func (s *codexAppContractSessionIdentity) ThreadID() string { return s.threadID }
-
-func (*codexAppContractSessionIdentity) RolloutPath() string {
-	return "/tmp/codexapp-contract-rollout.jsonl"
-}
-
-func (*codexAppContractSessionIdentity) Capabilities() dto.CapabilitySet { return dto.CapabilitySet{} }
-
-type codexAppContractTurnOps struct{}
-
-func (codexAppContractTurnOps) StartTurn(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	localID := strings.TrimSpace(req.LocalID)
-	if localID == "" {
-		localID = "codex-contract-turn"
+func writeCodexAppContractRPCResponse(conn *websocket.Conn, id json.RawMessage, result json.RawMessage) error {
+	resp, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      json.RawMessage(append([]byte(nil), id...)),
+		"result":  json.RawMessage(append([]byte(nil), result...)),
+	})
+	if err != nil {
+		return err
 	}
-	return newCodexAppContractTurnHandle(localID, "provider-"+localID), nil
+	return conn.WriteMessage(websocket.TextMessage, resp)
 }
 
-func (codexAppContractTurnOps) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
-
-func (codexAppContractTurnOps) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
-	return nil
+type codexAppContractRPCRecorder struct {
+	mu     sync.Mutex
+	params map[string][]json.RawMessage
 }
 
-type codexAppContractHistoryOps struct{}
-
-func (codexAppContractHistoryOps) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return nil, nil
+func newCodexAppContractRPCRecorder() *codexAppContractRPCRecorder {
+	return &codexAppContractRPCRecorder{params: map[string][]json.RawMessage{}}
 }
 
-func (codexAppContractHistoryOps) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-
-func (codexAppContractHistoryOps) ListThreads(context.Context) ([]dto.ThreadRef, error) {
-	return nil, contract.NewCapabilityError(dto.CapThreadList, "codex")
+func (r *codexAppContractRPCRecorder) record(msg jsonRPCMessage) {
+	if r == nil {
+		return
+	}
+	method := strings.TrimSpace(msg.Method)
+	if method == "" {
+		return
+	}
+	params := append(json.RawMessage(nil), msg.Params...)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.params[method] = append(r.params[method], params)
 }
 
-func (codexAppContractHistoryOps) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "codex")
+func (r *codexAppContractRPCRecorder) lastParams(t *testing.T, method string) json.RawMessage {
+	t.Helper()
+	if r == nil {
+		t.Fatalf("codex contract RPC recorder is nil")
+	}
+	method = strings.TrimSpace(method)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	calls := r.params[method]
+	if len(calls) == 0 {
+		t.Fatalf("codex contract RPC did not capture %s params; captured methods=%v", method, codexAppContractCapturedMethods(r.params))
+	}
+	return append(json.RawMessage(nil), calls[len(calls)-1]...)
 }
 
-type codexAppContractLifecycle struct{}
-
-func (codexAppContractLifecycle) Close(context.Context) error { return nil }
-
-func (codexAppContractLifecycle) ForceStop() error { return nil }
-
-type codexAppContractTurnHandle struct {
-	localID    string
-	providerID string
-	done       chan struct{}
+func codexAppContractCapturedMethods(params map[string][]json.RawMessage) []string {
+	methods := make([]string, 0, len(params))
+	for method := range params {
+		methods = append(methods, method)
+	}
+	return methods
 }
 
-func newCodexAppContractTurnHandle(localID, providerID string) *codexAppContractTurnHandle {
-	done := make(chan struct{})
-	close(done)
-	return &codexAppContractTurnHandle{localID: localID, providerID: providerID, done: done}
+func codexAppContractRPCResult(msg jsonRPCMessage) json.RawMessage {
+	switch strings.TrimSpace(msg.Method) {
+	case "thread/start":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-contract-start"}})
+	case "thread/resume":
+		params := decodeCodexContractParamsNoT(msg.Params)
+		threadID, _ := params["threadId"].(string)
+		if strings.TrimSpace(threadID) == "" {
+			threadID = "provider-thread-contract"
+		}
+		return mustJSON(map[string]any{"thread": map[string]any{"id": threadID}})
+	case "thread/config/get":
+		return mustJSON(map[string]any{"effective": map[string]any{"approvals": "on-request"}})
+	case "thread/fork":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-contract-fork"}})
+	case "model/list":
+		return validCodexModelListResult()
+	case "turn/start":
+		return mustJSON(map[string]any{"turn": map[string]any{"id": "provider-turn-contract"}})
+	case "turn/interrupt", "turn/forceComplete", "shutdown":
+		return mustJSON(map[string]any{"ok": true})
+	default:
+		return mustJSON(map[string]any{"ok": true})
+	}
 }
 
-func (h *codexAppContractTurnHandle) LocalID() string { return h.localID }
+func decodeCodexAppContractThreadStartParams(t *testing.T, raw json.RawMessage) threadStartParams {
+	t.Helper()
+	var params threadStartParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		t.Fatalf("decode thread/start params: %v", err)
+	}
+	return params
+}
 
-func (h *codexAppContractTurnHandle) ProviderID() string { return h.providerID }
+func decodeCodexAppContractThreadResumeParams(t *testing.T, raw json.RawMessage) threadResumeParams {
+	t.Helper()
+	var params threadResumeParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		t.Fatalf("decode thread/resume params: %v", err)
+	}
+	return params
+}
 
-func (h *codexAppContractTurnHandle) Done() <-chan struct{} { return h.done }
+func decodeCodexContractParamsNoT(raw json.RawMessage) map[string]any {
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return map[string]any{}
+	}
+	return params
+}
 
-func (*codexAppContractTurnHandle) Err() error { return nil }
+type codexAppContractHarnessSession struct {
+	contract.Session
+	cleanup func()
+	once    sync.Once
+}
 
-var _ contract.Session = (*codexAppContractSession)(nil)
-var _ contract.TurnHandle = (*codexAppContractTurnHandle)(nil)
+func (s *codexAppContractHarnessSession) Close(ctx context.Context) error {
+	err := s.Session.Close(ctx)
+	s.closeHarness()
+	return err
+}
+
+func (s *codexAppContractHarnessSession) ForceStop() error {
+	err := s.Session.ForceStop()
+	s.closeHarness()
+	return err
+}
+
+func (s *codexAppContractHarnessSession) closeHarness() {
+	s.once.Do(func() {
+		if s.cleanup != nil {
+			s.cleanup()
+		}
+	})
+}

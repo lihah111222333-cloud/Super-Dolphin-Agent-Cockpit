@@ -515,6 +515,73 @@ func TestServiceStartUsesPromptAssemblyRef(t *testing.T) {
 	}
 }
 
+func TestServiceStartCapturesPromptBoundaryProviderDTO(t *testing.T) {
+	t.Parallel()
+
+	boundary := &contract.PromptAssemblyBoundary{
+		CachedPrefix: "cached provider prefix",
+		UncachedTail: "dynamic provider tail",
+	}
+	sections := map[string]string{
+		"developer": "developer section",
+		"system":    "system section",
+	}
+	assembly := contract.StartAssembly{
+		DisplayName:           "boundary display",
+		BaseInstructions:      "boundary base",
+		Boundary:              boundary,
+		DeveloperInstructions: "boundary developer",
+		Snapshot: contract.PromptAssemblySnapshot{
+			DisplayName:           "boundary display",
+			BaseInstructions:      "boundary base",
+			Boundary:              boundary,
+			DeveloperInstructions: "boundary developer",
+			Provider:              "codex",
+			Version:               contract.PromptAssemblySnapshotVersion,
+			Hash:                  "boundary-hash",
+			SectionSnapshot:       sections,
+		},
+		PrefixShape: contract.PrefixShape{Hash: "prefix-shape-hash"},
+	}
+	var got dto.StartSessionRequest
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			got = req
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b8"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:           "agent-boundary-dto",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		PromptAssemblyRef: promptAssemblyStub{startAssembly: assembly},
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	boundary.CachedPrefix = "mutated direct boundary"
+	sections["system"] = "mutated section"
+
+	if got.StartAssembly.Boundary == nil || got.StartAssembly.Boundary.CachedPrefix != "cached provider prefix" {
+		t.Fatalf("StartAssembly.Boundary = %#v, want cloned provider DTO boundary", got.StartAssembly.Boundary)
+	}
+	if got.StartAssembly.Snapshot.Boundary == nil || got.StartAssembly.Snapshot.Boundary.UncachedTail != "dynamic provider tail" {
+		t.Fatalf("StartAssembly.Snapshot.Boundary = %#v, want cloned provider DTO boundary", got.StartAssembly.Snapshot.Boundary)
+	}
+	if got.StartAssembly.Snapshot.SectionSnapshot["system"] != "system section" ||
+		got.StartAssembly.Snapshot.SectionSnapshot["developer"] != "developer section" {
+		t.Fatalf("StartAssembly.Snapshot.SectionSnapshot = %#v, want cloned provider DTO sections", got.StartAssembly.Snapshot.SectionSnapshot)
+	}
+	if got.StartAssembly.PrefixShape.Hash != "prefix-shape-hash" {
+		t.Fatalf("StartAssembly.PrefixShape.Hash = %q, want prefix-shape-hash", got.StartAssembly.PrefixShape.Hash)
+	}
+}
+
 func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 	t.Parallel()
 

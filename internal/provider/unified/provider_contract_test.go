@@ -29,6 +29,7 @@ func CompleteUnifiedContractSpec() contracttest.Spec {
 		Resume:     newUnifiedContractEnv().resume,
 		EventCases: []contracttest.Case{unifiedEventTranslationCase()},
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
+			contracttest.CaseEventMatrix:   unifiedEventMatrixCase(),
 			contracttest.CasePromptParity:  unifiedPromptParityCase(),
 			contracttest.CaseApproval:      unifiedApprovalCase(),
 			contracttest.CaseInterrupt:     unifiedInterruptCase(),
@@ -47,6 +48,21 @@ const (
 	unifiedContractPromptSnapshotID = "unified_prompt_parity"
 	unifiedContractEventSnapshotID  = "unified_common_plan_delta"
 )
+
+func unifiedEventMatrixCase() contracttest.Case {
+	return contracttest.Case{Name: "event translation matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		e.RecordEventMatrix(t, contracttest.EventMatrixEvidence{
+			Provider: unifiedContractProvider,
+			Categories: []contracttest.EventMatrixCategoryEvidence{
+				{Category: "interrupt", SnapshotIDs: []string{unifiedContractEventSnapshotID}, TranslatorID: "EventDispatcher"},
+				{Category: "tool_end", SnapshotIDs: []string{unifiedContractEventSnapshotID}, TranslatorID: "EventDispatcher"},
+				{Category: "failed_or_status", SnapshotIDs: []string{unifiedContractEventSnapshotID}, TranslatorID: "EventDispatcher"},
+				{Category: "approval_or_tool_diff", SnapshotIDs: []string{unifiedContractEventSnapshotID}, TranslatorID: "EventDispatcher"},
+			},
+		})
+	}}
+}
 
 type unifiedContractEnv struct {
 	driver   *unifiedContractDriver

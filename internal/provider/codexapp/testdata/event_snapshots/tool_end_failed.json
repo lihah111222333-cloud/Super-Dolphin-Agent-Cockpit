@@ -1,0 +1,10 @@
+{
+  "agent_id": "agent-codex-contract",
+  "call_id": "call-codex-contract",
+  "error": "grep failed",
+  "success": false,
+  "thread_id": "agent-codex-contract",
+  "timestamp": "2026-07-07T01:02:03Z",
+  "tool_name": "grep",
+  "turn_id": "turn-codex-contract"
+}
