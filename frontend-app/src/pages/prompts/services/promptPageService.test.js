@@ -90,7 +90,7 @@ describe('promptPageService', () => {
     expect(api.savePersonalizationProfile).toHaveBeenCalledWith({ cwd: '/repo/app', profile: { role: '架构师' } });
   });
 
-  it('keeps prompt intent and write DTO golden requirements stable', async () => {
+  it('forwards prompt intent and key-owned prompt write requests', async () => {
     const api = createApi();
     const service = createPromptPageService(api);
 
@@ -117,7 +117,7 @@ describe('promptPageService', () => {
 
     expect(() => service.getPrompt({ cwd: '/repo/app', id: '' })).toThrow('id is required');
     expect(api.getPrompt).not.toHaveBeenCalled();
-    expect(() => service.writePrompt({ cwd: '/repo/app', id: ' ', name: 'empty id' })).toThrow('id is required');
+    expect(() => service.writePrompt({ cwd: '/repo/app', id: ' ', name: 'empty id' })).toThrow('id or key is required');
     expect(api.writePrompt).not.toHaveBeenCalled();
     expect(() => service.deletePrompt({ cwd: '/repo/app', id: ' ' })).toThrow('id is required');
     expect(api.deletePrompt).not.toHaveBeenCalled();

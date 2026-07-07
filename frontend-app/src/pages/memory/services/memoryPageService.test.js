@@ -90,7 +90,7 @@ describe('memoryPageService', () => {
     expect(api.upsertMemoryEntry).toHaveBeenCalledWith(payload);
   });
 
-  it('keeps memory upsert DTO golden normalization stable', async () => {
+  it('normalizes memory upsert page payload fields before forwarding', async () => {
     const api = createApi();
     const service = createMemoryPageService(api);
 
@@ -189,7 +189,7 @@ describe('memoryPageService', () => {
     expect(api.ignoreMemorySimilarity).toHaveBeenCalledWith(payload);
   });
 
-  it('keeps memory merge DTO golden identity validation stable', () => {
+  it('rejects memory merge requests with identical normalized identity', () => {
     const api = createApi();
     const service = createMemoryPageService(api);
 

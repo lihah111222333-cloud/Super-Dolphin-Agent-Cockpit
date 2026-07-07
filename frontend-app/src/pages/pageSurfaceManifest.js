@@ -13,7 +13,7 @@ export const pageSurfaceManifest = {
     adapterPrefix: 'pages/files/adapters/',
     serviceEntry: 'pages/files/services/filesPageService.js',
     ownershipMode: 'dto-golden',
-    dtoGoldenTest: 'pages/files/services/filesPageService.test.js',
+    dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
     ownedStateFiles: ['pages/files/FilesPage.jsx'],
   },
   memory: {
@@ -22,7 +22,7 @@ export const pageSurfaceManifest = {
     adapterPrefix: 'pages/memory/adapters/',
     serviceEntry: 'pages/memory/services/memoryPageService.js',
     ownershipMode: 'dto-golden',
-    dtoGoldenTest: 'pages/memory/services/memoryPageService.test.js',
+    dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
     ownedStateFiles: ['pages/memory/MemoryPage.jsx'],
   },
   observability: {
@@ -31,7 +31,7 @@ export const pageSurfaceManifest = {
     adapterPrefix: 'pages/observability/adapters/',
     serviceEntry: 'pages/observability/services/observabilityPageService.js',
     ownershipMode: 'dto-golden',
-    dtoGoldenTest: 'pages/observability/services/observabilityPageService.test.js',
+    dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
     ownedStateFiles: ['pages/observability/ObservabilityPage.jsx'],
   },
   prompts: {
@@ -40,7 +40,7 @@ export const pageSurfaceManifest = {
     adapterPrefix: 'pages/prompts/adapters/',
     serviceEntry: 'pages/prompts/services/promptPageService.js',
     ownershipMode: 'dto-golden',
-    dtoGoldenTest: 'pages/prompts/services/promptPageService.test.js',
+    dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
     ownedStateFiles: ['pages/prompts/PromptPage.jsx', 'features/prompts/PromptPageView.jsx'],
   },
   settings: {
