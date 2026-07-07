@@ -52,10 +52,9 @@ type agentThreadLookupAdapter struct {
 }
 
 // GetThreadByAgent 通过 binding store 查询 agent 对应的 thread。
-// store 未注入时返回空结果，让可选 toolbridge 能在测试装配中保持 no-op。
 func (a agentThreadLookupAdapter) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
 	if a.inner == nil {
-		return "", nil
+		return "", errors.New("toolbridge: binding store is not configured")
 	}
 	return a.inner.GetThreadByAgent(ctx, agentID)
 }
@@ -63,7 +62,7 @@ func (a agentThreadLookupAdapter) GetThreadByAgent(ctx context.Context, agentID 
 // GetBindingByAgent 读取 agent 的 tool call binding 并转换成 toolbridge wire 结构。
 func (a agentThreadLookupAdapter) GetBindingByAgent(ctx context.Context, agentID string) (toolbridge.ToolCallBinding, error) {
 	if a.inner == nil {
-		return toolbridge.ToolCallBinding{}, nil
+		return toolbridge.ToolCallBinding{}, errors.New("toolbridge: binding store is not configured")
 	}
 	binding, err := a.inner.GetByAgentID(ctx, agentID)
 	if err != nil || binding == nil {
@@ -75,7 +74,7 @@ func (a agentThreadLookupAdapter) GetBindingByAgent(ctx context.Context, agentID
 // GetBindingByProviderThread 通过 provider/thread id 反查 tool call binding。
 func (a agentThreadLookupAdapter) GetBindingByProviderThread(ctx context.Context, provider, providerThreadID string) (toolbridge.ToolCallBinding, error) {
 	if a.inner == nil {
-		return toolbridge.ToolCallBinding{}, nil
+		return toolbridge.ToolCallBinding{}, errors.New("toolbridge: binding store is not configured")
 	}
 	binding, err := a.inner.GetByProviderThread(ctx, provider, providerThreadID)
 	if err != nil || binding == nil {
@@ -117,10 +116,9 @@ type threadConfigOverrideAdapter struct {
 }
 
 // GetConfigOverride 读取 thread 的 runtime 配置覆盖。
-// store 未注入时返回 nil，表示当前装配没有 thread config 覆盖来源。
 func (a threadConfigOverrideAdapter) GetConfigOverride(ctx context.Context, threadID string) (json.RawMessage, error) {
 	if a.inner == nil {
-		return nil, nil
+		return nil, errors.New("toolbridge: thread config override store is not configured")
 	}
 	row, err := a.inner.GetByThreadID(ctx, threadID)
 	if err != nil || row == nil {
@@ -147,7 +145,7 @@ type uiPreferenceReaderAdapter struct {
 // 空 key 会被丢弃，JSON 解码失败时保留原始字符串，避免损坏偏好值导致整次读取失败。
 func (a uiPreferenceReaderAdapter) GetMergedPreferences(ctx context.Context, cwd string) (map[string]any, error) {
 	if a.inner == nil {
-		return nil, nil
+		return nil, errors.New("toolbridge: UI preference store is not configured")
 	}
 	rows, err := a.inner.List(ctx, strings.TrimSpace(cwd))
 	if err != nil {
@@ -203,6 +201,9 @@ func (a mcpToolLifecycleBackfillAdapter) BackfillMCPTools(ctx context.Context, r
 
 // provideToolbridgeMCPToolLifecycleBackfiller 把 mcp_server.Service 暴露成 toolbridge 窄端口。
 func provideToolbridgeMCPToolLifecycleBackfiller(svc mcpserver.Service) toolbridge.MCPToolLifecycleBackfiller {
+	if svc == nil {
+		return nil
+	}
 	return mcpToolLifecycleBackfillAdapter{inner: svc}
 }
 
@@ -223,6 +224,9 @@ func (a mcpToolLifecyclePolicyAdapter) ResolveMCPToolLifecycle(
 
 // provideToolbridgeMCPToolLifecyclePolicyReader 把 owner 只读策略端口注入 toolbridge。
 func provideToolbridgeMCPToolLifecyclePolicyReader(svc mcpserver.Service) toolbridge.MCPToolLifecyclePolicyReader {
+	if svc == nil {
+		return nil
+	}
 	return mcpToolLifecyclePolicyAdapter{inner: svc}
 }
 
