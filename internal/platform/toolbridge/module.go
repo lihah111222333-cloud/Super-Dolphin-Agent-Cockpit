@@ -29,6 +29,7 @@ var proxyAddr atomic.Value
 // 这里不直接导入 module/provider/store 实现，保持平台包边界干净。
 var Module = fx.Module("toolbridge",
 	fx.Provide(
+		provideToolbridgeDependencyConfig,
 		NewHandler,
 		provideHostToolRegistry,
 		provideDiffEmitter,
@@ -54,19 +55,30 @@ type handlerIn struct {
 	Resolver     difftracker.WorkDirResolver `optional:"true"`
 	DiffFallback *diffFallbackTracker
 	// store 依赖只通过 ports.go 的窄接口进入 toolbridge；具体 adapter 留在 app 装配层。
-	BindingStore    agentThreadLookup          `optional:"true"`
-	ThreadStore     threadConfigOverrideStore  `optional:"true"`
-	Preferences     uiPreferenceReader         `optional:"true"`
-	Config          *platformconfig.Config     `optional:"true"`
+	BindingStore    agentThreadLookup         `optional:"true"`
+	ThreadStore     threadConfigOverrideStore `optional:"true"`
+	Preferences     uiPreferenceReader        `optional:"true"`
+	Config          *platformconfig.Config    `optional:"true"`
+	Dependency      contract.DependencyConfig
 	Logger          *pkglogger.Logger          `optional:"true"`
 	Tracer          *observability.Service     `optional:"true"`
 	Dispatcher      *event.Dispatcher          `optional:"true"`
 	Lifecycle       mcpToolLifecycleBackfiller `optional:"true"`
 	LifecyclePolicy mcpToolLifecyclePolicyReader
 	// HostTools 是 Fx 可选字段：agent-terminal 生产图由 provideHostToolRegistry 填充；
-	// 测试或无 provider 图可以留空，Handler 会走 peer 路径。
+	// Handler 构造期会按 dependency profile 校验它不能静默为空。
 	HostTools  HostToolRegistry           `optional:"true"`
 	SkillTools contract.SkillToolProvider `optional:"true"`
+}
+
+func provideToolbridgeDependencyConfig(cfg *platformconfig.Config) (contract.DependencyConfig, error) {
+	if cfg == nil {
+		return contract.DependencyConfig{}, errors.New("toolbridge: config is required for dependency profile")
+	}
+	if strings.TrimSpace(string(cfg.Dependency.Profile)) == "" {
+		return contract.DependencyConfig{}, errors.New("toolbridge: dependency profile is required")
+	}
+	return cfg.Dependency, nil
 }
 
 // hostToolRegistryIn 聚合 host-direct 工具 registry 所需的可选依赖。
