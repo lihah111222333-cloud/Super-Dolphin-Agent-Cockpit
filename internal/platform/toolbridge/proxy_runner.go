@@ -88,7 +88,8 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 // startProxyServe 在独立 goroutine 中运行 ServeProxy，并把 panic 转成错误返回。
 func startProxyServe(h *Handler, ln net.Listener) <-chan error {
 	serveErr := make(chan error, 1)
-	go func() {
+	var serveWG sync.WaitGroup
+	serveWG.Go(func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				pkglogger.Get().Error("toolbridge: proxy serve panic", "recovered", recovered, "stack", string(debug.Stack()))
@@ -96,6 +97,6 @@ func startProxyServe(h *Handler, ln net.Listener) <-chan error {
 			}
 		}()
 		serveErr <- h.ServeProxy(ln)
-	}()
+	})
 	return serveErr
 }

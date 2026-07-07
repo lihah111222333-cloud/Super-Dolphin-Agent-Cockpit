@@ -274,6 +274,34 @@ func (s *service) ListDocuments(ctx context.Context, workspaceRoot string) (List
 	return ListDocumentsResult{Documents: documents}, nil
 }
 
+// ListPromptDocuments 读取 prompt 专用的有界 datasource 文档内容。
+func (s *service) ListPromptDocuments(ctx context.Context, workspaceRoot string, maxDocuments int, maxWorkspaceBytes int64, maxDocumentBytes int64) (ListDocumentsResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ListDocumentsResult{}, err
+	}
+	if s.documents == nil {
+		return ListDocumentsResult{Documents: []DatasourceDocument{}}, nil
+	}
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		var err error
+		workspaceRoot, err = currentDatasourceWorkspaceRoot()
+		if err != nil {
+			return ListDocumentsResult{}, err
+		}
+	} else {
+		workspaceRoot = filepath.Clean(workspaceRoot)
+	}
+	documents, err := s.documents.ListPromptDocuments(ctx, workspaceRoot, maxDocuments, maxWorkspaceBytes, maxDocumentBytes)
+	if err != nil {
+		return ListDocumentsResult{}, err
+	}
+	return ListDocumentsResult{Documents: documents}, nil
+}
+
 // ensureCurrentDatasourceUploadDir 确保当前 workspace 的上传目录存在，不存在时自动创建。
 func ensureCurrentDatasourceUploadDir() (string, error) {
 	uploadDir, err := currentDatasourceUploadDir()
@@ -457,11 +485,11 @@ func copySourceToUploadTemp(sourcePath, targetDir string) (tempPath string, err 
 	if _, copyErr := io.Copy(target, source); copyErr != nil {
 		_ = target.Close()
 		err = fmt.Errorf("copy upload file: %w", copyErr)
-		return
+		return tempPath, err
 	}
 	if closeErr := target.Close(); closeErr != nil {
 		err = fmt.Errorf("close upload file: %w", closeErr)
-		return
+		return tempPath, err
 	}
 	return tempPath, nil
 }

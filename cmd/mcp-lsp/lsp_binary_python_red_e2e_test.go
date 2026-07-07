@@ -97,8 +97,10 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 	}
 	start := make(chan struct{})
 	outcomes := make(chan completionOutcome, 2)
+	goroutines := newTestGoroutineGroup(t)
 	for i := 0; i < 2; i++ {
-		go func(index int) {
+		index := i
+		goroutines.Go(func() {
 			<-start
 			resp, raw, err := client.callRaw(ctx, "tools/call", map[string]any{
 				"name":            "completion",
@@ -110,7 +112,7 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 				},
 			})
 			outcomes <- completionOutcome{index: index, resp: resp, raw: raw, err: err}
-		}(i)
+		})
 	}
 	close(start)
 
@@ -177,6 +179,50 @@ func TestMcpLSPBinaryPythonDiagnosticsWaitsForDelayedTargets_E2E(t *testing.T) {
 			t.Fatalf("diagnostics missing %s; payload=%s text=%q stderr=%s",
 				target, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
 		}
+	}
+}
+
+func TestMcpLSPBinaryPythonDiagnosticsRetriesPastStartupRecoveryBudget_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	targets := writePythonDiagnosticsFixture(t, root)
+	slowTarget := targets[1]
+	binary := buildMcpLSPBinaryForTest(t)
+	fakePyrightBinDir := writeFakePyrightLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakePyrightBinDir, []string{
+		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS=delayed_second",
+		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTIC_SLOW_DELAY=16500ms",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": slowTarget,
+	})
+	if diagnostics.Result.IsError {
+		t.Fatalf("diagnostics timed out before delayed Python target published; text=%q structured=%s stderr=%s",
+			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+	}
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	if strings.Contains(payload.Meta.Message, "partial diagnostics") {
+		t.Fatalf("diagnostics returned partial readiness before delayed Python target published: meta=%q payload=%s text=%q stderr=%s",
+			payload.Meta.Message, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+	if payload.Total != 1 {
+		t.Fatalf("diagnostics total = %d, want 1; payload=%s text=%q stderr=%s",
+			payload.Total, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+	if !payload.HasFile(slowTarget) {
+		t.Fatalf("diagnostics missing %s; payload=%s text=%q stderr=%s",
+			slowTarget, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -268,9 +314,10 @@ func startMcpLSPBinaryForTestWithEnv(t *testing.T, ctx context.Context, binary, 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start mcp-lsp binary: %v", err)
 	}
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, _ = io.Copy(&client.stderr, stderrPipe)
-	}()
+	})
 	return client
 }
 
@@ -320,12 +367,13 @@ func startMcpLSPPeerBinaryForTest(t *testing.T, parent context.Context, binary, 
 		cancel()
 		t.Fatalf("start mcp-lsp peer binary: %v", err)
 	}
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, _ = io.Copy(&client.stderr, stderrPipe)
-	}()
-	go func() {
+	})
+	goroutines.Go(func() {
 		client.done <- cmd.Wait()
-	}()
+	})
 	client.addr = waitForMcpLSPPeerAddr(t, token, &client.stderr)
 	return client
 }
@@ -341,7 +389,8 @@ func startMcpLSPPeerControlPlane(t *testing.T) string {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}).Handlers
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		conn, acceptErr := ln.Accept()
 		if acceptErr != nil {
 			done <- acceptErr
@@ -350,7 +399,7 @@ func startMcpLSPPeerControlPlane(t *testing.T) string {
 		_ = ln.Close()
 		stat := jrpc2.NewServer(methods, &jrpc2.ServerOptions{}).Start(channel.Line(conn, conn)).WaitStatus()
 		done <- stat.Err
-	}()
+	})
 	t.Cleanup(func() {
 		_ = ln.Close()
 		select {

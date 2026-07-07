@@ -2,6 +2,9 @@ package turn
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +16,25 @@ type turnContextProviderFunc func(context.Context, contract.Session, contract.Bu
 
 func (fn turnContextProviderFunc) PrepareTurnContext(ctx context.Context, session contract.Session, buildCtx contract.BuildCtx, threadID, query string) contract.TurnContextPayload {
 	return fn(ctx, session, buildCtx, threadID, query)
+}
+
+type failingMemoryTurnContextProvider struct {
+	err     error
+	absPath string
+}
+
+func (p failingMemoryTurnContextProvider) PrepareTurnContext(context.Context, contract.Session, contract.BuildCtx, string, string) contract.TurnContextPayload {
+	return contract.TurnContextPayload{
+		Inputs: []InputItem{{
+			Type:    "filecontent",
+			Name:    "Memory prefetch error",
+			Content: "memory prefetch failed:\n" + p.absPath,
+		}},
+	}
+}
+
+func (p failingMemoryTurnContextProvider) PrepareTurnContextWithError(context.Context, contract.Session, contract.BuildCtx, string, string) (contract.TurnContextPayload, error) {
+	return contract.TurnContextPayload{}, p.err
 }
 
 func TestPrepareTurnPrependsSyntheticMemoryInputs(t *testing.T) {
@@ -56,4 +78,42 @@ func TestPrepareTurnPrependsSyntheticMemoryInputs(t *testing.T) {
 	if assembly.lastTurnInput.UserText != "please verify the cache" {
 		t.Fatalf("last turn user text = %q, want original user text", assembly.lastTurnInput.UserText)
 	}
+}
+
+func TestPrepareTurnReturnsMemoryContextErrorBeforeAssemblingProviderInputs(t *testing.T) {
+	assembly := &stubPromptAssemblyService{turn: contract.TurnAssembly{UserContextText: "assembled user context"}}
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
+	absPath := filepath.Join(t.TempDir(), "memory", "broken.md")
+	safeErr := errors.New("memory_prefetch_failed stage=prefetch")
+	svc.turnContextProvider = failingMemoryTurnContextProvider{
+		err:     safeErr,
+		absPath: absPath,
+	}
+	session := &stubSession{threadID: "thread-1"}
+
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{Prompt: "please verify memory"})
+	if err == nil {
+		if turnInputsContain(req.Inputs, absPath) {
+			t.Fatalf("PrepareTurn() allowed memory error path %q into provider inputs: %#v", absPath, req.Inputs)
+		}
+		t.Fatalf("PrepareTurn() error = nil, want memory context failure before provider input assembly")
+	}
+	if !errors.Is(err, safeErr) {
+		t.Fatalf("PrepareTurn() error = %v, want %v", err, safeErr)
+	}
+	if strings.Contains(err.Error(), absPath) {
+		t.Fatalf("PrepareTurn() error leaked absolute memory path %q: %v", absPath, err)
+	}
+	if turnInputsContain(req.Inputs, absPath) {
+		t.Fatalf("PrepareTurn() returned inputs containing absolute memory path %q: %#v", absPath, req.Inputs)
+	}
+}
+
+func turnInputsContain(inputs []InputItem, needle string) bool {
+	for _, input := range inputs {
+		if strings.Contains(input.Name, needle) || strings.Contains(input.Content, needle) {
+			return true
+		}
+	}
+	return false
 }

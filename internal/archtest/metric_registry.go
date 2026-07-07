@@ -102,6 +102,9 @@ func qualityRules() []metricRule {
 		{Field: "todo_count", Access: func(m *FileMetrics) *int { return &m.TodoCount }, Kind: limitZero, Flags: flagAll},
 		{Field: "max_struct_fields", Access: func(m *FileMetrics) *int { return &m.MaxStructFields }, Kind: limitNone, Flags: flagAll},
 		{Field: "naked_goroutines", Access: func(m *FileMetrics) *int { return &m.NakedGoroutines }, Kind: limitZero, Flags: flagAll},
+		{Field: "raw_goroutines", Access: func(m *FileMetrics) *int { return &m.RawGoroutines }, Kind: limitZero, Flags: flagAll},
+		{Field: "missing_docs", Access: func(m *FileMetrics) *int { return &m.MissingDocs }, Kind: limitZero, Flags: flagAll},
+		{Field: "max_struct_methods", Access: func(m *FileMetrics) *int { return &m.MaxStructMethods }, Kind: limitHard, HardLimit: func(_ string) int { return 10 }, Flags: flagAll},
 	}
 }
 

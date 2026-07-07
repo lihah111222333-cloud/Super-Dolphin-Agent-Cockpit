@@ -1,7 +1,5 @@
 package main
 
-/* ROLLBACK_SKIP_START
-
 import (
 	"bytes"
 	"os"
@@ -14,7 +12,10 @@ import (
 func TestRenameScriptSideEffectGuard_ProcessRenameFileSequenceAndWriteReport(t *testing.T) {
 	t.Parallel()
 
-	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_side_effect_harness_test.go", `package main
+	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_side_effect_harness_test.go", renameSideEffectProcessHarnessSource)
+}
+
+const renameSideEffectProcessHarnessSource = `package main
 
 import (
 	"bytes"
@@ -139,23 +140,24 @@ func TestWriteReportMarshalsIndentedJSONAndCreatesParentDir(t *testing.T) {
 		t.Fatalf("report payload = %#v, want %#v", got, rep)
 	}
 }
-`)
-}
+`
 
 func TestRenameScriptSideEffectGuard_PlanLifecycleAndRewriteContracts(t *testing.T) {
 	t.Parallel()
 
-	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_plan_side_effect_harness_test.go", `package main
+	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_plan_side_effect_harness_test.go", renameSideEffectPlanHarnessSource)
+}
+
+const renameSideEffectPlanHarnessSource = `package main
 
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestBuildRenamePlanAndRecordRenamePlanPreserveRelSrcAndMode(t *testing.T) {
+func TestProcessRenameFileRecordsRelativeReportAndCounts(t *testing.T) {
 	root := t.TempDir()
 	nestedDir := filepath.Join(root, "nested")
 	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
@@ -166,38 +168,17 @@ func TestBuildRenamePlanAndRecordRenamePlanPreserveRelSrcAndMode(t *testing.T) {
 	if err := os.WriteFile(target, []byte(original), 0o600); err != nil {
 		t.Fatalf("write demo.go: %v", err)
 	}
-	info, err := os.Stat(target)
-	if err != nil {
-		t.Fatalf("stat demo.go: %v", err)
-	}
-
-	plan, ok, err := buildRenamePlan(root, target, collectEdits)
-	if err != nil || !ok {
-		t.Fatalf("buildRenamePlan() = (%#v, %v, %v), want executable plan", plan, ok, err)
-	}
-	if plan.Rel != "nested/demo.go" {
-		t.Fatalf("plan.Rel = %q, want nested/demo.go", plan.Rel)
-	}
-	if string(plan.Src) != original {
-		t.Fatalf("plan.Src = %q, want %q", string(plan.Src), original)
-	}
-	if plan.FileMode != info.Mode().Perm() {
-		t.Fatalf("plan.FileMode = %o, want %o", plan.FileMode, info.Mode().Perm())
-	}
-	if len(plan.Edits) != 1 || len(plan.Replacements) != 1 {
-		t.Fatalf("plan edits/replacements = %d/%d, want 1/1", len(plan.Edits), len(plan.Replacements))
-	}
 
 	reports := []fileReport{}
 	total := 0
-	recordRenamePlan(plan, &reports, &total)
-	wantReports := []fileReport{{
-		File:         "nested/demo.go",
-		Count:        1,
-		Replacements: plan.Replacements,
-	}}
-	if !reflect.DeepEqual(reports, wantReports) {
-		t.Fatalf("reports = %#v, want %#v", reports, wantReports)
+	if err := processRenameFile(root, target, false, collectEdits, applyEdits, &reports, &total); err != nil {
+		t.Fatalf("processRenameFile() error = %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %#v, want 1 report", reports)
+	}
+	if reports[0].File != "nested/demo.go" || reports[0].Count != 1 || len(reports[0].Replacements) != 1 {
+		t.Fatalf("report = %#v, want nested/demo.go with one replacement", reports[0])
 	}
 	if total != 1 {
 		t.Fatalf("total replacements = %d, want 1", total)
@@ -240,47 +221,28 @@ func TestCollectEditsAndRewriteImportPathContracts(t *testing.T) {
 	}
 }
 
-func TestApplyRenamePlansRollsBackEarlierFilesOnLaterWriteFailure(t *testing.T) {
+func TestProcessRenameFileApplyWritesUpdatedFile(t *testing.T) {
 	root := t.TempDir()
-	first := filepath.Join(root, "first.go")
+	first := filepath.Join(root, "demo.go")
 	original := "package demo\n\nimport _ \"" + oldImportRoot + "\"\n"
 	if err := os.WriteFile(first, []byte(original), 0o640); err != nil {
-		t.Fatalf("write first.go: %v", err)
-	}
-	firstPlan, ok, err := buildRenamePlan(root, first, collectEdits)
-	if err != nil || !ok {
-		t.Fatalf("buildRenamePlan(first) = (%#v, %v, %v), want executable plan", firstPlan, ok, err)
+		t.Fatalf("write demo.go: %v", err)
 	}
 
-	second := filepath.Join(root, "second.go")
-	if err := os.Mkdir(second, 0o755); err != nil {
-		t.Fatalf("mkdir second.go dir: %v", err)
-	}
-	secondPlan := renamePlan{
-		Path:     second,
-		Rel:      "second.go",
-		Src:      []byte("package demo\n"),
-		Edits:    []edit{{Start: 0, End: 0, NewLit: "package demo\n", Line: 1}},
-		FileMode: 0o644,
-	}
-
-	err = applyRenamePlans([]renamePlan{firstPlan, secondPlan}, applyEdits)
-	if err == nil {
-		t.Fatal("applyRenamePlans() should fail on second.go write")
-	}
-	if !strings.Contains(err.Error(), "write second.go:") {
-		t.Fatalf("applyRenamePlans() err = %q, want second.go write failure", err.Error())
+	reports := []fileReport{}
+	total := 0
+	if err := processRenameFile(root, first, true, collectEdits, applyEdits, &reports, &total); err != nil {
+		t.Fatalf("processRenameFile() error = %v", err)
 	}
 	data, err := os.ReadFile(first)
 	if err != nil {
-		t.Fatalf("read first.go after rollback: %v", err)
+		t.Fatalf("read demo.go after apply: %v", err)
 	}
-	if string(data) != original {
-		t.Fatalf("rollback must restore first.go, got %q want %q", string(data), original)
+	if strings.Contains(string(data), oldImportRoot) || !strings.Contains(string(data), newImportRoot) {
+		t.Fatalf("apply should rewrite demo.go, got %q", string(data))
 	}
 }
-`)
-}
+`
 
 func runRenameHarnessGoTest(t *testing.T, testFileName, testSource string) {
 	t.Helper()
@@ -313,5 +275,3 @@ func strippedRenameScriptSource(t *testing.T) string {
 	src = strings.TrimPrefix(src, "//go:build ignore\n\n")
 	return src
 }
-
-ROLLBACK_SKIP_END */

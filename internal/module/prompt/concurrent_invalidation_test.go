@@ -19,6 +19,17 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func registerPromptGoroutineCleanup(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s goroutines did not stop", label)
+		}
+	})
+}
+
 // TestServiceInvalidateSectionsIsConcurrentSafe pins the contract documented
 // on contract.SectionInvalidator for the in-tree prompt.Service
 // implementation: callers fan out from background goroutines (auto-dream,
@@ -84,19 +95,19 @@ func TestCommitPromptIntentDraft_ConcurrentSubmit(t *testing.T) {
 	start := make(chan struct{})
 	errs := make([]error, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	workersDone := make(chan struct{})
+	registerPromptGoroutineCleanup(t, workersDone, "prompt intent commit")
+	wg.Go(func() {
 		<-start
 		_, errs[0] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeA), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		_, errs[1] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeB), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
-	}()
+	})
 	close(start)
 	wg.Wait()
+	close(workersDone)
 
 	successCount := 0
 	for _, e := range errs {

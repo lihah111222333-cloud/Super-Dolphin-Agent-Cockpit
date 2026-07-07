@@ -14,6 +14,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
@@ -318,9 +319,10 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 			Attempt:            int(int64Value(payload, "attempt")),
 		}, true
 	case "connection.dead":
+		safeReason := observability.SafeProviderErrorReason(shared.FirstNonEmpty(stringValue(payload, "error", "message"), "connection lost"))
 		return agentdto.AgentFailed{
 			AgentSessionHeader: buildAgentSessionHeader(payload),
-			Error:              shared.FirstNonEmpty(stringValue(payload, "error", "message"), "connection lost"),
+			Error:              safeReason.Message,
 			Recoverable:        boolValue(payload, "recoverable", "willRetry", "will_retry"),
 		}, true
 	default:
@@ -478,7 +480,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		return tooldto.ToolCallBegin{
 			ToolCallHeader:   buildToolCallHeader(payload),
 			RequestID:        int64Value(payload, "requestId"),
-			ArgumentsPreview: jsonPreview(payload, "arguments", "args"),
+			ArgumentsPreview: providershared.SafeToolArgumentsPreviewString(jsonPreview(payload, "arguments", "args")),
 		}, true
 	case "item/completed", "tool.call.end":
 		if !looksLikeToolCall(payload) {
@@ -499,6 +501,8 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			Error:          errorText,
 			Result:         result.Preview,
 			PersistedPath:  result.PersistedPath,
+			PersistFailed:  result.PersistFailed,
+			PersistError:   result.PersistError,
 			Truncated:      result.Truncated,
 			OriginalSize:   result.OriginalSize,
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),

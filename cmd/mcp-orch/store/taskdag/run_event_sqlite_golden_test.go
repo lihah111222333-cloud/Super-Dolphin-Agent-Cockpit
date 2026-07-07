@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
+
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 func TestSQLiteRunEventAppendGoldenPayloads(t *testing.T) {
@@ -65,14 +68,11 @@ func TestSQLiteRunEventAppendConcurrentWritersDoNotOverwrite(t *testing.T) {
 	const writers = 32
 	var wg sync.WaitGroup
 	errs := make(chan error, writers)
-	for i := 0; i < writers; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range writers {
+		wg.Go(func() {
 			_, err := store.appendTaskDagRunEvent(ctx, "dag-events-concurrent", run.ID, json.RawMessage(fmt.Sprintf(`{"seq":%d}`, i)))
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -93,14 +93,14 @@ func TestSQLiteRunEventAppendConcurrentWritersDoNotOverwrite(t *testing.T) {
 		}
 		seen[int(seq)] = true
 	}
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		if !seen[i] {
 			t.Fatalf("missing event seq %d in %#v", i, events)
 		}
 	}
 }
 
-func TestSQLiteRecordNodeSpawnRetryAppendsNodeSpawnEvent(t *testing.T) {
+func TestSQLiteRecordNodeSpawnConflictDoesNotAppendNodeSpawnEvent(t *testing.T) {
 	ctx := context.Background()
 	db := openTaskDAGSQLiteDB(t)
 	store := NewStore(db).(*store)
@@ -111,15 +111,15 @@ func TestSQLiteRecordNodeSpawnRetryAppendsNodeSpawnEvent(t *testing.T) {
 	if _, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{DagKey: "dag-multi", NodeKey: "root", RunID: run.ID, ThreadID: "thread-1"}); err != nil {
 		t.Fatalf("first RecordNodeSpawn() error = %v", err)
 	}
-	if _, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{DagKey: "dag-multi", NodeKey: "root", RunID: run.ID, ThreadID: "thread-2"}); err != nil {
-		t.Fatalf("retry RecordNodeSpawn() error = %v", err)
+	if _, err := store.RecordNodeSpawn(ctx, RecordNodeSpawnInput{DagKey: "dag-multi", NodeKey: "root", RunID: run.ID, ThreadID: "thread-2"}); err == nil || !errors.Is(err, platformdb.ErrConflict) {
+		t.Fatalf("conflicting RecordNodeSpawn() error = %v, want platformdb.ErrConflict", err)
 	}
 	events := loadSQLiteRunEvents(t, ctx, db, run.ID)
-	if len(events) != 1 {
-		t.Fatalf("node_spawn events len = %d, want 1: %#v", len(events), events)
+	if len(events) != 0 {
+		t.Fatalf("node_spawn events len = %d, want 0 after conflict: %#v", len(events), events)
 	}
-	if events[0]["kind"] != "node_spawn" || events[0]["prev_thread_id"] != "thread-1" || events[0]["thread_id"] != "thread-2" {
-		t.Fatalf("node_spawn event = %#v, want retry thread chain", events[0])
+	if got := sqliteRunNodeSpawningThread(t, ctx, store, "dag-multi", run.ID, "root"); got != "thread-1" {
+		t.Fatalf("spawning_thread_id = %q, want original thread-1 after conflict", got)
 	}
 }
 
@@ -171,7 +171,7 @@ func loadSQLiteRunEvents(t *testing.T, ctx context.Context, db queryDB, runID in
 func numberedRunEventsJSON(t *testing.T, count, offset int) string {
 	t.Helper()
 	events := make([]map[string]int, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		events = append(events, map[string]int{"seq": offset + i})
 	}
 	raw, err := json.Marshal(events)

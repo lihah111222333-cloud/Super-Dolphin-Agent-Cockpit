@@ -14,10 +14,10 @@
     "build": "vite build && node scripts/sync-frontend-dist.mjs",
     "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit",
     "audit:rpc-contracts": "node scripts/rpc-contract-audit.mjs",
-    "guard:critical-skip": "node scripts/no-critical-skip.mjs",
+    "guard:critical-skip": "node scripts/no-critical-skip.mjs && node scripts/no-silent-async-failure.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
-    "test": "node scripts/no-critical-skip.mjs && vitest run --no-file-parallelism --maxWorkers=1"
+    "test": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --no-file-parallelism --maxWorkers=1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",

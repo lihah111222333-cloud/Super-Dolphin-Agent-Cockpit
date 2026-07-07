@@ -16,7 +16,7 @@ type datasourceV2QuerierStub struct {
 	markReadyFn       func(context.Context, sqlc.MarkDatasourceV2DocumentReadyParams) (sqlc.DatasourceV2Document, error)
 	listDocumentsFn   func(context.Context, sqlc.ListDatasourceV2DocumentsParams) ([]sqlc.DatasourceV2Document, error)
 	getDocumentFn     func(context.Context, sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error)
-	listChunksFn      func(context.Context, sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error)
+	listChunksPageFn  func(context.Context, sqlc.ListDatasourceV2ChunksPageParams) ([]sqlc.ListDatasourceV2ChunksPageRow, error)
 	searchChunksFn    func(context.Context, sqlc.SearchDatasourceV2ChunksByEmbeddingParams) ([]sqlc.SearchDatasourceV2ChunksByEmbeddingRow, error)
 	updateDocumentFn  func(context.Context, sqlc.UpdateDatasourceV2DocumentMetadataParams) (sqlc.DatasourceV2Document, error)
 	deleteDocumentFn  func(context.Context, sqlc.DeleteDatasourceV2DocumentParams) (int64, error)
@@ -64,11 +64,11 @@ func (s *datasourceV2QuerierStub) GetDatasourceV2Document(
 	return s.getDocumentFn(ctx, arg)
 }
 
-func (s *datasourceV2QuerierStub) ListDatasourceV2Chunks(
+func (s *datasourceV2QuerierStub) ListDatasourceV2ChunksPage(
 	ctx context.Context,
-	arg sqlc.ListDatasourceV2ChunksParams,
-) ([]sqlc.ListDatasourceV2ChunksRow, error) {
-	return s.listChunksFn(ctx, arg)
+	arg sqlc.ListDatasourceV2ChunksPageParams,
+) ([]sqlc.ListDatasourceV2ChunksPageRow, error) {
+	return s.listChunksPageFn(ctx, arg)
 }
 
 func (s *datasourceV2QuerierStub) SearchDatasourceV2ChunksByEmbedding(
@@ -289,11 +289,12 @@ func TestListDocumentsForwardsKeywordLimitAndMapsRows(t *testing.T) {
 	}
 }
 
-func TestGetDocumentAndListChunksForwardDocumentID(t *testing.T) {
+// TestDatasourceV2ListChunksUsesCursorAndLimit 固定 store 分页查询下沉 document/cursor/limit。
+func TestDatasourceV2ListChunksUsesCursorAndLimit(t *testing.T) {
 	t.Parallel()
 
 	var gotDocumentID int64
-	var gotChunksID int64
+	var gotChunksParams sqlc.ListDatasourceV2ChunksPageParams
 	s := &store{q: &datasourceV2QuerierStub{
 		getDocumentFn: func(_ context.Context, arg sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error) {
 			gotDocumentID = arg.ID
@@ -306,9 +307,9 @@ func TestGetDocumentAndListChunksForwardDocumentID(t *testing.T) {
 				Status:     StatusReady,
 			}, nil
 		},
-		listChunksFn: func(_ context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error) {
-			gotChunksID = arg.DocumentID
-			return []sqlc.ListDatasourceV2ChunksRow{{
+		listChunksPageFn: func(_ context.Context, arg sqlc.ListDatasourceV2ChunksPageParams) ([]sqlc.ListDatasourceV2ChunksPageRow, error) {
+			gotChunksParams = arg
+			return []sqlc.ListDatasourceV2ChunksPageRow{{
 				ID:             70,
 				DocumentID:     arg.DocumentID,
 				ChunkIndex:     0,
@@ -327,15 +328,51 @@ func TestGetDocumentAndListChunksForwardDocumentID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDocument() unexpected error: %v", err)
 	}
-	chunks, err := s.ListChunks(context.Background(), 12)
+	chunks, err := s.ListChunksPage(context.Background(), ListChunksParams{DocumentID: 12, Limit: 5, Cursor: -1})
 	if err != nil {
-		t.Fatalf("ListChunks() unexpected error: %v", err)
+		t.Fatalf("ListChunksPage() unexpected error: %v", err)
 	}
-	if gotDocumentID != 12 || doc.ID != 12 {
-		t.Fatalf("GetDocument() id = (%d, %+v), want 12", gotDocumentID, doc)
+	assertDatasourceV2DocumentLookup(t, gotDocumentID, doc)
+	assertDatasourceV2ChunkPageParams(t, gotChunksParams)
+	assertDatasourceV2ChunkPageBody(t, chunks)
+}
+
+// assertDatasourceV2DocumentLookup verifies get document used the requested id.
+func assertDatasourceV2DocumentLookup(t *testing.T, gotDocumentID int64, doc *Document) {
+	t.Helper()
+	if gotDocumentID != 12 {
+		t.Fatalf("GetDocument() forwarded id = %d, want 12", gotDocumentID)
 	}
-	if gotChunksID != 12 || len(chunks) != 1 || chunks[0].Content != "body" || chunks[0].EmbeddingDim != 1 {
-		t.Fatalf("ListChunks() result = id %d chunks %+v", gotChunksID, chunks)
+	if doc.ID != 12 {
+		t.Fatalf("GetDocument() id = %d, want 12", doc.ID)
+	}
+}
+
+// assertDatasourceV2ChunkPageParams verifies chunk page SQL parameters.
+func assertDatasourceV2ChunkPageParams(t *testing.T, got sqlc.ListDatasourceV2ChunksPageParams) {
+	t.Helper()
+	if got.DocumentID != 12 {
+		t.Fatalf("ListChunksPage() document id = %d, want 12", got.DocumentID)
+	}
+	if got.Cursor != -1 {
+		t.Fatalf("ListChunksPage() cursor = %d, want -1", got.Cursor)
+	}
+	if got.Limit != int64(5) {
+		t.Fatalf("ListChunksPage() limit = %v, want 5", got.Limit)
+	}
+}
+
+// assertDatasourceV2ChunkPageBody verifies chunk page DTO mapping.
+func assertDatasourceV2ChunkPageBody(t *testing.T, chunks TextChunkPage) {
+	t.Helper()
+	if len(chunks.Chunks) != 1 {
+		t.Fatalf("ListChunksPage() chunk count = %d, want 1", len(chunks.Chunks))
+	}
+	if chunks.Chunks[0].Content != "body" {
+		t.Fatalf("ListChunksPage() content = %q, want body", chunks.Chunks[0].Content)
+	}
+	if chunks.Chunks[0].EmbeddingDim != 1 {
+		t.Fatalf("ListChunksPage() embedding dim = %d, want 1", chunks.Chunks[0].EmbeddingDim)
 	}
 }
 

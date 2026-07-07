@@ -51,10 +51,27 @@ func searchableFields(entry MemoryEntry) memorySearchFields {
 		name:        []string{CanonicalName(entry.Frontmatter.Name)},
 		base:        []string{CanonicalName(strings.TrimSuffix(filepath.Base(entry.FilePath), filepath.Ext(entry.FilePath)))},
 		description: []string{CanonicalName(entry.Frontmatter.Description)},
-		path:        []string{CanonicalName(filepath.ToSlash(entry.FilePath))},
+		path:        []string{CanonicalName(searchableMemoryPath(entry))},
 		aliases:     normalizeSearchValues(entry.Frontmatter.Aliases),
 		searchKeys:  normalizeSearchValues(entry.Frontmatter.SearchKeys),
 	}
+}
+
+// searchableMemoryPath 返回可参与相关性打分的条目路径，避免绝对记忆根目录污染查询命中。
+func searchableMemoryPath(entry MemoryEntry) string {
+	path := strings.TrimSpace(entry.FilePath)
+	if path == "" {
+		return ""
+	}
+	path = filepath.Clean(path)
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(path)
+	}
+	base := filepath.Base(path)
+	if memoryType := entry.Type(); memoryType.IsKnown() {
+		return filepath.ToSlash(filepath.Join(string(memoryType), base))
+	}
+	return filepath.ToSlash(base)
 }
 
 // matchedTermCount 统计查询分词命中的数量。

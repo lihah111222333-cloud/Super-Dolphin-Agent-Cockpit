@@ -11,11 +11,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 const fakeGoplsOrphanedFilesWarning = "warning: while diagnosing orphaned files: session is shut down"
+const fakeGoplsPullDiagnosticsOnlyEnv = "MCP_LSP_FAKE_GOPLS_PULL_DIAGNOSTICS_ONLY"
+const fakeGoplsSuppressDiagnosticProviderEnv = "MCP_LSP_FAKE_GOPLS_SUPPRESS_DIAGNOSTIC_PROVIDER"
+const fakeGoplsRequireE2EBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_E2E_BUILDFLAG"
 
 func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testing.T) {
 	if testing.Short() {
@@ -51,6 +55,110 @@ func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testi
 	}
 }
 
+func TestMcpLSPBinaryGoplsDiagnosticsFallsBackToPullWhenPublishIsSilent_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsGoFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsPullDiagnosticsOnlyEnv + "=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	structure := client.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, structure, "go document_symbol")
+	requireToolResultContains(t, structure, "main", "go document_symbol")
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "go diagnostics")
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	if payload.Total != 0 || len(payload.Data) != 0 {
+		t.Fatalf("go diagnostics payload = %#v, want empty diagnostics; raw=%s text=%q stderr=%s",
+			payload, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+}
+
+func TestMcpLSPBinaryGoplsDiagnosticsTreatsReadyBootstrapWithoutPublishAsEmpty_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsGoFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsPullDiagnosticsOnlyEnv + "=1",
+		fakeGoplsSuppressDiagnosticProviderEnv + "=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	structure := client.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, structure, "go document_symbol")
+	requireToolResultContains(t, structure, "main", "go document_symbol")
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "go diagnostics without publish")
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	if payload.Total != 0 || len(payload.Data) != 0 {
+		t.Fatalf("go diagnostics payload = %#v, want empty diagnostics; raw=%s text=%q stderr=%s",
+			payload, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+}
+
+func TestMcpLSPBinaryGoplsDiagnosticsUsesBuildTagsForE2EFile_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsE2EBuildTagFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsPullDiagnosticsOnlyEnv + "=1",
+		fakeGoplsRequireE2EBuildFlagEnv + "=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   target,
+		"language_id": "go",
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "go e2e build-tag diagnostics")
+}
+
 func TestFakeGoplsShutdownWarningHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_GOPLS_SHUTDOWN_WARNING") != "1" {
 		return
@@ -71,6 +179,30 @@ func writeFakeGoplsGoFixture(t *testing.T, root string) string {
 	return target
 }
 
+func writeFakeGoplsE2EBuildTagFixture(t *testing.T, root string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/gopls-e2e\n\ngo 1.25.0\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod fixture: %v", err)
+	}
+	target := filepath.Join(root, "lsp_binary_e2e_probe_test.go")
+	content := strings.Join([]string{
+		"//go:build e2e",
+		"",
+		"package main",
+		"",
+		"func TestE2EProbe(t testingT) {}",
+		"",
+		"type testingT interface {",
+		"\tHelper()",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write e2e Go fixture: %v", err)
+	}
+	return target
+}
+
 func writeFakeGoplsShutdownWarningLangserver(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -84,7 +216,9 @@ func writeFakeGoplsShutdownWarningLangserver(t *testing.T) string {
 
 func runFakeGoplsShutdownWarningLangserver() {
 	reader := bufio.NewReader(os.Stdin)
-	writer := &fakeLSPWriter{w: os.Stdout}
+	var goroutines sync.WaitGroup
+	defer goroutines.Wait()
+	writer := &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
 		if err != nil {
@@ -103,8 +237,57 @@ func runFakeGoplsShutdownWarningLangserver() {
 		if len(bytes.TrimSpace(req.ID)) == 0 {
 			continue
 		}
+		if fakeGoplsRequiresE2EBuildFlag(req) && !fakeGoplsInitializeHasBuildTag(req.Params, "e2e") {
+			_ = writer.writeError(req.ID, -32002, "missing gopls buildFlags -tags=e2e")
+			continue
+		}
 		_ = writer.writeResponse(req.ID, fakeGoplsResult(req))
 	}
+}
+
+func fakeGoplsRequiresE2EBuildFlag(req fakeLSPRequest) bool {
+	return req.Method == "initialize" && os.Getenv(fakeGoplsRequireE2EBuildFlagEnv) == "1"
+}
+
+func fakeGoplsInitializeHasBuildTag(raw json.RawMessage, tag string) bool {
+	if buildFlagsContainTag(strings.Fields(os.Getenv("GOFLAGS")), tag) {
+		return true
+	}
+	var params struct {
+		InitializationOptions struct {
+			BuildFlags []string `json:"buildFlags"`
+			Settings   struct {
+				BuildFlags []string `json:"buildFlags"`
+				Gopls      struct {
+					BuildFlags []string `json:"buildFlags"`
+				} `json:"gopls"`
+			} `json:"settings"`
+		} `json:"initializationOptions"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return false
+	}
+	for _, flags := range [][]string{
+		params.InitializationOptions.BuildFlags,
+		params.InitializationOptions.Settings.BuildFlags,
+		params.InitializationOptions.Settings.Gopls.BuildFlags,
+	} {
+		if buildFlagsContainTag(flags, tag) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildFlagsContainTag(flags []string, tag string) bool {
+	for _, flag := range flags {
+		for _, part := range strings.Split(flag, "=") {
+			if part == tag || strings.Contains(part, tag+",") || strings.Contains(part, ","+tag) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool {
@@ -119,7 +302,10 @@ func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 	if uri == "" {
 		return true
 	}
-	go func() {
+	if os.Getenv(fakeGoplsPullDiagnosticsOnlyEnv) == "1" {
+		return true
+	}
+	writer.goAsync(func() {
 		_ = writer.writeNotification("window/logMessage", map[string]any{
 			"type":    1,
 			"message": fakeGoplsOrphanedFilesWarning,
@@ -128,17 +314,49 @@ func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 			"uri":         uri,
 			"diagnostics": []any{},
 		})
-	}()
+	})
 	return true
 }
 
 func fakeGoplsResult(req fakeLSPRequest) any {
 	switch req.Method {
 	case "initialize":
-		return map[string]any{
-			"capabilities": map[string]any{
-				"textDocumentSync": 1,
+		capabilities := map[string]any{
+			"textDocumentSync":       1,
+			"hoverProvider":          true,
+			"documentSymbolProvider": true,
+		}
+		if os.Getenv(fakeGoplsSuppressDiagnosticProviderEnv) != "1" {
+			capabilities["diagnosticProvider"] = map[string]any{
+				"interFileDependencies": true,
+				"workspaceDiagnostics":  false,
+			}
+		}
+		return map[string]any{"capabilities": capabilities}
+	case "textDocument/documentSymbol":
+		return []map[string]any{{
+			"name": "main",
+			"kind": 12,
+			"range": map[string]any{
+				"start": map[string]any{"line": 2, "character": 0},
+				"end":   map[string]any{"line": 2, "character": 14},
 			},
+			"selectionRange": map[string]any{
+				"start": map[string]any{"line": 2, "character": 5},
+				"end":   map[string]any{"line": 2, "character": 9},
+			},
+		}}
+	case "textDocument/hover":
+		return map[string]any{
+			"contents": map[string]any{
+				"kind":  "markdown",
+				"value": "```go\nfunc main()\n```",
+			},
+		}
+	case "textDocument/diagnostic":
+		return map[string]any{
+			"kind":  "full",
+			"items": []any{},
 		}
 	case "shutdown":
 		return nil

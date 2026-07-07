@@ -56,7 +56,7 @@ func TestHookRelayDrainAfterShutdown(t *testing.T) {
 	w.Start()
 
 	payload := mcp.HookPayload{AgentID: "agent-A", ThreadID: "thread-A", Context: json.RawMessage(`{}`)}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		w.Enqueue("session.start", time.Now(), payload)
 	}
 
@@ -86,14 +86,16 @@ func TestHookDispatchWorkerEnqueueNonBlockingUnderSlowFanout(t *testing.T) {
 
 	payload := mcp.HookPayload{AgentID: "agent-A", ThreadID: "thread-A", Context: json.RawMessage(`{}`)}
 	enqueueDone := make(chan struct{})
-	go func() {
-		for i := 0; i < 32; i++ {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 32 {
 			w.Enqueue("session.start", time.Now(), payload)
 		}
 		close(enqueueDone)
-	}()
+	})
 	select {
 	case <-enqueueDone:
+		wg.Wait()
 	case <-time.After(time.Second):
 		t.Fatalf("Enqueue blocked while DispatchAfter was stuck; pre-P2 fire-and-forget replacement must stay non-blocking")
 	}

@@ -40,6 +40,7 @@ type Item struct {
 	lookupKey   string
 }
 
+// AppendedEmitter 是 timeline 追加事件发送到 UI patch 总线的回调。
 type AppendedEmitter func(uidto.UITimelineAppended)
 
 func itemLookupKey(item Item) string {
@@ -64,6 +65,7 @@ func toolCallLookupKey(item Item) string {
 	return timelineID("tool", tool, callID)
 }
 
+// Service 管理 thread timeline 的追加、更新和快照读取。
 type Service interface {
 	Append(threadID, agentID string, item Item)
 	UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool

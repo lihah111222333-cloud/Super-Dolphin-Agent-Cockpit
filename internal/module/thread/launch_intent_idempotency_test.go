@@ -62,10 +62,10 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 	results := make(chan StartResult, n)
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
-	wg.Add(n)
+	workersDone := make(chan struct{})
+	registerThreadGoroutineCleanup(t, workersDone, "launch intent")
 	for range n {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			result, err := svc.Start(context.Background(), req)
 			if err != nil {
@@ -73,10 +73,11 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 				return
 			}
 			results <- result
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
+	close(workersDone)
 	close(results)
 	close(errs)
 
@@ -499,9 +500,21 @@ func (snapshotPromptAssembly) Invalidate(context.Context, contract.InvalidateRea
 
 type launchIntentSessionProvider struct {
 	*stubSessionProvider
+	generation uint64
 }
 
-func (p *launchIntentSessionProvider) SessionGeneration(string) uint64 { return 1 }
+func (p *launchIntentSessionProvider) SessionGeneration(string) uint64 { return p.generation }
+
+func (p *launchIntentSessionProvider) RemoveSessionGeneration(agentID string, generation uint64) {
+	if generation == p.generation {
+		p.RemoveSession(agentID)
+	}
+}
+
+func (p *launchIntentSessionProvider) register(session contract.Session) {
+	p.generation++
+	p.session = session
+}
 
 type launchIntentOrchestration struct {
 	launches       []LaunchAgentRequest
@@ -532,11 +545,15 @@ func eagerSnapshotFailureFixture(t *testing.T) (*cleanupCountingThreadStore, *st
 	bindings := &stubBindingStore{}
 	session := &stubSession{threadID: "018f00e0-39fc-72ac-a47a-2a858c75d111"}
 	orch := &launchIntentOrchestration{bindGeneration: 1}
+	sessionProvider := &launchIntentSessionProvider{stubSessionProvider: &stubSessionProvider{}}
 	svc := &service{
-		threadStore:    threads,
-		bindingStore:   bindings,
-		starter:        &stubSessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) { return session, nil }},
-		sessions:       &launchIntentSessionProvider{stubSessionProvider: &stubSessionProvider{session: session}},
+		threadStore:  threads,
+		bindingStore: bindings,
+		starter: &stubSessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			sessionProvider.register(session)
+			return session, nil
+		}},
+		sessions:       sessionProvider,
 		orchestration:  orch,
 		promptAssembly: snapshotPromptAssembly{},
 	}

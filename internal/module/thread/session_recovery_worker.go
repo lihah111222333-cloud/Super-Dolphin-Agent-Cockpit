@@ -10,6 +10,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -71,14 +72,9 @@ func (w *sessionRecoveryWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					pkglogger.Error("thread: recovered session_recovery_worker panic", "panic", rec)
-				}
-			}()
+		safego.Go(w.ctx, pkglogger.Get(), "thread.session_recovery.worker", func(context.Context) {
 			w.runWorker()
-		}()
+		})
 	})
 }
 
@@ -179,15 +175,11 @@ func (w *sessionRecoveryWorker) drainPending() {
 	w.mu.Unlock()
 	for _, ev := range batch {
 		w.inflight.Add(1)
-		go func(ev agentdto.AgentFailed) {
-			defer func() {
-				if rec := recover(); rec != nil {
-					pkglogger.Error("thread: recovered session_recovery per-event panic", "panic", rec)
-				}
-				w.inflight.Done()
-			}()
-			w.recoverer.processSessionRecovery(w.ctx, ev)
+		event := ev
+		safego.Go(w.ctx, pkglogger.Get(), "thread.session_recovery.event", func(context.Context) {
+			defer w.inflight.Done()
+			w.recoverer.processSessionRecovery(w.ctx, event)
 			w.processedTotal.Add(1)
-		}(ev)
+		})
 	}
 }

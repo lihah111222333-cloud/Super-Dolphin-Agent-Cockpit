@@ -86,6 +86,19 @@ func (q *Queries) CheckHookReviewIdempotency(ctx context.Context, arg CheckHookR
 	return already_resolved, err
 }
 
+const countHookPendingReviews = `-- name: CountHookPendingReviews :one
+SELECT COUNT(*)
+FROM hook_pending_reviews
+WHERE status = 'pending'
+`
+
+func (q *Queries) CountHookPendingReviews(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countHookPendingReviews)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getHookPendingReview = `-- name: GetHookPendingReview :one
 SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
@@ -202,7 +215,8 @@ SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payl
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE agent_id = ? AND status = 'pending'
-ORDER BY created_at ASC
+ORDER BY created_at ASC, hook_call_id ASC
+LIMIT 500
 `
 
 type ListHookPendingReviewsByAgentParams struct {
@@ -232,6 +246,82 @@ func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHoo
 	items := []ListHookPendingReviewsByAgentRow{}
 	for rows.Next() {
 		var i ListHookPendingReviewsByAgentRow
+		if err := rows.Scan(
+			&i.HookCallID,
+			&i.Topic,
+			&i.AgentID,
+			&i.ThreadID,
+			&i.TurnID,
+			&i.SubscriberLease,
+			&i.Payload,
+			&i.DefaultAction,
+			&i.Status,
+			&i.CreatedAt,
+			&i.DeadlineAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHookPendingReviewsByAgentPage = `-- name: ListHookPendingReviewsByAgentPage :many
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
+       status, created_at, deadline_at
+FROM hook_pending_reviews
+WHERE agent_id = ?1
+  AND status = 'pending'
+  AND (
+      ?2 = 0
+      OR created_at > ?2
+      OR (created_at = ?2 AND hook_call_id > ?3)
+  )
+ORDER BY created_at ASC, hook_call_id ASC
+LIMIT ?4 + 1
+`
+
+type ListHookPendingReviewsByAgentPageParams struct {
+	AgentID          string      `db:"agent_id" json:"agent_id"`
+	CursorCreatedAt  interface{} `db:"cursor_created_at" json:"cursor_created_at"`
+	CursorHookCallID string      `db:"cursor_hook_call_id" json:"cursor_hook_call_id"`
+	Limit            interface{} `db:"limit" json:"limit"`
+}
+
+type ListHookPendingReviewsByAgentPageRow struct {
+	HookCallID      string          `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string          `db:"topic" json:"topic"`
+	AgentID         string          `db:"agent_id" json:"agent_id"`
+	ThreadID        string          `db:"thread_id" json:"thread_id"`
+	TurnID          string          `db:"turn_id" json:"turn_id"`
+	SubscriberLease string          `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         json.RawMessage `db:"payload" json:"payload"`
+	DefaultAction   string          `db:"default_action" json:"default_action"`
+	Status          string          `db:"status" json:"status"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	DeadlineAt      int64           `db:"deadline_at" json:"deadline_at"`
+}
+
+func (q *Queries) ListHookPendingReviewsByAgentPage(ctx context.Context, arg ListHookPendingReviewsByAgentPageParams) ([]ListHookPendingReviewsByAgentPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHookPendingReviewsByAgentPage,
+		arg.AgentID,
+		arg.CursorCreatedAt,
+		arg.CursorHookCallID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListHookPendingReviewsByAgentPageRow{}
+	for rows.Next() {
+		var i ListHookPendingReviewsByAgentPageRow
 		if err := rows.Scan(
 			&i.HookCallID,
 			&i.Topic,

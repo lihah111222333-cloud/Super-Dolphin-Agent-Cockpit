@@ -45,6 +45,80 @@ func identityConfig(t *testing.T, key string) map[string]any {
 	}
 }
 
+// TestCanonicalStartRuntimeConfigPreservesRestrictedReadOnlySandboxPolicy 确认 native tool 只读收敛
+// 不能抹掉用户已经配置好的 restricted readable roots。
+func TestCanonicalStartRuntimeConfigPreservesRestrictedReadOnlySandboxPolicy(t *testing.T) {
+	out := canonicalStartRuntimeConfig(map[string]any{
+		"sandbox": map[string]any{
+			"type": "readOnly",
+			"access": map[string]any{
+				"type":                    "restricted",
+				"readableRoots":           []string{"/repo/app", "/Users/ai/shared"},
+				"includePlatformDefaults": true,
+			},
+		},
+		codexDisabledNativeToolsConfigKey: []string{contract.CodexNativeToolApplyPatch},
+	})
+
+	if out["sandbox"] != "read-only" {
+		t.Fatalf("sandbox = %#v, want read-only", out["sandbox"])
+	}
+	assertRestrictedReadOnlyPolicyValue(t, out["sandboxPolicy"], []string{"/repo/app", "/Users/ai/shared"}, true)
+}
+
+func assertRestrictedReadOnlyPolicyValue(t *testing.T, raw any, roots []string, includePlatformDefaults bool) {
+	t.Helper()
+	policy, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("sandboxPolicy = %#v, want object", raw)
+	}
+	if policy["type"] != "readOnly" {
+		t.Fatalf("sandboxPolicy.type = %#v, want readOnly; policy=%#v", policy["type"], policy)
+	}
+	access, ok := policy["access"].(map[string]any)
+	if !ok {
+		t.Fatalf("sandboxPolicy.access = %#v, want object; policy=%#v", policy["access"], policy)
+	}
+	if access["type"] != "restricted" {
+		t.Fatalf("sandboxPolicy.access.type = %#v, want restricted; access=%#v", access["type"], access)
+	}
+	gotRoots := anyStringSlice(access["readableRoots"])
+	if len(gotRoots) != len(roots) {
+		t.Fatalf("sandboxPolicy.access.readableRoots = %#v, want %#v", access["readableRoots"], roots)
+	}
+	for index := range roots {
+		if gotRoots[index] != roots[index] {
+			t.Fatalf("sandboxPolicy.access.readableRoots = %#v, want %#v", gotRoots, roots)
+		}
+	}
+	if access["includePlatformDefaults"] != includePlatformDefaults {
+		t.Fatalf(
+			"sandboxPolicy.access.includePlatformDefaults = %#v, want %#v",
+			access["includePlatformDefaults"],
+			includePlatformDefaults,
+		)
+	}
+}
+
+func anyStringSlice(raw any) []string {
+	switch typed := raw.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				return nil
+			}
+			out = append(out, text)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 type recordingSkillMirrorReconciler struct {
 	events  *[]string
 	err     error

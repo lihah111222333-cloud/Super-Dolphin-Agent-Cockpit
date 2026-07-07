@@ -533,6 +533,57 @@ func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
 	}
 }
 
+func TestWaitDiagnosticsStableTreatsProjectMissingDiagnosticsAsEmptyAfterGrace(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"missing-diagnostics-empty"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "const value = 1\n")
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    ClientFactoryFunc(newNoPublishDiagnosticsClient),
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DiagnosticsMaxWait:               200 * time.Millisecond,
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), time.Second)
+	defer cancel()
+	uri := fileURIFromPath(target)
+
+	if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want omitted empty diagnostics to become ready after grace", err)
+	}
+	items, err := mgr.Diagnostics(ctx, []string{uri})
+	if err != nil {
+		t.Fatalf("Diagnostics() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Diagnostics) != 0 {
+		t.Fatalf("Diagnostics() = %#v, want one empty diagnostics snapshot", items)
+	}
+}
+
+func newNoPublishDiagnosticsClient(string, protocol.NotificationHandler) (Client, error) {
+	return noPublishDiagnosticsClient{}, nil
+}
+
+type noPublishDiagnosticsClient struct{}
+
+func (noPublishDiagnosticsClient) Initialize(context.Context, string) error { return nil }
+func (noPublishDiagnosticsClient) Shutdown(context.Context) error           { return nil }
+func (noPublishDiagnosticsClient) Notify(context.Context, string, any) error {
+	return nil
+}
+func (noPublishDiagnosticsClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	return json.RawMessage("null"), nil
+}
+func (noPublishDiagnosticsClient) DidOpen(context.Context, string, string, int, string) error {
+	return nil
+}
+func (noPublishDiagnosticsClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+	return nil
+}
+func (noPublishDiagnosticsClient) DidClose(context.Context, string) error { return nil }
+func (noPublishDiagnosticsClient) Close() error                           { return nil }
+
 func TestWaitDiagnosticsStableFailsWhenAnyRequestedTargetNeverPublishes(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"partial-diagnostics"}`)
@@ -583,12 +634,57 @@ func TestPublishEmptyDiagnosticsCountsAsObservedReadySnapshot(t *testing.T) {
 	}
 }
 
+func TestWaitDiagnosticsStableRetriesPullDiagnosticsForMissingTargets(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"pull-diagnostics"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "const value = 1\n")
+	factory := &diagnosticsRefreshClientFactory{
+		diagnosticProvider: true,
+		diagnosticReports: []json.RawMessage{
+			json.RawMessage("null"),
+			json.RawMessage(`{"kind":"full","items":[{"message":"pulled diagnostic"}]}`),
+		},
+	}
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          10 * time.Millisecond,
+		DiagnosticsMaxWait:               500 * time.Millisecond,
+		LanguageAdapters:                 NewDefaultLanguageAdapterRegistry(),
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), time.Second)
+	defer cancel()
+	uri := fileURIFromPath(target)
+
+	if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want retry pull diagnostics success", err)
+	}
+	if got := factory.currentClient().requestCount; got < 2 {
+		t.Fatalf("pull diagnostics requests = %d, want retry after initial missing pull", got)
+	}
+	items, err := mgr.Diagnostics(ctx, []string{uri})
+	if err != nil {
+		t.Fatalf("Diagnostics() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Diagnostics) != 1 || items[0].Diagnostics[0].Message != "pulled diagnostic" {
+		t.Fatalf("Diagnostics() = %#v, want pulled diagnostic", items)
+	}
+}
+
 type diagnosticsRefreshClientFactory struct {
-	client *diagnosticsRefreshClient
+	client             *diagnosticsRefreshClient
+	diagnosticProvider any
+	diagnosticReports  []json.RawMessage
 }
 
 func (f *diagnosticsRefreshClientFactory) NewClient(_ string, handler protocol.NotificationHandler) (Client, error) {
-	f.client = &diagnosticsRefreshClient{handler: handler}
+	f.client = &diagnosticsRefreshClient{
+		handler:            handler,
+		diagnosticProvider: f.diagnosticProvider,
+		diagnosticReports:  append([]json.RawMessage(nil), f.diagnosticReports...),
+	}
 	return f.client, nil
 }
 
@@ -597,8 +693,11 @@ func (f *diagnosticsRefreshClientFactory) currentClient() *diagnosticsRefreshCli
 }
 
 type diagnosticsRefreshClient struct {
-	handler        protocol.NotificationHandler
-	didChangeCount int
+	handler            protocol.NotificationHandler
+	diagnosticProvider any
+	diagnosticReports  []json.RawMessage
+	requestCount       int
+	didChangeCount     int
 }
 
 func (c *diagnosticsRefreshClient) Initialize(context.Context, string) error {
@@ -609,8 +708,20 @@ func (c *diagnosticsRefreshClient) Shutdown(context.Context) error {
 	return nil
 }
 
-func (c *diagnosticsRefreshClient) Request(context.Context, string, any) (json.RawMessage, error) {
+func (c *diagnosticsRefreshClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	if method == protocol.MethodTextDocumentDiagnostic {
+		c.requestCount++
+		if len(c.diagnosticReports) > 0 {
+			report := c.diagnosticReports[0]
+			c.diagnosticReports = c.diagnosticReports[1:]
+			return report, nil
+		}
+	}
 	return json.RawMessage("null"), nil
+}
+
+func (c *diagnosticsRefreshClient) ServerCapabilities() protocol.ServerCapabilities {
+	return protocol.ServerCapabilities{DiagnosticProvider: c.diagnosticProvider}
 }
 
 func (c *diagnosticsRefreshClient) Notify(context.Context, string, any) error {

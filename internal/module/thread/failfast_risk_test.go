@@ -52,6 +52,42 @@ func TestUpsertPublicThreadRequiresThreadStore(t *testing.T) {
 	}
 }
 
+func TestStartPersistsSubagentIdentityFields(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f607"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:           "agent-subagent",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Prompt:            "start",
+		ParentAgentID:     "agent-root",
+		AgentType:         "worker",
+		AgentMemoryScope:  "project",
+		Config:            map[string]any{contract.CodexHomeKey: t.TempDir(), contract.CodexInstanceKeyKey: "default", contract.CodexModelProviderKey: "openai"},
+		PromptAssemblyRef: promptAssemblyForTest("start"),
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if threads.upsert.ParentAgentID != "agent-root" ||
+		threads.upsert.AgentType != "worker" ||
+		threads.upsert.AgentMemoryScope != "project" {
+		t.Fatalf("thread upsert identity = %#v, want parent/type/scope persisted", threads.upsert)
+	}
+}
+
 func TestSavePromptSnapshotRequiresThreadStore(t *testing.T) {
 	t.Parallel()
 
@@ -89,6 +125,22 @@ func TestResolveStablePromptSnapshotPropagatesStoreError(t *testing.T) {
 	)
 	if !errors.Is(err, cause) {
 		t.Fatalf("resolveStablePromptSnapshot() error = %v, want %v", err, cause)
+	}
+}
+
+func TestResolveStablePromptSnapshotFailsWhenThreadMetaMissing(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{threadStore: &stubThreadStore{threadByID: map[string]*threadstore.Thread{}}}
+
+	_, err := svc.resolveStablePromptSnapshot(
+		context.Background(),
+		"thread-missing",
+		"codex",
+		contract.PromptAssemblySnapshot{},
+	)
+	if err == nil || !strings.Contains(err.Error(), `thread "thread-missing" missing`) {
+		t.Fatalf("resolveStablePromptSnapshot() error = %v, want missing thread meta error", err)
 	}
 }
 
@@ -136,7 +188,19 @@ func TestForkSavesInheritedPromptSnapshotAfterNewThreadRowExists(t *testing.T) {
 	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
 	bindings := forkParentBindingStore()
-	threads := &snapshotRequiresThreadRowStore{stubThreadStore: forkParentThreadStore()}
+	bindings.binding.ParentAgentID = "agent-root"
+	bindings.binding.AgentType = "worker"
+	bindings.binding.AgentMemoryScope = "project"
+	parentThreads := forkParentThreadStore()
+	parentThreads.thread.ParentAgentID = "agent-root"
+	parentThreads.thread.AgentType = "worker"
+	parentThreads.thread.AgentMemoryScope = "project"
+	threads := &snapshotRequiresThreadRowStore{
+		stubThreadStore:      parentThreads,
+		wantParentAgentID:    "agent-root",
+		wantAgentType:        "worker",
+		wantAgentMemoryScope: "project",
+	}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		sessions.session = forkedSession
 		return forkedSession, nil
@@ -157,13 +221,52 @@ func TestForkSavesInheritedPromptSnapshotAfterNewThreadRowExists(t *testing.T) {
 
 type snapshotRequiresThreadRowStore struct {
 	*stubThreadStore
+	wantParentAgentID    string
+	wantAgentType        string
+	wantAgentMemoryScope string
 }
 
 func (s *snapshotRequiresThreadRowStore) SavePromptSnapshot(ctx context.Context, threadID string, snapshot threadstore.PromptSnapshot) error {
 	if s.thread == nil || s.thread.ThreadID != threadID {
 		return fmt.Errorf("new thread row %q does not exist before snapshot save", threadID)
 	}
+	if s.wantParentAgentID != "" &&
+		(s.upsert.ParentAgentID != s.wantParentAgentID ||
+			s.upsert.AgentType != s.wantAgentType ||
+			s.upsert.AgentMemoryScope != s.wantAgentMemoryScope) {
+		return fmt.Errorf("fork creating upsert identity = %#v, want parent/type/scope", s.upsert)
+	}
 	return s.stubThreadStore.SavePromptSnapshot(ctx, threadID, snapshot)
+}
+
+func TestForkFailsWhenThreadMetaMissing(t *testing.T) {
+	t.Parallel()
+	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	originalSession := &stubSession{threadID: providerThreadID, forkResult: dto.ForkResult{NewThreadID: "thread-fork"}}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
+	sessions := &stubSessionProvider{session: originalSession}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{AgentID: "thread-parent", Provider: "claude", ProviderThreadID: providerThreadID, SessionUUID: providerThreadID, CodexThreadID: "thread-parent", Cwd: "/repo"}}
+	threads := &stubThreadStore{threadByID: map[string]*threadstore.Thread{}, promptSnapshot: &threadstore.PromptSnapshot{
+		DisplayName:           "Forked Thread",
+		BaseInstructions:      "stored base",
+		DeveloperInstructions: "stored dev",
+		Provider:              "claude",
+		Version:               contract.PromptAssemblySnapshotVersion,
+		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "claude", nil, nil, 0),
+	}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if err == nil || !strings.Contains(err.Error(), `thread "thread-parent" missing`) {
+		t.Fatalf("Fork() error = %v, want missing thread meta error", err)
+	}
+	if originalSession.forkRequest.ThreadID != "" || orch.launch.AgentID != "" {
+		t.Fatalf("side effects before meta lookup failed: forkRequest=%#v launch=%#v", originalSession.forkRequest, orch.launch)
+	}
 }
 
 func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
@@ -264,6 +367,221 @@ func TestPersistResumedSessionCleansRuntimeOnThreadStoreFailure(t *testing.T) {
 	if len(sessions.removed) != 1 || sessions.removed[0] != "agent-resume" {
 		t.Fatalf("removed sessions = %#v, want [agent-resume]", sessions.removed)
 	}
+}
+
+func TestRecoverFailsWhenThreadMetaLookupErrors(t *testing.T) {
+	t.Parallel()
+
+	storeErr := errors.New("thread metadata store unavailable")
+	threads := &stubThreadStore{getErr: storeErr}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "codex",
+		ProviderThreadID: "provider-parent",
+		CodexThreadID:    "thread-parent",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, &stubSessionStarter{}, nil, orch, nil).(*service)
+
+	_, err := svc.Recover(context.Background(), "thread-parent")
+	if !errors.Is(err, storeErr) {
+		t.Fatalf("Recover() error = %v, want %v", err, storeErr)
+	}
+	if len(orch.recovered) != 0 || orch.launch.AgentID != "" || threads.upsertCount != 0 {
+		t.Fatalf("side effects before meta lookup failed: recovered=%#v launch=%#v upserts=%d", orch.recovered, orch.launch, threads.upsertCount)
+	}
+}
+
+func TestRecoverUsesPersistedSubagentIdentity(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:         "thread-parent",
+		AgentID:          "agent-parent",
+		ParentAgentID:    "agent-root-from-thread",
+		AgentType:        "worker-from-thread",
+		AgentMemoryScope: "project-from-thread",
+		Prompt:           "Recovered Thread",
+		Model:            "gpt-5.5",
+		Cwd:              "/repo",
+		CreatedAt:        123,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "codex",
+		ProviderThreadID: "provider-parent",
+		CodexThreadID:    "thread-parent",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	orch := &forkOrchestrationStub{recoverErr: contract.ErrAgentNotFound}
+	svc := NewService(silentLogger(), threads, bindings, sessions, &stubSessionStarter{}, nil, orch, nil).(*service)
+
+	if _, err := svc.Recover(context.Background(), "thread-parent"); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if orch.launch.ParentID != "agent-root-from-thread" ||
+		orch.launch.AgentType != "worker-from-thread" ||
+		orch.launch.MemoryScope != "project-from-thread" {
+		t.Fatalf("recover launch identity = %#v, want persisted thread identity", orch.launch)
+	}
+	if threads.upsert.ParentAgentID != "agent-root-from-thread" ||
+		threads.upsert.AgentType != "worker-from-thread" ||
+		threads.upsert.AgentMemoryScope != "project-from-thread" {
+		t.Fatalf("recover upsert identity = %#v, want persisted thread identity", threads.upsert)
+	}
+}
+
+func TestStartFailureCleansProviderSessionBeforeStoppingAgent(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	sessions := &cleanupGenerationSessionProvider{generation: 7, calls: &calls}
+	sessions.session = &cleanupRecordingSession{
+		stubSession: &stubSession{threadID: "agent-start"},
+		calls:       &calls,
+	}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			return sessions.session, nil
+		},
+	}
+	orch := &startCleanupOrchestration{calls: &calls}
+	svc := NewService(silentLogger(), &stubThreadStore{}, nil, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:           "agent-start",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Prompt:            "start",
+		PromptAssemblyRef: promptAssemblyForTest("start"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider session UUID required") {
+		t.Fatalf("Start() error = %v, want provider UUID failure", err)
+	}
+	closeIdx := callIndex(calls, "session_close:agent-start")
+	removeIdx := callIndex(calls, "session_remove_generation:agent-start:7")
+	stopIdx := callIndex(calls, "agent_stop:agent-start")
+	if closeIdx == -1 || removeIdx == -1 || stopIdx == -1 || !(closeIdx < stopIdx && removeIdx < stopIdx) {
+		t.Fatalf("cleanup calls = %#v, want close/remove before stop", calls)
+	}
+}
+
+func TestStartFailureCleanupUsesGenerationGuard(t *testing.T) {
+	t.Parallel()
+
+	bindErr := errors.New("bind generation failed")
+	calls := []string{}
+	sessions := &cleanupGenerationSessionProvider{generation: 7, calls: &calls}
+	replacement := &stubSession{threadID: "new-session"}
+	sessions.session = &cleanupRecordingSession{
+		stubSession: &stubSession{threadID: "agent-start"},
+		calls:       &calls,
+		onClose: func() {
+			sessions.generation = 8
+			sessions.session = replacement
+		},
+	}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			return sessions.session, nil
+		},
+	}
+	orch := &startCleanupOrchestration{bindErr: bindErr, calls: &calls}
+	svc := NewService(silentLogger(), &stubThreadStore{}, nil, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:           "agent-start",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Prompt:            "start",
+		PromptAssemblyRef: promptAssemblyForTest("start"),
+	})
+	if !errors.Is(err, bindErr) {
+		t.Fatalf("Start() error = %v, want %v", err, bindErr)
+	}
+	if sessions.session != replacement {
+		t.Fatalf("current session = %#v, want replacement preserved by generation guard", sessions.session)
+	}
+	if len(sessions.removed) != 0 {
+		t.Fatalf("plain RemoveSession calls = %#v, want generation guarded removal only", sessions.removed)
+	}
+	if len(sessions.removedGenerations) != 1 || sessions.removedGenerations[0] != 7 {
+		t.Fatalf("removed generations = %#v, want [7]", sessions.removedGenerations)
+	}
+}
+
+type cleanupRecordingSession struct {
+	*stubSession
+	calls   *[]string
+	onClose func()
+}
+
+func (s *cleanupRecordingSession) Close(context.Context) error {
+	recordCall(s.calls, "session_close:"+s.threadID)
+	if s.onClose != nil {
+		s.onClose()
+	}
+	return nil
+}
+
+type cleanupGenerationSessionProvider struct {
+	session            contract.Session
+	generation         uint64
+	calls              *[]string
+	removed            []string
+	removedGenerations []uint64
+}
+
+func (p *cleanupGenerationSessionProvider) GetSession(agentID string) (contract.Session, error) {
+	if p.session == nil {
+		return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
+	}
+	return p.session, nil
+}
+
+func (p *cleanupGenerationSessionProvider) RemoveSession(agentID string) {
+	p.removed = append(p.removed, agentID)
+	recordCall(p.calls, "session_remove:"+agentID)
+	p.session = nil
+}
+
+func (p *cleanupGenerationSessionProvider) SessionGeneration(string) uint64 {
+	return p.generation
+}
+
+func (p *cleanupGenerationSessionProvider) RemoveSessionGeneration(agentID string, generation uint64) {
+	p.removedGenerations = append(p.removedGenerations, generation)
+	recordCall(p.calls, fmt.Sprintf("session_remove_generation:%s:%d", agentID, generation))
+	if generation == p.generation {
+		p.session = nil
+	}
+}
+
+type startCleanupOrchestration struct {
+	bindErr error
+	calls   *[]string
+}
+
+func (s *startCleanupOrchestration) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
+	recordCall(s.calls, "agent_launch:"+req.AgentID)
+	return nil
+}
+
+func (s *startCleanupOrchestration) StopAgent(_ context.Context, agentID string) error {
+	recordCall(s.calls, "agent_stop:"+agentID)
+	return nil
+}
+
+func (s *startCleanupOrchestration) Recover(context.Context, string) error {
+	return nil
+}
+
+func (s *startCleanupOrchestration) BindSessionGeneration(_ context.Context, agentID string, _ uint64) error {
+	recordCall(s.calls, "agent_bind_generation:"+agentID)
+	return s.bindErr
 }
 
 func TestPostSnapshotForkRejectsInvalidPromptSnapshot(t *testing.T) {

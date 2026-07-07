@@ -190,12 +190,14 @@ func TestSessionRecoveryWorkerStopIdempotent(t *testing.T) {
 		t.Fatalf("first Stop = %v", err)
 	}
 	done := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		_ = w.Stop(context.Background())
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
+		wg.Wait()
 	case <-time.After(time.Second):
 		t.Fatal("second Stop did not return")
 	}
@@ -227,13 +229,15 @@ func TestAgentFailedCallbackEnqueueOnly(t *testing.T) {
 	}()
 
 	done := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		svc.onAgentFailed(newAgentFailedForWorker("agent-1", "thread-1", true))
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
+		wg.Wait()
 	case <-time.After(2 * time.Second):
 		t.Fatal("onAgentFailed blocked on synchronous recovery; expected Enqueue-only")
 	}

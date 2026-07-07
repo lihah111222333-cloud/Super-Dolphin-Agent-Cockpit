@@ -81,6 +81,7 @@ echo "==> installing Node-based LSP packages with host npm: $npm_bin"
   vscode-langservers-extracted \
   pyright \
   bash-language-server \
+  sql-language-server \
   shellcheck \
   @ast-grep/cli
 
@@ -111,6 +112,7 @@ WRAP
 write_node_wrapper typescript-language-server typescript-language-server/lib/cli.mjs
 write_node_wrapper vscode-css-language-server vscode-langservers-extracted/bin/vscode-css-language-server
 write_node_wrapper pyright-langserver pyright/langserver.index.js
+write_node_wrapper sql-language-server sql-language-server/npm_bin/cli.js
 
 write_path_wrapper() {
   local name="$1"
@@ -255,6 +257,7 @@ lsp_specs=(
   'pyright|bin/pyright-langserver|["python"]'
   'rust-analyzer|bin/rust-analyzer|["rust"]'
   'bash-language-server|bin/bash-language-server|["shellscript"]'
+  'sql-language-server|bin/sql-language-server|["sql"]'
   'shellcheck|bin/shellcheck|["shellcheck"]'
   'sg|bin/sg|["ast-grep"]'
   'go|bin/go|["go-toolchain"]'

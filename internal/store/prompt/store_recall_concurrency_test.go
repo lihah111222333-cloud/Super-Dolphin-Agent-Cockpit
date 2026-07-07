@@ -30,6 +30,7 @@ func TestRecallTopicLockSerializesSameCWDTopicAcrossDBHandles(t *testing.T) {
 	seedPromptRecallTemplate(t, ctx, dbA, "main/knowledge/b", "/repo/a")
 
 	errs := runRecallWritesConcurrently(
+		t,
 		ctx,
 		func() error {
 			return writeRecallSectionWithBusinessScan(ctx, storeA, "/repo/a", "main/knowledge/a", "recall_sqlc_a", "sqlc-workflow", "A body")
@@ -61,7 +62,11 @@ func TestRecallTopicLockRetriesBusyUntilConcurrentWriterCommits(t *testing.T) {
 	lockHeld := make(chan struct{})
 	releaseLock := make(chan struct{})
 	leftDone := make(chan error, 1)
-	go func() {
+	leftWorkerDone := make(chan struct{})
+	registerRecallGoroutineCleanup(t, leftWorkerDone, "recall lock holder")
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		defer close(leftWorkerDone)
 		leftDone <- storeA.WithTx(ctx, func(txStore Store) error {
 			template, err := txStore.Get(ctx, "main/knowledge/a")
 			if err != nil {
@@ -92,7 +97,7 @@ func TestRecallTopicLockRetriesBusyUntilConcurrentWriterCommits(t *testing.T) {
 			}
 			return txStore.UpsertRecallTopicTargetInCWD(ctx, "/repo/a", section.RecallTopic, section.TemplateID, section.SectionKey)
 		})
-	}()
+	})
 
 	select {
 	case <-lockHeld:
@@ -104,6 +109,7 @@ func TestRecallTopicLockRetriesBusyUntilConcurrentWriterCommits(t *testing.T) {
 
 	rightErr := writeRecallSectionWithBusinessScan(ctx, storeB, "/repo/a", "main/knowledge/b", "recall_sqlc_b", "sqlc-workflow", "B body")
 	leftErr := <-leftDone
+	wg.Wait()
 
 	assertOneSuccessOneDuplicate(t, []error{leftErr, rightErr})
 	assertVisibleRecallSectionCount(t, ctx, storeA, "/repo/a", "sqlc-workflow", 1)
@@ -123,6 +129,7 @@ func TestRecallTopicLockAllowsSameTopicInDifferentCWDsAcrossDBHandles(t *testing
 	seedPromptRecallTemplate(t, ctx, dbA, "main/knowledge/b", "/repo/b")
 
 	errs := runRecallWritesConcurrently(
+		t,
 		ctx,
 		func() error {
 			return writeRecallSectionWithBusinessScan(ctx, storeA, "/repo/a", "main/knowledge/a", "recall_sqlc", "sqlc-workflow", "A body")
@@ -210,27 +217,39 @@ func seedPromptRecallTemplate(t *testing.T, ctx context.Context, db *sql.DB, pro
 	}
 }
 
-func runRecallWritesConcurrently(ctx context.Context, left, right func() error) []error {
+func runRecallWritesConcurrently(t *testing.T, ctx context.Context, left, right func() error) []error {
+	t.Helper()
 	start := make(chan struct{})
 	errs := make([]error, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	workersDone := make(chan struct{})
+	registerRecallGoroutineCleanup(t, workersDone, "recall write")
+	wg.Go(func() {
 		<-start
 		errs[0] = left()
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		errs[1] = right()
-	}()
+	})
 	close(start)
 	wg.Wait()
+	close(workersDone)
 	if err := ctx.Err(); err != nil {
 		errs = append(errs, err)
 	}
 	return errs
+}
+
+func registerRecallGoroutineCleanup(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s goroutines did not stop", label)
+		}
+	})
 }
 
 func writeRecallSectionWithBusinessScan(ctx context.Context, store Store, cwd, promptKey, sectionKey, topic, body string) error {

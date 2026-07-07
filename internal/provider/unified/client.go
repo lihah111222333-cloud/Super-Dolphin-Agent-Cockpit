@@ -12,6 +12,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Client 是 provider 统一启动和恢复入口。
+// 它通过 Registry 解析具体 driver，并在成功后把 session 注册到 SessionManager。
 type Client struct {
 	registry *Registry
 	sessions *SessionManager

@@ -8,10 +8,12 @@ import (
 	"strings"
 	"sync"
 
+	orch "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -31,7 +33,6 @@ type LaunchAgentInput struct {
 	ContextMode        string `json:"context_mode,omitempty"`
 	Context            string `json:"context,omitempty"`
 	ParentID           string `json:"parent_id,omitempty"`
-	ParentThreadID     string `json:"parent_thread_id,omitempty"`
 	AgentType          string `json:"agent_type,omitempty"`
 	ReadOnly           bool   `json:"read_only,omitempty"`
 	AgentKey           string `json:"agent_key,omitempty"`
@@ -98,7 +99,7 @@ type launchAgentSnapshotter interface {
 
 // agentArchiver 是支持 ArchiveAgent 的 orchestration service 可选接口。
 type agentArchiver interface {
-	ArchiveAgent(context.Context, string) error
+	ArchiveAgent(context.Context, string) (orch.ArchiveOutcome, error)
 }
 
 // 下列包级 enum 切片是 schema 与 handler 层 requireEnum 的单一真源。
@@ -171,7 +172,7 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 		}
 		// 异步启动立即返回，避免 MCP 工具调用超过 app-server 超时；
 		// 后台 goroutine 有 AsyncLaunchTimeout 上限，调用方通过 list/report 工具观察结果。
-		go func() {
+		safego.Go(context.Background(), nil, "mcp-orch.tools.launchAgent", func(context.Context) {
 			defer releaseAgentID()
 			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 			defer cancel()
@@ -179,7 +180,7 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 				pkglogger.Warn("orchestration_launch_agent: async launch failed",
 					"agent_id", req.AgentID, "error", err)
 			}
-		}()
+		})
 		return successResult(map[string]any{"agent_id": req.AgentID, "status": "launching"}), nil
 	})
 }
@@ -409,10 +410,14 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 		if archiver, ok := svc.(agentArchiver); ok {
 			pkglogger.Info("orchestration_stop_agent: dispatching to ArchiveAgent (recycle path)",
 				"agent_id", agentID)
-			if err := archiver.ArchiveAgent(ctx, agentID); err != nil {
+			outcome, err := archiver.ArchiveAgent(ctx, agentID)
+			if err != nil {
 				return nil, err
 			}
-			archived = true
+			archived = outcome.Archived()
+			if !archived {
+				return nil, fmt.Errorf("%w: %s", contract.ErrAgentNotFound, agentID)
+			}
 		} else {
 			pkglogger.Warn("orchestration_stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
 				"agent_id", agentID,
@@ -538,20 +543,19 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		return contract.LaunchRequest{}, err
 	}
 	req := contract.LaunchRequest{
-		AgentID:        agentID,
-		Name:           name,
-		Prompt:         prompt,
-		ParentID:       strings.TrimSpace(in.ParentID),
-		ParentThreadID: strings.TrimSpace(in.ParentThreadID),
-		ContextMode:    contextMode,
-		AgentType:      strings.TrimSpace(in.AgentType),
-		AgentKey:       strings.TrimSpace(in.AgentKey),
-		PromptKey:      strings.TrimSpace(in.PromptKey),
-		MemoryScope:    memoryScope,
-		Cwd:            in.CWD,
-		Command:        []string{strings.TrimSpace(exe)},
-		Env:            launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
-		Language:       strings.TrimSpace(in.Language),
+		AgentID:     agentID,
+		Name:        name,
+		Prompt:      prompt,
+		ParentID:    strings.TrimSpace(in.ParentID),
+		ContextMode: contextMode,
+		AgentType:   strings.TrimSpace(in.AgentType),
+		AgentKey:    strings.TrimSpace(in.AgentKey),
+		PromptKey:   strings.TrimSpace(in.PromptKey),
+		MemoryScope: memoryScope,
+		Cwd:         in.CWD,
+		Command:     []string{strings.TrimSpace(exe)},
+		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
+		Language:    strings.TrimSpace(in.Language),
 	}
 	readOnlyToolSurface := launchReadOnlyToolSurface(in)
 	if dt := mergeLaunchDisabledTools(readOnlyToolSurface, in.DisabledTools); dt != "" {

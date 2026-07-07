@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, MemoryStick, Plus, Search } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
@@ -338,34 +338,60 @@ function useMemoryAutoDream({ dashboard, showNotice }) {
   return { enabled, pendingRestart, toggleAutoDream, toggling: autoToggling };
 }
 
+function useLatestValue(value) {
+  const valueRef = useRef(value);
+  useLayoutEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+  return valueRef;
+}
+
 function useMemoryEditor({ dashboard, showNotice }) {
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [editor, setEditor] = useState({ open: false, mode: 'create', form: defaultMemoryForm('project') });
+  const [editor, setEditor] = useState({ open: false, mode: 'create', scopeCwd: '', form: defaultMemoryForm('project') });
   const [busyKey, setBusyKey] = useState('');
   const [saving, setSaving] = useState(false);
+  const memoryCwdRef = useLatestValue(dashboard.memoryCwd);
+  const editRequestRef = useRef(0);
+  useEffect(() => {
+    editRequestRef.current += 1;
+    setCreateMenuOpen(false);
+    setBusyKey('');
+    setEditor((current) => {
+      if (!current.scopeCwd || current.scopeCwd === dashboard.memoryCwd) return current;
+      return { open: false, mode: 'create', scopeCwd: '', form: defaultMemoryForm('project') };
+    });
+  }, [dashboard.memoryCwd]);
   const updateEditorForm = useCallback((patch) => setEditor((current) => ({ ...current, form: { ...current.form, ...patch } })), []);
   const openCreate = useCallback((type) => {
     if (dashboard.isProjectPending) return;
-    setEditor({ open: true, mode: 'create', form: defaultMemoryForm(type, memoryTargetForType(type)) });
+    if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    editRequestRef.current += 1;
+    setEditor({ open: true, mode: 'create', scopeCwd: dashboard.memoryCwd, form: defaultMemoryForm(type, memoryTargetForType(type)) });
     setCreateMenuOpen(false);
-  }, [dashboard.isProjectPending]);
+  }, [dashboard.isProjectPending, dashboard.memoryCwd, showNotice]);
   const openEdit = useCallback(async (entry) => {
-    if (!dashboard.memoryCwd) return;
+    const requestCwd = dashboard.memoryCwd;
+    if (!requestCwd) return;
+    const requestID = editRequestRef.current + 1;
+    editRequestRef.current = requestID;
     const key = `${entry.target}:${entry.path}`;
     setBusyKey(key);
     try {
-      const detail = await getMemoryEntry({ cwd: dashboard.memoryCwd, target: entry.target, path: entry.path });
+      const detail = await getMemoryEntry({ cwd: requestCwd, target: entry.target, path: entry.path });
+      if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return;
       if (!memoryDetailHasContent(detail)) {
         showNotice('error', '加载失败：记忆详情缺少内容，已阻断编辑保存');
         return;
       }
-      setEditor({ open: true, mode: 'edit', form: memoryEditorFormFromDetail(detail, entry) });
+      setEditor({ open: true, mode: 'edit', scopeCwd: requestCwd, form: memoryEditorFormFromDetail(detail, entry) });
     } catch (err) {
+      if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return;
       showNotice('error', `加载失败：${errorMessage(err)}`);
     } finally {
-      setBusyKey('');
+      if (editRequestRef.current === requestID) setBusyKey('');
     }
-  }, [dashboard.memoryCwd, showNotice]);
+  }, [dashboard.memoryCwd, memoryCwdRef, showNotice]);
   const closeEditor = useCallback(() => {
     if (!saving) setEditor((current) => ({ ...current, open: false }));
   }, [saving]);
@@ -393,6 +419,11 @@ function useMemoryEditorSave({ dashboard, editor, saving, setEditor, setSaving, 
   return useCallback(async () => {
     if (saving) return;
     if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    if (!editor.scopeCwd || editor.scopeCwd !== dashboard.memoryCwd) {
+      setEditor((current) => ({ ...current, open: false }));
+      showNotice('error', '记忆编辑所属项目已变化，请重新打开后再保存');
+      return;
+    }
     const form = editor.form;
     const description = textValue(form.description);
     const content = textValue(form.content);
@@ -401,7 +432,7 @@ function useMemoryEditorSave({ dashboard, editor, saving, setEditor, setSaving, 
     setSaving(true);
     try {
       const type = textValue(form.type) || 'project';
-      await upsertMemoryEntry(memoryUpsertPayload(dashboard.memoryCwd, form, type, description, content));
+      await upsertMemoryEntry(memoryUpsertPayload(editor.scopeCwd, form, type, description, content));
       setEditor((current) => ({ ...current, open: false }));
       showNotice('info', '已保存');
       await dashboard.refreshMemory();
@@ -410,7 +441,7 @@ function useMemoryEditorSave({ dashboard, editor, saving, setEditor, setSaving, 
     } finally {
       setSaving(false);
     }
-  }, [dashboard, editor.form, saving, setEditor, setSaving, showNotice]);
+  }, [dashboard, editor.form, editor.scopeCwd, saving, setEditor, setSaving, showNotice]);
 }
 
 function memoryUpsertPayload(cwd, form, type, description, content) {
@@ -429,13 +460,38 @@ function memoryUpsertPayload(cwd, form, type, description, content) {
 function useMemoryDelete({ dashboard, showNotice }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deletingKey, setDeletingKey] = useState('');
+  useEffect(() => {
+    setDeletingKey('');
+    setDeleteTarget((current) => {
+      if (!current?.scopeCwd || current.scopeCwd === dashboard.memoryCwd) return current;
+      return null;
+    });
+  }, [dashboard.memoryCwd]);
+  const requestDelete = useCallback((entry) => {
+    if (!entry) {
+      setDeleteTarget(null);
+      return;
+    }
+    if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    const scopeCwd = textValue(entry.scopeCwd) || dashboard.memoryCwd;
+    if (scopeCwd !== dashboard.memoryCwd) {
+      showNotice('error', '记忆删除所属项目已变化，请重新打开后再删除');
+      return;
+    }
+    setDeleteTarget({ ...entry, scopeCwd });
+  }, [dashboard.memoryCwd, showNotice]);
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget || deletingKey) return;
     if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    if (!deleteTarget.scopeCwd || deleteTarget.scopeCwd !== dashboard.memoryCwd) {
+      setDeleteTarget(null);
+      showNotice('error', '记忆删除所属项目已变化，请重新打开后再删除');
+      return;
+    }
     const key = `${deleteTarget.target}:${deleteTarget.path}`;
     setDeletingKey(key);
     try {
-      await deleteMemoryEntry({ cwd: dashboard.memoryCwd, target: deleteTarget.target, path: deleteTarget.path });
+      await deleteMemoryEntry({ cwd: deleteTarget.scopeCwd, target: deleteTarget.target, path: deleteTarget.path });
       showNotice('info', `已删除：${memoryEntryTitle(deleteTarget)}`);
       setDeleteTarget(null);
       await dashboard.refreshMemory();
@@ -445,7 +501,7 @@ function useMemoryDelete({ dashboard, showNotice }) {
       setDeletingKey('');
     }
   }, [dashboard, deleteTarget, deletingKey, showNotice]);
-  return { confirmDelete, deletingKey, deleteTarget, setDeleteTarget };
+  return { confirmDelete, deletingKey, deleteTarget, setDeleteTarget: requestDelete };
 }
 
 function useMemorySimilarityActions({ applyConsolidationResult, dashboard, resolveLaunchPreferences, showNotice, similarGroups }) {
@@ -454,20 +510,40 @@ function useMemorySimilarityActions({ applyConsolidationResult, dashboard, resol
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
   const [consolidationJob, setConsolidationJob] = useState(null);
+  useEffect(() => {
+    setMergingKey('');
+    setMergeTarget((current) => {
+      if (!current?.scopeCwd || current.scopeCwd === dashboard.memoryCwd) return current;
+      return null;
+    });
+  }, [dashboard.memoryCwd]);
+  const requestMerge = useCallback((group) => {
+    if (!group) {
+      setMergeTarget(null);
+      return;
+    }
+    if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    setMergeTarget({ ...group, scopeCwd: dashboard.memoryCwd });
+  }, [dashboard.memoryCwd, showNotice]);
   const confirmMerge = useMemoryConfirmMerge({ dashboard, mergeTarget, mergingKey, setMergeTarget, setMergingKey, showNotice });
   const ignoreGroup = useMemoryIgnoreGroup({ dashboard, ignoringKey, setIgnoringKey, showNotice });
   const mergeAllGroups = useMemoryMergeAllGroups({ applyConsolidationResult, consolidationJob, dashboard, mergingAll, resolveLaunchPreferences, setConsolidationJob, setMergingAll, showNotice, similarGroups });
-  return { confirmMerge, consolidationJob, ignoreGroup, ignoringKey, mergeAllGroups, mergeTarget, mergingAll, mergingKey, setConsolidationJob, setMergeTarget };
+  return { confirmMerge, consolidationJob, ignoreGroup, ignoringKey, mergeAllGroups, mergeTarget, mergingAll, mergingKey, setConsolidationJob, setMergeTarget: requestMerge };
 }
 
 function useMemoryConfirmMerge({ dashboard, mergeTarget, mergingKey, setMergeTarget, setMergingKey, showNotice }) {
   return useCallback(async () => {
     if (!mergeTarget || mergingKey) return;
     if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    if (!mergeTarget.scopeCwd || mergeTarget.scopeCwd !== dashboard.memoryCwd) {
+      setMergeTarget(null);
+      showNotice('error', '记忆整合所属项目已变化，请重新打开后再整合');
+      return;
+    }
     const key = memoryPairKey(mergeTarget);
     setMergingKey(key);
     try {
-      await mergeMemoryEntries({ cwd: dashboard.memoryCwd, targetA: mergeTarget.targetA, pathA: mergeTarget.pathA, targetB: mergeTarget.targetB, pathB: mergeTarget.pathB });
+      await mergeMemoryEntries({ cwd: mergeTarget.scopeCwd, targetA: mergeTarget.targetA, pathA: mergeTarget.pathA, targetB: mergeTarget.targetB, pathB: mergeTarget.pathB });
       showNotice('info', `已整合「${mergeTarget.nameA || mergeTarget.pathA}」与「${mergeTarget.nameB || mergeTarget.pathB}」`);
       setMergeTarget(null);
       await dashboard.refreshMemory();

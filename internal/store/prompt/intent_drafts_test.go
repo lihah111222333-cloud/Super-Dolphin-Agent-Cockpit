@@ -14,14 +14,14 @@ func TestPromptIntentDraftUpsertForwardsParamsAndMapsRow(t *testing.T) {
 	t.Parallel()
 
 	var captured sqlc.UpsertPromptIntentDraftParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertDraftFn: func(_ context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error) {
 			captured = arg
 			row := promptIntentDraftRow(arg.DraftKey, arg.CWD, arg.Kind, arg.Status)
 			row.Scope = arg.Scope
 			return row, nil
 		},
-	}}
+	})}
 
 	got, err := s.UpsertIntentDraft(context.Background(), promptIntentDraftInput())
 	if err != nil {
@@ -100,12 +100,12 @@ func TestPromptIntentDraftUpsertRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		upsertDraftFn: func(context.Context, sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error) {
 			called = true
 			return sqlc.UpsertPromptIntentDraftRow{}, nil
 		},
-	}}
+	})}
 	draft := promptIntentDraftInput()
 	draft.CWD = " "
 	_, err := s.UpsertIntentDraft(context.Background(), draft)
@@ -121,12 +121,12 @@ func TestPromptIntentDraftGetRequiresCWD(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		getDraftFn: func(context.Context, sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error) {
 			called = true
 			return sqlc.GetPromptIntentDraftRow{}, nil
 		},
-	}}
+	})}
 	_, err := s.GetIntentDraft(context.Background(), "", "draft-1")
 	if err == nil {
 		t.Fatal("GetIntentDraft() expected empty cwd error, got nil")
@@ -140,12 +140,12 @@ func TestPromptIntentDraftGetForwardsCWDAndDraftKey(t *testing.T) {
 	t.Parallel()
 
 	var captured sqlc.GetPromptIntentDraftParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		getDraftFn: func(_ context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error) {
 			captured = arg
 			return sqlc.GetPromptIntentDraftRow(promptIntentDraftRow(arg.DraftKey, arg.CWD, "expert", "draft")), nil
 		},
-	}}
+	})}
 	got, err := s.GetIntentDraft(context.Background(), " /repo/a ", " draft-1 ")
 	if err != nil {
 		t.Fatalf("GetIntentDraft() unexpected error: %v", err)
@@ -160,14 +160,14 @@ func TestPromptIntentDraftListFiltersByCWDAndStatus(t *testing.T) {
 	t.Parallel()
 
 	var captured sqlc.ListPromptIntentDraftsParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		listDraftsFn: func(_ context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error) {
 			captured = arg
 			return []sqlc.ListPromptIntentDraftsRow{
 				sqlc.ListPromptIntentDraftsRow(promptIntentDraftRow("draft-1", arg.CWD, "recall", arg.Status.(string))),
 			}, nil
 		},
-	}}
+	})}
 	got, err := s.ListIntentDrafts(context.Background(), PromptIntentDraftListFilter{CWD: " /repo/a ", Status: " ready_to_save ", Limit: 20})
 	if err != nil {
 		t.Fatalf("ListIntentDrafts() unexpected error: %v", err)
@@ -184,7 +184,7 @@ func TestPromptIntentDraftListFiltersByCWDAndStatus(t *testing.T) {
 func TestPromptIntentDraftListRequiresCWD(t *testing.T) {
 	t.Parallel()
 
-	s := &store{q: &promptQuerierStub{}}
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{})}
 	_, err := s.ListIntentDrafts(context.Background(), PromptIntentDraftListFilter{CWD: "", Limit: 20})
 	if err == nil {
 		t.Fatal("ListIntentDrafts() expected empty cwd error, got nil")
@@ -195,12 +195,12 @@ func TestPromptIntentDraftUpdateStatusRequiresCWD(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		updateDraftStatusFn: func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error) {
 			called = true
 			return sqlc.UpdatePromptIntentDraftStatusRow{}, nil
 		},
-	}}
+	})}
 	_, err := s.UpdateIntentDraftStatus(context.Background(), "", "draft-1", "enabled")
 	if err == nil {
 		t.Fatal("UpdateIntentDraftStatus() expected empty cwd error, got nil")
@@ -214,12 +214,12 @@ func TestPromptIntentDraftUpdateStatusForwardsScope(t *testing.T) {
 	t.Parallel()
 
 	var captured sqlc.UpdatePromptIntentDraftStatusParams
-	s := &store{q: &promptQuerierStub{
+	s := &store{q: newPromptQuerierTestAdapter(&promptQuerierStub{
 		updateDraftStatusFn: func(_ context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error) {
 			captured = arg
 			return sqlc.UpdatePromptIntentDraftStatusRow(promptIntentDraftRow(arg.DraftKey, arg.CWD, "default_rule", arg.Status)), nil
 		},
-	}}
+	})}
 	got, err := s.UpdateIntentDraftStatus(context.Background(), " /repo/a ", " draft-1 ", " enabled ")
 	if err != nil {
 		t.Fatalf("UpdateIntentDraftStatus() unexpected error: %v", err)

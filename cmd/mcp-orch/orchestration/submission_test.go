@@ -75,16 +75,16 @@ func TestConcurrentAccess(t *testing.T) {
 	producerDone := make(chan struct{})
 
 	var producerWG sync.WaitGroup
-	producerWG.Add(producers)
-	for producer := 0; producer < producers; producer++ {
-		go enqueueSubmissions(start, &producerWG, &q, producer, perProducer)
+	for producer := range producers {
+		producerID := producer
+		producerWG.Go(func() { enqueueSubmissions(start, &q, producerID, perProducer) })
 	}
-	go closeWhenDone(&producerWG, producerDone)
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { closeWhenDone(&producerWG, producerDone) })
 
 	var consumerWG sync.WaitGroup
-	consumerWG.Add(consumers)
-	for consumer := 0; consumer < consumers; consumer++ {
-		go dequeueSubmissions(start, producerDone, &consumerWG, &q, results)
+	for range consumers {
+		consumerWG.Go(func() { dequeueSubmissions(start, producerDone, &q, results) })
 	}
 
 	close(start)
@@ -174,14 +174,13 @@ func makeSubmission(id int) turn.TurnSubmission {
 		Inputs:               []turn.InputItem{{Type: "text", Content: fmt.Sprintf("text-%d", id)}},
 		SelectedSkills:       []string{fmt.Sprintf("skill-%d", id)},
 		ManualSkillSelection: true,
-		OutputSchema:         []byte(fmt.Sprintf(`{"id":%d}`, id)),
+		OutputSchema:         fmt.Appendf(nil, `{"id":%d}`, id),
 	}
 }
 
-func enqueueSubmissions(start <-chan struct{}, wg *sync.WaitGroup, q *SubmissionQueue, producerID, perProducer int) {
-	defer wg.Done()
+func enqueueSubmissions(start <-chan struct{}, q *SubmissionQueue, producerID, perProducer int) {
 	<-start
-	for i := 0; i < perProducer; i++ {
+	for i := range perProducer {
 		id := producerID*perProducer + i
 		q.Enqueue(makeSubmission(id))
 	}
@@ -192,8 +191,7 @@ func closeWhenDone(wg *sync.WaitGroup, done chan<- struct{}) {
 	close(done)
 }
 
-func dequeueSubmissions(start <-chan struct{}, producerDone <-chan struct{}, wg *sync.WaitGroup, q *SubmissionQueue, results chan<- string) {
-	defer wg.Done()
+func dequeueSubmissions(start <-chan struct{}, producerDone <-chan struct{}, q *SubmissionQueue, results chan<- string) {
 	<-start
 	for {
 		sub, ok := q.Dequeue()

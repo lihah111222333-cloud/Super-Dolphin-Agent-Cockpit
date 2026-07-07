@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
@@ -348,8 +348,12 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
   const [exportingPath, setExportingPath] = useState('');
   const [deletingPath, setDeletingPath] = useState('');
   const [copied, setCopied] = useState(false);
+  const openRequestRef = useRef(0);
   const loadFileDetail = useSharedFileDetailLoader(setBusyPath);
   const openFile = useCallback(async (file) => {
+    openRequestRef.current += 1;
+    const requestId = openRequestRef.current;
+    const isCurrentRequest = () => openRequestRef.current === requestId;
     const path = textValue(file?.path);
     const binaryMedia = isBinaryMediaPath(path);
     setNotice(null);
@@ -360,13 +364,15 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
         try {
           await openSharedFile({ path });
         } finally {
-          setBusyPath('');
+          if (isCurrentRequest()) setBusyPath('');
         }
-        setNotice({ level: 'success', message: '已打开媒体文件。' });
+        if (isCurrentRequest()) setNotice({ level: 'success', message: '已打开媒体文件。' });
         return;
       }
-      setSelectedFile(await loadFileDetail(file));
+      const detail = await loadFileDetail(file, { shouldClearBusy: isCurrentRequest });
+      if (isCurrentRequest()) setSelectedFile(detail);
     } catch (err) {
+      if (!isCurrentRequest()) return;
       const action = binaryMedia ? '打开文件失败' : '读取文件失败';
       setNotice({ level: 'error', message: `${action}：${err.message || String(err)}` });
     }
@@ -410,14 +416,14 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
 }
 
 function useSharedFileDetailLoader(setBusyPath) {
-  return useCallback(async (file) => {
+  return useCallback(async (file, options = {}) => {
     const path = textValue(file?.path);
     if (!path) throw new Error('shared file path is required');
     setBusyPath(path);
     try {
       return await readSharedFile({ path }, file);
     } finally {
-      setBusyPath('');
+      if (!options.shouldClearBusy || options.shouldClearBusy(path)) setBusyPath('');
     }
   }, [setBusyPath]);
 }

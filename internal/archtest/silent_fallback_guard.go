@@ -191,7 +191,7 @@ func errorIdentComparedWithNil(candidate, other ast.Expr) (string, bool) {
 }
 
 // looksLikeErrorIdent 判断标识符命名是否像 error 变量。
-// 它覆盖 err、err2、xxxErr、xxxError 等常见写法，降低漏扫 error 分支的概率。
+// 它覆盖 err、err2、sampleErr、sampleError 等常见写法，降低漏扫 error 分支的概率。
 func looksLikeErrorIdent(name string) bool {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	if lower == "e" || lower == "err" {

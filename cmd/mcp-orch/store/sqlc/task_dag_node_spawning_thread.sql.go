@@ -11,20 +11,26 @@ import (
 
 const updateTaskDagNodeSpawningThread = `-- name: UpdateTaskDagNodeSpawningThread :one
 UPDATE task_dag_nodes
-SET spawning_thread_id = ?,
+SET spawning_thread_id = ?1,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND node_key = ?
+WHERE dag_key = ?2
+  AND node_key = ?3
   AND run_id = ?4
   AND ?4 > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+  AND (
+      spawning_thread_id IS NULL
+      OR TRIM(spawning_thread_id) = ''
+      OR TRIM(spawning_thread_id) = TRIM(COALESCE(?1, ''))
+  )
 RETURNING id, dag_key, node_key, run_id, title,
           node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result,
           started_at, finished_at, created_at,
           updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, spawning_thread_id,
-          '' AS previous_spawning_thread_id
+          last_event_at, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes,
+          spawning_thread_id,
+          CAST('' AS TEXT) AS previous_spawning_thread_id
 `
 
 type UpdateTaskDagNodeSpawningThreadParams struct {
@@ -54,8 +60,10 @@ type UpdateTaskDagNodeSpawningThreadRow struct {
 	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
 	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
 	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
 	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-	Column21         string  `db:"column_21" json:"column_21"`
+	Column23         string  `db:"column_23" json:"column_23"`
 }
 
 func (q *Queries) UpdateTaskDagNodeSpawningThread(ctx context.Context, arg UpdateTaskDagNodeSpawningThreadParams) (UpdateTaskDagNodeSpawningThreadRow, error) {
@@ -86,8 +94,10 @@ func (q *Queries) UpdateTaskDagNodeSpawningThread(ctx context.Context, arg Updat
 		&i.ActiveTurnID,
 		&i.ActiveWakeupID,
 		&i.LastEventAt,
+		&i.Reads,
+		&i.Writes,
 		&i.SpawningThreadID,
-		&i.Column21,
+		&i.Column23,
 	)
 	return i, err
 }

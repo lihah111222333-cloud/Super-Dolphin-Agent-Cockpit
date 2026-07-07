@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // defaultHTTPAddr 是桌面 HTTP asset server 的默认 loopback 监听地址。
@@ -33,11 +34,12 @@ const wailsWebSocketTokenEnv = "SUPER_DOLPHIN_WAILS_WS_TOKEN"
 
 // httpAssetServer 负责提供前端静态资源和 Wails RPC WebSocket。
 type httpAssetServer struct {
-	logger  *slog.Logger
-	addr    string
-	handler http.Handler
-	server  *rpc.Server
-	wsToken string
+	logger     *slog.Logger
+	addr       string
+	handler    http.Handler
+	server     *rpc.Server
+	wsToken    string
+	startupErr error
 }
 
 // registerHTTPAssetRoutes 注册 metrics、WebSocket 和静态资源路由。
@@ -57,14 +59,18 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // NewHTTPAssetServer 创建同时服务前端资源和 JRPC WebSocket 的 runner。
 // WebSocket token 在 runner 构造时确定，后续 route guard 和 asset cookie 共用同一值。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
-	handler := withSharedFilePreviewAssets(withClipboardAssets(AssetHandlerFromForMode(p.Frontend, isDebug(p.Config))))
+	handler, startupErr := assetHandlerFromForMode(p.Frontend, isDebug(p.Config))
+	if handler != nil {
+		handler = withSharedFilePreviewAssets(withClipboardAssets(handler))
+	}
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
-			logger:  p.Logger,
-			addr:    resolveHTTPAssetAddr(),
-			handler: handler,
-			server:  p.Server,
-			wsToken: resolveWailsWebSocketToken(),
+			logger:     p.Logger,
+			addr:       resolveHTTPAssetAddr(),
+			handler:    handler,
+			server:     p.Server,
+			wsToken:    resolveWailsWebSocketToken(),
+			startupErr: startupErr,
 		},
 	}
 }
@@ -90,6 +96,9 @@ func resolveWailsWebSocketToken() string {
 
 // Run 启动 HTTP asset server，并在 context 取消时按 shutdown 超时优雅停止。
 func (s *httpAssetServer) Run(ctx context.Context) error {
+	if s.startupErr != nil {
+		return s.startupErr
+	}
 	// 误判防护：validateHTTPAssetAddr 是 Go HTTP asset server 直连绑定的 loopback 守卫。
 	if err := validateHTTPAssetAddr(s.addr); err != nil {
 		return err
@@ -118,14 +127,9 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	s.logger.Info("http asset server listening", "addr", listener.Addr().String())
 
 	errCh := make(chan error, 1)
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				errCh <- fmt.Errorf("http asset server panic: %v", rec)
-			}
-		}()
-		errCh <- srv.Serve(listener)
-	}()
+	safego.Go(ctx, nil, "wails.httpAssetServer.serve", func(context.Context) {
+		errCh <- serveHTTPAssetServer(srv, listener)
+	})
 
 	select {
 	case err := <-errCh:
@@ -138,6 +142,15 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 		defer cancel()
 		return srv.Shutdown(shutCtx)
 	}
+}
+
+func serveHTTPAssetServer(srv *http.Server, listener net.Listener) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("http asset server panic: %v", rec)
+		}
+	}()
+	return srv.Serve(listener)
 }
 
 // validateHTTPAssetAddr 确认 HTTP asset server 只监听 loopback 地址。

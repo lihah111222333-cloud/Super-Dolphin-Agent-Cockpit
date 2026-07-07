@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
+import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceChunks, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectDatasourceImportFile, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from './services/skillsPageService.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './SkillsPage.css';
@@ -970,6 +970,7 @@ function importNotice(importedCount, drafts, failures, scope) {
 }
 
 const DATASOURCE_LIST_LIMIT = 200;
+const DATASOURCE_CHUNK_PAGE_LIMIT = 50;
 const DATASOURCE_IMPORT_FILTERS = Object.freeze([
   Object.freeze({ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }),
 ]);
@@ -1231,8 +1232,18 @@ function normalizeDatasourceDetail(response) {
     throw new Error('datasourceV2/get response must be an object');
   }
   const document = normalizeDatasourceDocument(response.document || {}, 0);
+  return {
+    document,
+    ...normalizeDatasourceChunkPage(response, document, 'datasourceV2/get'),
+  };
+}
+
+function normalizeDatasourceChunkPage(response, document, source) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error(`${source} response must be an object`);
+  }
   if (!Array.isArray(response.chunks)) {
-    throw new Error('datasourceV2/get response.chunks must be an array');
+    throw new Error(`${source} response.chunks must be an array`);
   }
   const chunks = response.chunks.map((raw, index) => ({
     id: Number(raw?.id ?? index + 1),
@@ -1242,7 +1253,32 @@ function normalizeDatasourceDetail(response) {
     charCount: Number(raw?.charCount ?? raw?.char_count ?? 0),
     byteCount: Number(raw?.byteCount ?? raw?.byte_count ?? 0),
   }));
-  return { document, chunks };
+  return {
+    chunks,
+    hasMore: Boolean(response.hasMore ?? response.has_more),
+    nextCursor: Number(response.nextCursor ?? response.next_cursor ?? -1),
+  };
+}
+
+async function fetchDatasourceDetail(documentId) {
+  const initial = normalizeDatasourceDetail(await getDatasourceDocument({ documentId }));
+  let chunks = [...initial.chunks];
+  let hasMore = initial.hasMore;
+  let nextCursor = initial.nextCursor;
+  while (hasMore) {
+    const page = normalizeDatasourceChunkPage(
+      await listDatasourceChunks({ documentId, limit: DATASOURCE_CHUNK_PAGE_LIMIT, cursor: nextCursor }),
+      initial.document,
+      'datasourceV2/list_chunks',
+    );
+    if (page.chunks.length === 0) {
+      throw new Error('datasourceV2/list_chunks returned hasMore without chunks');
+    }
+    chunks = chunks.concat(page.chunks);
+    hasMore = page.hasMore;
+    nextCursor = page.nextCursor;
+  }
+  return { ...initial, chunks, hasMore, nextCursor };
 }
 
 function datasourceMatches(doc, search) {
@@ -1312,7 +1348,7 @@ function DataSourceView({ copy }) {
   } = useQuery({
     queryKey: ['datasourceV2', 'document', detailID],
     enabled: detailID > 0,
-    queryFn: async () => normalizeDatasourceDetail(await getDatasourceDocument({ documentId: detailID })),
+    queryFn: async () => fetchDatasourceDetail(detailID),
   });
   const filtered = documents.filter((doc) => datasourceMatches(doc, search));
 
@@ -1337,12 +1373,14 @@ function DataSourceView({ copy }) {
     setNotice('');
     setActionError('');
     try {
-      const selected = await selectFiles({ filters: DATASOURCE_IMPORT_FILTERS });
-      const selectedPath = cleanScalar(selected[0]);
+      const selected = await selectDatasourceImportFile({ filters: DATASOURCE_IMPORT_FILTERS });
+      const selectedPath = cleanScalar(selected?.sourcePath);
       if (!selectedPath) return;
+      const pickerToken = cleanScalar(selected?.pickerToken);
+      if (!pickerToken) throw new Error('pickerToken is required');
       setSourcePath(selectedPath);
       await runAction(async () => {
-        await importDatasourceLocalFile({ sourcePath: selectedPath });
+        await importDatasourceLocalFile({ sourcePath: selectedPath, pickerToken });
         setSourcePath('');
       }, DATASOURCE_UI.importSuccess);
     } catch (error) {
@@ -1639,7 +1677,6 @@ function mergeMCPServerEnabled(response, result, serverName, enabled) {
   const existing = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : {};
   const nextConfig = {
     ...existing,
-    ...(result?.config && typeof result.config === 'object' && !Array.isArray(result.config) ? result.config : {}),
     enabled,
   };
   return {
@@ -2289,15 +2326,41 @@ async function previewAndMaybeApplyResolution(ctx, payload, action, conflict, ap
 async function autoApplyResolutionPreview(ctx, payload, items) {
   const proof = items[0];
   if (!proof?.preview_id || !proof?.preview_hash) throw new Error('缺少处理预览凭据');
-  await applySkillResolution(resolutionApplyPayload(payload, proof));
+  const report = await applySkillResolution(resolutionApplyPayload(payload, proof));
   ctx.setPreview(null); ctx.setNamePrompt(null); ctx.setNameInput('');
   await ctx.refreshSkillSurface();
-  ctx.setNotice('已处理技能冲突');
+  applyResolutionReportFeedback(ctx, report);
   return true;
 }
 
 function resolutionApplyPayload(payload, proof) {
   return { ...payload, provider: proof.provider || payload.provider, source_provider: proof.source_provider || payload.source_provider, source_path_id: proof.source_path_id || payload.source_path_id, preview_id: proof.preview_id, preview_hash: proof.preview_hash };
+}
+
+function resolutionApplyPartialFailure(report) {
+  return Boolean(report?.partialFailure ?? report?.partial_failure ?? report?.PartialFailure);
+}
+
+function resolutionApplyFollowUpAction(report) {
+  return (report?.followUpAction ?? report?.follow_up_action ?? report?.FollowUpAction ?? '').toString().trim();
+}
+
+function resolutionApplyReportMessage(report) {
+  if (!resolutionApplyPartialFailure(report)) return '已处理技能冲突';
+  const followUpAction = resolutionApplyFollowUpAction(report);
+  const followUp = followUpAction ? `，后续需要重试：${resolutionActionLabel(followUpAction)}` : '，请查看技能冲突列表并重试';
+  return `技能冲突已部分处理${followUp}`;
+}
+
+function applyResolutionReportFeedback(ctx, report) {
+  const message = resolutionApplyReportMessage(report);
+  if (resolutionApplyPartialFailure(report)) {
+    ctx.setNotice('');
+    ctx.setError(message);
+    return;
+  }
+  ctx.setError('');
+  ctx.setNotice(message);
 }
 
 async function confirmResolutionName({ nameInput, namePrompt, runAction, setError, setNameInput, setNamePrompt }) {
@@ -2314,10 +2377,10 @@ async function confirmResolutionPreview(ctx) {
   if (!ctx.preview?.requiresApply || !proof?.preview_id || !proof?.preview_hash) return;
   ctx.setActioning('confirm');
   try {
-    await applySkillResolution(resolutionApplyPayload(ctx.preview.payload, proof));
+    const report = await applySkillResolution(resolutionApplyPayload(ctx.preview.payload, proof));
     ctx.setPreview(null); ctx.setNamePrompt(null); ctx.setNameInput('');
     await ctx.refreshSkillSurface();
-    ctx.setNotice('已处理技能冲突');
+    applyResolutionReportFeedback(ctx, report);
   } catch (err) {
     ctx.setError('应用技能冲突处理失败：' + (err.message || String(err)));
   } finally {

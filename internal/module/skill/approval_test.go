@@ -278,17 +278,14 @@ func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 	cache := newTestCache(t)
 	const N = 20
 	var wg sync.WaitGroup
-	wg.Add(N)
-	for i := 0; i < N; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
+	for i := range N {
+		wg.Go(func() {
 			name := fmt.Sprintf("skill-%02d", i)
 			hash := fmt.Sprintf("%064x", i+1) // 64 位十六进制字符串，保持唯一。
 			if _, err := cache.Approve(name, hash, TrustProject, ""); err != nil {
 				t.Errorf("Approve(%s) error = %v", name, err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

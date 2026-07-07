@@ -10,12 +10,13 @@ func TestInjectManagedLaunchArgsAddsCodexIdentity(t *testing.T) {
 		CodexHome:          " /Users/test/.codex ",
 		CodexInstanceKey:   " default ",
 		CodexModelProvider: " openai ",
-	}, "provider-thread-parent", "codex", "gpt-5.5", "xhigh")
+	}, "codex", "gpt-5.5", "xhigh")
 
 	if !changed {
 		t.Fatal("injectManagedLaunchArgs changed = false, want true")
 	}
 	for key, want := range map[string]string{
+		"parent_id":            "agent-parent",
 		"codex_home":           "/Users/test/.codex",
 		"codex_instance_key":   "default",
 		"codex_model_provider": "openai",
@@ -24,11 +25,8 @@ func TestInjectManagedLaunchArgsAddsCodexIdentity(t *testing.T) {
 			t.Fatalf("%s = %q, want %q; args=%#v", key, got, want, args)
 		}
 	}
-	if got := mapString(args, "parent_thread_id"); got != "provider-thread-parent" {
-		t.Fatalf("parent_thread_id = %q, want provider-thread-parent; args=%#v", got, args)
-	}
-	if got := mapString(args, "parent_thread_id"); got != "provider-thread-parent" {
-		t.Fatalf("parent_thread_id = %q, want provider-thread-parent; args=%#v", got, args)
+	if _, ok := args["parent_thread_id"]; ok {
+		t.Fatalf("parent_thread_id present in launch args: %#v", args)
 	}
 }
 
@@ -44,7 +42,7 @@ func TestInjectManagedLaunchArgsDoesNotOverwriteCodexIdentity(t *testing.T) {
 		CodexHome:          "/Users/test/.codex",
 		CodexInstanceKey:   "default",
 		CodexModelProvider: "openai",
-	}, "provider-thread-parent", "codex", "gpt-5.5", "xhigh")
+	}, "codex", "gpt-5.5", "xhigh")
 
 	for key, want := range map[string]string{
 		"codex_home":           "/custom/.codex",

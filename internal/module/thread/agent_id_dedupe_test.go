@@ -80,10 +80,10 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 	releases := make(chan func(), n)
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer wg.Done()
+	workersDone := make(chan struct{})
+	registerThreadGoroutineCleanup(t, workersDone, "agent id reservation")
+	for range n {
+		wg.Go(func() {
 			<-start
 			_, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 				ParentAgentID: "agent-parent",
@@ -97,10 +97,11 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 			}
 			ids <- agentID
 			releases <- release
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
+	close(workersDone)
 	close(ids)
 	close(releases)
 	close(errs)

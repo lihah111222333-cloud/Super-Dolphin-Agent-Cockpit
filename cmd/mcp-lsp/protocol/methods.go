@@ -27,6 +27,7 @@ const (
 	MethodTypeHierarchySupertypes = "typeHierarchy/supertypes"
 	MethodTypeHierarchySubtypes   = "typeHierarchy/subtypes"
 	MethodWorkspaceSymbol         = "workspace/symbol"
+	MethodTextDocumentDiagnostic  = "textDocument/diagnostic"
 	MethodPublishDiagnostics      = "textDocument/publishDiagnostics"
 	MethodLogMessage              = "window/logMessage"
 )

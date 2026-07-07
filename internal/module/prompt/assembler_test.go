@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -577,17 +578,21 @@ func TestResolveSectionsRunsIndependentSectionsInParallel(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
 	resultCh := make(chan TurnAssembly, 1)
 	errCh := make(chan error, 1)
-	go func() {
+	var wg sync.WaitGroup
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
+	wg.Go(func() {
 		assembly, err := svc.AssembleTurn(ctx, TurnInput{})
 		if err != nil {
 			errCh <- err
 			return
 		}
 		resultCh <- assembly
-	}()
+	})
 
 	waitForParallelSectionsReady(t, ctx, ready, errCh)
 	close(release)

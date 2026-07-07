@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,20 +20,31 @@ func readMemoryEntryHeader(path string) (MemoryEntry, error) {
 		return MemoryEntry{}, err
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return MemoryEntry{}, err
+	}
 
 	header, err := parse.ScanFrontmatterHeader(file, manifestHeaderScanLimit)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
-	info, err := file.Stat()
-	if err != nil {
-		return MemoryEntry{}, err
+	if info.Size() > manifestHeaderScanLimit && headerStartsFrontmatter(header) {
+		if _, _, ok := parse.SplitFrontmatter(header); !ok {
+			return MemoryEntry{}, errors.New("frontmatter header exceeds manifest scan limit")
+		}
 	}
 	entry := parseMemoryHeader(path, header)
 	entry.FilePath = path
 	entry.UpdatedAt = info.ModTime()
 	entry.CanonicalName = CanonicalName(entry.Frontmatter.Name)
 	return normalizeLoadedEntry(entry), nil
+}
+
+func headerStartsFrontmatter(header string) bool {
+	header = parse.StripUTF8BOM(strings.ReplaceAll(header, "\r\n", "\n"))
+	line, _, _ := strings.Cut(header, "\n")
+	return parse.IsFence(line)
 }
 
 // readMemoryEntryFile 读取完整记忆文件并清理正文。
@@ -75,7 +87,7 @@ func parseMemoryHeader(path, header string) MemoryEntry {
 // 未知字段会忽略，避免旧文件扩展影响相关记忆扫描。
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	parsed := MemoryFrontmatter{}
-	for _, line := range strings.Split(frontmatter, "\n") {
+	for line := range strings.SplitSeq(frontmatter, "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue

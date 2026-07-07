@@ -5,9 +5,32 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func startProxyRunnerForTest(t *testing.T, run func(context.Context) error) (context.Context, context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		defer close(finished)
+		done <- run(ctx)
+	})
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+			wg.Wait()
+		case <-time.After(time.Second):
+			t.Fatal("proxy runner goroutine did not stop")
+		}
+	})
+	return ctx, cancel, done
+}
 
 // TestProxyRunnerServeReturnsOnContextCancel pins the P2 Finding 9 shutdown
 // contract: Run blocks on ServeProxy, and when the runner's ctx is
@@ -23,9 +46,7 @@ func TestProxyRunnerServeReturnsOnContextCancel(t *testing.T) {
 	}
 	runner.SetListener(ln)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	_, cancel, done := startProxyRunnerForTest(t, runner.Run)
 
 	// Give Serve a moment to start.
 	time.Sleep(20 * time.Millisecond)
@@ -56,9 +77,7 @@ func TestProxyRunnerServeReturnsOnContextCancel(t *testing.T) {
 func TestProxyRunnerNilListenerBlocksUntilCtxDone(t *testing.T) {
 	t.Parallel()
 	runner := NewProxyRunner(&Handler{})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	_, cancel, done := startProxyRunnerForTest(t, runner.Run)
 	cancel()
 	select {
 	case err := <-done:
@@ -82,9 +101,7 @@ func TestProxyRunnerNilHandlerBlocksUntilCtxDone(t *testing.T) {
 	defer ln.Close()
 	runner.SetListener(ln)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	_, cancel, done := startProxyRunnerForTest(t, runner.Run)
 	cancel()
 	select {
 	case err := <-done:
@@ -115,10 +132,7 @@ func TestProxyRunnerServeFailureSurfaces(t *testing.T) {
 	_ = ln.Close()
 	runner.SetListener(ln)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	_, _, done := startProxyRunnerForTest(t, runner.Run)
 	select {
 	case err := <-done:
 		// Normal close → nil per ServeProxy contract.
@@ -136,10 +150,7 @@ func TestProxyRunnerServePanicSurfaces(t *testing.T) {
 	runner := NewProxyRunner(&Handler{})
 	runner.SetListener(panicListener{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	_, _, done := startProxyRunnerForTest(t, runner.Run)
 	select {
 	case err := <-done:
 		if err == nil || !strings.Contains(err.Error(), "proxy serve panic") {

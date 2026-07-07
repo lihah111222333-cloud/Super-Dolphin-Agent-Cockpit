@@ -200,10 +200,17 @@ func appendMappedLogs[T any](
 	for _, row := range rows {
 		entry := mapper(row)
 		if matchesLogFilter(entry, filter) {
-			dst = append(dst, entry)
+			dst = append(dst, logListEntry(entry))
 		}
 	}
 	return dst
+}
+
+// logListEntry 返回日志列表安全投影；raw/extra 只能通过详情接口展开。
+func logListEntry(entry LogEntry) LogEntry {
+	entry.Raw = ""
+	entry.Extra = nil
+	return entry
 }
 
 // mapLogEntry 将 system/AI 存储行转换为统一 dashboard LogEntry。

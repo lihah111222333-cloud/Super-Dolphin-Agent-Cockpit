@@ -27,6 +27,7 @@ func NewStore(q *sqlc.Queries) Store {
 
 var errEmptyThreadID = errors.New("feedback.Insert: thread_id is required")
 var errEmptyEventType = errors.New("feedback.Insert: event_type is required")
+var errUnsupportedFeedbackRowType = errors.New("feedback: unsupported row type")
 
 // Insert 追加一条 feedback 事件。
 // thread_id 和 event_type 必填，空 payload 会规范化为 JSON 对象，保证分析侧总能按 JSON 读取。
@@ -55,7 +56,11 @@ func (s *store) Insert(ctx context.Context, ev Event) (Event, error) {
 	if err != nil {
 		return Event{}, wrapErr(err, "insert")
 	}
-	return fromRow(row), nil
+	mapped, err := fromRow(row)
+	if err != nil {
+		return Event{}, wrapErr(err, "insert")
+	}
+	return mapped, nil
 }
 
 // ListByThread 列出指定线程的 feedback 事件。
@@ -75,7 +80,11 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	if err != nil {
 		return nil, wrapErr(err, "list_by_thread")
 	}
-	return mapRows(rows), nil
+	events, err := mapRows(rows)
+	if err != nil {
+		return nil, wrapErr(err, "list_by_thread")
+	}
+	return events, nil
 }
 
 // ListByAgentKey 列出指定 agent_key 的 feedback 事件。
@@ -95,22 +104,26 @@ func (s *store) ListByAgentKey(ctx context.Context, agentKey string, limit int32
 	if err != nil {
 		return nil, wrapErr(err, "list_by_agent_key")
 	}
-	return mapRows(rows), nil
+	events, err := mapRows(rows)
+	if err != nil {
+		return nil, wrapErr(err, "list_by_agent_key")
+	}
+	return events, nil
 }
 
-func fromRow(row any) Event {
+func fromRow(row any) (Event, error) {
 	switch r := row.(type) {
 	case sqlc.InsertAgentFeedbackEventRow:
 		return feedbackEventFromFields(r.ID, r.ThreadID, r.TurnID, r.AgentKey, r.PromptVersionID,
-			r.EventType, r.Actor, r.Payload, r.CreatedAt)
+			r.EventType, r.Actor, r.Payload, r.CreatedAt), nil
 	case sqlc.ListAgentFeedbackEventsByThreadRow:
 		return feedbackEventFromFields(r.ID, r.ThreadID, r.TurnID, r.AgentKey, r.PromptVersionID,
-			r.EventType, r.Actor, r.Payload, r.CreatedAt)
+			r.EventType, r.Actor, r.Payload, r.CreatedAt), nil
 	case sqlc.ListAgentFeedbackEventsByAgentRow:
 		return feedbackEventFromFields(r.ID, r.ThreadID, r.TurnID, r.AgentKey, r.PromptVersionID,
-			r.EventType, r.Actor, r.Payload, r.CreatedAt)
+			r.EventType, r.Actor, r.Payload, r.CreatedAt), nil
 	default:
-		panic("unsupported feedback row type")
+		return Event{}, errUnsupportedFeedbackRowType
 	}
 }
 
@@ -135,12 +148,16 @@ func feedbackEventFromFields(
 	}
 }
 
-func mapRows[T sqlc.ListAgentFeedbackEventsByThreadRow | sqlc.ListAgentFeedbackEventsByAgentRow](rows []T) []Event {
+func mapRows[T sqlc.ListAgentFeedbackEventsByThreadRow | sqlc.ListAgentFeedbackEventsByAgentRow](rows []T) ([]Event, error) {
 	out := make([]Event, len(rows))
 	for i, row := range rows {
-		out[i] = fromRow(row)
+		ev, err := fromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = ev
 	}
-	return out
+	return out, nil
 }
 
 func wrapErr(err error, op string) error {

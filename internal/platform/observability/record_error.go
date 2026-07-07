@@ -12,8 +12,8 @@ import (
 // traceRecordErrorWarnInterval 限制同一 scope 的 trace 写入失败告警频率。
 const traceRecordErrorWarnInterval = time.Minute
 
-// traceRecordErrorWarnings 记录各 scope 最近一次告警时间。
-var traceRecordErrorWarnings sync.Map
+// traceRecordErrorWarnings 延迟创建各 scope 最近一次告警时间表。
+var traceRecordErrorWarnings = sync.OnceValue(func() *sync.Map { return &sync.Map{} })
 
 // WarnRecordError 记录 trace 写入失败，但不影响原业务调用链。
 // 同一 scope 在固定窗口内只告警一次，避免落盘故障刷屏。
@@ -42,7 +42,7 @@ func allowTraceRecordErrorWarning(scope string, now time.Time) bool {
 	if scope == "" {
 		scope = "unknown"
 	}
-	value, _ := traceRecordErrorWarnings.LoadOrStore(scope, &atomic.Int64{})
+	value, _ := traceRecordErrorWarnings().LoadOrStore(scope, &atomic.Int64{})
 	last := value.(*atomic.Int64)
 	nowNanos := now.UnixNano()
 	for {

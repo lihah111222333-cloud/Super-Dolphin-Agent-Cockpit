@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +12,28 @@ import (
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 )
+
+func startRPCRunnerForTest(t *testing.T, run func(context.Context) error) (context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		defer close(finished)
+		done <- run(ctx)
+	})
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+			wg.Wait()
+		case <-time.After(time.Second):
+			t.Fatal("rpc runner goroutine did not stop")
+		}
+	})
+	return cancel, done
+}
 
 // TestApprovalCleanupRunnerStartsAfterStartupRestore is the P1b-mandated
 // ordering check: a caller that performs restoreActiveApprovals synchronously
@@ -41,14 +64,8 @@ func TestApprovalCleanupRunnerStartsAfterStartupRestore(t *testing.T) {
 	}
 
 	// Only after restore has returned, start the runner.
-	ctx, cancel := context.WithCancel(context.Background())
 	runner := newApprovalCleanupRunnerWithConfig(manager, nil, 20*time.Millisecond, time.Minute)
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
-	defer func() {
-		cancel()
-		<-done
-	}()
+	startRPCRunnerForTest(t, runner.Run)
 
 	// The runner is active; the pending entry is fresh (createdAt = now) so
 	// the default 5min timeout should not reap it within the test window.
@@ -101,9 +118,7 @@ func TestOnConnectUIReplayWarnOnly(t *testing.T) {
 func TestApprovalCleanupRunnerNilManagerIsBlocking(t *testing.T) {
 	t.Parallel()
 	runner := newApprovalCleanupRunnerWithConfig(nil, nil, time.Minute, time.Minute)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startRPCRunnerForTest(t, runner.Run)
 	cancel()
 	select {
 	case err := <-done:
@@ -136,11 +151,8 @@ func TestApprovalCleanupRunnerRespectsZeroTimeout(t *testing.T) {
 		t.Fatal("registerPending owner = false, want true")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	runner := newApprovalCleanupRunnerWithConfig(manager, nil, 10*time.Millisecond, 0)
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startRPCRunnerForTest(t, runner.Run)
 	time.Sleep(40 * time.Millisecond)
 	cancel()
 	<-done

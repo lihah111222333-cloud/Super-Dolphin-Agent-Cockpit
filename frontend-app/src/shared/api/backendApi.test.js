@@ -11,6 +11,7 @@ import {
   importDatasourceLocalFile,
   installAppUpdate,
   installLatestAppUpdate,
+  listDatasourceChunks,
   listDatasourceDocuments,
   listMCPToolLifecycle,
   listMCPServers,
@@ -33,6 +34,20 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
   const callCount = callAPI.mock.calls.length;
   expect(action).toThrow(message);
   expect(callAPI).toHaveBeenCalledTimes(callCount);
+}
+
+function guardedBackendResponse(method) {
+  if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ) return { hint: 'effective prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
+  if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
+  if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
+  if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
+  if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
+  if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
+  if (method === RPC_METHODS.TURN_START) return { turn_id: 'turn-1' };
+  if (method === RPC_METHODS.TURN_FORCE_COMPLETE) return { ok: true, forceCompleted: true };
+  if (method === RPC_METHODS.DASHBOARD_DAG_START) return { runKey: 'run-1' };
+  if (method === RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START) return { dagKey: 'dag-created', runKey: 'run-created' };
+  return { ok: true };
 }
 
   it('exposes the dedicated frontend observability ingest RPC method name', () => {
@@ -72,6 +87,9 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.applyDagOps({ dagKey: 'dag-1', ops: [] }), 'baseVersion is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.setVideoApiKey({ apiKey: '' }), 'apiKey is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listModelProviders({ cwd: '' }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.saveModelProviders({ registry: { vendors: [] } }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applyModelProvider({ vendorId: 'openrouter' }), 'cwd is required');
   });
 
   it('wraps datasource_v2 CRUD RPC methods with strict payloads', async () => {
@@ -81,6 +99,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     await api.createDatasourceDocument({ source_path: ' C:\\data\\alpha.txt ' });
     await api.listDatasourceDocuments({ keyword: 'alpha', limit: '25' });
     await api.getDatasourceDocument({ document_id: '101' });
+    await api.listDatasourceChunks({ document_id: '101', limit: '2', cursor: 0 });
     await api.updateDatasourceDocument({
       documentId: 101,
       sourcePath: ' C:\\data\\alpha-renamed.txt ',
@@ -100,24 +119,31 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.DATASOURCE_V2_GET, {
       documentId: 101,
     });
-    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_UPDATE, {
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS, {
+      documentId: 101,
+      limit: 2,
+      cursor: 0,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_UPDATE, {
       documentId: 101,
       sourcePath: 'C:\\data\\alpha-renamed.txt',
       fileName: 'alpha-renamed.txt',
       extension: '.txt',
       sizeBytes: 42,
     });
-    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_DELETE, {
+    expect(callAPI).toHaveBeenNthCalledWith(6, RPC_METHODS.DATASOURCE_V2_DELETE, {
       documentId: 101,
     });
     expectInvalidInputDoesNotCall(callAPI, () => api.createDatasourceDocument({ sourcePath: '' }), 'sourcePath is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceDocuments({}), 'limit must be a positive integer');
     expectInvalidInputDoesNotCall(callAPI, () => api.getDatasourceDocument({ documentId: 0 }), 'documentId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceChunks({ documentId: 101, limit: 2 }), 'cursor is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.updateDatasourceDocument({ documentId: 101, sourcePath: 'C:\\data\\a.txt', sizeBytes: 1 }), 'fileName is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.deleteDatasourceDocument({ documentId: '' }), 'documentId is required');
     expect(typeof createDatasourceDocument).toBe('function');
     expect(typeof listDatasourceDocuments).toBe('function');
     expect(typeof getDatasourceDocument).toBe('function');
+    expect(typeof listDatasourceChunks).toBe('function');
     expect(typeof updateDatasourceDocument).toBe('function');
     expect(typeof deleteDatasourceDocument).toBe('function');
   });
@@ -126,17 +152,22 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    await api.importDatasourceLocalFile({ source_path: ' D:\\new\\fj.txt ' });
+    await api.importDatasourceLocalFile({ source_path: ' D:\\new\\fj.txt ', picker_token: ' picker-token ' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, {
       sourcePath: 'D:\\new\\fj.txt',
+      pickerToken: 'picker-token',
     });
     expectInvalidInputDoesNotCall(callAPI, () => api.importDatasourceLocalFile({ sourcePath: '' }), 'sourcePath is required');
     expect(typeof importDatasourceLocalFile).toBe('function');
   });
 
   it('wraps app update RPC methods', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ started: true, helper: 'updater' })
+      .mockResolvedValueOnce({ started: true, helper: 'updater' });
     const api = createBackendApi({ callAPI });
 
     await api.checkAppUpdate();
@@ -154,12 +185,29 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof installLatestAppUpdate).toBe('function');
   });
 
+  it('rejects malformed app update install responses', async () => {
+    const invalidResponses = [
+      {},
+      null,
+      { ok: true },
+      { started: false, helper: 'updater' },
+      { started: true, helper: '' },
+    ];
+    for (const response of invalidResponses) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const api = createBackendApi({ callAPI });
+
+      await expect(api.installAppUpdate()).rejects.toThrow('app/update/install');
+      await expect(api.installLatestAppUpdate()).rejects.toThrow('app/update/installLatest');
+    }
+  });
+
   it('wraps MCP server list and default controls with strict empty payloads', async () => {
-    const listResponse = { mcpServers: { sqlite: { enabled: false } } };
-    const startResponse = { serverName: 'sqlite', enabled: true };
-    const stopResponse = { serverName: 'sqlite', enabled: false };
-    const playwrightStartResponse = { serverName: 'playwright', enabled: true };
-    const playwrightStopResponse = { serverName: 'playwright', enabled: false };
+    const listResponse = { configPath: '/repo/.agent/mcp_server/config.json', mcpServers: { sqlite: { enabled: false } } };
+    const startResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'sqlite', enabled: true };
+    const stopResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'sqlite', enabled: false };
+    const playwrightStartResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'playwright', enabled: true };
+    const playwrightStopResponse = { configPath: '/repo/.agent/mcp_server/config.json', serverName: 'playwright', enabled: false };
     const callAPI = vi.fn()
       .mockResolvedValueOnce(listResponse)
       .mockResolvedValueOnce(startResponse)
@@ -184,6 +232,48 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof stopSQLiteMCPServer).toBe('function');
     expect(typeof startPlaywrightMCPServer).toBe('function');
     expect(typeof stopPlaywrightMCPServer).toBe('function');
+  });
+
+  it('rejects MCP server public responses that include config details', async () => {
+    const leakedListAPI = createBackendApi({
+      callAPI: vi.fn().mockResolvedValue({
+        configPath: '/repo/.agent/mcp_server/config.json',
+        mcpServers: {
+          sqlite: {
+            enabled: true,
+            headers: { Authorization: 'Bearer YOUR_API_KEY' },
+          },
+        },
+      }),
+    });
+
+    await expect(leakedListAPI.listMCPServers()).rejects.toThrow('must not include headers');
+
+    const leakedStartAPI = createBackendApi({
+      callAPI: vi.fn().mockResolvedValue({
+        configPath: '/repo/.agent/mcp_server/config.json',
+        serverName: 'sqlite',
+        enabled: true,
+        config: { command: 'npx', args: ['@bytebase/dbhub'] },
+      }),
+    });
+
+    await expect(leakedStartAPI.startSQLiteMCPServer()).rejects.toThrow('must not include config');
+  });
+
+  it('rejects malformed MCP server default control responses', async () => {
+    for (const action of [
+      'startSQLiteMCPServer',
+      'stopSQLiteMCPServer',
+      'startPlaywrightMCPServer',
+      'stopPlaywrightMCPServer',
+    ]) {
+      const api = createBackendApi({
+        callAPI: vi.fn().mockResolvedValue({ configPath: '/repo/.agent/mcp_server/config.json' }),
+      });
+
+      await expect(api[action]()).rejects.toThrow('serverName');
+    }
   });
 
   it('wraps MCP tool lifecycle RPC methods with guarded canonical payloads', async () => {
@@ -259,6 +349,11 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       toolName: 'remote_search',
       state: 'unknown',
     }), 'state must be enabled, disabled, suspended, or removed');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle({
+      serverName: 'my-search',
+      toolName: { name: 'remote_search' },
+      state: 'disabled',
+    }), 'toolName must be a string');
     expectInvalidInputDoesNotCall(callAPI, () => api.listMCPToolLifecycle({
       serverName: 'my-search',
       extra: true,
@@ -530,7 +625,9 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
   });
 
   it('sends turn/start legacy attachments when input is absent or empty', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce({ turn_id: 'turn-legacy-1' })
+      .mockResolvedValueOnce({ turn_id: 'turn-legacy-2' });
     const api = createBackendApi({ callAPI });
 
     await api.startTurn({
@@ -560,6 +657,138 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       input: [
         { type: 'localImage', path: '/tmp/b.png', url: 'data:image/png;base64,abc' },
       ],
+    });
+  });
+
+  it('fails fast on malformed guarded backend responses before consumers normalize them', async () => {
+    const cases = [
+      {
+        call: (api) => api.getThreadState({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: {},
+        message: 'ui/state/get response missing UI state snapshot fields',
+      },
+      {
+        call: (api) => api.readLspPromptHint({ cwd: '/repo/app' }),
+        response: { hint: 'effective', overrideHint: '', usingDefault: true },
+        message: 'config/lspPromptHint/read response defaultHint must be a string',
+      },
+      {
+        call: (api) => api.writeLspPromptHint({ cwd: '/repo/app', hint: '' }),
+        response: { hint: 'effective', defaultHint: 'default', overrideHint: '', usingDefault: 'true' },
+        message: 'config/lspPromptHint/write response usingDefault must be a boolean',
+      },
+      {
+        call: (api) => api.startThread({ cwd: '/repo/app', modelProvider: 'codex' }),
+        response: { status: 'running' },
+        message: 'thread/start response missing threadId or thread_id',
+      },
+      {
+        call: (api) => api.getThreadMessages({ threadId: 'thread-1' }),
+        response: { messages: null },
+        message: 'thread/messages response messages must be an array',
+      },
+      {
+        call: (api) => api.getThreadMessages({ threadId: 'thread-1' }),
+        response: { messages: [], total: '1' },
+        message: 'thread/messages response total must be a number',
+      },
+      {
+        call: (api) => api.resolveThreadIdentity({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: {},
+        message: 'thread/resolve response missing id or threadId or thread_id',
+      },
+      {
+        call: (api) => api.startTurn({ cwd: '/repo/app', threadId: 'thread-1', input: 'build it' }),
+        response: { ok: true },
+        message: 'turn/start response missing turn_id or turnId',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: true },
+        message: 'turn/forceComplete response forceCompleted must be a boolean',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: false, forceCompleted: false },
+        message: 'turn/forceComplete response failure must include errorCode, error, or message',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: true, forceCompleted: false, errorCode: 'force_complete_target_not_found' },
+        message: 'turn/forceComplete response ok true cannot have forceCompleted false',
+      },
+      {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: false, forceCompleted: 'false', errorCode: 'force_complete_target_not_found' },
+        message: 'turn/forceComplete response forceCompleted must be a boolean',
+      },
+      {
+        call: (api) => api.startDag({ dagKey: 'dag-1', triggerSource: 'manual' }),
+        response: { ok: true },
+        message: 'dashboard/dagStart response missing runKey or run_key',
+      },
+      {
+        call: (api) => api.createAndStartDag({
+          dagKey: 'dag-created',
+          title: 'Created DAG',
+          nodes: [{ nodeKey: 'draft', title: 'Draft', nodeType: 'agent', dependsOn: [] }],
+        }),
+        response: { dagKey: 'dag-created' },
+        message: 'dashboard/dagCreateAndStart response missing runKey or run_key',
+      },
+      {
+        call: (api) => api.createAndStartDag({
+          dagKey: 'dag-created',
+          title: 'Created DAG',
+          nodes: [{ nodeKey: 'draft', title: 'Draft', nodeType: 'agent', dependsOn: [] }],
+        }),
+        response: { runKey: 'run-created' },
+        message: 'dashboard/dagCreateAndStart response missing dagKey or dag_key',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: {},
+        message: 'skills/local/read response skill must be an object',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: [] },
+        message: 'skills/local/read response skill must be an object',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: { content: '# Demo' } },
+        message: 'skills/local/read response missing path',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: { path: '.agents/skills/demo/SKILL.md' } },
+        message: 'skills/local/read response skill.content must be a string',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: { path: '.agents/skills/demo/SKILL.md', content: null } },
+        message: 'skills/local/read response skill.content must be a string',
+      },
+    ];
+
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      const api = createBackendApi({ callAPI });
+      await expect(item.call(api)).rejects.toThrow(item.message);
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('allows explicit empty skill content from skills/local/read', async () => {
+    const response = { skill: { path: '.agents/skills/demo/SKILL.md', content: '' } };
+    const callAPI = vi.fn().mockResolvedValue(response);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' })).resolves.toBe(response);
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_READ, {
+      cwd: '/repo/app',
+      path: '.agents/skills/demo/SKILL.md',
     });
   });
 
@@ -708,7 +937,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
   });
 
   it('strips cwd from strict thread-scoped runtime RPC payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
@@ -729,6 +958,24 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.THREAD_RECOVER, {
       threadId: 'thread-1',
     });
+  });
+
+  it('passes through diagnosed turn force-complete failure envelopes from the backend facade', async () => {
+    const responses = [
+      { ok: false, forceCompleted: false, errorCode: 'force_complete_target_not_found' },
+      { ok: false, forceCompleted: false, error: 'force complete target not found' },
+      { ok: false, forceCompleted: false, message: 'force complete target not found' },
+    ];
+
+    for (const response of responses) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const api = createBackendApi({ callAPI });
+
+      await expect(api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' })).resolves.toEqual(response);
+      expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_FORCE_COMPLETE, {
+        threadId: 'thread-1',
+      });
+    }
   });
 
   it('rejects unknown turn/forceComplete facade fields before calling the backend', () => {
@@ -755,6 +1002,16 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     });
     expect(() => api.respondApproval({ requestId: 0, approved: true }))
       .toThrow('approval/respond: requestId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: '11', approved: true }),
+      'approval/respond: requestId must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: '11.9', approved: true }),
+      'approval/respond: requestId must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: 11.9, approved: true }),
+      'approval/respond: requestId must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      requestId: Number.MAX_SAFE_INTEGER + 1,
+      approved: true,
+    }), 'approval/respond: requestId must be a positive integer');
     expect(() => api.respondApproval({ requestId: 11 }))
       .toThrow('approval/respond: approved is required');
   });
@@ -855,7 +1112,9 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     const callAPI = vi.fn((method) => Promise.resolve(
       method === RPC_METHODS.SKILLS_SUMMARY_SUGGEST
         ? { description: '当你需要编写文档时使用。' }
-        : { ok: true },
+        : method === RPC_METHODS.SKILLS_LOCAL_READ
+          ? { skill: { path: '/repo/app/.agent/skills/docs/SKILL.md', content: '# DocsSkill' } }
+          : { ok: true },
     ));
     const selectProjectDirs = vi.fn().mockResolvedValue(['/imports/a']);
     const api = createBackendApi({ callAPI, selectProjectDirs });
@@ -989,8 +1248,61 @@ function expectSkillEditorCalls(callAPI) {
     });
   });
 
-  it('wraps DAG dashboard RPCs with the legacy payload shapes', async () => {
+  it('rejects skill resolution apply without preview proof', () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+    const validApplyPayload = {
+      cwd: '/repo/app',
+      conflict_id: 'c1',
+      action: 'canonical_overwrite_mirror',
+      previewId: 'p1',
+      previewHash: 'h1',
+    };
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      previewId: '',
+    }), 'preview_id is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      previewHash: '',
+    }), 'preview_hash is required');
+  });
+
+  it('rejects skill resolution payloads without required conflict fields', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+    const validPreviewPayload = {
+      cwd: '/repo/app',
+      conflictId: 'c1',
+      action: 'canonical_overwrite_mirror',
+    };
+    const validApplyPayload = {
+      ...validPreviewPayload,
+      previewId: 'p1',
+      previewHash: 'h1',
+    };
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.previewSkillResolution({
+      ...validPreviewPayload,
+      conflictId: '',
+    }), 'conflict_id is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.previewSkillResolution({
+      ...validPreviewPayload,
+      action: '',
+    }), 'action is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      conflictId: '',
+    }), 'conflict_id is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
+      ...validApplyPayload,
+      action: '',
+    }), 'action is required');
+  });
+
+  it('wraps DAG dashboard RPCs with the legacy payload shapes', async () => {
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await callDagDashboardApis(api);
@@ -1025,14 +1337,29 @@ function expectSkillEditorCalls(callAPI) {
     })).resolves.toEqual(applyResponse);
   });
 
-  it('wraps cronjob RPCs with the legacy payload shapes', async () => {
+  it('wraps cronjob RPCs with validated payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
+    const cronPayload = {
+      cwd: '/repo/app',
+      name: 'nightly',
+      prompt: 'run tests',
+      scheduleExpr: '0 9 * * *',
+      timezone: 'Asia/Shanghai',
+      provider: 'codex',
+      model: 'gpt-5',
+      config: { codexHome: '/codex', codexInstanceKey: 'default', codexModelProvider: 'openai' },
+      skills: ['测试规范'],
+      notifyChannel: 'desktop',
+      enabled: true,
+      nextRunAt: '2026-07-05T01:00:00Z',
+      maxAttempts: 2,
+    };
 
     await api.listCronJobs();
     await api.getCronJob({ id: 'job-1' });
-    await api.createCronJob({ name: 'nightly', prompt: 'run tests' });
-    await api.updateCronJob({ id: 'job-1', name: 'nightly v2', enabled: false });
+    await api.createCronJob(cronPayload);
+    await api.updateCronJob({ ...cronPayload, id: 'job-1', name: 'nightly v2', enabled: false });
     await api.deleteCronJob({ id: 'job-1' });
     await api.runCronJobOnce({ id: 'job-1' });
     await api.setCronJobEnabled({ id: 'job-1', enabled: true });
@@ -1040,19 +1367,53 @@ function expectSkillEditorCalls(callAPI) {
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_LIST, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_GET, { id: 'job-1' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_CREATE, { name: 'nightly', prompt: 'run tests' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_UPDATE, { id: 'job-1', name: 'nightly v2', enabled: false });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_CREATE, {
+      cwd: '/repo/app',
+      name: 'nightly',
+      prompt: 'run tests',
+      schedule_expr: '0 9 * * *',
+      timezone: 'Asia/Shanghai',
+      provider: 'codex',
+      model: 'gpt-5',
+      config: { codexHome: '/codex', codexInstanceKey: 'default', codexModelProvider: 'openai' },
+      skills: ['测试规范'],
+      notify_channel: 'desktop',
+      enabled: true,
+      next_run_at: '2026-07-05T01:00:00Z',
+      max_attempts: 2,
+    });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_UPDATE, {
+      id: 'job-1',
+      cwd: '/repo/app',
+      name: 'nightly v2',
+      prompt: 'run tests',
+      schedule_expr: '0 9 * * *',
+      timezone: 'Asia/Shanghai',
+      provider: 'codex',
+      model: 'gpt-5',
+      config: { codexHome: '/codex', codexInstanceKey: 'default', codexModelProvider: 'openai' },
+      skills: ['测试规范'],
+      notify_channel: 'desktop',
+      enabled: false,
+      next_run_at: '2026-07-05T01:00:00Z',
+      max_attempts: 2,
+    });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_DELETE, { id: 'job-1' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_RUN_ONCE, { id: 'job-1' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_SET_ENABLED, { id: 'job-1', enabled: true });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_LIST_RUNS, { job_id: 'job-1', limit: 50 });
+    expectInvalidInputDoesNotCall(callAPI, () => api.createCronJob({ ...cronPayload, cwd: '' }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.createCronJob({ ...cronPayload, name: '' }), 'name is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.createCronJob({ ...cronPayload, prompt: '' }), 'prompt is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.createCronJob({ ...cronPayload, scheduleExpr: '' }), 'schedule_expr is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.updateCronJob({ ...cronPayload, id: '' }), 'id is required');
     expect(() => api.getCronJob({ id: '' })).toThrow('id is required');
     expect(() => api.setCronJobEnabled({ id: 'job-1', enabled: 'true' })).toThrow('enabled must be boolean');
     expect(() => api.listCronJobRuns({ jobId: '' })).toThrow('job_id is required');
   });
 
   it('wraps settings config RPCs with the internal uistate method names', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.readLspPromptHint({ cwd: '/repo/app' });
@@ -1074,7 +1435,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps config, project, preference, and dashboard page RPCs with stable payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.readConfig();
@@ -1126,7 +1487,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps prompt-section and thread read RPCs with stable payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.listPromptSections({ cwd: '/repo/app', prompt_id: 'prompt-1' });
@@ -1442,6 +1803,29 @@ function expectPromptFacadeValidation(api) {
     expectMemoryCenterValidation(api);
   });
 
+  it('rejects malformed memory target payloads before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.getMemoryEntry({ cwd: '/repo/app', target: '', path: 'feedback/tdd.md' }))
+      .toThrow('ui/memory/entry/get: target must be private or team');
+    expect(() => api.deleteMemoryEntry({ cwd: '/repo/app', target: 'public', path: 'feedback/tdd.md' }))
+      .toThrow('ui/memory/entry/delete: target must be private or team');
+    expect(() => api.upsertMemoryEntry({
+      cwd: '/repo/app',
+      target: 'global',
+      name: 'tdd-rule',
+      description: '先写红测',
+      type: 'feedback',
+      content: '规则',
+    })).toThrow('ui/memory/entry/upsert: target must be private or team');
+    expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'global', pathB: 'b.md' }))
+      .toThrow('ui/memory/entry/merge: targetB must be private or team');
+    expect(() => api.ignoreMemorySimilarity({ cwd: '/repo/app', targetA: 'global', pathA: 'a.md', targetB: 'team', pathB: 'b.md' }))
+      .toThrow('ui/memory/similarity/ignore: targetA must be private or team');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
 async function callMemoryCenterApis(api) {
   await api.getMemorySnapshot({ cwd: '/repo/app' });
   await api.getMemoryEntry({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
@@ -1573,4 +1957,5 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openCodeFile({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.openPath({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.saveCodeFile({ filePath: 'src/App.jsx' })).toThrow('content is required');
+    expect(() => api.saveCodeFile({ filePath: 'src/App.jsx', content: null })).toThrow('content must be a string');
   });

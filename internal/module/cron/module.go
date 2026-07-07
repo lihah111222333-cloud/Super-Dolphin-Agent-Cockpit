@@ -42,23 +42,56 @@ var Module = fx.Module("cron",
 )
 
 type cronStoreAdapter struct {
+	jobs      *cronJobStoreAdapter
+	scheduler *cronSchedulerStoreAdapter
+}
+
+type cronJobStoreAdapter struct {
+	store cronstore.Store
+}
+
+type cronSchedulerStoreAdapter struct {
+	*cronJobStoreAdapter
+	*cronSchedulerClaimAdapter
+	*cronSchedulerRunAdapter
+	*cronSubmitAdapter
+}
+
+type cronSchedulerClaimAdapter struct {
+	store cronstore.Store
+}
+
+type cronSchedulerRunAdapter struct {
+	store cronstore.Store
+}
+
+type cronSubmitAdapter struct {
 	store cronstore.Store
 }
 
 // newCronStoreAdapter 把 store.cron 的完整持久化接口收在 module 装配边界内。
 // 其它 cron 生产文件只能依赖本包窄端口，避免继续泄露 store DTO 和状态常量。
 func newCronStoreAdapter(store cronstore.Store) *cronStoreAdapter {
-	return &cronStoreAdapter{store: store}
+	jobs := &cronJobStoreAdapter{store: store}
+	return &cronStoreAdapter{
+		jobs: jobs,
+		scheduler: &cronSchedulerStoreAdapter{
+			cronJobStoreAdapter:       jobs,
+			cronSchedulerClaimAdapter: &cronSchedulerClaimAdapter{store: store},
+			cronSchedulerRunAdapter:   &cronSchedulerRunAdapter{store: store},
+			cronSubmitAdapter:         &cronSubmitAdapter{store: store},
+		},
+	}
 }
 
 // provideStore 将完整 cron 持久化实现收窄为 service CRUD 端口。
-func provideStore(adapter *cronStoreAdapter) Store { return adapter }
+func provideStore(adapter *cronStoreAdapter) Store { return adapter.jobs }
 
 // provideSchedulerStore 将完整 cron 持久化实现收窄为 scheduler 状态机端口。
-func provideSchedulerStore(adapter *cronStoreAdapter) SchedulerStore { return adapter }
+func provideSchedulerStore(adapter *cronStoreAdapter) SchedulerStore { return adapter.scheduler }
 
 // CreateJob 把 service 的创建参数转换为 store 入参，并把返回行转成本包记录。
-func (a *cronStoreAdapter) CreateJob(ctx context.Context, p createJobParams) (jobRecord, error) {
+func (a *cronJobStoreAdapter) CreateJob(ctx context.Context, p createJobParams) (jobRecord, error) {
 	row, err := a.store.CreateJob(ctx, cronstore.CreateJobParams{
 		ID:            p.ID,
 		Name:          p.Name,
@@ -82,13 +115,13 @@ func (a *cronStoreAdapter) CreateJob(ctx context.Context, p createJobParams) (jo
 }
 
 // GetJobByID 按 ID 读取任务，并屏蔽 store 层的 DTO 和错误类型。
-func (a *cronStoreAdapter) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
+func (a *cronJobStoreAdapter) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
 	row, err := a.store.GetJobByID(ctx, id)
 	return fromStoreJob(row), mapCronStoreError(err)
 }
 
 // ListJobs 列出任务并逐条转换为 cron 模块内部记录。
-func (a *cronStoreAdapter) ListJobs(ctx context.Context) ([]jobRecord, error) {
+func (a *cronJobStoreAdapter) ListJobs(ctx context.Context) ([]jobRecord, error) {
 	rows, err := a.store.ListJobs(ctx)
 	if err != nil {
 		return nil, mapCronStoreError(err)
@@ -97,12 +130,12 @@ func (a *cronStoreAdapter) ListJobs(ctx context.Context) ([]jobRecord, error) {
 }
 
 // DeleteJob 删除任务，并把 not found 等 store 错误映射到本包错误。
-func (a *cronStoreAdapter) DeleteJob(ctx context.Context, id string) error {
+func (a *cronJobStoreAdapter) DeleteJob(ctx context.Context, id string) error {
 	return mapCronStoreError(a.store.DeleteJob(ctx, id))
 }
 
 // UpdateJobSchedule 覆盖任务调度配置，避免 service 直接构造 store 入参。
-func (a *cronStoreAdapter) UpdateJobSchedule(ctx context.Context, p updateJobScheduleParams) error {
+func (a *cronJobStoreAdapter) UpdateJobSchedule(ctx context.Context, p updateJobScheduleParams) error {
 	return mapCronStoreError(a.store.UpdateJobSchedule(ctx, cronstore.UpdateJobScheduleParams{
 		ID:            p.ID,
 		Name:          p.Name,
@@ -124,17 +157,17 @@ func (a *cronStoreAdapter) UpdateJobSchedule(ctx context.Context, p updateJobSch
 }
 
 // SetJobEnabled 切换任务启停状态，并统一转换 store 层错误。
-func (a *cronStoreAdapter) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
+func (a *cronJobStoreAdapter) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
 	return mapCronStoreError(a.store.SetJobEnabled(ctx, id, enabled, now))
 }
 
 // PatchNextRunAt 更新下一次运行时间，供手动触发和调度推进复用。
-func (a *cronStoreAdapter) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
+func (a *cronJobStoreAdapter) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
 	return mapCronStoreError(a.store.PatchNextRunAt(ctx, id, nextRunAt, now))
 }
 
 // ListRunsByJob 查询任务运行记录，并返回本包 runRecord 切片。
-func (a *cronStoreAdapter) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]runRecord, error) {
+func (a *cronJobStoreAdapter) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]runRecord, error) {
 	rows, err := a.store.ListRunsByJob(ctx, jobID, limit)
 	if err != nil {
 		return nil, mapCronStoreError(err)
@@ -143,7 +176,7 @@ func (a *cronStoreAdapter) ListRunsByJob(ctx context.Context, jobID string, limi
 }
 
 // ClaimDueJobsForUpdate 认领到期任务，并把 claim 入参限制在 scheduler 所需字段内。
-func (a *cronStoreAdapter) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
+func (a *cronSchedulerClaimAdapter) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
 	rows, err := a.store.ClaimDueJobsForUpdate(ctx, cronstore.ClaimDueJobsForUpdateParams{
 		Now:            p.Now,
 		ClaimedBy:      p.ClaimedBy,
@@ -158,7 +191,7 @@ func (a *cronStoreAdapter) ClaimDueJobsForUpdate(ctx context.Context, p claimDue
 }
 
 // RenewLease 延长当前 worker 持有的 job 租约。
-func (a *cronStoreAdapter) RenewLease(ctx context.Context, p leaseParams) error {
+func (a *cronSchedulerClaimAdapter) RenewLease(ctx context.Context, p leaseParams) error {
 	return mapCronStoreError(a.store.RenewLease(ctx, cronstore.LeaseParams{
 		ID:             p.ID,
 		ClaimToken:     p.ClaimToken,
@@ -168,7 +201,7 @@ func (a *cronStoreAdapter) RenewLease(ctx context.Context, p leaseParams) error 
 }
 
 // ExtendClaim 处理 turn progress 触发的租约延长，失败时保留本包错误语义。
-func (a *cronStoreAdapter) ExtendClaim(ctx context.Context, p leaseParams) error {
+func (a *cronSchedulerClaimAdapter) ExtendClaim(ctx context.Context, p leaseParams) error {
 	return mapCronStoreError(a.store.ExtendClaim(ctx, cronstore.LeaseParams{
 		ID:             p.ID,
 		ClaimToken:     p.ClaimToken,
@@ -178,7 +211,7 @@ func (a *cronStoreAdapter) ExtendClaim(ctx context.Context, p leaseParams) error
 }
 
 // MarkFinished 按 claim 栅栏标记任务成功完成，并写入下一次运行时间。
-func (a *cronStoreAdapter) MarkFinished(ctx context.Context, p markFinishedParams) error {
+func (a *cronSchedulerClaimAdapter) MarkFinished(ctx context.Context, p markFinishedParams) error {
 	return mapCronStoreError(a.store.MarkFinished(ctx, cronstore.MarkFinishedParams{
 		ID:                   p.ID,
 		ClaimToken:           p.ClaimToken,
@@ -192,7 +225,7 @@ func (a *cronStoreAdapter) MarkFinished(ctx context.Context, p markFinishedParam
 }
 
 // MarkFailed 按 claim 栅栏记录失败或 observe_lost 状态。
-func (a *cronStoreAdapter) MarkFailed(ctx context.Context, p markFailedParams) error {
+func (a *cronSchedulerClaimAdapter) MarkFailed(ctx context.Context, p markFailedParams) error {
 	return mapCronStoreError(a.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:                   p.ID,
 		ClaimToken:           p.ClaimToken,
@@ -210,7 +243,7 @@ func (a *cronStoreAdapter) MarkFailed(ctx context.Context, p markFailedParams) e
 }
 
 // SetActiveTurn 绑定 job 当前活跃 turn，并保留 thread/agent 身份信息。
-func (a *cronStoreAdapter) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
+func (a *cronSchedulerClaimAdapter) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
 	return mapCronStoreError(a.store.SetActiveTurn(ctx, cronstore.SetActiveTurnParams{
 		ID:           p.ID,
 		ClaimToken:   p.ClaimToken,
@@ -221,8 +254,22 @@ func (a *cronStoreAdapter) SetActiveTurn(ctx context.Context, p setActiveTurnPar
 	}))
 }
 
+// SubmitRunWithActiveTurn 原子保存 run turn、job active turn 和 submitted 状态。
+func (a *cronSubmitAdapter) SubmitRunWithActiveTurn(ctx context.Context, p submitRunWithActiveTurnParams) error {
+	return mapCronStoreError(a.store.SubmitRunWithActiveTurn(ctx, cronstore.SubmitRunWithActiveTurnParams{
+		RunID:        p.RunID,
+		JobID:        p.JobID,
+		ClaimToken:   p.ClaimToken,
+		ActiveTurnID: p.ActiveTurnID,
+		ThreadID:     p.ThreadID,
+		AgentID:      p.AgentID,
+		SubmittedAt:  p.SubmittedAt,
+		Now:          p.Now,
+	}))
+}
+
 // InsertRun 创建一次 run 记录，返回值会转成本包 runRecord。
-func (a *cronStoreAdapter) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
+func (a *cronSchedulerRunAdapter) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
 	row, err := a.store.InsertRun(ctx, cronstore.InsertRunParams{
 		ID:             p.ID,
 		JobID:          p.JobID,
@@ -237,7 +284,7 @@ func (a *cronStoreAdapter) InsertRun(ctx context.Context, p insertRunParams) (ru
 }
 
 // CASRunStatus 执行 run 状态比较交换，避免 scheduler 依赖 store 参数类型。
-func (a *cronStoreAdapter) CASRunStatus(ctx context.Context, p casRunStatusParams) error {
+func (a *cronSchedulerRunAdapter) CASRunStatus(ctx context.Context, p casRunStatusParams) error {
 	return mapCronStoreError(a.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             p.ID,
 		ExpectedStatus: p.ExpectedStatus,
@@ -248,7 +295,7 @@ func (a *cronStoreAdapter) CASRunStatus(ctx context.Context, p casRunStatusParam
 }
 
 // SetRunTurn 记录 run 对应的实际 turn 信息。
-func (a *cronStoreAdapter) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
+func (a *cronSchedulerRunAdapter) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
 	return mapCronStoreError(a.store.SetRunTurn(ctx, cronstore.SetRunTurnParams{
 		ID:          p.ID,
 		ThreadID:    p.ThreadID,
@@ -260,13 +307,19 @@ func (a *cronStoreAdapter) SetRunTurn(ctx context.Context, p setRunTurnParams) e
 }
 
 // GetRunningRunByTurnID 查找当前 running run，用于终态事件收尾。
-func (a *cronStoreAdapter) GetRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+func (a *cronSchedulerRunAdapter) GetRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
 	row, err := a.store.GetRunningRunByTurnID(ctx, turnID)
 	return fromStoreRun(row), mapCronStoreError(err)
 }
 
+// GetSubmittedOrRunningRunByTurnID 查找可由终态事件收尾的 submitted/running run。
+func (a *cronSubmitAdapter) GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+	row, err := a.store.GetSubmittedOrRunningRunByTurnID(ctx, turnID)
+	return fromStoreRun(row), mapCronStoreError(err)
+}
+
 // ListUnresolvedRuns 列出恢复流程需要接管的 run。
-func (a *cronStoreAdapter) ListUnresolvedRuns(ctx context.Context) ([]runRecord, error) {
+func (a *cronSchedulerRunAdapter) ListUnresolvedRuns(ctx context.Context) ([]runRecord, error) {
 	rows, err := a.store.ListUnresolvedRuns(ctx)
 	if err != nil {
 		return nil, mapCronStoreError(err)
@@ -274,8 +327,17 @@ func (a *cronStoreAdapter) ListUnresolvedRuns(ctx context.Context) ([]runRecord,
 	return fromStoreRuns(rows), nil
 }
 
+// ListUnresolvedRunsPage 分页列出恢复流程需要接管的 run。
+func (a *cronSubmitAdapter) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]runRecord, error) {
+	rows, err := a.store.ListUnresolvedRunsPage(ctx, limit, cursor)
+	if err != nil {
+		return nil, mapCronStoreError(err)
+	}
+	return fromStoreRuns(rows), nil
+}
+
 // ListJobsClaimedBy 查询当前调度身份仍持有的 job，用于续租和 progress 延长。
-func (a *cronStoreAdapter) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]jobRecord, error) {
+func (a *cronSchedulerClaimAdapter) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]jobRecord, error) {
 	rows, err := a.store.ListJobsClaimedBy(ctx, claimedBy)
 	if err != nil {
 		return nil, mapCronStoreError(err)

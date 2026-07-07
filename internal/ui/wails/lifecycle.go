@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -230,14 +231,14 @@ func (l *WailsLifecycle) requestBackendShutdown() {
 		l.NotifyBackendFailed()
 		return
 	}
-	go func() {
+	safego.Go(context.Background(), nil, "wails.lifecycle.shutdown", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("wails: recovered shutdown callback panic", "panic", rec)
 			}
 		}()
 		shutdown()
-	}()
+	})
 }
 
 // flushPendingQuit 在前端 ready 后消费挂起的 quit 请求。
@@ -258,14 +259,14 @@ func (l *WailsLifecycle) invokeQuit() {
 		l.pendingQuit.Store(true)
 		return
 	}
-	go func() {
+	safego.Go(context.Background(), nil, "wails.lifecycle.quit", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("wails: recovered quit callback panic", "panic", rec)
 			}
 		}()
 		quit()
-	}()
+	})
 }
 
 // loadQuit 在线程安全范围内读取窗口退出回调。

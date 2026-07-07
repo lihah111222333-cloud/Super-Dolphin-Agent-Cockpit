@@ -53,8 +53,19 @@ func TestList(t *testing.T) {
 	t.Parallel()
 
 	ts := time.Unix(100, 0).UTC()
-	duration := int64(25)
-	s := &store{q: &ailogQuerierStub{
+	s := newListAILogStore(t, ts, 25)
+
+	rows, err := s.List(context.Background(), ListFilter{Keyword: "req", Limit: 5})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	assertAILogListRows(t, rows)
+}
+
+func newListAILogStore(t *testing.T, ts time.Time, duration int64) *store {
+	t.Helper()
+
+	return &store{q: &ailogQuerierStub{
 		listAILogSystemLogsFn: func(_ context.Context, arg sqlc.ListAILogSystemLogsParams) ([]sqlc.ListAILogSystemLogsRow, error) {
 			if arg.Keyword != "req" || arg.KeywordPattern != "%req%" || arg.LimitCount != 5 {
 				t.Fatalf("List() forwarded wrong params: %+v", arg)
@@ -80,27 +91,37 @@ func TestList(t *testing.T) {
 			}}, nil
 		},
 	}}
+}
 
-	rows, err := s.List(context.Background(), ListFilter{Keyword: "req", Limit: 5})
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
+func assertAILogListRows(t *testing.T, rows []AILog) {
+	t.Helper()
+
 	if len(rows) != 1 || rows[0].Message != "request" || rows[0].DurationMs == nil || *rows[0].DurationMs != 25 {
 		t.Fatalf("List() = %+v", rows)
 	}
 	if string(rows[0].Extra) != `{}` {
 		t.Fatalf("List() Extra = %s", rows[0].Extra)
 	}
-	if rows[0].TraceID != "trace-1" || rows[0].SpanID != "span-1" || rows[0].ParentSpanID != "parent-1" {
-		t.Fatalf("List() trace fields = trace:%q span:%q parent:%q", rows[0].TraceID, rows[0].SpanID, rows[0].ParentSpanID)
-	}
+	assertAILogTraceFields(t, "List()", rows[0])
 }
 
 func TestListByCategoryDerivesFieldsInGo(t *testing.T) {
 	t.Parallel()
 
 	ts := time.Unix(200, 0).UTC()
-	s := &store{q: &ailogQuerierStub{
+	s := newListByCategoryAILogStore(t, ts)
+
+	rows, err := s.ListByCategory(context.Background(), "api_request", "models", 7)
+	if err != nil {
+		t.Fatalf("ListByCategory() error = %v", err)
+	}
+	assertListByCategoryDerivedFields(t, rows)
+}
+
+func newListByCategoryAILogStore(t *testing.T, ts time.Time) *store {
+	t.Helper()
+
+	return &store{q: &ailogQuerierStub{
 		listAILogsByCategoryFn: func(_ context.Context, arg sqlc.ListAILogsByCategoryParams) ([]sqlc.ListAILogsByCategoryRow, error) {
 			if arg.Column1 != "models" || arg.LOWER != "%models%" || arg.Column3 != "api_request" || arg.Message != "api_request" || arg.Limit != 7 {
 				t.Fatalf("ListByCategory() forwarded wrong params: %+v", arg)
@@ -121,11 +142,11 @@ func TestListByCategoryDerivesFieldsInGo(t *testing.T) {
 			}, nil
 		},
 	}}
+}
 
-	rows, err := s.ListByCategory(context.Background(), "api_request", "models", 7)
-	if err != nil {
-		t.Fatalf("ListByCategory() error = %v", err)
-	}
+func assertListByCategoryDerivedFields(t *testing.T, rows []AILog) {
+	t.Helper()
+
 	if len(rows) != 1 {
 		t.Fatalf("ListByCategory() len = %d, want 1: %+v", len(rows), rows)
 	}

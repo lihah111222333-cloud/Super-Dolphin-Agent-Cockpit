@@ -48,9 +48,9 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 // payload 身份字段异常时必须 fail-fast；能定位 requestId 时回写拒绝决策，否则终止当前 turn。
 func (s *session) requestToolApprovalWithContext(ctx context.Context, method string, params json.RawMessage) error {
 	payload := decodeEventPayload(params)
-	requestID := int64Value(payload, "requestId", "request_id")
+	requestID, hasRequestID := strictApprovalRequestID(payload, "requestId", "request_id")
 	if err := validateApprovalPayload(payload); err != nil {
-		if requestID > 0 {
+		if hasRequestID {
 			return s.sendApprovalDecision(requestID, approvalParseFailedDecision(err))
 		}
 		s.failTurns(err)
@@ -227,8 +227,8 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	if len(payload) == 0 {
 		return rpc.ApprovalRequest{}, 0, false
 	}
-	requestID := int64Value(payload, "requestId", "request_id")
-	if requestID <= 0 {
+	requestID, ok := strictApprovalRequestID(payload, "requestId", "request_id")
+	if !ok {
 		return rpc.ApprovalRequest{}, 0, false
 	}
 	callID := payloadCallID(payload, stringValue(payload, "approvalId", "approval_id"), strconv.FormatInt(requestID, 10))
@@ -246,6 +246,40 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 		ApprovalPolicy: s.approvalPolicyValue(),
 		Payload:        payload,
 	}, requestID, callID != ""
+}
+
+// strictApprovalRequestID 只接受 approval 协议中的正整数 requestId。
+// 审批决策会回写到 provider，不能把字符串或浮点数截断成另一个合法请求。
+func strictApprovalRequestID(payload map[string]any, keys ...string) (int64, bool) {
+	for _, key := range keys {
+		value, exists := payload[key]
+		if !exists || value == nil {
+			continue
+		}
+		return strictApprovalRequestIDValue(value)
+	}
+	return 0, false
+}
+
+func strictApprovalRequestIDValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Int64()
+		return positiveApprovalRequestID(parsed, err == nil)
+	case int64:
+		return positiveApprovalRequestID(typed, true)
+	case int:
+		return positiveApprovalRequestID(int64(typed), true)
+	default:
+		return 0, false
+	}
+}
+
+func positiveApprovalRequestID(value int64, ok bool) (int64, bool) {
+	if !ok || value <= 0 {
+		return 0, false
+	}
+	return value, true
 }
 
 // sendApprovalDecision 把宿主 approval 决策回写给 Codex app-server。

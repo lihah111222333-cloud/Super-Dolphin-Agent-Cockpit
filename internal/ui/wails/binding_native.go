@@ -180,6 +180,34 @@ func (a *App) selectFilesWithFilters(defaultPath string, filters []selectFileFil
 	return paths, err
 }
 
+// selectSingleFileWithFilters 打开单文件选择器，专供需要为单一路径签发 capability 的入口使用。
+// 它不改变 selectFilesWithFilters 的多选数组契约，取消选择时返回空字符串。
+func (a *App) selectSingleFileWithFilters(defaultPath string, filters []selectFileFilter) (string, error) {
+	if a != nil && a.selectFileInvoker != nil {
+		return a.selectFileInvoker(defaultPath, filters)
+	}
+	dialog, err := a.newDialog()
+	if err != nil {
+		return "", err
+	}
+	dialog = dialog.
+		SetTitle("Select Datasource File").
+		SetMessage("Choose a datasource file").
+		SetButtonText("Select").
+		SetDirectory(resolveDialogDirectory(defaultPath)).
+		CanChooseDirectories(false).
+		CanChooseFiles(true).
+		ShowHiddenFiles(true)
+	for _, filter := range normalizeSelectFileFilters(filters) {
+		dialog = dialog.AddFilter(filter.DisplayName, filter.Pattern)
+	}
+	path, err := dialog.PromptForSingleSelection()
+	if isDialogCancelError(err) || path == "" {
+		return "", nil
+	}
+	return path, err
+}
+
 // normalizeSelectFileFilters 清理前端传入的可选文件类型过滤器。
 // 空名称或空模式会被丢弃，避免原生 dialog 展示不可理解的过滤项。
 func normalizeSelectFileFilters(filters []selectFileFilter) []selectFileFilter {

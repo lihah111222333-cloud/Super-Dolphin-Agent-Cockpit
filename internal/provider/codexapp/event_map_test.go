@@ -314,8 +314,8 @@ func TestTranslateCodexRolloutFunctionCallPublishesToolCallBegin(t *testing.T) {
 	if begin.CallID != "call-file" || begin.ToolName != "mcp__lsp__file" {
 		t.Fatalf("ToolCallBegin = %+v, want call-file/mcp__lsp__file", begin)
 	}
-	if begin.ArgumentsPreview != `{"action":"read_file","file_path":"smoke.go"}` {
-		t.Fatalf("ArgumentsPreview = %q, want raw JSON arguments", begin.ArgumentsPreview)
+	if begin.ArgumentsPreview != `{"action":"read_file","file_path":"[REDACTED]"}` {
+		t.Fatalf("ArgumentsPreview = %q, want sanitized JSON arguments", begin.ArgumentsPreview)
 	}
 }
 
@@ -547,7 +547,7 @@ func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *t
 	}
 }
 
-func TestTranslateCodexRolloutToolResultUsesCaptureHook(t *testing.T) {
+func TestToolCallEndReportsPersistFailure(t *testing.T) {
 	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
 		if meta.CallID != "call-grep" || meta.ToolName != "mcp__lsp__grep" {
 			t.Fatalf("capture meta = %+v, want call-grep/mcp__lsp__grep", meta)
@@ -558,6 +558,8 @@ func TestTranslateCodexRolloutToolResultUsesCaptureHook(t *testing.T) {
 		return providershared.ToolResultRecord{
 			Preview:       `{"captured":true}`,
 			PersistedPath: "/tmp/tool-result.json",
+			PersistFailed: true,
+			PersistError:  "disk full",
 			Truncated:     true,
 			OriginalSize:  1234,
 		}
@@ -594,8 +596,18 @@ func TestTranslateCodexRolloutToolResultUsesCaptureHook(t *testing.T) {
 	if !ok {
 		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
 	}
-	if end.Result != `{"captured":true}` || end.PersistedPath != "/tmp/tool-result.json" || !end.Truncated || end.OriginalSize != 1234 {
-		t.Fatalf("ToolCallEnd capture fields = %+v, want captured preview/path/truncation", end)
+	summary := struct {
+		result, path, persistError string
+		persistFailed, truncated   bool
+		originalSize               int
+	}{end.Result, end.PersistedPath, end.PersistError, end.PersistFailed, end.Truncated, end.OriginalSize}
+	wantSummary := struct {
+		result, path, persistError string
+		persistFailed, truncated   bool
+		originalSize               int
+	}{`{"captured":true}`, "/tmp/tool-result.json", "disk full", true, true, 1234}
+	if summary != wantSummary {
+		t.Fatalf("ToolCallEnd capture fields = %+v, want %+v", summary, wantSummary)
 	}
 }
 

@@ -15,6 +15,7 @@ type dispatcherStubStore struct {
 	claimCalls []taskdag.ClaimDueWakeupsInput
 	claimReply []taskdag.Wakeup
 	claimErr   error
+	claimSeen  chan struct{}
 
 	renewCalls []taskdag.RenewWakeupLeaseInput
 	renewRows  int64
@@ -53,20 +54,26 @@ type dispatcherStubStore struct {
 	runningErr       error
 }
 
+// receiver alias 按 dispatcher fixture 角色拆分导出方法，同时保留旧字段和 composite literal 写法。
+type dispatcherStubDAGReadFixture = dispatcherStubStore
+type dispatcherStubNodeFlowFixture = dispatcherStubStore
+type dispatcherStubWakeupFixture = dispatcherStubStore
+type dispatcherStubAtomicFailFixture = dispatcherStubStore
+
 type atomicWakeupNodeFailCall struct {
 	Wakeup taskdag.FailWakeupInput
 	Node   taskdag.FailNodeInput
 }
 
-func (s *dispatcherStubStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
+func (s *dispatcherStubDAGReadFixture) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
 	return s.dagReply, s.dagErr
 }
 
-func (s *dispatcherStubStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
+func (s *dispatcherStubDAGReadFixture) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
 	return s.nodesReply, s.nodesErr
 }
 
-func (s *dispatcherStubStore) ListRunNodes(_ context.Context, _ string, runID int64) ([]taskdag.Node, error) {
+func (s *dispatcherStubDAGReadFixture) ListRunNodes(_ context.Context, _ string, runID int64) ([]taskdag.Node, error) {
 	if s.nodesErr != nil {
 		return nil, s.nodesErr
 	}
@@ -81,7 +88,7 @@ func (s *dispatcherStubStore) ListRunNodes(_ context.Context, _ string, runID in
 	return out, nil
 }
 
-func (s *dispatcherStubStore) FailNodeAndCancelDownstream(_ context.Context, input taskdag.FailNodeInput) (*taskdag.FailNodeResult, error) {
+func (s *dispatcherStubNodeFlowFixture) FailNodeAndCancelDownstream(_ context.Context, input taskdag.FailNodeInput) (*taskdag.FailNodeResult, error) {
 	s.failNodeCalls = append(s.failNodeCalls, input)
 	if s.failNodeErr != nil {
 		return nil, s.failNodeErr
@@ -92,7 +99,7 @@ func (s *dispatcherStubStore) FailNodeAndCancelDownstream(_ context.Context, inp
 	return &taskdag.FailNodeResult{}, nil
 }
 
-func (s *dispatcherStubStore) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup taskdag.FailWakeupInput, node taskdag.FailNodeInput) (int64, *taskdag.FailNodeResult, error) {
+func (s *dispatcherStubAtomicFailFixture) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup taskdag.FailWakeupInput, node taskdag.FailNodeInput) (int64, *taskdag.FailNodeResult, error) {
 	s.atomicFailCalls = append(s.atomicFailCalls, atomicWakeupNodeFailCall{Wakeup: wakeup, Node: node})
 	rows, err := s.FailWakeup(ctx, wakeup)
 	if err != nil || rows == 0 {
@@ -106,7 +113,7 @@ func (s *dispatcherStubStore) FailWakeupAndFailNodeAndCancelDownstream(ctx conte
 	return rows, res, nil
 }
 
-func (s *dispatcherStubStore) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
+func (s *dispatcherStubNodeFlowFixture) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
 	s.completeCalls = append(s.completeCalls, input)
 	if s.completeErr != nil {
 		return nil, s.completeErr
@@ -117,7 +124,7 @@ func (s *dispatcherStubStore) CompleteNodeAndScheduleDownstream(_ context.Contex
 	return &taskdag.CompleteNodeWithDownstreamResult{}, nil
 }
 
-func (s *dispatcherStubStore) PatchNodeConfigIfUnchanged(_ context.Context, input taskdag.NodeConfigPatchInput) (*taskdag.Node, error) {
+func (s *dispatcherStubNodeFlowFixture) PatchNodeConfigIfUnchanged(_ context.Context, input taskdag.NodeConfigPatchInput) (*taskdag.Node, error) {
 	s.patchConfigCalls = append(s.patchConfigCalls, input)
 	if s.patchConfigErr != nil {
 		return nil, s.patchConfigErr
@@ -132,7 +139,7 @@ func (s *dispatcherStubStore) PatchNodeConfigIfUnchanged(_ context.Context, inpu
 	}, nil
 }
 
-func (s *dispatcherStubStore) RetryWakeupWithNodeConfigPatch(ctx context.Context, input taskdag.RetryWakeupWithNodeConfigPatchInput) (int64, error) {
+func (s *dispatcherStubNodeFlowFixture) RetryWakeupWithNodeConfigPatch(ctx context.Context, input taskdag.RetryWakeupWithNodeConfigPatchInput) (int64, error) {
 	rows, err := s.RetryWakeup(ctx, input.RetryWakeup)
 	if err != nil || rows == 0 {
 		return rows, err
@@ -144,7 +151,7 @@ func (s *dispatcherStubStore) RetryWakeupWithNodeConfigPatch(ctx context.Context
 	return rows, nil
 }
 
-func (s *dispatcherStubStore) UpdateRunningNodeStatus(_ context.Context, input taskdag.RunningNodeStatusUpdate) (*taskdag.Node, error) {
+func (s *dispatcherStubNodeFlowFixture) UpdateRunningNodeStatus(_ context.Context, input taskdag.RunningNodeStatusUpdate) (*taskdag.Node, error) {
 	s.runningCalls = append(s.runningCalls, input)
 	if s.runningErr != nil {
 		return nil, s.runningErr
@@ -152,15 +159,21 @@ func (s *dispatcherStubStore) UpdateRunningNodeStatus(_ context.Context, input t
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: &input.RunID, Status: input.Status}, nil
 }
 
-func (s *dispatcherStubStore) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
+func (s *dispatcherStubWakeupFixture) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
 	s.claimCalls = append(s.claimCalls, input)
+	if s.claimSeen != nil {
+		select {
+		case s.claimSeen <- struct{}{}:
+		default:
+		}
+	}
 	if s.claimErr != nil {
 		return nil, s.claimErr
 	}
 	return s.claimReply, nil
 }
 
-func (s *dispatcherStubStore) RenewWakeupLease(_ context.Context, input taskdag.RenewWakeupLeaseInput) (*taskdag.Wakeup, int64, error) {
+func (s *dispatcherStubWakeupFixture) RenewWakeupLease(_ context.Context, input taskdag.RenewWakeupLeaseInput) (*taskdag.Wakeup, int64, error) {
 	s.renewCalls = append(s.renewCalls, input)
 	if s.renewErr != nil {
 		return nil, 0, s.renewErr
@@ -184,7 +197,7 @@ func (s *dispatcherStubStore) RenewWakeupLease(_ context.Context, input taskdag.
 	return nil, 0, nil
 }
 
-func (s *dispatcherStubStore) MarkWakeupSent(_ context.Context, input taskdag.MarkWakeupSentInput) (int64, error) {
+func (s *dispatcherStubWakeupFixture) MarkWakeupSent(_ context.Context, input taskdag.MarkWakeupSentInput) (int64, error) {
 	s.markSentCalls = append(s.markSentCalls, input)
 	if s.markSentErr != nil {
 		return 0, s.markSentErr
@@ -198,7 +211,7 @@ func (s *dispatcherStubStore) MarkWakeupSent(_ context.Context, input taskdag.Ma
 	return s.markSentRows, nil
 }
 
-func (s *dispatcherStubStore) RetryWakeup(_ context.Context, input taskdag.RetryWakeupInput) (int64, error) {
+func (s *dispatcherStubWakeupFixture) RetryWakeup(_ context.Context, input taskdag.RetryWakeupInput) (int64, error) {
 	s.retryCalls = append(s.retryCalls, input)
 	if s.retryErr != nil {
 		return 0, s.retryErr
@@ -212,7 +225,7 @@ func (s *dispatcherStubStore) RetryWakeup(_ context.Context, input taskdag.Retry
 	return s.retryRows, nil
 }
 
-func (s *dispatcherStubStore) FailWakeup(_ context.Context, input taskdag.FailWakeupInput) (int64, error) {
+func (s *dispatcherStubWakeupFixture) FailWakeup(_ context.Context, input taskdag.FailWakeupInput) (int64, error) {
 	s.failCalls = append(s.failCalls, input)
 	if s.failErr != nil {
 		return 0, s.failErr

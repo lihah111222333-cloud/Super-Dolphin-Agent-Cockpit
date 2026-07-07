@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"golang.org/x/sync/errgroup"
 )
 
 type stubThreadLookup struct {
@@ -87,6 +91,119 @@ func (s keyedThreadLookup) GetByThreadID(_ context.Context, threadID string) (*c
 		return ref, nil
 	}
 	return nil, platformdb.ErrNotFound
+}
+
+type blockingResumeDriver struct {
+	name    string
+	session contract.Session
+	started chan struct{}
+	release chan struct{}
+
+	mu      sync.Mutex
+	resumed int
+}
+
+func newBlockingResumeDriver(name string, session contract.Session) *blockingResumeDriver {
+	return &blockingResumeDriver{
+		name:    name,
+		session: session,
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (d *blockingResumeDriver) Name() string { return d.name }
+
+func (d *blockingResumeDriver) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+	return d.session, nil
+}
+
+func (d *blockingResumeDriver) ResumeSession(ctx context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
+	d.mu.Lock()
+	d.resumed++
+	if d.resumed == 1 {
+		close(d.started)
+	}
+	d.mu.Unlock()
+	select {
+	case <-d.release:
+		return d.session, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (d *blockingResumeDriver) resumeCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.resumed
+}
+
+func TestResolveSessionRejectsAgentIDOnPublicThreadPath(t *testing.T) {
+	t.Parallel()
+
+	sessions := NewSessionManager(nil)
+	session := &generationTestSession{threadID: "provider-thread-1"}
+	sessions.Register("agent-1", session)
+	resolver := &sessionResolver{
+		threadStore:  stubThreadLookup{err: platformdb.ErrNotFound},
+		bindingStore: stubBindingLookup{},
+		registry:     NewRegistry(RegistryParams{}),
+		sessions:     sessions,
+	}
+
+	got, err := resolver.ResolveSession(context.Background(), "agent-1")
+	if err == nil || got == session {
+		t.Fatalf("ResolveSession(agent id) = (%#v, %v), want public thread lookup failure", got, err)
+	}
+}
+
+func TestConcurrentColdAutoResumeInvokesProviderResumeOnce(t *testing.T) {
+	t.Parallel()
+
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := newBlockingResumeDriver("codex", &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111119"})
+	resolver := &sessionResolver{
+		threadStore: keyedThreadLookup{
+			"public-thread-concurrent": {
+				ThreadID:       "public-thread-concurrent",
+				AgentID:        "agent-concurrent",
+				Status:         "running",
+				PromptSnapshot: autoResumePromptSnapshotForTest(),
+			},
+		},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:11111111-aaaa-bbbb-cccc-111111111119": {
+				Provider:         "codex",
+				AgentID:          "agent-concurrent",
+				ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111119",
+				CodexThreadID:    "public-thread-concurrent",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	var group errgroup.Group
+	for range 8 {
+		group.Go(func() error {
+			_, err := resolver.ResolveSession(context.Background(), "public-thread-concurrent")
+			return err
+		})
+	}
+	<-driver.started
+	time.Sleep(50 * time.Millisecond)
+	close(driver.release)
+	if err := group.Wait(); err != nil {
+		t.Fatalf("ResolveSession() concurrent error = %v", err)
+	}
+	if got := driver.resumeCount(); got != 1 {
+		t.Fatalf("ResumeSession calls = %d, want 1 singleflight cold resume", got)
+	}
 }
 
 func TestSessionResolverResolveSessionUsesThreadStoreAgent(t *testing.T) {
@@ -206,6 +323,58 @@ func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
 			}
 			if driver.resumed != 0 {
 				t.Fatalf("ResumeSession calls = %d, want 0 for %s thread", driver.resumed, status)
+			}
+		})
+	}
+}
+
+func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		resolveID string
+	}{
+		{name: "public thread", resolveID: "public-thread-archived"},
+		{name: "provider thread", resolveID: "11111111-aaaa-bbbb-cccc-111111111118"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rolloutPath := writeExistingProviderHistoryFile(t)
+			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111118"}}
+			resolver := &sessionResolver{
+				threadStore: keyedThreadLookup{
+					"public-thread-archived": {
+						ThreadID:       "public-thread-archived",
+						AgentID:        "agent-archived",
+						Status:         "running",
+						PromptSnapshot: autoResumePromptSnapshotForTest(),
+					},
+				},
+				bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+					"codex:11111111-aaaa-bbbb-cccc-111111111118": {
+						Provider:         "codex",
+						AgentID:          "agent-archived",
+						ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111118",
+						CodexThreadID:    "public-thread-archived",
+						RolloutPath:      rolloutPath,
+						Cwd:              "/repo",
+						Archived:         true,
+					},
+				}},
+				registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+					{Name: "codex", Create: func() contract.Driver { return driver }},
+				}}),
+				sessions: NewSessionManager(nil),
+			}
+
+			_, err := resolver.ResolveSession(context.Background(), tc.resolveID)
+			if err == nil || !strings.Contains(err.Error(), "archived") {
+				t.Fatalf("ResolveSession() error = %v, want archived binding rejection", err)
+			}
+			if driver.resumed != 0 {
+				t.Fatalf("ResumeSession calls = %d, want 0 for archived binding", driver.resumed)
 			}
 		})
 	}

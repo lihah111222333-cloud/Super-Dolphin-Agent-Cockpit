@@ -78,6 +78,44 @@ func TestToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable(t *testing
 	}
 }
 
+func TestRuntimeSemanticLSPBinariesDerivedFromAdapters(t *testing.T) {
+	got, err := runtimeSemanticLSPServerBinaries()
+	if err != nil {
+		t.Fatalf("runtimeSemanticLSPServerBinaries() error = %v", err)
+	}
+	want := []string{
+		"gopls",
+		"typescript-language-server",
+		"pyright-langserver",
+		"vscode-css-language-server",
+		"vscode-html-language-server",
+		"vscode-json-language-server",
+		"yaml-language-server",
+		"vscode-markdown-language-server",
+		"vue-language-server",
+		"svelteserver",
+		"clangd",
+		"sourcekit-lsp",
+		"csharp-ls",
+		"intelephense",
+		"solargraph",
+		"kotlin-language-server",
+		"dart",
+		"lua-language-server",
+		"docker-langserver",
+		"terraform-ls",
+		"graphql-lsp",
+		"prisma-language-server",
+		"rust-analyzer",
+		"jdtls",
+		"bash-language-server",
+		"sql-language-server",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtimeSemanticLSPServerBinaries() = %#v, want adapter-derived %#v", got, want)
+	}
+}
+
 func TestToolsListPackagedAvailabilityFailsFastInsteadOfUsingSystemOnlyLanguageServers(t *testing.T) {
 	systemBin := t.TempDir()
 	writeMcpLSPExecutable(t, systemBin, "gopls")
@@ -105,7 +143,8 @@ func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *test
     "vscode-langservers-extracted": {"path": "bin/vscode-css-language-server", "languages": ["css"]},
     "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
     "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
-    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]}
+    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]},
+    "sql-language-server": {"path": "bin/sql-language-server", "languages": ["sql"]}
   }
 }
 `)
@@ -116,6 +155,7 @@ func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *test
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
+		"sql-language-server",
 	} {
 		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
 	}
@@ -162,13 +202,6 @@ func TestToolsListPackagedInvalidManifestFailsFast(t *testing.T) {
 			t.Fatalf("ListTools() error = %v, want substring %q", err, want)
 		}
 	}
-}
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	require.NoError(t, err)
-	return raw
 }
 
 func TestHandleToolCallAcceptsLegacyLSPAlias(t *testing.T) {
@@ -390,9 +423,9 @@ func assertTrustedToolScopeContext(t *testing.T, ctx context.Context, scope comm
 
 func assertToolScopeHasNoSessionID(t *testing.T) {
 	t.Helper()
-	_, scopeHasSession := reflect.TypeOf(common.ToolScope{}).FieldByName("SessionID")
+	_, scopeHasSession := reflect.TypeFor[common.ToolScope]().FieldByName("SessionID")
 	require.False(t, scopeHasSession, "common.ToolScope unexpectedly exposes SessionID")
-	_, paramsHasSession := reflect.TypeOf(common.ToolCallParams{}).FieldByName("SessionID")
+	_, paramsHasSession := reflect.TypeFor[common.ToolCallParams]().FieldByName("SessionID")
 	require.False(t, paramsHasSession, "common.ToolCallParams unexpectedly exposes SessionID")
 }
 

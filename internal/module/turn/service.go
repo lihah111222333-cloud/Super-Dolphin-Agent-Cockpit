@@ -203,7 +203,10 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	span.turnID = localID
 	mcp := s.manifest.Build(input, threadID)
 	span.metadata = turnPrepareTraceMetadata(input, mcp)
-	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
+	synthetic, err := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
 	if len(synthetic.Inputs) > 0 {
@@ -560,7 +563,6 @@ func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle 
 
 // waitForTrackedTerminal 等待已追踪 turn 进入终态。
 // 当前使用 25ms 固定轮询；若 tracker 未来暴露 channel 通知机制，可直接替换 select 分支消除轮询延迟。
-// TODO: tracker 增加 WaitTerminal(id) <-chan TurnStatus 后替换此处轮询。
 func (s *service) waitForTrackedTerminal(ctx context.Context, localID string, deadline time.Time) (TurnStatus, error) {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()

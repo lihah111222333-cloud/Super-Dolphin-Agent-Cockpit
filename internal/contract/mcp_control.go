@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -23,6 +25,16 @@ type MCPServerConfig struct {
 }
 
 const RuntimeMCPTrustedServerIDKey = "trustedServerId"
+
+const (
+	runtimeMCPPostgresCommand     = "mcp-server-postgres"
+	runtimeMCPPostgresDatabaseURL = "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"
+	runtimeMCPPostgresPackage     = "@modelcontextprotocol/server-postgres"
+	runtimeMCPSQLitePackage       = "@bytebase/dbhub"
+	runtimeMCPLegacySQLitePackage = "@modelcontextprotocol/server-sqlite"
+	runtimeMCPBrokenSQLitePackage = "mcp-server-sqlite"
+	runtimeMCPPlaywrightPackage   = "@playwright/mcp@latest"
+)
 
 // RuntimeMCPPolicy 集中校验 runtime MCP 配置的信任边界。
 // thread/start 的开放 config 不能直接携带 command/url/header/env；只有 mcp_server 模块
@@ -72,16 +84,35 @@ func (RuntimeMCPPolicy) ValidateRuntimeServerReference(name string, server map[s
 	return serverID, nil
 }
 
-// ValidateManifestBinary 校验 provider manifest 中的动态 MCP binary 是否带受控来源。
-// 内置 lsp/orch/ida peer 由本进程生成，可以没有 trustedServerId；其它 peer 必须来自 mcp_server。
+// ValidateManifestBinary 校验 provider manifest 中的 MCP binary 是否处在受控来源和命令边界内。
+// 内置 lsp/orch/ida peer 可以没有 trustedServerId，但 stdio 命令仍必须匹配固定 sidecar 名称。
 func (RuntimeMCPPolicy) ValidateManifestBinary(binary providerdto.MCPBinary) error {
 	name := strings.TrimSpace(binary.Name)
 	if name == "" {
 		return fmt.Errorf("runtime MCP binary name is required")
 	}
-	if IsManagedRuntimeMCPServerName(name) {
+	if strings.EqualFold(strings.TrimSpace(binary.Type), "http") || strings.TrimSpace(binary.URL) != "" {
 		return nil
 	}
+	if IsManagedRuntimeMCPServerName(name) {
+		return DefaultRuntimeMCPPolicy().validateManagedManifestBinary(name, binary)
+	}
+	return DefaultRuntimeMCPPolicy().validateTrustedManifestBinary(name, binary)
+}
+
+// validateManagedManifestBinary 校验内置 sidecar manifest 的 stdio 命令形态。
+func (policy RuntimeMCPPolicy) validateManagedManifestBinary(name string, binary providerdto.MCPBinary) error {
+	if len(binary.Command) == 0 {
+		return nil
+	}
+	if err := policy.ValidateManagedRuntimeStdioCommand(name, binary.Command[0], binary.Command[1:]); err != nil {
+		return fmt.Errorf("runtime MCP binary %q: %w", name, err)
+	}
+	return nil
+}
+
+// validateTrustedManifestBinary 校验外部 MCP server manifest 的 trustedServerId 和 stdio 白名单。
+func (policy RuntimeMCPPolicy) validateTrustedManifestBinary(name string, binary providerdto.MCPBinary) error {
 	serverID := strings.TrimSpace(binary.TrustedServerID)
 	if serverID == "" {
 		return fmt.Errorf("runtime MCP binary %q must include trusted server id", name)
@@ -89,7 +120,182 @@ func (RuntimeMCPPolicy) ValidateManifestBinary(binary providerdto.MCPBinary) err
 	if serverID != name {
 		return fmt.Errorf("runtime MCP binary %q trusted server id %q does not match server name", name, serverID)
 	}
+	if len(binary.Command) > 0 {
+		if err := policy.ValidateRuntimeStdioCommand(binary.Command[0], binary.Command[1:], ""); err != nil {
+			return fmt.Errorf("runtime MCP binary %q: %w", name, err)
+		}
+	}
 	return nil
+}
+
+// ValidateRuntimeStdioCommand 校验受控 MCP stdio argv 是否属于内置允许形态。
+// trustedServerId 只证明配置来源，不能授权任意 command；路径化命令一律拒绝。
+func (RuntimeMCPPolicy) ValidateRuntimeStdioCommand(command string, args []string, sqliteProductDBPath string) error {
+	if !runtimeStdioCommandAllowed(command, args, sqliteProductDBPath) {
+		return fmt.Errorf("unsupported stdio command %q", runtimeStdioCommandLabel(command))
+	}
+	return nil
+}
+
+// ValidateManagedRuntimeStdioCommand 校验内置 sidecar 的 manifest stdio 命令。
+// 受管 peer 可使用绝对路径，但 basename 必须与 server name 一一绑定，且不能携带额外 argv。
+func (RuntimeMCPPolicy) ValidateManagedRuntimeStdioCommand(name, command string, args []string) error {
+	want, ok := managedRuntimeStdioCommandName(name)
+	if !ok {
+		return fmt.Errorf("unsupported managed stdio server %q", strings.TrimSpace(name))
+	}
+	if len(normalizeRuntimeStdioArgs(args)) != 0 {
+		return fmt.Errorf("managed stdio command %q must not include args", want)
+	}
+	if runtimeStdioCommandBase(command) != want {
+		return fmt.Errorf("managed stdio command %q must use %q", runtimeStdioCommandLabel(command), want)
+	}
+	return nil
+}
+
+func runtimeStdioCommandAllowed(command string, args []string, sqliteProductDBPath string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" || runtimeStdioCommandHasPath(command) {
+		return false
+	}
+	args = normalizeRuntimeStdioArgs(args)
+	switch command {
+	case runtimeMCPPostgresCommand:
+		return slices.Equal(args, []string{runtimeMCPPostgresDatabaseURL})
+	case "npx":
+		return runtimeNPXArgsAllowed(args, sqliteProductDBPath)
+	default:
+		return false
+	}
+}
+
+func runtimeNPXArgsAllowed(args []string, sqliteProductDBPath string) bool {
+	switch {
+	case slices.Equal(args, []string{runtimeMCPPlaywrightPackage}):
+		return true
+	case slices.Equal(args, []string{"-y", runtimeMCPPostgresPackage, runtimeMCPPostgresDatabaseURL}):
+		return true
+	case runtimeDefaultSQLiteArgsAllowed(args, sqliteProductDBPath):
+		return true
+	case runtimeLegacySQLiteArgsAllowed(args, sqliteProductDBPath):
+		return true
+	default:
+		return false
+	}
+}
+
+// runtimeDefaultSQLiteArgsAllowed 校验当前 dbhub SQLite 默认 stdio argv。
+// 读取历史配置时 sqliteProductDBPath 可能为空，此时只接受非空 sqlite DSN 形态。
+func runtimeDefaultSQLiteArgsAllowed(args []string, sqliteProductDBPath string) bool {
+	if len(args) != 3 || args[0] != "-y" || args[1] != runtimeMCPSQLitePackage {
+		return false
+	}
+	if sqliteProductDBPath == "" {
+		return strings.HasPrefix(args[2], "--dsn=sqlite:///") && len(args[2]) > len("--dsn=sqlite:///")
+	}
+	return args[2] == "--dsn="+runtimeSQLiteDBHubDSN(sqliteProductDBPath)
+}
+
+// runtimeLegacySQLiteArgsAllowed 校验历史 SQLite MCP argv，并在有产品 DB 路径时绑定到该路径。
+func runtimeLegacySQLiteArgsAllowed(args []string, sqliteProductDBPath string) bool {
+	databasePath := runtimeLegacySQLiteDatabasePath(args)
+	if databasePath == "" {
+		return false
+	}
+	if sqliteProductDBPath == "" {
+		return true
+	}
+	normalized, err := runtimeNormalizeSQLiteDatabasePath(databasePath)
+	if err != nil {
+		return false
+	}
+	return normalized == sqliteProductDBPath
+}
+
+// runtimeLegacySQLiteDatabasePath 提取历史 SQLite MCP server argv 中的数据库路径。
+func runtimeLegacySQLiteDatabasePath(args []string) string {
+	if len(args) == 3 && args[0] == "-y" && args[1] == runtimeMCPLegacySQLitePackage {
+		return strings.TrimSpace(args[2])
+	}
+	if len(args) == 4 && args[0] == "-y" && args[1] == runtimeMCPBrokenSQLitePackage {
+		switch args[2] {
+		case "--db", "--database":
+			return strings.TrimSpace(args[3])
+		}
+	}
+	return ""
+}
+
+func runtimeSQLiteDBHubDSN(databasePath string) string {
+	path := strings.TrimSpace(databasePath)
+	if path == "" {
+		return ""
+	}
+	return "sqlite:///" + filepath.ToSlash(path)
+}
+
+func runtimeNormalizeSQLiteDatabasePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("runtime MCP sqlite path: %w", err)
+	}
+	return filepath.Clean(abs), nil
+}
+
+func normalizeRuntimeStdioArgs(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, strings.TrimSpace(arg))
+	}
+	return out
+}
+
+func runtimeStdioCommandHasPath(command string) bool {
+	return strings.Contains(command, "/") || strings.Contains(command, `\`)
+}
+
+func runtimeStdioCommandBase(command string) string {
+	command = strings.TrimSpace(command)
+	if idx := strings.LastIndexAny(command, `/\`); idx >= 0 {
+		command = command[idx+1:]
+	}
+	command = strings.ToLower(command)
+	command = strings.TrimSuffix(strings.TrimSuffix(command, ".exe"), ".cmd")
+	return command
+}
+
+func runtimeStdioCommandLabel(command string) string {
+	command = strings.TrimSpace(command)
+	if idx := strings.LastIndexAny(command, `/\`); idx >= 0 {
+		command = command[idx+1:]
+	}
+	if command == "" {
+		return "<empty>"
+	}
+	return command
+}
+
+func managedRuntimeStdioCommandName(name string) (string, bool) {
+	switch strings.TrimSpace(name) {
+	case string(providerdto.FamilyLSP):
+		return "mcp-lsp", true
+	case string(providerdto.FamilyOrch):
+		return "mcp-orch", true
+	case string(providerdto.FamilyIDA):
+		return "mcp-ida", true
+	default:
+		return "", false
+	}
 }
 
 // IsManagedRuntimeMCPServerName 判断 server 名称是否属于主进程生成的内置 peer。

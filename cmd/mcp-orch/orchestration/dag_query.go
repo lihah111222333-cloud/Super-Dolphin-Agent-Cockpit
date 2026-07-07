@@ -618,7 +618,7 @@ func cloneStringPtr(value *string) *string {
 // persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
 func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, specs []nodeexec.NodeSpec) error {
 	for _, spec := range specs {
-		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), AssignedTo: strings.TrimSpace(spec.AssignedTo), DependsOn: dependsOnJSON(spec.DependsOn), Config: append(json.RawMessage(nil), spec.Config...)}
+		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), AssignedTo: strings.TrimSpace(spec.AssignedTo), DependsOn: dependsOnJSON(spec.DependsOn), Reads: cleanStringSlice(spec.Reads), Writes: cleanStringSlice(spec.Writes), Config: append(json.RawMessage(nil), spec.Config...)}
 		if _, err := tx.UpsertNode(ctx, node); err != nil {
 			return fmt.Errorf("upsert node %s: %w", node.NodeKey, err)
 		}
@@ -630,6 +630,7 @@ func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey str
 // 合并语义按 NodePatch 三态：
 //   - Title / AssignedTo: *string nil 沿用旧值；指向 v 覆盖（含 "" 清空）
 //   - DependsOn: *[]string nil 沿用旧值；指向 *[] / *[a,b] 覆盖
+//   - Reads / Writes: *[]string nil 沿用旧值；指向 *[] / *[a,b] 覆盖
 //   - Config: json.RawMessage len==0 或 "null" 沿用旧值；非空覆盖
 //
 // 同样 sqlc UpsertTaskDagNode SQL 不写 status / result / started_at 等节点
@@ -687,6 +688,12 @@ func mergeNodePatch(old taskdag.Node, patch nodeexec.NodePatch, dagKey string) t
 	}
 	if patch.DependsOn != nil {
 		merged.DependsOn = dependsOnJSON(nodeexec.NormalizeDependsOn(*patch.DependsOn))
+	}
+	if patch.Reads != nil {
+		merged.Reads = cleanStringSlice(*patch.Reads)
+	}
+	if patch.Writes != nil {
+		merged.Writes = cleanStringSlice(*patch.Writes)
 	}
 	if !isEmptyRawJSON(patch.Config) {
 		merged.Config = append(json.RawMessage(nil), patch.Config...)

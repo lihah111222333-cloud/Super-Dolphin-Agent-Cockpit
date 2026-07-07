@@ -32,7 +32,6 @@ func TestConcurrentDispatchAndShutdown(t *testing.T) {
 	var ready sync.WaitGroup
 	ready.Add(workers + 1)
 	var done sync.WaitGroup
-	done.Add(workers + 1)
 	results := make(chan string, workers)
 
 	startRaceDispatchWorkers(manager, workers, start, &ready, &done, results, errCh)
@@ -138,13 +137,12 @@ func startRaceDispatchWorkers(
 	results chan<- string,
 	errCh chan<- error,
 ) {
-	for i := 0; i < workers; i++ {
-		go func() {
-			defer done.Done()
+	for range workers {
+		done.Go(func() {
 			ready.Done()
 			<-start
 			dispatchRaceBeforeHook(manager, results, errCh)
-		}()
+		})
 	}
 }
 
@@ -170,8 +168,7 @@ func startRaceShutdownWorker(
 	done *sync.WaitGroup,
 	errCh chan<- error,
 ) {
-	go func() {
-		defer done.Done()
+	done.Go(func() {
 		ready.Done()
 		<-start
 		<-callbackEntered
@@ -179,7 +176,7 @@ func startRaceShutdownWorker(
 			errCh <- fmt.Errorf("ShutdownHooks() error = %w", err)
 		}
 		close(shutdownDone)
-	}()
+	})
 }
 
 func countRaceDispatchDecisions(t *testing.T, results <-chan string) (int, int) {

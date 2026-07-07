@@ -17,8 +17,17 @@ import (
 )
 
 type managerNotificationHandler struct {
-	publishDiagnostics func(protocol.PublishDiagnosticsParams) error
+	captureDiagnostics func(protocol.PublishDiagnosticsParams) (capturedPublishDiagnostics, error)
+	publishDiagnostics func(capturedPublishDiagnostics) error
 	logMessage         func(protocol.LogMessageParams) error
+}
+
+type capturedPublishDiagnostics struct {
+	params        protocol.PublishDiagnosticsParams
+	generation    uint64
+	documentEpoch uint64
+	scope         ResolvedLSPToolScope
+	key           diagnosticStoreKey
 }
 
 type diagnosticState string
@@ -64,7 +73,25 @@ func WithResolvedLSPToolScope(ctx context.Context, scope ResolvedLSPToolScope) c
 // PublishDiagnostics 将 LSP publishDiagnostics 通知转交给 manager。
 // handler 本身不缓存状态，缓存边界由 manager 的诊断代际控制。
 func (h managerNotificationHandler) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
-	return h.publishDiagnostics(params)
+	captured, err := h.capturePublishDiagnostics(params)
+	if err != nil {
+		return err
+	}
+	return h.publishCapturedDiagnostics(captured)
+}
+
+func (h managerNotificationHandler) capturePublishDiagnostics(params protocol.PublishDiagnosticsParams) (capturedPublishDiagnostics, error) {
+	if h.captureDiagnostics == nil {
+		return capturedPublishDiagnostics{}, errors.New("diagnostic notification capture handler is nil")
+	}
+	return h.captureDiagnostics(params)
+}
+
+func (h managerNotificationHandler) publishCapturedDiagnostics(captured capturedPublishDiagnostics) error {
+	if h.publishDiagnostics == nil {
+		return errors.New("diagnostic notification publish handler is nil")
+	}
+	return h.publishDiagnostics(captured)
 }
 
 // LogMessage 将 LSP window/logMessage 通知转交给 manager 的日志分级处理。
@@ -134,6 +161,9 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 	if err := m.refreshExistingDiagnosticTargets(ctx, uris, filter); err != nil {
 		return err
 	}
+	if err := m.pullMissingDiagnostics(ctx, filter, uris); err != nil {
+		return err
+	}
 	waitCtx, cancel := m.diagnosticsStableWaitContext(ctx)
 	defer cancel()
 	waiter, err := m.newDiagnosticStableWait(waitCtx, filter, uris)
@@ -184,46 +214,105 @@ func (m *manager) PublishDiagnostics(params protocol.PublishDiagnosticsParams) e
 // publishDiagnosticsForGeneration 在指定代际内写入诊断快照。
 // 如果 client 已重建导致代际过期，旧通知会被忽略而不是覆盖新 workspace 状态。
 func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnosticsParams, capturedGen uint64) error {
-	if capturedGen < m.CurrentDiagnosticGeneration() {
-		return nil
-	}
-	uri, err := canonicalDiagnosticURI(params.URI)
+	captured, err := m.capturePublishDiagnostics(params, capturedGen)
 	if err != nil {
 		return err
+	}
+	return m.publishCapturedDiagnostics(captured)
+}
+
+func (m *manager) capturePublishDiagnostics(params protocol.PublishDiagnosticsParams, capturedGen uint64) (capturedPublishDiagnostics, error) {
+	uri, err := canonicalDiagnosticURI(params.URI)
+	if err != nil {
+		return capturedPublishDiagnostics{}, err
 	}
 	params.URI = uri
 
 	scope := m.scopeForPublishedDiagnostics(params.URI)
 	key := diagnosticStoreKeyFor(scope, params.URI)
+	return capturedPublishDiagnostics{
+		params:        params,
+		generation:    capturedGen,
+		documentEpoch: m.currentDocumentDiagnosticEpoch(scope, params.URI),
+		scope:         scope,
+		key:           key,
+	}, nil
+}
+
+// publishCapturedDiagnostics 只在 client 代际与文档诊断 epoch 仍然有效时写入诊断。
+func (m *manager) publishCapturedDiagnostics(captured capturedPublishDiagnostics) error {
+	if captured.generation < m.CurrentDiagnosticGeneration() {
+		return nil
+	}
+	params := captured.params
+	scope := captured.scope
+	key := captured.key
 	metadata := diagnosticMetadataForURI(params.URI)
 
-	m.diagMu.Lock()
-	defer m.diagMu.Unlock()
 	staleVersion, err := m.diagnosticVersionOlderThanCached(params, scope)
 	if err != nil {
 		return err
 	}
+
+	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
 	if staleVersion {
 		return nil
 	}
-	if capturedGen < m.CurrentDiagnosticGeneration() {
+	if captured.generation < m.CurrentDiagnosticGeneration() {
+		return nil
+	}
+	if params.Version == nil && captured.documentEpoch < m.documentDiagnosticEpochLocked(key.String()) {
 		return nil
 	}
 	m.diagnostics[key.String()] = diagnosticSnapshot{
-		scopeKey:     scope.ScopeKey,
-		workspaceKey: scope.WorkspaceKey,
-		language:     scope.LanguageID,
-		uri:          params.URI,
-		generation:   capturedGen,
-		fingerprint:  metadata.fingerprint,
-		mtimeNS:      metadata.mtimeNS,
-		size:         metadata.size,
-		updatedAt:    time.Now(),
-		source:       "publish",
-		state:        diagnosticStateReady,
-		params:       params,
+		scopeKey:      scope.ScopeKey,
+		workspaceKey:  scope.WorkspaceKey,
+		language:      scope.LanguageID,
+		uri:           params.URI,
+		generation:    captured.generation,
+		fingerprint:   metadata.fingerprint,
+		mtimeNS:       metadata.mtimeNS,
+		size:          metadata.size,
+		updatedAt:     time.Now(),
+		documentEpoch: captured.documentEpoch,
+		source:        "publish",
+		state:         diagnosticStateReady,
+		params:        params,
 	}
 	return nil
+}
+
+func (m *manager) currentDocumentDiagnosticEpoch(scope ResolvedLSPToolScope, uri string) uint64 {
+	if strings.TrimSpace(uri) == "" {
+		return 0
+	}
+	key := diagnosticStoreKeyFor(scope, uri).String()
+	m.diagMu.RLock()
+	defer m.diagMu.RUnlock()
+	return m.documentDiagnosticEpochLocked(key)
+}
+
+func (m *manager) advanceDocumentDiagnosticEpoch(scope ResolvedLSPToolScope, uri string) uint64 {
+	if strings.TrimSpace(uri) == "" {
+		return 0
+	}
+	key := diagnosticStoreKeyFor(scope, uri).String()
+	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
+	if m.diagnosticEpochs == nil {
+		m.diagnosticEpochs = make(map[string]uint64)
+	}
+	next := m.diagnosticEpochs[key] + 1
+	m.diagnosticEpochs[key] = next
+	return next
+}
+
+func (m *manager) documentDiagnosticEpochLocked(key string) uint64 {
+	if m.diagnosticEpochs == nil {
+		return 0
+	}
+	return m.diagnosticEpochs[key]
 }
 
 // diagnosticVersionOlderThanCached 判断 LSP 推送是否落后于当前已同步文档版本。
@@ -331,7 +420,13 @@ func (m *manager) forEachCurrentDiagnosticSnapshot(filter diagnosticFilter, fn f
 	withReadLock(&m.diagMu, func() struct{} {
 		current := m.CurrentDiagnosticGeneration()
 		for key, snapshot := range m.diagnostics {
-			if snapshot.generation != current || !filter.matches(key, snapshot) {
+			if snapshot.generation != current {
+				continue
+			}
+			if snapshot.params.Version == nil && snapshot.documentEpoch < m.documentDiagnosticEpochLocked(key) {
+				continue
+			}
+			if !filter.matches(key, snapshot) {
 				continue
 			}
 			fn(snapshot)

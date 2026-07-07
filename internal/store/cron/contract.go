@@ -70,6 +70,7 @@ type Store interface {
 	MarkFinished(ctx context.Context, params MarkFinishedParams) error
 	MarkFailed(ctx context.Context, params MarkFailedParams) error
 	SetActiveTurn(ctx context.Context, params SetActiveTurnParams) error
+	SubmitRunWithActiveTurn(ctx context.Context, params SubmitRunWithActiveTurnParams) error
 
 	InsertRun(ctx context.Context, params InsertRunParams) (Run, error)
 	CASRunStatus(ctx context.Context, params CASRunStatusParams) error
@@ -78,9 +79,11 @@ type Store interface {
 	GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error)
 	ListUnresolvedRuns(ctx context.Context) ([]Run, error)
+	ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]Run, error)
 
 	// GetRunningRunByTurnID 查找指定 turn 当前运行中的 run，不存在时返回 ErrJobRunNotFound。
 	GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)
+	GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)
 
 	// ListJobsClaimedBy 只返回仍由指定调度身份持有且 claim_token 非空的任务。
 	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error)
@@ -235,6 +238,18 @@ type SetActiveTurnParams struct {
 	ActiveTurnID string
 	ThreadID     string
 	AgentID      string
+	Now          time.Time
+}
+
+// SubmitRunWithActiveTurnParams 将 run turn、job active turn 和 submitted 状态绑定为同一事务。
+type SubmitRunWithActiveTurnParams struct {
+	RunID        string
+	JobID        string
+	ClaimToken   string
+	ActiveTurnID string
+	ThreadID     string
+	AgentID      string
+	SubmittedAt  time.Time
 	Now          time.Time
 }
 

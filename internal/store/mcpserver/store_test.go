@@ -34,6 +34,57 @@ func TestConfigStorePersistsHTTPAndStdioServers(t *testing.T) {
 	assertPostgresServer(t, servers["postgres"], true)
 }
 
+// TestConfigStoreRejectsUnsafePersistedStdioCommand 锁定持久化层读取边界：
+// 已落库的 stdio 配置不能绕过写入 allowlist 再进入运行时。
+func TestConfigStoreRejectsUnsafePersistedStdioCommand(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	if err := store.ensureTable(ctx); err != nil {
+		t.Fatalf("ensureTable() error = %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO mcp_server_configs (workspace_root, name, transport, command, args, env, enabled)
+		VALUES (?, 'shell', 'stdio', 'bash', '["-lc","env"]', '{}', 1)
+	`, workspaceRoot); err != nil {
+		t.Fatalf("seed unsafe stdio row: %v", err)
+	}
+
+	_, err := store.ListServers(ctx, workspaceRoot)
+	if err == nil {
+		t.Fatal("ListServers() error = nil, want unsafe persisted stdio command rejection")
+	}
+	if !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("ListServers() error = %v, want unsupported stdio command", err)
+	}
+}
+
+// TestConfigStoreRejectsPathQualifiedPostgresCommand 确认历史行不能用同名可执行文件路径伪装默认 Postgres MCP。
+func TestConfigStoreRejectsPathQualifiedPostgresCommand(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	if err := store.ensureTable(ctx); err != nil {
+		t.Fatalf("ensureTable() error = %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO mcp_server_configs (workspace_root, name, transport, command, args, env, enabled)
+		VALUES (?, 'postgres', 'stdio', ?, '["postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"]', '{}', 1)
+	`, workspaceRoot, filepath.Join(t.TempDir(), "mcp-server-postgres")); err != nil {
+		t.Fatalf("seed path-qualified postgres row: %v", err)
+	}
+
+	_, err := store.ListServers(ctx, workspaceRoot)
+	if err == nil {
+		t.Fatal("ListServers() error = nil, want path-qualified postgres rejection")
+	}
+	if !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("ListServers() error = %v, want unsupported stdio command", err)
+	}
+}
+
 func TestConfigStoreMigratesLegacyHTTPOnlyTableBeforeWritingStdio(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -110,6 +161,7 @@ func TestConfigStoreLegacyMigrationRollbackKeepsOriginalTableOnRenameFailure(t *
 		Config: contract.MCPServerConfig{
 			Transport: "stdio",
 			Command:   "mcp-server-postgres",
+			Args:      []string{"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"},
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "injected rename failure") {

@@ -89,7 +89,7 @@ type DispatchRetryAlertSink interface {
 
 // recordDispatchFailedMetric 记录一次派发失败指标。
 func recordDispatchFailedMetric() {
-	dagmetrics.IncDispatchFailed()
+	dagmetrics.DefaultRegistry().IncDispatchFailed()
 }
 
 // recordDispatchRetryMetric 记录派发重试指标，并在达到阈值时生成告警载荷。
@@ -97,11 +97,8 @@ func recordDispatchRetryMetric(w *taskdag.Wakeup, lastErr string) (DispatchRetry
 	if w == nil {
 		return DispatchRetryAlert{}, false
 	}
-	attemptCount := w.AttemptCount
-	if attemptCount < 1 {
-		attemptCount = 1
-	}
-	record := dagmetrics.RecordRetry(w.DagKey, w.NodeKey, attemptCount)
+	attemptCount := max(w.AttemptCount, 1)
+	record := dagmetrics.DefaultRegistry().RecordRetry(w.DagKey, w.NodeKey, attemptCount)
 	if record.DagKey == "" || record.NodeKey == "" {
 		return DispatchRetryAlert{}, false
 	}
@@ -207,6 +204,8 @@ func (s *service) assignAndEnqueueDispatch(ctx context.Context, target *taskdag.
 	return result, nil
 }
 
+// Scheduler 是保留给旧调度 wiring 的最小端口。
+// 生产 scheduled DAG 已由 cron.ScheduledDAGTicker 承担；这里保持显式未实现边界。
 type Scheduler interface {
 	Tick(context.Context, time.Time) (int, error)
 	Schedule(context.Context, string) error

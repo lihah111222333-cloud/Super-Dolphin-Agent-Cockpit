@@ -14,6 +14,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// Guard 持有 Windows Job Object 句柄。
+// 关闭该句柄会释放 kill-on-close 资源，是 agent 进程树停止边界的一部分。
 type Guard struct {
 	handle windows.Handle
 }

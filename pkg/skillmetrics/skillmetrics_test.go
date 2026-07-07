@@ -18,6 +18,13 @@ func TestCountersIncrementAndSnapshot(t *testing.T) {
 	IncEnrichFailure()
 	IncEnrichFailure()
 
+	assertCounterReads(t)
+	assertSkillSnapshot(t, Read())
+}
+
+func assertCounterReads(t *testing.T) {
+	t.Helper()
+
 	if v := TrimCorruptionFallback(); v != 1 {
 		t.Fatalf("TrimCorruptionFallback want 1, got %d", v)
 	}
@@ -36,8 +43,11 @@ func TestCountersIncrementAndSnapshot(t *testing.T) {
 	if v := EnrichFailures(); v != 2 {
 		t.Fatalf("EnrichFailures want 2, got %d", v)
 	}
+}
 
-	snap := Read()
+func assertSkillSnapshot(t *testing.T, snap Snapshot) {
+	t.Helper()
+
 	if snap.TrimCorruptionFallbackCount != 1 ||
 		snap.HostToolCallOKTotal != 2 ||
 		snap.HostToolCallCWDMissingTotal != 1 ||

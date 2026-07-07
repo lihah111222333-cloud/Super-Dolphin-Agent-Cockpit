@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,52 @@ func (s *service) publishWriteTimeMirrors(ctx context.Context, cwd, scope, perso
 		return mirrorPublishErrorReport(targets, scope, personalType, name, err)
 	}
 	return publishPreparedWriteTimeMirrors(ctx, report, targets, records, conflicts, scope, personalType, name)
+}
+
+func (s *service) ensureWriteTimeMirrorPublishAllowed(ctx context.Context, cwd, scope, personalType, name string) error {
+	targets := s.writeTimeMirrorTargets(cwd, scope)
+	if len(targets) == 0 {
+		return mirrorPublishBlockingError(unconfiguredMirrorPublishReport(scope, personalType, name))
+	}
+	store := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
+	records, canonicalConflicts, err := writeTimeMirrorRecords(ctx, store, cwd, scope)
+	if err != nil {
+		return mirrorPublishBlockingError(mirrorPublishErrorReport(targets, scope, personalType, name, err))
+	}
+	var report SkillMirrorReport
+	if len(canonicalConflicts) > 0 {
+		appendCanonicalConflictReportItems(&report, targets, canonicalConflicts)
+	}
+	mirrorConflicts, err := DetectSkillMirrorConflicts(records, targets)
+	if err != nil {
+		return mirrorPublishBlockingError(mirrorPublishErrorReport(targets, scope, personalType, name, err))
+	}
+	appendSkillMirrorConflictReportItems(&report, mirrorConflicts)
+	return mirrorPublishBlockingError(report)
+}
+
+func (s *service) publishWriteTimeMirrorsBlocking(ctx context.Context, cwd, scope, personalType, name string) (SkillMirrorReport, error) {
+	report := s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)
+	return report, mirrorPublishBlockingError(report)
+}
+
+func appendSkillMirrorConflictReportItems(report *SkillMirrorReport, conflicts []SkillMirrorConflict) {
+	if report == nil || len(conflicts) == 0 {
+		return
+	}
+	for _, conflict := range conflicts {
+		report.Conflicts = append(report.Conflicts, SkillMirrorReportItem{
+			TargetID:           conflict.TargetID,
+			Provider:           conflict.Provider,
+			Scope:              conflict.Scope,
+			RelativeMirrorPath: skillSlug(conflict.Name),
+			CanonicalID:        conflict.CanonicalID,
+			OldHash:            conflict.MirrorHash,
+			NewHash:            conflict.CanonicalHash,
+			ConflictKind:       conflict.Kind,
+			Error:              fmt.Sprintf("provider mirror conflict %q must be resolved before canonical skill mutation", conflict.Kind),
+		})
+	}
 }
 
 func (s *service) publishWriteTimeMirrorsForScope(ctx context.Context, cwd, scope, personalType, name string) SkillMirrorReport {

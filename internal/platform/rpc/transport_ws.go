@@ -32,17 +32,18 @@ var _ channel.Channel = (*wsChannel)(nil)
 // WSHandler 将 WebSocket 连接桥接为 jrpc2 channel。
 // UI WebSocket 会计入并发槽位，并在连接建立后触发 Server 的 UI 连接回调。
 func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
-	var mux jrpc2.Assigner = handler.Map{}
-	if server != nil && server.methods != nil {
-		mux = wsDispatchAssigner{server: server}
-	}
+	var mux jrpc2.Assigner = wsDispatchAssigner{server: server}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		releaseSlot, err := reserveWailsWSConnectionSlot(server)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		defer releaseSlot()
+		defer func() {
+			if err := releaseSlot(); err != nil {
+				pkglogger.Get().Error("rpc: failed to release UI websocket slot", "error", err)
+			}
+		}()
 		conn, err := defaultWSUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -75,7 +76,7 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 }
 
 // reserveWailsWSConnectionSlot 为 Wails UI WebSocket 预留槽位，server 为空时返回空释放函数。
-func reserveWailsWSConnectionSlot(server *Server) (func(), error) {
+func reserveWailsWSConnectionSlot(server *Server) (func() error, error) {
 	if server == nil {
 		return noopWailsWSConnectionSlot, nil
 	}
@@ -86,7 +87,10 @@ func reserveWailsWSConnectionSlot(server *Server) (func(), error) {
 }
 
 // noopWailsWSConnectionSlot 是无 server 场景的空释放函数。
-func noopWailsWSConnectionSlot() {}
+func noopWailsWSConnectionSlot() error {
+	_ = struct{}{}
+	return nil
+}
 
 // wsDispatchAssigner 把 WebSocket RPC 调用转给 Server.Dispatch。
 type wsDispatchAssigner struct {

@@ -154,6 +154,35 @@ func TestApprovalPayloadMalformedReturnsErrorDecision(t *testing.T) {
 	}
 }
 
+// TestRequestToolApprovalRejectsStringRequestIDWithoutTruncating 锁定审批 id 的权限边界：
+// provider 传来的字符串 requestId 不能被截断或解析成合法审批请求。
+func TestRequestToolApprovalRejectsStringRequestIDWithoutTruncating(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, nil)
+	hookCalled := false
+	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		hookCalled = true
+		return rpcDecision(true, "unexpected"), nil
+	}
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+
+	payload := []byte(`{"requestId":"91","callId":"call-91","toolName":"shell","turnId":"turn-1"}`)
+	err := s.requestToolApproval("item/commandExecution/requestApproval", payload)
+	if err == nil || !strings.Contains(err.Error(), "approval request identity is required") {
+		t.Fatalf("requestToolApproval() error = %v, want approval request identity failure", err)
+	}
+	if hookCalled {
+		t.Fatal("approval hook was called for string requestId")
+	}
+	if got := recorder.snapshot(); len(got) != 0 {
+		t.Fatalf("approval/respond calls = %#v, want none for string requestId", got)
+	}
+}
+
 func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	recorder := &approvalRespondRecorder{}
 	server := startApprovalRespondRecorderServer(t, recorder)
@@ -313,9 +342,9 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 
 	payload := commandApprovalPayload(42, "call-inflight", "echo hi")
-	ownerDone := requestToolApprovalAsync(s, payload)
+	ownerDone := requestToolApprovalAsync(t, s, payload)
 	waitForApprovalRequesterStarted(t, requester.started)
-	waiterDone := requestToolApprovalAsync(s, payload)
+	waiterDone := requestToolApprovalAsync(t, s, payload)
 	assertApprovalRequestStillWaiting(t, waiterDone)
 
 	close(requester.release)
@@ -329,11 +358,13 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 	assertApprovalRespondRequestIDs(t, waitForApprovalRespondParams(t, recorder, 2), 42)
 }
 
-func requestToolApprovalAsync(s *session, payload []byte) <-chan error {
+func requestToolApprovalAsync(t testing.TB, s *session, payload []byte) <-chan error {
+	t.Helper()
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		done <- s.requestToolApprovalWithContext(context.Background(), "item/commandExecution/requestApproval", payload)
-	}()
+	})
 	return done
 }
 

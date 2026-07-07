@@ -29,11 +29,28 @@ var (
 
 // ==== team-memory bridge ====
 
+// TeamMemoryManager 是 team 子包管理器在 root memory 包中的兼容别名。
+// 生产装配仍通过它暴露团队记忆根和 entrypoint，避免旧调用方直接依赖子包路径。
 type TeamMemoryManager = teampkg.TeamMemoryManager
+
+// TeamMemoryGuard 是团队记忆写入守卫的兼容别名。
+// 它保持 root 包对敏感内容扫描的旧出口，实际规则由 team 子包维护。
 type TeamMemoryGuard = teampkg.TeamMemoryGuard
+
+// TeamMemSecretFinding 描述团队记忆内容中的敏感信息命中。
+// 该别名让 UI 和写入路径继续复用同一份扫描结果结构。
 type TeamMemSecretFinding = teampkg.TeamMemSecretFinding
+
+// TeamMemSkippedFile 描述团队记忆预推送扫描跳过的文件。
+// 跳过原因来自 team 子包，root 包只负责兼容导出。
 type TeamMemSkippedFile = teampkg.TeamMemSkippedFile
+
+// TeamMemPrePushScanResult 汇总团队记忆预推送扫描结果。
+// 调用方通过 root 包读取该结构时，仍看到 team 子包的真实扫描语义。
 type TeamMemPrePushScanResult = teampkg.TeamMemPrePushScanResult
+
+// TeamMemSecretError 包装团队记忆敏感内容阻断错误。
+// provider 或 hook 层可用它区分普通写入失败和密钥泄漏风险。
 type TeamMemSecretError = teampkg.TeamMemSecretError
 
 const teamMemoryRootDirName = teampkg.RootDirName

@@ -51,6 +51,15 @@ FROM cron_jobs
 WHERE enabled = 1
 ORDER BY COALESCE(next_retry_at, next_run_at)
 LIMIT 25`)
+	assertQueryPlanUsesIndex(t, db, "idx_cron_job_runs_turn_status", `
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE turn_id = ?
+  AND turn_id <> ''
+  AND status IN ('submitted', 'running')
+LIMIT 1`, "turn-fixture-0001")
 	assertQueryPlanUsesIndex(t, db, "idx_task_dags_updated_id", dashboardDAGQueries.all, 25)
 	assertQueryPlanUsesIndex(t, db, "idx_task_dags_status", dashboardDAGQueries.status, "active", 25)
 	assertQueryPlanUsesIndex(t, db, "idx_task_dags_status", dashboardDAGQueries.statusKeyword, "active", "fixture", 25)

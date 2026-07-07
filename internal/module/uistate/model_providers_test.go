@@ -62,6 +62,44 @@ func TestModelProvidersSaveRejectsInvalidRegistry(t *testing.T) {
 	}
 }
 
+// TestModelProvidersRejectMissingCwd 确认模型提供方 RPC 不会写入默认偏好作用域。
+func TestModelProvidersRejectMissingCwd(t *testing.T) {
+	server := newModelProviderTestServer(t)
+
+	tests := []struct {
+		name    string
+		method  string
+		payload string
+	}{
+		{
+			name:    "list",
+			method:  "modelProviders/list",
+			payload: `{}`,
+		},
+		{
+			name:   "save",
+			method: "modelProviders/save",
+			payload: `{
+				"registry":{"vendors":[{"id":"openrouter","label":"OpenRouter","enabled":true,"baseURL":"https://openrouter.ai/api/v1","envKey":"OPENROUTER_API_KEY","codexModelProvider":"openrouter","defaultModel":"openai/gpt-4.1"}]}
+			}`,
+		},
+		{
+			name:    "apply",
+			method:  "modelProviders/apply",
+			payload: `{"vendorId":"openrouter"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.Dispatch(context.Background(), tt.method, json.RawMessage(tt.payload))
+			if err == nil || !strings.Contains(err.Error(), "cwd is required") {
+				t.Fatalf("Dispatch(%s) error = %v, want cwd required", tt.method, err)
+			}
+		})
+	}
+}
+
 func TestModelProvidersApplyWritesCodexPreferences(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "sk-deepseek-secret")
 	server := newModelProviderTestServer(t)

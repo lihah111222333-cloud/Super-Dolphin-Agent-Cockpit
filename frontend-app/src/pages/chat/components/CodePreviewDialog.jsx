@@ -15,7 +15,7 @@ function CodePreviewDialog({
   onSave,
 }) {
   const dirty = preview.draft !== preview.content;
-  const canEdit = Boolean(preview.editable) && !preview.image && !preview.loading;
+  const canEdit = preview.previewMode === 'full' && Boolean(preview.editable) && !preview.image && !preview.loading;
   const requestClose = () => {
     if (dirty && !preview.loading && !preview.saving) {
       onDirtyClose();

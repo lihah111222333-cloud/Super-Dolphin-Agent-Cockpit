@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	orch "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
@@ -151,9 +152,9 @@ type stopWaitService struct {
 	listCalls    int
 }
 
-func (s *stopWaitService) ArchiveAgent(context.Context, string) error {
+func (s *stopWaitService) ArchiveAgent(context.Context, string) (orch.ArchiveOutcome, error) {
 	s.archiveCalls++
-	return nil
+	return orch.ArchiveOutcome{RuntimeStopped: true}, nil
 }
 
 func (s *stopWaitService) StopAgent(context.Context, string) error {

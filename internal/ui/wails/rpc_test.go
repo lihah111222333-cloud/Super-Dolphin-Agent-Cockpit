@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -25,6 +26,7 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		"ui/selectProjectDir",
 		"ui/selectProjectDirs",
 		"ui/selectFiles",
+		"ui/selectDatasourceImportFile",
 		"ui/readDroppedTextFiles",
 		"ui/buildInfo",
 		"ui/saveClipboardImage",
@@ -36,6 +38,74 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("handler %q is not registered", method)
 		}
+	}
+}
+
+func TestSelectDatasourceImportFileReturnsPickerToken(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	sourcePath := filepath.Join(t.TempDir(), "source.txt")
+	defaultPath := filepath.Dir(sourcePath)
+	app := &App{
+		datasourceImportPickerTokens: newDatasourceImportPickerTokens(func() time.Time { return now }),
+		selectFileInvoker: func(gotDefaultPath string, gotFilters []selectFileFilter) (string, error) {
+			if gotDefaultPath != defaultPath {
+				t.Fatalf("defaultPath = %q, want %q", gotDefaultPath, defaultPath)
+			}
+			if len(gotFilters) != 1 || gotFilters[0].Pattern != "*.txt" {
+				t.Fatalf("filters = %+v, want txt filter", gotFilters)
+			}
+			return sourcePath, nil
+		},
+	}
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/selectDatasourceImportFile", mustJSON(t, map[string]any{
+		"defaultPath": defaultPath,
+		"filters": []map[string]string{
+			{"displayName": "Text", "pattern": "*.txt"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/selectDatasourceImportFile) error = %v", err)
+	}
+	var got datasourceImportFileSelection
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got.SourcePath != sourcePath || got.PickerToken == "" {
+		t.Fatalf("selection = %+v, want source path and picker token", got)
+	}
+	if !app.VerifyDatasourceImportPickerToken(got.SourcePath, got.PickerToken) {
+		t.Fatal("VerifyDatasourceImportPickerToken() = false, want true")
+	}
+	if app.VerifyDatasourceImportPickerToken(got.SourcePath, got.PickerToken) {
+		t.Fatal("VerifyDatasourceImportPickerToken() replay = true, want one-time token")
+	}
+}
+
+func TestSelectDatasourceImportFileCancelReturnsEmptySelection(t *testing.T) {
+	t.Parallel()
+
+	app := &App{
+		datasourceImportPickerTokens: newDatasourceImportPickerTokens(nil),
+		selectFileInvoker: func(string, []selectFileFilter) (string, error) {
+			return "", nil
+		},
+	}
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/selectDatasourceImportFile", mustJSON(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/selectDatasourceImportFile) error = %v", err)
+	}
+	var got datasourceImportFileSelection
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got.SourcePath != "" || got.PickerToken != "" {
+		t.Fatalf("selection = %+v, want empty cancel result", got)
 	}
 }
 
@@ -418,6 +488,40 @@ func TestCopyTextRejectsBlankText(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "clipboard text is empty") {
 		t.Fatalf("handleCopyText() error = %v, want clipboard text is empty", err)
+	}
+}
+
+// TestCodeSaveRejectsNullContent 锁定 ui/code/save 的持久化边界：
+// JSON null 不能被当成空字符串写入并清空已有文件。
+func TestCodeSaveRejectsNullContent(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "src", "app.js")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(target, []byte("const oldValue = true;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(old) error = %v", err)
+	}
+
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewRPCHandlers(&App{}, &config.Config{ProjectRoot: root}, nil).Handlers)
+
+	_, err := server.Dispatch(context.Background(), "ui/code/save", json.RawMessage(`{
+		"filePath":"src/app.js",
+		"content":null
+	}`))
+	if err == nil {
+		t.Fatal("Dispatch(ui/code/save) error = nil, want null content rejection")
+	}
+	if !strings.Contains(err.Error(), "content must be a string") {
+		t.Fatalf("Dispatch(ui/code/save) error = %v, want content must be a string", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(data) != "const oldValue = true;\n" {
+		t.Fatalf("file content = %q, want original content unchanged", string(data))
 	}
 }
 

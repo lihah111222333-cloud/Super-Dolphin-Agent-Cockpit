@@ -136,6 +136,39 @@ describe('wails bridge clipboard helpers', () => {
     expect(copiedText).toBe('thread info');
   });
 
+  it('surfaces prepared clipboard write failures when committing text', async () => {
+    class TestClipboardItem {
+      constructor(items) {
+        this.items = items;
+      }
+
+      getType(type) {
+        return this.items[type];
+      }
+    }
+    class TestBlob {
+      constructor(parts, options = {}) {
+        this.parts = parts;
+        this.type = options.type || '';
+      }
+    }
+    const write = vi.fn(async ([item]) => {
+      await item.getType('text/plain');
+      throw new Error('clipboard write rejected');
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { write },
+    });
+    vi.stubGlobal('ClipboardItem', TestClipboardItem);
+    vi.stubGlobal('Blob', TestBlob);
+
+    const prepared = beginTextClipboardWrite();
+
+    expect(write).toHaveBeenCalledTimes(1);
+    await expect(prepared.commit('thread info')).rejects.toThrow('clipboard write rejected');
+  });
+
   it('falls back to a focused textarea copy when async clipboard is unavailable', async () => {
     window.__WAILS_SHIM_DEBUG__ = true;
     Object.defineProperty(navigator, 'clipboard', {
@@ -214,6 +247,25 @@ describe('wails bridge shared file helpers', () => {
       preview: true,
     }));
     await expect(previewSharedFile({ path: '' })).rejects.toThrow('previewSharedFile path is required');
+  });
+
+  it('rejects malformed native shared file responses', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method !== 'ui/sharedFile/open') {
+        throw new Error(`unexpected method ${method}`);
+      }
+      return Promise.resolve(payload.preview ? { url: '' } : {});
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { openSharedFile, previewSharedFile } = await import('./wailsBridge.js');
+
+    await expect(openSharedFile({ path: 'dag/video/final.mp4' }))
+      .rejects.toThrow('ui/sharedFile/open response opened must be true');
+    await expect(previewSharedFile({ path: 'dag/video/final.mp4' }))
+      .rejects.toThrow('ui/sharedFile/open response url must be a non-empty string');
   });
 });
 
@@ -524,6 +576,52 @@ describe('wails bridge warning logs', () => {
       result_preview: expect.stringContaining('"total":3'),
     }));
   });
+
+  it('redacts sensitive successful RPC diagnostic previews before they reach the UI log store', async () => {
+    window.__AO_FRONTEND_TRACE_DEBUG__ = true;
+    vi.doMock(runtimeModule, () => ({
+      Call: {
+        ByID: vi.fn().mockResolvedValue({
+          ok: true,
+          tool: 'mcp__secret__read',
+          result: {
+            total: 3,
+            prompt: 'real-prompt-secret',
+            content: 'real-content-secret',
+            text: 'real-text-secret',
+            body: 'token=real-body-token',
+            profile: { name: 'real-profile-secret' },
+            cwd: '/home/l4place/private-project',
+            path: '/home/l4place/private-project/secret.txt',
+            paths: ['/home/l4place/private-project/secret-a.txt'],
+            nested: {
+              count: 2,
+              accessToken: 'real-access-token',
+              message: 'real-message-secret',
+            },
+          },
+        }),
+      },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI, registerBridgeLogStore } = await import('./wailsBridge.js');
+    const logs = captureBridgeLogs(registerBridgeLogStore);
+
+    await callAPI('tools/call', { name: 'mcp__secret__read' });
+
+    const done = logs.find((entry) => entry.event === 'api.rpc.done');
+    expect(done.fields.result_preview).toContain('"total":3');
+    expect(done.fields.result_preview).toContain('"count":2');
+    expect(done.fields.result_preview).not.toContain('real-');
+    expect(done.fields.result_preview).not.toContain('/home/l4place');
+    expect(done.fields.result_preview).not.toContain('"prompt"');
+    expect(done.fields.result_preview).not.toContain('"content"');
+    expect(done.fields.result_preview).not.toContain('"body"');
+    expect(done.fields.result_preview).not.toContain('"cwd"');
+    expect(done.fields.result_preview).not.toContain('"path"');
+    expect(done.fields.result_preview).not.toContain('"paths"');
+    expect(done.fields.result_preview).not.toContain('"accessToken"');
+  });
 });
 
 describe('wails bridge RPC trace log fields', () => {
@@ -622,6 +720,106 @@ describe('wails bridge file picker helpers', () => {
     expect(byID).toHaveBeenCalledWith(2963398832, 'ui/selectFiles', expect.objectContaining({
       filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
     }));
+  });
+
+  it('uses a dedicated datasource import picker response with a token', async () => {
+    const byID = vi.fn((methodID, method, payload) => {
+      if (methodID !== 2963398832 || method !== 'ui/selectDatasourceImportFile') {
+        throw new Error('datasource import picker must use its dedicated RPC path');
+      }
+      if (payload.filters?.[0]?.pattern !== '*.pdf;*.txt;*.text') {
+        throw new Error('missing datasource filter pattern');
+      }
+      return Promise.resolve({ sourcePath: 'C:\\\\data\\\\manual.pdf', pickerToken: 'picker-token' });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectDatasourceImportFile } = await import('./wailsBridge.js');
+
+    await expect(selectDatasourceImportFile({
+      filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+    })).resolves.toEqual({ sourcePath: 'C:\\\\data\\\\manual.pdf', pickerToken: 'picker-token' });
+    expect(byID).toHaveBeenCalledWith(2963398832, 'ui/selectDatasourceImportFile', expect.objectContaining({
+      filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+    }));
+  });
+
+  it('parses native file helper responses only from explicit response shapes', async () => {
+    const byID = vi.fn((_methodID, method) => {
+      if (method === 'ui/selectProjectDirs') return Promise.resolve({ paths: ['/repo/a'] });
+      if (method === 'ui/saveTextFile') return Promise.resolve({ path: '/tmp/out.txt' });
+      if (method === 'ui/readDroppedTextFiles') {
+        return Promise.resolve({
+          files: [{
+            path: '/tmp/a.txt',
+            name: 'a.txt',
+            text: 'hello',
+            sizeBytes: 5,
+          }],
+        });
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectProjectDirs, saveTextFile, readDroppedTextFiles } = await import('./wailsBridge.js');
+
+    await expect(selectProjectDirs()).resolves.toEqual(['/repo/a']);
+    await expect(saveTextFile({ defaultFilename: 'out.txt', content: 'hello' })).resolves.toBe('/tmp/out.txt');
+    await expect(readDroppedTextFiles(['/tmp/a.txt'], 'drop-1')).resolves.toEqual([{
+      path: '/tmp/a.txt',
+      name: 'a.txt',
+      text: 'hello',
+      sizeBytes: 5,
+    }]);
+  });
+
+  it('rejects malformed native file helper responses instead of defaulting to empty values', async () => {
+    const byID = vi.fn((_methodID, method) => {
+      if (method === 'ui/selectProjectDirs') return Promise.resolve({});
+      if (method === 'ui/saveTextFile') return Promise.resolve({});
+      if (method === 'ui/readDroppedTextFiles') return Promise.resolve({ files: [{ path: '/tmp/a.txt', name: 'a.txt', text: 'hello' }] });
+      throw new Error(`unexpected method ${method}`);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectProjectDirs, saveTextFile, readDroppedTextFiles } = await import('./wailsBridge.js');
+
+    await expect(selectProjectDirs()).rejects.toThrow('ui/selectProjectDirs response paths must be an array');
+    await expect(saveTextFile({ defaultFilename: 'out.txt', content: 'hello' }))
+      .rejects.toThrow('ui/saveTextFile response path must be a string');
+    await expect(readDroppedTextFiles(['/tmp/a.txt'], 'drop-1'))
+      .rejects.toThrow('ui/readDroppedTextFiles response file sizeBytes must be a non-negative number');
+  });
+
+  it('rejects malformed selectFiles native responses without falling back to the RPC path', async () => {
+    const byID = vi.fn().mockResolvedValue({});
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectFiles } = await import('./wailsBridge.js');
+
+    await expect(selectFiles()).rejects.toThrow('ui/selectFiles response paths must be an array');
+    expect(byID).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed datasource import picker responses without defaulting a token', async () => {
+    const byID = vi.fn().mockResolvedValue({ sourcePath: 'C:\\\\data\\\\manual.pdf' });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectDatasourceImportFile } = await import('./wailsBridge.js');
+
+    await expect(selectDatasourceImportFile())
+      .rejects.toThrow('ui/selectDatasourceImportFile response pickerToken must be a non-empty string');
   });
 });
 
@@ -823,6 +1021,46 @@ describe('wails bridge frontend trace emitter', () => {
     expect(serialized).not.toContain('prompt');
   });
 
+  it('drops credential values and local paths from failed RPC trace errors', async () => {
+    const backendError = new Error(
+      'open /home/l4place/project/.env failed token=sk-live-secret password=hunter2 api_key=abc123',
+    );
+    backendError.code = 'E_SECRET';
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.reject(backendError);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('thread/start', { prompt: 'safe prompt payload should still be stripped' }))
+      .rejects.toThrow('/home/l4place/project/.env failed');
+
+    let ingestCall;
+    await waitFor(() => {
+      ingestCall = byID.mock.calls.find(([, method]) => method === 'observability/frontend/ingest');
+      expect(ingestCall?.[2]?.events).toHaveLength(1);
+    });
+    expect(ingestCall[2].events[0]).toEqual(expect.objectContaining({
+      phase: 'frontend.rpc.failed',
+      method: 'thread/start',
+      status: 'error',
+      error: 'E_SECRET',
+    }));
+    const serialized = JSON.stringify(ingestCall[2].events);
+    expect(serialized).not.toContain('/home/l4place');
+    expect(serialized).not.toContain('.env');
+    expect(serialized).not.toContain('sk-live-secret');
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('token=');
+    expect(serialized).not.toContain('password=');
+    expect(serialized).not.toContain('api_key=');
+  });
+
   it('flushes failed frontend warning traces through observability ingest', async () => {
     const byID = vi.fn((_methodID, method, payload) => {
       if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
@@ -874,6 +1112,28 @@ describe('wails bridge frontend trace emitter', () => {
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain('secret');
     expect(serialized).not.toContain('prompt');
+  });
+
+  it('rejects frontend traces with unknown statuses instead of coercing them to ok', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { emitFrontendTraceEvent } = await import('./wailsBridge.js');
+
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.warning',
+      method: 'memory.badge.refresh.failed',
+      trace_id: 'trace-memory-invalid-status',
+      span_id: 'span-memory-invalid-status',
+      status: 'warn',
+    })).toBe(false);
+    await waitForTraceFlush();
+    expect(byID).not.toHaveBeenCalled();
   });
 
   it('keeps runtime RPC telemetry metadata while dropping forbidden content', async () => {

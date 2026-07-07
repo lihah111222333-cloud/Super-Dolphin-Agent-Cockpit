@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 type fakePeerLauncher struct {
@@ -192,17 +194,49 @@ func testPeerParentEnv() []string {
 	return []string{"PATH=/bin", "GO_AGENT_CTL_SESSION_TOKEN=test-peer-token", "SUPER_DOLPHIN_RUNTIME_MODE=dev", "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo"}
 }
 
+func startCodexGoroutineForTest(t *testing.T, label string, run func() error) <-chan error {
+	t.Helper()
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
+		defer close(finished)
+		done <- run()
+	})
+	t.Cleanup(func() {
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatalf("%s goroutine did not stop", label)
+		}
+	})
+	return done
+}
+
+func startCodexRunnerForTest(t *testing.T, label string, run func(context.Context) error) (context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := startCodexGoroutineForTest(t, label, func() error { return run(ctx) })
+	t.Cleanup(cancel)
+	return cancel, done
+}
+
 func runSupervisor(ctx context.Context, s *PeerSupervisor) <-chan error {
 	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
+	safego.Go(ctx, nil, "codexapp.test.peerSupervisor", func(context.Context) { done <- s.Run(ctx) })
 	return done
+}
+
+func runSupervisorForTest(t *testing.T, ctx context.Context, s *PeerSupervisor) <-chan error {
+	t.Helper()
+	return startCodexGoroutineForTest(t, "peer supervisor", func() error { return s.Run(ctx) })
 }
 
 func TestPeerSupervisorStartsPeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s, launcher, _ := newTestSupervisor(t, WithPeerNames([]string{"mcp-orch", "mcp-lsp"}))
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 	launcher.waitLaunch(t, "mcp-orch", time.Second)
 	launcher.waitLaunch(t, "mcp-lsp", time.Second)
 	cancel()
@@ -227,7 +261,7 @@ func TestPeerSupervisorDevInitialLaunchFailureStaysBestEffort(t *testing.T) {
 	defer cancel()
 	s, launcher, _ := newTestSupervisor(t, WithPeerNames([]string{"mcp-orch"}))
 	setLaunchErr(launcher, "mcp-orch", errors.New("missing peer binary"))
-	requireRunningBeforeCancel(t, runSupervisor(ctx, s), cancel)
+	requireRunningBeforeCancel(t, runSupervisorForTest(t, ctx, s), cancel)
 	requireLaunchCount(t, launcher, "mcp-orch", 1)
 }
 
@@ -367,8 +401,8 @@ func requireEnvString(t *testing.T, env []string, key string) string {
 	t.Helper()
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix)
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return value
 		}
 	}
 	t.Fatalf("%s missing from env %#v", key, env)
@@ -380,7 +414,7 @@ func TestPeerSupervisorRestartsExitedPeer(t *testing.T) {
 	defer cancel()
 
 	s, launcher, _ := newTestSupervisor(t)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 
 	launcher.waitLaunch(t, "test-peer", time.Second)
 	handles := launcher.snapshotHandles("test-peer")
@@ -409,7 +443,7 @@ func TestPeerSupervisorClearsDiscoveryOnPeerExitBeforeRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s, launcher, _ := newTestSupervisor(t)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 
 	launcher.waitLaunch(t, peerName, time.Second)
 	first := launcher.snapshotHandles(peerName)[0]
@@ -434,7 +468,7 @@ func TestPeerSupervisorClearsDiscoveryOnRestartFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s, launcher, _ := newTestSupervisor(t)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 
 	launcher.waitLaunch(t, peerName, time.Second)
 	launcher.mu.Lock()
@@ -457,7 +491,7 @@ func TestPeerSupervisorShutdownSuppressesRestart(t *testing.T) {
 	s, launcher, _ := newTestSupervisor(t,
 		WithPeerRestartBackoff(500*time.Millisecond),
 	)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 	launcher.waitLaunch(t, "test-peer", time.Second)
 
 	cancel()
@@ -481,7 +515,7 @@ func TestPeerSupervisorReplacePeerAtomicallySwapsBookkeeping(t *testing.T) {
 	defer cancel()
 
 	s, launcher, tracker := newTestSupervisor(t)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 
 	launcher.waitLaunch(t, "test-peer", time.Second)
 	first := launcher.snapshotHandles("test-peer")[0]
@@ -522,7 +556,7 @@ func TestPeerSupervisorBackoffCancelledByStop(t *testing.T) {
 	s, launcher, _ := newTestSupervisor(t,
 		WithPeerRestartBackoff(2*time.Second),
 	)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 	launcher.waitLaunch(t, "test-peer", time.Second)
 
 	launcher.snapshotHandles("test-peer")[0].triggerExit(errors.New("boom"))
@@ -567,7 +601,7 @@ func TestPeerSupervisorDiscoveryFilesRemovedOnStop(t *testing.T) {
 			_ = discovery.CleanupDiscoveryFile(testPeerName, os.Getpid())
 		}),
 	)
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 	launcher.waitLaunch(t, "test-peer", time.Second)
 
 	cancel()
@@ -595,7 +629,7 @@ func TestPeerSupervisorShutdownEscalatesToSIGTERM(t *testing.T) {
 		WithPeerCleanupHook(func() {}),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
-	done := runSupervisor(ctx, s)
+	done := runSupervisorForTest(t, ctx, s)
 
 	waitUntil(t, time.Second, func() bool {
 		return stuck.registered()
@@ -646,12 +680,7 @@ func (s *stuckPeerHandle) Signal(sig processSig) error {
 func (s *stuckPeerHandle) hasSignal(want processSig) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, sig := range s.signals {
-		if sig == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.signals, want)
 }
 
 func (s *stuckPeerHandle) registered() bool {

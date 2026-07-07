@@ -17,7 +17,9 @@ func TestPoolRecyclerRunExitsOnCtxCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
+	goroutines := newTestGoroutineGroup(t)
+	t.Cleanup(cancel)
+	goroutines.Go(func() { done <- r.Run(ctx) })
 
 	// 等待 loop 装载 ticker，避免 cancel 早于 goroutine 进入 select。
 	time.Sleep(5 * time.Millisecond)
@@ -55,7 +57,9 @@ func TestPoolRecyclerRunNilReceiverBlocks(t *testing.T) {
 	var nilRecycler *poolRecycler
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- nilRecycler.Run(ctx) }()
+	goroutines := newTestGoroutineGroup(t)
+	t.Cleanup(cancel)
+	goroutines.Go(func() { done <- nilRecycler.Run(ctx) })
 
 	select {
 	case err := <-done:

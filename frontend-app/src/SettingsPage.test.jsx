@@ -565,6 +565,28 @@ describe('SettingsPage prompt settings', () => {
       expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'alert');
     });
   });
+
+  it('does not save prompt settings when the write response omits the default hint', async () => {
+    render(<App skipBootstrap />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('custom override text');
+    });
+
+    backend.writeLspPromptHint.mockResolvedValueOnce({
+      hint: 'custom override text',
+      overrideHint: 'custom override text',
+      usingDefault: false,
+    });
+
+    fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('保存失败');
+      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'alert');
+    });
+    expect(screen.getByTestId('settings-lsp-prompt-notice')).not.toHaveTextContent('已保存自定义提示词');
+  });
 });
 
 describe('SettingsPage built-in tool settings', () => {

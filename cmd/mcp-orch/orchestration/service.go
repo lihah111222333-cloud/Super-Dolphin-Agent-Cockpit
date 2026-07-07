@@ -33,25 +33,29 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-type Service = contract.OrchestrationService
-type TurnSubmission = contract.TurnSubmission
-type RuntimeReport = contract.RuntimeReport
-type LaunchRequest = contract.LaunchRequest
-type AgentSnapshot = contract.AgentSnapshot
-type AgentStateResult = contract.AgentStateResult
-type AgentReportMetadata = contract.AgentReportMetadata
-type AgentReportResult = contract.AgentReportResult
-type RememberReportRequest = contract.RememberReportRequest
-type RememberReportRequestResult = contract.RememberReportRequestResult
-type ReportEvent = contract.ReportEvent
-type ReportEventResult = contract.ReportEventResult
-type CreateDAGRequest = contract.CreateDAGRequest
-type CreateDAGNodeRequest = contract.CreateDAGNodeRequest
-type ListDAGsFilter = contract.ListDAGsFilter
-type UpdateNodeStatusRequest = contract.UpdateNodeStatusRequest
-type DAGSummary = contract.DAGSummary
-type DAGNode = contract.DAGNode
-type DAGDetail = contract.DAGDetail
+// Service 及相关请求/结果类型是 contract 层 orchestration RPC 契约在本包的复导出。
+// 这些别名只固定 service 与 transport 的边界名称，状态转换和序列化语义仍以 contract 包为准。
+type (
+	Service                     = contract.OrchestrationService
+	TurnSubmission              = contract.TurnSubmission
+	RuntimeReport               = contract.RuntimeReport
+	LaunchRequest               = contract.LaunchRequest
+	AgentSnapshot               = contract.AgentSnapshot
+	AgentStateResult            = contract.AgentStateResult
+	AgentReportMetadata         = contract.AgentReportMetadata
+	AgentReportResult           = contract.AgentReportResult
+	RememberReportRequest       = contract.RememberReportRequest
+	RememberReportRequestResult = contract.RememberReportRequestResult
+	ReportEvent                 = contract.ReportEvent
+	ReportEventResult           = contract.ReportEventResult
+	CreateDAGRequest            = contract.CreateDAGRequest
+	CreateDAGNodeRequest        = contract.CreateDAGNodeRequest
+	ListDAGsFilter              = contract.ListDAGsFilter
+	UpdateNodeStatusRequest     = contract.UpdateNodeStatusRequest
+	DAGSummary                  = contract.DAGSummary
+	DAGNode                     = contract.DAGNode
+	DAGDetail                   = contract.DAGDetail
+)
 
 var errAgentNotFound = contract.ErrAgentNotFound
 var errIllegalStateTransition = errors.New("illegal state transition")
@@ -253,19 +257,29 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	requestedCancel := func() {}
 	resolvedCancel := func() {}
+	lifecycleCtx := context.Background()
+	lifecycleCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())
 			// approval requested 事件进入 awaiting_user_input；handler 内负责幂等处理漂移状态。
 			requestedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
+				if lifecycleCtx.Err() != nil {
+					return
+				}
 				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
 			// approval resolved 事件解除 awaiting_user_input；重复完成会被下游视为幂等。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
+				if lifecycleCtx.Err() != nil {
+					return
+				}
 				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
 			return nil
 		},
 		OnStop: func(context.Context) error {
+			lifecycleCancel()
 			requestedCancel()
 			resolvedCancel()
 			return nil

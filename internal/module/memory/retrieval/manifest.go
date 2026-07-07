@@ -11,7 +11,91 @@ import (
 
 const DefaultManifestFileLimit = 200
 
-type ManifestBuilder struct{ MaxFiles int }
+const defaultManifestByteLimit = 8 * 1024 * 1024
+
+const ManifestScanErrorCode = "memory_manifest_scan_error"
+
+// ManifestScanBudget limits memory manifest directory scans before prompt-time retrieval.
+type ManifestScanBudget struct {
+	MaxFiles      int
+	MaxBytes      int64
+	MaxReadErrors int
+}
+
+// ManifestScanError reports a fail-fast manifest walk, stat, or header read failure.
+type ManifestScanError struct {
+	Path      string
+	Operation string
+	Err       error
+}
+
+// Error 返回 manifest 扫描失败的可读诊断。
+func (e *ManifestScanError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if strings.TrimSpace(e.Path) == "" {
+		return e.Operation + ": " + e.Err.Error()
+	}
+	return e.Operation + " " + e.Path + ": " + e.Err.Error()
+}
+
+// SafeMessage 返回可跨 provider/RPC 边界展示的 code/stage 诊断，不包含路径或底层错误文本。
+func (e *ManifestScanError) SafeMessage() string {
+	if e == nil {
+		return ""
+	}
+	return ManifestScanErrorCode + " stage=" + manifestScanStage(e.Operation)
+}
+
+// Unwrap 返回底层文件系统或解析错误，供 errors.Is/As 继续匹配。
+func (e *ManifestScanError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func manifestScanStage(operation string) string {
+	switch strings.TrimSpace(operation) {
+	case "walk memory manifest":
+		return "walk"
+	case "stat memory manifest entry":
+		return "stat"
+	case "scan memory header":
+		return "scan_memory_header"
+	default:
+		stage := strings.ToLower(strings.TrimSpace(operation))
+		stage = strings.NewReplacer(" ", "_", "-", "_", ":", "_").Replace(stage)
+		if stage == "" {
+			return "unknown"
+		}
+		return stage
+	}
+}
+
+// ManifestScanTruncatedError reports that a manifest scan stopped at a configured budget.
+type ManifestScanTruncatedError struct {
+	Reason string
+	Budget ManifestScanBudget
+	Files  int
+	Bytes  int64
+}
+
+// Error 返回 manifest 扫描预算截断诊断。
+func (e *ManifestScanTruncatedError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return "memory manifest scan truncated: " + strings.TrimSpace(e.Reason)
+}
+
+// ManifestBuilder 构建相关记忆检索使用的 manifest 快照。
+// 它只扫描 topic 文件头部，并用预算限制大目录对 turn 注入链的影响。
+type ManifestBuilder struct {
+	MaxFiles int
+	Budget   ManifestScanBudget
+}
 
 // NewManifestBuilder 创建相关记忆检索的 manifest 构建器。
 // 默认文件上限保护检索前置扫描，避免大目录一次性进入排序和读取。
@@ -22,28 +106,50 @@ func NewManifestBuilder() *ManifestBuilder {
 // BuildManifest 扫描记忆根目录并返回可检索条目快照。
 // 返回值是克隆后的条目，调用方修改不会影响 builder 内部或后续扫描。
 func (b *ManifestBuilder) BuildManifest(memoryRoot string) ([]MemoryEntry, error) {
-	entries, err := ScanHeadersSafe(memoryRoot)
+	entries, err := scanHeadersWithBudget(memoryRoot, b.scanBudget())
 	if err != nil {
-		return nil, err
-	}
-	if maxFiles := b.maxFiles(); len(entries) > maxFiles {
-		entries = entries[:maxFiles]
+		return cloneEntries(entries), err
 	}
 	return cloneEntries(entries), nil
 }
 
-// maxFiles 返回 manifest 扫描的文件上限。
-// 未配置或非法值回到默认上限，避免 nil builder 造成无限扫描。
-func (b *ManifestBuilder) maxFiles() int {
-	if b == nil || b.MaxFiles <= 0 {
-		return DefaultManifestFileLimit
+// scanBudget 合并旧 MaxFiles 字段和新预算结构，保持现有调用兼容。
+func (b *ManifestBuilder) scanBudget() ManifestScanBudget {
+	budget := defaultManifestScanBudget()
+	if b == nil {
+		return budget
 	}
-	return b.MaxFiles
+	if b.Budget.MaxFiles > 0 {
+		budget.MaxFiles = b.Budget.MaxFiles
+	}
+	if b.Budget.MaxBytes > 0 {
+		budget.MaxBytes = b.Budget.MaxBytes
+	}
+	if b.Budget.MaxReadErrors > 0 {
+		budget.MaxReadErrors = b.Budget.MaxReadErrors
+	}
+	if b.MaxFiles > 0 {
+		budget.MaxFiles = b.MaxFiles
+	}
+	return budget
+}
+
+func defaultManifestScanBudget() ManifestScanBudget {
+	return ManifestScanBudget{
+		MaxFiles:      DefaultManifestFileLimit,
+		MaxBytes:      defaultManifestByteLimit,
+		MaxReadErrors: 0,
+	}
 }
 
 // ScanHeadersSafe 只读取记忆文件头部并生成 manifest。
 // 根目录为空会失败；根目录不存在返回空列表，遍历过程中非法路径会被跳过。
 func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
+	return scanHeadersWithBudget(memoryRoot, defaultManifestScanBudget())
+}
+
+// scanHeadersWithBudget 在 WalkDir 内执行预算和读取错误控制。
+func scanHeadersWithBudget(memoryRoot string, budget ManifestScanBudget) ([]MemoryEntry, error) {
 	root := strings.TrimSpace(memoryRoot)
 	if root == "" {
 		return nil, errors.New("memory root dir is empty")
@@ -58,9 +164,16 @@ func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 		return nil, err
 	}
 	entries := make([]MemoryEntry, 0, 16)
+	var bytesScanned int64
+	var scanErr error
 	err = filepath.WalkDir(normalizedRoot, func(path string, d fs.DirEntry, walkErr error) error {
-		entry, ok := manifestEntryFromPathSafe(normalizedRoot, path, d, walkErr)
+		entry, ok, err := manifestEntryFromPath(normalizedRoot, path, d, walkErr, budget, len(entries), bytesScanned)
+		if err != nil {
+			scanErr = err
+			return fs.SkipAll
+		}
 		if ok {
+			bytesScanned += memoryEntryFileSize(path, d)
 			entries = append(entries, entry)
 		}
 		return nil
@@ -74,22 +187,90 @@ func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 		}
 		return entries[i].UpdatedAt.After(entries[j].UpdatedAt)
 	})
-	return entries, nil
+	return entries, scanErr
 }
 
-// manifestEntryFromPathSafe 将 WalkDir 命中的 markdown 文件转成 manifest 条目。
-// 它跳过目录、MEMORY.md 和无法通过读路径校验的文件，避免检索越界内容。
-func manifestEntryFromPathSafe(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool) {
-	if walkErr != nil || d == nil || d.IsDir() || filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName {
-		return MemoryEntry{}, false
+// manifestEntryFromPath 把单个 WalkDir 命中转换为 manifest 条目，并在读取前执行预算检查。
+func manifestEntryFromPath(
+	root string,
+	path string,
+	d fs.DirEntry,
+	walkErr error,
+	budget ManifestScanBudget,
+	filesScanned int,
+	bytesScanned int64,
+) (MemoryEntry, bool, error) {
+	if walkErr != nil {
+		return MemoryEntry{}, false, &ManifestScanError{Path: path, Operation: "walk memory manifest", Err: walkErr}
 	}
-	validatedPath, err := validateMemoryReadPath(root, path)
+	if !isMemoryManifestCandidate(path, d) {
+		return MemoryEntry{}, false, nil
+	}
+	validatedPath, ok := validatedManifestReadPath(root, path)
+	if !ok {
+		return MemoryEntry{}, false, nil
+	}
+	if err := manifestFileBudgetError(budget, filesScanned, bytesScanned); err != nil {
+		return MemoryEntry{}, false, err
+	}
+	info, err := d.Info()
 	if err != nil {
-		return MemoryEntry{}, false
+		return MemoryEntry{}, false, &ManifestScanError{Path: path, Operation: "stat memory manifest entry", Err: err}
+	}
+	if err := manifestByteBudgetError(budget, filesScanned, bytesScanned, info.Size()); err != nil {
+		return MemoryEntry{}, false, err
 	}
 	entry, err := readMemoryEntryHeader(validatedPath)
 	if err != nil {
-		return MemoryEntry{}, false
+		return MemoryEntry{}, false, &ManifestScanError{Path: path, Operation: "scan memory header", Err: err}
 	}
-	return entry, true
+	return entry, true, nil
+}
+
+func isMemoryManifestCandidate(path string, d fs.DirEntry) bool {
+	return d != nil && !d.IsDir() && filepath.Ext(path) == ".md" && filepath.Base(path) != memoryIndexFileName
+}
+
+func validatedManifestReadPath(root, path string) (string, bool) {
+	validatedPath, err := validateMemoryReadPath(root, path)
+	return validatedPath, err == nil
+}
+
+func manifestFileBudgetError(budget ManifestScanBudget, filesScanned int, bytesScanned int64) error {
+	if filesScanned < budget.MaxFiles {
+		return nil
+	}
+	return &ManifestScanTruncatedError{
+		Reason: "max files",
+		Budget: budget,
+		Files:  filesScanned,
+		Bytes:  bytesScanned,
+	}
+}
+
+func manifestByteBudgetError(budget ManifestScanBudget, filesScanned int, bytesScanned, nextBytes int64) error {
+	if bytesScanned+nextBytes <= budget.MaxBytes {
+		return nil
+	}
+	return &ManifestScanTruncatedError{
+		Reason: "max bytes",
+		Budget: budget,
+		Files:  filesScanned,
+		Bytes:  bytesScanned,
+	}
+}
+
+func memoryEntryFileSize(path string, d fs.DirEntry) int64 {
+	if d == nil {
+		return 0
+	}
+	info, err := d.Info()
+	if err == nil {
+		return info.Size()
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }

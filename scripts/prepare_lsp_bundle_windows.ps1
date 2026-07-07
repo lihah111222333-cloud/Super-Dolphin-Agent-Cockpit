@@ -83,6 +83,7 @@ $LSPNpmPackages = @(
     'vscode-langservers-extracted@4.10.0',
     'pyright@1.1.410',
     'bash-language-server@5.6.0',
+    'sql-language-server@1.7.1',
     '@ast-grep/cli@0.43.0'
 )
 if (-not $OmitShellcheck -and $ShellcheckBin.Trim() -eq '' -and $WindowsPackageArch -ne 'arm64') {
@@ -320,6 +321,7 @@ function Write-LSPManifestAndChecksums() {
         'pyright|bin/pyright-langserver.cmd|["python"]',
         'rust-analyzer|bin/rust-analyzer.exe|["rust"]',
         'bash-language-server|bin/bash-language-server.cmd|["shellscript"]',
+        'sql-language-server|bin/sql-language-server.cmd|["sql"]',
         'sg|bin/sg.exe|["ast-grep"]',
         'go|bin/go.cmd|["go-toolchain"]'
     )
@@ -419,6 +421,7 @@ Write-NodeCmdWrapper -Name 'typescript-language-server.cmd' -Target 'typescript-
 Write-NodeCmdWrapper -Name 'vscode-css-language-server.cmd' -Target 'vscode-langservers-extracted\bin\vscode-css-language-server'
 Write-NodeCmdWrapper -Name 'pyright-langserver.cmd' -Target 'pyright\langserver.index.js'
 Write-NodeCmdWrapper -Name 'bash-language-server.cmd' -Target 'bash-language-server\out\cli.js'
+Write-NodeCmdWrapper -Name 'sql-language-server.cmd' -Target 'sql-language-server\npm_bin\cli.js'
 
 $shellcheck = Resolve-ShellcheckExecutable
 if ($shellcheck.Trim() -ne '') {

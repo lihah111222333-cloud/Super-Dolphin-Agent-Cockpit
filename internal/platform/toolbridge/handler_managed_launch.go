@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 // 本文件负责把当前 provider/model/effort 上下文注入 launch_agent 与 DAG agent 节点。
@@ -33,8 +35,7 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 	}
 	launchCWD := firstNonEmptyString(req.CWD, binding.CWD)
 	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args, launchCWD)
-	parentThreadID := managedLaunchParentThreadIDForArgs(req, binding, args)
-	changed := injectManagedLaunchArgs(args, binding, parentThreadID, provider, model, effort)
+	changed := injectManagedLaunchArgs(args, binding, provider, model, effort)
 	if !changed {
 		return req
 	}
@@ -46,13 +47,14 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 		return req
 	}
 	req.Arguments = raw
-	h.warn("toolbridge: orchestration_launch_agent inherited context",
+	fields := []any{
 		"agent_id", binding.AgentID,
 		"provider_thread_id", binding.ProviderThreadID,
 		"codex_thread_id", binding.CodexThreadID,
 		"injected_parent_id", mapString(args, "parent_id"),
-		"injected_parent_thread_id", mapString(args, "parent_thread_id"),
-		"args_cwd", mapString(args, "cwd"),
+	}
+	fields = append(fields, platformshared.SafePathLogFields("args_cwd", mapString(args, "cwd"))...)
+	fields = append(fields,
 		"injected_provider", mapString(args, "provider"),
 		"injected_model", mapString(args, "model"),
 		"injected_effort", mapString(args, "effort"),
@@ -60,22 +62,8 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 		"has_codex_instance_key", strings.TrimSpace(binding.CodexInstanceKey) != "",
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
+	h.warn("toolbridge: orchestration_launch_agent inherited context", fields...)
 	return req
-}
-
-// managedLaunchParentThreadIDForArgs 只给 forked 启动注入父线程 ID。
-// minimal/focused 子任务不需要继承父历史，继续只传 parent_id。
-func managedLaunchParentThreadIDForArgs(req ToolCallRequest, binding toolCallBinding, args map[string]any) string {
-	if !strings.EqualFold(mapString(args, "context_mode"), "forked") {
-		return ""
-	}
-	return managedLaunchParentThreadID(req, binding)
-}
-
-// managedLaunchParentThreadID 返回桌面 thread/fork 可解析的父线程 ID。
-// thread/fork 先查本地 thread store；provider UUID 只作为旧数据兜底。
-func managedLaunchParentThreadID(req ToolCallRequest, binding toolCallBinding) string {
-	return firstNonEmptyString(binding.CodexThreadID, binding.AgentID, req.AgentID, binding.ProviderThreadID, req.ThreadID)
 }
 
 // isManagedLaunchToolName 判断工具名是否为单 agent 启动入口。
@@ -137,9 +125,9 @@ func (h *Handler) readMergedUIPreferences(ctx context.Context, cwd string) (map[
 	}
 	prefs, err := h.preferences.GetMergedPreferences(ctx, strings.TrimSpace(cwd))
 	if err != nil {
-		h.warn("toolbridge: read UI preferences for launch defaults failed",
-			"cwd", strings.TrimSpace(cwd),
-			"error", err)
+		fields := []any{"error", err}
+		fields = append(fields, platformshared.SafePathLogFields("cwd", strings.TrimSpace(cwd))...)
+		h.warn("toolbridge: read UI preferences for launch defaults failed", fields...)
 		return nil, false
 	}
 	return prefs, true
@@ -271,13 +259,4 @@ func (h *Handler) readStoredThreadRuntime(ctx context.Context, threadID string) 
 		return storedThreadRuntime{}, false
 	}
 	return stored, true
-}
-
-// decodeStoredThreadRuntime 从原始 override JSON 中提取 runtime 段。
-func decodeStoredThreadRuntime(raw json.RawMessage) (map[string]any, bool) {
-	var stored storedThreadRuntime
-	if err := json.Unmarshal(raw, &stored); err != nil || len(stored.Runtime) == 0 {
-		return nil, false
-	}
-	return stored.Runtime, true
 }

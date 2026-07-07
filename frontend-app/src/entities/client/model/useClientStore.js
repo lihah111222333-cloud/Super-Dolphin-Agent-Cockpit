@@ -36,6 +36,7 @@ import {
   removeProject as removeProjectRPC,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
+import { positiveApprovalRequestIdFromFields } from '../../../shared/api/approvalRequestId.js';
 import { sessionApi } from '../../../shared/api/sessionApi.js';
 import {
   createComposerSlice,
@@ -204,11 +205,6 @@ function firstValueFromSources(sources = []) {
     if (value !== undefined) return value;
   }
   return undefined;
-}
-
-function positiveNumberFromFields(source, keys = []) {
-  const numeric = Number(firstFieldValue(source, keys));
-  return Math.max(0, Number.isFinite(numeric) ? numeric : 0);
 }
 
 function cleanObject(payload) {
@@ -1297,6 +1293,14 @@ function actionNotice(message, tone = 'info') {
   };
 }
 
+function actionNoticeRuntimeFields(fields = {}) {
+  const out = {};
+  const error = normalizeString(fields.error || fields.message);
+  if (error) out.error = error;
+  if (typeof fields.recoverable === 'boolean') out.recoverable = fields.recoverable;
+  return out;
+}
+
 const imageFileAttachment = createImageFileAttachment({ saveClipboardImage });
 
 const composerAttachmentActionDeps = {
@@ -1342,6 +1346,8 @@ const composerActionDeps = {
     promotedDraftThreadState,
     resolveLaunchPreferences,
     rollbackSendDraftState,
+    saveFailedSendDraftSnapshot,
+    sendRollbackRestoresVisibleComposer,
     startNewDraftThread,
     startTurnWithStoppedThreadRecovery,
   },
@@ -1564,18 +1570,44 @@ function promotedDraftThreadState(state, request, started) {
   };
 }
 
-function rollbackSendDraftState(state, request, error) {
+function rollbackSendDraftState(state, request, error, options = {}) {
+  const createdThreadId = normalizeString(options.createdThreadId);
+  const localDeleteIds = !request.previousThreadId
+    ? [request.provisionalThreadId, createdThreadId].filter(Boolean)
+    : [];
   const timelinesByThread = { ...state.timelinesByThread };
-  const activeTimeline = timelinesByThread[state.activeThreadId] || [];
-  timelinesByThread[state.activeThreadId] = activeTimeline.filter((item) => item.id !== request.optimisticItem.id);
-  if (!request.previousThreadId) delete timelinesByThread[request.provisionalThreadId];
-  const activeThreadId = state.activeThreadId === request.provisionalThreadId ? request.previousActiveThreadId : state.activeThreadId;
+  const timelineTargetId = request.previousThreadId || createdThreadId || request.provisionalThreadId;
+  const requestTimeline = timelinesByThread[timelineTargetId] || [];
+  timelinesByThread[timelineTargetId] = requestTimeline.filter((item) => item.id !== request.optimisticItem.id);
+  for (const threadId of localDeleteIds) delete timelinesByThread[threadId];
+  const threadTimelineReadyByThread = { ...state.threadTimelineReadyByThread };
+  const activityThreadAtById = { ...state.activityThreadAtById };
+  for (const threadId of localDeleteIds) {
+    delete threadTimelineReadyByThread[threadId];
+    delete activityThreadAtById[threadId];
+  }
+  const activeThreadId = localDeleteIds.includes(state.activeThreadId) ? request.previousActiveThreadId : state.activeThreadId;
+  const restoreComposer = [
+    request.previousThreadId,
+    request.provisionalThreadId,
+    createdThreadId,
+  ].filter(Boolean).includes(state.activeThreadId);
   return {
     sending: false,
-    draft: request.previousDraft,
-    attachments: request.previousAttachments,
+    ...(restoreComposer ? {
+      draft: request.previousDraft,
+      attachments: request.previousAttachments,
+    } : {}),
     activeThreadId,
     timelinesByThread,
+    threadTimelineReadyByThread,
+    activityThreadAtById,
+    threads: createdThreadId
+      ? state.threads.filter((thread) => thread.id !== createdThreadId)
+      : state.threads,
+    sidebarThreadsByProject: createdThreadId
+      ? mapSidebarThreadCache(state, (threads) => threads.filter((thread) => thread.id !== createdThreadId))
+      : state.sidebarThreadsByProject,
     error: error.message,
     actionNotice: actionNotice(`发送失败：${error.message}`, 'error'),
   };
@@ -1584,6 +1616,30 @@ function rollbackSendDraftState(state, request, error) {
 function createdThreadIdForSendRollback(state, request, threadId) {
   if (request.previousThreadId || !threadId) return '';
   return backendThreadIdForState(state, threadId);
+}
+
+function sendRollbackRestoresVisibleComposer(state, request, createdThreadId = '') {
+  const activeThreadId = normalizeString(state.activeThreadId);
+  return [
+    request.previousThreadId,
+    request.provisionalThreadId,
+    createdThreadId,
+  ].map(normalizeString).filter(Boolean).includes(activeThreadId);
+}
+
+function saveFailedSendDraftSnapshot(runtime, request) {
+  runtime.saveComposerDraftSnapshot(
+    {
+      ...runtime.get(),
+      cwd: request.cwd,
+      activeProject: request.cwd,
+    },
+    request.previousActiveThreadId,
+    {
+      draft: request.previousDraft,
+      attachments: request.previousAttachments,
+    },
+  );
 }
 
 async function deleteProvisionalThreadAfterSendFailure(threadId, addWarning) {
@@ -1713,7 +1769,11 @@ function resolveInitialLevel() {
     }
   }
   catch (error) {
-    void error;
+    emitFrontendTraceEvent({
+      phase: 'frontend.log_level.preference_read.failed',
+      status: 'error',
+      error: error?.message || String(error),
+    });
   }
   return 'info';
 }
@@ -1849,6 +1909,16 @@ function attachComposerDraftRuntime(runtime) {
     composerDrafts.set(key, snapshot);
   };
 
+  const saveComposerDraftSnapshot = (state = get(), threadId = state.activeThreadId, snapshot = {}) => {
+    const key = composerDraftKey(state, threadId);
+    const normalized = normalizeComposerDraftSnapshot(snapshot);
+    if (isEmptyComposerDraftSnapshot(normalized)) {
+      composerDrafts.delete(key);
+      return;
+    }
+    composerDrafts.set(key, normalized);
+  };
+
   const restoreComposerDraft = (state, threadId) => {
     const key = composerDraftKey(state, threadId);
     return normalizeComposerDraftSnapshot(composerDrafts.get(key));
@@ -1859,7 +1929,7 @@ function attachComposerDraftRuntime(runtime) {
   };
 
 
-  Object.assign(runtime, { saveActiveComposerDraft, restoreComposerDraft, clearComposerDraft });
+  Object.assign(runtime, { saveActiveComposerDraft, saveComposerDraftSnapshot, restoreComposerDraft, clearComposerDraft });
 }
 
 function attachLogRuntime(runtime) {
@@ -1898,7 +1968,11 @@ function attachLogRuntime(runtime) {
       }
     }
     catch (error) {
-      void error;
+      addWarning('error', 'log_level.preference_save.failed', {
+        status: 'storage_write_failed',
+        error: error?.message || String(error),
+      });
+      return;
     }
     set({ logLevel: level });
   };
@@ -2136,7 +2210,8 @@ function attachNotificationRuntime(runtime) {
   const { set, addWarning } = runtime;
 
   const notifyAction = (message, tone = 'info', fields = {}) => {
-    const notice = actionNotice(message, tone);
+    const baseNotice = actionNotice(message, tone);
+    const notice = baseNotice ? { ...baseNotice, ...actionNoticeRuntimeFields(fields) } : null;
     if (!notice) return;
     set((state) => ({
       actionNotice: notice,
@@ -2514,19 +2589,36 @@ function attachBridgeEventRuntime(runtime) {
     flushAssistantDeltasNow,
     applyAssistantCompletion,
     bridgeThreadIdForPayload,
+    notifyAction,
   } = runtime;
 
-    const handleBridgeEvent = (evt) => {
-      const method = normalizeString(evt?.method || evt?.type);
-      const eventName = method.toLowerCase();
-      const payload = evt?.payload || evt?.params || evt?.data || {};
-      if (!method) {
-        addWarning('error', 'bridge.event.method_missing', {
-          eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
-          payloadKeys: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
-        });
-        return;
-      }
+  const handleFailedBridgeEvent = (eventName, method, payload) => {
+    flushAssistantDeltasNow();
+    const threadId = bridgeThreadIdForPayload(payload);
+    if (threadId) {
+      finalizeActiveAssistantMessages(threadId);
+    }
+    addWarning('error', method, { ...payload, eventName });
+    const message = normalizeString(payload?.error || payload?.message || payload?.reason) || 'provider reported failure';
+    notifyAction(`运行失败：${message}`, 'error', {
+      ...payload,
+      threadId,
+      error: message,
+      recoverable: payload?.recoverable,
+    });
+  };
+
+  const handleBridgeEvent = (evt) => {
+    const method = normalizeString(evt?.method || evt?.type);
+    const eventName = method.toLowerCase();
+    const payload = evt?.payload || evt?.params || evt?.data || {};
+    if (!method) {
+      addWarning('error', 'bridge.event.method_missing', {
+        eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
+        payloadKeys: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
+      });
+      return;
+    }
 
     const revisionKey = bridgeRevisionKey(eventName, payload);
     if (revisionKey) {
@@ -2559,12 +2651,15 @@ function attachBridgeEventRuntime(runtime) {
       applyAssistantCompletion(method, payload);
       return;
     }
+    if (eventName === 'agent/failed') {
+      handleFailedBridgeEvent(eventName, method, payload);
+      return;
+    }
     if (
       eventName === 'turn/completed' ||
       eventName === 'turn/interrupted' ||
       eventName === 'agent/stopped' ||
-      eventName === 'thread/stopped' ||
-      eventName === 'agent/failed'
+      eventName === 'thread/stopped'
     ) {
       flushAssistantDeltasNow();
       const threadId = bridgeThreadIdForPayload(payload);
@@ -3010,11 +3105,14 @@ function createDashboardCommandActions(runtime) {
         return true;
       }
       catch (error) {
-        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
+        const rollbackState = runtime.get();
+        const createdThreadId = createdThreadIdForSendRollback(rollbackState, request, threadId);
+        const shouldCacheFailedDraft = !sendRollbackRestoresVisibleComposer(rollbackState, request, createdThreadId);
         runtime.set((state) => ({
-          ...rollbackSendDraftState(state, request, error),
+          ...rollbackSendDraftState(state, request, error, { createdThreadId }),
           activePage: 'commands',
         }));
+        if (shouldCacheFailedDraft) saveFailedSendDraftSnapshot(runtime, request);
         await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
         runtime.addWarning('error', 'dashboard.command.send.failed', { error: error.message });
         throw error;
@@ -3034,6 +3132,9 @@ function createActiveThreadActions(runtime) {
     hasInterruptibleThreadAction: () => {
       return activeThreadInterruptTarget(runtime.get()).interruptible;
     },
+    hasForceCompleteThreadAction: () => {
+      return activeThreadInterruptTarget(runtime.get()).interruptible;
+    },
 
     refreshActiveThreadStatus: async () => {
       const threadId = backendThreadIdForState(runtime.get(), runtime.get().activeThreadId);
@@ -3044,7 +3145,7 @@ function createActiveThreadActions(runtime) {
     },
 
     respondApproval: async (item, approved) => {
-      const requestId = positiveNumberFromFields(item, ['requestId', 'request_id']);
+      const requestId = positiveApprovalRequestIdFromFields(item);
       const decision = Boolean(approved);
       if (requestId <= 0) {
         runtime.notifyAction('当前审批缺少请求编号，无法提交', 'error');

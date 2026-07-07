@@ -224,15 +224,16 @@ func TestBuildLaunchRequestFromWakeupEmptyPayloadUsesTarget(t *testing.T) {
 }
 
 func TestWakeupDispatcherRunStopsOnContextCancel(t *testing.T) {
-	store := &dispatcherStubStore{}
+	store := &dispatcherStubStore{claimSeen: make(chan struct{}, 1)}
 	launcher := &dispatcherStubLauncher{}
 	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{
 		TickInterval: 10 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- d.Run(ctx) }()
-	time.Sleep(30 * time.Millisecond) // 让 ticker 跑几下
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { done <- d.Run(ctx) })
+	waitForDispatcherClaimSignals(t, store.claimSeen, 1)
 	cancel()
 	select {
 	case err := <-done:
@@ -249,19 +250,31 @@ func TestWakeupDispatcherRunStopsOnContextCancel(t *testing.T) {
 
 func TestWakeupDispatcherRunSurvivesClaimErrorAndContinues(t *testing.T) {
 	// claim 失败下一 tick 再来——ctx canceled 才停。
-	store := &dispatcherStubStore{claimErr: errors.New("transient db blip")}
+	store := &dispatcherStubStore{claimErr: errors.New("transient db blip"), claimSeen: make(chan struct{}, 2)}
 	launcher := &dispatcherStubLauncher{}
 	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{
 		TickInterval: 10 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- d.Run(ctx) }()
-	time.Sleep(35 * time.Millisecond)
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { done <- d.Run(ctx) })
+	waitForDispatcherClaimSignals(t, store.claimSeen, 2)
 	cancel()
 	<-done
 	if len(store.claimCalls) < 2 {
 		t.Fatalf("Run gave up too early on claim error: only %d ticks", len(store.claimCalls))
+	}
+}
+
+func waitForDispatcherClaimSignals(t *testing.T, signals <-chan struct{}, want int) {
+	t.Helper()
+	for i := range want {
+		select {
+		case <-signals:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for dispatcher claim signal %d/%d", i+1, want)
+		}
 	}
 }
 

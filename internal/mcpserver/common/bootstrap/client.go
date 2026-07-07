@@ -146,7 +146,8 @@ func (c *Client) Start(ctx context.Context) error {
 		"subscriptions", c.cfg.Subscriptions,
 		"config_version", reg.ConfigVersion,
 	)
-	go c.watchRoot(rootCtx)
+	var rootWG sync.WaitGroup
+	rootWG.Go(func() { c.watchRoot(rootCtx) })
 	c.flushQueuedReports(context.Background())
 	return nil
 }
@@ -310,11 +311,12 @@ func (c *Client) Close() error {
 // 超时返回错误但调用方仍继续关闭流程，避免应用回调卡住 bootstrap shutdown。
 func (c *Client) drainCallbacks(timeout time.Duration) error {
 	done := make(chan struct{})
-	go func() {
+	var drainWG sync.WaitGroup
+	drainWG.Go(func() {
 		defer func() { _ = recover() }()
 		c.callbackWG.Wait()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 		return nil

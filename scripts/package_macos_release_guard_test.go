@@ -112,6 +112,14 @@ func TestVerifyPackagedAppMacOSChecksBundledBashLanguageServer(t *testing.T) {
 	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
 }
 
+func TestVerifyPackagedAppMacOSChecksBundledSQLLanguageServer(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_macos.sh")
+
+	assertScriptContains(t, script, "\"sql-language-server|bin/sql-language-server\"")
+	assertScriptContains(t, script, "\"$resources/bin/sql-language-server\"")
+	assertScriptContains(t, script, "typescript-language-server|vscode-langservers-extracted|pyright|sql-language-server)")
+}
+
 func TestVerifyPackagedAppMacOSChecksBundledShellcheck(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 

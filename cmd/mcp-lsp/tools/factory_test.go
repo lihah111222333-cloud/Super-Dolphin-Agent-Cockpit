@@ -6,11 +6,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
@@ -77,6 +81,97 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake installer")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write go fixture: %v", err)
+	}
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir)
+	marker := filepath.Join(t.TempDir(), "installer-ran")
+	t.Setenv("INSTALL_MARKER", marker)
+	t.Setenv("FAKE_BIN_DIR", binDir)
+	installScript := filepath.Join(t.TempDir(), "install-lsp")
+	if err := os.WriteFile(installScript, []byte("#!/bin/sh\nset -eu\n: >> \"$INSTALL_MARKER\"\ntarget=\"$1\"\nprintf '#!/bin/sh\\nexit 0\\n' > \"$FAKE_BIN_DIR/$target\"\n/bin/chmod +x \"$FAKE_BIN_DIR/$target\"\n"), 0o755); err != nil {
+		t.Fatalf("write fake installer: %v", err)
+	}
+	inst := lspinstaller.NewProvider()
+	inst.Register("go", lspinstaller.InstallerConfig{
+		BinaryName:          "gopls",
+		InstallCmd:          installScript,
+		InstallArgs:         []string{"gopls"},
+		AllowInstallCommand: true,
+	})
+	inst.Register("typescript", lspinstaller.InstallerConfig{
+		BinaryName:          "typescript-language-server",
+		InstallCmd:          installScript,
+		InstallArgs:         []string{"typescript-language-server"},
+		AllowInstallCommand: true,
+	})
+	registry := lspmanager.NewRegistryWithInstaller(inst)
+	registry.Register("go", &structureTestManager{})
+	registry.Register("typescript", &structureTestManager{})
+
+	t.Run("inspect", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{
+			"action": "hover",
+			"pos":    filepath.Join(root, "main.go") + ":1:1",
+		})
+		_, err := NewInspectHandler(registry)(testToolContext(root), payload)
+		if err != nil {
+			t.Fatalf("inspect handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
+	})
+
+	t.Run("structure", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{
+			"action":   "workspace_symbol",
+			"language": "typescript",
+			"query":    "anything",
+		})
+		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
+		if err != nil {
+			t.Fatalf("structure handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
+	})
+}
+
+// TestWrapperRejectsEmptyWorkDir ensures wrapper-owned work_dir cannot be silently stripped when empty.
+func TestWrapperRejectsEmptyWorkDir(t *testing.T) {
+	root := t.TempDir()
+	handlerCalled := false
+	handler := wrapToolHandler("file", time.Second, func(context.Context, json.RawMessage) (any, error) {
+		handlerCalled = true
+		return "ok", nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{
+		"work_dir": " \t ",
+	})
+
+	_, err := handler(testToolContext(root), payload)
+	if err == nil || !strings.Contains(err.Error(), "work_dir") || !strings.Contains(err.Error(), "required") {
+		t.Fatalf("handler error = %v, want empty work_dir rejection", err)
+	}
+	if handlerCalled {
+		t.Fatalf("handler should not run when work_dir is empty")
+	}
+}
+
+// TestWrapperRejectsLegacyCWDInArguments ensures cwd is not silently stripped from tool arguments.
+func TestWrapperRejectsLegacyCWDInArguments(t *testing.T) {
+	assertWrapperRejectsLegacyArgument(t, "cwd")
+}
+
+// TestWrapperRejectsLegacyAgentIDInArguments ensures agent_id is not silently stripped from tool arguments.
+func TestWrapperRejectsLegacyAgentIDInArguments(t *testing.T) {
+	assertWrapperRejectsLegacyArgument(t, "agent_id")
+}
+
 func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	envelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("line must be >= 1"))
 	if envelope.Success {
@@ -92,6 +187,78 @@ func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	replaceEnvelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("column is out of range"))
 	if !strings.Contains(strings.ToLower(replaceEnvelope.Hint), "patch") {
 		t.Fatalf("replace_range-style cursor hint = %q, want patch guidance", replaceEnvelope.Hint)
+	}
+}
+
+func TestFileDiagnosticsDisablesOuterTimeout(t *testing.T) {
+	if _, ok := fileToolDeadlineForAction(t, "diagnostics"); ok {
+		t.Fatal("file diagnostics received an outer tool deadline, want diagnostics timeout to start after LSP bootstrap")
+	}
+}
+
+func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
+	deadline, ok := fileToolDeadlineForAction(t, "read_file")
+	if !ok {
+		t.Fatal("file read_file context deadline missing")
+	}
+	assertDeadlineNear(t, deadline, middleware.TierNormal, "read_file")
+}
+
+func fileToolDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
+	t.Helper()
+	root := t.TempDir()
+	var deadline time.Time
+	deadlineOK := false
+	handler := wrapToolHandlerWithTimeoutResolver("file", middleware.TierNormal, fileToolTimeoutTier, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		deadline, deadlineOK = ctx.Deadline()
+		return "ok", nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{"action": action})
+
+	if _, err := handler(testToolContext(root), payload); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	return deadline, deadlineOK
+}
+
+func assertDeadlineNear(t *testing.T, deadline time.Time, want time.Duration, action string) {
+	t.Helper()
+	remaining := time.Until(deadline)
+	if remaining < want-5*time.Second || remaining > want {
+		t.Fatalf("file %s timeout = %s, want near %s", action, remaining.Round(time.Second), want)
+	}
+}
+
+func assertWrapperRejectsLegacyArgument(t *testing.T, field string) {
+	t.Helper()
+	root := t.TempDir()
+	decoded := false
+	handler := wrapToolHandler("file", time.Second, func(_ context.Context, params json.RawMessage) (any, error) {
+		var input struct {
+			Action string `json:"action"`
+		}
+		if err := decodeStrictToolParams(params, &input); err != nil {
+			return nil, err
+		}
+		decoded = true
+		return input, nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{
+		"action": "read_file",
+		field:    root,
+	})
+
+	_, err := handler(testToolContext(root), payload)
+	if err == nil {
+		t.Fatalf("handler accepted legacy %s argument, want migration error", field)
+	}
+	for _, want := range []string{field, "_cwd", "_agentId"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("handler error = %q, want %q", err.Error(), want)
+		}
+	}
+	if decoded {
+		t.Fatalf("handler decoded params with legacy %s argument, want fail-fast rejection", field)
 	}
 }
 
@@ -215,5 +382,12 @@ func requireExplicitWorkDirScope(t *testing.T, gotScope common.ToolScope, gotExp
 	}
 	if !slices.Contains(gotScope.WorkspaceRoots, filepath.Clean(root)) {
 		t.Fatalf("workspace roots = %#v, want original root %q preserved", gotScope.WorkspaceRoots, filepath.Clean(root))
+	}
+}
+
+func requireInstallerMarkerPresent(t *testing.T, marker string) {
+	t.Helper()
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("stat installer marker: %v", err)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -141,7 +142,9 @@ func writeFakeJDTLSLangserver(t *testing.T) string {
 
 func runFakeJDTLSLangserver() {
 	reader := bufio.NewReader(os.Stdin)
-	writer := &fakeLSPWriter{w: os.Stdout}
+	var goroutines sync.WaitGroup
+	defer goroutines.Wait()
+	writer := &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
 		if err != nil {
@@ -182,9 +185,9 @@ func fakeJDTLSHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 	if os.Getenv("MCP_LSP_FAKE_JDTLS_SUPPRESS_DIAGNOSTICS") == "1" {
 		return true
 	}
-	go func() {
+	writer.goAsync(func() {
 		_ = writer.writeNotification("textDocument/publishDiagnostics", fakeJDTLSDiagnostics(uri))
-	}()
+	})
 	return true
 }
 

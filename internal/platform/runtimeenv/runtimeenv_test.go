@@ -43,7 +43,7 @@ func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
 	if got.MigrationsDir != filepath.Join(resources, "internal", "platform", "db", "sqlite", "migrations") {
 		t.Fatalf("MigrationsDir = %q", got.MigrationsDir)
 	}
-	if _, ok := reflect.TypeOf(got).FieldByName("PostgresRoot"); ok {
+	if _, ok := reflect.TypeFor[PackagedRuntime]().FieldByName("PostgresRoot"); ok {
 		t.Fatalf("PackagedRuntime exposes PostgresRoot after SQLite switch: %#v", got)
 	}
 	if got.AppDataDir != "/Users/alice/Library/Application Support/Super Dolphin" {
@@ -114,12 +114,12 @@ func TestPackagedResourcesDirDetectsWindowsBinExecutable(t *testing.T) {
 }
 
 func TestPackagedResourcesDirRejectsResourcesBinPeer(t *testing.T) {
-	got, err := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch")
+	got, err := packagedResourcesDirForOS("darwin", "/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch")
 	if err != nil {
-		t.Fatalf("packagedResourcesDir: %v", err)
+		t.Fatalf("packagedResourcesDirForOS(darwin): %v", err)
 	}
 	if got != "" {
-		t.Fatalf("packagedResourcesDir() = %q, want empty for sidecar peer binary", got)
+		t.Fatalf("packagedResourcesDirForOS(darwin) = %q, want empty for sidecar peer binary", got)
 	}
 }
 
@@ -413,6 +413,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 		"vscode-css-language-server",
 		"rust-analyzer",
 		"bash-language-server",
+		"sql-language-server",
 	} {
 		writeExecutable(t, filepath.Join(resources, "lsp", "bin"), name)
 	}
@@ -430,7 +431,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 	if !packaged {
 		t.Fatal("LoadLSPBundleFromEnv() packaged = false, want true")
 	}
-	for _, languageID := range []string{"go", "gomod", "gosum", "gowork", "javascript", "javascriptreact", "typescript", "typescriptreact", "css", "python", "rust", "shellscript"} {
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork", "javascript", "javascriptreact", "typescript", "typescriptreact", "css", "python", "rust", "shellscript", "sql"} {
 		if _, ok := bundle.ServerForLanguage(languageID); !ok {
 			t.Fatalf("standard LSP bundle missing language %q; languages=%v", languageID, bundle.SemanticLanguages())
 		}
@@ -440,11 +441,15 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 	}
 }
 
-func TestDefaultLSPLanguagesMapsBashLanguageServerToShellscript(t *testing.T) {
-	got := defaultLSPLanguages("bash-language-server")
-	want := []string{"shellscript"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("defaultLSPLanguages(bash-language-server) = %v, want %v", got, want)
+func TestDefaultLSPLanguagesMapsBundledLanguageServers(t *testing.T) {
+	for serverID, want := range map[string][]string{
+		"bash-language-server": {"shellscript"},
+		"sql-language-server":  {"sql"},
+	} {
+		got := defaultLSPLanguages(serverID)
+		if !slices.Equal(got, want) {
+			t.Fatalf("defaultLSPLanguages(%s) = %v, want %v", serverID, got, want)
+		}
 	}
 }
 
@@ -501,10 +506,11 @@ func writeStandardBundledLSPManifest(t *testing.T, resources string) {
     "pyright": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "vscode-langservers-extracted": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "rust-analyzer": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "bash-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    "bash-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "sql-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
-`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"))
+`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"), executableNameForOS(runtimeGOOS(), "sql-language-server"))
 	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)

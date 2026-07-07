@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
@@ -350,14 +351,15 @@ func (d *driver) acquirePoolSessionOptions(ctx context.Context, req dto.StartSes
 		return nil, errors.New("codexapp: pool returned server with empty URL")
 	}
 	if d.logger != nil {
-		d.logger.Info("codexapp: start session via pool",
-			slog.String("agent_id", strings.TrimSpace(req.AgentID)),
-			slog.String("codex_home", identity.Home),
-			slog.String("instance_key", identity.InstanceKey),
-			slog.String("owner", owner),
-			slog.String("work_dir", workDir),
-			slog.String("server_url", url),
-		)
+		fields := []any{
+			"agent_id", strings.TrimSpace(req.AgentID),
+			"instance_key", identity.InstanceKey,
+			"owner", owner,
+			"server_url", url,
+		}
+		fields = append(fields, platformshared.SafePathLogFields("codex_home", identity.Home)...)
+		fields = append(fields, platformshared.SafePathLogFields("work_dir", workDir)...)
+		d.logger.Info("codexapp: start session via pool", fields...)
 	}
 	return []sessionOption{withPoolServer(url, release)}, nil
 }
@@ -395,7 +397,7 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	}
 	if policy, err := codexNativeToolPolicyFromConfig(config); err == nil && policy.RequiresReadOnlySandbox() {
 		out["sandbox"] = "read-only"
-		out["sandboxPolicy"] = codexReadOnlySandboxPolicyValue()
+		out["sandboxPolicy"] = codexReadOnlySandboxPolicyValueFromAny(out["sandboxPolicy"])
 	}
 	identity, err := providershared.ResolveCodexIdentity(config)
 	if err != nil {
@@ -446,14 +448,15 @@ func (d *driver) resolveResumeOptionsWithPolicy(ctx context.Context, req dto.Res
 		return nil, errors.New("codexapp: pool returned server with empty URL")
 	}
 	if d.logger != nil {
-		d.logger.Info("codexapp: resume session via pool",
-			slog.String("agent_id", strings.TrimSpace(req.AgentID)),
-			slog.String("codex_home", identity.Home),
-			slog.String("instance_key", identity.InstanceKey),
-			slog.String("owner", owner),
-			slog.String("work_dir", workDir),
-			slog.String("server_url", url),
-		)
+		fields := []any{
+			"agent_id", strings.TrimSpace(req.AgentID),
+			"instance_key", identity.InstanceKey,
+			"owner", owner,
+			"server_url", url,
+		}
+		fields = append(fields, platformshared.SafePathLogFields("codex_home", identity.Home)...)
+		fields = append(fields, platformshared.SafePathLogFields("work_dir", workDir)...)
+		d.logger.Info("codexapp: resume session via pool", fields...)
 	}
 	return []sessionOption{withPoolServer(url, release)}, nil
 }
@@ -584,7 +587,7 @@ func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams)
 		return
 	}
 	params.Sandbox = codexReadOnlySandbox(params.Sandbox)
-	params.SandboxPolicy = codexReadOnlySandboxPolicy()
+	params.SandboxPolicy = codexReadOnlySandboxPolicy(params.SandboxPolicy)
 	params.ApprovalPolicy = "never"
 }
 
@@ -612,7 +615,8 @@ func applyResumeNativeToolRuntimePolicy(s *session, disabled []string) error {
 	s.setApprovalPolicy("never")
 	s.setRuntimeConfigValue("approvalPolicy", "never")
 	s.setRuntimeConfigValue("sandbox", "read-only")
-	s.setRuntimeConfigValue("sandboxPolicy", codexReadOnlySandboxPolicyValue())
+	runtimeSandboxPolicy := s.RuntimeConfigSnapshot()["sandboxPolicy"]
+	s.setRuntimeConfigValue("sandboxPolicy", codexReadOnlySandboxPolicyValueFromAny(runtimeSandboxPolicy))
 	return nil
 }
 
@@ -623,8 +627,8 @@ func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	return mustJSON("read-only")
 }
 
-func codexReadOnlySandboxPolicy() json.RawMessage {
-	return mustJSON(codexReadOnlySandboxPolicyValue())
+func codexReadOnlySandboxPolicy(raw json.RawMessage) json.RawMessage {
+	return mustJSON(codexReadOnlySandboxPolicyValueFromRaw(raw))
 }
 
 func codexReadOnlySandboxPolicyValue() map[string]any {

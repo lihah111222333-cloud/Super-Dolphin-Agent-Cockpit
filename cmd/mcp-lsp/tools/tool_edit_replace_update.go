@@ -12,13 +12,14 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // applyReplaceRangeUpdate 先写磁盘，再等待 LSP 同步或 git diff 确认。
 // 两条确认路径都失败才回滚，避免 LSP 慢响应时把已经真实落盘的编辑误判为失败。
 func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, updatedContent string, version int, log *editStageLogger) (bool, string, error) {
 	stage := log.Started("write_file", "bytes", len(updatedContent), "version", version)
-	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
+	if err := atomicReplaceFile(path, []byte(updatedContent), file.mode, defaultFileWriter); err != nil {
 		log.Failed("write_file", stage, err)
 		return false, "", err
 	}
@@ -42,7 +43,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 	syncCtx, cancelSync := platformconfig.WithTimeout(ctx, editLSPSyncTimeout)
 	syncC := make(chan replaceSyncResult, 1)
 	diffC := make(chan editDiskConfirmResult, 1)
-	go func() {
+	safego.Go(syncCtx, nil, "mcp-lsp.edit.lsp-sync", func(context.Context) {
 		stage := log.Started("lsp_sync", "timeout_ms", editLSPSyncTimeout.Milliseconds(), "version", version, "content_bytes", len(updatedContent))
 		lspSync, warning, err := h.syncDocument(syncCtx, manager, path, updatedContent, version)
 		if err != nil {
@@ -51,8 +52,8 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 			log.Completed("lsp_sync", stage, "lsp_sync", lspSync, "warning", warning != "")
 		}
 		syncC <- replaceSyncResult{lspSync: lspSync, warning: warning, err: err}
-	}()
-	go func() {
+	})
+	safego.Go(ctx, nil, "mcp-lsp.edit.disk-confirm", func(context.Context) {
 		stage := log.Started("disk_confirm", "timeout_ms", editDiskConfirmTimeout.Milliseconds())
 		result := confirmEditDiskWriteWithGitDiff(path, updatedContent)
 		if result.confirmed {
@@ -61,7 +62,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 			log.Failed("disk_confirm", stage, result.err)
 		}
 		diffC <- result
-	}()
+	})
 	return syncC, diffC, cancelSync
 }
 
@@ -112,7 +113,7 @@ func firstReplaceConfirmationError(syncErr error, diffErr error) error {
 // 回滚失败会被合并进返回错误，避免调用方误以为文件仍处于原始状态。
 func (h EditHandler) rollbackReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, version int, syncErr error, log *editStageLogger) (bool, string, error) {
 	stage := log.Started("rollback", "version", version, "reason", syncErr != nil)
-	rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
+	rollbackErr := atomicReplaceFile(path, []byte(file.raw), file.mode, defaultFileWriter)
 	if rollbackErr == nil {
 		rollbackErr = h.syncRollbackDocument(ctx, manager, path, file.raw, version)
 	}

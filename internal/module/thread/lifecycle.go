@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
@@ -236,11 +237,11 @@ func (s *service) establishStartedSession(
 		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
-		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return nil, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	session, err := s.lookupSession(agentID)
 	if err != nil {
-		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return nil, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	return session, nil
 }
@@ -257,12 +258,12 @@ func (s *service) persistStartedSession(
 ) (StartResult, error) {
 	providerUUID, err := requireStartedProviderUUID(session, req.Provider, agentID)
 	if err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	identity, err := resolveStartedSessionCodexIdentity(req.Provider, req.Config, session)
 	if err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	codexHome, codexInstanceKey, codexModelProvider := identity.Home, identity.InstanceKey, identity.ModelProvider
 	storedConfig := buildStartStoredThreadConfig(req, input, assembly, session)
@@ -273,7 +274,7 @@ func (s *service) persistStartedSession(
 	}
 	configOverride, err := encodeStoredThreadConfig(storedConfig)
 	if err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	rolloutPath := session.RolloutPath()
 	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
@@ -302,7 +303,7 @@ func (s *service) persistStartedSession(
 	publicThreadID := state.PublicThreadID
 	providerThreadID = state.ProviderThreadID
 	if err := s.persistThreadStateWithPromptSnapshot(ctx, state, true, assembly, true); err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
@@ -484,6 +485,34 @@ func (s *service) cleanupFailedResumeRuntime(ctx context.Context, agentID string
 	return s.stopAgent(ctx, agentID)
 }
 
+// cleanupFailedStartedSession 清理已创建但未成功持久化的 start runtime。
+// 先按 generation 关闭/移除 provider session，再停止 orchestration agent，避免清理竞态误删新 session。
+func (s *service) cleanupFailedStartedSession(ctx context.Context, agentID string) error {
+	if s == nil {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
+	var cleanupErr error
+	if s.sessions != nil {
+		var generation uint64
+		if provider, ok := s.sessions.(sessionGenerationProvider); ok {
+			generation = provider.SessionGeneration(agentID)
+		}
+		session, err := s.sessions.GetSession(agentID)
+		switch {
+		case err == nil && session != nil:
+			cleanupErr = errors.Join(cleanupErr, session.Close(ctx))
+		case err != nil && !errors.Is(err, contract.ErrSessionNotFound):
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
+		s.removeStoppedSession(agentID, generation)
+	}
+	return errors.Join(cleanupErr, s.stopAgent(ctx, agentID))
+}
+
 func (s *service) logResumePersistFailure(agentID, threadID, providerThreadID string, err error) {
 	if s == nil || s.logger == nil {
 		return
@@ -512,7 +541,7 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 		return errors.New("thread and agent ids are required")
 	}
 	if s.logger != nil {
-		s.logger.Debug("thread: persistThreadState binding snapshot",
+		fields := []any{
 			"agent_id", state.AgentID,
 			"parent_agent_id", state.ParentAgentID,
 			"agent_type", state.AgentType,
@@ -520,10 +549,11 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 			"provider", state.Provider,
 			"provider_thread_id", state.ProviderThreadID,
 			"public_thread_id", state.PublicThreadID,
-			"rollout_path", state.RolloutPath,
 			"session_uuid", state.SessionUUID,
 			"update_binding", updateBinding,
-		)
+		}
+		fields = append(fields, platformshared.SafePathLogFields("rollout_path", state.RolloutPath)...)
+		s.logger.Debug("thread: persistThreadState binding snapshot", fields...)
 	}
 	bindingOutcome, err := s.maybeRegisterThreadBinding(ctx, state, updateBinding)
 	if err != nil {
@@ -583,10 +613,16 @@ func (s *service) cleanupThreadStateAfterSnapshotFailure(ctx context.Context, st
 	return cleanupErr
 }
 
-func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadMeta {
+func (s *service) lookupThreadMeta(ctx context.Context, threadID string) (threadMeta, error) {
 	thread, err := s.getThread(ctx, threadID)
-	if err != nil || thread == nil {
-		return threadMeta{}
+	if err != nil {
+		if contract.IsNotFound(err) {
+			return threadMeta{}, fmt.Errorf("thread %q missing", strings.TrimSpace(threadID))
+		}
+		return threadMeta{}, err
+	}
+	if thread == nil {
+		return threadMeta{}, fmt.Errorf("thread %q missing", strings.TrimSpace(threadID))
 	}
 	return threadMeta{
 		Name:             strings.TrimSpace(thread.Prompt),
@@ -597,7 +633,11 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
 		ConfigOverride:   clone.RawMessage(thread.ConfigOverride),
 		CreatedAt:        thread.CreatedAt,
-	}
+	}, nil
+}
+
+func (s *service) requireThreadMeta(ctx context.Context, threadID string) (threadMeta, error) {
+	return s.lookupThreadMeta(ctx, threadID)
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) error {

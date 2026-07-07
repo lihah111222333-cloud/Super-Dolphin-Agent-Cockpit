@@ -8,11 +8,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type threadQuerierStub struct {
+	threadExistenceNoop
+	threadCatalogNoop
+	threadMutationNoop
+
 	getByIDFn            func(context.Context, string) (sqlc.GetAgentThreadByIDRow, error)
 	listAllFn            func(context.Context) ([]sqlc.ListAgentThreadsRow, error)
 	listRecoverableFn    func(context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
@@ -22,27 +27,29 @@ type threadQuerierStub struct {
 	upsertFn             func(context.Context, sqlc.UpsertAgentThreadParams) error
 }
 
-func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, sqlc.AgentThreadRunningExistsParams) (int64, error) {
+type threadExistenceNoop struct{}
+
+func (threadExistenceNoop) AgentThreadRunningExists(context.Context, sqlc.AgentThreadRunningExistsParams) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) AgentThreadExists(context.Context, sqlc.AgentThreadExistsParams) (int64, error) {
+func (threadExistenceNoop) AgentThreadExists(context.Context, sqlc.AgentThreadExistsParams) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) CountAllThreads(context.Context) (int64, error) {
+func (threadExistenceNoop) CountAllThreads(context.Context) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) CountChildAgentThreads(context.Context, sqlc.CountChildAgentThreadsParams) (int64, error) {
+func (threadExistenceNoop) CountChildAgentThreads(context.Context, sqlc.CountChildAgentThreadsParams) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) DeleteAgentThreadByID(context.Context, sqlc.DeleteAgentThreadByIDParams) error {
+func (threadExistenceNoop) DeleteAgentThreadByID(context.Context, sqlc.DeleteAgentThreadByIDParams) error {
 	return nil
 }
 
-func (s *threadQuerierStub) ExpireStaleAgentThreads(context.Context, sqlc.ExpireStaleAgentThreadsParams) (int64, error) {
+func (threadExistenceNoop) ExpireStaleAgentThreads(context.Context, sqlc.ExpireStaleAgentThreadsParams) (int64, error) {
 	return 0, nil
 }
 
@@ -53,19 +60,21 @@ func (s *threadQuerierStub) GetAgentThreadByID(ctx context.Context, arg sqlc.Get
 	return sqlc.GetAgentThreadByIDRow{}, nil
 }
 
-func (*threadQuerierStub) GetAgentThreadByPort(context.Context, sqlc.GetAgentThreadByPortParams) (sqlc.GetAgentThreadByPortRow, error) {
+type threadCatalogNoop struct{}
+
+func (threadCatalogNoop) GetAgentThreadByPort(context.Context, sqlc.GetAgentThreadByPortParams) (sqlc.GetAgentThreadByPortRow, error) {
 	return sqlc.GetAgentThreadByPortRow{}, nil
 }
 
-func (*threadQuerierStub) ListAgentThreadConfigsByIDs(context.Context, sqlc.ListAgentThreadConfigsByIDsParams) ([]sqlc.ListAgentThreadConfigsByIDsRow, error) {
+func (threadCatalogNoop) ListAgentThreadConfigsByIDs(context.Context, sqlc.ListAgentThreadConfigsByIDsParams) ([]sqlc.ListAgentThreadConfigsByIDsRow, error) {
 	return nil, nil
 }
 
-func (*threadQuerierStub) ListAgentThreadCwds(context.Context) ([]sqlc.ListAgentThreadCwdsRow, error) {
+func (threadCatalogNoop) ListAgentThreadCwds(context.Context) ([]sqlc.ListAgentThreadCwdsRow, error) {
 	return nil, nil
 }
 
-func (*threadQuerierStub) ListAgentThreadCwdsByPrefix(context.Context, sqlc.ListAgentThreadCwdsByPrefixParams) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error) {
+func (threadCatalogNoop) ListAgentThreadCwdsByPrefix(context.Context, sqlc.ListAgentThreadCwdsByPrefixParams) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error) {
 	return nil, nil
 }
 
@@ -90,7 +99,7 @@ func (s *threadQuerierStub) ListRunningAgentThreads(ctx context.Context) ([]sqlc
 	return nil, nil
 }
 
-func (*threadQuerierStub) ListRunningAgents(context.Context) ([]sqlc.ListRunningAgentsRow, error) {
+func (threadCatalogNoop) ListRunningAgents(context.Context) ([]sqlc.ListRunningAgentsRow, error) {
 	return nil, nil
 }
 
@@ -101,7 +110,9 @@ func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, a
 	return nil, nil
 }
 
-func (*threadQuerierStub) ResetRunningAgentThreads(context.Context) error { return nil }
+type threadMutationNoop struct{}
+
+func (threadMutationNoop) ResetRunningAgentThreads(context.Context) error { return nil }
 
 func (s *threadQuerierStub) UpdateAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
 	if s.savePromptSnapshotFn != nil {
@@ -110,11 +121,11 @@ func (s *threadQuerierStub) UpdateAgentThreadPromptSnapshot(ctx context.Context,
 	return 1, nil
 }
 
-func (*threadQuerierStub) UpdateAgentThreadStatus(context.Context, sqlc.UpdateAgentThreadStatusParams) error {
+func (threadMutationNoop) UpdateAgentThreadStatus(context.Context, sqlc.UpdateAgentThreadStatusParams) error {
 	return nil
 }
 
-func (*threadQuerierStub) UpdateAgentThreadLaunchResult(context.Context, sqlc.UpdateAgentThreadLaunchResultParams) error {
+func (threadMutationNoop) UpdateAgentThreadLaunchResult(context.Context, sqlc.UpdateAgentThreadLaunchResultParams) error {
 	return nil
 }
 
@@ -123,6 +134,76 @@ func (s *threadQuerierStub) UpsertAgentThread(ctx context.Context, arg sqlc.Upse
 		return s.upsertFn(ctx, arg)
 	}
 	return nil
+}
+
+// TestLoadedThreadsUsesSQLFilter 验证 store loaded 分页调用专用 SQLC 查询。
+func TestLoadedThreadsUsesSQLFilter(t *testing.T) {
+	t.Parallel()
+
+	var got sqlc.ListLoadedAgentThreadsPageParams
+	s := &pagedStore{store: &store{q: &loadedPageThreadQuerierStub{
+		threadQuerierStub: &threadQuerierStub{},
+		listLoadedPageFn: func(_ context.Context, arg sqlc.ListLoadedAgentThreadsPageParams) ([]sqlc.ListLoadedAgentThreadsPageRow, error) {
+			got = arg
+			return []sqlc.ListLoadedAgentThreadsPageRow{
+				{ThreadID: "thread-loaded", Status: "created"},
+			}, nil
+		},
+	}}}
+
+	page, err := s.ListLoadedPage(context.Background(), contract.ThreadListPageParams{
+		Limit:           25,
+		CursorCreatedAt: 42,
+		CursorThreadID:  "thread-cursor",
+	})
+
+	if err != nil {
+		t.Fatalf("ListLoadedPage() error = %v", err)
+	}
+	requireLoadedThreadPageParams(t, got)
+	requireLoadedThreadPage(t, page)
+}
+
+// loadedPageThreadQuerierStub adds only the RED query surface under test.
+type loadedPageThreadQuerierStub struct {
+	*threadQuerierStub
+	listLoadedPageFn func(context.Context, sqlc.ListLoadedAgentThreadsPageParams) ([]sqlc.ListLoadedAgentThreadsPageRow, error)
+}
+
+// ListLoadedAgentThreadsPage records the generated SQLC query arguments.
+func (s *loadedPageThreadQuerierStub) ListLoadedAgentThreadsPage(ctx context.Context, arg sqlc.ListLoadedAgentThreadsPageParams) ([]sqlc.ListLoadedAgentThreadsPageRow, error) {
+	if s.listLoadedPageFn != nil {
+		return s.listLoadedPageFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+// requireLoadedThreadPageParams 断言 limit/cursor 全部下推到 SQLC。
+func requireLoadedThreadPageParams(t *testing.T, got sqlc.ListLoadedAgentThreadsPageParams) {
+	t.Helper()
+	if got.Limit != int64(25) {
+		t.Fatalf("limit = %d, want 25", got.Limit)
+	}
+	if got.CursorCreatedAt != int64(42) {
+		t.Fatalf("cursor_created_at = %d, want 42", got.CursorCreatedAt)
+	}
+	if got.CursorThreadID != "thread-cursor" {
+		t.Fatalf("cursor_thread_id = %q, want thread-cursor", got.CursorThreadID)
+	}
+}
+
+// requireLoadedThreadPage 断言 loaded 分页结果来自 created SQL filter。
+func requireLoadedThreadPage(t *testing.T, page contract.ThreadListPage) {
+	t.Helper()
+	if len(page.Threads) != 1 {
+		t.Fatalf("ListLoadedPage() = %#v, want one thread", page)
+	}
+	if page.Threads[0].ThreadID != "thread-loaded" {
+		t.Fatalf("thread id = %q, want thread-loaded", page.Threads[0].ThreadID)
+	}
+	if page.Threads[0].Status != "created" {
+		t.Fatalf("thread status = %q, want created", page.Threads[0].Status)
+	}
 }
 
 func TestUpsertPersistsConfigOverride(t *testing.T) {
@@ -175,6 +256,37 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 		t.Fatalf("GetByThreadID() error = %v", err)
 	}
 	assertThreadConfigOverride(t, "GetByThreadID()", *thread, raw)
+
+	all, err := s.ListAll(context.Background())
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListAll()", all, raw)
+
+	running, err := s.ListRunning(context.Background())
+	if err != nil {
+		t.Fatalf("ListRunning() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListRunning()", running, raw)
+
+	recoverable, err := s.ListRecoverable(context.Background())
+	if err != nil {
+		t.Fatalf("ListRecoverable() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListRecoverable()", recoverable, raw)
+}
+
+func TestSubagentIdentityFieldsRoundTripThroughStoreDTOs(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"mode":"subagent"}`)
+	s := newThreadConfigOverrideStore(raw)
+
+	got, err := s.GetByThreadID(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("GetByThreadID() error = %v", err)
+	}
+	assertThreadConfigOverride(t, "GetByThreadID()", *got, raw)
 
 	all, err := s.ListAll(context.Background())
 	if err != nil {

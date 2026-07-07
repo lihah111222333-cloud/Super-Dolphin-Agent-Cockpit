@@ -16,6 +16,7 @@ import (
 	"go.uber.org/fx"
 )
 
+// Service 定义 UI 状态投影、偏好和项目列表的读写入口。
 type Service interface {
 	GetState(ctx context.Context) (*UIState, error)
 	GetSidebar(ctx context.Context) (*Sidebar, error)

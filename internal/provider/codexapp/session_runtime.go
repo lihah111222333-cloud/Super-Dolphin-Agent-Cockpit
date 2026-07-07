@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -92,8 +93,14 @@ func (r *SessionRuntime) Start() {
 		// reader 单独跟踪，恢复时可以替换 reader，而不会和 Stop 的 wg.Wait 竞争。
 		r.spawnReader()
 		r.wg.Add(2)
-		go r.safeRunHealthLoop()
-		go r.safeRunRecoveryWorker()
+		r.startRuntimeWorker("codexapp.sessionRuntime.healthLoop", r.safeRunHealthLoop)
+		r.startRuntimeWorker("codexapp.sessionRuntime.recoveryWorker", r.safeRunRecoveryWorker)
+	})
+}
+
+func (r *SessionRuntime) startRuntimeWorker(label string, fn func()) {
+	safego.Go(r.s.ctx, nil, label, func(context.Context) {
+		fn()
 	})
 }
 
@@ -273,7 +280,12 @@ func (r *SessionRuntime) spawnReader() bool {
 	readCtx, cancel := context.WithCancel(r.s.ctx)
 	r.readerDone = done
 	r.readerCancel = cancel
-	go func() {
+	r.startReaderLoop(readCtx, done)
+	return true
+}
+
+func (r *SessionRuntime) startReaderLoop(readCtx context.Context, done chan struct{}) {
+	safego.Go(readCtx, nil, "codexapp.sessionRuntime.reader", func(context.Context) {
 		defer func() { r.recoverWorkerPanic("session_runtime.reader", recover()) }()
 		defer close(done)
 		r.s.transport.ReadLoop(readCtx, r.s.onInboundMessage)
@@ -281,8 +293,7 @@ func (r *SessionRuntime) spawnReader() bool {
 			"agent_id", r.s.agentID,
 			"thread_id", r.s.ThreadID(),
 			"ctx_err", readCtx.Err())
-	}()
-	return true
+	})
 }
 
 // restartReader 在 Reconnect 成功后启动新的读取 goroutine。
@@ -330,6 +341,15 @@ func (r *SessionRuntime) waitReaderDone() {
 	}
 	<-done
 }
+
+// Close 关闭 Codex app 会话并执行优雅清理。
+func (s *session) Close(context.Context) error { return s.shutdownSession(true) }
+
+// ForceStop 强制停止 Codex app 会话。
+func (s *session) ForceStop() error { return s.shutdownSession(false) }
+
+// SessionRuntime 返回会话运行时状态。
+func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
 // errRuntimeStopped 表示恢复过程中 runtime 已停止。
 // 常见场景是 Close 与 callTransport 重试并发，调用方应按会话关闭处理。

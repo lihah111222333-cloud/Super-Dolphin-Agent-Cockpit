@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // prefetch 状态常量描述单个 PrefetchHandle 从启动、可消费到终止的状态机。
@@ -16,6 +18,53 @@ const (
 	PrefetchStateConsumed
 	PrefetchStateDiscarded
 )
+
+const PrefetchErrorCode = "memory_prefetch_failed"
+
+// PrefetchError exposes prefetch failures through a provider-safe code/stage surface.
+type PrefetchError struct {
+	Stage string
+	Err   error
+}
+
+func newPrefetchError(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &PrefetchError{Stage: strings.TrimSpace(stage), Err: err}
+}
+
+// Error 返回可跨 provider 边界传播的安全预取错误文本。
+func (e *PrefetchError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.SafeMessage()
+}
+
+// SafeMessage 返回只包含 code/stage 的预取诊断。
+func (e *PrefetchError) SafeMessage() string {
+	if e == nil {
+		return ""
+	}
+	var manifestErr *ManifestScanError
+	if errors.As(e.Err, &manifestErr) {
+		return manifestErr.SafeMessage()
+	}
+	stage := strings.TrimSpace(e.Stage)
+	if stage == "" {
+		stage = "unknown"
+	}
+	return PrefetchErrorCode + " stage=" + stage
+}
+
+// Unwrap 保留预取失败的底层错误，供本地诊断继续匹配。
+func (e *PrefetchError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 // PrefetchHandle 代表一次 turn 相关记忆预取任务。
 // generation 用来丢弃过期任务，done 只关闭一次，result/err 必须通过 mu 读写。
@@ -121,7 +170,9 @@ func (m *PrefetchManager) StartRelevantMemoryPrefetch(ctx context.Context, query
 		return handle
 	}
 
-	go m.runPrefetch(childCtx, handle)
+	safego.Go(childCtx, nil, "memory.retrieval.prefetch", func(context.Context) {
+		m.runPrefetch(childCtx, handle)
+	})
 	return handle
 }
 
@@ -200,7 +251,7 @@ func (m *PrefetchManager) ResetSurfaced(reason string) {
 func (m *PrefetchManager) runPrefetch(ctx context.Context, handle *PrefetchHandle) {
 	manifest, err := m.buildManifestFn()(m.memoryRoot)
 	if err != nil {
-		m.finishHandle(handle, PrefetchStateReady, nil, err)
+		m.finishHandle(handle, PrefetchStateReady, nil, newPrefetchError("build_manifest", err))
 		return
 	}
 	entries, err := m.findRelevantFn()(ctx, handle.query, manifest)
@@ -210,6 +261,7 @@ func (m *PrefetchManager) runPrefetch(ctx context.Context, handle *PrefetchHandl
 	}
 	if err != nil {
 		entries = nil
+		err = newPrefetchError("find_relevant", err)
 	}
 	m.finishHandle(handle, PrefetchStateReady, entries, err)
 }

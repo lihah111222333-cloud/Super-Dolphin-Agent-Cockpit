@@ -236,7 +236,7 @@ func (h EditHandler) applyTextEditsToPath(ctx context.Context, absPath string, e
 	if updated == string(original) {
 		return nil, nil
 	}
-	if err := os.WriteFile(absPath, []byte(updated), info.Mode()); err != nil {
+	if err := atomicReplaceFile(absPath, []byte(updated), info.Mode(), defaultFileWriter); err != nil {
 		return nil, fmt.Errorf("write %s: %w", absPath, err)
 	}
 	result := &fileEditResult{path: absPath, original: original, mode: info.Mode()}
@@ -244,7 +244,7 @@ func (h EditHandler) applyTextEditsToPath(ctx context.Context, absPath string, e
 	if syncManager != nil {
 		_, warning, err := h.syncDocument(ctx, syncManager, absPath, updated, version)
 		if err != nil {
-			rollbackErr := os.WriteFile(absPath, original, info.Mode())
+			rollbackErr := atomicReplaceFile(absPath, original, info.Mode(), defaultFileWriter)
 			if rollbackErr == nil {
 				rollbackErr = h.syncRollbackDocument(ctx, syncManager, absPath, string(original), version)
 			}

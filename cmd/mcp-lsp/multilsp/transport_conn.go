@@ -14,6 +14,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const (
@@ -57,6 +59,7 @@ func (t *transport) Close() error {
 	if !t.closed.CompareAndSwap(false, true) {
 		return t.waitForExit(defaultShutdownTimeout)
 	}
+	t.cancelActorContext()
 	t.closeInput()
 	t.clearPending(ErrTransportClosed)
 	drainErr := t.drainResponders(defaultResponderDrainTimeout)
@@ -66,15 +69,17 @@ func (t *transport) Close() error {
 // drainResponders 在 timeout 内等待所有已登记的服务端请求响应 goroutine。
 // 返回错误只表示排空超时；调用方仍会继续 killProcess，避免卡住的语言服务器阻塞关闭。
 func (t *transport) drainResponders(timeout time.Duration) error {
+	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	done := make(chan struct{})
-	go func() {
+	safego.Go(drainCtx, nil, "mcp-lsp.transport.drain-responders", func(context.Context) {
 		t.responderWG.Wait()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 		return nil
-	case <-time.After(timeout):
+	case <-drainCtx.Done():
 		return fmt.Errorf("LSP server-request responders did not drain within %s", timeout)
 	}
 }
@@ -163,9 +168,9 @@ func (t *transport) writeMessageContext(ctx context.Context, message any) error 
 		return err
 	}
 	done := make(chan error, 1)
-	go func() {
+	safego.Go(ctx, nil, "mcp-lsp.transport.write-message", func(context.Context) {
 		done <- t.writeMessage(message)
-	}()
+	})
 	select {
 	case err := <-done:
 		return err
@@ -188,7 +193,14 @@ func (t *transport) wait() {
 	t.doneMu.Lock()
 	t.doneErr = err
 	t.doneMu.Unlock()
+	t.cancelActorContext()
 	close(t.done)
+}
+
+func (t *transport) cancelActorContext() {
+	if t != nil && t.cancelActors != nil {
+		t.cancelActors()
+	}
 }
 
 func (t *transport) waitErr() error {
@@ -252,6 +264,7 @@ func (t *transport) readFailure(err error) error {
 
 func (t *transport) stopWithError(err error) {
 	t.closed.Store(true)
+	t.cancelActorContext()
 	t.clearPending(err)
 	t.closeInput()
 	// 先排空服务端请求响应，再杀进程，避免 writeMessage 失败继续扩散成 goroutine 泄漏。
@@ -263,7 +276,8 @@ func (t *transport) stopWithError(err error) {
 // 这里不等待 responder 排空，避免取消路径再次被语言服务器背压拖住。
 func (t *transport) abortBlockedWrite(err error) {
 	t.closed.Store(true)
+	t.cancelActorContext()
 	t.clearPending(err)
-	_ = t.killProcess()
 	t.closeInput()
+	_ = t.killProcess()
 }

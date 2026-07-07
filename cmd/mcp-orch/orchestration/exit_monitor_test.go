@@ -146,16 +146,14 @@ func TestShutdownDrainWaitOwner(t *testing.T) {
 	defer cancel()
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) }()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) })
 	waitForAgentMonitor(t, svc, "agent-3", 1)
 
 	// 取消 runner ctx 后，drainOnStop 必须先 Drain monitor 再让 Run 返回。
 	// 测试中手动结束进程以触发 cmd.Wait；生产路径由 StopAllAgents 的 SIGTERM 完成。
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		_ = cmd.Process.Kill()
-	}()
 	cancel()
+	_ = cmd.Process.Kill()
 
 	select {
 	case err := <-runDone:
@@ -190,7 +188,8 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runDone := make(chan error, 1)
-	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) }()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) })
 	waitForAgentMonitor(t, svc, "agent-4", 3)
 
 	if err := svc.waitForProcessExit(context.Background(), "agent-4", 3); err != nil {
@@ -308,11 +307,12 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 
 	// 在 goroutine 中 Drain，方便测试观察 gate 翻转。
 	drainDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		drainDone <- m.Drain(drainCtx)
-	}()
+	})
 
 	// 结束进程，让 Drain 可以收束。
 	_ = cmd.Process.Kill()

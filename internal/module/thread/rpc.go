@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -39,6 +40,8 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return listRenderableThreads(ctx, svc)
 		}),
+		"thread/listPage":        newThreadListPageHandler("thread/listPage", svc, false),
+		"thread/loaded/listPage": newThreadListPageHandler("thread/loaded/listPage", svc, true),
 		"thread/loaded/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListByStatus(ctx, statusCreated)
 		}),
@@ -105,6 +108,38 @@ func newStartHandler(svc Service) handler.Func {
 	})
 }
 
+type threadListPageParams struct {
+	Limit           int    `json:"limit"`
+	CursorCreatedAt int64  `json:"cursor_created_at,omitempty"`
+	CursorThreadID  string `json:"cursor_thread_id,omitempty"`
+}
+
+type threadListPageService interface {
+	ListPage(ctx context.Context, req ListPageRequest) (ListPageResult, error)
+	ListLoadedPage(ctx context.Context, req ListPageRequest) (ListPageResult, error)
+}
+
+func newThreadListPageHandler(method string, svc Service, loaded bool) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p threadListPageParams) (ListPageResult, error) {
+		if p.Limit <= 0 {
+			return ListPageResult{}, platformrpc.ErrInvalidParams(method + ": limit is required")
+		}
+		pager, ok := svc.(threadListPageService)
+		if !ok {
+			return ListPageResult{}, platformrpc.ErrInvalidState(method + ": thread page service is not configured")
+		}
+		req := ListPageRequest{
+			Limit:           p.Limit,
+			CursorCreatedAt: p.CursorCreatedAt,
+			CursorThreadID:  p.CursorThreadID,
+		}
+		if loaded {
+			return pager.ListLoadedPage(ctx, req)
+		}
+		return pager.ListPage(ctx, req)
+	})
+}
+
 func validateStartParams(p startParams) error {
 	if strings.TrimSpace(p.CWD) == "" {
 		return fmt.Errorf("%s: cwd is required", contract.ThreadRPCStart)
@@ -119,7 +154,7 @@ func validateStartParams(p startParams) error {
 // 日志只写标量和布尔值，用于区分前端漏传、后端解析和 config 覆盖问题。
 func logStartRPCReceived(p startParams, cfg map[string]any) {
 	// 只记录标量和布尔字段，既能定位 agent_key 丢失边界，也避免把大块配置写进日志。
-	pkglogger.Info("thread/start: rpc received",
+	fields := []any{
 		"agent_id", p.AgentID,
 		"agent_key", p.AgentKey,
 		"prompt_key", p.PromptKey,
@@ -127,7 +162,6 @@ func logStartRPCReceived(p startParams, cfg map[string]any) {
 		"model_provider", p.ModelProvider,
 		"model", p.Model,
 		"effort", p.Effort,
-		"cwd", p.CWD,
 		"has_prompt", strings.TrimSpace(p.Prompt) != "",
 		"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
 		"tool_surface_mode", p.ToolSurfaceMode,
@@ -138,7 +172,10 @@ func logStartRPCReceived(p startParams, cfg map[string]any) {
 		"config_codex_model_provider", configTraceString(cfg, "codexModelProvider"),
 		"config_model", configTraceString(cfg, "model"),
 		"config_effort", configTraceString(cfg, "effort"),
-		"has_config", len(cfg) > 0)
+		"has_config", len(cfg) > 0,
+	}
+	fields = append(fields, platformshared.SafePathLogFields("cwd", p.CWD)...)
+	pkglogger.Info("thread/start: rpc received", fields...)
 	pkglogger.Debug("thread/start: config trace",
 		"agent_id", p.AgentID,
 		"provider", p.Provider,

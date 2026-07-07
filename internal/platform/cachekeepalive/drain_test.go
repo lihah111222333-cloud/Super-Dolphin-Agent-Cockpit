@@ -3,6 +3,7 @@ package cachekeepalive
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -77,14 +78,26 @@ func fireKeepalivePing(t *testing.T, m *Manager) <-chan struct{} {
 		t.Fatalf("register did not schedule timer")
 	}
 	pingDone := make(chan struct{})
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer close(pingDone)
 		if !m.enterPing() {
 			return
 		}
 		defer m.pingInflight.Done()
 		m.executePing("session-1", timerRef.timer)
-	}()
+	})
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = m.Shutdown(cleanupCtx)
+		select {
+		case <-pingDone:
+			wg.Wait()
+		case <-time.After(time.Second):
+			t.Fatal("keepalive ping goroutine did not stop")
+		}
+	})
 	return pingDone
 }
 

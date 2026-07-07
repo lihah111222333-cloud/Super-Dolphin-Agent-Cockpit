@@ -179,7 +179,7 @@ func TestHookStoreSQLiteCancelRecoverExpirePrecise(t *testing.T) {
 	}
 }
 
-func newHookStoreSQLiteStore(t *testing.T) (*store, *sql.DB) {
+func newHookStoreSQLiteStore(t *testing.T) (*pagedStore, *sql.DB) {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "hookstore.sqlite"))
@@ -213,7 +213,8 @@ CREATE TABLE hook_pending_reviews (
 `); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	return &store{q: sqlc.New(db)}, db
+	q := sqlc.New(db)
+	return &pagedStore{store: &store{q: q}, pages: q}, db
 }
 
 func assertHookReviewStatus(t *testing.T, db *sql.DB, hookCallID, wantStatus, wantDecision string) {

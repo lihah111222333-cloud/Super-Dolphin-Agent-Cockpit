@@ -20,34 +20,97 @@ var (
 )
 
 var languageIDByBaseName = map[string]string{
-	"go.mod":  "gomod",
-	"go.sum":  "gosum",
-	"go.work": "gowork",
+	"containerfile": "dockerfile",
+	"dockerfile":    "dockerfile",
+	"go.mod":        "gomod",
+	"go.sum":        "gosum",
+	"go.work":       "gowork",
+}
+
+var gitHookShellBaseNames = map[string]struct{}{
+	"applypatch-msg":        {},
+	"commit-msg":            {},
+	"fsmonitor-watchman":    {},
+	"post-applypatch":       {},
+	"post-checkout":         {},
+	"post-commit":           {},
+	"post-index-change":     {},
+	"post-merge":            {},
+	"post-receive":          {},
+	"post-rewrite":          {},
+	"post-update":           {},
+	"pre-applypatch":        {},
+	"pre-auto-gc":           {},
+	"pre-commit":            {},
+	"pre-merge-commit":      {},
+	"pre-push":              {},
+	"pre-rebase":            {},
+	"pre-receive":           {},
+	"prepare-commit-msg":    {},
+	"proc-receive":          {},
+	"push-to-checkout":      {},
+	"reference-transaction": {},
+	"sendemail-validate":    {},
+	"update":                {},
 }
 
 var languageIDByExtension = map[string]string{
-	".go":       "go",
-	".js":       "javascript",
-	".jsx":      "javascriptreact",
-	".mjs":      "javascript",
-	".cjs":      "javascript",
-	".ts":       "typescript",
-	".tsx":      "typescriptreact",
-	".py":       "python",
-	".pyi":      "python",
-	".rs":       "rust",
-	".java":     "java",
-	".css":      "css",
-	".sh":       "shellscript",
-	".bash":     "shellscript",
-	".zsh":      "shellscript",
-	".ksh":      "shellscript",
-	".bats":     "shellscript",
-	".md":       "markdown",
-	".markdown": "markdown",
-	".json":     "json",
-	".yaml":     "yaml",
-	".yml":      "yaml",
+	".go":         "go",
+	".js":         "javascript",
+	".jsx":        "javascriptreact",
+	".mjs":        "javascript",
+	".cjs":        "javascript",
+	".ts":         "typescript",
+	".tsx":        "typescriptreact",
+	".html":       "html",
+	".htm":        "html",
+	".vue":        "vue",
+	".svelte":     "svelte",
+	".c":          "c",
+	".cc":         "cpp",
+	".cpp":        "cpp",
+	".cxx":        "cpp",
+	".h":          "c",
+	".hh":         "cpp",
+	".hpp":        "cpp",
+	".hxx":        "cpp",
+	".m":          "objective-c",
+	".mm":         "objective-cpp",
+	".swift":      "swift",
+	".cs":         "csharp",
+	".py":         "python",
+	".pyi":        "python",
+	".php":        "php",
+	".phtml":      "php",
+	".rb":         "ruby",
+	".rake":       "ruby",
+	".kt":         "kotlin",
+	".kts":        "kotlin",
+	".dart":       "dart",
+	".lua":        "lua",
+	".rs":         "rust",
+	".java":       "java",
+	".css":        "css",
+	".scss":       "css",
+	".sass":       "css",
+	".less":       "css",
+	".sh":         "shellscript",
+	".bash":       "shellscript",
+	".zsh":        "shellscript",
+	".ksh":        "shellscript",
+	".bats":       "shellscript",
+	".dockerfile": "dockerfile",
+	".tf":         "terraform",
+	".tfvars":     "terraform",
+	".graphql":    "graphql",
+	".gql":        "graphql",
+	".prisma":     "prisma",
+	".md":         "markdown",
+	".markdown":   "markdown",
+	".jsonc":      "json",
+	".json":       "json",
+	".yaml":       "yaml",
+	".yml":        "yaml",
 }
 
 // Registry 根据语言和目标文件把工具请求路由到对应 LSP Manager。
@@ -92,6 +155,8 @@ type dynamicRegistry struct {
 	managers  map[string]*languageConfig // mapped by language ID
 	installer Installer
 }
+
+type registryResolver = dynamicRegistry
 
 // UnsupportedDiagnosticsFilesError 标记显式诊断请求里无法路由到 LSP 的文件。
 // 它保留 ErrUnsupportedLanguage 作为 unwrap，工具层可据此组装 error envelope。
@@ -164,7 +229,7 @@ func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string
 
 // ResolveManagerForFile 根据文件名推断语言并解析 scoped manager。
 // scoped 结果会携带 ManagerPool 解析出的缓存和诊断作用域。
-func (r *dynamicRegistry) ResolveManagerForFile(ctx context.Context, filePath string) (ScopedManager, error) {
+func (r *registryResolver) ResolveManagerForFile(ctx context.Context, filePath string) (ScopedManager, error) {
 	return r.resolveManagerForTarget(ctx, DetectLanguageID(filePath), filePath, "")
 }
 
@@ -180,7 +245,7 @@ func (r *dynamicRegistry) GetManagerForFileWithLanguage(ctx context.Context, fil
 
 // ResolveManagerForFileWithLanguage 返回显式语言下的 scoped manager。
 // 它会在返回前执行安装校验和 ManagerPool scope 解析。
-func (r *dynamicRegistry) ResolveManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (ScopedManager, error) {
+func (r *registryResolver) ResolveManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (ScopedManager, error) {
 	lang := strings.ToLower(strings.TrimSpace(languageID))
 	if lang == "" {
 		lang = DetectLanguageID(filePath)
@@ -218,7 +283,7 @@ func (r *dynamicRegistry) GetManagerForLanguage(ctx context.Context, languageID 
 
 // ResolveManagerForLanguage 按 language id 解析 scoped manager。
 // 没有目标文件时仍会构造可信工具 scope，用于诊断和缓存审计。
-func (r *dynamicRegistry) ResolveManagerForLanguage(ctx context.Context, languageID string) (ScopedManager, error) {
+func (r *registryResolver) ResolveManagerForLanguage(ctx context.Context, languageID string) (ScopedManager, error) {
 	lang := strings.ToLower(strings.TrimSpace(languageID))
 
 	r.mu.RLock()
@@ -303,14 +368,30 @@ func (r *dynamicRegistry) Close() error {
 
 // DetectLanguageID 根据文件名或扩展名判断 LSP language id。
 func DetectLanguageID(path string) string {
-	if languageID, ok := languageIDByBaseName[strings.ToLower(filepath.Base(path))]; ok {
+	base := strings.ToLower(filepath.Base(path))
+	if languageID, ok := languageIDByBaseName[base]; ok {
 		return languageID
+	}
+	if isGitHookShellPath(path, base) {
+		return "shellscript"
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	if languageID, ok := languageIDByExtension[ext]; ok {
 		return languageID
 	}
 	return strings.TrimPrefix(ext, ".")
+}
+
+func isGitHookShellPath(path string, base string) bool {
+	dir := "/" + filepath.ToSlash(strings.ToLower(filepath.Dir(path))) + "/"
+	if strings.Contains(dir, "/.githooks/") {
+		return filepath.Ext(base) == ""
+	}
+	if !strings.Contains(dir, "/.git/hooks/") {
+		return false
+	}
+	_, ok := gitHookShellBaseNames[base]
+	return ok
 }
 
 // Diagnostics 按 manager 分组读取诊断后合并结果。

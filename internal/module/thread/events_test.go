@@ -262,6 +262,9 @@ func waitForProviderThreadUpdates(t *testing.T, bindings *eventBindingStore, wan
 }
 
 type eventBindingStore struct {
+	eventBindingLookupNoopStore
+	eventBindingMapNoopStore
+
 	mu              sync.RWMutex
 	binding         *bindingstore.Binding
 	sessionUpdates  []bindingstore.UpdateSessionUUIDParams
@@ -270,11 +273,15 @@ type eventBindingStore struct {
 	updateCh        chan struct{}
 }
 
-func (s *eventBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
+type eventBindingLookupNoopStore struct{}
+
+func (eventBindingLookupNoopStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
 	return nil, errors.New("not found")
 }
-func (s *eventBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
-func (s *eventBindingStore) DeleteByAgentID(context.Context, string) error           { return nil }
+func (eventBindingLookupNoopStore) Upsert(context.Context, bindingstore.UpsertParams) error {
+	return nil
+}
+func (eventBindingLookupNoopStore) DeleteByAgentID(context.Context, string) error { return nil }
 func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
 	s.mu.Lock()
 	s.sessionUpdates = append(s.sessionUpdates, params)
@@ -291,7 +298,7 @@ func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindings
 	}
 	return nil
 }
-func (s *eventBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+func (eventBindingLookupNoopStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
 }
 func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
@@ -312,14 +319,14 @@ func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*bi
 	}
 	return nil, errors.New("not found")
 }
-func (s *eventBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+func (eventBindingLookupNoopStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil
 }
-func (s *eventBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
-func (s *eventBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+func (eventBindingLookupNoopStore) UnbindAgentThread(context.Context, string) error { return nil }
+func (eventBindingLookupNoopStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
 	return nil, nil
 }
-func (s *eventBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
+func (eventBindingLookupNoopStore) GetThreadByAgent(context.Context, string) (string, error) {
 	return "", errors.New("not found")
 }
 func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params bindingstore.UpdateAgentCwdParams) error {
@@ -332,13 +339,15 @@ func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params bindingstor
 	return nil
 }
 
-func (s *eventBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+type eventBindingMapNoopStore struct{}
 
-func (s *eventBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+func (eventBindingMapNoopStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (eventBindingMapNoopStore) ListProviderMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
-func (s *eventBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+func (eventBindingMapNoopStore) ListCwdMap(context.Context) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -376,23 +385,9 @@ func (s *eventBindingStore) Binding() *bindingstore.Binding {
 	return &binding
 }
 
-func bindingSessionUUID(binding *bindingstore.Binding) string {
-	if binding == nil {
-		return ""
-	}
-	return binding.SessionUUID
-}
-
 func bindingProviderThreadID(binding *bindingstore.Binding) string {
 	if binding == nil {
 		return ""
 	}
 	return binding.ProviderThreadID
-}
-
-func bindingCWD(binding *bindingstore.Binding) string {
-	if binding == nil {
-		return ""
-	}
-	return binding.Cwd
 }

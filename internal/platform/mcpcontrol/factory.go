@@ -6,6 +6,7 @@ import (
 	"fmt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
+	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -247,8 +248,11 @@ func (r *ToolRegistry) fanoutTargets(
 	workers := min(r.fanoutParallelism, len(targets))
 	jobs := make(chan sendTarget, len(targets))
 	errs := make(chan error, len(targets))
-	for i := 0; i < workers; i++ {
-		go r.runFanoutWorker(ctx, jobs, errs, method, operation)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			r.runFanoutWorker(ctx, jobs, errs, method, operation)
+		})
 	}
 	for _, target := range targets {
 		jobs <- target
@@ -259,6 +263,7 @@ func (r *ToolRegistry) fanoutTargets(
 	for range targets {
 		joined = errors.Join(joined, <-errs)
 	}
+	wg.Wait()
 	return joined
 }
 

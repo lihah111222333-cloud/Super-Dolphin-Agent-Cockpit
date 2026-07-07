@@ -23,8 +23,31 @@ const (
 	skillConflictMultiMirrorDrift                = "multi_mirror_drift"
 	skillConflictMirrorRootSymlink               = "mirror_root_symlink"
 	skillConflictManualOnlySelfMirror            = "manual_only_self_mirror"
+	defaultSkillMirrorScanEntryBudget            = 512
+	mirrorScanTruncatedCode                      = "mirror_scan_truncated"
 	skillMirrorBackupDirName                     = ".super-dolphin-mirror-backup"
 )
+
+type mirrorScanTruncatedError struct {
+	Root  string
+	Limit int
+	Count int
+}
+
+// SkillMirrorScanBudget 控制 mirror 冲突扫描的上限。
+type SkillMirrorScanBudget struct {
+	MaxRootEntries int
+}
+
+// Error 返回 mirror 根目录扫描超限的可读错误。
+func (e *mirrorScanTruncatedError) Error() string {
+	return fmt.Sprintf("%s: skill mirror root %s has %d entries, limit %d", mirrorScanTruncatedCode, e.Root, e.Count, e.Limit)
+}
+
+// MirrorScanCode 返回调用方可稳定匹配的 mirror 扫描错误码。
+func (e *mirrorScanTruncatedError) MirrorScanCode() string {
+	return mirrorScanTruncatedCode
+}
 
 // SkillMirrorConflict 描述 canonical skill 与 provider mirror 之间需要人工处理的差异。
 // PreviewHash 和 Actions 只用于用户确认后的修复流程，调用方不能凭 name 直接写目录。
@@ -99,11 +122,17 @@ type skillMirrorMutationAuditRecord struct {
 // DetectSkillMirrorConflicts 只检查 mirror 和真实 skill 是否不一致。
 // 这里不修复目录；发现漂移、未知目录或根 symlink 就报告。
 func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillMirrorTarget) ([]SkillMirrorConflict, error) {
+	return DetectSkillMirrorConflictsWithBudget(records, targets, DefaultSkillMirrorScanBudget())
+}
+
+// DetectSkillMirrorConflictsWithBudget 按调用方预算检查 mirror 和真实 skill 是否不一致。
+func DetectSkillMirrorConflictsWithBudget(records []canonicalSkillRecord, targets []SkillMirrorTarget, budget SkillMirrorScanBudget) ([]SkillMirrorConflict, error) {
+	budget = normalizeSkillMirrorScanBudget(budget)
 	var conflicts []SkillMirrorConflict
 	driftCount := map[string]int{}
 	recordsByScopeName := canonicalRecordsByMirrorKey(records)
 	for _, target := range targets {
-		targetConflicts, err := detectSkillMirrorTargetConflicts(records, recordsByScopeName, target)
+		targetConflicts, err := detectSkillMirrorTargetConflicts(records, recordsByScopeName, target, budget)
 		if err != nil {
 			return conflicts, err
 		}
@@ -121,6 +150,18 @@ func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillM
 	}
 	sortMirrorConflicts(conflicts)
 	return conflicts, nil
+}
+
+// DefaultSkillMirrorScanBudget 返回生产默认 mirror 扫描预算。
+func DefaultSkillMirrorScanBudget() SkillMirrorScanBudget {
+	return SkillMirrorScanBudget{MaxRootEntries: defaultSkillMirrorScanEntryBudget}
+}
+
+func normalizeSkillMirrorScanBudget(budget SkillMirrorScanBudget) SkillMirrorScanBudget {
+	if budget.MaxRootEntries <= 0 {
+		budget.MaxRootEntries = defaultSkillMirrorScanEntryBudget
+	}
+	return budget
 }
 
 // MirrorConflictsFromCanonical 从 canonical skill 计算 mirror 冲突。
@@ -142,7 +183,7 @@ func MirrorConflictsFromCanonical(conflicts []canonicalSkillConflict) []SkillMir
 }
 
 // detectSkillMirrorTargetConflicts 检查目标 mirror 中的命名冲突。
-func detectSkillMirrorTargetConflicts(allRecords []canonicalSkillRecord, records map[string]canonicalSkillRecord, target SkillMirrorTarget) ([]SkillMirrorConflict, error) {
+func detectSkillMirrorTargetConflicts(allRecords []canonicalSkillRecord, records map[string]canonicalSkillRecord, target SkillMirrorTarget, budget SkillMirrorScanBudget) ([]SkillMirrorConflict, error) {
 	conflict, ok, err := validateMirrorRootOrConflict(target)
 	if err != nil {
 		return nil, err
@@ -154,7 +195,7 @@ func detectSkillMirrorTargetConflicts(allRecords []canonicalSkillRecord, records
 	if err != nil {
 		return nil, err
 	}
-	names, err := skillMirrorNames(target.Root)
+	names, err := skillMirrorNames(target.Root, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -266,14 +307,18 @@ func mirrorProviderDisplayName(provider SkillProvider) string {
 	}
 }
 
+// detectSkillMirrorNameConflict 按单个 mirror 目录名判断托管、canonical 和孤儿状态。
 func detectSkillMirrorNameConflict(records map[string]canonicalSkillRecord, target SkillMirrorTarget, manifest SkillMirrorManifest, name string, manifestTargetMismatch bool) (SkillMirrorConflict, bool, error) {
 	mirrorDir := filepath.Join(target.Root, name)
+	entry, managed := manifest.Skills[name]
+	record, canonicalExists := mirrorCanonicalRecord(records, target, entry, name)
+	if !managed && target.Scope == skillScopePersonal && !canonicalExists {
+		return SkillMirrorConflict{}, false, nil
+	}
 	mirrorHash, exists, err := existingMirrorHash(mirrorDir)
 	if err != nil || !exists {
 		return SkillMirrorConflict{}, false, err
 	}
-	entry, managed := manifest.Skills[name]
-	record, canonicalExists := mirrorCanonicalRecord(records, target, entry, name)
 	if !managed {
 		return unmanagedMirrorNameConflict(target, record, name, mirrorDir, mirrorHash, canonicalExists, manifestTargetMismatch)
 	}
@@ -450,7 +495,7 @@ func managedMirrorConflict(target SkillMirrorTarget, entry SkillMirrorEntry, rec
 			return SkillMirrorConflict{}, err
 		}
 	}
-	if canonicalExists && mirrorHash == entry.MirrorHash && canonicalHash == entry.CanonicalHash {
+	if !driftedManagedMirror(true, true, entry, mirrorHash, canonicalHash, canonicalExists) {
 		return SkillMirrorConflict{}, nil
 	}
 	kind := skillConflictMirrorDrift
@@ -497,7 +542,8 @@ func readTargetManifest(target SkillMirrorTarget) (SkillMirrorManifest, error) {
 }
 
 // skillMirrorNames 列出 mirror 中已有的 skill 名称。
-func skillMirrorNames(root string) ([]string, error) {
+func skillMirrorNames(root string, budget SkillMirrorScanBudget) ([]string, error) {
+	budget = normalizeSkillMirrorScanBudget(budget)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -506,7 +552,15 @@ func skillMirrorNames(root string) ([]string, error) {
 		return nil, err
 	}
 	names := make([]string, 0, len(entries))
+	count := 0
 	for _, entry := range entries {
+		if entry.Name() == skillMirrorManifestFile {
+			continue
+		}
+		count++
+		if count > budget.MaxRootEntries {
+			return nil, &mirrorScanTruncatedError{Root: filepath.ToSlash(root), Limit: budget.MaxRootEntries, Count: count}
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("skill mirror entry is symlink: %s", filepath.Join(root, entry.Name()))
 		}
@@ -516,6 +570,17 @@ func skillMirrorNames(root string) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// driftedManagedMirror 是 reconciler 和 publisher 共用的托管 mirror 漂移判断。
+func driftedManagedMirror(managed, exists bool, entry SkillMirrorEntry, mirrorHash, canonicalHash string, canonicalExists bool) bool {
+	if !(managed && exists) {
+		return false
+	}
+	if !entry.Owned || mirrorHash != entry.MirrorHash {
+		return true
+	}
+	return !canonicalExists || canonicalHash != entry.CanonicalHash
 }
 
 func driftActions(scope string) []SkillMirrorResolutionAction {

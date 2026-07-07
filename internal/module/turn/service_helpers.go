@@ -550,9 +550,9 @@ func (s *service) syntheticMemoryContext(
 	input PrepareInput,
 	threadID, userText string,
 	mcp dto.MCPManifest,
-) contract.TurnContextPayload {
+) (contract.TurnContextPayload, error) {
 	if s == nil || s.turnContextProvider == nil {
-		return contract.TurnContextPayload{}
+		return contract.TurnContextPayload{}, nil
 	}
 	buildCtx := contract.BuildCtx{
 		CWD:                          strings.TrimSpace(input.CWD),
@@ -566,5 +566,37 @@ func (s *service) syntheticMemoryContext(
 		MCPSnapshot:                  turnMCPSnapshot(input.MCPSnapshot, mcp),
 		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
 	}
-	return s.turnContextProvider.PrepareTurnContext(ctx, session, buildCtx, threadID, userText)
+	if provider, ok := s.turnContextProvider.(turnContextProviderWithError); ok {
+		payload, err := provider.PrepareTurnContextWithError(ctx, session, buildCtx, threadID, userText)
+		if err != nil {
+			s.logMemoryContextError(threadID, err)
+			return contract.TurnContextPayload{}, err
+		}
+		return payload, nil
+	}
+	return s.turnContextProvider.PrepareTurnContext(ctx, session, buildCtx, threadID, userText), nil
+}
+
+type turnContextProviderWithError interface {
+	PrepareTurnContextWithError(
+		context.Context,
+		contract.Session,
+		contract.BuildCtx,
+		string,
+		string,
+	) (contract.TurnContextPayload, error)
+}
+
+func (s *service) logMemoryContextError(threadID string, err error) {
+	if s == nil || s.logger == nil || err == nil {
+		return
+	}
+	attrs := []any{"thread_id", strings.TrimSpace(threadID), "error", err}
+	var logged interface {
+		LogFields() []any
+	}
+	if errors.As(err, &logged) {
+		attrs = append(attrs, logged.LogFields()...)
+	}
+	s.logger.Warn("turn: memory context failed", attrs...)
 }

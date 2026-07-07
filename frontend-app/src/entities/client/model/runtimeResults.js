@@ -1,3 +1,5 @@
+import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
+
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
 const RUNTIME_TOOL_FAILED_STATUSES = new Set(['failed', 'error']);
@@ -45,6 +47,63 @@ export function createRuntimeResultHelpers(deps = {}) {
     return `${normalized.slice(0, RUNTIME_RESULT_DETAIL_LIMIT)}...`;
   };
 
+  const compactRuntimeDiagnosticPreviewText = (value) => (
+    compactSafeDiagnosticPreview(value, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true })
+  );
+
+  const compactRuntimeToolResultText = (value) => (
+    compactSafeDiagnosticPreview(value, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true })
+  );
+
+  const safeRuntimeToolResultFields = (item = {}) => (
+    safeRuntimeToolResultFieldObject(compactSafeDiagnosticPreview(item, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true }))
+  );
+
+  const safeRuntimeToolResultFieldObject = (preview) => {
+    if (!preview) return {};
+    try {
+      const parsed = JSON.parse(preview);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // Keep a structured container for the runtime popover without exposing raw text.
+    }
+    return { preview };
+  };
+
+  const safeRuntimeRPCFieldValue = (value) => {
+    if (typeof value === 'string') {
+      const normalized = normalizeString(value);
+      return normalized || undefined;
+    }
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+    if (typeof value === 'boolean') return value;
+    return undefined;
+  };
+
+  const safeRuntimeRPCResultFields = (fields = {}, detail = '') => {
+    const out = {};
+    for (const [source, target = source] of [
+      ['method'],
+      ['rpcMethod', 'method'],
+      ['rpc_method', 'method'],
+      ['threadId'],
+      ['thread_id', 'threadId'],
+      ['req_id'],
+      ['reqId', 'req_id'],
+      ['trace_id'],
+      ['traceId', 'trace_id'],
+      ['span_id'],
+      ['spanId', 'span_id'],
+      ['status'],
+    ]) {
+      const value = safeRuntimeRPCFieldValue(fields[source]);
+      if (value !== undefined && out[target] === undefined) out[target] = value;
+    }
+    const preview = safeRuntimeToolResultFieldObject(detail);
+    if (Object.keys(preview).length > 0) out.preview = preview;
+    return out;
+  };
+
   const normalizeRuntimeToolName = (name) => {
     const raw = normalizeString(name);
     if (!raw) return '';
@@ -66,7 +125,7 @@ export function createRuntimeResultHelpers(deps = {}) {
 
   const runtimeToolResultDetail = (item = {}) => {
     for (const key of ['output', 'preview', 'result', 'error', 'message', 'text']) {
-      const detail = compactRuntimeResultText(item[key]);
+      const detail = compactRuntimeToolResultText(item[key]);
       if (detail) return detail;
     }
     return '';
@@ -90,7 +149,7 @@ export function createRuntimeResultHelpers(deps = {}) {
       threadId,
       message: `${toolName} ${failed ? '失败' : '返回'}${summary ? ` · ${summary}` : ''}`,
       detail,
-      fields: item,
+      fields: safeRuntimeToolResultFields(item),
       signature: `tool.result|${threadId}|${normalizeString(item.id) || toolName}|${detail}`,
     };
   };
@@ -107,7 +166,7 @@ export function createRuntimeResultHelpers(deps = {}) {
   const runtimeResultEntryFromRPCDone = (event, fields = {}) => {
     if (event !== 'api.rpc.done') return null;
     const method = normalizeString(fields.method || fields.rpcMethod || fields.rpc_method);
-    const detail = compactRuntimeResultText(fields.result_preview || fields.result);
+    const detail = compactRuntimeDiagnosticPreviewText(fields.result_preview || fields.result);
     if (!method || !detail) return null;
     const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
     const summary = detail.replace(/\s+/g, ' ').slice(0, 180);
@@ -119,7 +178,7 @@ export function createRuntimeResultHelpers(deps = {}) {
       threadId,
       message: `${method} 返回 · ${summary}`,
       detail,
-      fields,
+      fields: safeRuntimeRPCResultFields(fields, detail),
       signature: `${event}|${threadId}|${method}|${detail}`,
     };
   };

@@ -325,6 +325,9 @@ func stdioMCPBinaryFromServerObject(name string, server map[string]any, label st
 	if err != nil {
 		return dto.MCPBinary{}, err
 	}
+	if err := contract.DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand(command, args, ""); err != nil {
+		return dto.MCPBinary{}, fmt.Errorf("%s.command: %w", label, err)
+	}
 	return dto.MCPBinary{
 		Name:    name,
 		Command: append([]string{command}, args...),

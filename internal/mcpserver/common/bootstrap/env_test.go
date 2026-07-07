@@ -21,7 +21,7 @@ func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
 	t.Setenv("GO_AGENT_MCP_BOOT_CONTEXT", `{"instance_id":"snap-old"}`)
 
 	var buf bytes.Buffer
-	origLogger := slog.Default()
+	origLogger := pkglogger.Get()
 	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { pkglogger.SetForTest(origLogger) })
 
@@ -73,7 +73,7 @@ func TestReadBootConfig_PrefersCanonicalEnvWithoutDeprecationWarning(t *testing.
 	t.Setenv("GO_AGENT_MCP_BOOT_CONTEXT", `{"instance_id":"snap-old"}`)
 
 	var buf bytes.Buffer
-	origLogger := slog.Default()
+	origLogger := pkglogger.Get()
 	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { pkglogger.SetForTest(origLogger) })
 

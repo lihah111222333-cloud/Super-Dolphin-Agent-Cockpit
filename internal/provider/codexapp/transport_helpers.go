@@ -45,6 +45,8 @@ type initializeRPCResult struct {
 	CodexHome string `json:"codexHome"`
 }
 
+// RawMessage 是 Codex app-server 推给 toolbridge 的 JSON-RPC 消息视图。
+// 它只暴露 id、method、params，避免工具层依赖 transport 内部响应和错误帧。
 type RawMessage struct {
 	ID     json.RawMessage
 	Method string
@@ -207,12 +209,10 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 		return err
 	}
 	t.captureInitializeCodexHome(data)
-	// initialize 响应包含 app-server 端能力和 home，保留短日志方便排查握手差异。
-	if len(data) < 2000 {
-		pkglogger.Info("codexapp: initialize response", "data", string(data))
-	} else {
-		pkglogger.Info("codexapp: initialize response", "data_len", len(data), "preview", string(data[:500]))
-	}
+	// initialize 响应包含 app-server 端能力和 home，只记录摘要避免暴露 provider home。
+	fields := []any{"data_len", len(data)}
+	fields = append(fields, shared.SafePayloadLogFields("initialize_response", data)...)
+	pkglogger.Info("codexapp: initialize response", fields...)
 	t.dispatchReadMessage(ctx, data, nil)
 	return nil
 }
@@ -236,9 +236,9 @@ func (t *transport) captureInitializeCodexHome(data []byte) {
 		return
 	}
 	t.codexHome.Store(home)
-	pkglogger.Warn("codexapp: initialize codexHome captured",
-		"server_url", t.serverURL,
-		"codex_home", home)
+	fields := []any{"server_url", t.serverURL}
+	fields = append(fields, shared.SafePathLogFields("codex_home", home)...)
+	pkglogger.Warn("codexapp: initialize codexHome captured", fields...)
 }
 
 func initializeReadDeadline(ctx context.Context) time.Time {

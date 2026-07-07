@@ -18,6 +18,59 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
 }
 
+var metadataCamelBoundaryPattern = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+var sensitiveMetadataKeyTokens = map[string]struct{}{
+	"auth":        {},
+	"body":        {},
+	"content":     {},
+	"credential":  {},
+	"credentials": {},
+	"cwd":         {},
+	"env":         {},
+	"input":       {},
+	"output":      {},
+	"params":      {},
+	"password":    {},
+	"path":        {},
+	"paths":       {},
+	"profile":     {},
+	"prompt":      {},
+	"raw":         {},
+	"secret":      {},
+	"stack":       {},
+	"text":        {},
+	"token":       {},
+}
+
+var sensitiveMetadataKeys = map[string]struct{}{
+	"access_token":    {},
+	"api_key":         {},
+	"auth_token":      {},
+	"authorization":   {},
+	"file_content":    {},
+	"file_contents":   {},
+	"file_path":       {},
+	"id_token":        {},
+	"message_text":    {},
+	"output_tail":     {},
+	"raw_input":       {},
+	"raw_output":      {},
+	"raw_params":      {},
+	"raw_stack":       {},
+	"refresh_token":   {},
+	"request_params":  {},
+	"result_preview":  {},
+	"stack_trace":     {},
+	"stacktrace":      {},
+	"tool_result":     {},
+	"tool_results":    {},
+	"user_message":    {},
+	"user_prompt":     {},
+	"workspace_root":  {},
+	"workspace_roots": {},
+}
+
 // Sanitizer 负责把 trace event 中的字符串、栈和 metadata 约束到可落盘形态。
 type Sanitizer struct {
 	stringMaxBytes   int
@@ -158,9 +211,30 @@ func (s Sanitizer) stringMap(values map[string]string) map[string]string {
 
 // secretLikeKey 用键名判断字段是否应整体隐藏。
 func secretLikeKey(key string) bool {
-	key = strings.ToLower(key)
-	normalized := strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(key)
-	return strings.Contains(normalized, "token") || strings.Contains(normalized, "password") || strings.Contains(normalized, "secret") || strings.Contains(normalized, "authorization") || strings.Contains(normalized, "api_key")
+	normalized := normalizeMetadataKey(key)
+	if normalized == "" {
+		return false
+	}
+	if _, ok := sensitiveMetadataKeys[normalized]; ok {
+		return true
+	}
+	for part := range strings.SplitSeq(normalized, "_") {
+		if _, ok := sensitiveMetadataKeyTokens[part]; ok {
+			return true
+		}
+	}
+	compact := strings.ReplaceAll(normalized, "_", "")
+	return strings.Contains(compact, "token") ||
+		strings.Contains(compact, "password") ||
+		strings.Contains(compact, "secret") ||
+		strings.Contains(compact, "authorization") ||
+		strings.Contains(compact, "apikey")
+}
+
+func normalizeMetadataKey(key string) string {
+	normalized := metadataCamelBoundaryPattern.ReplaceAllString(strings.TrimSpace(key), "${1}_${2}")
+	normalized = strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(normalized)
+	return strings.ToLower(normalized)
 }
 
 // enforceMetadataLimit 在超出字节上限时逐项删除 metadata 并写入截断标记。

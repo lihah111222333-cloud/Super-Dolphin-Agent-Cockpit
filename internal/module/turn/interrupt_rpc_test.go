@@ -185,6 +185,58 @@ func TestTurnInterruptHandlerReturnsTimeoutEnvelope(t *testing.T) {
 	}
 }
 
+// TestForceCompleteRPCDoesNotReportSuccessWhenProviderNoTarget verifies no-target errors use an explicit envelope.
+func TestForceCompleteRPCDoesNotReportSuccessWhenProviderNoTarget(t *testing.T) {
+	t.Parallel()
+
+	handle := newStubTurnHandle("local-force", "provider-force")
+	session := &stubSession{
+		threadID: "thread-force",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+		forceComplete: func(context.Context, dto.ForceCompleteRequest) error {
+			return forceCompleteTargetNotFoundTestError{}
+		},
+	}
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-force",
+		ThreadID: "thread-force",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	}); err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(handler.Map{"turn/forceComplete": turnForceCompleteHandler(svc, rpcHelperResolver{session: session})})
+	raw, err := server.Dispatch(context.Background(), "turn/forceComplete", json.RawMessage(`{"threadId":"thread-force"}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v, want forceCompleted=false envelope", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if result["ok"] != false || result["forceCompleted"] != false || result["errorCode"] != "force_complete_target_not_found" {
+		t.Fatalf("forceComplete result = %#v, want no-target failure envelope", result)
+	}
+}
+
+// forceCompleteTargetNotFoundTestError mimics provider no-target errors without importing a provider package.
+type forceCompleteTargetNotFoundTestError struct{}
+
+// Error returns the provider-facing no-target message.
+func (forceCompleteTargetNotFoundTestError) Error() string {
+	return "force complete target not found"
+}
+
+// ForceCompleteTargetNotFound marks the error for RPC envelope mapping.
+func (forceCompleteTargetNotFoundTestError) ForceCompleteTargetNotFound() bool {
+	return true
+}
+
 func assertInterruptEnvelope(t *testing.T, result turnInterruptResult) {
 	t.Helper()
 	if !result.OK {

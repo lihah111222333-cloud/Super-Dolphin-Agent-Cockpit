@@ -102,10 +102,10 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 			if key == "" {
 				return nil, errors.New("apiKey is required")
 			}
-			if err := os.Setenv("SILICONFLOW_API_KEY", key); err != nil {
+			if err := runtimeenv.WriteVideoEnv(key); err != nil {
 				return nil, err
 			}
-			if err := runtimeenv.WriteVideoEnv(key); err != nil {
+			if err := os.Setenv("SILICONFLOW_API_KEY", key); err != nil {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil

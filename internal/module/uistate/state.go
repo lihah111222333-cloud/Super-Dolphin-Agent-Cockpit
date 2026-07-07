@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
+// UIState 是 UI 首屏和增量投影共享的完整状态快照。
 type UIState struct {
 	Threads                  []ThreadSummary                         `json:"threads"`
 	Agents                   []AgentSummary                          `json:"agents"`
@@ -42,6 +43,8 @@ type UIState struct {
 	ThreadArchivesChat       map[string]int64                        `json:"threadArchives.chat,omitempty"`
 	Groups                   []ThreadGroup                           `json:"groups,omitempty"`
 }
+
+// ThreadSummary 是 sidebar 和全量状态中展示 thread 的轻量摘要。
 type ThreadSummary struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name,omitempty"`
@@ -60,6 +63,7 @@ type ThreadSummary struct {
 	OverlayPriority int    `json:"overlayPriority,omitempty"`
 }
 
+// AgentSummary 汇总 agent 与 provider thread 的展示状态。
 type AgentSummary struct {
 	ID               string     `json:"id"`
 	Name             string     `json:"name,omitempty"`
@@ -80,6 +84,7 @@ type AgentSummary struct {
 	LastMessage      string     `json:"lastMessage,omitempty"`
 }
 
+// TurnSummary 表示 UI 可展示的一次 turn 执行结果。
 type TurnSummary struct {
 	ID          string     `json:"id"`
 	AgentID     string     `json:"agent_id"`
@@ -92,6 +97,7 @@ type TurnSummary struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
+// TokenUsage 保存上下文窗口和本轮 token 消耗的展示指标。
 type TokenUsage struct {
 	InputTokens         int     `json:"inputTokens"`
 	OutputTokens        int     `json:"outputTokens"`
@@ -101,6 +107,7 @@ type TokenUsage struct {
 	UsedPercent         float64 `json:"usedPercent,omitempty"`
 }
 
+// ActivityStats 聚合 thread 维度的工具和编辑活动计数。
 type ActivityStats struct {
 	LSPCalls  int64            `json:"lspCalls"`
 	Commands  int64            `json:"commands"`
@@ -108,6 +115,7 @@ type ActivityStats struct {
 	ToolCalls map[string]int64 `json:"toolCalls,omitempty"`
 }
 
+// Sidebar 是 UI 侧栏专用的收窄状态快照。
 type Sidebar struct {
 	Threads               []ThreadSummary           `json:"threads"`
 	Agents                []AgentSummary            `json:"agents"`
@@ -130,10 +138,12 @@ type Sidebar struct {
 	Groups                []ThreadGroup             `json:"groups,omitempty"`
 }
 
+// WorkspacePanel 承载工作区运行记录的侧栏面板数据。
 type WorkspacePanel struct {
 	Runs []WorkspaceRunSummary `json:"runs"`
 }
 
+// WorkspaceRunSummary 是单次 worktree/workspace 运行的展示摘要。
 type WorkspaceRunSummary struct {
 	RunKey          string     `json:"run_key"`
 	DagKey          string     `json:"dag_key,omitempty"`
@@ -149,6 +159,7 @@ type WorkspaceRunSummary struct {
 	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
 }
 
+// Preferences 是按 CWD 持久化的 UI 偏好快照。
 type Preferences struct {
 	CWD                      string            `json:"cwd,omitempty"`
 	Values                   map[string]any    `json:"values"`
@@ -162,17 +173,20 @@ type Preferences struct {
 	ThreadArchives           ThreadCollections `json:"thread_archives"`
 }
 
+// ThreadGroup 描述侧栏中按状态或用途聚合的一组 thread。
 type ThreadGroup struct {
 	Key     string          `json:"key"`
 	Title   string          `json:"title"`
 	Threads []ThreadSummary `json:"threads"`
 }
 
+// ViewPrefs 保存 chat 和 command 两个视图的本地偏好。
 type ViewPrefs struct {
 	Chat map[string]any `json:"chat,omitempty"`
 	Cmd  map[string]any `json:"cmd,omitempty"`
 }
 
+// ThreadCollections 保存按视图区分的 thread pin/archive 时间戳集合。
 type ThreadCollections struct {
 	Chat map[string]int64 `json:"chat,omitempty"`
 	Cmd  map[string]int64 `json:"cmd,omitempty"`

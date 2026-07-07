@@ -46,17 +46,17 @@ func handleHookPending(
 	hookManager contract.HookManager,
 	req dto.HookPendingRequest,
 ) (dto.HookPendingResponse, error) {
-	return handleHookRPC(ctx, registry, hookManager, req, "pending", nil,
+	return handleHookRPC(ctx, registry, hookManager, req, "pending", validateHookPendingInput,
 		func(ctx context.Context, hookManager contract.HookManager, instance *ToolInstance, req dto.HookPendingRequest) (dto.HookPendingResponse, error) {
 			agentID, err := resolveHookPendingAgentID(instance, req)
 			if err != nil {
 				return dto.HookPendingResponse{}, err
 			}
-			reviews, err := hookManager.GetPendingReviews(ctx, agentID)
+			page, err := hookManager.GetPendingReviewsPage(ctx, hookPendingPageParams(agentID, req))
 			if err != nil {
 				return dto.HookPendingResponse{}, err
 			}
-			return dto.HookPendingResponse{Reviews: reviews}, nil
+			return hookPendingResponseFromPage(page), nil
 		},
 	)
 }
@@ -78,6 +78,50 @@ func resolveHookPendingAgentID(instance *ToolInstance, req dto.HookPendingReques
 	default:
 		return "", errInvalidParams("hook pending requires agent_id; shared-service peers must provide an agent-scoped query")
 	}
+}
+
+// validateHookPendingInput 校验 pending 分页请求，缺 limit 或半个 cursor 都必须 fail-fast。
+func validateHookPendingInput(req dto.HookPendingRequest) error {
+	if req.Limit <= 0 {
+		return newHookInvalidParams("hook pending requires limit")
+	}
+	if req.Limit > contract.HookPendingReviewMaxPageLimit {
+		return newHookInvalidParams("hook pending limit exceeds maximum: %d > %d", req.Limit, contract.HookPendingReviewMaxPageLimit)
+	}
+	if req.Cursor == nil {
+		return nil
+	}
+	if req.Cursor.CreatedAt.IsZero() || strings.TrimSpace(req.Cursor.HookCallID) == "" {
+		return newHookInvalidParams("hook pending cursor requires created_at and hook_call_id")
+	}
+	return nil
+}
+
+func hookPendingPageParams(agentID string, req dto.HookPendingRequest) contract.HookPendingReviewPageParams {
+	params := contract.HookPendingReviewPageParams{
+		AgentID: agentID,
+		Limit:   req.Limit,
+	}
+	if req.Cursor != nil {
+		params.CursorCreatedAt = req.Cursor.CreatedAt
+		params.CursorHookCallID = strings.TrimSpace(req.Cursor.HookCallID)
+	}
+	return params
+}
+
+func hookPendingResponseFromPage(page contract.HookPendingReviewPage) dto.HookPendingResponse {
+	resp := dto.HookPendingResponse{
+		Reviews: page.Reviews,
+		Limit:   page.EffectiveLimit,
+		HasMore: page.HasMore,
+	}
+	if page.HasMore {
+		resp.NextCursor = &dto.HookPendingCursor{
+			CreatedAt:  page.NextCursorCreatedAt,
+			HookCallID: page.NextCursorHookCallID,
+		}
+	}
+	return resp
 }
 
 // validateHookSubscribeRequest 暴露给测试和复用方，保持与 RPC 路径一致的错误映射。

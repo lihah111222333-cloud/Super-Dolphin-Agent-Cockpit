@@ -753,23 +753,31 @@ function usePromptSettings(cwd, copy) {
   const [showInjected, setShowInjected] = useState(false);
   const [showInjectedSaving, setShowInjectedSaving] = useState(false);
   const [currentScopeCwd, setCurrentScopeCwd] = useState('');
-  const loadPrompt = useCallback(() => loadLspPromptState({ copy, cwd, setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), [copy, cwd]);
+  const promptLoadSeq = useRef(0);
+  const visibilityLoadSeq = useRef(0);
+  const nextPromptLoadRequest = useCallback(() => {
+    promptLoadSeq.current += 1;
+    const requestSeq = promptLoadSeq.current;
+    return () => promptLoadSeq.current === requestSeq;
+  }, []);
+  const nextVisibilityLoadRequest = useCallback(() => {
+    visibilityLoadSeq.current += 1;
+    const requestSeq = visibilityLoadSeq.current;
+    return () => visibilityLoadSeq.current === requestSeq;
+  }, []);
+  const loadPrompt = useCallback(() => loadLspPromptState({ copy, cwd, isCurrent: nextPromptLoadRequest(), setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), [copy, cwd, nextPromptLoadRequest]);
   const loadScope = useCallback(() => loadPromptScope(setCurrentScopeCwd), []);
-  const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ copy, cwd, setNotice, setShowInjected }), [copy, cwd]);
-  const save = useCallback(() => saveLspPromptHintState({ copy, cwd, defaultHint, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, defaultHint, hint, saving]);
-  const reset = useCallback(() => saveLspPromptHintState({ copy, cwd, defaultHint, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, defaultHint, saving]);
+  const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ copy, cwd, isCurrent: nextVisibilityLoadRequest(), setNotice, setShowInjected }), [copy, cwd, nextVisibilityLoadRequest]);
+  const save = useCallback(() => saveLspPromptHintState({ copy, cwd, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, hint, saving]);
+  const reset = useCallback(() => saveLspPromptHintState({ copy, cwd, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, saving]);
   const copyPrompt = useCallback(() => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint, copy), copy, setNotice), [copy, defaultHint, effectiveHint]);
   const toggleVisibility = useCallback((event) => saveInjectedPromptVisibility({ copy, cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }), [copy, cwd, loadVisibility, showInjectedSaving]);
   useEffect(() => { void loadPrompt(); void loadScope(); void loadVisibility(); }, [loadPrompt, loadScope, loadVisibility]);
-  return promptSettingsModel({ copy: copyPrompt, currentScopeCwd, defaultHint, effectiveHint, hint, loadPrompt, loading, notice, reset, save, saving, setHint, showInjected, showInjectedSaving, textCopy: copy, toggleVisibility, usingDefault });
-}
-
-function promptSettingsModel(model) {
-  const displayHint = promptDisplayHint(model.effectiveHint, model.defaultHint, model.textCopy);
-  const empty = model.textCopy.promptCard.empty;
+  const displayHint = promptDisplayHint(effectiveHint, defaultHint, copy);
+  const empty = copy.promptCard.empty;
   const lineCount = displayHint === empty ? 0 : displayHint.split('\n').length;
   const charCount = displayHint === empty ? 0 : displayHint.length;
-  return { ...model, charCount, displayHint, lineCount, modeLabel: promptModeLabel(model.loading, model.usingDefault, model.textCopy) };
+  return { charCount, copy: copyPrompt, currentScopeCwd, defaultHint, displayHint, effectiveHint, hint, lineCount, loadPrompt, loading, modeLabel: promptModeLabel(loading, usingDefault, copy), notice, reset, save, saving, setHint, showInjected, showInjectedSaving, textCopy: copy, toggleVisibility, usingDefault };
 }
 
 function promptDisplayHint(effectiveHint, defaultHint, copy = APP_COPY.zh.settings) {
@@ -781,20 +789,39 @@ function promptModeLabel(loading, usingDefault, copy = APP_COPY.zh.settings) {
   return usingDefault ? copy.promptCard.defaultMode : copy.promptCard.customMode;
 }
 
+function normalizePromptHintResponse(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new TypeError('prompt hint response must be an object');
+  }
+  for (const key of ['hint', 'defaultHint', 'overrideHint']) {
+    if (typeof response[key] !== 'string') {
+      throw new TypeError(`prompt hint response ${key} must be a string`);
+    }
+  }
+  if (typeof response.usingDefault !== 'boolean') {
+    throw new TypeError('prompt hint response usingDefault must be a boolean');
+  }
+  return response;
+}
+
 async function loadLspPromptState(state) {
-  if (!state.cwd) return;
+  if (!state.cwd) {
+    if (isCurrentPreferenceRequest(state.isCurrent)) state.setLoading(false);
+    return;
+  }
   state.setLoading(true);
   try {
-    const res = await readLspPromptHint({ cwd: state.cwd });
-    state.setHint((res?.overrideHint || '').toString());
-    state.setEffectiveHint((res?.hint || '').toString());
-    state.setDefaultHint((res?.defaultHint || '').toString());
-    state.setUsingDefault(Boolean(res?.usingDefault) || (res?.overrideHint || '').toString().trim() === '');
+    const res = normalizePromptHintResponse(await readLspPromptHint({ cwd: state.cwd }));
+    if (!isCurrentPreferenceRequest(state.isCurrent)) return;
+    state.setHint(res.overrideHint);
+    state.setEffectiveHint(res.hint);
+    state.setDefaultHint(res.defaultHint);
+    state.setUsingDefault(res.usingDefault);
     state.setNotice({ level: 'info', message: '' });
   } catch (error) {
-    state.setNotice({ level: 'error', message: state.copy.promptCard.loadFailed + (error?.message || error) });
+    if (isCurrentPreferenceRequest(state.isCurrent)) state.setNotice({ level: 'error', message: state.copy.promptCard.loadFailed + (error?.message || error) });
   } finally {
-    state.setLoading(false);
+    if (isCurrentPreferenceRequest(state.isCurrent)) state.setLoading(false);
   }
 }
 
@@ -807,13 +834,13 @@ async function loadPromptScope(setCurrentScopeCwd) {
   }
 }
 
-async function loadInjectedPromptVisibility({ copy, cwd, setNotice, setShowInjected }) {
+async function loadInjectedPromptVisibility({ copy, cwd, isCurrent, setNotice, setShowInjected }) {
   if (!cwd) return;
   try {
     const value = await getPreference({ cwd, key: 'settings.showInjectedPromptInChat' });
-    setShowInjected(parseBoolPreference(value));
+    if (isCurrentPreferenceRequest(isCurrent)) setShowInjected(parseBoolPreference(value));
   } catch (error) {
-    setNotice({ level: 'error', message: copy.promptCard.loadToggleFailed + (error?.message || error) });
+    if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.promptCard.loadToggleFailed + (error?.message || error) });
   }
 }
 
@@ -821,12 +848,12 @@ async function saveLspPromptHintState(state) {
   if (!state.cwd || state.saving) return;
   state.setSaving(true);
   try {
-    const res = await writeLspPromptHint({ cwd: state.cwd, hint: state.hint });
-    state.setEffectiveHint((res?.hint || '').toString());
-    state.setDefaultHint((res?.defaultHint || state.defaultHint || '').toString());
-    state.setHint((res?.overrideHint || '').toString());
-    state.setUsingDefault(Boolean(res?.usingDefault));
-    state.setNotice({ level: 'info', message: res?.usingDefault ? state.copy.promptCard.restored : state.copy.promptCard.saved });
+    const res = normalizePromptHintResponse(await writeLspPromptHint({ cwd: state.cwd, hint: state.hint }));
+    state.setEffectiveHint(res.hint);
+    state.setDefaultHint(res.defaultHint);
+    state.setHint(res.overrideHint);
+    state.setUsingDefault(res.usingDefault);
+    state.setNotice({ level: 'info', message: res.usingDefault ? state.copy.promptCard.restored : state.copy.promptCard.saved });
   } catch (error) {
     state.setNotice({ level: 'error', message: state.copy.promptCard.saveFailed + (error?.message || error) });
   } finally {
@@ -879,8 +906,14 @@ function useBuiltinToolsSettings(cwd, copy) {
   const [savingIds, setSavingIds] = useState({});
   const [expandedGroups, setExpandedGroups] = useState({});
   const [notice, setNotice] = useState({ level: 'info', message: '' });
+  const loadRequestSeq = useRef(0);
+  const nextLoadRequest = useCallback(() => {
+    loadRequestSeq.current += 1;
+    const requestSeq = loadRequestSeq.current;
+    return () => loadRequestSeq.current === requestSeq;
+  }, []);
   const applyPayload = useCallback((payload) => setTools(normalizeBuiltinTools(payload)), []);
-  const load = useCallback(() => loadBuiltinTools({ applyPayload, copy, cwd, setLoading, setNotice }), [applyPayload, copy, cwd]);
+  const load = useCallback(() => loadBuiltinTools({ applyPayload, copy, cwd, isCurrent: nextLoadRequest(), setLoading, setNotice }), [applyPayload, copy, cwd, nextLoadRequest]);
   const toggleTool = useCallback((tool) => toggleBuiltinTool({ applyPayload, copy, cwd, savingIds, setNotice, setSavingIds, setTools, tool }), [applyPayload, copy, cwd, savingIds]);
   const toggleGroup = useCallback((key) => setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] })), []);
   const groups = useMemo(() => builtinToolGroups(tools, builtinsCopy), [builtinsCopy, tools]);
@@ -930,16 +963,22 @@ function optionalTextValue(value) {
   return text || undefined;
 }
 
-async function loadBuiltinTools({ applyPayload, copy, cwd, setLoading, setNotice }) {
-  if (!cwd) return;
+async function loadBuiltinTools({ applyPayload, copy, cwd, isCurrent, setLoading, setNotice }) {
+  if (!cwd) {
+    if (isCurrentPreferenceRequest(isCurrent)) setLoading(false);
+    return;
+  }
   setLoading(true);
   try {
-    applyPayload(await readBuiltinTools({ cwd }));
-    setNotice({ level: 'info', message: '' });
+    const payload = await readBuiltinTools({ cwd });
+    if (isCurrentPreferenceRequest(isCurrent)) {
+      applyPayload(payload);
+      setNotice({ level: 'info', message: '' });
+    }
   } catch (error) {
-    setNotice({ level: 'error', message: copy.builtins.loadFailed + (error?.message || error) });
+    if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.builtins.loadFailed + (error?.message || error) });
   } finally {
-    setLoading(false);
+    if (isCurrentPreferenceRequest(isCurrent)) setLoading(false);
   }
 }
 

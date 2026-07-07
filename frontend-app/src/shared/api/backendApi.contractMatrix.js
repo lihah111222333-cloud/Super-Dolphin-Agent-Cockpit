@@ -23,7 +23,17 @@ const TESTS = Object.freeze({
   WAILS_BRIDGE: 'src/shared/api/wailsBridge.test.js',
 });
 
-function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false) {
+/**
+ * @param {keyof typeof RPC_METHODS} key
+ * @param {string} facade
+ * @param {'P0' | 'P1' | 'P2'} level
+ * @param {string} backendOwner
+ * @param {readonly string[]} tests
+ * @param {readonly string[]} notes
+ * @param {boolean} rawLiteralRpc
+ * @param {{ responseValidator?: string, responsePassthroughReason?: string }} options
+ */
+function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false, options = {}) {
   return Object.freeze({
     key,
     method: RPC_METHODS[key],
@@ -32,14 +42,16 @@ function contract(key, facade, level, backendOwner, tests, notes = [], rawLitera
     backendOwner,
     tests: Object.freeze(tests),
     rawLiteralRpc,
+    responseValidator: options.responseValidator || '',
+    responsePassthroughReason: options.responsePassthroughReason || '',
     notes: Object.freeze(notes),
   });
 }
 
 export const RPC_CONTRACT_REGISTRY = Object.freeze({
   CONFIG_READ: contract('CONFIG_READ', 'readConfig', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings bootstrap read']),
-  CONFIG_LSP_PROMPT_HINT_READ: contract('CONFIG_LSP_PROMPT_HINT_READ', 'readLspPromptHint', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings read']),
-  CONFIG_LSP_PROMPT_HINT_WRITE: contract('CONFIG_LSP_PROMPT_HINT_WRITE', 'writeLspPromptHint', 'P0', 'config', [TESTS.API, TESTS.SETTINGS], ['settings mutation']),
+  CONFIG_LSP_PROMPT_HINT_READ: contract('CONFIG_LSP_PROMPT_HINT_READ', 'readLspPromptHint', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings read'], false, { responseValidator: 'lspPromptHintResponse' }),
+  CONFIG_LSP_PROMPT_HINT_WRITE: contract('CONFIG_LSP_PROMPT_HINT_WRITE', 'writeLspPromptHint', 'P0', 'config', [TESTS.API, TESTS.SETTINGS], ['settings mutation'], false, { responseValidator: 'lspPromptHintResponse' }),
   CONFIG_BUILTIN_TOOLS_READ: contract('CONFIG_BUILTIN_TOOLS_READ', 'readBuiltinTools', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings read']),
   CONFIG_BUILTIN_TOOLS_WRITE: contract('CONFIG_BUILTIN_TOOLS_WRITE', 'writeBuiltinTool', 'P0', 'config', [TESTS.API, TESTS.SETTINGS], ['tool enablement mutation']),
 
@@ -49,7 +61,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   APP_UPDATE_INSTALL_LATEST: contract('APP_UPDATE_INSTALL_LATEST', 'installLatestAppUpdate', 'P0', 'appUpdate', [TESTS.API, TESTS.SETTINGS], ['installer side effect']),
 
   UI_WINDOW_BOOTSTRAP_GET: contract('UI_WINDOW_BOOTSTRAP_GET', 'getWindowBootstrap', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['bootstrap read']),
-  UI_STATE_GET: contract('UI_STATE_GET', 'getThreadState', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['thread state read']),
+  UI_STATE_GET: contract('UI_STATE_GET', 'getThreadState', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['thread state read'], false, { responseValidator: 'uiStateResponse' }),
   UI_SIDEBAR_GET: contract('UI_SIDEBAR_GET', 'getSidebarState', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['workspace sidebar read']),
   UI_LOG: contract('UI_LOG', 'sendFrontendLogBatch', 'P1', 'observability', [TESTS.WAILS_BRIDGE], ['frontend telemetry ingest']),
   OBSERVABILITY_TRACE_GET: contract('OBSERVABILITY_TRACE_GET', 'getObservabilityTrace', 'P1', 'observability', [TESTS.API, TESTS.OBSERVABILITY], ['observability query']),
@@ -115,8 +127,8 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   DASHBOARD_DAG_DETAIL: contract('DASHBOARD_DAG_DETAIL', 'getDagDetail', 'P1', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['dashboard detail read']),
   DASHBOARD_DAG_RUNS: contract('DASHBOARD_DAG_RUNS', 'getDagRuns', 'P1', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['dashboard detail read']),
   DASHBOARD_DAG_RUN: contract('DASHBOARD_DAG_RUN', 'getDagRun', 'P1', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['dashboard detail read']),
-  DASHBOARD_DAG_START: contract('DASHBOARD_DAG_START', 'startDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
-  DASHBOARD_DAG_CREATE_AND_START: contract('DASHBOARD_DAG_CREATE_AND_START', 'createAndStartDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
+  DASHBOARD_DAG_START: contract('DASHBOARD_DAG_START', 'startDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation'], false, { responseValidator: 'dashboardDagStartResponse' }),
+  DASHBOARD_DAG_CREATE_AND_START: contract('DASHBOARD_DAG_CREATE_AND_START', 'createAndStartDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation'], false, { responseValidator: 'dashboardDagCreateAndStartResponse' }),
   DASHBOARD_DAG_DISPATCH_NODE: contract('DASHBOARD_DAG_DISPATCH_NODE', 'dispatchDagNode', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_TERMINATE: contract('DASHBOARD_DAG_TERMINATE', 'terminateDagRun', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_DELETE: contract('DASHBOARD_DAG_DELETE', 'deleteDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
@@ -137,7 +149,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   CRONJOB_LIST_RUNS: contract('CRONJOB_LIST_RUNS', 'listCronJobRuns', 'P1', 'cronjob', [TESTS.API], ['schedule read']),
 
   SKILLS_LOCAL_DELETE: contract('SKILLS_LOCAL_DELETE', 'deleteSkill', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),
-  SKILLS_LOCAL_READ: contract('SKILLS_LOCAL_READ', 'readSkill', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill read']),
+  SKILLS_LOCAL_READ: contract('SKILLS_LOCAL_READ', 'readSkill', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill read'], false, { responseValidator: 'skillReadResponse' }),
   SKILLS_LOCAL_LIST_FILES: contract('SKILLS_LOCAL_LIST_FILES', 'listSkillFiles', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill read']),
   SKILLS_LOCAL_WRITE: contract('SKILLS_LOCAL_WRITE', 'writeSkill', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),
   SKILLS_LOCAL_IMPORT_DIR: contract('SKILLS_LOCAL_IMPORT_DIR', 'importSkillDirectories', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),
@@ -156,21 +168,24 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   DATASOURCE_V2_IMPORT_LOCAL_FILE: contract('DATASOURCE_V2_IMPORT_LOCAL_FILE', 'importDatasourceLocalFile', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['user-selected local file import mutation']),
   DATASOURCE_V2_LIST: contract('DATASOURCE_V2_LIST', 'listDatasourceDocuments', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read']),
   DATASOURCE_V2_GET: contract('DATASOURCE_V2_GET', 'getDatasourceDocument', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read']),
+  DATASOURCE_V2_LIST_CHUNKS: contract('DATASOURCE_V2_LIST_CHUNKS', 'listDatasourceChunks', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read']),
   DATASOURCE_V2_UPDATE: contract('DATASOURCE_V2_UPDATE', 'updateDatasourceDocument', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource metadata mutation']),
   DATASOURCE_V2_DELETE: contract('DATASOURCE_V2_DELETE', 'deleteDatasourceDocument', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource mutation']),
 
-  MCP_SERVER_LIST: contract('MCP_SERVER_LIST', 'listMCPServers', 'P1', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['MCP server config read', 'params:{}-only']),
-  MCP_SERVER_SQLITE_START: contract('MCP_SERVER_SQLITE_START', 'startSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only']),
-  MCP_SERVER_SQLITE_STOP: contract('MCP_SERVER_SQLITE_STOP', 'stopSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only']),
-  MCP_SERVER_PLAYWRIGHT_START: contract('MCP_SERVER_PLAYWRIGHT_START', 'startPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only']),
-  MCP_SERVER_PLAYWRIGHT_STOP: contract('MCP_SERVER_PLAYWRIGHT_STOP', 'stopPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only']),
+  MCP_SERVER_LIST: contract('MCP_SERVER_LIST', 'listMCPServers', 'P1', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['MCP server status read', 'params:{}-only'], false, { responseValidator: 'mcpServerListResponse' }),
+  MCP_SERVER_SQLITE_START: contract('MCP_SERVER_SQLITE_START', 'startSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
+  MCP_SERVER_SQLITE_STOP: contract('MCP_SERVER_SQLITE_STOP', 'stopSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
+  MCP_SERVER_PLAYWRIGHT_START: contract('MCP_SERVER_PLAYWRIGHT_START', 'startPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
+  MCP_SERVER_PLAYWRIGHT_STOP: contract('MCP_SERVER_PLAYWRIGHT_STOP', 'stopPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
   MCP_TOOL_LIFECYCLE_SET: contract('MCP_TOOL_LIFECYCLE_SET', 'setMCPToolLifecycle', 'P0', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle mutation', 'guarded payload']),
   MCP_TOOL_LIFECYCLE_LIST: contract('MCP_TOOL_LIFECYCLE_LIST', 'listMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle read', 'strict payload']),
   MCP_TOOL_LIFECYCLE_EXPORT: contract('MCP_TOOL_LIFECYCLE_EXPORT', 'exportMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle export', 'strict payload']),
 
-  THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start', 'custom-decoder']),
-  THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),
-  THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),
+  THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'threadStartResponse' }),
+  THREAD_LIST_PAGE: contract('THREAD_LIST_PAGE', 'listThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded list page']),
+  THREAD_LOADED_LIST_PAGE: contract('THREAD_LOADED_LIST_PAGE', 'listLoadedThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded loaded list page']),
+  THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadMessagesResponse' }),
+  THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadResolveResponse' }),
   THREAD_ARCHIVE: contract('THREAD_ARCHIVE', 'archiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
   THREAD_UNARCHIVE: contract('THREAD_UNARCHIVE', 'unarchiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
   THREAD_DELETE: contract('THREAD_DELETE', 'deleteThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
@@ -179,9 +194,9 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   THREAD_COMPACT_START: contract('THREAD_COMPACT_START', 'compactThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
   THREAD_RECOVER: contract('THREAD_RECOVER', 'recoverThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
   THREAD_NAME_SET: contract('THREAD_NAME_SET', 'renameThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
-  TURN_START: contract('TURN_START', 'startTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle start', 'custom-decoder']),
-  TURN_INTERRUPT: contract('TURN_INTERRUPT', 'interruptTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation', 'custom-decoder', 'passthrough response']),
-  TURN_FORCE_COMPLETE: contract('TURN_FORCE_COMPLETE', 'forceCompleteTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
+  TURN_START: contract('TURN_START', 'startTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'turnStartResponse' }),
+  TURN_INTERRUPT: contract('TURN_INTERRUPT', 'interruptTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation'], false, { responsePassthroughReason: 'turn interrupt returns a command result envelope consumed by action handlers' }),
+  TURN_FORCE_COMPLETE: contract('TURN_FORCE_COMPLETE', 'forceCompleteTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation'], false, { responseValidator: 'turnForceCompleteResponse' }),
   APPROVAL_RESPOND: contract('APPROVAL_RESPOND', 'respondApproval', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime approval mutation']),
 });
 

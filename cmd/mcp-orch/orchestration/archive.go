@@ -21,41 +21,64 @@ type persistedArchiveTarget struct {
 	bindingFound bool
 }
 
+// ArchiveOutcome 记录 ArchiveAgent 本次实际完成的归档动作。
+type ArchiveOutcome struct {
+	// RuntimeStopped 表示运行时或 launcher 已执行归档/停止动作。
+	RuntimeStopped bool
+	// ThreadArchived 表示本地持久化 thread 已被标记为 archived。
+	ThreadArchived bool
+	// BindingArchived 表示本地 provider binding 已被标记为 archived。
+	BindingArchived bool
+}
+
+// Archived 返回本次归档是否至少产生了一项可观察效果。
+func (o ArchiveOutcome) Archived() bool {
+	return o.RuntimeStopped || o.ThreadArchived || o.BindingArchived
+}
+
 // ArchiveAgent 是 MCP 工具侧的回收入口。
 // 它先停止本进程可见的 runtime，再把持久化 thread/binding 标记为 archived，避免只停进程不进回收箱。
-func (s *service) ArchiveAgent(ctx context.Context, agentID string) error {
+func (s *service) ArchiveAgent(ctx context.Context, agentID string) (ArchiveOutcome, error) {
+	var outcome ArchiveOutcome
 	ctx, agentID, err := normalizeArchiveAgentArgs(ctx, agentID)
 	if err != nil {
-		return err
+		return outcome, err
 	}
 	pkglogger.Info("archive: ArchiveAgent begin", "agent_id", agentID)
 	target, resolveErr := s.resolvePersistedArchiveTarget(ctx, agentID)
 	remoteArchived, archiveErr := s.stopArchiveTarget(ctx, agentID, target, resolveErr)
 	if archiveErr != nil && !errors.Is(archiveErr, errAgentNotFound) {
-		return archiveErr
+		return outcome, archiveErr
 	}
 	if resolveErr != nil {
-		return resolveErr
+		return outcome, resolveErr
 	}
 
-	archived := remoteArchived
+	outcome.RuntimeStopped = remoteArchived
 	if !remoteArchived {
-		var err error
-		archived, err = s.archivePersistedArchiveTarget(ctx, target)
+		persistedOutcome, err := s.archivePersistedArchiveTarget(ctx, target)
 		if err != nil {
-			return err
+			return outcome, err
 		}
+		outcome.ThreadArchived = persistedOutcome.ThreadArchived
+		outcome.BindingArchived = persistedOutcome.BindingArchived
 	}
-	if !archived && archiveErr != nil {
-		return archiveErr
+	archived := outcome.Archived()
+	if !archived {
+		if archiveErr != nil {
+			return outcome, archiveErr
+		}
+		return outcome, errAgentNotFound
 	}
 	pkglogger.Info("archive: ArchiveAgent done",
 		"agent_id", agentID,
 		"binding_found", target.bindingFound,
 		"thread_id", target.threadID,
 		"archived", archived,
-		"remote_archived", remoteArchived)
-	return nil
+		"runtime_stopped", outcome.RuntimeStopped,
+		"thread_archived", outcome.ThreadArchived,
+		"binding_archived", outcome.BindingArchived)
+	return outcome, nil
 }
 
 // normalizeArchiveAgentArgs 补齐 nil context 并校验 agentID 非空。
@@ -94,11 +117,12 @@ func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string
 
 // archivePersistedArchiveTarget 同步归档持久化 thread 和 provider binding。
 // 两类记录可能只存在其中之一，因此逐项更新并返回是否实际写入。
-func (s *service) archivePersistedArchiveTarget(ctx context.Context, target persistedArchiveTarget) (bool, error) {
+func (s *service) archivePersistedArchiveTarget(ctx context.Context, target persistedArchiveTarget) (ArchiveOutcome, error) {
+	var outcome ArchiveOutcome
 	if target.threadID == "" && !target.bindingFound {
 		pkglogger.Warn("archive: nothing to archive (binding=missing, thread=missing); runtime stopped but DB unchanged",
 			"agent_id", target.agentID)
-		return false, nil
+		return outcome, nil
 	}
 	now := time.Now().Unix()
 	if target.threadID != "" && s.agentThreads != nil {
@@ -114,8 +138,9 @@ func (s *service) archivePersistedArchiveTarget(ctx context.Context, target pers
 				"thread_id", target.threadID,
 				"agent_id", target.agentID,
 				"error", err)
-			return false, err
+			return outcome, err
 		}
+		outcome.ThreadArchived = true
 	}
 	if target.bindingFound && target.agentID != "" && s.agentBindings != nil {
 		pkglogger.Info("archive: marking binding archived",
@@ -128,10 +153,11 @@ func (s *service) archivePersistedArchiveTarget(ctx context.Context, target pers
 			pkglogger.Warn("archive: binding SetArchived failed",
 				"agent_id", target.agentID,
 				"error", err)
-			return false, err
+			return outcome, err
 		}
+		outcome.BindingArchived = true
 	}
-	return true, nil
+	return outcome, nil
 }
 
 // resolvePersistedArchiveTarget 解析 agentID 对应的持久化 binding/thread。

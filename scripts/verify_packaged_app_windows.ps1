@@ -12,6 +12,7 @@ $LSPServerSpecs = @(
     'pyright|bin/pyright-langserver.cmd',
     'rust-analyzer|bin/rust-analyzer.exe',
     'bash-language-server|bin/bash-language-server.cmd',
+    'sql-language-server|bin/sql-language-server.cmd',
     'sg|bin/sg.exe',
     'go|bin/go.cmd'
 )

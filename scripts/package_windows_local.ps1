@@ -198,6 +198,7 @@ function Test-ExistingLSPBundle() {
         'bin/pyright-langserver.cmd',
         'bin/rust-analyzer.exe',
         'bin/bash-language-server.cmd',
+        'bin/sql-language-server.cmd',
         'bin/sg.exe',
         'bin/go.cmd'
     )

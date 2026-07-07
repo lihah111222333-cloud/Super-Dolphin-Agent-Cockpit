@@ -146,14 +146,6 @@ func newTestDriverWithLaunch(t *testing.T, mirror contract.SkillMirrorReconciler
 	return d
 }
 
-func assumeClaudeAuthLoggedIn(d *driver) *driver {
-	d.authStatus = loggedInClaudeAuthStatus
-	if currentLaunchCLIOverride != nil {
-		d.launchCLI = currentLaunchCLIOverride
-	}
-	return d
-}
-
 func assumeSessionLaunchOverride(s *session) *session {
 	if currentLaunchCLIOverride != nil {
 		s.launchCLI = currentLaunchCLIOverride
@@ -337,12 +329,13 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()
 	result := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		s.mu.Lock()
 		err := s.restartIfNeededLocked(ctx, turnRequest("claude-new"))
 		s.mu.Unlock()
 		result <- err
-	}()
+	})
 
 	newReady := waitForReadySwap(t, s, oldReady)
 	assertSessionIDs(t, s, "pending", "pending", "before new ready")
@@ -426,15 +419,16 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 	defer cancel()
 	req := turnRequest("claude-new")
 	results := make(chan startTurnResult, 2)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		handle, err := s.StartTurn(ctx, req)
 		results <- startTurnResult{handle: handle, err: err}
-	}()
+	})
 	ready := waitForReadySwap(t, s, oldReady)
-	go func() {
+	goroutines.Go(func() {
 		handle, err := s.StartTurn(ctx, req)
 		results <- startTurnResult{handle: handle, err: err}
-	}()
+	})
 
 	assertNoStartTurnBeforeRestartReady(t, next, results)
 

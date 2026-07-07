@@ -1,7 +1,5 @@
 package main
 
-/* ROLLBACK_SKIP_START
-
 import (
 	"go/ast"
 	"reflect"
@@ -18,32 +16,7 @@ func TestRenameScriptGuardStrength_SkipRenameDirDenylistIsFrozen(t *testing.T) {
 	_, fileAST := parseRenameScriptAST(t)
 	fn := findTopLevelFuncDecl(t, fileAST, "skipRenameDir")
 
-	var (
-		got        []string
-		foundSwitch bool
-	)
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		switchStmt, ok := n.(*ast.SwitchStmt)
-		if !ok {
-			return true
-		}
-		foundSwitch = true
-		for _, stmt := range switchStmt.Body.List {
-			clause, ok := stmt.(*ast.CaseClause)
-			if !ok || len(clause.List) == 0 {
-				continue
-			}
-			for _, expr := range clause.List {
-				value, ok := stringLiteralValue(expr)
-				if !ok {
-					t.Fatalf("skipRenameDir case literal = %T, want string literal", expr)
-				}
-				got = append(got, value)
-			}
-		}
-		return false
-	})
-
+	got, foundSwitch := collectSkipRenameDirDenylist(t, fn)
 	if !foundSwitch {
 		t.Fatal("skipRenameDir switch not found")
 	}
@@ -64,13 +37,64 @@ func TestRenameScriptGuardStrength_SkipRenameDirDenylistIsFrozen(t *testing.T) {
 	}
 }
 
+func collectSkipRenameDirDenylist(t *testing.T, fn *ast.FuncDecl) ([]string, bool) {
+	t.Helper()
+
+	var switchStmt *ast.SwitchStmt
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if switchStmt != nil {
+			return false
+		}
+		stmt, ok := n.(*ast.SwitchStmt)
+		if !ok {
+			return true
+		}
+		switchStmt = stmt
+		return false
+	})
+	if switchStmt == nil {
+		return nil, false
+	}
+	return collectSkipRenameDirCaseLiterals(t, switchStmt), true
+}
+
+func collectSkipRenameDirCaseLiterals(t *testing.T, switchStmt *ast.SwitchStmt) []string {
+	t.Helper()
+
+	var got []string
+	for _, stmt := range switchStmt.Body.List {
+		got = append(got, skipRenameDirCaseLiterals(t, stmt)...)
+	}
+	return got
+}
+
+func skipRenameDirCaseLiterals(t *testing.T, stmt ast.Stmt) []string {
+	t.Helper()
+
+	clause, ok := stmt.(*ast.CaseClause)
+	if !ok || len(clause.List) == 0 {
+		return nil
+	}
+	got := make([]string, 0, len(clause.List))
+	for _, expr := range clause.List {
+		value, ok := stringLiteralValue(expr)
+		if !ok {
+			t.Fatalf("skipRenameDir case literal = %T, want string literal", expr)
+		}
+		got = append(got, value)
+	}
+	return got
+}
+
 func TestRenameScriptGuardStrength_HarnessCollectEditsSortingAndPlanMetadata(t *testing.T) {
 	t.Parallel()
 
-	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_guard_strength_harness_test.go", `package main
+	runRenameHarnessGoTest(t, "rename_codexsdk_to_agentsdk_guard_strength_harness_test.go", renameGuardStrengthHarnessSource)
+}
+
+const renameGuardStrengthHarnessSource = `package main
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,7 +133,7 @@ func TestCollectEditsSortsDescendingAndPreservesLineNumbers(t *testing.T) {
 	}
 }
 
-func TestBuildRenamePlanNormalizesRelPathKeepsModeAndSkipsNoops(t *testing.T) {
+func TestProcessRenameFileNormalizesRelPathAndSkipsNoops(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "dir", "sub")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
@@ -122,39 +146,37 @@ func TestBuildRenamePlanNormalizesRelPathKeepsModeAndSkipsNoops(t *testing.T) {
 		t.Fatalf("write target: %v", err)
 	}
 
-	plan, ok, err := buildRenamePlan(root, target, collectEdits)
+	reports := []fileReport{}
+	total := 0
+	if err := processRenameFile(root, target, false, collectEdits, applyEdits, &reports, &total); err != nil {
+		t.Fatalf("processRenameFile() error = %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %#v, want one report", reports)
+	}
+	if reports[0].File != "dir/sub/demo.go" {
+		t.Fatalf("report file = %q, want %q", reports[0].File, "dir/sub/demo.go")
+	}
+	if reports[0].Count != 1 || len(reports[0].Replacements) != 1 || total != 1 {
+		t.Fatalf("report counts = %#v total=%d, want 1 replacement", reports[0], total)
+	}
+	data, err := os.ReadFile(target)
 	if err != nil {
-		t.Fatalf("buildRenamePlan() error = %v", err)
+		t.Fatalf("read target: %v", err)
 	}
-	if !ok {
-		t.Fatal("buildRenamePlan() ok = false, want true")
-	}
-	if plan.Rel != "dir/sub/demo.go" {
-		t.Fatalf("plan.Rel = %q, want %q", plan.Rel, "dir/sub/demo.go")
-	}
-	if plan.FileMode != 0o640 {
-		t.Fatalf("plan.FileMode = %#o, want %#o", plan.FileMode, fs.FileMode(0o640))
-	}
-	if string(plan.Src) != original {
-		t.Fatalf("plan.Src = %q, want original content", string(plan.Src))
-	}
-	if len(plan.Edits) != 1 || len(plan.Replacements) != 1 {
-		t.Fatalf("plan edits/replacements = %d/%d, want 1/1", len(plan.Edits), len(plan.Replacements))
+	if string(data) != original {
+		t.Fatalf("dry-run process should not mutate target, got %q", string(data))
 	}
 
 	plain := filepath.Join(root, "plain.go")
 	if err := os.WriteFile(plain, []byte("package demo\n"), 0o644); err != nil {
 		t.Fatalf("write plain.go: %v", err)
 	}
-	noPlan, ok, err := buildRenamePlan(root, plain, collectEdits)
-	if err != nil {
-		t.Fatalf("buildRenamePlan(no-op) error = %v", err)
+	if err := processRenameFile(root, plain, false, collectEdits, applyEdits, &reports, &total); err != nil {
+		t.Fatalf("processRenameFile(no-op) error = %v", err)
 	}
-	if ok {
-		t.Fatalf("buildRenamePlan(no-op) = %#v, want ok=false", noPlan)
+	if len(reports) != 1 || total != 1 {
+		t.Fatalf("no-op should not record extra reports, reports=%#v total=%d", reports, total)
 	}
 }
-`)
-}
-
-ROLLBACK_SKIP_END */
+`

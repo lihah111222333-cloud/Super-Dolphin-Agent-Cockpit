@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -26,7 +27,8 @@ func (c *Client) startHeartbeatLocked() {
 	}
 	hbCtx, cancel := context.WithCancel(c.rootCtx)
 	c.hbCancel = cancel
-	go func() {
+	var heartbeatWG sync.WaitGroup
+	heartbeatWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("bootstrap: recovered heartbeat panic",
@@ -34,7 +36,7 @@ func (c *Client) startHeartbeatLocked() {
 			}
 		}()
 		c.runHeartbeat(hbCtx)
-	}()
+	})
 }
 
 // runHeartbeat 按协商间隔发送心跳；租约被拒绝时触发重新 register。

@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -27,6 +28,9 @@ var ErrMissingContextCWD = errors.New("strict context enforcement: missing tool 
 
 // ErrMissingWorkspaceRoots 表示严格上下文模式下没有可用 workspace roots。
 var ErrMissingWorkspaceRoots = errors.New("strict context enforcement: missing workspace roots")
+
+// ErrToolProviderUnavailable 表示 MCP server 未注入工具 provider。
+var ErrToolProviderUnavailable = errors.New("tool provider unavailable")
 
 // WorkspaceRootFromContextStrict 从可信 tool scope 或旧 CWD context 读取当前工作区根。
 // 严格模式缺少 CWD 时返回 ErrMissingContextCWD，而不是使用进程 cwd 兜底。
@@ -237,7 +241,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 // startReadLoop 启动单独 goroutine 读取 transport，panic 会被记录而不是击穿 Run。
 func (s *Server) startReadLoop(results chan<- readResult) {
-	go func() {
+	var readWG sync.WaitGroup
+	readWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("mcp: recovered server readLoop panic",
@@ -245,7 +250,7 @@ func (s *Server) startReadLoop(results chan<- readResult) {
 			}
 		}()
 		s.readLoop(results)
-	}()
+	})
 }
 
 // readLoop 持续读取 transport 消息并把错误也送回主循环，由 Run 统一决定是否退出。
@@ -395,10 +400,10 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	return resp
 }
 
-// listTools 在 provider 未注入时返回空列表，避免 tools/list 因可选 peer 缺失而 panic。
+// listTools 在 provider 未注入时 fail-fast，避免 tools/list 静默发布空工具面。
 func (s *Server) listTools(ctx context.Context) ([]MCPTool, error) {
 	if s.tools == nil {
-		return nil, nil
+		return nil, ErrToolProviderUnavailable
 	}
 	tools, err := s.tools.ListTools(ctx)
 	if err != nil {

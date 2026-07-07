@@ -7,6 +7,7 @@ import {
   getDatasourceDocument as getDatasourceDocumentBackend,
   importDatasourceLocalFile as importDatasourceLocalFileBackend,
   importSkillDirectories as importSkillDirectoriesBackend,
+  listDatasourceChunks as listDatasourceChunksBackend,
   listDatasourceDocuments as listDatasourceDocumentsBackend,
   listMCPServers as listMCPServersBackend,
   listSkillFiles as listSkillFilesBackend,
@@ -14,6 +15,7 @@ import {
   listSkillTools as listSkillToolsBackend,
   previewSkillResolution as previewSkillResolutionBackend,
   readSkill as readSkillBackend,
+  selectDatasourceImportFile as selectDatasourceImportFileBackend,
   selectFiles as selectFilesBackend,
   selectProjectDirs as selectProjectDirsBackend,
   startPlaywrightMCPServer as startPlaywrightMCPServerBackend,
@@ -66,6 +68,10 @@ export function listDatasourceDocuments(payload) {
   return listDatasourceDocumentsBackend(payload);
 }
 
+export function listDatasourceChunks(payload) {
+  return listDatasourceChunksBackend(payload);
+}
+
 export function listMCPServers(payload) {
   return listMCPServersBackend(payload);
 }
@@ -92,6 +98,10 @@ export function readSkill(payload) {
 
 export function selectFiles(payload) {
   return selectFilesBackend(payload);
+}
+
+export function selectDatasourceImportFile(payload) {
+  return selectDatasourceImportFileBackend(payload);
 }
 
 export function selectProjectDirs(payload) {
@@ -125,4 +135,3 @@ export function updateDatasourceDocument(payload) {
 export function writeSkill(payload) {
   return writeSkillBackend(payload);
 }
-

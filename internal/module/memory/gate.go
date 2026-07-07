@@ -9,6 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
+// AutoMemPathSource 标记当前 AutoMem 根目录来自默认派生、设置还是环境变量。
+// gate 会把该来源带给 UI 和 provider 边界，用于解释路径信任级别。
 type AutoMemPathSource string
 
 const (
@@ -28,6 +30,8 @@ const (
 	MemoryHarnessCodex      MemoryHarness = "codex"
 )
 
+// MemoryGateSnapshot 是一次 prompt/turn 组装时的 memory gate 决策快照。
+// 它把配置、环境变量、会话 flag 和 provider overlay 统一收敛，避免各入口自行推导可见行为。
 type MemoryGateSnapshot struct {
 	AutoEnabled               bool
 	ForceEnabledByEnvFalsy    bool
@@ -64,6 +68,8 @@ func (s MemoryGateSnapshot) SuppressForOverlay() bool {
 	return s.Harness == MemoryHarnessClaudeCode
 }
 
+// RelevantPrefetchSurfacedState 记录当前 thread 已展示的相关记忆预算。
+// 该状态只影响后续 turn 是否继续预取，不会写入磁盘或 prompt snapshot。
 type RelevantPrefetchSurfacedState struct {
 	TotalBytes int
 }

@@ -504,6 +504,11 @@ func isValidGitRootMarker(path string) (bool, error) {
 // 根目录不安全或发布失败会阻断启动，避免 provider 读取过期技能镜像。
 func EnsureNoSkillMirrorConflicts(report contract.SkillMirrorReport) error {
 	blocking := blockingSkillMirrorConflicts(report.Conflicts)
+	for _, item := range report.Skipped {
+		if isProviderReadableMirrorDrift(item.TargetID, item) {
+			blocking = append(blocking, item)
+		}
+	}
 	if len(blocking) == 0 {
 		return nil
 	}
@@ -532,32 +537,32 @@ func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []
 	}
 	blocking := make([]contract.SkillMirrorReportItem, 0, len(conflicts))
 	for _, item := range conflicts {
-		if isBlockingSkillMirrorConflict(item) {
+		if contract.IsBlockingSkillMirrorConflict(item) {
 			blocking = append(blocking, item)
 		}
 	}
 	return blocking
 }
 
-func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
-	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
-	case "same_name",
-		"same_name_scope_conflict":
-		return isActiveProviderMirrorTarget(item)
+func isProviderReadableMirrorDrift(target string, item contract.SkillMirrorReportItem) bool {
+	if !isMirrorDriftConflictKind(item.ConflictKind) {
+		return false
+	}
+	if strings.TrimSpace(target) != "" && strings.TrimSpace(item.TargetID) == "" {
+		item.TargetID = target
+	}
+	return isActiveProviderMirrorTarget(item)
+}
+
+func isMirrorDriftConflictKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "drift",
 		"mirror_drift",
 		"multi_mirror_drift",
-		"canonical_deleted_with_drift",
-		"unmanaged",
-		"unmanaged_same_name",
-		"unmanaged_provider_skill":
-		return isActiveProviderMirrorTarget(item)
-	case "publish_error",
-		"publish_targets_unconfigured",
-		"mirror_root_symlink":
+		"canonical_deleted_with_drift":
 		return true
 	default:
-		return true
+		return false
 	}
 }
 

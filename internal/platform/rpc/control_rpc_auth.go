@@ -64,14 +64,20 @@ func (a controlRPCAuthAssigner) Names() []string {
 // controlRPCConnectionAuth 记录单条控制 RPC 连接的认证状态。
 type controlRPCConnectionAuth struct {
 	expected string
+	onAuth   func()
 
 	mu            sync.Mutex
 	authenticated bool
+	notifyOnce    sync.Once
 }
 
 // newControlRPCConnectionAuth 创建连接认证状态，expected 为空会让 register fail-fast。
-func newControlRPCConnectionAuth(expected string) *controlRPCConnectionAuth {
-	return &controlRPCConnectionAuth{expected: strings.TrimSpace(expected)}
+func newControlRPCConnectionAuth(expected string, onAuthenticated ...func()) *controlRPCConnectionAuth {
+	auth := &controlRPCConnectionAuth{expected: strings.TrimSpace(expected)}
+	if len(onAuthenticated) > 0 {
+		auth.setOnAuthenticated(onAuthenticated[0])
+	}
+	return auth
 }
 
 // authorize 要求同一连接先用共享 session token 完成 ctl/register。
@@ -107,8 +113,31 @@ func (a *controlRPCConnectionAuth) authorizeRegister(req *jrpc2.Request) error {
 // markAuthenticated 在 register 成功后标记当前连接已认证。
 func (a *controlRPCConnectionAuth) markAuthenticated() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.authenticated = true
+	a.mu.Unlock()
+	a.notifyAuthenticated()
+}
+
+// setOnAuthenticated 绑定认证成功回调；若连接已经完成认证，则立即补发一次。
+func (a *controlRPCConnectionAuth) setOnAuthenticated(fn func()) {
+	a.mu.Lock()
+	a.onAuth = fn
+	authenticated := a.authenticated
+	a.mu.Unlock()
+	if authenticated {
+		a.notifyAuthenticated()
+	}
+}
+
+// notifyAuthenticated 一次性通知认证完成；没有回调时不消耗 once，允许稍后绑定。
+func (a *controlRPCConnectionAuth) notifyAuthenticated() {
+	a.mu.Lock()
+	fn := a.onAuth
+	a.mu.Unlock()
+	if fn == nil {
+		return
+	}
+	a.notifyOnce.Do(fn)
 }
 
 // isAuthenticated 读取当前连接认证状态。

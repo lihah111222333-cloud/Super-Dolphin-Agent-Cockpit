@@ -12,6 +12,8 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// Message 表示 Codex rollout 历史中的单条 provider 消息。
+// 它先保持 provider 原始 role/content/metadata，再由 session history 转成统一 DTO。
 type Message struct {
 	Role      string          `json:"role"`
 	Content   string          `json:"content"`

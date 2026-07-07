@@ -6,6 +6,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"
@@ -73,7 +74,7 @@ func subscribeCoreEventPushes(worker *pushNotificationWorker, dispatcher *event.
 }
 
 // typedPushMethods 是已经有强类型事件面负责推送的方法集合。
-var typedPushMethods = newTypedPushMethods()
+var typedPushMethods = sync.OnceValue(newTypedPushMethods)
 
 func newTypedPushMethods() map[string]struct{} {
 	out := make(map[string]struct{}, len(eventsurface.AllTypedWireMethods()))
@@ -128,7 +129,7 @@ func shouldSuppressRetryProgressRawProviderPush(method string, data any) bool {
 // shouldSuppressTypedRawProviderPush 判断 raw 事件是否已被强类型 push 覆盖。
 func shouldSuppressTypedRawProviderPush(method string, data any) bool {
 	key := normalizedRawProviderMethodKey(method)
-	if _, ok := typedPushMethods[key]; ok {
+	if _, ok := typedPushMethods()[key]; ok {
 		return true
 	}
 	if _, ok := typedRawProviderAliasMethods[key]; ok {
@@ -282,7 +283,7 @@ func shouldPushRawProviderMethod(method string) bool {
 	if method == "" {
 		return false
 	}
-	if _, ok := typedPushMethods[strings.ToLower(method)]; ok {
+	if _, ok := typedPushMethods()[strings.ToLower(method)]; ok {
 		return false
 	}
 	return eventsurface.RawWireAllowed(eventsurface.RawWireAllowlistSpec(), method)

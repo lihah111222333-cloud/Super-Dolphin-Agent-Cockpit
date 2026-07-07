@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -20,6 +21,8 @@ const maxDiagnosticSummaryRunes = 300
 const typeScriptDeprecatedDiagnosticCode = "6385"
 const appManagedDiagnosticsNoBootstrapSource = "app_managed_no_bootstrap"
 const appManagedDiagnosticsNoBootstrapMessage = "diagnostics target is app-managed data outside workspace roots; skipped workspace LSP bootstrap and returned an empty diagnostics cache"
+const diagnosticsStartupRetryCount = 5
+const diagnosticsStartupRetryBaseDelay = 300 * time.Millisecond
 
 type diagnosticsTable struct {
 	File string   `json:"file"`
@@ -126,17 +129,63 @@ func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, ex
 	if appManaged {
 		return diagnosticsWaitResult{appManagedOutsideWorkspace: true, message: message}, nil
 	}
-	opened, openErr := h.openDiagnosticDocuments(ctx, existingURIs)
-	if openErr != nil {
-		return diagnosticsWaitResult{}, errors.Join(waitErr, openErr)
+	bootstrapped, bootstrapErr := h.bootstrapDiagnosticDocuments(ctx, existingURIs)
+	if bootstrapErr != nil {
+		return diagnosticsWaitResult{}, errors.Join(waitErr, bootstrapErr)
 	}
-	if opened == 0 {
+	if bootstrapped == 0 {
 		return diagnosticsWaitResult{}, waitErr
 	}
-	if _, retryErr := h.waitDiagnosticsStable(ctx, uris); retryErr != nil {
+	if retryErr := h.waitDiagnosticsStableWithStartupRetries(ctx, uris); retryErr != nil {
 		return h.recoverPartialDiagnosticsWait(ctx, uris, retryErr)
 	}
 	return diagnosticsWaitResult{recovered: true}, nil
+}
+
+// waitDiagnosticsStableWithStartupRetries 在启动恢复后继续等待 diagnostics ready。
+// 仅 ErrDiagnosticsNotReady 进入有限指数退避重试，其他错误必须立即返回，避免吞掉真实 LSP 失败。
+func (h handlerBase) waitDiagnosticsStableWithStartupRetries(ctx context.Context, uris []string) error {
+	var lastErr error
+	for retry := 1; retry <= diagnosticsStartupRetryCount; retry++ {
+		if err := sleepDiagnosticsRetryBackoff(ctx, retry); err != nil {
+			return err
+		}
+		if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
+			if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+				return err
+			}
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func sleepDiagnosticsRetryBackoff(ctx context.Context, retry int) error {
+	delay := diagnosticsRetryBackoff(retry)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func diagnosticsRetryBackoff(retry int) time.Duration {
+	if retry <= 0 {
+		return 0
+	}
+	delay := diagnosticsStartupRetryBaseDelay
+	for i := 1; i < retry; i++ {
+		delay *= 2
+	}
+	return delay
 }
 
 // recoverPartialDiagnosticsWait 将批量等待失败降级为逐文件等待。
@@ -237,7 +286,7 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		return nil, nil, nil
 	}
 
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -337,9 +386,9 @@ func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (
 	return currentGeneration, nil
 }
 
-// openDiagnosticDocuments 去重后打开一组诊断目标。
-// 单个文件打开失败会汇总为 joined error，但仍继续尝试其他目标，便于部分恢复。
-func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
+// bootstrapDiagnosticDocuments 去重后重新触发诊断目标 bootstrap。
+// 单个文件 bootstrap 失败会汇总为 joined error，但仍继续尝试其他目标，便于部分恢复。
+func (h handlerBase) bootstrapDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
 	var errs []error
@@ -352,7 +401,7 @@ func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string)
 			continue
 		}
 		seen[uri] = struct{}{}
-		if err := h.openDiagnosticDocument(ctx, uri); err != nil {
+		if err := h.bootstrapDiagnosticDocument(ctx, uri); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", uri, err))
 			continue
 		}
@@ -364,9 +413,12 @@ func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string)
 	return count, nil
 }
 
-// openDiagnosticDocument 读取普通文件并向对应 LSP manager 发送 DidOpen。
-// 目标必须不是 symlink，manager 缺失会显式报错而不是返回空诊断。
-func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) error {
+// bootstrapDiagnosticDocument 校验普通文件后委托 manager 状态机同步目标文档。
+// 目标必须不是 symlink，registry 缺失会显式报错而不是返回空诊断。
+func (h handlerBase) bootstrapDiagnosticDocument(ctx context.Context, uri string) error {
+	if h.registry == nil {
+		return errManagerUnavailable
+	}
 	path := format.URIToPath(uri)
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -378,28 +430,21 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) err
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("diagnostic target %q must reference a regular file", path)
 	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	manager, err := managerForFile(ctx, h.registry, path, "")
-	if err != nil {
-		return err
-	}
-	if manager == nil {
-		return errManagerUnavailable
-	}
-	return manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(path), 1, string(content))
+	return h.registry.BootstrapDocument(ctx, uri)
 }
 
 // appManagedDiagnosticsOutsideWorkspace 判断诊断目标是否全部位于 app-managed 外部数据区。
 // 这种路径可被读取但不应启动 workspace LSP，以免把应用托管缓存误当用户项目。
 func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (bool, string, error) {
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, workspaceRootsOnly, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return false, "", err
 	}
-	workspaceRoots, err := search.NormalizeRootSet(root, roots)
+	workspaceRoots, err := search.NormalizeRootSet(root, workspaceRootsOnly)
+	if err != nil {
+		return false, "", err
+	}
+	readRoot, readableRoots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return false, "", err
 	}
@@ -409,7 +454,7 @@ func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (
 		if strings.TrimSpace(path) == "" {
 			return false, "", nil
 		}
-		pathInfo, err := search.ResolvePathInRoots(root, roots, path)
+		pathInfo, err := search.ResolvePathInRoots(readRoot, readableRoots, path)
 		if err != nil {
 			return false, "", err
 		}
@@ -595,7 +640,7 @@ func (r diagnosticsResponse) ToPlainText() string {
 	var sb strings.Builder
 	sb.WriteString("LSP Diagnostics:\n")
 	if r.Meta.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+		fmt.Fprintf(&sb, "Message: %s\n", r.Meta.Message)
 	}
 	for _, table := range r.Data {
 		for _, row := range table.Rows {

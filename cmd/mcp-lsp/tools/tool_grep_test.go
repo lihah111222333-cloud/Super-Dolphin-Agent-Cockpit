@@ -72,6 +72,35 @@ func TestGrepTextSearchEmptyResultHasMessage(t *testing.T) {
 	}
 }
 
+func TestGrepTextSearchSingleTSVFileHonorsGlob(t *testing.T) {
+	root := canonicalGrepPath(t, t.TempDir())
+	target := filepath.Join(root, "index.tsv")
+	if err := os.WriteFile(target, []byte("path\tmodule\ncmd/mcp-orch/main.go\tcmd\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got, err := callGrepTool(t, root, grepToolInput{
+		Action:     "text_search",
+		Query:      "cmd/mcp-orch/main.go",
+		Path:       target,
+		Glob:       "*.tsv",
+		MaxResults: 10,
+	})
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	if resp.Total != 1 || resp.Showing != 1 {
+		t.Fatalf("grep totals = total:%d showing:%d, want single TSV match", resp.Total, resp.Showing)
+	}
+	if _, ok := resp.Data[target]; !ok {
+		t.Fatalf("grep data = %#v, want match for %s", resp.Data, target)
+	}
+}
+
 func TestGrepTextSearchAcceptsCommonMultiPathParams(t *testing.T) {
 	root := t.TempDir()
 	writeGrepFixtureFile(t, filepath.Join(root, "first", "one.go"), "package first\nconst needleOne = true\n")

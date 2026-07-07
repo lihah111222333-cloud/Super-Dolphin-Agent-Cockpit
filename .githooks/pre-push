@@ -3,8 +3,14 @@
 # Bypass: git push --no-verify
 set -e
 
+# Push hooks must not run gosec; keep security scans out of the local push path.
+export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
+
 run_without_git_env() (
-  unset $(git rev-parse --local-env-vars)
+  local git_var
+  while IFS= read -r git_var; do
+    [ -n "$git_var" ] && unset "$git_var"
+  done < <(git rev-parse --local-env-vars)
   unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
   local name
   while IFS='=' read -r name _; do
@@ -22,6 +28,7 @@ GO_PKG_CANDIDATES=()
 HAS_FRONTEND_APP_CODE_CHANGES=0
 HAS_SQLC_CHANGES=0
 HAS_CODEMAP_CHANGES=0
+HAS_CAPCONTRACT_CHANGES=0
 HAS_SKILL_CHANGES=0
 cleanup() {
   rm -f "$PUSH_RANGES" "$GO_LIST_ERR"
@@ -150,8 +157,19 @@ add_sqlc_path() {
 
 add_codemap_path() {
   case "$1" in
-    docs/doc/codemap/*|scripts/codemap_index.go)
+    docs/doc/codemap/*|scripts/codemap_index.go|scripts/generate_ai_project_map.js)
       HAS_CODEMAP_CHANGES=1
+      ;;
+  esac
+}
+
+add_capcontract_path() {
+  case "$1" in
+    docs/doc/codemap/capability-contract/*|\
+    internal/devtools/capcontract/*|\
+    scripts/capcontract.go|\
+    scripts/capcontract/*)
+      HAS_CAPCONTRACT_CHANGES=1
       ;;
   esac
 }
@@ -169,6 +187,7 @@ record_changed_path() {
   add_frontend_path "$1"
   add_sqlc_path "$1"
   add_codemap_path "$1"
+  add_capcontract_path "$1"
   add_skill_path "$1"
 }
 
@@ -316,6 +335,12 @@ run_path_based_repository_gates() {
   if [ "$HAS_CODEMAP_CHANGES" -eq 1 ]; then
     echo "[pre-push] codemap check..."
     run_without_git_env make codemap-check
+    echo "[pre-push] project map check..."
+    run_without_git_env make project-map-check
+  fi
+  if [ "$HAS_CAPCONTRACT_CHANGES" -eq 1 ]; then
+    echo "[pre-push] capability contract check..."
+    run_without_git_env make capcontract-check
   fi
   if [ "$HAS_SKILL_CHANGES" -eq 1 ]; then
     echo "[pre-push] skill mirror validation..."

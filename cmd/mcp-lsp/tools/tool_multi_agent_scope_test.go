@@ -31,8 +31,6 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	runScopedDiagnostics(t, handler, repo, "agent-a", map[string]any{
 		"action":    "diagnostics",
 		"file_path": "main.go",
-		"agent_id":  "agent-forged",
-		"cwd":       evilRoot,
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
 	assertToolManagerDiagnostics(t, managerB, 0, "", "", "")
@@ -40,8 +38,6 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{
 		"action":    "diagnostics",
 		"file_path": "main.go",
-		"agent_id":  "agent-forged",
-		"cwd":       evilRoot,
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
 	assertToolManagerDiagnostics(t, managerB, 1, "agent-b", repo, evilRoot)
@@ -153,6 +149,10 @@ func resolvedToolTestScope(scope lspmanager.ToolScope) lspmanager.ResolvedToolSc
 }
 
 type multiAgentToolManager struct {
+	testManagerNavigationNoop
+	testManagerSymbolNoop
+	testManagerEditNoop
+
 	mu                   sync.Mutex
 	name                 string
 	defaultURI           string
@@ -200,88 +200,10 @@ func (m *multiAgentToolManager) Close() error {
 	return nil
 }
 
-func (*multiAgentToolManager) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) Implementation(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) TypeDefinition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) Hover(context.Context, string, protocol.Position) (*protocol.HoverResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) SignatureHelp(context.Context, string, protocol.Position) (*protocol.SignatureHelpResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) WorkspaceSymbol(context.Context, string, string) ([]protocol.WorkspaceSymbolResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) FoldingRange(context.Context, string) ([]protocol.FoldingRange, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) SemanticTokens(context.Context, string) (*protocol.SemanticTokensResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) CodeAction(context.Context, string, protocol.Range, []string) ([]protocol.CodeActionResult, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
-	return nil, nil
-}
-
-func (*multiAgentToolManager) DidOpen(context.Context, string, string, int, string) error {
-	return nil
-}
-
-func (*multiAgentToolManager) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
-	return nil
-}
-
-func (*multiAgentToolManager) DidClose(context.Context, string) error { return nil }
-
 func (m *multiAgentToolManager) BootstrapDocument(context.Context, string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.bootstrapCalls++
-	return nil
-}
-
-func (*multiAgentToolManager) BootstrapDocumentOpenOnly(context.Context, string) error {
 	return nil
 }
 

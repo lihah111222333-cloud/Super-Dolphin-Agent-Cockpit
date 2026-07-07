@@ -52,6 +52,7 @@ var _ Service = (*service)(nil)
 var _ contract.SkillMirrorReconciler = (*service)(nil)
 var _ contract.SkillToolProvider = (*service)(nil)
 
+// SkillApprovalRequiredError 暴露 skill 写入需要人工审批时的标准错误类型。
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
 // resolutionPreviewHash 计算用户确认 preview 时必须回传的稳定 hash。

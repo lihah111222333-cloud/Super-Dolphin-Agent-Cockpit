@@ -473,6 +473,23 @@ describe('WorkflowPage module', () => {
     expect(payload.idempotencyKey).toMatch(/^ui-/);
   });
 
+  it('shows refresh failure after a successful DAG start', async () => {
+    mockWorkflowDag();
+    backend.getDagDetail
+      .mockResolvedValueOnce({
+        dag: { dag_key: 'daily-brief', title: 'Daily Brief', status: 'ready', trigger: 'manual', version: 7 },
+        nodes: [{ node_key: 'draft', title: 'Draft', node_type: 'agent', assigned_to: 'codex', depends_on: [] }],
+      })
+      .mockRejectedValueOnce(new Error('detail refresh offline'));
+
+    renderWorkflowPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '运行' }));
+
+    const notice = await screen.findByText(/已启动自动化/);
+    expect(notice).toHaveTextContent('但刷新状态失败：detail refresh offline');
+  });
+
   it('shows blocked ready-node diagnostics and dispatches the runtime node with an assignee', async () => {
     mockWorkflowDag();
     backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
@@ -1075,6 +1092,36 @@ describe('WorkflowPage module', () => {
     expect(backend.applyDagOps.mock.calls[0][0].ops[0].patch).toMatchObject({
       trigger: 'scheduled',
       cron_expr: 'CRON_TZ=Asia/Shanghai 0 5 * * *',
+    });
+  });
+
+  it('preserves paused scheduled DAGs when editing the schedule cron expression', async () => {
+    const dag = {
+      dag_key: 'paused-flow',
+      title: 'Paused Flow',
+      status: 'ready',
+      trigger: 'scheduled',
+      cron_expr: 'CRON_TZ=Asia/Shanghai 0 9 * * *',
+      schedule_enabled: false,
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '修改计划' }));
+    fireEvent.change(screen.getByLabelText('运行时间'), { target: { value: '06:30' } });
+    fireEvent.click(screen.getAllByRole('button', { name: '修改计划' }).at(-1));
+
+    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+    expect(backend.applyDagOps.mock.calls[0][0].ops[0].patch).toMatchObject({
+      trigger: 'scheduled',
+      cron_expr: 'CRON_TZ=Asia/Shanghai 30 6 * * *',
+      schedule_enabled: false,
     });
   });
 

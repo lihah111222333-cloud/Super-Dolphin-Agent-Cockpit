@@ -187,6 +187,42 @@ func TestRegisterTurnLifecycleHandlesTurnInterrupted(t *testing.T) {
 	}
 }
 
+func TestApprovalLifecycleIgnoresQueuedEventsAfterStop(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.activeTurnID = "turn-1"
+	svc.agents[agent.id] = agent
+
+	lc := &stubLifecycle{}
+	RegisterApprovalLifecycle(lc, dispatcher, svc, silentLogger())
+	if len(lc.hooks) != 1 {
+		t.Fatalf("RegisterApprovalLifecycle() hooks = %d, want 1", len(lc.hooks))
+	}
+	hook := lc.hooks[0]
+	if hook.OnStart == nil || hook.OnStop == nil {
+		t.Fatal("RegisterApprovalLifecycle() must install both OnStart and OnStop")
+	}
+	if err := hook.OnStart(context.Background()); err != nil {
+		t.Fatalf("OnStart() error = %v", err)
+	}
+
+	event.Publish(dispatcher, approvalRequestedEvent("agent-1", "turn-1"))
+	if err := hook.OnStop(context.Background()); err != nil {
+		t.Fatalf("OnStop() error = %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	snapshot := readAgentSnapshot(t, svc, agent.id)
+	if snapshot.state != string(agentdto.StateTurnRunning) || snapshot.activeTurnID != "turn-1" {
+		t.Fatalf("agent after stopped approval lifecycle = state:%q activeTurnID:%q, want unchanged running turn", snapshot.state, snapshot.activeTurnID)
+	}
+}
+
 func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	t.Parallel()
 

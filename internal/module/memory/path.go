@@ -661,6 +661,8 @@ func consolidationName(item ExtractedMemory, description string) string {
 	return "Dream note"
 }
 
+// MemoryType 是持久化记忆的语义分类别名。
+// root 包保留该出口，保证写入、索引和检索路径继续使用 shared 子包的同一枚举。
 type MemoryType = shared.MemoryType
 
 const (
@@ -686,6 +688,8 @@ func ParseMemoryType(raw string) MemoryType { return shared.ParseMemoryType(raw)
 // 该 key 用于索引去重、查找和跨 scope 同名检测。
 func CanonicalName(raw string) string { return shared.CanonicalName(raw) }
 
+// MemoryScope 表示 root 包历史兼容的可见范围标签。
+// 新的 provider tool 请求主要使用 contract.MemoryScope，这里保留给旧内部调用方。
 type MemoryScope string
 
 const (
@@ -694,10 +698,20 @@ const (
 	MemoryScopeLocal   MemoryScope = "local"
 )
 
+// MemoryFrontmatter 是 memory topic 文件 frontmatter 的兼容别名。
+// 真实字段定义在 shared 子包，root 包只负责维持旧 API。
 type MemoryFrontmatter = shared.MemoryFrontmatter
+
+// MemoryEntry 是磁盘记忆条目的兼容别名。
+// 写入、索引和相关检索共享同一结构，避免不同子包产生 DTO 漂移。
 type MemoryEntry = shared.MemoryEntry
+
+// ParsedMemory 是解析后的 memory markdown 结果别名。
+// 调用方可据此区分清洗后的正文和原始磁盘内容。
 type ParsedMemory = shared.ParsedMemory
 
+// SaveIntent 表示 runtime 从 turn 文本中识别出的保存意图。
+// 它只携带待写入内容和类型，具体 private/team 路由由 hooks 根据 thread metadata 决定。
 type SaveIntent struct {
 	Detected bool
 	Content  string

@@ -1,7 +1,5 @@
 package main
 
-/* ROLLBACK_SKIP_START
-
 import (
 	"bytes"
 	"encoding/json"
@@ -36,23 +34,7 @@ func TestRenameScriptMainDryRunWritesReportWithoutMutatingFiles(t *testing.T) {
 	if string(data) != original {
 		t.Fatalf("dry-run should not mutate files: got %q want %q", string(data), original)
 	}
-	reportData, err := os.ReadFile(reportPath)
-	if err != nil {
-		t.Fatalf("read report: %v", err)
-	}
-	var report map[string]any
-	if err := json.Unmarshal(reportData, &report); err != nil {
-		t.Fatalf("unmarshal report: %v", err)
-	}
-	if got := strings.TrimSpace(report["mode"].(string)); got != "dry-run" {
-		t.Fatalf("report mode = %q, want %q", got, "dry-run")
-	}
-	if got := int(report["totalFiles"].(float64)); got != 1 {
-		t.Fatalf("report totalFiles = %d, want 1", got)
-	}
-	if got := int(report["totalReplacements"].(float64)); got != 1 {
-		t.Fatalf("report totalReplacements = %d, want 1", got)
-	}
+	assertRenameReportSummary(t, reportPath, "dry-run", 1, 1)
 }
 
 func TestRenameScriptMainRejectsMutuallyExclusiveModes(t *testing.T) {
@@ -85,14 +67,7 @@ func TestRenameScriptMainDefaultDryRunTrimsInputsAndPrintsReportPath(t *testing.
 	if !strings.Contains(stdout, "report="+reportPath) {
 		t.Fatalf("stdout = %q, want trimmed report path", stdout)
 	}
-	reportData, err := os.ReadFile(reportPath)
-	if err != nil {
-		t.Fatalf("read trimmed report: %v", err)
-	}
-	var report map[string]any
-	if err := json.Unmarshal(reportData, &report); err != nil {
-		t.Fatalf("unmarshal trimmed report: %v", err)
-	}
+	report := readRenameReport(t, reportPath)
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		t.Fatalf("abs root: %v", err)
@@ -107,6 +82,35 @@ func TestRenameScriptMainDefaultDryRunTrimsInputsAndPrintsReportPath(t *testing.
 	if string(data) != original {
 		t.Fatalf("default dry-run should not mutate files: got %q want %q", string(data), original)
 	}
+}
+
+func assertRenameReportSummary(t *testing.T, path, wantMode string, wantFiles, wantReplacements int) {
+	t.Helper()
+
+	report := readRenameReport(t, path)
+	if got := strings.TrimSpace(report["mode"].(string)); got != wantMode {
+		t.Fatalf("report mode = %q, want %q", got, wantMode)
+	}
+	if got := int(report["totalFiles"].(float64)); got != wantFiles {
+		t.Fatalf("report totalFiles = %d, want %d", got, wantFiles)
+	}
+	if got := int(report["totalReplacements"].(float64)); got != wantReplacements {
+		t.Fatalf("report totalReplacements = %d, want %d", got, wantReplacements)
+	}
+}
+
+func readRenameReport(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	reportData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal(reportData, &report); err != nil {
+		t.Fatalf("unmarshal report: %v", err)
+	}
+	return report
 }
 
 func TestRenameScriptMainApplyRewritesImports(t *testing.T) {
@@ -224,5 +228,3 @@ func runRenameScript(t *testing.T, args ...string) (string, string, error) {
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
 }
-
-ROLLBACK_SKIP_END */

@@ -11,15 +11,25 @@ import (
 	"strings"
 	"testing"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-func TestNewManagerRegistersDocumentFallbackAdapters(t *testing.T) {
+func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
 	root := runtimeCanonicalTempDir(t)
 	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	binDir := t.TempDir()
+	for _, name := range []string{
+		"vscode-json-language-server",
+		"vscode-markdown-language-server",
+		"yaml-language-server",
+	} {
+		writeMcpLSPExecutable(t, binDir, name)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	cfg, err := platformconfig.New()
 	if err != nil {
@@ -52,15 +62,15 @@ func TestNewManagerRegistersDocumentFallbackAdapters(t *testing.T) {
 		name         string
 		body         string
 		wantLanguage string
-		wantSymbol   string
+		wantRootKind string
 	}{
-		{name: "README.md", body: "# Title\n", wantLanguage: "markdown", wantSymbol: "Title"},
-		{name: "config.json", body: "{\n  \"name\": \"demo\"\n}\n", wantLanguage: "json", wantSymbol: "name"},
-		{name: "config.yaml", body: "name: demo\n", wantLanguage: "yaml", wantSymbol: "name"},
+		{name: "README.md", body: "# Title\n", wantLanguage: "markdown", wantRootKind: "markdown_project"},
+		{name: "config.json", body: "{\n  \"name\": \"demo\"\n}\n", wantLanguage: "json", wantRootKind: "dir_fallback"},
+		{name: "config.yaml", body: "name: demo\n", wantLanguage: "yaml", wantRootKind: "dir_fallback"},
 	}
 
 	for _, tc := range cases {
-		assertDocumentFallbackCase(t, root, ctx, resolver, tc)
+		assertDocumentLanguageCase(t, root, ctx, resolver, tc)
 	}
 }
 
@@ -103,7 +113,7 @@ func TestNewManagerUsesPlatformLSPConfig(t *testing.T) {
 	}
 }
 
-func assertDocumentFallbackCase(
+func assertDocumentLanguageCase(
 	t *testing.T,
 	root string,
 	ctx context.Context,
@@ -114,7 +124,7 @@ func assertDocumentFallbackCase(
 		name         string
 		body         string
 		wantLanguage string
-		wantSymbol   string
+		wantRootKind string
 	},
 ) {
 	t.Helper()
@@ -130,12 +140,11 @@ func assertDocumentFallbackCase(
 		t.Fatalf("ResolveManagerForFile(%s) language = %q, want %q", tc.name, got, tc.wantLanguage)
 	}
 	if scoped.ResolvedScope.LanguageID == "go" {
-		t.Fatalf("ResolveManagerForFile(%s) defaulted fallback document to Go", tc.name)
+		t.Fatalf("ResolveManagerForFile(%s) defaulted document language to Go", tc.name)
 	}
-	if got := scoped.ResolvedScope.RootKind; got != "document_fallback" {
-		t.Fatalf("ResolveManagerForFile(%s) root kind = %q, want document_fallback", tc.name, got)
+	if got := scoped.ResolvedScope.RootKind; got != tc.wantRootKind {
+		t.Fatalf("ResolveManagerForFile(%s) root kind = %q, want %q", tc.name, got, tc.wantRootKind)
 	}
-	assertDocumentFallbackSymbol(t, ctx, scoped, target, tc.name, tc.wantSymbol)
 }
 
 func TestRuntimeRootUsesWorkspaceRootsEnvWhenPrimaryRootMissing(t *testing.T) {
@@ -259,6 +268,38 @@ func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 	}
 }
 
+func TestRuntimeAdapterDiagnosticsMaxWaitCoversAllLSPClientAdapters(t *testing.T) {
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	for _, languageID := range runtimePrimaryLanguageIDs() {
+		adapter, ok := registry.AdapterForLanguage(languageID)
+		if !ok {
+			t.Fatalf("missing adapter for %s", languageID)
+		}
+		if !adapter.CapabilityPolicy().RequiresLSPClient {
+			continue
+		}
+		if got := runtimeAdapterDiagnosticsMaxWait(adapter); got != lspDiagnosticsColdStartMaxWait {
+			t.Fatalf("runtimeAdapterDiagnosticsMaxWait(%s) = %s, want %s", languageID, got, lspDiagnosticsColdStartMaxWait)
+		}
+	}
+}
+
+func TestRuntimeDocumentFallbackLanguagesDefaultEmpty(t *testing.T) {
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	for _, languageID := range []string{"markdown", "json", "yaml"} {
+		adapter, ok := registry.AdapterForLanguage(languageID)
+		if !ok {
+			t.Fatalf("missing adapter for %s", languageID)
+		}
+		if !adapter.CapabilityPolicy().RequiresLSPClient {
+			t.Fatalf("%s adapter should use a real LSP client", languageID)
+		}
+	}
+	if fallback, ok := registry.AdapterForLanguage("plaintext"); ok {
+		t.Fatalf("unexpected default document fallback adapter: %#v", fallback)
+	}
+}
+
 func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t *testing.T) {
 	registry := multilsp.NewDefaultLanguageAdapterRegistry()
 	adapter, ok := registry.AdapterForLanguage("python")
@@ -280,10 +321,103 @@ func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t
 	}
 }
 
-func TestRuntimePrimaryLanguageIDsIncludeShellscript(t *testing.T) {
-	if !slices.Contains(runtimePrimaryLanguageIDs(), "shellscript") {
-		t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing shellscript", runtimePrimaryLanguageIDs())
+func TestRuntimePrimaryLanguageIDsIncludeShellscriptAndSQL(t *testing.T) {
+	for _, languageID := range []string{"shellscript", "sql"} {
+		if !slices.Contains(runtimePrimaryLanguageIDs(), languageID) {
+			t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing %s", runtimePrimaryLanguageIDs(), languageID)
+		}
 	}
+}
+
+func TestSetupInstallerRegistersSQLLanguageServer(t *testing.T) {
+	binDir := t.TempDir()
+	writeMcpLSPExecutable(t, binDir, "sql-language-server")
+	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sql-language-server"))
+	t.Setenv("PATH", binDir)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	if result.Binary != "sql-language-server" {
+		t.Fatalf("sql installer binary = %q, want sql-language-server", result.Binary)
+	}
+	if result.Path != fakeServer {
+		t.Fatalf("sql installer path = %q, want %q", result.Path, fakeServer)
+	}
+}
+
+func TestSetupInstallerInstallsSQLLanguageServerWithPinnedNodeDependencies(t *testing.T) {
+	binDir := t.TempDir()
+	fakeNPM := filepath.Join(binDir, mcpLSPExecutableFileName("npm"))
+	marker := filepath.Join(binDir, "npm-called")
+	script := `#!/bin/sh
+set -eu
+case " $* " in
+  *" sql-language-server "*) ;;
+  *) echo "missing sql-language-server install arg: $*" >&2; exit 1 ;;
+esac
+case " $* " in
+  *" vscode-languageserver-protocol@3.17.5 "*) ;;
+  *) echo "missing pinned vscode-languageserver-protocol install arg: $*" >&2; exit 1 ;;
+esac
+case " $* " in
+  *" vscode-jsonrpc@8.2.0 "*) ;;
+  *) echo "missing pinned vscode-jsonrpc install arg: $*" >&2; exit 1 ;;
+esac
+printf '%s\n' "$*" > "$FAKE_NPM_MARKER"
+/bin/cat > "$FAKE_INSTALL_BIN/sql-language-server" <<'EOF'
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "1.7.1"
+  exit 0
+fi
+exit 0
+EOF
+/bin/chmod +x "$FAKE_INSTALL_BIN/sql-language-server"
+`
+	if runtime.GOOS == "windows" {
+		script = "@echo off\r\n" +
+			"set \"ARGS=%*\"\r\n" +
+			"if \"%ARGS:sql-language-server=%\"==\"%ARGS%\" (\r\n" +
+			"  echo missing sql-language-server install arg: %* 1>&2\r\n" +
+			"  exit /b 1\r\n" +
+			")\r\n" +
+			"if \"%ARGS:vscode-languageserver-protocol@3.17.5=%\"==\"%ARGS%\" (\r\n" +
+			"  echo missing pinned vscode-languageserver-protocol install arg: %* 1>&2\r\n" +
+			"  exit /b 1\r\n" +
+			")\r\n" +
+			"if \"%ARGS:vscode-jsonrpc@8.2.0=%\"==\"%ARGS%\" (\r\n" +
+			"  echo missing pinned vscode-jsonrpc install arg: %* 1>&2\r\n" +
+			"  exit /b 1\r\n" +
+			")\r\n" +
+			"echo %*>\"%FAKE_NPM_MARKER%\"\r\n" +
+			"(\r\n" +
+			"  echo @echo off\r\n" +
+			"  echo if \"%%1\"==\"--version\" echo 1.7.1\r\n" +
+			"  echo exit /b 0\r\n" +
+			") > \"%FAKE_INSTALL_BIN%\\sql-language-server.cmd\"\r\n" +
+			"exit /b 0\r\n"
+	}
+	if err := os.WriteFile(fakeNPM, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake npm: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("FAKE_INSTALL_BIN", binDir)
+	t.Setenv("FAKE_NPM_MARKER", marker)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	want := filepath.Join(binDir, mcpLSPExecutableFileName("sql-language-server"))
+	if result.Path != want {
+		t.Fatalf("sql installer path = %q, want %q", result.Path, want)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("sql installer did not invoke npm: %v", err)
+	}
+	requireRuntimeTestFileContains(t, marker, "vscode-jsonrpc@8.2.0")
 }
 
 func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
@@ -293,7 +427,7 @@ func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
 	writeMcpLSPExecutable(t, binDir, "shellcheck")
 	t.Setenv("PATH", binDir)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
 	}
@@ -342,7 +476,7 @@ printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
 	t.Setenv("FAKE_INSTALL_BIN", binDir)
 	t.Setenv("FAKE_NPM_MARKER", marker)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
 	}
@@ -411,7 +545,8 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
     "vscode-langservers-extracted": {"path": "bin/vscode-css-language-server", "languages": ["css"]},
     "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
     "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
-    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]}
+    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]},
+    "sql-language-server": {"path": "bin/sql-language-server", "languages": ["sql"]}
   }
 }
 `)
@@ -422,6 +557,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
+		"sql-language-server",
 	} {
 		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
 	}
@@ -458,6 +594,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 		"python",
 		"rust",
 		"shellscript",
+		"sql",
 	} {
 		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
 			t.Fatalf("bundled %s manager error = %v", languageID, err)
@@ -466,24 +603,6 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 	_, err = mgr.registry.GetManagerForLanguage(ctx, "java")
 	if !errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
 		t.Fatalf("java manager error = %v, want unsupported because jdtls is not in standard bundle", err)
-	}
-}
-
-func assertDocumentFallbackSymbol(
-	t *testing.T,
-	ctx context.Context,
-	scoped lspmanager.ScopedManager,
-	target string,
-	name string,
-	want string,
-) {
-	t.Helper()
-	symbols, err := scoped.Manager.DocumentSymbol(ctx, target)
-	if err != nil {
-		t.Fatalf("DocumentSymbol(%s): %v", name, err)
-	}
-	if len(symbols) == 0 || symbols[0].Name != want {
-		t.Fatalf("DocumentSymbol(%s) = %#v, want first symbol %q", name, symbols, want)
 	}
 }
 
@@ -528,6 +647,17 @@ func writeMcpLSPExecutable(t *testing.T, dir, name string) {
 	}
 }
 
+func requireRuntimeTestFileContains(t *testing.T, path, want string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("ReadFile(%q) = %q, missing %q", path, data, want)
+	}
+}
+
 func mcpLSPExecutableFileName(name string) string {
 	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
 		return name + ".cmd"
@@ -547,6 +677,7 @@ func normalizeMcpLSPBundleManifestForTest(body string) string {
 		"bin/pyright-langserver",
 		"bin/rust-analyzer",
 		"bin/bash-language-server",
+		"bin/sql-language-server",
 	} {
 		body = strings.ReplaceAll(body, `"`+path+`"`, `"`+path+`.cmd"`)
 	}

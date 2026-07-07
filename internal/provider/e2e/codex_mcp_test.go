@@ -531,13 +531,7 @@ func startCodexRPCServer(t *testing.T, recorder *codexRPCRecorder) string {
 			if len(msg.ID) == 0 {
 				continue
 			}
-			result := map[string]any{"ok": true}
-			switch msg.Method {
-			case "thread/start":
-				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
-			case "turn/start":
-				result = map[string]any{"turn": map[string]any{"id": "provider-turn-1"}}
-			}
+			result := codexRPCResult(msg.Method)
 			resp, err := json.Marshal(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
@@ -553,6 +547,19 @@ func startCodexRPCServer(t *testing.T, recorder *codexRPCRecorder) string {
 	}))
 	t.Cleanup(server.Close)
 	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+func codexRPCResult(method string) map[string]any {
+	switch method {
+	case "model/list":
+		return map[string]any{"models": []map[string]any{{"id": "gpt-5"}}}
+	case "thread/start":
+		return map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
+	case "turn/start":
+		return map[string]any{"turn": map[string]any{"id": "provider-turn-1"}}
+	default:
+		return map[string]any{"ok": true}
+	}
 }
 
 func assertDynamicToolNames(t *testing.T, params map[string]any, want []string) {

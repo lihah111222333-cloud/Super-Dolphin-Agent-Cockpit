@@ -79,40 +79,46 @@ func (s stubSessionResolver) ResolveSession(context.Context, string) (contract.S
 }
 
 type stubRPCSession struct {
+	stubRPCSessionLifecycle
+	stubRPCSessionOps
 	caps dto.CapabilitySet
 }
 
-func (s stubRPCSession) ThreadID() string { return "" }
+type stubRPCSessionLifecycle struct{}
 
-func (s stubRPCSession) RolloutPath() string { return "" }
+func (stubRPCSessionLifecycle) ThreadID() string { return "" }
+
+func (stubRPCSessionLifecycle) RolloutPath() string { return "" }
+
+func (stubRPCSessionLifecycle) Close(context.Context) error { return nil }
+
+func (stubRPCSessionLifecycle) ForceStop() error { return nil }
+
+type stubRPCSessionOps struct{}
 
 func (s stubRPCSession) Capabilities() dto.CapabilitySet { return s.caps }
 
-func (s stubRPCSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+func (stubRPCSessionOps) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
 
-func (s stubRPCSession) Steer(context.Context, dto.SteerRequest) error { return nil }
+func (stubRPCSessionOps) Steer(context.Context, dto.SteerRequest) error { return nil }
 
-func (s stubRPCSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
+func (stubRPCSessionOps) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 
-func (s stubRPCSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
+func (stubRPCSessionOps) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
 
-func (s stubRPCSession) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
+func (stubRPCSessionOps) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
 
-func (s stubRPCSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
+func (stubRPCSessionOps) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, nil
 }
 
-func (s stubRPCSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+func (stubRPCSessionOps) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
 	return nil, nil
 }
 
-func (s stubRPCSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-
-func (s stubRPCSession) Close(context.Context) error { return nil }
-
-func (s stubRPCSession) ForceStop() error { return nil }
+func (stubRPCSessionOps) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
 
 type threadAliasParams struct {
 	ThreadID      string `json:"threadId,omitempty"`

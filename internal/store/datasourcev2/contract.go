@@ -20,7 +20,7 @@ type Store interface {
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error)
 	GetDocument(ctx context.Context, documentID int64) (*Document, error)
-	ListChunks(ctx context.Context, documentID int64) ([]TextChunk, error)
+	ListChunksPage(ctx context.Context, params ListChunksParams) (TextChunkPage, error)
 	SearchChunks(ctx context.Context, params SearchChunksParams) ([]SemanticChunk, error)
 	UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error)
 	UpdateDocument(ctx context.Context, params UpdateDocumentParams) (*Document, error)
@@ -35,6 +35,14 @@ type Store interface {
 type ListDocumentsParams struct {
 	Keyword string
 	Limit   int32
+}
+
+// ListChunksParams 是 datasource_v2 文档分块的显式分页参数。
+// Cursor 表示上一页最后一个 chunk_index；第一页使用 -1。
+type ListChunksParams struct {
+	DocumentID int64
+	Limit      int32
+	Cursor     int32
 }
 
 // SearchChunksParams 是语义检索 datasource_v2 分块所需的查询向量和上限。
@@ -118,6 +126,13 @@ type TextChunk struct {
 	EmbeddingDim   int32     `json:"embeddingDim"`
 	TokenCount     int32     `json:"tokenCount"`
 	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// TextChunkPage 是 datasource_v2 文档分块的有界分页结果。
+type TextChunkPage struct {
+	Chunks     []TextChunk `json:"chunks"`
+	HasMore    bool        `json:"hasMore"`
+	NextCursor int32       `json:"nextCursor"`
 }
 
 // SemanticChunk 是语义检索返回的分块，包含来源文件和距离分数。

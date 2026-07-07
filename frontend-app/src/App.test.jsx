@@ -529,6 +529,8 @@ function mockSettingsAndThreadDefaults() {
     startLine: 1,
     endLine: 2,
     totalLines: 2,
+    previewMode: 'full',
+    contentVersion: 'version-src-a',
     snippet: [
       { line: 1, text: 'old' },
       { line: 2, text: 'keep' },
@@ -2775,6 +2777,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       expect(backend.saveCodeFile).toHaveBeenCalledWith({
         filePath: '/repo/app/src/a.js',
         content: 'new\nkeep',
+        previewMode: 'full',
+        contentVersion: 'version-src-a',
         project: '/repo/app',
         projects: ['/repo/app'],
       });
@@ -2835,7 +2839,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
       projects: ['/repo/app'],
     });
     expect(within(previewDialog).getByText('packages/demo/src/a.js')).toBeInTheDocument();
-    expect(within(previewDialog).getByLabelText('文件预览内容')).toHaveValue('chosen file');
+    expect(within(previewDialog).getByText('chosen file')).toBeInTheDocument();
+    expect(within(previewDialog).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
+    expect(within(previewDialog).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
   });
 
   it('renders markdown runtime diff previews and blocks closing dirty edits', async () => {
@@ -2847,6 +2853,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       startLine: 1,
       endLine: 3,
       totalLines: 3,
+      previewMode: 'full',
+      contentVersion: 'version-docs-readme',
       snippet: '# Guide\n\n- first step',
     });
     backend.getThreadState.mockResolvedValue({
@@ -4295,8 +4303,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
     fireEvent.click(resultLine);
 
-    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('src/App.jsx: runtime log result');
-    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('"preview": "{\\"total\\":3}"');
+    const popover = screen.getByTestId('warning-log-popover');
+    expect(popover).toHaveTextContent('[redacted]');
+    expect(popover).not.toHaveTextContent('src/App.jsx: runtime log result');
+    expect(popover).not.toHaveTextContent('"preview": "{\\"total\\":3}"');
   });
 
   it('clamps right-edge runtime click details into the viewport', async () => {
@@ -4422,7 +4432,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.getThreadState).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: 'essay_agent_15' }));
   });
 
-  it('connects attachments and conversation operation buttons', async () => {
+  it('connects ComposerMeta attachments as plain arrays and conversation operation buttons', async () => {
     backend.selectFiles.mockResolvedValue(['/tmp/a.txt']);
     backend.resolveThreadIdentity.mockResolvedValue({ id: 'thread-1', providerThreadId: 'provider-thread-1', agent_id: 'agent-1' });
 
@@ -4439,7 +4449,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('归档会话')).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(backend.selectFiles).toHaveBeenCalled();
+      expect(backend.selectFiles).toHaveBeenCalledWith();
       expect(JSON.parse(backend.copyTextToClipboard.mock.calls[0][0])).toEqual(expect.objectContaining({
         agentId: 'agent-1',
         providerThreadId: 'provider-thread-1',

@@ -55,14 +55,12 @@ func TestSQLiteWakeupClaimConcurrentGoroutinesAndProcesses(t *testing.T) {
 
 	results := make(chan wakeupClaimResult, 6)
 	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		workerID := fmt.Sprintf("goroutine-%d", i)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ids, err := claimAllSQLiteWakeups(ctx, store, workerID)
 			results <- wakeupClaimResult{ids: ids, err: err}
-		}()
+		})
 	}
 	children := launchWakeupClaimChildren(t, dbPath, dir, 2)
 	wg.Wait()
@@ -320,7 +318,7 @@ func seedSQLiteWakeupClaimRows(t *testing.T, ctx context.Context, store *store, 
 		t.Fatalf("UpsertDAG() error = %v", err)
 	}
 	run := createSQLiteTaskDAGRun(t, ctx, store, "run-claim", "dag-claim")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if _, err := store.EnqueueWakeup(ctx, EnqueueWakeupInput{
 			DagKey:         "dag-claim",
 			NodeKey:        fmt.Sprintf("node-%03d", i),
@@ -366,7 +364,7 @@ type wakeupClaimChild struct {
 func launchWakeupClaimChildren(t *testing.T, dbPath, dir string, count int) []wakeupClaimChild {
 	t.Helper()
 	children := make([]wakeupClaimChild, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		outPath := filepath.Join(dir, fmt.Sprintf("child-%d.json", i))
 		cmd := exec.Command(os.Args[0], "-test.run=TestWakeupSQLiteClaimChildProcess")
 		var output bytes.Buffer

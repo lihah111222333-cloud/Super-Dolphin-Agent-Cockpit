@@ -77,6 +77,7 @@ func startPrebuiltLSPBinaryClient(t *testing.T, binary, root string) *lspBinaryC
 		cancel()
 		t.Fatalf("start mcp-lsp binary: %v", err)
 	}
+	goroutines := newTestGoroutineGroup(t)
 	client := &lspBinaryClient{
 		cmd:     cmd,
 		stdin:   stdin,
@@ -86,9 +87,9 @@ func startPrebuiltLSPBinaryClient(t *testing.T, binary, root string) *lspBinaryC
 		stderr:  stderr,
 		root:    root,
 	}
-	go func() {
+	goroutines.Go(func() {
 		client.done <- cmd.Wait()
-	}()
+	})
 	t.Cleanup(func() {
 		client.close()
 	})

@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -138,11 +139,13 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 	}
 	if !bindingRecordHasProviderHistoryForUUID(binding, providerThreadID) {
 		if s.logger != nil {
-			s.logger.Info("thread: provider_thread_id from agent event is not recoverable",
+			fields := []any{
 				"thread_id", threadID,
 				"agent_id", agentID,
 				"provider_thread_id", providerThreadID,
-				"rollout_path", binding.RolloutPath)
+			}
+			fields = append(fields, platformshared.SafePathLogFields("rollout_path", binding.RolloutPath)...)
+			s.logger.Info("thread: provider_thread_id from agent event is not recoverable", fields...)
 		}
 		return
 	}
@@ -175,7 +178,10 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBinding
 	}
 	if comparablePromptCWD(prevCWD) != "" {
 		if s.logger != nil {
-			s.logger.Warn("thread: rejected cwd mismatch from agent event", "thread_id", threadID, "agent_id", agentID, "stored_cwd", prevCWD, "event_cwd", nextCWD)
+			fields := []any{"thread_id", threadID, "agent_id", agentID}
+			fields = append(fields, platformshared.SafePathLogFields("stored_cwd", prevCWD)...)
+			fields = append(fields, platformshared.SafePathLogFields("event_cwd", nextCWD)...)
+			s.logger.Warn("thread: rejected cwd mismatch from agent event", fields...)
 		}
 		return
 	}
@@ -188,17 +194,23 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBinding
 		Cwd:       nextCWD,
 		UpdatedAt: time.Now().Unix(),
 	}); err != nil {
-		s.logger.Warn("thread: update cwd from agent event failed", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD, "error", err)
+		fields := []any{"thread_id", threadID, "agent_id", agentID, "error", err}
+		fields = append(fields, platformshared.SafePathLogFields("cwd", nextCWD)...)
+		s.logger.Warn("thread: update cwd from agent event failed", fields...)
 		return
 	}
 	binding.Cwd = nextCWD
 	if promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD, s.cfg) {
 		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateWorktree); err != nil {
-			s.logger.Warn("thread: prompt invalidate after cwd change failed", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD, "reason", contract.InvalidateWorktree, "error", err)
+			fields := []any{"thread_id", threadID, "agent_id", agentID, "reason", contract.InvalidateWorktree, "error", err}
+			fields = append(fields, platformshared.SafePathLogFields("cwd", nextCWD)...)
+			s.logger.Warn("thread: prompt invalidate after cwd change failed", fields...)
 		}
 	}
 	if s.logger != nil {
-		s.logger.Info("thread: updated cwd from agent event", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD)
+		fields := []any{"thread_id", threadID, "agent_id", agentID}
+		fields = append(fields, platformshared.SafePathLogFields("cwd", nextCWD)...)
+		s.logger.Info("thread: updated cwd from agent event", fields...)
 	}
 }
 

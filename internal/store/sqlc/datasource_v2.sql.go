@@ -185,6 +185,70 @@ func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasource
 	return items, nil
 }
 
+const listDatasourceV2ChunksPage = `-- name: ListDatasourceV2ChunksPage :many
+SELECT id, document_id, chunk_index, content, char_count, byte_count, embedding, embedding_model, embedding_dim, token_count, created_at
+FROM datasource_v2_text_chunks
+WHERE document_id = ?1
+  AND chunk_index > ?2
+ORDER BY chunk_index ASC
+LIMIT ?3 + 1
+`
+
+type ListDatasourceV2ChunksPageParams struct {
+	DocumentID int64       `db:"document_id" json:"document_id"`
+	Cursor     int32       `db:"cursor" json:"cursor"`
+	Limit      interface{} `db:"limit" json:"limit"`
+}
+
+type ListDatasourceV2ChunksPageRow struct {
+	ID             int64  `db:"id" json:"id"`
+	DocumentID     int64  `db:"document_id" json:"document_id"`
+	ChunkIndex     int32  `db:"chunk_index" json:"chunk_index"`
+	Content        string `db:"content" json:"content"`
+	CharCount      int32  `db:"char_count" json:"char_count"`
+	ByteCount      int32  `db:"byte_count" json:"byte_count"`
+	Embedding      []byte `db:"embedding" json:"embedding"`
+	EmbeddingModel string `db:"embedding_model" json:"embedding_model"`
+	EmbeddingDim   int32  `db:"embedding_dim" json:"embedding_dim"`
+	TokenCount     int32  `db:"token_count" json:"token_count"`
+	CreatedAt      int64  `db:"created_at" json:"created_at"`
+}
+
+func (q *Queries) ListDatasourceV2ChunksPage(ctx context.Context, arg ListDatasourceV2ChunksPageParams) ([]ListDatasourceV2ChunksPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDatasourceV2ChunksPage, arg.DocumentID, arg.Cursor, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDatasourceV2ChunksPageRow{}
+	for rows.Next() {
+		var i ListDatasourceV2ChunksPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DocumentID,
+			&i.ChunkIndex,
+			&i.Content,
+			&i.CharCount,
+			&i.ByteCount,
+			&i.Embedding,
+			&i.EmbeddingModel,
+			&i.EmbeddingDim,
+			&i.TokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDatasourceV2Documents = `-- name: ListDatasourceV2Documents :many
 SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
 FROM datasource_v2_documents

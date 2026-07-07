@@ -46,28 +46,34 @@ func taskToolMetadata(risk ToolRiskClass, permission ToolPermission, idempotency
 	}
 }
 
+func applyOpsInputSchema() Schema {
+	return ObjectSchema(map[string]Schema{
+		"pos":          StringSchema("Flattened DAG locator, e.g. dag:<dag_key>. Preferred over legacy dag_key."),
+		"dag_key":      StringSchema("Target DAG key."),
+		"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
+		"action":       EnumStringSchema("Flat action. Omit or use apply_ops_raw with ops for legacy raw batches.", applyOpsActionEnum...),
+		"ops":          ArraySchema(applyOpsOpSchema(), "Typed ops array; each item must include 'op' discriminator."),
+		"node_key":     StringSchema("Target node key for add_node/update_node/remove_node."),
+		"title":        StringSchema("Flat title for add_node/update_node/update_dag."),
+		"description":  StringSchema("Flat DAG description for action=update_dag."),
+		"trigger":      StringSchema("Flat DAG trigger for action=update_dag."),
+		"cron_expr":    StringSchema("Flat DAG cron expression for action=update_dag."),
+		"owner_id":     StringSchema("Flat DAG owner id for action=update_dag."),
+		"node_type":    EnumStringSchema("Node type for action=add_node. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
+		"assigned_to":  StringSchema("Flat node assignee for action=update_node."),
+		"depends_on":   ArraySchema(StringSchema("Dependency node key."), "Flat node dependencies for add_node/update_node."),
+		"reads":        ArraySchema(StringSchema("Readable artifact or node output reference."), "Flat node reads for add_node/update_node."),
+		"writes":       ArraySchema(StringSchema("Writable artifact or node output reference."), "Flat node writes for add_node/update_node."),
+		"config":       RawObjectSchema("Flat node config for add_node/update_node."),
+		"patch":        RawObjectSchema("Advanced raw patch object for update_dag/update_node."),
+	}, "base_version")
+}
+
 // taskToolDefinitions 定义 workflow DAG 工具及其治理元数据。
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTaskWriteTool("task_create_dag", "Create a new DAG template and its nodes in the orchestration store. Existing dag_key values are not replaced; scheduled triggers must be enabled later via task_dag_apply_ops with base_version and cron_expr. This does not start execution; if the user asked to run/execute now, call task_start_dag after create succeeds.", createDAGSchema(), HandleCreateDAG(svc), "workflow.dag.create", ToolIdempotencyRequired, "workflow.definition.write"),
-		defineTaskWriteTool("task_dag_apply_ops", "Apply a typed ops batch or one flat action (add_node / update_node / remove_node / update_dag) with base_version OCC. Use action+flat fields for common edits; use ops for advanced raw batches.", ObjectSchema(map[string]Schema{
-			"pos":          StringSchema("Flattened DAG locator, e.g. dag:<dag_key>. Preferred over legacy dag_key."),
-			"dag_key":      StringSchema("Target DAG key."),
-			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
-			"action":       EnumStringSchema("Flat action. Omit or use apply_ops_raw with ops for legacy raw batches.", applyOpsActionEnum...),
-			"ops":          ArraySchema(applyOpsOpSchema(), "Typed ops array; each item must include 'op' discriminator."),
-			"node_key":     StringSchema("Target node key for add_node/update_node/remove_node."),
-			"title":        StringSchema("Flat title for add_node/update_node/update_dag."),
-			"description":  StringSchema("Flat DAG description for action=update_dag."),
-			"trigger":      StringSchema("Flat DAG trigger for action=update_dag."),
-			"cron_expr":    StringSchema("Flat DAG cron expression for action=update_dag."),
-			"owner_id":     StringSchema("Flat DAG owner id for action=update_dag."),
-			"node_type":    EnumStringSchema("Node type for action=add_node. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
-			"assigned_to":  StringSchema("Flat node assignee for action=update_node."),
-			"depends_on":   ArraySchema(StringSchema("Dependency node key."), "Flat node dependencies for add_node/update_node."),
-			"config":       RawObjectSchema("Flat node config for add_node/update_node."),
-			"patch":        RawObjectSchema("Advanced raw patch object for update_dag/update_node."),
-		}, "base_version"), HandleApplyOps(svc), "workflow.dag.apply_ops", ToolIdempotencyRequired, "workflow.definition.write"),
+		defineTaskWriteTool("task_dag_apply_ops", "Apply a typed ops batch or one flat action (add_node / update_node / remove_node / update_dag) with base_version OCC. Use action+flat fields for common edits; use ops for advanced raw batches.", applyOpsInputSchema(), HandleApplyOps(svc), "workflow.dag.apply_ops", ToolIdempotencyRequired, "workflow.definition.write"),
 		defineTaskWriteTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
 			"pos":      StringSchema("Flattened runtime-node locator, e.g. dag:<dag_key>/run_id:<run_id>/node:<node_key>. Preferred over legacy dag_key/node_key/run_id."),
 			"dag_key":  StringSchema("DAG key."),

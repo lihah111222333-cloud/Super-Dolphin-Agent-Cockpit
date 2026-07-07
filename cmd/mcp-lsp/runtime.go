@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -21,6 +23,11 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+)
+
+const (
+	lspDiagnosticsColdStartMaxWait = 8 * time.Second
+	jstsTSServerFallbackPath       = "tsserver"
 )
 
 // Manager 汇总 mcp-lsp 进程内的语言 registry、后台 runner 和 scope 释放器。
@@ -184,7 +191,12 @@ func normalizeRuntimeWorkspaceRoot(base, root string) (string, error) {
 }
 
 func runtimePrimaryLanguageIDs() []string {
-	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown", "shellscript"}
+	return []string{
+		"go", "javascript", "python", "css", "html", "json", "yaml", "markdown",
+		"vue", "svelte", "c", "swift", "csharp", "php", "ruby", "kotlin", "dart",
+		"lua", "dockerfile", "terraform", "graphql", "prisma", "rust", "java",
+		"shellscript", "sql",
+	}
 }
 
 // runtimePrimaryLanguageIDsForBundle 为包体处理运行时primary语言ids。
@@ -366,69 +378,101 @@ func runtimeScopedResolver(mgr multilsp.Manager) manager.ScopedManagerResolver {
 // 仅在未使用打包 LSP bundle 时启用，避免运行时覆盖应用随包携带的二进制。
 func setupInstaller() *installer.Provider {
 	inst := installer.NewProvider()
+	registerNPMInstallers(inst)
+	registerNativeToolInstallers(inst)
+	registerGoInstallers(inst)
+	registerShellAndSQLInstallers(inst)
 
-	inst.Register("javascript", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+	return inst
+}
+
+type runtimeInstallerSpec struct {
+	languages  []string
+	binaryName string
+	installCmd string
+	args       []string
+}
+
+func registerInstallerSpecs(inst *installer.Provider, specs []runtimeInstallerSpec) {
+	for _, spec := range specs {
+		cfg := installer.InstallerConfig{
+			BinaryName:          spec.binaryName,
+			InstallCmd:          spec.installCmd,
+			InstallArgs:         spec.args,
+			AllowInstallCommand: true,
+		}
+		for _, languageID := range spec.languages {
+			inst.Register(languageID, cfg)
+		}
+	}
+}
+
+func registerNPMInstallers(inst *installer.Provider) {
+	extractedArgs := []string{
+		"install", "-g", "vscode-langservers-extracted",
+		"vscode-markdown-languageservice@0.5.0-alpha.11",
+	}
+	registerInstallerSpecs(inst, []runtimeInstallerSpec{
+		{[]string{"javascript", "javascriptreact", "typescript", "typescriptreact"}, "typescript-language-server", "npm", []string{"install", "-g", "typescript-language-server", "typescript"}},
+		{[]string{"python"}, "pyright-langserver", "npm", []string{"install", "-g", "pyright"}},
+		{[]string{"css"}, "vscode-css-language-server", "npm", extractedArgs},
+		{[]string{"html"}, "vscode-html-language-server", "npm", extractedArgs},
+		{[]string{"json"}, "vscode-json-language-server", "npm", extractedArgs},
+		{[]string{"yaml"}, "yaml-language-server", "npm", []string{"install", "-g", "yaml-language-server"}},
+		{[]string{"markdown"}, "vscode-markdown-language-server", "npm", extractedArgs},
+		{[]string{"vue"}, "vue-language-server", "npm", []string{"install", "-g", "@vue/language-server"}},
+		{[]string{"svelte"}, "svelteserver", "npm", []string{"install", "-g", "svelte-language-server"}},
+		{[]string{"php"}, "intelephense", "npm", []string{"install", "-g", "intelephense"}},
+		{[]string{"dockerfile"}, "docker-langserver", "npm", []string{"install", "-g", "dockerfile-language-server-nodejs"}},
+		{[]string{"graphql"}, "graphql-lsp", "npm", []string{"install", "-g", "graphql-language-service-cli"}},
+		{[]string{"prisma"}, "prisma-language-server", "npm", []string{"install", "-g", "@prisma/language-server"}},
 	})
-	inst.Register("javascriptreact", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+}
+
+func registerNativeToolInstallers(inst *installer.Provider) {
+	registerInstallerSpecs(inst, []runtimeInstallerSpec{
+		{[]string{"c", "cpp", "objective-c", "objective-cpp"}, "clangd", "brew", []string{"install", "llvm"}},
+		{[]string{"swift"}, "sourcekit-lsp", "brew", []string{"install", "swift"}},
+		{[]string{"csharp"}, "csharp-ls", "dotnet", []string{"tool", "install", "--global", "csharp-ls"}},
+		{[]string{"ruby"}, "solargraph", "brew", []string{"install", "solargraph"}},
+		{[]string{"kotlin"}, "kotlin-language-server", "brew", []string{"install", "kotlin-language-server"}},
+		{[]string{"dart"}, "dart", "brew", []string{"install", "dart-sdk"}},
+		{[]string{"lua"}, "lua-language-server", "brew", []string{"install", "lua-language-server"}},
+		{[]string{"terraform"}, "terraform-ls", "brew", []string{"install", "hashicorp/tap/terraform-ls"}},
+		{[]string{"rust"}, "rust-analyzer", "rustup", []string{"component", "add", "rust-analyzer"}},
+		{[]string{"java"}, "jdtls", "brew", []string{"install", "jdtls"}},
 	})
-	inst.Register("typescript", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
-	})
-	inst.Register("typescriptreact", installer.InstallerConfig{
-		BinaryName:  "typescript-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
-	})
-	inst.Register("python", installer.InstallerConfig{
-		BinaryName:  "pyright-langserver",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "pyright"},
-	})
-	inst.Register("css", installer.InstallerConfig{
-		BinaryName:  "vscode-css-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "vscode-langservers-extracted"},
-	})
-	inst.Register("rust", installer.InstallerConfig{
-		BinaryName:  "rust-analyzer",
-		InstallCmd:  "rustup",
-		InstallArgs: []string{"component", "add", "rust-analyzer"},
-	})
-	inst.Register("java", installer.InstallerConfig{
-		BinaryName:  "jdtls",
-		InstallCmd:  "brew",
-		InstallArgs: []string{"install", "jdtls"},
-	})
-	inst.Register("go", installer.InstallerConfig{
-		BinaryName:  "gopls",
-		InstallCmd:  "go",
-		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
-	})
+}
+
+func registerGoInstallers(inst *installer.Provider) {
+	cfg := installer.InstallerConfig{
+		BinaryName:          "gopls",
+		InstallCmd:          "go",
+		InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
+		AllowInstallCommand: true,
+	}
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork"} {
+		inst.Register(languageID, cfg)
+	}
+}
+
+func registerShellAndSQLInstallers(inst *installer.Provider) {
 	inst.Register("shellscript", installer.InstallerConfig{
-		BinaryName:  "bash-language-server",
-		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "bash-language-server", "shellcheck"},
+		BinaryName:          "bash-language-server",
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "bash-language-server", "shellcheck"},
+		AllowInstallCommand: true,
 		RequiredBinaries: []installer.RequiredBinary{
 			{Name: "shellcheck", CheckArgs: []string{"--version"}},
 		},
 	})
-	for _, alias := range []string{"gomod", "gosum", "gowork"} {
-		inst.Register(alias, installer.InstallerConfig{
-			BinaryName:  "gopls",
-			InstallCmd:  "go",
-			InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
-		})
-	}
-
-	return inst
+	inst.Register("sql", installer.InstallerConfig{
+		BinaryName:          "sql-language-server",
+		BinaryCheckArgs:     []string{"--version"},
+		InstallCmd:          "npm",
+		InstallArgs:         []string{"install", "-g", "sql-language-server", "vscode-languageserver-protocol@3.17.5", "vscode-jsonrpc@8.2.0"},
+		AllowInstallCommand: true,
+	})
 }
 
 func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) multilsp.Manager {
@@ -455,6 +499,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	mgr := multilsp.NewManager(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
+		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			// rootDir 来自本次 workspace 解析结果，让语言服务器子进程跟随调用方项目。
@@ -477,12 +522,20 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	return &runtimeBinaryManager{Manager: mgr, binary: binary}, nil
 }
 
+func runtimeAdapterDiagnosticsMaxWait(adapter multilsp.LanguageAdapter) time.Duration {
+	if adapter.CapabilityPolicy().RequiresLSPClient {
+		return lspDiagnosticsColdStartMaxWait
+	}
+	return 0
+}
+
 const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/python"
 
 // runtimeAdapterInitOptions 复制适配器 init options 并补充打包 LSP 的运行约束。
 // 打包 Pyright 使用哨兵 pythonPath，防止它隐式探测系统 Python 造成跨环境差异。
 func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP bool) map[string]any {
 	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
+	initOptions = runtimeJSTSInitOptions(adapter, initOptions)
 	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
 		return initOptions
 	}
@@ -503,13 +556,45 @@ func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP boo
 	return initOptions
 }
 
-func adapterSupportsLanguage(adapter multilsp.LanguageAdapter, languageID string) bool {
-	for _, adapterLanguageID := range adapter.LanguageIDs() {
-		if adapterLanguageID == languageID {
+// runtimeJSTSInitOptions 为 JS/TS language server 注入 tsserver 后备路径。
+// typescript-language-server 只有在工作区 TypeScript 查找失败后才会使用该后备路径。
+func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[string]any) map[string]any {
+	if !runtimeAdapterUsesJSTS(adapter) {
+		return initOptions
+	}
+	if initOptions == nil {
+		initOptions = map[string]any{}
+	}
+	tsserver, ok := initOptions["tsserver"].(map[string]any)
+	if !ok {
+		tsserver = map[string]any{}
+		initOptions["tsserver"] = tsserver
+	}
+	if runtimeStringOption(tsserver["path"]) == "" && runtimeStringOption(tsserver["fallbackPath"]) == "" {
+		tsserver["fallbackPath"] = jstsTSServerFallbackPath
+	}
+	return initOptions
+}
+
+func runtimeAdapterUsesJSTS(adapter multilsp.LanguageAdapter) bool {
+	for _, languageID := range []string{"javascript", "javascriptreact", "typescript", "typescriptreact"} {
+		if adapterSupportsLanguage(adapter, languageID) {
 			return true
 		}
 	}
 	return false
+}
+
+func runtimeStringOption(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func adapterSupportsLanguage(adapter multilsp.LanguageAdapter, languageID string) bool {
+	return slices.Contains(adapter.LanguageIDs(), languageID)
 }
 
 func runtimeServerBinary(commandExecutable, binaryOverride string) string {

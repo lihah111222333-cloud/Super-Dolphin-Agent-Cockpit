@@ -24,6 +24,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// DriverFactory 持有创建 Codex provider driver 所需的运行时依赖。
+// tool surface 回调可在 fx 装配后注入，Create 会读取当前回调并隔离到新 driver。
 type DriverFactory struct {
 	contract.DriverFactory
 	mu              sync.RWMutex
@@ -86,7 +88,7 @@ type threadStartParams struct {
 	Summary               string                            `json:"summary,omitempty"`
 	Effort                string                            `json:"effort,omitempty"`
 	Sandbox               json.RawMessage                   `json:"sandbox,omitempty"`
-	SandboxPolicy         json.RawMessage                   `json:"-"`
+	SandboxPolicy         json.RawMessage                   `json:"sandboxPolicy,omitempty"`
 	MCPConfig             json.RawMessage                   `json:"mcpConfig,omitempty"`
 	DynamicTools          []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
@@ -631,6 +633,7 @@ func codexSandboxPolicyFromMode(mode string, obj map[string]any) json.RawMessage
 	switch mode {
 	case "read-only":
 		policy = map[string]any{"type": "readOnly"}
+		copySandboxReadOnlyAccessField(policy, obj)
 		copySandboxBoolField(policy, obj, "networkAccess", "network_access")
 	case "workspace-write":
 		policy = map[string]any{"type": "workspaceWrite"}
@@ -646,6 +649,16 @@ func codexSandboxPolicyFromMode(mode string, obj map[string]any) json.RawMessage
 		return nil
 	}
 	return mustJSON(policy)
+}
+
+func copySandboxReadOnlyAccessField(policy map[string]any, obj map[string]any) {
+	access, ok := sandboxMapField(obj, "access")
+	if !ok {
+		return
+	}
+	if restricted := restrictedReadOnlyAccessValue(access); restricted != nil {
+		policy["access"] = restricted
+	}
 }
 
 func copySandboxBoolField(policy map[string]any, obj map[string]any, camelKey, snakeKey string) {
@@ -667,6 +680,82 @@ func sandboxBoolField(obj map[string]any, keys ...string) (bool, bool) {
 		return typed, ok
 	}
 	return false, false
+}
+
+func sandboxMapField(obj map[string]any, key string) (map[string]any, bool) {
+	if len(obj) == 0 {
+		return nil, false
+	}
+	value, ok := obj[key]
+	if !ok {
+		return nil, false
+	}
+	typed, ok := value.(map[string]any)
+	return typed, ok
+}
+
+func restrictedReadOnlyAccessValue(access map[string]any) map[string]any {
+	if len(access) == 0 {
+		return nil
+	}
+	accessType, _ := access["type"].(string)
+	if !strings.EqualFold(strings.TrimSpace(accessType), "restricted") {
+		return nil
+	}
+	roots := sandboxStringSliceField(access, "readableRoots", "readable_roots")
+	if len(roots) == 0 {
+		return nil
+	}
+	out := map[string]any{
+		"type":          "restricted",
+		"readableRoots": roots,
+	}
+	copySandboxBoolField(out, access, "includePlatformDefaults", "include_platform_defaults")
+	return out
+}
+
+func codexReadOnlySandboxPolicyValueFromRaw(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return codexReadOnlySandboxPolicyValue()
+	}
+	var policy map[string]any
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		return codexReadOnlySandboxPolicyValue()
+	}
+	return codexReadOnlySandboxPolicyValueFromMap(policy)
+}
+
+func codexReadOnlySandboxPolicyValueFromAny(raw any) map[string]any {
+	switch typed := raw.(type) {
+	case map[string]any:
+		return codexReadOnlySandboxPolicyValueFromMap(typed)
+	case json.RawMessage:
+		return codexReadOnlySandboxPolicyValueFromRaw(typed)
+	case []byte:
+		return codexReadOnlySandboxPolicyValueFromRaw(json.RawMessage(typed))
+	case string:
+		return codexReadOnlySandboxPolicyValueFromRaw(json.RawMessage(typed))
+	default:
+		return codexReadOnlySandboxPolicyValue()
+	}
+}
+
+func codexReadOnlySandboxPolicyValueFromMap(policy map[string]any) map[string]any {
+	out := codexReadOnlySandboxPolicyValue()
+	if len(policy) == 0 {
+		return out
+	}
+	policyType, _ := policy["type"].(string)
+	if !strings.EqualFold(strings.TrimSpace(policyType), "readOnly") {
+		return out
+	}
+	if access, ok := sandboxMapField(policy, "access"); ok {
+		if restricted := restrictedReadOnlyAccessValue(access); restricted != nil {
+			out["access"] = restricted
+		}
+	}
+	copySandboxBoolField(out, policy, "networkAccess", "network_access")
+	return out
 }
 
 // sandboxStringSliceField 从 sandbox 对象读取 camelCase 或 snake_case 列表字段。

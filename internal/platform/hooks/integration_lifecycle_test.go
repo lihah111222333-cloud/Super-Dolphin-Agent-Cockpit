@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -188,9 +189,9 @@ func TestIntegration_ManagerWiringAndThinWrappers(t *testing.T) {
 
 	registry := NewHookRegistry()
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{}, WithDispatcherParallelism(1))
-	store := &stubHookReviewStore{
+	store := &pagedHookReviewStore{stubHookReviewStore: &stubHookReviewStore{
 		listPendingReviewsResult: []mcp.PendingHookReview{{HookCallID: "call-pending", AgentID: "agent-wire"}},
-	}
+	}}
 	logger := pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))
 	resolver := mustNewHookResolver(t, store)
 	manager, err := provideManager(managerIn{
@@ -210,7 +211,7 @@ func TestIntegration_ManagerWiringAndThinWrappers(t *testing.T) {
 	subscribeWireHook(t, manager)
 	leases, prepared := dispatcher.prepareDispatch(TopicToolBefore, mcp.HookPayload{AgentID: "agent-wire"})
 	assertWirePreparedDispatch(t, leases, prepared)
-	assertWirePendingReviews(t, manager, store)
+	assertWirePendingReviews(t, manager, store.stubHookReviewStore)
 }
 
 func subscribeWireHook(t *testing.T, manager *Manager) {
@@ -255,4 +256,34 @@ func assertWirePendingReviews(t *testing.T, manager *Manager, store *stubHookRev
 	if !slices.Equal(store.listAgentIDs, []string{"agent-wire"}) {
 		t.Fatalf("ListPendingReviews() agent IDs = %#v, want %#v", store.listAgentIDs, []string{"agent-wire"})
 	}
+}
+
+// pagedHookReviewStore adds bounded page APIs to the hook review test stub.
+type pagedHookReviewStore struct {
+	*stubHookReviewStore
+}
+
+// ListPendingReviewsPage returns a bounded pending review page for integration wiring tests.
+func (s *pagedHookReviewStore) ListPendingReviewsPage(_ context.Context, params contract.HookPendingReviewPageParams) (contract.HookPendingReviewPage, error) {
+	s.listAgentIDs = append(s.listAgentIDs, params.AgentID)
+	limit := params.Limit
+	if limit <= 0 || limit > contract.HookPendingReviewMaxPageLimit {
+		limit = contract.HookPendingReviewMaxPageLimit
+	}
+	reviews := append([]mcp.PendingHookReview(nil), s.listPendingReviewsResult...)
+	if len(reviews) > limit {
+		return contract.HookPendingReviewPage{
+			Reviews:              reviews[:limit],
+			HasMore:              true,
+			NextCursorCreatedAt:  reviews[limit-1].CreatedAt,
+			NextCursorHookCallID: reviews[limit-1].HookCallID,
+			EffectiveLimit:       limit,
+		}, nil
+	}
+	return contract.HookPendingReviewPage{Reviews: reviews, EffectiveLimit: limit}, nil
+}
+
+// CountPendingReviews returns the pending review count for integration wiring tests.
+func (s *pagedHookReviewStore) CountPendingReviews(context.Context) (int64, error) {
+	return int64(len(s.listPendingReviewsResult)), nil
 }

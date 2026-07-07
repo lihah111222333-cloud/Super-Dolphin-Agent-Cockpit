@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
+	orch "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
@@ -124,6 +126,36 @@ func TestLaunchRequestFromExecutableContextModeValidation(t *testing.T) {
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+func TestLaunchHandlerRejectsPayloadParentThreadID(t *testing.T) {
+	called := false
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
+		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			called = true
+			return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
+		},
+	}, func() (string, error) { return "/tmp/agent-terminal", nil })
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"name":"agent-forked",
+		"context_mode":"forked",
+		"parent_id":"agent-parent",
+		"parent_thread_id":"thread-parent-payload",
+		"cwd":"/tmp/work",
+		"provider":"codex"
+	}`))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parent_thread_id")
+	require.False(t, called, "LaunchAgentSnapshot must not run after rejected parent_thread_id payload")
+}
+
+func TestLaunchAgentSchemaOmitsParentThreadID(t *testing.T) {
+	props := launchAgentSchemaProperties(t)
+
+	require.Contains(t, props, "parent_id")
+	require.NotContains(t, props, "parent_thread_id")
 }
 
 func TestLaunchAgentSchemaDocumentsAssembledSections(t *testing.T) {
@@ -723,15 +755,29 @@ func TestStopAgentHandlerArchivesWhenSupported(t *testing.T) {
 	}
 }
 
+// TestHandleStopAgentDoesNotReportArchivedForNoop 验证无实际归档结果时不会上报 archived=true。
+func TestHandleStopAgentDoesNotReportArchivedForNoop(t *testing.T) {
+	svc := &archiveCapableOrchestrationStub{archiveNoop: true}
+	handler := HandleStopAgent(svc)
+	_, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-1"}`))
+	if !errors.Is(err, contract.ErrAgentNotFound) {
+		t.Fatalf("HandleStopAgent() error = %v, want ErrAgentNotFound for noop archive", err)
+	}
+}
+
 type archiveCapableOrchestrationStub struct {
 	golden.OrchestrationStub
 	archivedAgentID string
 	stoppedAgentID  string
+	archiveNoop     bool
 }
 
-func (s *archiveCapableOrchestrationStub) ArchiveAgent(_ context.Context, agentID string) error {
+func (s *archiveCapableOrchestrationStub) ArchiveAgent(_ context.Context, agentID string) (orch.ArchiveOutcome, error) {
+	if s.archiveNoop {
+		return orch.ArchiveOutcome{}, nil
+	}
 	s.archivedAgentID = agentID
-	return nil
+	return orch.ArchiveOutcome{BindingArchived: true}, nil
 }
 
 func (s *archiveCapableOrchestrationStub) StopAgent(_ context.Context, agentID string) error {

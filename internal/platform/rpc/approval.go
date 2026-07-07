@@ -225,7 +225,8 @@ func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Serve
 	if ctx == nil {
 		return false, nil
 	}
-	go func() {
+	var dispatchWG sync.WaitGroup
+	dispatchWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				m.logger.Error("rpc: recovered approval dispatch panic",
@@ -234,7 +235,7 @@ func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Serve
 			}
 		}()
 		m.dispatchApproval(ctx, bridge, server, pending, method, params)
-	}()
+	})
 	return true, nil
 }
 

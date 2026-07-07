@@ -96,13 +96,11 @@ func TestSavePromptSnapshotConcurrentSafety(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := s.SavePromptSnapshot(context.Background(), "thread-1", snapshot); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

@@ -311,6 +311,8 @@ func (p *stubSessionProvider) RemoveSession(agentID string) {
 }
 
 type stubSession struct {
+	stubSessionUnusedMethods
+
 	threadID           string
 	rolloutPath        string
 	allowedModels      []string
@@ -331,24 +333,30 @@ func (s *stubSession) RolloutPath() string { return s.rolloutPath }
 
 func (s *stubSession) Capabilities() dto.CapabilitySet { return s.caps }
 
-func (s *stubSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+type stubSessionUnusedMethods struct{}
+
+func (stubSessionUnusedMethods) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubSession) Steer(context.Context, dto.SteerRequest) error { return nil }
+func (stubSessionUnusedMethods) Steer(context.Context, dto.SteerRequest) error { return nil }
 
-func (s *stubSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
+func (stubSessionUnusedMethods) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 
-func (s *stubSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
+func (stubSessionUnusedMethods) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+	return nil
+}
 
-func (s *stubSession) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
+func (stubSessionUnusedMethods) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+	return nil, nil
+}
 
 func (s *stubSession) ForkThread(_ context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
 	s.forkRequest = req
 	return s.forkResult, nil
 }
 
-func (s *stubSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+func (stubSessionUnusedMethods) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
 	return nil, nil
 }
 
@@ -368,9 +376,9 @@ func (s *stubSession) Configure(_ context.Context, patch dto.ThreadConfigPatch) 
 
 func (s *stubSession) AllowedModels(context.Context) ([]string, error) { return s.allowedModels, nil }
 
-func (s *stubSession) Close(context.Context) error { return nil }
+func (stubSessionUnusedMethods) Close(context.Context) error { return nil }
 
-func (s *stubSession) ForceStop() error { return nil }
+func (stubSessionUnusedMethods) ForceStop() error { return nil }
 
 func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) error {
 	s.setThreadNameCalls = append(s.setThreadNameCalls, threadID+":"+name)
@@ -378,6 +386,9 @@ func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) er
 }
 
 type stubThreadStore struct {
+	stubThreadStoreLifecycleNoop
+	stubThreadStoreListNoop
+
 	thread                  *threadstore.Thread
 	threads                 []threadstore.Thread
 	threadByID              map[string]*threadstore.Thread
@@ -414,7 +425,9 @@ func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*th
 	return &thread, nil
 }
 
-func (s *stubThreadStore) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
+type stubThreadStoreLifecycleNoop struct{}
+
+func (stubThreadStoreLifecycleNoop) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -443,13 +456,15 @@ func (s *stubThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []stri
 	return result, nil
 }
 
-func (s *stubThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) { return nil, nil }
-
-func (s *stubThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
+func (stubThreadStoreLifecycleNoop) ListRunning(context.Context) ([]threadstore.Thread, error) {
 	return nil, nil
 }
 
-func (s *stubThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
+func (stubThreadStoreLifecycleNoop) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
+	return nil, nil
+}
+
+func (stubThreadStoreLifecycleNoop) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
 	return nil, nil
 }
 
@@ -508,23 +523,29 @@ func (s *stubThreadStore) UpdateStatus(_ context.Context, params threadstore.Upd
 	return nil
 }
 
-func (*stubThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+func (stubThreadStoreLifecycleNoop) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
 	return nil
 }
 
-func (s *stubThreadStore) DeleteByThreadID(context.Context, string) error { return nil }
+func (stubThreadStoreLifecycleNoop) DeleteByThreadID(context.Context, string) error { return nil }
 
-func (s *stubThreadStore) ResetRunning(context.Context) error { return nil }
+func (stubThreadStoreLifecycleNoop) ResetRunning(context.Context) error { return nil }
 
-func (s *stubThreadStore) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
+func (stubThreadStoreLifecycleNoop) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
 	return 0, nil
 }
 
-func (s *stubThreadStore) RunningExists(context.Context, string) (bool, error) { return false, nil }
+func (stubThreadStoreLifecycleNoop) RunningExists(context.Context, string) (bool, error) {
+	return false, nil
+}
 
-func (s *stubThreadStore) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) { return nil, nil }
+type stubThreadStoreListNoop struct{}
 
-func (s *stubThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
+func (stubThreadStoreListNoop) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) {
+	return nil, nil
+}
+
+func (stubThreadStoreListNoop) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
 	return nil, nil
 }
 
@@ -545,9 +566,11 @@ func (s *stubThreadStore) Exists(_ context.Context, threadID string) (bool, erro
 	return false, nil
 }
 
-func (s *stubThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
+func (stubThreadStoreListNoop) CountAll(context.Context) (int64, error) { return 0, nil }
 
 type stubBindingStore struct {
+	stubBindingStoreNoopMethods
+
 	binding                *bindingstore.Binding
 	bindings               []bindingstore.Binding
 	upsert                 bindingstore.UpsertParams

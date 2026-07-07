@@ -23,14 +23,20 @@ type AutomationExecutor struct {
 	hooks         map[HookPoint]HookHandler
 }
 
+// AutomationCommandGetter 读取 command card 定义。
+// executor 只依赖该窄端口，不直接访问 command store 或 transport。
 type AutomationCommandGetter interface {
 	GetCommandCard(ctx context.Context, cardKey string) (AutomationCommandCard, error)
 }
 
+// AutomationCommandRunner 在受限工作区内执行 command card。
+// 调用方必须显式传入 cwd、workspace roots 和环境边界，缺失时执行层应失败。
 type AutomationCommandRunner interface {
 	RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts ...AutomationCommandRunOptions) (AutomationCommandResult, error)
 }
 
+// AutomationCommandCard 是 automation 节点可执行命令模板的最小 DTO。
+// 风险级别和 enabled 标记由 runner 校验，不能在模板渲染阶段绕过。
 type AutomationCommandCard struct {
 	CardKey         string          `json:"card_key"`
 	Title           string          `json:"title,omitempty"`
@@ -41,6 +47,8 @@ type AutomationCommandCard struct {
 	Enabled         bool            `json:"enabled"`
 }
 
+// AutomationCommandResult 是 command card 执行后的原始结果。
+// 对外返回或落库前必须经过 scrub，避免把 args 或敏感输出直接暴露。
 type AutomationCommandResult struct {
 	CardKey  string          `json:"card_key"`
 	ExitCode int             `json:"exit_code"`
@@ -57,6 +65,8 @@ type AutomationCommandRunOptions struct {
 	Env            map[string]string
 }
 
+// AutomationOption 在构造 automation executor 时注入可选能力。
+// 每个 option 只能改写 executor 端口或 hook，不携带跨 run 状态。
 type AutomationOption func(*AutomationExecutor)
 
 // WithAutomationHooks 注册 automation 节点的生命周期钩子。

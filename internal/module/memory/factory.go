@@ -24,10 +24,14 @@ var (
 	ErrMemoryIndexUpdateFailed = errors.New("memory_index_update_failed")
 )
 
+// WriteOptions 控制单次 memory 写入的维护行为。
+// SkipIndex 用于批量整理或测试场景，避免每次文件写入都立即刷新 MEMORY.md。
 type WriteOptions struct {
 	SkipIndex bool
 }
 
+// MemoryWriteRequest 是内部结构化记忆写入请求。
+// 它在落盘前承载名称、类型、正文和来源，最终会被序列化为 topic markdown。
 type MemoryWriteRequest struct {
 	Name        string
 	Description string

@@ -47,12 +47,13 @@ exit 1
 
 	p := NewProvider()
 	p.Register("go", InstallerConfig{
-		BinaryName:  "gopls",
-		InstallCmd:  "go",
-		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+		BinaryName:          "gopls",
+		InstallCmd:          "go",
+		InstallArgs:         []string{"install", "golang.org/x/tools/gopls@latest"},
+		AllowInstallCommand: true,
 	})
 
-	result, err := p.EnsureInstalledDetailed(context.Background(), "go")
+	result, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "go")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed() error = %v", err)
 	}
@@ -96,13 +97,14 @@ func TestEnsureInstalledUsesInstallTimeout(t *testing.T) {
 
 	p := NewProvider()
 	p.Register("slow", InstallerConfig{
-		BinaryName:     "slow-lsp",
-		InstallCmd:     installerPath,
-		InstallTimeout: 50 * time.Millisecond,
+		BinaryName:          "slow-lsp",
+		InstallCmd:          installerPath,
+		InstallTimeout:      50 * time.Millisecond,
+		AllowInstallCommand: true,
 	})
 
 	start := time.Now()
-	_, err := p.EnsureInstalledDetailed(context.Background(), "slow")
+	_, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "slow")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("EnsureInstalledDetailed() error = nil, want install timeout error")
@@ -112,5 +114,60 @@ func TestEnsureInstalledUsesInstallTimeout(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("EnsureInstalledDetailed() elapsed = %v, want local install timeout to stop slow installer", elapsed)
+	}
+}
+
+func TestEnsureInstalledRejectsBrokenPathBinaryAndRunsInstaller(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX shell scripts as fake binaries")
+	}
+	binDir := t.TempDir()
+	broken := filepath.Join(binDir, "sql-language-server")
+	if err := os.WriteFile(broken, []byte("#!/bin/sh\necho broken sql language server >&2\nexit 42\n"), 0o755); err != nil {
+		t.Fatalf("write broken sql-language-server: %v", err)
+	}
+	installerPath := filepath.Join(binDir, "install-sql-lsp")
+	script := `#!/bin/sh
+set -eu
+printf '%s\n' "$*" > "$INSTALL_MARKER"
+/bin/cat > "$FAKE_BIN_DIR/sql-language-server" <<'EOF'
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "1.7.1"
+  exit 0
+fi
+exit 0
+EOF
+/bin/chmod +x "$FAKE_BIN_DIR/sql-language-server"
+`
+	if err := os.WriteFile(installerPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake sql installer: %v", err)
+	}
+	marker := filepath.Join(t.TempDir(), "installer-args")
+	t.Setenv("PATH", binDir)
+	t.Setenv("FAKE_BIN_DIR", binDir)
+	t.Setenv("INSTALL_MARKER", marker)
+
+	p := NewProvider()
+	p.Register("sql", InstallerConfig{
+		BinaryName:          "sql-language-server",
+		BinaryCheckArgs:     []string{"--version"},
+		InstallCmd:          installerPath,
+		InstallArgs:         []string{"sql-language-server"},
+		AllowInstallCommand: true,
+	})
+
+	result, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	if result.Path != broken {
+		t.Fatalf("EnsureInstalledDetailed(sql).Path = %q, want repaired PATH binary %q", result.Path, broken)
+	}
+	if result.Status != InstallStatusInstalledPath {
+		t.Fatalf("EnsureInstalledDetailed(sql).Status = %q, want %q", result.Status, InstallStatusInstalledPath)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("installer did not run for broken PATH binary: %v", err)
 	}
 }

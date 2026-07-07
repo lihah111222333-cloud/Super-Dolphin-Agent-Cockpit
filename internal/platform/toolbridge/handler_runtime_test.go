@@ -258,6 +258,9 @@ func assertToolCallThreadCalls(t *testing.T, store threadConfigOverrideStore, wa
 }
 
 type toolCallBindingStoreStub struct {
+	toolCallBindingStoreReadNoop
+	toolCallBindingStoreWriteNoop
+
 	threadID           string
 	err                error
 	agentIDs           []string
@@ -265,47 +268,51 @@ type toolCallBindingStoreStub struct {
 	bindingsByProvider map[string]toolCallBinding
 }
 
-func (s *toolCallBindingStoreStub) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
+type toolCallBindingStoreReadNoop struct{}
+
+func (toolCallBindingStoreReadNoop) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
 	return nil, nil
 }
 
-func (s *toolCallBindingStoreStub) Upsert(context.Context, bindingstore.UpsertParams) error {
-	return nil
-}
-
-func (s *toolCallBindingStoreStub) DeleteByAgentID(context.Context, string) error { return nil }
-
-func (s *toolCallBindingStoreStub) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
-	return nil
-}
-func (s *toolCallBindingStoreStub) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
-	return nil
-}
-
-func (s *toolCallBindingStoreStub) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
-	return nil
-}
-
-func (s *toolCallBindingStoreStub) GetByAgentID(context.Context, string) (*bindingstore.Binding, error) {
+func (toolCallBindingStoreReadNoop) GetByAgentID(context.Context, string) (*bindingstore.Binding, error) {
 	return nil, nil
 }
 
-func (s *toolCallBindingStoreStub) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+func (toolCallBindingStoreReadNoop) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+	return nil, nil
+}
+
+type toolCallBindingStoreWriteNoop struct{}
+
+func (toolCallBindingStoreWriteNoop) Upsert(context.Context, bindingstore.UpsertParams) error {
 	return nil
 }
 
-func (s *toolCallBindingStoreStub) UnbindAgentThread(context.Context, string) error { return nil }
+func (toolCallBindingStoreWriteNoop) DeleteByAgentID(context.Context, string) error { return nil }
 
-func (s *toolCallBindingStoreStub) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
-	return nil, nil
+func (toolCallBindingStoreWriteNoop) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
+	return nil
 }
+func (toolCallBindingStoreWriteNoop) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+	return nil
+}
+
+func (toolCallBindingStoreWriteNoop) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+	return nil
+}
+
+func (toolCallBindingStoreWriteNoop) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+	return nil
+}
+
+func (toolCallBindingStoreWriteNoop) UnbindAgentThread(context.Context, string) error { return nil }
 
 func (s *toolCallBindingStoreStub) GetThreadByAgent(_ context.Context, agentID string) (string, error) {
 	s.agentIDs = append(s.agentIDs, agentID)
 	return s.threadID, s.err
 }
 
-func (s *toolCallBindingStoreStub) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (toolCallBindingStoreWriteNoop) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
 	return nil
 }
 

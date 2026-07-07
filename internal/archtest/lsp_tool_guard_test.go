@@ -46,8 +46,8 @@ func TestLSPToolPositionConversionsUseSharedHelper(t *testing.T) {
 			}
 		}
 	}
-	assertLSPToolPositionHelperPresent(t, filepath.Join(dir, "factory.go"), "func ResolveLSPPosition(")
-	assertLSPToolPositionHelperPresent(t, filepath.Join(dir, "factory.go"), "func utf16OffsetsForRunes(")
+	assertLSPToolPositionHelperPresent(t, filepath.Join(dir, "position.go"), "func ResolveLSPPosition(")
+	assertLSPToolPositionHelperPresent(t, filepath.Join(dir, "position.go"), "func utf16OffsetsForRunes(")
 	assertLSPToolPositionHelperPresent(t, filepath.Join(dir, "tool_completion.go"), "positionFromRuneIndex")
 }
 

@@ -34,7 +34,6 @@ func TestServiceSendsTextMessage(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -103,6 +102,8 @@ func (*messagePromptAssembly) Invalidate(context.Context, contract.InvalidateRea
 }
 
 type messageSession struct {
+	messageSessionUnusedMethods
+
 	threadID string
 	caps     dto.CapabilitySet
 	handle   *messageHandle
@@ -121,7 +122,9 @@ func (s *messageSession) ThreadID() string {
 	return s.threadID
 }
 
-func (s *messageSession) RolloutPath() string {
+type messageSessionUnusedMethods struct{}
+
+func (messageSessionUnusedMethods) RolloutPath() string {
 	return ""
 }
 
@@ -135,35 +138,35 @@ func (s *messageSession) StartTurn(_ context.Context, req dto.TurnRequest) (cont
 	return s.handle, nil
 }
 
-func (s *messageSession) Interrupt(context.Context, dto.InterruptRequest) error {
+func (messageSessionUnusedMethods) Interrupt(context.Context, dto.InterruptRequest) error {
 	return errors.New("Interrupt is not used by this test")
 }
 
-func (s *messageSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+func (messageSessionUnusedMethods) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
 	return errors.New("ForceComplete is not used by this test")
 }
 
-func (s *messageSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+func (messageSessionUnusedMethods) ListThreads(context.Context) ([]dto.ThreadRef, error) {
 	return nil, errors.New("ListThreads is not used by this test")
 }
 
-func (s *messageSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
+func (messageSessionUnusedMethods) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, errors.New("ForkThread is not used by this test")
 }
 
-func (s *messageSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+func (messageSessionUnusedMethods) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
 	return nil, errors.New("ReadHistory is not used by this test")
 }
 
-func (s *messageSession) Configure(context.Context, dto.ThreadConfigPatch) error {
+func (messageSessionUnusedMethods) Configure(context.Context, dto.ThreadConfigPatch) error {
 	return errors.New("Configure is not used by this test")
 }
 
-func (s *messageSession) Close(context.Context) error {
+func (messageSessionUnusedMethods) Close(context.Context) error {
 	return nil
 }
 
-func (s *messageSession) ForceStop() error {
+func (messageSessionUnusedMethods) ForceStop() error {
 	return nil
 }
 

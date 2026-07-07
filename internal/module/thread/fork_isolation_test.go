@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -303,23 +304,11 @@ func newForkServiceFixture(t *testing.T) *forkServiceFixture {
 		return forkedSession, nil
 	}}
 	orch := &forkOrchestrationStub{}
-	return &forkServiceFixture{
-		originalSession: originalSession,
-		bindings:        bindings,
-		threads:         threads,
-		orch:            orch,
-		svc:             NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service),
-	}
+	return &forkServiceFixture{originalSession: originalSession, bindings: bindings, threads: threads, orch: orch, svc: NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)}
 }
 
 func forkParentBindingStore() *stubBindingStore {
-	return &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "thread-parent",
-		CodexThreadID:    "thread-parent",
-		Cwd:              "/repo",
-	}}
+	return &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-parent", Provider: "codex", ProviderThreadID: "thread-parent", CodexThreadID: "thread-parent", Cwd: "/repo"}}
 }
 
 func forkParentThreadStore() *stubThreadStore {
@@ -436,7 +425,7 @@ func assertForkPersistence(t *testing.T, bindings *stubBindingStore, threads *st
 	}
 }
 
-func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
+func TestServiceRecoverActivatesResumedSessionAfterPersist(t *testing.T) {
 	t.Parallel()
 
 	fixture := newResumeRecoverFixture(t)
@@ -445,6 +434,26 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 		t.Fatalf("Recover() error = %v", err)
 	}
 	assertResumeRecoverResult(t, result, fixture)
+	if _, err := fixture.manager.Get("agent-parent"); err != nil {
+		t.Fatalf("pending session was not activated after persist: %v", err)
+	}
+}
+
+// TestServiceRecoverCleansPendingSessionWhenPersistFails verifies failed recovery does not leak an invisible pending session.
+func TestServiceRecoverCleansPendingSessionWhenPersistFails(t *testing.T) {
+	t.Parallel()
+
+	baseThreads := resumeRecoverThreadStore()
+	persistErr := errors.New("persist recover failed")
+	threads := &recordingForkThreadStore{stubThreadStore: baseThreads, failAfterUpserts: 1, failAfterErr: persistErr}
+	fixture := newResumeRecoverFixture(t, threads)
+	_, err := fixture.svc.Recover(context.Background(), "thread-parent")
+	if !errors.Is(err, persistErr) {
+		t.Fatalf("Recover() error = %v, want %v", err, persistErr)
+	}
+	if generation := fixture.manager.SessionGeneration("agent-parent"); generation != 0 {
+		t.Fatalf("pending session generation = %d, want cleanup after persist failure", generation)
+	}
 }
 
 func TestServiceRecoverFallbackLaunchPreservesStoredProviderAndModel(t *testing.T) {
@@ -513,36 +522,32 @@ func TestResolveForkCWDRejectsMetaBindingMismatch(t *testing.T) {
 type recoverServiceFixture struct {
 	threads *stubThreadStore
 	orch    *forkOrchestrationStub
+	manager *unified.SessionManager
 	svc     *service
 }
 
-func newResumeRecoverFixture(t *testing.T) *recoverServiceFixture {
+func newResumeRecoverFixture(t *testing.T, stores ...threadServiceStorePort) *recoverServiceFixture {
 	t.Helper()
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
-	sessions := &stubSessionProvider{}
+	manager := unified.NewSessionManager(nil)
 	threads := resumeRecoverThreadStore()
+	store := threadServiceStorePort(threads)
+	if len(stores) > 0 {
+		store = stores[0]
+	}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		assertResumeRecoverRequest(t, req, providerParentUUID)
-		sessions.session = resumedSession
+		manager.RegisterPending(req.AgentID, resumedSession)
 		return resumedSession, nil
 	}}
 	orch := &forkOrchestrationStub{}
-	svc := NewService(silentLogger(), threads, resumeRecoverBindingStore(providerParentUUID, rolloutPath), sessions, starter, nil, orch, nil).(*service)
-	return &recoverServiceFixture{threads: threads, orch: orch, svc: svc}
+	return &recoverServiceFixture{threads: threads, orch: orch, manager: manager, svc: NewService(silentLogger(), store, resumeRecoverBindingStore(providerParentUUID, rolloutPath), unified.NewSessionProvider(manager), starter, nil, orch, nil).(*service)}
 }
 
 func resumeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBindingStore {
-	return &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: providerParentUUID,
-		CodexThreadID:    "thread-parent",
-		RolloutPath:      rolloutPath,
-		SessionUUID:      providerParentUUID,
-		Cwd:              "/repo",
-	}}
+	return &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-parent", Provider: "codex", ProviderThreadID: providerParentUUID, CodexThreadID: "thread-parent", RolloutPath: rolloutPath, SessionUUID: providerParentUUID, Cwd: "/repo"}}
 }
 
 func resumeRecoverThreadStore() *stubThreadStore {
@@ -584,8 +589,8 @@ func assertResumeRecoverResult(t *testing.T, result RecoverResult, fixture *reco
 	if len(fixture.orch.recovered) != 1 || fixture.orch.recovered[0] != "agent-parent" {
 		t.Fatalf("recover calls = %#v", fixture.orch.recovered)
 	}
-	if len(fixture.orch.bindAgentIDs) != 0 {
-		t.Fatalf("bind session calls = %#v, want none without session generation support", fixture.orch.bindAgentIDs)
+	if len(fixture.orch.bindAgentIDs) != 1 || fixture.orch.bindAgentIDs[0] != "agent-parent" {
+		t.Fatalf("bind session calls = %#v, want [agent-parent]", fixture.orch.bindAgentIDs)
 	}
 	if fixture.threads.upsert.ThreadID != "thread-parent" {
 		t.Fatalf("thread upsert = %#v", fixture.threads.upsert)
@@ -598,8 +603,8 @@ func assertResumeRecoverResult(t *testing.T, result RecoverResult, fixture *reco
 func launchEnvValue(env []string, key string) string {
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(item, prefix))
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
@@ -629,16 +634,7 @@ func newClaudeRecoverService(t *testing.T) *service {
 		sessions.session = resumedSession
 		return resumedSession, nil
 	}}
-	return NewService(
-		silentLogger(),
-		claudeRecoverThreadStore(t, model, effort),
-		claudeRecoverBindingStore(providerParentUUID, rolloutPath),
-		sessions,
-		starter,
-		nil,
-		&forkOrchestrationStub{},
-		nil,
-	).(*service)
+	return NewService(silentLogger(), claudeRecoverThreadStore(t, model, effort), claudeRecoverBindingStore(providerParentUUID, rolloutPath), sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
 }
 
 func claudeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBindingStore {

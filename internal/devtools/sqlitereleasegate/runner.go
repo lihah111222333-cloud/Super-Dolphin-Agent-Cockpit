@@ -15,9 +15,6 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// nowFunc 允许测试固定 release gate 报告中的时间戳。
-var nowFunc = time.Now
-
 // RunOptions 描述一次 SQLite release gate 运行所需的仓库、日志和选择范围。
 type RunOptions struct {
 	RepoRoot     string        // 被验证的仓库根目录。
@@ -27,51 +24,107 @@ type RunOptions struct {
 	AllowPartial bool          // 是否允许只运行 Only 指定的子集。
 }
 
+// runConfig 保存 release gate 运行的显式依赖。
+type runConfig struct {
+	options RunOptions
+	now     func() time.Time
+}
+
+// normalizedRunConfig 保存校验后的 release gate 运行参数。
+type normalizedRunConfig struct {
+	repoRoot     string
+	logDir       string
+	only         []string
+	timeout      time.Duration
+	allowPartial bool
+	now          func() time.Time
+}
+
 // Run 顺序执行 SQLite release gate 并返回可写入发布证据的报告。
 // 参数校验、日志目录创建和结果校验都 fail-fast；即使结果校验失败，也会返回已收集的报告。
 func Run(ctx context.Context, opts RunOptions) (Report, error) {
-	repoRoot := strings.TrimSpace(opts.RepoRoot)
-	if repoRoot == "" {
-		return Report{}, fmt.Errorf("repo root is required")
-	}
-	logDir := strings.TrimSpace(opts.LogDir)
-	if logDir == "" {
-		return Report{}, fmt.Errorf("log dir is required")
-	}
-	if opts.Timeout <= 0 {
-		return Report{}, fmt.Errorf("positive timeout is required")
-	}
-	commitSHA, err := gitCommitSHA(ctx, repoRoot)
+	return runWithConfig(ctx, runConfig{options: opts, now: time.Now})
+}
+
+// runWithConfig 使用显式运行配置顺序执行 SQLite release gate。
+func runWithConfig(ctx context.Context, runCfg runConfig) (Report, error) {
+	cfg, err := normalizeRunConfig(runCfg)
 	if err != nil {
 		return Report{}, err
 	}
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	commitSHA, err := gitCommitSHA(ctx, cfg.repoRoot)
+	if err != nil {
+		return Report{}, err
+	}
+	if err := os.MkdirAll(cfg.logDir, 0o755); err != nil {
 		return Report{}, fmt.Errorf("create sqlite release gate log dir: %w", err)
 	}
 
-	selected, err := selectGates(Definitions(), opts.Only)
+	selected, err := selectGates(Definitions(), cfg.only)
 	if err != nil {
 		return Report{}, err
 	}
-	reportStarted := nowFunc().UTC()
-	results := make([]Result, 0, len(selected))
-	for _, gate := range selected {
-		result := runGate(ctx, repoRoot, logDir, gate, opts.Timeout)
-		results = append(results, result)
+	reportStarted := cfg.now().UTC()
+	results, err := runSelectedGates(ctx, cfg, selected)
+	report := buildReleaseGateReport(commitSHA, reportStarted, cfg.now().UTC(), results)
+	if err != nil {
+		return report, err
 	}
-	reportEnded := nowFunc().UTC()
-	report := Report{
-		CommitSHA: commitSHA,
-		OS:        runtime.GOOS,
-		Arch:      runtime.GOARCH,
-		StartedAt: reportStarted,
-		EndedAt:   reportEnded,
-		Results:   results,
-	}
-	if err := ValidateResults(Definitions(), results, opts.AllowPartial); err != nil {
+	if err := ValidateResults(Definitions(), results, cfg.allowPartial); err != nil {
 		return report, err
 	}
 	return report, nil
+}
+
+// normalizeRunConfig 将外部选项规整为内部运行配置，并阻断缺失依赖。
+func normalizeRunConfig(runCfg runConfig) (normalizedRunConfig, error) {
+	if runCfg.now == nil {
+		return normalizedRunConfig{}, fmt.Errorf("release gate clock is required")
+	}
+	opts := runCfg.options
+	cfg := normalizedRunConfig{
+		repoRoot:     strings.TrimSpace(opts.RepoRoot),
+		logDir:       strings.TrimSpace(opts.LogDir),
+		only:         opts.Only,
+		timeout:      opts.Timeout,
+		allowPartial: opts.AllowPartial,
+		now:          runCfg.now,
+	}
+	if cfg.repoRoot == "" {
+		return normalizedRunConfig{}, fmt.Errorf("repo root is required")
+	}
+	if cfg.logDir == "" {
+		return normalizedRunConfig{}, fmt.Errorf("log dir is required")
+	}
+	if cfg.timeout <= 0 {
+		return normalizedRunConfig{}, fmt.Errorf("positive timeout is required")
+	}
+	return cfg, nil
+}
+
+// runSelectedGates 顺序执行已选 gate 并保留失败前的所有结果。
+func runSelectedGates(ctx context.Context, cfg normalizedRunConfig, selected []Gate) ([]Result, error) {
+	results := make([]Result, 0, len(selected))
+	for _, gate := range selected {
+		result, err := runGate(ctx, cfg.repoRoot, cfg.logDir, gate, cfg.timeout, cfg.now)
+		results = append(results, result)
+		if err != nil {
+			return results, err
+		}
+	}
+	return results, nil
+}
+
+// buildReleaseGateReport 汇总 release gate 运行证据。
+func buildReleaseGateReport(commitSHA string, startedAt, endedAt time.Time, results []Result) Report {
+	return Report{
+		CommitSHA: commitSHA,
+		OS:        runtime.GOOS,
+		Arch:      runtime.GOARCH,
+		StartedAt: startedAt,
+		EndedAt:   endedAt,
+		Results:   results,
+	}
 }
 
 // WriteReport 将 release gate 报告写成 Markdown 文件。
@@ -92,8 +145,11 @@ func WriteReport(path string, report Report) error {
 
 // runGate 执行单个 gate，并把 stdout/stderr 与失败原因写入独立原始日志。
 // 默认结果是 FAIL/-1，只有命令成功退出才会改为 PASS，超时由 CommandContext 负责中止进程。
-func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout time.Duration) Result {
-	started := nowFunc().UTC()
+func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout time.Duration, now func() time.Time) (Result, error) {
+	if now == nil {
+		return Result{}, fmt.Errorf("release gate clock is required")
+	}
+	started := now().UTC()
 	rawLogPath := filepath.Join(logDir, gate.ID+".log")
 	result := Result{
 		Gate:       gate,
@@ -107,9 +163,11 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 	var log bytes.Buffer
 	if len(gate.Command) == 0 {
 		log.WriteString("gate command is empty\n")
-		result.EndedAt = nowFunc().UTC()
-		writeGateLog(rawLogPath, log.Bytes())
-		return result
+		result.EndedAt = now().UTC()
+		if err := writeGateLog(rawLogPath, log.Bytes()); err != nil {
+			return result, err
+		}
+		return result, nil
 	}
 	ctx, cancel := platformconfig.WithTimeout(parent, timeout)
 	defer cancel()
@@ -119,26 +177,29 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 	output, err := cmd.CombinedOutput()
 	log.Write(output)
 	if ctx.Err() == context.DeadlineExceeded {
-		log.WriteString("\nrelease gate timed out after " + timeout.String() + "\n")
+		fmt.Fprintf(&log, "\nrelease gate timed out after %s\n", timeout)
 	} else if err != nil {
-		log.WriteString("\nrelease gate failed: " + err.Error() + "\n")
+		fmt.Fprintf(&log, "\nrelease gate failed: %v\n", err)
 	}
-	result.EndedAt = nowFunc().UTC()
+	result.EndedAt = now().UTC()
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		result.ExitCode = exitErr.ExitCode()
 	} else if err == nil {
 		result.ExitCode = 0
 		result.Status = StatusPass
 	}
-	writeGateLog(rawLogPath, log.Bytes())
-	return result
+	if err := writeGateLog(rawLogPath, log.Bytes()); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
-// writeGateLog 写入 gate 原始日志；日志是发布证据，写失败时直接 panic 阻断流程。
-func writeGateLog(path string, body []byte) {
+// writeGateLog 写入 gate 原始日志；日志是发布证据，写失败时直接阻断流程。
+func writeGateLog(path string, body []byte) error {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
-		panic(fmt.Sprintf("write sqlite release gate raw log %s: %v", path, err))
+		return fmt.Errorf("write sqlite release gate raw log %s: %w", path, err)
 	}
+	return nil
 }
 
 // selectGates 根据 Only 参数选择 gate，并按 gate 编号稳定排序。
@@ -146,7 +207,7 @@ func writeGateLog(path string, body []byte) {
 func selectGates(gates []Gate, only []string) ([]Gate, error) {
 	wanted := map[string]bool{}
 	for _, value := range only {
-		for _, id := range strings.Split(value, ",") {
+		for id := range strings.SplitSeq(value, ",") {
 			id = strings.TrimSpace(id)
 			if id != "" {
 				wanted[id] = true

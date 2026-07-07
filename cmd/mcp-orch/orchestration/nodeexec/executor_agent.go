@@ -31,18 +31,42 @@ type AgentLauncher interface {
 
 var ErrDAGAgentRequiresRemoteLauncher = errors.New("DAG agent launch requires remote launcher")
 
+// DAGAgentLaunchContractValidator 在 DAG agent 启动前校验远端 launcher 契约。
+// 它守住 cwd、provider 和节点身份等跨模块边界，失败时必须阻断启动。
 type DAGAgentLaunchContractValidator interface {
 	ValidateDAGAgentLaunch(ctx context.Context, req contract.LaunchRequest, dagKey, nodeKey string) error
 }
 
 var ErrSpawnWritebackFailed = errors.New("agent spawn write-back failed")
 
+// AgentLauncherWithSpawnRecord 支持在启动事务中原子写回 child thread 绑定。
+// record 回调失败时 launcher 必须终止或回滚，避免 DAG 节点丢失 spawning_thread_id。
 type AgentLauncherWithSpawnRecord interface {
 	LaunchAgentWithSpawnRecord(ctx context.Context, req contract.LaunchRequest, record func(threadID string) error) (threadID string, err error)
 }
 
+// LaunchedThreadStopper 在 spawn 写回失败后停止已启动的远端线程。
+// 它只用于补偿 DAG agent 启动，不能替代 service 的普通 StopAgent 路径。
 type LaunchedThreadStopper interface {
 	StopLaunchedThread(ctx context.Context, threadID string) error
+}
+
+type launchedThreadCaptureKey struct{}
+
+// WithLaunchedThreadCapture 把已成功持久化的 child thread id 捕获到 dst，供 router 处理后续写回失败。
+func WithLaunchedThreadCapture(ctx context.Context, dst *string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, launchedThreadCaptureKey{}, dst)
+}
+
+func captureLaunchedThread(ctx context.Context, threadID string) {
+	dst, ok := ctx.Value(launchedThreadCaptureKey{}).(*string)
+	if !ok || dst == nil {
+		return
+	}
+	*dst = strings.TrimSpace(threadID)
 }
 
 // NodeSpawnRecorder 持久化 child thread_id 与 DAG 节点的绑定。
@@ -141,6 +165,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	return e.agentLaunchOutcome(ctx, node, runCtx, threadID, launchErr), nil
 }
 
+// agentLaunchOutcome 将 launcher 返回值转换成节点结果，并在 spawn 写回失败后尽量停止已启动线程。
 func (e *AgentExecutor) agentLaunchOutcome(
 	ctx context.Context,
 	node Node,
@@ -151,7 +176,18 @@ func (e *AgentExecutor) agentLaunchOutcome(
 	if launchErr == nil {
 		return e.successfulAgentLaunchOutcome(ctx, node, runCtx, threadID)
 	}
-	if errors.Is(launchErr, ErrSpawnWritebackFailed) || errors.Is(launchErr, ErrDAGAgentRequiresRemoteLauncher) {
+	if errors.Is(launchErr, ErrSpawnWritebackFailed) {
+		summary := launchErr.Error()
+		if strings.TrimSpace(threadID) != "" {
+			summary = e.stopLaunchedThreadAfterWritebackFailure(ctx, threadID, launchErr)
+		}
+		return NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassHard,
+			ErrorSummary: truncateErrSummary(summary),
+		}
+	}
+	if errors.Is(launchErr, ErrDAGAgentRequiresRemoteLauncher) {
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
 			FailureClass: FailureClassHard,
@@ -361,7 +397,13 @@ func (e *AgentExecutor) recordSpawn(ctx context.Context, node Node, runCtx RunCo
 	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, runCtx.RunID, threadID); err != nil {
 		return fmt.Sprintf("spawning_thread_id write-back failed: %v", err), err
 	}
+	captureLaunchedThread(ctx, threadID)
 	return "", nil
+}
+
+// StopLaunchedThreadAfterWritebackFailure 在后续 dispatch 写回丢失 fence 时停止已启动的 child。
+func (e *AgentExecutor) StopLaunchedThreadAfterWritebackFailure(ctx context.Context, threadID string, cause error) string {
+	return e.stopLaunchedThreadAfterWritebackFailure(ctx, threadID, cause)
 }
 
 func (e *AgentExecutor) stopLaunchedThreadAfterWritebackFailure(ctx context.Context, threadID string, cause error) string {

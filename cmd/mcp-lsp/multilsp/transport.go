@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const (
@@ -53,6 +54,8 @@ type transport struct {
 	done                chan struct{}
 	doneMu              sync.Mutex
 	doneErr             error
+	actorCtx            context.Context
+	cancelActors        context.CancelFunc
 
 	// responderWG 跟踪服务端主动请求产生的响应 goroutine。
 	// dispatchMessage 必须先 Add 再启动 goroutine；Close 在固定超时内等待它们退出，
@@ -72,6 +75,7 @@ func newTransport(options transportOptions) (*transport, error) {
 	if err != nil {
 		return nil, err
 	}
+	actorCtx, cancelActors := context.WithCancel(context.Background())
 	t := &transport{
 		cmd:                 cmd,
 		stdin:               stdin,
@@ -81,9 +85,15 @@ func newTransport(options transportOptions) (*transport, error) {
 		requestHandler:      options.RequestHandler,
 		pending:             map[string]chan pendingResult{},
 		done:                make(chan struct{}),
+		actorCtx:            actorCtx,
+		cancelActors:        cancelActors,
 	}
-	go t.wait()
-	go t.readLoop()
+	safego.Go(actorCtx, nil, "mcp-lsp.transport.wait", func(context.Context) {
+		t.wait()
+	})
+	safego.Go(actorCtx, nil, "mcp-lsp.transport.read-loop", func(context.Context) {
+		t.readLoop()
+	})
 	return t, nil
 }
 
@@ -157,16 +167,14 @@ func (t *transport) spawnResponder(envelope protocol.Envelope) {
 	if t.closed.Load() {
 		return
 	}
-	t.responderWG.Add(1)
-	go func() {
-		defer t.responderWG.Done()
+	t.responderWG.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("LSP responder panic", "panic", fmt.Sprint(r))
 			}
 		}()
 		t.respondToServerRequest(envelope)
-	}()
+	})
 }
 
 // handleResponse 将收到的响应分发给对应的 pending 等待通道。

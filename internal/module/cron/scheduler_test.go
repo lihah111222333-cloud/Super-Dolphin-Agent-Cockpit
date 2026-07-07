@@ -20,23 +20,38 @@ import (
 // the methods the scheduler calls have first-class slots; everything
 // else returns zero-values so lint / compile stays quiet.
 type recordingCronStore struct {
+	recordingCronRunWriteStore
+	recordingCronTerminalStore
+	recordingCronCompatibilityStore
+
 	mu                      sync.Mutex
 	claimFn                 func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error)
-	insertRunFn             func(context.Context, insertRunParams) (runRecord, error)
 	casStatusFn             func(context.Context, casRunStatusParams) error
-	setRunTurnFn            func(context.Context, setRunTurnParams) error
-	setActiveTurnFn         func(context.Context, setActiveTurnParams) error
-	markFinishedFn          func(context.Context, markFinishedParams) error
 	markFailedFn            func(context.Context, markFailedParams) error
 	renewLeaseFn            func(context.Context, leaseParams) error
 	listJobsFn              func(context.Context) ([]jobRecord, error)
-	getJobFn                func(context.Context, string) (jobRecord, error)
 	listUnresolvedFn        func(context.Context) ([]runRecord, error)
 	getRunningRunByTurnIDFn func(context.Context, string) (runRecord, error)
+	getRunByTurnIDFn        func(context.Context, string) (runRecord, error)
+	listUnresolvedPageFn    func(context.Context, int32, string) ([]runRecord, error)
 	listJobsClaimedByFn     func(context.Context, string) ([]jobRecord, error)
 
 	casCalls []casRunStatusParams
 }
+
+type recordingCronRunWriteStore struct {
+	insertRunFn             func(context.Context, insertRunParams) (runRecord, error)
+	setRunTurnFn            func(context.Context, setRunTurnParams) error
+	setActiveTurnFn         func(context.Context, setActiveTurnParams) error
+	submitRunWithActiveTurn func(context.Context, submitRunWithActiveTurnParams) error
+}
+
+type recordingCronTerminalStore struct {
+	getJobFn       func(context.Context, string) (jobRecord, error)
+	markFinishedFn func(context.Context, markFinishedParams) error
+}
+
+type recordingCronCompatibilityStore struct{}
 
 func (s *recordingCronStore) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
 	if s.claimFn != nil {
@@ -44,7 +59,7 @@ func (s *recordingCronStore) ClaimDueJobsForUpdate(ctx context.Context, p claimD
 	}
 	return nil, nil
 }
-func (s *recordingCronStore) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
+func (s *recordingCronRunWriteStore) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
 	if s.insertRunFn != nil {
 		return s.insertRunFn(ctx, p)
 	}
@@ -59,19 +74,26 @@ func (s *recordingCronStore) CASRunStatus(ctx context.Context, p casRunStatusPar
 	}
 	return nil
 }
-func (s *recordingCronStore) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
+func (s *recordingCronRunWriteStore) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
 	if s.setRunTurnFn != nil {
 		return s.setRunTurnFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronStore) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
+func (s *recordingCronRunWriteStore) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
 	if s.setActiveTurnFn != nil {
 		return s.setActiveTurnFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronStore) MarkFinished(ctx context.Context, p markFinishedParams) error {
+
+func (s *recordingCronRunWriteStore) SubmitRunWithActiveTurn(ctx context.Context, p submitRunWithActiveTurnParams) error {
+	if s.submitRunWithActiveTurn != nil {
+		return s.submitRunWithActiveTurn(ctx, p)
+	}
+	return nil
+}
+func (s *recordingCronTerminalStore) MarkFinished(ctx context.Context, p markFinishedParams) error {
 	if s.markFinishedFn != nil {
 		return s.markFinishedFn(ctx, p)
 	}
@@ -89,6 +111,12 @@ func (s *recordingCronStore) RenewLease(ctx context.Context, p leaseParams) erro
 	}
 	return nil
 }
+func (s *recordingCronTerminalStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
+	if s.getJobFn != nil {
+		return s.getJobFn(ctx, id)
+	}
+	return jobRecord{}, nil
+}
 func (s *recordingCronStore) ListJobs(ctx context.Context) ([]jobRecord, error) {
 	if s.listJobsFn != nil {
 		return s.listJobsFn(ctx)
@@ -96,38 +124,23 @@ func (s *recordingCronStore) ListJobs(ctx context.Context) ([]jobRecord, error) 
 	return nil, nil
 }
 
-// Unused store methods (not called by scheduler/actor logic in phase 2b).
-func (s *recordingCronStore) CreateJob(context.Context, createJobParams) (jobRecord, error) {
+// Unused store methods keep the programmable double compatible with older scheduler tests.
+func (recordingCronCompatibilityStore) CreateJob(context.Context, createJobParams) (jobRecord, error) {
 	return jobRecord{}, nil
 }
-func (s *recordingCronStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
-	if s.getJobFn != nil {
-		return s.getJobFn(ctx, id)
-	}
-	return jobRecord{}, nil
-}
-func (s *recordingCronStore) DeleteJob(context.Context, string) error { return nil }
-func (s *recordingCronStore) UpdateJobSchedule(context.Context, updateJobScheduleParams) error {
+func (recordingCronCompatibilityStore) DeleteJob(context.Context, string) error { return nil }
+func (recordingCronCompatibilityStore) UpdateJobSchedule(context.Context, updateJobScheduleParams) error {
 	return nil
 }
-func (s *recordingCronStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
+func (recordingCronCompatibilityStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
 	return nil
 }
-func (s *recordingCronStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
+func (recordingCronCompatibilityStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
 	return nil
 }
-func (s *recordingCronStore) ExtendClaim(context.Context, leaseParams) error { return nil }
-func (s *recordingCronStore) ReleaseClaim(context.Context, string, string, time.Time) error {
+func (recordingCronCompatibilityStore) ExtendClaim(context.Context, leaseParams) error { return nil }
+func (recordingCronCompatibilityStore) ReleaseClaim(context.Context, string, string, time.Time) error {
 	return nil
-}
-func (s *recordingCronStore) GetRunByID(context.Context, string) (runRecord, error) {
-	return runRecord{}, nil
-}
-func (s *recordingCronStore) GetRunByDedupeKey(context.Context, string) (runRecord, error) {
-	return runRecord{}, nil
-}
-func (s *recordingCronStore) ListRunsByJob(context.Context, string, int32) ([]runRecord, error) {
-	return nil, nil
 }
 func (s *recordingCronStore) ListUnresolvedRuns(ctx context.Context) ([]runRecord, error) {
 	if s.listUnresolvedFn != nil {
@@ -154,6 +167,35 @@ func (s *recordingCronStore) GetRunningRunByTurnID(ctx context.Context, turnID s
 	}
 	return runRecord{}, errStoreJobRunNotFound
 }
+
+func (s *recordingCronStore) GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+	if s.getRunByTurnIDFn != nil {
+		return s.getRunByTurnIDFn(ctx, turnID)
+	}
+	if s.getRunningRunByTurnIDFn != nil {
+		return s.getRunningRunByTurnIDFn(ctx, turnID)
+	}
+	if s.listUnresolvedFn != nil {
+		runs, err := s.listUnresolvedFn(ctx)
+		if err != nil {
+			return runRecord{}, err
+		}
+		for _, run := range runs {
+			if run.TurnID == turnID && (run.Status == statusSubmitted || run.Status == statusRunning) {
+				return run, nil
+			}
+		}
+	}
+	return runRecord{}, errStoreJobRunNotFound
+}
+
+func (s *recordingCronStore) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]runRecord, error) {
+	if s.listUnresolvedPageFn != nil {
+		return s.listUnresolvedPageFn(ctx, limit, cursor)
+	}
+	return nil, nil
+}
+
 func (s *recordingCronStore) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]jobRecord, error) {
 	if s.listJobsClaimedByFn != nil {
 		return s.listJobsClaimedByFn(ctx, claimedBy)
@@ -272,14 +314,11 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 	if sub.starts[0].JobID != "job-1" {
 		t.Fatalf("StartTurn request job_id = %q", sub.starts[0].JobID)
 	}
-	// Expected CAS transitions stop at submitted->running. A terminal bus event,
-	// not Observe(), is responsible for running->finished/failed.
-	if len(store.casCalls) != 3 {
-		t.Fatalf("CAS call count = %d, want 3", len(store.casCalls))
+	if len(store.casCalls) != 2 {
+		t.Fatalf("CAS call count = %d, want 2", len(store.casCalls))
 	}
 	wantPairs := []struct{ exp, next string }{
 		{"pending", "submitting"},
-		{"submitting", "submitted"},
 		{"submitted", "running"},
 	}
 	for i, want := range wantPairs {
@@ -288,6 +327,96 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 			t.Fatalf("CAS[%d] = (%s -> %s), want (%s -> %s)",
 				i, got.ExpectedStatus, got.NextStatus, want.exp, want.next)
 		}
+	}
+}
+
+// TestPersistSubmittedTurnAtomicWithActiveTurn locks run turn, submitted status,
+// and job active turn into one durable unit.
+func TestPersistSubmittedTurnAtomicWithActiveTurn(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{
+		recordingCronRunWriteStore: recordingCronRunWriteStore{
+			submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
+				return errors.New("active turn write failed")
+			},
+		},
+	}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	err := s.persistSubmittedTurn(context.Background(),
+		jobRecord{ID: "job-1", ClaimToken: "claim-token"},
+		runRecord{ID: "run-1", JobID: "job-1", ScheduledAt: s.now()},
+		StartTurnResult{TurnID: "turn-1"})
+	if err == nil || !strings.Contains(err.Error(), "active turn write failed") {
+		t.Fatalf("persistSubmittedTurn err = %v, want active turn failure", err)
+	}
+	if len(store.casCalls) != 0 {
+		t.Fatalf("submitted status must be atomic with active turn; CAS calls = %+v", store.casCalls)
+	}
+}
+
+// TestSetActiveTurnFailureDoesNotPublishSubmitted prevents UI/progress
+// subscribers from seeing submitted before active_turn_id is durable.
+func TestSetActiveTurnFailureDoesNotPublishSubmitted(t *testing.T) {
+	t.Parallel()
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+	store := &recordingCronStore{
+		recordingCronRunWriteStore: recordingCronRunWriteStore{
+			submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
+				return errors.New("active turn write failed")
+			},
+		},
+		claimFn: func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
+			return []jobRecord{{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "claim-token"}}, nil
+		},
+	}
+	s := newTestScheduler(t, store, &programmableSubmitter{}).WithDispatcher(dispatcher)
+	out, cleanup := collectRunStateEvents(t, dispatcher)
+	defer cleanup()
+	if err := s.RunTick(context.Background()); err == nil || !strings.Contains(err.Error(), "active turn write failed") {
+		t.Fatalf("RunTick err = %v, want active turn failure", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	for _, ev := range out.get() {
+		if ev.Status == statusSubmitted {
+			t.Fatalf("submitted event published before active turn was durable: %+v", out.get())
+		}
+	}
+}
+
+// TestTerminalEarlyArrivalDoesNotBecomePermanentStale proves an immediately
+// delivered terminal event can finalize a submitted run.
+func TestTerminalEarlyArrivalDoesNotBecomePermanentStale(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "claim-token"}
+	run := runRecord{ID: "run-1", JobID: job.ID, Status: statusSubmitting, ScheduledAt: s.now()}
+	var terminalErr error
+	var finished markFinishedParams
+	store.submitRunWithActiveTurn = func(_ context.Context, p submitRunWithActiveTurnParams) error {
+		run.TurnID, run.Status = p.ActiveTurnID, statusSubmitted
+		job.ActiveTurnID = p.ActiveTurnID
+		terminalErr = s.CompleteTurn(context.Background(), p.ActiveTurnID, true, "")
+		return nil
+	}
+	store.casStatusFn = func(context.Context, casRunStatusParams) error { run.Status = statusFinished; return nil }
+	store.getRunByTurnIDFn = func(context.Context, string) (runRecord, error) { return run, nil }
+	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
+	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+		finished = p
+		return nil
+	}
+
+	if err := s.persistSubmittedTurn(context.Background(), job, run, StartTurnResult{TurnID: "turn-1"}); err != nil {
+		t.Fatalf("persistSubmittedTurn error = %v", err)
+	}
+	if terminalErr != nil {
+		t.Fatalf("early terminal error = %v, want terminal to observe active turn", terminalErr)
+	}
+	if finished.ExpectedActiveTurnID != "turn-1" || finished.LastTurnID != "turn-1" {
+		t.Fatalf("MarkFinished params = %+v", finished)
 	}
 }
 
@@ -470,6 +599,31 @@ func TestCronTerminalEventFinalizesSubmittedRun(t *testing.T) {
 	}
 }
 
+// TestTerminalRunByTurnIDUsesPointLookup prevents submitted terminal events from scanning all unresolved runs.
+func TestTerminalRunByTurnIDUsesPointLookup(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
+	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
+	store.getRunByTurnIDFn = func(_ context.Context, turnID string) (runRecord, error) {
+		if turnID != "turn-1" {
+			t.Fatalf("turnID = %q, want turn-1", turnID)
+		}
+		return run, nil
+	}
+	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) {
+		t.Fatal("terminal lookup fell back to full unresolved scan")
+		return nil, nil
+	}
+	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
+	store.markFinishedFn = func(context.Context, markFinishedParams) error { return nil }
+
+	if err := s.CompleteTurn(context.Background(), "turn-1", true, ""); err != nil {
+		t.Fatalf("CompleteTurn error = %v", err)
+	}
+}
+
 func TestSchedulerRejectsStaleTerminalWhenJobActiveTurnMovedToNewClaim(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
@@ -608,6 +762,41 @@ func TestCronTerminalSubscriberMarksFinished(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("terminal subscriber did not mark finished")
+	}
+}
+
+// TestRecoverDanglingRunsProcessesBatches prevents startup recovery from loading all unresolved runs at once.
+func TestRecoverDanglingRunsProcessesBatches(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	pageCalls := 0
+	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) {
+		t.Fatal("startup recovery used full unresolved scan")
+		return nil, nil
+	}
+	store.listUnresolvedPageFn = func(_ context.Context, limit int32, cursor string) ([]runRecord, error) {
+		if limit <= 0 {
+			t.Fatalf("page limit = %d, want positive cap", limit)
+		}
+		pageCalls++
+		if cursor == "" && pageCalls == 1 {
+			return []runRecord{{ID: "run-1", JobID: "job-1", TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}}, nil
+		}
+		if cursor == "run-1" && pageCalls == 2 {
+			return nil, nil
+		}
+		t.Fatalf("unexpected recovery cursor %q", cursor)
+		return nil, nil
+	}
+	store.getJobFn = func(_ context.Context, id string) (jobRecord, error) {
+		return jobRecord{ID: id, ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", LeaseExpiresAt: s.now().Add(time.Hour)}, nil
+	}
+	if err := s.RecoverDanglingRuns(context.Background()); err != nil {
+		t.Fatalf("RecoverDanglingRuns error = %v", err)
+	}
+	if pageCalls != 2 {
+		t.Fatalf("page calls = %d, want first batch and empty batch", pageCalls)
 	}
 }
 

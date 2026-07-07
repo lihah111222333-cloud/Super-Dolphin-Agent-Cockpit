@@ -151,11 +151,11 @@ func functionBody(t *testing.T, script, name string) string {
 		t.Fatalf("script missing function %s", name)
 	}
 	rest := script[start:]
-	end := strings.Index(rest, "\n}\n")
-	if end < 0 {
+	body, _, ok := strings.Cut(rest, "\n}\n")
+	if !ok {
 		t.Fatalf("script function %s has no closing brace", name)
 	}
-	return rest[:end]
+	return body
 }
 
 func assertScriptContains(t *testing.T, script, want string) {
@@ -237,6 +237,7 @@ func testLSPServerFixtures() []testLSPServerFixture {
 		{id: "pyright", path: "bin/pyright-langserver", version: "pyright-test"},
 		{id: "rust-analyzer", path: "bin/rust-analyzer", version: "rust-analyzer-test"},
 		{id: "bash-language-server", path: "bin/bash-language-server", version: "bash-language-server-test"},
+		{id: "sql-language-server", path: "bin/sql-language-server", version: "sql-language-server-test"},
 		{id: "shellcheck", path: "bin/shellcheck", version: "shellcheck-test"},
 		{id: "sg", path: "bin/sg", version: "sg-test"},
 		{id: "jdtls", path: "bin/jdtls", version: "jdtls-test"},
@@ -245,16 +246,17 @@ func testLSPServerFixtures() []testLSPServerFixture {
 
 func testLSPServerLanguages() map[string][]string {
 	return map[string][]string{
-		"gopls":                        []string{"go", "gomod"},
-		"go":                           []string{"go", "gomod"},
-		"typescript-language-server":   []string{"javascript", "typescript"},
-		"vscode-langservers-extracted": []string{"css", "html", "json"},
-		"pyright":                      []string{"python"},
-		"rust-analyzer":                []string{"rust"},
-		"bash-language-server":         []string{"shellscript"},
-		"shellcheck":                   []string{"shellcheck"},
-		"sg":                           []string{"ast-grep"},
-		"jdtls":                        []string{"java"},
+		"gopls":                        {"go", "gomod"},
+		"go":                           {"go", "gomod"},
+		"typescript-language-server":   {"javascript", "typescript"},
+		"vscode-langservers-extracted": {"css", "html", "json"},
+		"pyright":                      {"python"},
+		"rust-analyzer":                {"rust"},
+		"bash-language-server":         {"shellscript"},
+		"sql-language-server":          {"sql"},
+		"shellcheck":                   {"shellcheck"},
+		"sg":                           {"ast-grep"},
+		"jdtls":                        {"java"},
 	}
 }
 
@@ -422,6 +424,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 		filepath.Join(resources, "bin", "pyright-langserver"),
 		filepath.Join(resources, "bin", "rust-analyzer"),
 		filepath.Join(resources, "bin", "bash-language-server"),
+		filepath.Join(resources, "bin", "sql-language-server"),
 		filepath.Join(resources, "bin", "shellcheck"),
 		filepath.Join(resources, "bin", "jdtls"),
 		filepath.Join(resources, "lsp", "bin", "gopls"),
@@ -430,6 +433,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 		filepath.Join(resources, "lsp", "bin", "pyright-langserver"),
 		filepath.Join(resources, "lsp", "bin", "rust-analyzer"),
 		filepath.Join(resources, "lsp", "bin", "bash-language-server"),
+		filepath.Join(resources, "lsp", "bin", "sql-language-server"),
 		filepath.Join(resources, "lsp", "bin", "shellcheck"),
 		filepath.Join(resources, "lsp", "bin", "sg"),
 		filepath.Join(resources, "lsp", "bin", "jdtls"),
@@ -495,6 +499,7 @@ func writeLSPManifest(t *testing.T, resources string) {
 		{id: "pyright", path: "lsp/bin/pyright-langserver", version: "pyright-test"},
 		{id: "rust-analyzer", path: "lsp/bin/rust-analyzer", version: "rust-analyzer-test"},
 		{id: "bash-language-server", path: "lsp/bin/bash-language-server", version: "bash-language-server-test"},
+		{id: "sql-language-server", path: "lsp/bin/sql-language-server", version: "sql-language-server-test"},
 		{id: "shellcheck", path: "lsp/bin/shellcheck", version: "shellcheck-test"},
 		{id: "sg", path: "lsp/bin/sg", version: "sg-test"},
 		{id: "jdtls", path: "lsp/bin/jdtls", version: "jdtls-test"},
@@ -607,6 +612,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 		filepath.Join(stage, "bin", "pyright-langserver"),
 		filepath.Join(stage, "bin", "rust-analyzer"),
 		filepath.Join(stage, "bin", "bash-language-server"),
+		filepath.Join(stage, "bin", "sql-language-server"),
 		filepath.Join(stage, "bin", "shellcheck"),
 		filepath.Join(stage, "bin", "sg"),
 		filepath.Join(stage, "bin", "jdtls"),
@@ -616,6 +622,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 		filepath.Join(stage, "lsp", "bin", "pyright-langserver"),
 		filepath.Join(stage, "lsp", "bin", "rust-analyzer"),
 		filepath.Join(stage, "lsp", "bin", "bash-language-server"),
+		filepath.Join(stage, "lsp", "bin", "sql-language-server"),
 		filepath.Join(stage, "lsp", "bin", "shellcheck"),
 		filepath.Join(stage, "lsp", "bin", "sg"),
 		filepath.Join(stage, "lsp", "bin", "jdtls"),

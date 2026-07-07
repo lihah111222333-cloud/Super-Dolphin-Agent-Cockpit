@@ -37,10 +37,12 @@ type Querier interface {
 	//
 	ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsForUpdateParams) ([]CronJob, error)
 	CountAILogsByStatus(ctx context.Context) ([]string, error)
+	CountActiveAgentThreads(ctx context.Context) (int64, error)
 	CountAllThreads(ctx context.Context) (int64, error)
 	// Returns the number of child agents belonging to the given parent.
 	// Used to determine the next sequential suffix for child agent IDs.
 	CountChildAgentThreads(ctx context.Context, arg CountChildAgentThreadsParams) (int64, error)
+	CountHookPendingReviews(ctx context.Context) (int64, error)
 	// CRUD --------------------------------------------------------------
 	CreateCronJob(ctx context.Context, arg CreateCronJobParams) (CronJob, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
@@ -52,6 +54,7 @@ type Querier interface {
 	DeleteAgentThreadByID(ctx context.Context, arg DeleteAgentThreadByIDParams) error
 	DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error)
 	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error
+	DeleteDatasourceDocument(ctx context.Context, arg DeleteDatasourceDocumentParams) (int64, error)
 	DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg DeleteDatasourceV2ChunksByDocumentIDParams) (int64, error)
 	DeleteDatasourceV2Document(ctx context.Context, arg DeleteDatasourceV2DocumentParams) (int64, error)
 	DeletePromptTemplate(ctx context.Context, arg DeletePromptTemplateParams) (int64, error)
@@ -93,6 +96,9 @@ type Querier interface {
 	GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunningCronJobRunByTurnIDParams) (CronJobRun, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (GetSessionInsightByLocalTurnRow, error)
 	GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error)
+	// Used by CompleteTurn to locate early terminal events that arrive while a run
+	// is still submitted, without falling back to the unresolved recovery scan.
+	GetSubmittedOrRunningCronJobRunByTurnID(ctx context.Context, arg GetSubmittedOrRunningCronJobRunByTurnIDParams) (CronJobRun, error)
 	GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) (json.RawMessage, error)
 	GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error)
@@ -116,6 +122,7 @@ type Querier interface {
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)
 	ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgentThreadCwdsByPrefixParams) ([]ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error)
+	ListAgentThreadsPage(ctx context.Context, arg ListAgentThreadsPageParams) ([]ListAgentThreadsPageRow, error)
 	ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error)
 	ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error)
 	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]ListCommandCardVersionsRow, error)
@@ -125,12 +132,18 @@ type Querier interface {
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
+	ListDatasourceDocumentPromptMetadata(ctx context.Context, arg ListDatasourceDocumentPromptMetadataParams) ([]ListDatasourceDocumentPromptMetadataRow, error)
+	ListDatasourceDocuments(ctx context.Context, arg ListDatasourceDocumentsParams) ([]ListDatasourceDocumentsRow, error)
+	ListDatasourcePromptDocuments(ctx context.Context, arg ListDatasourcePromptDocumentsParams) ([]ListDatasourcePromptDocumentsRow, error)
 	ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]ListDatasourceV2ChunksRow, error)
+	ListDatasourceV2ChunksPage(ctx context.Context, arg ListDatasourceV2ChunksPageParams) ([]ListDatasourceV2ChunksPageRow, error)
 	ListDatasourceV2Documents(ctx context.Context, arg ListDatasourceV2DocumentsParams) ([]DatasourceV2Document, error)
 	ListDefaultRuleSections(ctx context.Context, arg ListDefaultRuleSectionsParams) ([]ListDefaultRuleSectionsRow, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
+	ListHookPendingReviewsByAgentPage(ctx context.Context, arg ListHookPendingReviewsByAgentPageParams) ([]ListHookPendingReviewsByAgentPageRow, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
+	ListLoadedAgentThreadsPage(ctx context.Context, arg ListLoadedAgentThreadsPageParams) ([]ListLoadedAgentThreadsPageRow, error)
 	ListMCPToolLifecycle(ctx context.Context, arg ListMCPToolLifecycleParams) ([]McpToolLifecycle, error)
 	// ListObservedApprovalRequests returns the per-thread approval_requests
 	// window but only for turns where approval_requests_observed = TRUE.
@@ -166,6 +179,9 @@ type Querier interface {
 	// submitted / running must be re-entered through Observe / LookupByDedupeKey
 	// instead of StartTurn, per the three-phase protocol.
 	ListUnresolvedCronJobRuns(ctx context.Context) ([]CronJobRun, error)
+	// Bounded scheduler boot recovery page. The caller advances cursor with the
+	// last returned id so startup recovery never materializes every unresolved row.
+	ListUnresolvedCronJobRunsPage(ctx context.Context, arg ListUnresolvedCronJobRunsPageParams) ([]CronJobRun, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
@@ -233,6 +249,8 @@ type Querier interface {
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error)
+	// datasource.sql - sqlc queries for datasource_documents.
+	UpsertDatasourceDocument(ctx context.Context, arg UpsertDatasourceDocumentParams) (int64, error)
 	UpsertDatasourceV2DocumentImporting(ctx context.Context, arg UpsertDatasourceV2DocumentImportingParams) (DatasourceV2Document, error)
 	UpsertMCPToolLifecycle(ctx context.Context, arg UpsertMCPToolLifecycleParams) (McpToolLifecycle, error)
 	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error)

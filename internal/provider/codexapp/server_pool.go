@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"golang.org/x/sync/singleflight"
@@ -301,12 +302,13 @@ func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 // 该方法供后台 runner 周期调用，返回回收数量用于日志或指标。
 func (p *ServerPool) EvictIdle() int {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return 0
 	}
 	now := p.now()
 	removed := 0
+	evicted := make([]poolEvictedServer, 0)
 	for key, entry := range p.entries {
 		if entry.refCount > 0 {
 			continue
@@ -316,11 +318,20 @@ func (p *ServerPool) EvictIdle() int {
 		}
 		delete(p.entries, key)
 		if entry.server != nil {
-			go closeWithTimeout(entry.server, 2*time.Second, p.logger, key)
+			evicted = append(evicted, poolEvictedServer{server: entry.server, key: key})
 		}
 		removed++
 	}
+	p.mu.Unlock()
+	for _, item := range evicted {
+		closeWithTimeout(item.server, 2*time.Second, p.logger, item.key)
+	}
 	return removed
+}
+
+type poolEvictedServer struct {
+	server SpawnedServer
+	key    poolEntryKey
 }
 
 // Close 关闭池中所有 app-server，并阻止后续 Acquire。
@@ -396,7 +407,9 @@ func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.
 	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Close(ctx); err != nil {
-		logger.Debug("codexapp: pool close entry failed", slog.String("codex_home", key.home), slog.String("owner", key.ownerKey), slog.String("error", err.Error()))
+		fields := []any{"owner", key.ownerKey, "error", err.Error()}
+		fields = append(fields, platformshared.SafePathLogFields("codex_home", key.home)...)
+		logger.Debug("codexapp: pool close entry failed", fields...)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -322,14 +323,9 @@ func (s *autoDreamScheduler) Start() {
 			close(s.doneCh)
 			return
 		}
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					pkglogger.Error("memory: recovered auto_dream_scheduler worker panic", "panic", rec)
-				}
-			}()
+		safego.Go(s.taskCtx, pkglogger.Get(), "memory.auto_dream.scheduler", func(context.Context) {
 			s.runWorker()
-		}()
+		})
 	})
 }
 

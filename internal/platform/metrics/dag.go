@@ -13,7 +13,7 @@ var (
 			Name: "dispatch_failed_total",
 			Help: "Number of wakeup dispatch attempts that were committed as failed.",
 		},
-		func() float64 { return float64(dagmetrics.Read().DispatchFailedTotal) },
+		func() float64 { return float64(dagmetrics.DefaultRegistry().Read().DispatchFailedTotal) },
 	)
 
 	DAGRetryAlertTotal = promauto.NewCounterFunc(
@@ -21,7 +21,7 @@ var (
 			Name: "dispatch_retry_alert_total",
 			Help: "Number of DAG node retry threshold alerts triggered.",
 		},
-		func() float64 { return float64(dagmetrics.Read().RetryAlertTotal) },
+		func() float64 { return float64(dagmetrics.DefaultRegistry().Read().RetryAlertTotal) },
 	)
 
 	DAGRetryCountPerNodeOverflowTotal = promauto.NewCounterFunc(
@@ -29,7 +29,7 @@ var (
 			Name: "retry_count_per_node_overflow_total",
 			Help: "Number of DAG node retry observations not exported with per-node labels after the in-process series cap.",
 		},
-		func() float64 { return float64(dagmetrics.Read().RetryCountPerNodeOverflow) },
+		func() float64 { return float64(dagmetrics.DefaultRegistry().Read().RetryCountPerNodeOverflow) },
 	)
 
 	dagRetryCountPerNodeDesc = prometheus.NewDesc(
@@ -59,7 +59,7 @@ func (dagRetryCountPerNodeCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect 读取当前 DAG retry 快照并按 dag_key/node_key 输出计数。
 func (dagRetryCountPerNodeCollector) Collect(ch chan<- prometheus.Metric) {
-	for _, count := range dagmetrics.Read().RetryCountPerNode {
+	for _, count := range dagmetrics.DefaultRegistry().Read().RetryCountPerNode {
 		ch <- prometheus.MustNewConstMetric(
 			dagRetryCountPerNodeDesc,
 			prometheus.CounterValue,

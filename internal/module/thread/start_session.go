@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/startconfig"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
@@ -203,12 +204,13 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	}
 	req.Provider = provider
 	if strings.EqualFold(provider, "codex") || strings.TrimSpace(req.ModelProvider) != "" {
-		pkglogger.Warn("thread/start: provider resolved",
+		fields := []any{
 			"provider_input", providerInput,
 			"model_provider_input", modelProviderInput,
 			"resolved_provider", provider,
-			"cwd", req.CWD,
-		)
+		}
+		fields = append(fields, platformshared.SafePathLogFields("cwd", req.CWD)...)
+		pkglogger.Warn("thread/start: provider resolved", fields...)
 	}
 	req.CWD, err = resolveStartCWD(req.CWD)
 	if err != nil {

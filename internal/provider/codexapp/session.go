@@ -84,6 +84,22 @@ type turnHandle struct {
 	once       sync.Once
 }
 
+// ErrForceCompleteTargetNotFound marks a force-complete request with no active provider turn target.
+var ErrForceCompleteTargetNotFound = forceCompleteTargetNotFoundError{}
+
+// forceCompleteTargetNotFoundError is the typed no-target marker shared across package boundaries by behavior.
+type forceCompleteTargetNotFoundError struct{}
+
+// Error 返回 force-complete 无目标失败的稳定诊断文本，供日志和 RPC envelope 复用。
+func (forceCompleteTargetNotFoundError) Error() string {
+	return "force complete target not found"
+}
+
+// ForceCompleteTargetNotFound 暴露跨包识别标记，避免 turn 模块反向导入 provider 包。
+func (forceCompleteTargetNotFoundError) ForceCompleteTargetNotFound() bool {
+	return true
+}
+
 func newSession(
 	transportCtx context.Context,
 	logger *slog.Logger,
@@ -226,17 +242,19 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 	s.onNotification(msg.Method, msg.Params)
 }
 
+// handleInboundToolCall 解析远端工具调用并通过本地 tool bridge 返回响应。
 func (s *session) handleInboundToolCall(ctx context.Context, resp Responder, msg RawMessage, toolHandler ToolHandler) {
 	toolName := toolCallParamString(msg.Params, "name")
 	sessionCWD := s.runtimeConfigString("cwd")
 	if shouldWarnToolCWDTrace(toolName) {
-		s.logger.Warn("codexapp: tool call cwd trace",
+		fields := []any{
 			"agent_id", s.agentID,
 			"thread_id", s.ThreadID(),
 			"method", msg.Method,
 			"tool", toolName,
-			"session_cwd", sessionCWD,
-		)
+		}
+		fields = append(fields, shared.SafePathLogFields("session_cwd", sessionCWD)...)
+		s.logger.Warn("codexapp: tool call cwd trace", fields...)
 	}
 	prepared, err := s.prepareToolCall(msg)
 	if err != nil {
@@ -364,7 +382,9 @@ func (s *session) applyRuntimeTurnStartOverrides(ctx context.Context, params *tu
 	if params == nil {
 		return nil
 	}
+	modelSource := supportutil.CodexModelResolutionSourceExplicit
 	if params.Model == "" {
+		modelSource = supportutil.CodexModelResolutionSourceDefault
 		params.Model = s.runtimeConfigString("model")
 	}
 	if params.Effort == "" {
@@ -377,8 +397,12 @@ func (s *session) applyRuntimeTurnStartOverrides(ctx context.Context, params *tu
 		}
 		params.SandboxPolicy = sandboxPolicy
 	}
-	if supportutil.CodexModelNeedsListResolution(params.Model) {
-		params.Model = s.resolveTurnStartModel(ctx, params.Model)
+	if supportutil.CodexModelNeedsListResolutionForSource(params.Model, modelSource) {
+		model, err := s.resolveTurnStartModel(ctx, params.Model)
+		if err != nil {
+			return err
+		}
+		params.Model = model
 	}
 	return nil
 }
@@ -417,33 +441,29 @@ func (s *session) contextWithTurnTrace(ctx context.Context, providerTurnID strin
 }
 
 // resolveTurnStartModel 在 model/list 可用时把默认模型解析成 provider 当前支持的具体模型。
-// 解析失败只记录告警并沿用原值，避免一次模型列表异常阻断用户显式 turn/start。
-func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
+// 默认模型必须解析成功；model/list 失败或为空会直接阻断 turn/start。
+func (s *session) resolveTurnStartModel(ctx context.Context, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if s == nil || s.transport == nil {
-		return requested
+		return "", supportutil.NewModelResolutionRequiredError(requested, errors.New("model/list transport is not configured"))
 	}
-	model, replaced, err := resolveSupportedCodexModel(ctx, s.transport, requested)
+	resolution, err := resolveSupportedCodexModel(ctx, s.transport, requested)
 	if err != nil {
-		pkglogger.Warn("codexapp: turn/start model/list selection failed",
+		return "", err
+	}
+	if resolution.model == "" {
+		return "", supportutil.NewModelResolutionRequiredError(requested, nil)
+	}
+	if resolution.replaced {
+		s.setRuntimeConfigValue("model", resolution.model)
+		pkglogger.Info("codexapp: turn/start selected supported model from model/list",
 			"agent_id", s.agentID,
 			"thread_id", s.ThreadID(),
 			"requested_model", requested,
-			"error", err,
+			"model", resolution.model,
 		)
-		return requested
 	}
-	if model == "" || !replaced {
-		return requested
-	}
-	s.setRuntimeConfigValue("model", model)
-	pkglogger.Info("codexapp: turn/start selected supported model from model/list",
-		"agent_id", s.agentID,
-		"thread_id", s.ThreadID(),
-		"requested_model", requested,
-		"model", model,
-	)
-	return model
+	return resolution.model, nil
 }
 
 // Steer 向当前线程的指定 turn 发送 steering 输入。
@@ -484,7 +504,7 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 }
 
 // ForceComplete 强制完成当前或指定 provider turn，并在远端确认后关闭本地 turn handle。
-// 找不到目标 turn 时按幂等语义直接返回，避免重复 completion 触发错误。
+// 找不到目标 turn 时返回 typed 错误，避免 UI 把未执行的强制完成显示为成功。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -492,7 +512,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	}
 	turnID, ok := s.forceCompleteTargetTurnID(req.ProviderID)
 	if !ok {
-		return nil
+		return ErrForceCompleteTargetNotFound
 	}
 	if err := s.callForceComplete(ctx, threadID, turnID); err != nil {
 		return err
@@ -626,15 +646,6 @@ func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, e
 		Effective:              values,
 	}, nil
 }
-
-// Close 关闭 Codex app 会话并执行优雅清理。
-func (s *session) Close(context.Context) error { return s.shutdownSession(true) }
-
-// ForceStop 强制停止 Codex app 会话。
-func (s *session) ForceStop() error { return s.shutdownSession(false) }
-
-// SessionRuntime 返回会话运行时状态。
-func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
 func (s *session) shutdownSessionCleanup() error {
 	if s == nil {

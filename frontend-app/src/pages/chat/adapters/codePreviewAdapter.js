@@ -59,6 +59,20 @@ function codePreviewLineRange(result, content) {
   return { startLine, endLine, totalLines };
 }
 
+function codePreviewIntegerField(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return null;
+  return parsed;
+}
+
+function isFullCodePreview(result, content) {
+  const startLine = codePreviewIntegerField(result?.startLine);
+  const endLine = codePreviewIntegerField(result?.endLine);
+  const totalLines = codePreviewIntegerField(result?.totalLines);
+  if (startLine !== 1 || endLine === null || totalLines === null || totalLines < 1) return false;
+  return endLine === totalLines && countCodePreviewLines(content) === totalLines;
+}
+
 function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative = '') {
   const filePath = (result?.filePath || result?.path || requestedPath || '').toString();
   const relative = codeOpenDisplayPath(result, fallbackRelative || requestedPath);
@@ -69,6 +83,8 @@ function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative 
   const explicitKind = (result?.previewKind || '').toString().trim().toLowerCase();
   const previewKind = explicitKind === 'markdown' || isCodePreviewMarkdownPath(relative) || mediaType === 'text/markdown' ? 'markdown' : 'text';
   const { startLine, endLine, totalLines } = codePreviewLineRange(result, content);
+  const previewMode = (result?.previewMode || '').toString().trim().toLowerCase();
+  const editable = previewMode === 'full' && Boolean(filePath) && isFullCodePreview(result, content);
   return {
     ...emptyCodePreviewState(),
     open: true,
@@ -77,13 +93,36 @@ function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative 
     content,
     draft: content,
     previewKind,
+    previewMode,
+    contentVersion: (result?.contentVersion || '').toString(),
     language: codePreviewLanguage(result, relative, previewKind),
-    editable: Boolean(filePath),
-    editing: previewKind !== 'markdown',
+    editable,
+    editing: editable && previewKind !== 'markdown',
     startLine,
     endLine,
+    rangeStartLine: Number.isFinite(Number(result?.rangeStartLine)) ? Math.floor(Number(result.rangeStartLine)) : startLine,
+    rangeEndLine: Number.isFinite(Number(result?.rangeEndLine)) ? Math.floor(Number(result.rangeEndLine)) : endLine,
     totalLines,
     sizeBytes: Number.isFinite(Number(result?.sizeBytes)) ? Math.floor(Number(result.sizeBytes)) : 0,
+  };
+}
+
+function codePreviewStateAfterSave(current, result, relative, savedDraft) {
+  const filePath = (result?.filePath || current.filePath || '').toString();
+  const savedContent = normalizeCodePreviewText(savedDraft);
+  const draftChangedDuringSave = current.draft !== savedContent;
+  const totalLines = Number.isFinite(Number(result?.totalLines))
+    ? Math.floor(Number(result.totalLines))
+    : countCodePreviewLines(savedContent);
+  return {
+    ...current,
+    saving: false,
+    filePath,
+    relative,
+    content: savedContent,
+    editing: current.previewKind === 'markdown' && !draftChangedDuringSave ? false : current.editing,
+    totalLines,
+    status: draftChangedDuringSave ? `已保存 ${relative}，仍有未保存更改` : `已保存 ${relative}`,
   };
 }
 
@@ -97,6 +136,8 @@ function codePreviewImageState(result, filePath, relative, mediaType) {
     filePath,
     relative,
     previewKind: 'image',
+    previewMode: (result?.previewMode || 'image').toString().trim().toLowerCase(),
+    contentVersion: '',
     language: '',
     editable: false,
     editing: false,
@@ -120,6 +161,8 @@ function emptyCodePreviewState() {
     error: '',
     status: '',
     previewKind: 'text',
+    previewMode: '',
+    contentVersion: '',
     language: 'plaintext',
     editable: false,
     editing: true,
@@ -130,12 +173,15 @@ function emptyCodePreviewState() {
     sizeBytes: 0,
     startLine: 0,
     endLine: 0,
+    rangeStartLine: 0,
+    rangeEndLine: 0,
     totalLines: 0,
   };
 }
 
 export {
   codeOpenDisplayPath,
+  codePreviewStateAfterSave,
   codePreviewStateFromOpenResult,
   countCodePreviewLines,
   emptyCodePreviewState,

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -17,6 +18,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -119,23 +122,26 @@ type indexedBatchItem struct {
 
 func (h handlerBase) warnFileCWDTrace(ctx context.Context, input fileToolInput) {
 	metaCWD, _ := ctx.Value(common.CwdContextKey).(string)
-	pkglogger.Get().Warn("mcp-lsp: file cwd trace",
+	effectiveRoot, _ := toolWorkspaceRoot(ctx)
+	fields := []any{
 		"action", strings.TrimSpace(input.Action),
-		"fallback_root", strings.TrimSpace(h.root),
-		"meta_cwd", strings.TrimSpace(metaCWD),
-		"effective_root", func() string { r, _ := toolWorkspaceRoot(ctx); return r }(),
-		"file_path", strings.TrimSpace(input.FilePath),
-		"file_paths", input.FilePaths,
-	)
+	}
+	fields = append(fields, platformshared.SafePathLogFields("fallback_root", strings.TrimSpace(h.root))...)
+	fields = append(fields, platformshared.SafePathLogFields("meta_cwd", strings.TrimSpace(metaCWD))...)
+	fields = append(fields, platformshared.SafePathLogFields("effective_root", strings.TrimSpace(effectiveRoot))...)
+	fields = append(fields, platformshared.SafePathLogFields("file_path", strings.TrimSpace(input.FilePath))...)
+	fields = append(fields, platformshared.SafePathLogFields("file_paths", input.FilePaths)...)
+	pkglogger.Get().Warn("mcp-lsp: file cwd trace", fields...)
 }
 
 func warnFileReadFailure(action, root, rawPath string, err error) {
-	pkglogger.Get().Warn("mcp-lsp: file cwd failure",
+	fields := []any{
 		"action", strings.TrimSpace(action),
-		"effective_root", strings.TrimSpace(root),
-		"file_path", strings.TrimSpace(rawPath),
 		"error", err,
-	)
+	}
+	fields = append(fields, platformshared.SafePathLogFields("effective_root", strings.TrimSpace(root))...)
+	fields = append(fields, platformshared.SafePathLogFields("file_path", strings.TrimSpace(rawPath))...)
+	pkglogger.Get().Warn("mcp-lsp: file cwd failure", fields...)
 }
 
 // NewFileHandler 创建 file 工具处理器，支持 open_file、read_file 和 diagnostics。
@@ -144,7 +150,24 @@ func NewFileHandler(cfg Config) Handler {
 		root:     resolveRoot(cfg.WorkspaceRoot),
 		registry: cfg.Registry,
 	}
-	return Handler(wrapToolHandler("file", middleware.TierNormal, handler.handleFile))
+	return Handler(wrapToolHandlerWithTimeoutResolver("file", middleware.TierNormal, fileToolTimeoutTier, handler.handleFile))
+}
+
+func fileToolTimeoutTier(params json.RawMessage) time.Duration {
+	var input struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil {
+		return middleware.TierNormal
+	}
+	action := normalizeAction(input.Action)
+	if alias := legacyActionAlias("file", action); alias != "" {
+		action = alias
+	}
+	if action == "diagnostics" {
+		return toolTimeoutDisabled
+	}
+	return middleware.TierNormal
 }
 
 // handleFile 解码 file 工具请求，并按 action 分发到打开、读取或诊断路径。
@@ -224,7 +247,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return openFileResult{}, err
 	}
@@ -256,7 +279,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 
 // readSingle 读取单文件内容；带 line 时优先尝试函数窗口，失败再降级为行窗口。
 func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (string, error) {
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -327,35 +350,37 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 	var wg sync.WaitGroup
 	for index, rawPath := range paths {
 		wg.Add(1)
-		go func(idx int, target string) {
+		currentIndex := index
+		targetPath := rawPath
+		safego.Go(ctx, nil, "mcp-lsp.file.read-batch.item", func(context.Context) {
 			defer wg.Done()
-			item := batchReadItem{FilePath: strings.TrimSpace(target)}
-			root, roots, err := toolWorkspaceRoots(ctx)
+			item := batchReadItem{FilePath: strings.TrimSpace(targetPath)}
+			root, roots, err := toolReadableRoots(ctx)
 			if err != nil {
 				item.Error = err.Error()
-				results <- indexedBatchItem{Index: idx, Item: item}
+				results <- indexedBatchItem{Index: currentIndex, Item: item}
 				return
 			}
-			file, err := search.ReadToolFileContentInRoots(root, roots, target, maxReadFileBytes)
+			file, err := search.ReadToolFileContentInRoots(root, roots, targetPath, maxReadFileBytes)
 			if err != nil {
-				warnFileReadFailure("read_file", root, target, err)
+				warnFileReadFailure("read_file", root, targetPath, err)
 				item.Error = err.Error()
-				results <- indexedBatchItem{Index: idx, Item: item}
+				results <- indexedBatchItem{Index: currentIndex, Item: item}
 				return
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
 			// 批量读取固定走全文行窗口，不触发逐文件函数符号查询，避免多文件响应因 LSP 状态而抖动。
 			// 需要精确定位时由单文件 pos="file:line" 路径承担。
-			batchReq := readFileRequest{rawPath: target, limit: req.limit}
+			batchReq := readFileRequest{rawPath: targetPath, limit: req.limit}
 			item.Content = renderLineWindow(file.Path.DisplayPath, file.Content, batchReq, lineWindowReasonBatch)
-			results <- indexedBatchItem{Index: idx, Item: item}
-		}(index, rawPath)
+			results <- indexedBatchItem{Index: currentIndex, Item: item}
+		})
 	}
-	go func() {
+	safego.Go(ctx, nil, "mcp-lsp.file.read-batch.close", func(context.Context) {
 		wg.Wait()
 		close(results)
-	}()
+	})
 
 	items := make([]indexedBatchItem, 0, len(paths))
 	for {
@@ -569,12 +594,10 @@ func (r openFileResult) ToPlainText() string {
 func (r batchReadResponse) ToPlainText() string {
 	var sb strings.Builder
 	successCount := r.Showing - r.Meta.ErrorCount
-	if successCount < 0 {
-		successCount = 0
-	}
-	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Showing, r.Total, successCount))
+	successCount = max(successCount, 0)
+	fmt.Fprintf(&sb, "Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Showing, r.Total, successCount)
 	if r.Meta.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+		fmt.Fprintf(&sb, "Message: %s\n", r.Meta.Message)
 	}
 	sb.WriteString("\n")
 

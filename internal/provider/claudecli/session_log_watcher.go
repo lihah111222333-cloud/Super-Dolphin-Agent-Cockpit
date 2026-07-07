@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const fallbackSessionLogWatcherPollInterval = 500 * time.Millisecond
@@ -85,7 +88,11 @@ func (w *sessionLogWatcher) start() {
 	}
 	w.started = true
 	w.mu.Unlock()
-	go func() {
+	w.startPollLoop()
+}
+
+func (w *sessionLogWatcher) startPollLoop() {
+	safego.Go(context.Background(), nil, "claudecli.sessionLogWatcher.pollLoop", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				if w.logger != nil {
@@ -94,7 +101,7 @@ func (w *sessionLogWatcher) start() {
 			}
 		}()
 		w.pollLoop()
-	}()
+	})
 }
 
 func (w *sessionLogWatcher) stopAndWait() {

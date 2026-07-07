@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -44,7 +45,7 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	proc := newLocalProcess(cmd, stderr)
 	proc.guard = attachProcessGuard(cmd)
 	proc.waitAsync()
-	go t.collectProcessStderr(proc, stderr)
+	t.startCollectProcessStderr(proc, stderr)
 	serverURL, err := proc.waitForListenURL(startupCtx)
 	if err != nil {
 		_ = proc.signal(sigForceKill)
@@ -59,7 +60,7 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	t.process = proc
 	t.processErr = nil
 	t.stateMu.Unlock()
-	go t.watchLocalProcess(proc)
+	t.startWatchLocalProcess(proc)
 	if registry != nil {
 		if pid := t.localPID(); pid > 0 {
 			if err := registry.RegisterChecked(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir}); err != nil {
@@ -74,7 +75,10 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 		_ = t.shutdownTransport(false)
 		return nil, fmt.Errorf("codexapp: pool establish: %w", err)
 	}
-	logger.Info("codexapp: pool spawned app-server", slog.String("codex_home", home), slog.String("work_dir", workDir), slog.String("server_url", serverURL))
+	fields := []any{"server_url", serverURL}
+	fields = append(fields, platformshared.SafePathLogFields("codex_home", home)...)
+	fields = append(fields, platformshared.SafePathLogFields("work_dir", workDir)...)
+	logger.Info("codexapp: pool spawned app-server", fields...)
 	return t, nil
 }
 

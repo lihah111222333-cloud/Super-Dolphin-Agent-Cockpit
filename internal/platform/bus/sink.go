@@ -4,11 +4,7 @@ package bus
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -42,6 +38,42 @@ const (
 	TraceStatusOK             TraceStatus = "ok"
 	TraceStatusDroppedSummary TraceStatus = "dropped_summary"
 )
+
+// busEventSummary 是 bus 生产日志允许输出的事件摘要。
+// 该类型留在 bus 包内，避免 mcp-orch 通过 bus 传递依赖 platform/observability。
+type busEventSummary struct {
+	Type      string `json:"type"`
+	ThreadID  string `json:"thread_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	TurnID    string `json:"turn_id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Stream    string `json:"stream,omitempty"`
+	InputType string `json:"input_type,omitempty"`
+	Success   *bool  `json:"success,omitempty"`
+}
+
+var busSummaryStringSetters = map[string]func(*busEventSummary, string){
+	"ThreadID":  func(summary *busEventSummary, value string) { summary.ThreadID = value },
+	"AgentID":   func(summary *busEventSummary, value string) { summary.AgentID = value },
+	"SessionID": func(summary *busEventSummary, value string) { summary.SessionID = value },
+	"TurnID":    func(summary *busEventSummary, value string) { summary.TurnID = value },
+	"CallID":    func(summary *busEventSummary, value string) { summary.CallID = value },
+	"ToolName":  func(summary *busEventSummary, value string) { summary.ToolName = value },
+	"Provider":  func(summary *busEventSummary, value string) { summary.Provider = value },
+	"Model":     func(summary *busEventSummary, value string) { summary.Model = value },
+	"Stream":    func(summary *busEventSummary, value string) { summary.Stream = value },
+	"InputType": func(summary *busEventSummary, value string) { summary.InputType = value },
+}
+
+var busErrorSecretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(authorization\\?"?\s*[:=]\s*bearer\s+)[^\\\s,;&"]+`),
+	regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\\?"?\s*[:=]\s*\\?"?)[^\\\s,;&"]+`),
+	regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
+}
 
 // TraceCodeAnchor 记录追踪事件发生时的调用栈位置。
 type TraceCodeAnchor struct {
@@ -180,76 +212,11 @@ func logDebugEvent[T event.Event](dispatcher *event.Dispatcher, logger *pkglogge
 	})
 }
 
-// busEventLogArgs 只记录事件类型和脱敏预览，禁止把完整 event struct 写入日志。
+// busEventLogArgs 只记录事件类型和 allowlist 摘要，禁止把完整 event struct 写入日志。
 func busEventLogArgs(ev any) []any {
-	preview := busSafePreview(ev, 512)
-	args := []any{
+	return []any{
 		pkglogger.String("event_type", eventTypeName(ev)),
-		pkglogger.String("event_preview", preview.Preview),
-		pkglogger.Int64("event_bytes", preview.Bytes),
-		"event_truncated", preview.Truncated,
-	}
-	if preview.SHA256 != "" {
-		args = append(args, pkglogger.String("event_sha256", preview.SHA256))
-	}
-	return args
-}
-
-var busPreviewSecretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(authorization\\?"?\s*[:=]\s*bearer\s+)[^\\\s,;&"]+`),
-	regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\\?"?\s*[:=]\s*\\?"?)[^\\\s,;&"]+`),
-	regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
-}
-
-type busSafePreviewResult struct {
-	Preview   string
-	Truncated bool
-	Bytes     int64
-	SHA256    string
-}
-
-// busSafePreview 为 bus 日志生成短预览，避免 bus 生产包依赖完整 observability 服务。
-// 内容脱敏仍由 pkg/logger 的 handler 统一执行；超限时只保留大小和哈希。
-func busSafePreview(value any, maxBytes int) busSafePreviewResult {
-	raw := busSafePreviewBytes(value)
-	result := busSafePreviewResult{Bytes: int64(len(raw))}
-	if maxBytes <= 0 || len(raw) > maxBytes {
-		result.Truncated = true
-		sum := sha256.Sum256(raw)
-		result.SHA256 = hex.EncodeToString(sum[:])
-		return result
-	}
-	result.Preview = busRedactPreviewString(string(raw))
-	return result
-}
-
-// busRedactPreviewString 清理短预览里的常见密钥形态。
-// 它覆盖 JSON 转义后的 token 字段和裸 sk-*，避免 bus 为了预览引入 observability 依赖。
-func busRedactPreviewString(value string) string {
-	for _, pattern := range busPreviewSecretPatterns {
-		value = pattern.ReplaceAllString(value, "${1}[REDACTED]")
-	}
-	return value
-}
-
-// busSafePreviewBytes 将事件或错误转换为预览字节。
-// JSON 编码失败时使用 fmt.Sprint，后续仍会走统一长度限制和日志脱敏。
-func busSafePreviewBytes(value any) []byte {
-	switch typed := value.(type) {
-	case nil:
-		return nil
-	case []byte:
-		return append([]byte(nil), typed...)
-	case string:
-		return []byte(typed)
-	case json.RawMessage:
-		return append([]byte(nil), typed...)
-	default:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return []byte(fmt.Sprint(typed))
-		}
-		return raw
+		pkglogger.Any("event_summary", busSafeEventSummary(ev)),
 	}
 }
 
@@ -257,7 +224,7 @@ func busSafeErrorPreview(err error) string {
 	if err == nil {
 		return ""
 	}
-	return busSafePreview(err.Error(), 512).Preview
+	return busRedactErrorPreview(err.Error(), 512)
 }
 
 func eventTypeName(ev any) string {
@@ -265,6 +232,95 @@ func eventTypeName(ev any) string {
 		return "<nil>"
 	}
 	return reflect.TypeOf(ev).String()
+}
+
+// busSafeEventSummary 提取 bus 事件的 allowlist 元数据，避免日志持久化完整 DTO。
+func busSafeEventSummary(ev any) busEventSummary {
+	summary := busEventSummary{Type: eventTypeName(ev)}
+	collectBusEventSummary(reflect.ValueOf(ev), &summary)
+	return summary
+}
+
+// collectBusEventSummary 只沿导出字段提取 allowlist 摘要字段。
+// 禁止在这里恢复 JSON preview，否则 prompt/delta/cwd 会重新进入生产日志。
+func collectBusEventSummary(value reflect.Value, summary *busEventSummary) {
+	value, ok := busSummaryStructValue(value)
+	if !ok || summary == nil {
+		return
+	}
+	typ := value.Type()
+	for i := 0; i < value.NumField(); i++ {
+		collectBusSummaryField(typ.Field(i), value.Field(i), summary)
+	}
+}
+
+func busSummaryStructValue(value reflect.Value) (reflect.Value, bool) {
+	if !value.IsValid() {
+		return reflect.Value{}, false
+	}
+	value, ok := indirectBusSummaryValue(value)
+	if !ok || value.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+	return value, !isBusSummaryTimeType(value.Type())
+}
+
+func indirectBusSummaryValue(value reflect.Value) (reflect.Value, bool) {
+	for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
+		if value.IsNil() {
+			return reflect.Value{}, false
+		}
+		value = value.Elem()
+	}
+	return value, true
+}
+
+func isBusSummaryTimeType(typ reflect.Type) bool {
+	return typ.PkgPath() == "time" && typ.Name() == "Time"
+}
+
+func collectBusSummaryField(field reflect.StructField, value reflect.Value, summary *busEventSummary) {
+	if field.PkgPath != "" {
+		return
+	}
+	if setBusSummaryField(field.Name, value, summary) {
+		return
+	}
+	if field.Anonymous || value.Kind() == reflect.Struct {
+		collectBusEventSummary(value, summary)
+	}
+}
+
+func setBusSummaryField(name string, value reflect.Value, summary *busEventSummary) bool {
+	if setter, ok := busSummaryStringSetters[name]; ok {
+		setter(summary, safeBusSummaryString(value))
+		return true
+	}
+	if name == "Success" {
+		if value.Kind() == reflect.Bool {
+			success := value.Bool()
+			summary.Success = &success
+		}
+		return true
+	}
+	return false
+}
+
+func safeBusSummaryString(value reflect.Value) string {
+	if value.Kind() != reflect.String {
+		return ""
+	}
+	return strings.TrimSpace(value.String())
+}
+
+func busRedactErrorPreview(value string, maxBytes int) string {
+	for _, pattern := range busErrorSecretPatterns {
+		value = pattern.ReplaceAllString(value, "${1}[REDACTED]")
+	}
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	return value[:maxBytes] + "...[truncated]"
 }
 
 const busHighFrequencyTraceEvery = 100

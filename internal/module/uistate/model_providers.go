@@ -100,7 +100,11 @@ func defaultModelProviderRegistry() modelProviderRegistry {
 
 // listModelProviders 读取当前作用域的厂商注册表，并只附加由环境变量实时计算的安全状态。
 func listModelProviders(ctx context.Context, svc Service, cwd string) (modelProviderRegistry, error) {
-	registry, err := loadModelProviderRegistry(withPreferenceScope(ctx, cwd), svc)
+	scope, err := requireModelProviderCwd(cwd)
+	if err != nil {
+		return modelProviderRegistry{}, err
+	}
+	registry, err := loadModelProviderRegistry(withPreferenceScope(ctx, scope), svc)
 	if err != nil {
 		return modelProviderRegistry{}, err
 	}
@@ -109,11 +113,15 @@ func listModelProviders(ctx context.Context, svc Service, cwd string) (modelProv
 
 // saveModelProviders 校验并保存厂商注册表；密钥只通过 envKey 引用，不写入偏好存储。
 func saveModelProviders(ctx context.Context, svc Service, p modelProvidersSaveParams) (map[string]any, error) {
+	scope, err := requireModelProviderCwd(p.Cwd)
+	if err != nil {
+		return nil, err
+	}
 	registry := normalizeModelProviderRegistry(p.Registry)
 	if err := validateModelProviderRegistry(registry); err != nil {
 		return nil, err
 	}
-	if err := svc.SetPreference(withPreferenceScope(ctx, p.Cwd), preferenceModelProviderRegistry, registry); err != nil {
+	if err := svc.SetPreference(withPreferenceScope(ctx, scope), preferenceModelProviderRegistry, registry); err != nil {
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil
@@ -121,7 +129,11 @@ func saveModelProviders(ctx context.Context, svc Service, p modelProvidersSavePa
 
 // applyModelProvider 将启用且已配置环境变量的厂商写入现有 Codex 偏好，并标记为当前 active 厂商。
 func applyModelProvider(ctx context.Context, svc Service, p modelProvidersApplyParams) (modelProviderRegistry, error) {
-	scopeCtx := withPreferenceScope(ctx, p.Cwd)
+	scope, err := requireModelProviderCwd(p.Cwd)
+	if err != nil {
+		return modelProviderRegistry{}, err
+	}
+	scopeCtx := withPreferenceScope(ctx, scope)
 	registry, err := loadModelProviderRegistry(scopeCtx, svc)
 	if err != nil {
 		return modelProviderRegistry{}, err
@@ -139,6 +151,15 @@ func applyModelProvider(ctx context.Context, svc Service, p modelProvidersApplyP
 		return modelProviderRegistry{}, err
 	}
 	return withModelProviderEnvStatus(registry), nil
+}
+
+// requireModelProviderCwd 阻断模型提供方配置写入默认偏好作用域。
+func requireModelProviderCwd(cwd string) (string, error) {
+	scope := strings.TrimSpace(cwd)
+	if scope == "" || scope == "." {
+		return "", errors.New("model provider cwd is required")
+	}
+	return scope, nil
 }
 
 // loadModelProviderRegistry 从当前作用域偏好加载注册表，并在返回前完成结构校验。

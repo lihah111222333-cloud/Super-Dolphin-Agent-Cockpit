@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 
 const ROOT = findRepoRoot(process.cwd());
 const OUTPUT_DIR = path.join(ROOT, 'docs', 'doc', 'codemap', 'project-map');
@@ -11,8 +12,44 @@ const MAP_MD = path.join(OUTPUT_DIR, 'AI_PROJECT_MAP.md');
 const DRIFT_MD = path.join(OUTPUT_DIR, 'AI_PROJECT_DRIFT.md');
 const MANIFEST_JSON = path.join(OUTPUT_DIR, 'AI_PROJECT_MANIFEST.json');
 
+const INDEXED_TOP_LEVEL_DIRS = new Set([
+  'cmd',
+  'docs',
+  'frontend-app',
+  'internal',
+  'migrations',
+  'pkg',
+  'scripts',
+  'sql',
+  'test',
+  'tests',
+  'third_party',
+]);
+
+const INDEXED_ROOT_FILES = new Set([
+  'AGENTS.md',
+  'CLAUDE.md',
+  'Makefile',
+  'README.md',
+  'go.mod',
+  'package-lock.json',
+  'package.json',
+  'run-new-ui-desktop.ps1',
+  'run-new-ui-desktop.sh',
+]);
+
+const VALID_ARGS = new Set(['--check', '--strict-drift', '--filesystem-scan']);
+for (const arg of process.argv.slice(2)) {
+  if (!VALID_ARGS.has(arg)) {
+    console.error(`project-map: unknown argument ${arg}`);
+    process.exit(2);
+  }
+}
+
 const CHECK = process.argv.includes('--check');
 const STRICT_DRIFT = process.argv.includes('--strict-drift');
+const FILESYSTEM_SCAN = process.argv.includes('--filesystem-scan');
+const GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
 
 const EXCLUDES = [
   '.git/**',
@@ -60,7 +97,7 @@ const DOMAIN_DESCRIPTIONS = {
   modules: '业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等',
   'platform-provider': '基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider',
   'store-sql': '持久化层：store、sqlc、SQL queries、migrations',
-  'docs-agent': '代码地图、ADR/决策、计划、agent skills/workflows 与项目知识',
+  'docs-agent': '代码地图、ADR/决策、计划与 docs 项目知识',
   other: '公共库、脚本、测试、配置与其他根级资源',
 };
 
@@ -142,11 +179,6 @@ const PURPOSE_RULES = [
   ['docs/plans/', '历史计划与迁移执行文档'],
   ['docs/internal-notes/', '内部提示词与工程方法记录'],
   ['docs/', '项目文档体系'],
-  ['.agent/skills/', '项目级 agent 技能 canonical'],
-  ['.agent/workflows/', 'agent 工作流与执行档案'],
-  ['.agents/', 'Codex/agent mirror 入口'],
-  ['.github/', 'GitHub 配置'],
-  ['.githooks/', '仓库 git hooks'],
 ];
 
 const QUICK_ROUTES = [
@@ -188,6 +220,80 @@ function main() {
 }
 
 function scanFiles() {
+  if (!FILESYSTEM_SCAN) return scanGitTrackedFiles();
+  return scanFilesystemFiles();
+}
+
+function scanGitTrackedFiles() {
+  return [...GIT_BLOB_SIZES.keys()].sort();
+}
+
+function loadGitTrackedBlobSizes() {
+  const lsResult = childProcess.spawnSync('git', ['-C', ROOT, 'ls-files', '-s', '-z'], {
+    encoding: 'buffer',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (lsResult.status !== 0) {
+    const stderr = lsResult.stderr ? lsResult.stderr.toString('utf8').trim() : '';
+    console.error(`project-map: git ls-files failed; use --filesystem-scan only for explicit exported snapshots${stderr ? `: ${stderr}` : ''}`);
+    process.exit(1);
+  }
+
+  const records = lsResult.stdout
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+    .map((entry) => {
+      const match = entry.match(/^\d+ ([0-9a-f]{40,64}) \d+\t(.+)$/);
+      if (!match) return null;
+      return { oid: match[1], rel: normalize(match[2]) };
+    })
+    .filter((record) => record && shouldIndexPath(record.rel) && !shouldSkipPath(record.rel));
+
+  const objectSizes = loadGitObjectSizes([...new Set(records.map((record) => record.oid))]);
+  const sizes = new Map();
+  for (const record of records) {
+    const size = objectSizes.get(record.oid);
+    if (size === undefined) continue;
+    sizes.set(record.rel, size);
+  }
+  return sizes;
+}
+
+function loadGitObjectSizes(objectIds) {
+  if (objectIds.length === 0) return new Map();
+  const result = childProcess.spawnSync('git', ['-C', ROOT, 'cat-file', '--batch'], {
+    input: `${objectIds.join('\n')}\n`,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    const stderr = result.stderr ? result.stderr.toString('utf8').trim() : '';
+    console.error(`project-map: git cat-file failed${stderr ? `: ${stderr}` : ''}`);
+    process.exit(1);
+  }
+
+  const sizes = new Map();
+  let offset = 0;
+  while (offset < result.stdout.length) {
+    const headerEnd = result.stdout.indexOf(10, offset);
+    if (headerEnd === -1) break;
+    const header = result.stdout.subarray(offset, headerEnd).toString('utf8');
+    offset = headerEnd + 1;
+    if (!header) continue;
+    const [oid, type, sizeText] = header.split(' ');
+    const size = Number(sizeText);
+    if (type !== 'blob' || !Number.isFinite(size)) {
+      offset += Math.max(0, size) + 1;
+      continue;
+    }
+    const content = result.stdout.subarray(offset, offset + size);
+    sizes.set(oid, normalizedContentSize(content));
+    offset += size + 1;
+  }
+  return sizes;
+}
+
+function scanFilesystemFiles() {
   const files = [];
   walk(ROOT, '', files);
   return files.sort();
@@ -198,19 +304,22 @@ function walk(absDir, relDir, files) {
     const rel = normalize(relDir ? path.posix.join(relDir, dirent.name) : dirent.name);
     const abs = path.join(absDir, dirent.name);
     if (dirent.isDirectory()) {
-      if (!shouldSkipDir(rel)) walk(abs, rel, files);
+      if (shouldDescendIntoDir(rel) && !shouldSkipDir(rel)) walk(abs, rel, files);
       continue;
     }
-    if (dirent.isFile() && !shouldSkipFile(rel)) files.push(rel);
+    if (dirent.isFile() && shouldIndexPath(rel) && !shouldSkipFile(rel)) files.push(rel);
   }
 }
 
 function shouldSkipDir(rel) {
   const name = path.posix.basename(rel);
-  if (['.build-cache', '.git', '.idea', '.claude', '.workspace', '.worktrees', 'bin', 'node_modules', 'dist', 'web-dist', 'coverage', '.vite', '.tmp', 'tmp', '.gocache', '.gomodcache', '.npm-cache'].includes(name)) return true;
+  if (['.build-cache', '.git', '.idea', '.claude', '.workspace', '.worktrees', '.local', '.mypy_cache', 'codex-app 2', 'bin', 'node_modules', 'dist', 'web-dist', 'coverage', '.vite', '.tmp', 'tmp', '.gocache', '.gomodcache', '.npm-cache', '__pycache__'].includes(name)) return true;
   return [
     '.agent/code_exec',
+    '.agent/report',
     '.agent/workspaces',
+    '.agents/report',
+    '.agents/shared',
     '.agnet/report',
     '.agnet/shared',
     'docs/archive',
@@ -219,7 +328,25 @@ function shouldSkipDir(rel) {
   ].some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));
 }
 
+function shouldSkipPath(rel) {
+  const parts = rel.split('/');
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    if (shouldSkipDir(parts.slice(0, i + 1).join('/'))) return true;
+  }
+  return shouldSkipFile(rel);
+}
+
+function shouldDescendIntoDir(rel) {
+  return INDEXED_TOP_LEVEL_DIRS.has(rel.split('/')[0]);
+}
+
+function shouldIndexPath(rel) {
+  if (!rel.includes('/')) return INDEXED_ROOT_FILES.has(rel);
+  return INDEXED_TOP_LEVEL_DIRS.has(rel.split('/')[0]);
+}
+
 function shouldSkipFile(rel) {
+  if (path.posix.basename(rel) === '.DS_Store') return true;
   return ['go.sum', 'test_output.txt', 'naked_go.txt', 'docs/doc/codemap/ai-index.json'].includes(rel);
 }
 
@@ -247,7 +374,7 @@ function classifyDomain(file) {
   if (file.startsWith('internal/module/')) return 'modules';
   if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
   if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
-  if (file.startsWith('docs/') || file.startsWith('.agent/') || file.startsWith('.agents/') || file === 'CLAUDE.md' || file === 'AGENTS.md') return 'docs-agent';
+  if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md') return 'docs-agent';
   return 'other';
 }
 
@@ -267,11 +394,28 @@ function classifyType(file) {
 }
 
 function safeSize(file) {
+  if (GIT_BLOB_SIZES && GIT_BLOB_SIZES.has(file)) return GIT_BLOB_SIZES.get(file);
+  if (FILESYSTEM_SCAN) return safeFilesystemScanSize(file);
   try {
     return fs.statSync(path.join(ROOT, file)).size;
   } catch {
     return 0;
   }
+}
+
+function safeFilesystemScanSize(file) {
+  const abs = path.join(ROOT, file);
+  try {
+    const data = fs.readFileSync(abs);
+    return normalizedContentSize(data);
+  } catch {
+    return 0;
+  }
+}
+
+function normalizedContentSize(data) {
+  if (data.includes(0)) return data.length;
+  return Buffer.byteLength(data.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
 }
 
 function purposeFor(file) {
@@ -426,10 +570,6 @@ function moduleDescription(module) {
     migrations: '数据库 migration',
     test: '测试夹具和辅助资源',
     tests: '跨包测试资源',
-    '.agent': '项目级 agent 技能与工作流 canonical',
-    '.agents': 'agent/Codex mirror 入口',
-    '.githooks': 'Git hooks',
-    '.github': 'GitHub 配置',
     '(root)': '仓库根级配置和说明',
   }[module] || '其他项目资源';
 }

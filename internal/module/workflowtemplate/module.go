@@ -20,11 +20,15 @@ type service struct {
 	registry *workflowtemplates.Registry
 }
 
-// NewService 加载仓库内置模板资产，不依赖数据库或外部执行器。
-func NewService() (Service, error) {
-	registry, err := workflowtemplates.NewDefaultRegistry()
-	if err != nil {
-		return nil, err
+// NewRegistry 加载仓库内置模板资产，作为 RPC 和 host tool 共用的进程内模板注册表。
+func NewRegistry() (*workflowtemplates.Registry, error) {
+	return workflowtemplates.NewDefaultRegistry()
+}
+
+// NewService 使用注入的模板注册表创建服务，不依赖数据库或外部执行器。
+func NewService(registry *workflowtemplates.Registry) (Service, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("workflowTemplates: registry is required")
 	}
 	return &service{registry: registry}, nil
 }
@@ -74,6 +78,9 @@ func (s *service) templateSummary(id string) (workflowtemplates.TemplateSummary,
 }
 
 var Module = fx.Module("workflowtemplate",
-	fx.Provide(NewService),
-	fx.Provide(NewHandlers),
+	fx.Provide(
+		NewRegistry,
+		NewService,
+		NewHandlers,
+	),
 )

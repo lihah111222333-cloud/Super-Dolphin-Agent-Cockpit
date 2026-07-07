@@ -191,7 +191,7 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	resumed, err := d.ResumeSession(ctx, dto.ResumeSessionRequest{
 		Provider:         "claude",

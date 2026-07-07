@@ -12,15 +12,21 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// LocalFilePickerTokenVerifier 验证桌面端 datasource 导入文件选择器签发的短期 capability。
+type LocalFilePickerTokenVerifier interface {
+	VerifyDatasourceImportPickerToken(sourcePath, token string) bool
+}
+
 // NewHandlers 暴露 datasource_v2 的 JSON-RPC 接口。
 // RPC 层只负责参数反序列化和错误映射，正文读取与入库由 Service 完成。
-func NewHandlers(svc Service) platformrpc.HandlerMapResult {
+func NewHandlers(svc Service, verifier LocalFilePickerTokenVerifier) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"datasourceV2/importText":      platformrpc.StrictHandler(importTextHandler(svc)),
 		"datasourceV2/create":          platformrpc.StrictHandler(importTextHandler(svc)),
-		"datasourceV2/importLocalFile": platformrpc.StrictHandler(importLocalFileHandler(svc)),
+		"datasourceV2/importLocalFile": platformrpc.StrictHandler(importLocalFileHandler(svc, verifier)),
 		"datasourceV2/list":            platformrpc.StrictHandler(listDocumentsHandler(svc)),
 		"datasourceV2/get":             platformrpc.StrictHandler(getDocumentHandler(svc)),
+		"datasourceV2/list_chunks":     platformrpc.StrictHandler(listChunksHandler(svc)),
 		"datasourceV2/update":          platformrpc.StrictHandler(updateDocumentHandler(svc)),
 		"datasourceV2/delete":          platformrpc.StrictHandler(deleteDocumentHandler(svc)),
 	}}
@@ -42,11 +48,14 @@ func importTextHandler(svc Service) func(context.Context, ImportFileTextRequest)
 }
 
 // importLocalFileHandler 绑定 datasourceV2/importLocalFile 请求。
-// 该入口只用于桌面端显式选择文件，因此允许 workspace 外绝对路径，仍由 Service 做文件类型校验。
-func importLocalFileHandler(svc Service) func(context.Context, ImportLocalFileRequest) (ImportFileTextResult, error) {
+// workspace 外路径必须携带桌面文件选择器签发的 capability，避免前端手写路径扩大读取范围。
+func importLocalFileHandler(svc Service, verifier LocalFilePickerTokenVerifier) func(context.Context, ImportLocalFileRequest) (ImportFileTextResult, error) {
 	return func(ctx context.Context, req ImportLocalFileRequest) (ImportFileTextResult, error) {
 		if svc == nil {
 			return ImportFileTextResult{}, platformrpc.ErrInvalidState("datasource v2 service is not configured")
+		}
+		if err := authorizeImportLocalFileRequest(req, verifier); err != nil {
+			return ImportFileTextResult{}, datasourceV2RPCError(err)
 		}
 		result, err := svc.ImportLocalFile(ctx, req)
 		if err != nil {
@@ -54,6 +63,26 @@ func importLocalFileHandler(svc Service) func(context.Context, ImportLocalFileRe
 		}
 		return result, nil
 	}
+}
+
+// authorizeImportLocalFileRequest 先按普通 workspace 导入规则放行安全路径；越界路径必须通过 picker token 验证。
+// 验证失败时保留原始 outside workspace 错误，避免 RPC 层绕过 datasource 的路径错误映射。
+func authorizeImportLocalFileRequest(req ImportLocalFileRequest, verifier LocalFilePickerTokenVerifier) error {
+	sourcePath, err := validateImportSourcePath(req.SourcePath)
+	if err != nil {
+		return err
+	}
+	workspaceErr := ensureImportSourceInsideWorkspace(sourcePath)
+	if workspaceErr == nil {
+		return nil
+	}
+	if !errors.Is(workspaceErr, errSourcePathOutsideWorkspace) {
+		return workspaceErr
+	}
+	if verifier != nil && verifier.VerifyDatasourceImportPickerToken(sourcePath, req.PickerToken) {
+		return nil
+	}
+	return workspaceErr
 }
 
 // listDocumentsHandler 绑定 datasourceV2/list 请求。
@@ -81,6 +110,21 @@ func getDocumentHandler(svc Service) func(context.Context, GetDocumentRequest) (
 		result, err := svc.GetDocument(ctx, req)
 		if err != nil {
 			return GetDocumentResult{}, datasourceV2RPCError(err)
+		}
+		return result, nil
+	}
+}
+
+// listChunksHandler 绑定 datasourceV2/list_chunks 请求。
+// limit 和 cursor 必须由调用方显式传入，避免详情页无界读取分块正文。
+func listChunksHandler(svc Service) func(context.Context, ListChunksRequest) (ListChunksResult, error) {
+	return func(ctx context.Context, req ListChunksRequest) (ListChunksResult, error) {
+		if svc == nil {
+			return ListChunksResult{}, platformrpc.ErrInvalidState("datasource v2 service is not configured")
+		}
+		result, err := svc.ListChunks(ctx, req)
+		if err != nil {
+			return ListChunksResult{}, datasourceV2RPCError(err)
 		}
 		return result, nil
 	}
@@ -131,6 +175,7 @@ func datasourceV2RPCError(err error) error {
 		errors.Is(err, errDatasourceV2DocumentIDRequired),
 		errors.Is(err, errDatasourceV2ListLimitRequired),
 		errors.Is(err, errDatasourceV2ListLimitTooLarge),
+		errors.Is(err, errDatasourceV2ChunkCursorRequired),
 		errors.Is(err, errDatasourceV2MissingFileName),
 		errors.Is(err, errDatasourceV2SizeBytesInvalid):
 		return platformrpc.ErrInvalidParams(err.Error())

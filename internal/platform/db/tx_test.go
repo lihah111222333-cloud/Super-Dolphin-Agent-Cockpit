@@ -42,30 +42,26 @@ func TestRunWithTxRollsBackOnError(t *testing.T) {
 	}
 }
 
-func TestRunWithTxRollsBackOnPanicAndRepanics(t *testing.T) {
+func TestRunWithTxRollsBackOnPanicReturnsError(t *testing.T) {
 	t.Parallel()
 	tx := &captureTx{}
 	panicVal := "boom"
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("runWithTx() did not re-panic")
-		}
-		if r != panicVal {
-			t.Fatalf("runWithTx() re-panicked with %v, want %v", r, panicVal)
-		}
-		if !tx.rolledBack {
-			t.Fatal("runWithTx() did not roll back on panic")
-		}
-		if tx.committed {
-			t.Fatal("runWithTx() committed despite panic")
-		}
-	}()
-	_ = runWithCommitter(context.Background(), tx, func(sqlTxCommitter) error {
-		// archguard:ignore panic_count -- 本测试验证事务回滚后必须保留调用方 panic。
+	err := runWithCommitter(context.Background(), tx, func(sqlTxCommitter) error {
+		// archguard:ignore panic_count -- 本测试验证事务回滚后必须返回显式错误。
 		panic(panicVal)
 	})
-	t.Fatal("unreachable: panic should have propagated")
+	if err == nil {
+		t.Fatal("runWithTx() error = nil, want explicit panic error")
+	}
+	if !strings.Contains(err.Error(), "transaction callback panicked: "+panicVal) {
+		t.Fatalf("runWithTx() error = %v, want explicit panic context", err)
+	}
+	if !tx.rolledBack {
+		t.Fatal("runWithTx() did not roll back on panic")
+	}
+	if tx.committed {
+		t.Fatal("runWithTx() committed despite panic")
+	}
 }
 
 func TestRollbackTxJoinsFunctionAndRollbackErrors(t *testing.T) {

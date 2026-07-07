@@ -44,11 +44,31 @@ function renderMemoryPage(projectPath = '/repo/app') {
       mutations: { retry: false },
     },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryPage projectPath={projectPath} />
     </QueryClientProvider>,
   );
+  return {
+    ...view,
+    rerenderProject(nextProjectPath) {
+      view.rerender(
+        <QueryClientProvider client={queryClient}>
+          <MemoryPage projectPath={nextProjectPath} />
+        </QueryClientProvider>,
+      );
+    },
+  };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
 }
 
 function resetMemoryBackendMocks() {
@@ -173,6 +193,142 @@ describe('MemoryPage editor', () => {
 		expect(screen.queryByRole('dialog', { name: '编辑记忆' })).not.toBeInTheDocument();
 		expect(upsertMemoryEntry).not.toHaveBeenCalled();
 	});
+
+  it('ignores stale edit detail responses after switching projects', async () => {
+    fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+      privateEntries: [{
+        name: 'reply-language',
+        title: '默认中文',
+        description: '回复时使用中文',
+        target: 'private',
+        type: 'feedback',
+        path: 'feedback/reply-language.md',
+        updatedAt: '2026-05-30T08:00:00Z',
+        preview: '规则\n默认中文回复',
+      }],
+    })));
+    const detailRequest = deferred();
+    backend.getMemoryEntry.mockReturnValueOnce(detailRequest.promise);
+
+    const { rerenderProject } = renderMemoryPage('/repo/one');
+
+    const title = await screen.findByText('默认中文');
+    const card = title.closest('article');
+    fireEvent.click(within(card).getByRole('button', { name: '编辑' }));
+
+    expect(backend.getMemoryEntry).toHaveBeenCalledWith({ cwd: '/repo/one', target: 'private', path: 'feedback/reply-language.md' });
+    rerenderProject('/repo/two');
+
+    await act(async () => {
+      detailRequest.resolve({
+        target: 'private',
+        path: 'feedback/reply-language.md',
+        name: 'reply-language',
+        description: '回复时使用中文',
+        type: 'feedback',
+        content: '规则\n默认中文回复',
+      });
+      await flushPromises();
+    });
+
+    expect(screen.queryByRole('dialog', { name: '编辑记忆' })).not.toBeInTheDocument();
+    expect(upsertMemoryEntry).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale edit detail responses for older entries in the same project', async () => {
+    fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+      privateEntries: [
+        {
+          name: 'first-rule',
+          title: '第一条',
+          description: '第一条描述',
+          target: 'private',
+          type: 'feedback',
+          path: 'feedback/first.md',
+          updatedAt: '2026-05-30T08:00:00Z',
+          preview: '第一条预览',
+        },
+        {
+          name: 'second-rule',
+          title: '第二条',
+          description: '第二条描述',
+          target: 'private',
+          type: 'feedback',
+          path: 'feedback/second.md',
+          updatedAt: '2026-05-31T08:00:00Z',
+          preview: '第二条预览',
+        },
+      ],
+    })));
+    const firstDetailRequest = deferred();
+    backend.getMemoryEntry
+      .mockReturnValueOnce(firstDetailRequest.promise)
+      .mockResolvedValueOnce({
+        target: 'private',
+        path: 'feedback/second.md',
+        name: 'second-rule',
+        description: '第二条描述',
+        title: '第二条',
+        type: 'feedback',
+        content: '第二条内容',
+      });
+
+    renderMemoryPage('/repo/app');
+
+    const firstCard = (await screen.findByText('第一条')).closest('article');
+    const secondCard = screen.getByText('第二条').closest('article');
+    fireEvent.click(within(firstCard).getByRole('button', { name: '编辑' }));
+    fireEvent.click(within(secondCard).getByRole('button', { name: '编辑' }));
+
+    const editor = await screen.findByRole('dialog', { name: '编辑记忆' });
+    expect(within(editor).getByLabelText('内容')).toHaveValue('第二条内容');
+
+    await act(async () => {
+      firstDetailRequest.resolve({
+        target: 'private',
+        path: 'feedback/first.md',
+        name: 'first-rule',
+        description: '第一条描述',
+        title: '第一条',
+        type: 'feedback',
+        content: '第一条内容',
+      });
+      await flushPromises();
+    });
+
+    expect(within(editor).getByLabelText('内容')).toHaveValue('第二条内容');
+    expect(upsertMemoryEntry).not.toHaveBeenCalled();
+  });
+
+  it('closes stale delete confirmation after switching projects', async () => {
+    fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+      privateEntries: [{
+        name: 'reply-language',
+        title: '默认中文',
+        description: '回复时使用中文',
+        target: 'private',
+        type: 'feedback',
+        path: 'feedback/reply-language.md',
+        updatedAt: '2026-05-30T08:00:00Z',
+        preview: '规则\n默认中文回复',
+      }],
+    })));
+    backend.deleteMemoryEntry.mockResolvedValue({ deleted: true });
+
+    const { rerenderProject } = renderMemoryPage('/repo/one');
+
+    const title = await screen.findByText('默认中文');
+    const card = title.closest('article');
+    fireEvent.click(within(card).getByRole('button', { name: '删除' }));
+    expect(screen.getByRole('dialog', { name: '删除记忆' })).toBeInTheDocument();
+
+    rerenderProject('/repo/two');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '删除记忆' })).not.toBeInTheDocument();
+    });
+    expect(backend.deleteMemoryEntry).not.toHaveBeenCalled();
+  });
 
 	it('passes cwd when toggling auto-dream intent', async () => {
 		backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });

@@ -53,11 +53,12 @@ func TestStopAgentPublishesStoppedAfterObservedExit(t *testing.T) {
 	svc.agents[agent.id] = agent
 
 	waitDone := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		err := cmd.Wait()
 		svc.handleProcessExit(context.Background(), agent.id, 1, err)
 		close(waitDone)
-	}()
+	})
 
 	if err := svc.StopAgent(context.Background(), agent.id); err != nil {
 		t.Fatalf("StopAgent() error = %v", err)
@@ -107,11 +108,12 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 	svc.agents[agent.id] = agent
 
 	waitDone := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		err := cmd.Wait()
 		svc.handleProcessExit(context.Background(), agent.id, 1, err)
 		close(waitDone)
-	}()
+	})
 
 	svc.StopAllAgents(context.Background())
 
@@ -144,10 +146,11 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 	svc.agents[agent.id] = agent
 
 	done := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		svc.StopAllAgents(context.Background())
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -162,10 +165,11 @@ func TestStopAllAgentsHonorsTotalShutdownDeadline(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	blocker := make(chan struct{})
 	svc.asyncWg.Add(1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		defer svc.asyncWg.Done()
 		<-blocker
-	}()
+	})
 	defer close(blocker)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
@@ -230,9 +234,10 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	defer cancel()
 
 	runDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx)
-	}()
+	})
 
 	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
 	cancel()

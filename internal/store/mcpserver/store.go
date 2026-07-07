@@ -438,6 +438,9 @@ func normalizeStdioServerConfig(name string, config contract.MCPServerConfig) (c
 	if err != nil {
 		return contract.MCPServerConfig{}, err
 	}
+	if err := contract.DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand(command, args, ""); err != nil {
+		return contract.MCPServerConfig{}, fmt.Errorf("mcp_server: %w: %s", err, name)
+	}
 	return contract.MCPServerConfig{
 		Transport: "stdio",
 		Command:   command,
@@ -655,6 +658,30 @@ CREATE TABLE IF NOT EXISTS mcp_server_configs (
 );
 `
 
-var createMCPServerConfigsNextTableSQL = strings.Replace(createMCPServerConfigsTableSQL, "CREATE TABLE IF NOT EXISTS mcp_server_configs", "CREATE TABLE mcp_server_configs_next", 1)
+const createMCPServerConfigsNextTableSQL = `
+CREATE TABLE mcp_server_configs_next (
+	workspace_root TEXT NOT NULL,
+	name TEXT NOT NULL,
+	transport TEXT NOT NULL,
+	url TEXT NOT NULL DEFAULT '',
+	headers TEXT NOT NULL DEFAULT '{}',
+	command TEXT NOT NULL DEFAULT '',
+	args TEXT NOT NULL DEFAULT '[]',
+	env TEXT NOT NULL DEFAULT '{}',
+	enabled INTEGER NOT NULL DEFAULT 1,
+	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+	PRIMARY KEY (workspace_root, name),
+	CHECK (workspace_root <> ''),
+	CHECK (name <> ''),
+	CHECK (transport <> ''),
+	CHECK (transport IN ('http', 'stdio')),
+	CHECK ((transport = 'http' AND url <> '') OR (transport = 'stdio' AND command <> '')),
+	CHECK (headers <> ''),
+	CHECK (args <> ''),
+	CHECK (env <> ''),
+	CHECK (enabled IN (0, 1))
+);
+`
 
 var _ contract.MCPServerConfigStore = (*configStore)(nil)

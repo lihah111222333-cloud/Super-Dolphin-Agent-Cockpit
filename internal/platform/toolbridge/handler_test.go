@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -118,9 +119,7 @@ func (s *stubUIPreferenceReader) GetMergedPreferences(_ context.Context, cwd str
 		return nil, s.err
 	}
 	out := make(map[string]any, len(s.values))
-	for key, value := range s.values {
-		out[key] = value
-	}
+	maps.Copy(out, s.values)
 	return out, nil
 }
 
@@ -330,7 +329,7 @@ func TestToolBridge_Resume_ToolCallStillWorks(t *testing.T) {
 	assertSingleTextItem(t, got, "resume ok", true)
 }
 
-func TestToolBridge_OrchestrationLaunchInjectsPublicParentThreadFromProviderLookup(t *testing.T) {
+func TestToolBridge_OrchestrationLaunchInjectsOnlyParentIDFromProviderLookup(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{
 		"context_mode": "forked",
 		"name":         "idle-agent",
@@ -343,7 +342,6 @@ func TestToolBridge_OrchestrationLaunchInjectsPublicParentThreadFromProviderLook
 		"context_mode":         "forked",
 		"name":                 "idle-agent",
 		"parent_id":            "agent-parent",
-		"parent_thread_id":     "thread-parent-public",
 		"provider":             "codex",
 	})
 	h, registry := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))

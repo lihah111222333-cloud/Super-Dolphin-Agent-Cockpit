@@ -90,6 +90,7 @@ func mapSessionBinding(b *Binding) *contract.SessionBinding {
 		ParentAgentID:      b.ParentAgentID,
 		AgentType:          b.AgentType,
 		AgentMemoryScope:   b.AgentMemoryScope,
+		Archived:           b.Archived,
 		CreatedAt:          b.CreatedAt,
 		CodexHome:          b.CodexHome,
 		CodexInstanceKey:   b.CodexInstanceKey,

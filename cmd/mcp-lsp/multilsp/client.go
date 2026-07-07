@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -24,6 +25,8 @@ var (
 	ErrBinaryRequired     = errors.New("LSP binary is required")
 )
 
+// Client 定义 multilsp manager 与底层 LSP transport 交互的最小生命周期接口。
+// 实现必须显式处理 initialize、文档事件、请求通知和资源关闭。
 type Client interface {
 	Initialize(context.Context, string) error
 	Shutdown(context.Context) error
@@ -35,11 +38,18 @@ type Client interface {
 	Close() error
 }
 
+// ServerCapabilitiesClient 暴露 initialize 返回的服务端能力，供可选能力路径按需探测。
+type ServerCapabilitiesClient interface {
+	ServerCapabilities() protocol.ServerCapabilities
+}
+
+// HealthCheckedClient 在 Client 基础上暴露 pool 复用前的健康状态。
 type HealthCheckedClient interface {
 	Client
 	Healthy() bool
 }
 
+// Options 描述启动 LSP client 时传给 transport、initialize 和回调处理器的配置。
 type Options struct {
 	Binary              string
 	Args                []string
@@ -52,16 +62,124 @@ type Options struct {
 }
 
 type client struct {
-	transport        *transport
-	processID        int
-	initOptions      map[string]any
-	workspaceFolders []protocol.WorkspaceFolder
+	transport            *transport
+	processID            int
+	initOptions          map[string]any
+	workspaceFolders     []protocol.WorkspaceFolder
+	dynamicRegistrations *dynamicRegistrationTracker
 
-	lifecycleMu sync.Mutex
-	stateMu     sync.RWMutex
-	rootURI     string
-	initialized bool
-	shutdown    bool
+	lifecycleMu  sync.Mutex
+	stateMu      sync.RWMutex
+	rootURI      string
+	initialized  bool
+	shutdown     bool
+	capabilities protocol.ServerCapabilities
+}
+
+type dynamicRegistrationTracker struct {
+	mu                      sync.RWMutex
+	diagnosticRegistrations map[string]struct{}
+}
+
+func newDynamicRegistrationTracker() *dynamicRegistrationTracker {
+	return &dynamicRegistrationTracker{diagnosticRegistrations: map[string]struct{}{}}
+}
+
+// dynamicRegistrationRequestHandler 记录服务端动态注册能力，并把未处理请求交给调用方配置处理器。
+func dynamicRegistrationRequestHandler(tracker *dynamicRegistrationTracker, next ServerRequestHandler) ServerRequestHandler {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		if tracker != nil {
+			handled, err := tracker.handleServerRequest(method, params)
+			if err != nil {
+				return nil, err
+			}
+			if handled {
+				return struct{}{}, nil
+			}
+		}
+		if next != nil {
+			return next(ctx, method, params)
+		}
+		return nil, ErrMethodNotSupported
+	}
+}
+
+func (t *dynamicRegistrationTracker) handleServerRequest(method string, params json.RawMessage) (bool, error) {
+	switch method {
+	case LSPCompatMethodClientRegisterCapability:
+		return true, t.register(params)
+	case LSPCompatMethodClientUnregisterCapability:
+		return true, t.unregister(params)
+	default:
+		return false, nil
+	}
+}
+
+func (t *dynamicRegistrationTracker) register(params json.RawMessage) error {
+	var request struct {
+		Registrations []struct {
+			ID     string `json:"id"`
+			Method string `json:"method"`
+		} `json:"registrations"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for index, registration := range request.Registrations {
+		if registration.Method != protocol.MethodTextDocumentDiagnostic {
+			continue
+		}
+		t.diagnosticRegistrations[dynamicRegistrationKey(registration.ID, registration.Method, index)] = struct{}{}
+	}
+	return nil
+}
+
+func (t *dynamicRegistrationTracker) unregister(params json.RawMessage) error {
+	var request struct {
+		Unregisterations []struct {
+			ID     string `json:"id"`
+			Method string `json:"method"`
+		} `json:"unregisterations"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for index, registration := range request.Unregisterations {
+		if registration.Method != protocol.MethodTextDocumentDiagnostic {
+			continue
+		}
+		key := dynamicRegistrationKey(registration.ID, registration.Method, index)
+		if strings.TrimSpace(registration.ID) == "" {
+			clear(t.diagnosticRegistrations)
+			continue
+		}
+		delete(t.diagnosticRegistrations, key)
+	}
+	return nil
+}
+
+func (t *dynamicRegistrationTracker) serverCapabilities(capabilities protocol.ServerCapabilities) protocol.ServerCapabilities {
+	if t == nil {
+		return capabilities
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if len(t.diagnosticRegistrations) > 0 {
+		capabilities.DiagnosticProvider = true
+	}
+	return capabilities
+}
+
+func dynamicRegistrationKey(id, method string, index int) string {
+	id = strings.TrimSpace(id)
+	if id != "" {
+		return id
+	}
+	return strings.TrimSpace(method) + "#" + strconv.Itoa(index)
 }
 
 type limitedBuffer struct {
@@ -96,21 +214,23 @@ func NewClientWithOptions(options Options) (Client, error) {
 	if requestHandler == nil {
 		requestHandler = configurationRequestHandlerFromInitOptions(options.InitOptions)
 	}
+	dynamicRegistrations := newDynamicRegistrationTracker()
 	transport, err := newTransport(transportOptions{
 		Binary:              binary,
 		Args:                defaultArgs(options.Args),
 		Dir:                 options.Dir,
 		Env:                 append([]string(nil), options.Env...),
 		NotificationHandler: options.NotificationHandler,
-		RequestHandler:      requestHandler,
+		RequestHandler:      dynamicRegistrationRequestHandler(dynamicRegistrations, requestHandler),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &client{
-		transport:   transport,
-		processID:   normalizeProcessID(options.ProcessID),
-		initOptions: options.InitOptions,
+		transport:            transport,
+		processID:            normalizeProcessID(options.ProcessID),
+		initOptions:          options.InitOptions,
+		dynamicRegistrations: dynamicRegistrations,
 	}, nil
 }
 
@@ -142,12 +262,14 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 		c.markDeadIfClientFailure(err)
 		return fmt.Errorf("LSP initialized notification: %w", err)
 	}
-	if err := decodeInitializeResult(result); err != nil {
+	capabilities, err := decodeInitializeResult(result)
+	if err != nil {
 		return err
 	}
 	c.stateMu.Lock()
 	c.rootURI = rootURI
 	c.initialized = true
+	c.capabilities = capabilities
 	c.stateMu.Unlock()
 	return nil
 }
@@ -259,6 +381,14 @@ func (c *client) Healthy() bool {
 	return c.transport != nil && !c.transport.closed.Load()
 }
 
+// ServerCapabilities 返回 initialize 阶段记录的服务端能力。
+func (c *client) ServerCapabilities() protocol.ServerCapabilities {
+	c.stateMu.RLock()
+	capabilities := c.capabilities
+	c.stateMu.RUnlock()
+	return c.dynamicRegistrations.serverCapabilities(capabilities)
+}
+
 func (c *client) canInitialize(rootURI string) error {
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
@@ -307,15 +437,15 @@ func (c *client) markDeadIfClientFailure(err error) {
 	}
 }
 
-func decodeInitializeResult(result json.RawMessage) error {
+func decodeInitializeResult(result json.RawMessage) (protocol.ServerCapabilities, error) {
 	if len(result) == 0 {
-		return nil
+		return protocol.ServerCapabilities{}, nil
 	}
 	var decoded protocol.InitializeResult
 	if err := json.Unmarshal(result, &decoded); err != nil {
-		return fmt.Errorf("decode initialize result: %w", err)
+		return protocol.ServerCapabilities{}, fmt.Errorf("decode initialize result: %w", err)
 	}
-	return nil
+	return decoded.Capabilities, nil
 }
 
 // clientCapabilities 声明本 sidecar 支持的 LSP 能力集合。
@@ -328,6 +458,9 @@ func clientCapabilities() protocol.ClientCapabilities {
 		TextDocument: &protocol.TextDocumentClientCapabilities{
 			PublishDiagnostics: &protocol.PublishDiagnosticsCapability{
 				RelatedInformation: true,
+			},
+			Diagnostic: &protocol.DiagnosticClientCapability{
+				DynamicRegistration: true,
 			},
 			Hover: &protocol.HoverCapability{
 				ContentFormat: []string{"markdown", "plaintext"},

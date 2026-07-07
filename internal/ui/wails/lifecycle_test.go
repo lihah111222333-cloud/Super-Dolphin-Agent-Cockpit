@@ -88,14 +88,9 @@ func TestNewActiveAgentCounterFailsFastWithoutActiveAgentSource(t *testing.T) {
 func TestNewActiveAgentCounterUsesThreadListerWithoutOrchestrationService(t *testing.T) {
 	t.Parallel()
 
+	lister := &stubThreadLister{count: 1}
 	counter := NewActiveAgentCounter(activeAgentCounterParams{
-		Threads: stubThreadLister{refs: []contract.ThreadRef{
-			{ID: "created", Status: "created"},
-			{ID: "stopped", Status: "stopped"},
-			{ID: "archived", Status: "archived"},
-			{ID: "failed", Status: "failed"},
-			{ID: "empty"},
-		}},
+		Threads: lister,
 	})
 
 	count, err := counter.ActiveAgentCount(context.Background())
@@ -104,6 +99,39 @@ func TestNewActiveAgentCounterUsesThreadListerWithoutOrchestrationService(t *tes
 	}
 	if count != 1 {
 		t.Fatalf("ActiveAgentCount() count = %d, want 1", count)
+	}
+}
+
+// TestActiveAgentCounterUsesCountQuery 确认退出检查使用 count 查询而不是枚举线程。
+func TestActiveAgentCounterUsesCountQuery(t *testing.T) {
+	t.Parallel()
+
+	lister := &stubThreadLister{
+		count: 3,
+		refs: []contract.ThreadRef{
+			{ID: "created", Status: "created"},
+			{ID: "stopped", Status: "stopped"},
+			{ID: "archived", Status: "archived"},
+			{ID: "failed", Status: "failed"},
+			{ID: "empty"},
+		},
+	}
+	counter := NewActiveAgentCounter(activeAgentCounterParams{
+		Threads: lister,
+	})
+
+	count, err := counter.ActiveAgentCount(context.Background())
+	if err != nil {
+		t.Fatalf("ActiveAgentCount() error = %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("ActiveAgentCount() count = %d, want count query result 3", count)
+	}
+	if lister.countCalls != 1 {
+		t.Fatalf("CountActive() calls = %d, want 1", lister.countCalls)
+	}
+	if lister.listCalls != 0 {
+		t.Fatalf("List() calls = %d, want count query without thread enumeration", lister.listCalls)
 	}
 }
 
@@ -209,11 +237,24 @@ func TestRequestQuitAllowsImmediateQuit(t *testing.T) {
 	}
 }
 
+// stubThreadLister 记录 Wails active counter 对线程端口的调用方式。
 type stubThreadLister struct {
-	refs []contract.ThreadRef
-	err  error
+	refs       []contract.ThreadRef
+	err        error
+	count      int64
+	countErr   error
+	listCalls  int
+	countCalls int
 }
 
-func (s stubThreadLister) List(context.Context) ([]contract.ThreadRef, error) {
+// List 返回预设线程，并记录 legacy 枚举是否被调用。
+func (s *stubThreadLister) List(context.Context) ([]contract.ThreadRef, error) {
+	s.listCalls++
 	return s.refs, s.err
+}
+
+// CountActive 返回预设计数，并记录 bounded count 查询是否被调用。
+func (s *stubThreadLister) CountActive(context.Context) (int64, error) {
+	s.countCalls++
+	return s.count, s.countErr
 }

@@ -173,6 +173,107 @@ func TestDidChangeAdvancesBootstrapCacheVersionForFullDiskBackedText(t *testing.
 	}
 }
 
+func TestDiagnosticsDiscardStaleNilVersionAfterFullDidChange(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"diagnostics-nil-version"}`)
+	target := filepath.Join(root, "app.js")
+	writeGenericTestFile(t, target, "let value = 1\n")
+	factory := &p2DiagnosticsFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	ctx := scopedDiagnosticsTestContext(root, "agent-nil-version", "thread-1")
+	uri := fileURIFromPath(target)
+	if err := mgr.BootstrapDocument(ctx, uri); err != nil {
+		t.Fatalf("BootstrapDocument: %v", err)
+	}
+	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, uri, "javascript")
+	if err != nil {
+		t.Fatalf("resolvedScopeForURI: %v", err)
+	}
+	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{
+		URI: uri,
+		Diagnostics: []protocol.Diagnostic{{
+			Message: "stale nil-version",
+		}},
+	}); err != nil {
+		t.Fatalf("PublishDiagnostics(nil version): %v", err)
+	}
+	items, err := mgr.Diagnostics(WithResolvedLSPToolScope(ctx, scope), []string{uri})
+	if err != nil {
+		t.Fatalf("Diagnostics(before DidChange): %v", err)
+	}
+	if len(items) != 1 || len(items[0].Diagnostics) != 1 {
+		t.Fatalf("Diagnostics(before DidChange) = %#v, want seeded nil-version diagnostic", items)
+	}
+
+	nextText := "let value = 2\n"
+	writeGenericTestFile(t, target, nextText)
+	if err := mgr.DidChange(ctx, target, 7, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
+		t.Fatalf("DidChange(full): %v", err)
+	}
+	items, err = mgr.Diagnostics(WithResolvedLSPToolScope(ctx, scope), []string{ref.uri})
+	if err != nil {
+		t.Fatalf("Diagnostics(after DidChange): %v", err)
+	}
+	requireNoDiagnosticItems(t, "nil-version publish before full DidChange", items)
+}
+
+func TestPreChangeEpochNilVersionPublishAfterFullDidChangeIsIgnored(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"diagnostics-pre-change-epoch"}`)
+	target := filepath.Join(root, "app.js")
+	writeGenericTestFile(t, target, "let value = 1\n")
+	factory := &p2DiagnosticsFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	ctx := scopedDiagnosticsTestContext(root, "agent-pre-change-epoch", "thread-1")
+	uri := fileURIFromPath(target)
+	if err := mgr.BootstrapDocument(ctx, uri); err != nil {
+		t.Fatalf("BootstrapDocument: %v", err)
+	}
+	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, uri, "javascript")
+	if err != nil {
+		t.Fatalf("resolvedScopeForURI: %v", err)
+	}
+	firstClient := factory.clientAt(t, 0)
+	capturer, ok := firstClient.handler.(interface {
+		capturePublishDiagnostics(protocol.PublishDiagnosticsParams) (capturedPublishDiagnostics, error)
+	})
+	if !ok {
+		t.Fatalf("handler %T does not expose captured diagnostic epoch", firstClient.handler)
+	}
+	latePublish, err := capturer.capturePublishDiagnostics(protocol.PublishDiagnosticsParams{
+		URI: ref.uri,
+		Diagnostics: []protocol.Diagnostic{{
+			Message: "late pre-change nil-version",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("capturePublishDiagnostics: %v", err)
+	}
+
+	nextText := "let value = 2\n"
+	writeGenericTestFile(t, target, nextText)
+	if err := mgr.DidChange(ctx, target, 7, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
+		t.Fatalf("DidChange(full): %v", err)
+	}
+
+	publisher, ok := firstClient.handler.(interface {
+		publishCapturedDiagnostics(capturedPublishDiagnostics) error
+	})
+	if !ok {
+		t.Fatalf("handler %T does not publish captured diagnostics", firstClient.handler)
+	}
+	if err := publisher.publishCapturedDiagnostics(latePublish); err != nil {
+		t.Fatalf("publishCapturedDiagnostics: %v", err)
+	}
+	items, err := mgr.Diagnostics(WithResolvedLSPToolScope(ctx, scope), []string{ref.uri})
+	if err != nil {
+		t.Fatalf("Diagnostics(after late publish): %v", err)
+	}
+	requireNoDiagnosticItems(t, "pre-change epoch nil-version publish after full DidChange", items)
+}
+
 func TestPublishDiagnosticsIgnoresOlderDocumentVersion(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"diagnostics-version"}`)
@@ -329,6 +430,44 @@ func TestDidChangeFailureFallsBackToReopenThenRestart(t *testing.T) {
 	}
 	if !factory.clientAt(t, 1).opened(fileURIFromPath(target), "javascript") {
 		t.Fatalf("restarted client did not reopen changed document")
+	}
+}
+
+func TestDidChangeReconnectRestoresBootstrappedWorkspace(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"restore-workspace"}`)
+	changed := filepath.Join(root, "app.js")
+	peer := filepath.Join(root, "peer.js")
+	writeGenericTestFile(t, changed, "let value = 1\n")
+	writeGenericTestFile(t, peer, "let peer = 1\n")
+	factory := &p2DiagnosticsFactory{
+		didChangeErrors: []error{errors.New("change failed")},
+		didCloseErrors:  []error{ErrTransportClosed},
+	}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	ctx := scopedDiagnosticsTestContext(root, "agent-restore", "thread-1")
+	if err := mgr.BootstrapDocument(ctx, changed); err != nil {
+		t.Fatalf("BootstrapDocument(changed): %v", err)
+	}
+	if err := mgr.BootstrapDocument(ctx, peer); err != nil {
+		t.Fatalf("BootstrapDocument(peer): %v", err)
+	}
+
+	nextText := "let value = 2\n"
+	writeGenericTestFile(t, changed, nextText)
+	if err := mgr.DidChange(ctx, changed, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
+		t.Fatalf("DidChange should restore workspace after reconnect: %v", err)
+	}
+	if factory.callCount() < 2 {
+		t.Fatalf("factory calls = %d, want restart after close/reopen failure", factory.callCount())
+	}
+	restarted := factory.clientAt(t, 1)
+	if !restarted.opened(fileURIFromPath(changed), "javascript") {
+		t.Fatalf("restarted client did not restore changed document; opens=%#v", restarted.opens)
+	}
+	if !restarted.opened(fileURIFromPath(peer), "javascript") {
+		t.Fatalf("restarted client did not restore peer bootstrap document; opens=%#v", restarted.opens)
 	}
 }
 

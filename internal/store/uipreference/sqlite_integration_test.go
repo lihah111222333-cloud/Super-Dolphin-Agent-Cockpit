@@ -18,15 +18,25 @@ func TestSQLiteUIPreferenceUpsertGetAndList(t *testing.T) {
 	db := openUIPreferenceSQLiteDB(t)
 	s := NewStore(sqlc.New(db))
 
-	if err := s.Upsert(context.Background(), UpsertParams{Cwd: "", Key: "theme", Value: json.RawMessage(`"dark"`)}); err != nil {
-		t.Fatalf("Upsert(global) error = %v", err)
+	upsertUIPreference(t, s, "global", UpsertParams{Cwd: "", Key: "theme", Value: json.RawMessage(`"dark"`)})
+	upsertUIPreference(t, s, "project", UpsertParams{Cwd: "/proj", Key: "layout", Value: json.RawMessage(`{"mode":"wide"}`)})
+	upsertUIPreference(t, s, "other", UpsertParams{Cwd: "/other", Key: "layout", Value: json.RawMessage(`"narrow"`)})
+
+	assertUIPreferenceValue(t, s)
+	assertUIPreferenceList(t, s)
+	assertUIPreferenceRejectsInvalidJSON(t, s)
+}
+
+func upsertUIPreference(t *testing.T, s Store, label string, params UpsertParams) {
+	t.Helper()
+
+	if err := s.Upsert(context.Background(), params); err != nil {
+		t.Fatalf("Upsert(%s) error = %v", label, err)
 	}
-	if err := s.Upsert(context.Background(), UpsertParams{Cwd: "/proj", Key: "layout", Value: json.RawMessage(`{"mode":"wide"}`)}); err != nil {
-		t.Fatalf("Upsert(project) error = %v", err)
-	}
-	if err := s.Upsert(context.Background(), UpsertParams{Cwd: "/other", Key: "layout", Value: json.RawMessage(`"narrow"`)}); err != nil {
-		t.Fatalf("Upsert(other) error = %v", err)
-	}
+}
+
+func assertUIPreferenceValue(t *testing.T, s Store) {
+	t.Helper()
 
 	value, err := s.GetValue(context.Background(), "/proj", "layout")
 	if err != nil {
@@ -35,6 +45,10 @@ func TestSQLiteUIPreferenceUpsertGetAndList(t *testing.T) {
 	if string(value) != `{"mode":"wide"}` {
 		t.Fatalf("GetValue() = %s", value)
 	}
+}
+
+func assertUIPreferenceList(t *testing.T, s Store) {
+	t.Helper()
 
 	rows, err := s.List(context.Background(), "/proj")
 	if err != nil {
@@ -46,6 +60,10 @@ func TestSQLiteUIPreferenceUpsertGetAndList(t *testing.T) {
 	if rows[0].UpdatedAt.IsZero() || rows[1].UpdatedAt.IsZero() {
 		t.Fatalf("List() timestamps were not populated: %+v", rows)
 	}
+}
+
+func assertUIPreferenceRejectsInvalidJSON(t *testing.T, s Store) {
+	t.Helper()
 
 	if err := s.Upsert(context.Background(), UpsertParams{Cwd: "/proj", Key: "bad", Value: json.RawMessage(`not-json`)}); err == nil {
 		t.Fatal("Upsert() invalid JSON error = nil")

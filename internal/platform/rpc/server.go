@@ -475,11 +475,15 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.Wai
 		rpcLog = tracker
 	}
 	opts := prepareServerOptions(rpcLog, nil)
-	assigner := controlRPCAuthAssigner{base: s.methods, auth: newControlRPCConnectionAuth(s.controlRPCAuthToken())}
-	srv := jrpc2.NewServer(assigner, opts).Start(ch)
-	s.addActive(srv, dto.PeerKindTool)
+	var srv *jrpc2.Server
+	auth := newControlRPCConnectionAuth(s.controlRPCAuthToken())
+	assigner := controlRPCAuthAssigner{base: s.methods, auth: auth}
+	srv = jrpc2.NewServer(assigner, opts).Start(ch)
+	auth.setOnAuthenticated(func() {
+		s.addActive(srv, dto.PeerKindTool)
+		s.notifyConnected(srv)
+	})
 	defer s.removeActive(srv)
-	s.notifyConnected(srv)
 
 	runtimesafe.SafeGo(connCtx, s.logger, "rpc.serveConn.cancelWatcher", func(context.Context) {
 		<-connCtx.Done()
@@ -532,15 +536,16 @@ func (s *Server) reserveUIWebSocketSlot() error {
 	return nil
 }
 
-// releaseUIWebSocketSlot 释放 UI WebSocket 并发槽位，重复释放会 panic 暴露生命周期错误。
-func (s *Server) releaseUIWebSocketSlot() {
+// releaseUIWebSocketSlot 释放 UI WebSocket 并发槽位，重复释放返回显式生命周期错误。
+func (s *Server) releaseUIWebSocketSlot() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.activeUIWS <= 0 {
-		panic("rpc UI websocket slot released without a reservation")
+		return ErrInvalidState("rpc UI websocket slot released without a reservation")
 	}
 	s.activeUIWS--
+	return nil
 }
 
 // OnConnect 注册连接建立回调，并立即回放当前活跃连接。

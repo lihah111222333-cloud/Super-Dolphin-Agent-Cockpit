@@ -18,20 +18,79 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// InstallerConfig 描述单个语言服务的二进制、安装命令和伴随工具校验配置。
 type InstallerConfig struct {
-	BinaryName       string
-	InstallCmd       string
-	InstallArgs      []string
-	InstallTimeout   time.Duration
-	Language         string
-	RequiredBinaries []RequiredBinary
+	BinaryName          string
+	BinaryCheckArgs     []string
+	InstallCmd          string
+	InstallArgs         []string
+	InstallTimeout      time.Duration
+	Language            string
+	RequiredBinaries    []RequiredBinary
+	AllowInstallCommand bool
 }
 
+// RequiredBinary 描述安装后必须存在并可选执行健康检查的伴随命令。
 type RequiredBinary struct {
 	Name      string
 	CheckArgs []string
 }
 
+type installCommandCapabilityContextKey struct{}
+type installCheckOnlyContextKey struct{}
+
+// MissingBinaryError 表示语义工具调用需要的 LSP 二进制不可用。
+type MissingBinaryError struct {
+	LanguageID string
+	BinaryName string
+	Reason     error
+}
+
+// Error 返回缺失 LSP 二进制的可读错误信息。
+func (e *MissingBinaryError) Error() string {
+	if e == nil {
+		return "missing LSP binary"
+	}
+	message := fmt.Sprintf("missing LSP binary %s for language %s", e.BinaryName, e.LanguageID)
+	if e.Reason != nil {
+		message += ": " + e.Reason.Error()
+	}
+	return message
+}
+
+// Unwrap 返回底层探测失败原因，供 errors.Is 和 errors.As 使用。
+func (e *MissingBinaryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Reason
+}
+
+// MissingLSPBinary 返回缺失的语言 ID 和二进制名，供工具层做 typed error 断言。
+func (e *MissingBinaryError) MissingLSPBinary() (languageID string, binaryName string) {
+	if e == nil {
+		return "", ""
+	}
+	return e.LanguageID, e.BinaryName
+}
+
+// WithInstallCommandCapability 标记调用方明确允许执行安装命令。
+func WithInstallCommandCapability(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, installCommandCapabilityContextKey{}, true)
+}
+
+// WithToolCallInstallCheckOnly 标记语义工具调用只能检查二进制，不能执行安装命令。
+func WithToolCallInstallCheckOnly(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, installCheckOnlyContextKey{}, true)
+}
+
+// InstallStatus 标记语言服务二进制路径的来源。
 type InstallStatus string
 
 const (
@@ -41,6 +100,7 @@ const (
 	defaultInstallTimeout                        = 10 * time.Minute
 )
 
+// InstallResult 返回语言服务二进制解析后的路径、语言和来源状态。
 type InstallResult struct {
 	Path   string
 	Status InstallStatus
@@ -48,6 +108,7 @@ type InstallResult struct {
 	Binary string
 }
 
+// Provider 管理语言服务安装配置，并按需执行自动安装和复验。
 type Provider struct {
 	mu      sync.Mutex
 	configs map[string]InstallerConfig
@@ -69,6 +130,9 @@ func NewProvider() *Provider {
 func (p *Provider) Register(lang string, cfg InstallerConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if strings.TrimSpace(cfg.Language) == "" {
+		cfg.Language = lang
+	}
 	p.configs[lang] = cfg
 }
 
@@ -95,13 +159,23 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 
 	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
-	// 先信任 PATH 中已有二进制，但必须同时验证伴随工具可用。
+	// 先解析 PATH 中已有二进制，但必须通过健康检查和伴随工具校验。
+	var pathErr error
+	var readinessErr error
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		if err := validateRequiredBinaries(ctx, cfg); err == nil {
+		if err := validateBinaryReadiness(ctx, path, cfg); err == nil {
 			result.Path = path
 			result.Status = InstallStatusPathFound
 			return result, nil
+		} else {
+			readinessErr = err
 		}
+	} else {
+		pathErr = err
+	}
+
+	if !canRunInstallCommand(ctx, cfg) {
+		return InstallResult{}, missingBinaryError(lang, cfg, firstNonNilError(readinessErr, pathErr))
 	}
 
 	p.logger.Info("LSP binary or required companion not ready, attempting auto-install...",
@@ -119,6 +193,50 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	return p.resolveInstalledBinary(ctx, installCtx, cfg, result)
 }
 
+func missingBinaryError(lang string, cfg InstallerConfig, reason error) *MissingBinaryError {
+	languageID := strings.TrimSpace(cfg.Language)
+	if languageID == "" {
+		languageID = lang
+	}
+	return &MissingBinaryError{
+		LanguageID: languageID,
+		BinaryName: cfg.BinaryName,
+		Reason:     reason,
+	}
+}
+
+func canRunInstallCommand(ctx context.Context, cfg InstallerConfig) bool {
+	return cfg.AllowInstallCommand &&
+		strings.TrimSpace(cfg.InstallCmd) != "" &&
+		installCommandCapabilityFromContext(ctx) &&
+		!installCheckOnlyFromContext(ctx)
+}
+
+func installCommandCapabilityFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(installCommandCapabilityContextKey{}).(bool)
+	return value
+}
+
+func installCheckOnlyFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(installCheckOnlyContextKey{}).(bool)
+	return value
+}
+
+func firstNonNilError(values ...error) error {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
 // runInstallCommand 执行声明式安装命令，并为这一层强制设置 deadline。
 // 成功时返回仍可用于安装后探测的 installCtx，调用方负责 cancel。
 func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg InstallerConfig) (context.Context, context.CancelFunc, error) {
@@ -131,8 +249,9 @@ func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg Insta
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		ctxErr := installCtx.Err()
 		cancel()
-		if ctxErr := installCtx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
 			return nil, nil, fmt.Errorf("auto-install %s exceeded timeout %s: %w\nOutput: %s",
 				cfg.BinaryName, installTimeout(cfg).String(), ctxErr, string(out))
 		}
@@ -150,10 +269,10 @@ func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg Insta
 // resolveInstalledBinary 复验安装结果并返回最终二进制路径。
 // 安装命令成功但 PATH 或 go install fallback 不可用时必须报错，不能伪装成功。
 func (p *Provider) resolveInstalledBinary(ctx, installCtx context.Context, cfg InstallerConfig, result InstallResult) (InstallResult, error) {
-	// 安装后重新解析路径并复验伴随工具，避免报告“已安装”但运行时仍不可用。
+	// 安装后重新解析路径并复验主二进制和伴随工具，避免报告“已安装”但运行时仍不可用。
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		if err := validateRequiredBinaries(ctx, cfg); err != nil {
-			return InstallResult{}, fmt.Errorf("auto-install succeeded but required LSP companion for %s is not usable: %w", cfg.BinaryName, err)
+		if err := validateBinaryReadiness(ctx, path, cfg); err != nil {
+			return InstallResult{}, fmt.Errorf("auto-install succeeded but LSP binary %s is not usable: %w", cfg.BinaryName, err)
 		}
 		result.Path = path
 		result.Status = InstallStatusInstalledPath
@@ -161,8 +280,8 @@ func (p *Provider) resolveInstalledBinary(ctx, installCtx context.Context, cfg I
 		return result, nil
 	}
 	if path, ok := postInstallBinaryPath(installCtx, cfg); ok {
-		if err := validateRequiredBinaries(ctx, cfg); err != nil {
-			return InstallResult{}, fmt.Errorf("auto-install succeeded but required LSP companion for %s is not usable: %w", cfg.BinaryName, err)
+		if err := validateBinaryReadiness(ctx, path, cfg); err != nil {
+			return InstallResult{}, fmt.Errorf("auto-install succeeded but LSP binary %s is not usable: %w", cfg.BinaryName, err)
 		}
 		result.Path = path
 		result.Status = InstallStatusInstalledFallback
@@ -192,6 +311,25 @@ func installTimeout(cfg InstallerConfig) time.Duration {
 		return defaultInstallTimeout
 	}
 	return cfg.InstallTimeout
+}
+
+func validateBinaryReadiness(ctx context.Context, path string, cfg InstallerConfig) error {
+	if err := validatePrimaryBinary(ctx, path, cfg); err != nil {
+		return err
+	}
+	return validateRequiredBinaries(ctx, cfg)
+}
+
+func validatePrimaryBinary(ctx context.Context, path string, cfg InstallerConfig) error {
+	if len(cfg.BinaryCheckArgs) == 0 {
+		return nil
+	}
+	cmd := hiddenexec.CommandContext(ctx, path, cfg.BinaryCheckArgs...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("LSP binary %s failed health check (%s %v): %w\nOutput: %s",
+			cfg.BinaryName, path, cfg.BinaryCheckArgs, err, string(out))
+	}
+	return nil
 }
 
 // validateRequiredBinaries 确认语言服务依赖的伴随命令都可执行。

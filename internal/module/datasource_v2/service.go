@@ -29,11 +29,15 @@ var (
 	errDatasourceV2SearchQueryRequired = errors.New("datasource v2: semantic query is required")
 	errDatasourceV2MissingFileName     = errors.New("datasource v2: fileName is required")
 	errDatasourceV2SizeBytesInvalid    = errors.New("datasource v2: sizeBytes must be non-negative")
+	errDatasourceV2ChunkCursorRequired = errors.New("datasource v2: cursor is required")
 )
 
 const (
-	datasourceV2MaxImportBytes = 10 * 1024 * 1024
-	datasourceV2MaxListLimit   = 1000
+	datasourceV2MaxImportBytes        = 10 * 1024 * 1024
+	datasourceV2MaxListLimit          = 1000
+	datasourceV2DefaultChunkPageLimit = 50
+	datasourceV2MaxChunkPageLimit     = 500
+	datasourceV2MaxChunkResponseBytes = 128 * 1024
 )
 
 // Service 暴露 datasource_v2 的文件正文导入能力。
@@ -43,6 +47,7 @@ type Service interface {
 	ImportLocalFile(context.Context, ImportLocalFileRequest) (ImportFileTextResult, error)
 	ListDocuments(context.Context, ListDocumentsRequest) (ListDocumentsResult, error)
 	GetDocument(context.Context, GetDocumentRequest) (GetDocumentResult, error)
+	ListChunks(context.Context, ListChunksRequest) (ListChunksResult, error)
 	SearchRelevantChunks(context.Context, SearchRelevantChunksRequest) (SearchRelevantChunksResult, error)
 	UpdateDocument(context.Context, UpdateDocumentRequest) (DocumentResult, error)
 	DeleteDocument(context.Context, DeleteDocumentRequest) (DeleteDocumentResult, error)
@@ -54,9 +59,10 @@ type ImportFileTextRequest struct {
 }
 
 // ImportLocalFileRequest 是 datasourceV2/importLocalFile 的 RPC 入参。
-// 该接口只用于桌面端用户主动选择的本地文件，因此允许读取 workspace 外的绝对路径。
+// PickerToken 只由桌面端 datasource 导入文件选择器签发，用于授权 workspace 外路径。
 type ImportLocalFileRequest struct {
-	SourcePath string `json:"sourcePath"`
+	SourcePath  string `json:"sourcePath"`
+	PickerToken string `json:"pickerToken"`
 }
 
 // ImportFileTextResult 返回导入后的文档 id、摘要和分块统计。
@@ -90,8 +96,24 @@ type GetDocumentRequest struct {
 
 // GetDocumentResult 返回单篇文档元信息和已持久化的正文分块，供详情页检查。
 type GetDocumentResult struct {
-	Document DocumentResult    `json:"document"`
-	Chunks   []TextChunkResult `json:"chunks"`
+	Document   DocumentResult    `json:"document"`
+	Chunks     []TextChunkResult `json:"chunks"`
+	HasMore    bool              `json:"hasMore"`
+	NextCursor int32             `json:"nextCursor"`
+}
+
+// ListChunksRequest 指定 datasourceV2/list_chunks 的显式分页参数。
+type ListChunksRequest struct {
+	DocumentID int64  `json:"documentId"`
+	Limit      int32  `json:"limit"`
+	Cursor     *int32 `json:"cursor"`
+}
+
+// ListChunksResult 返回 datasource_v2 文档正文分块页。
+type ListChunksResult struct {
+	Chunks     []TextChunkResult `json:"chunks"`
+	HasMore    bool              `json:"hasMore"`
+	NextCursor int32             `json:"nextCursor"`
 }
 
 // SearchRelevantChunksRequest 是 chat 请求做 datasource_v2 语义检索的入参。
@@ -249,14 +271,32 @@ func (s *service) GetDocument(ctx context.Context, req GetDocumentRequest) (GetD
 	if err != nil {
 		return GetDocumentResult{}, err
 	}
-	chunks, err := s.store.ListChunks(ctx, req.DocumentID)
+	firstCursor := int32(-1)
+	page, err := s.listChunksPage(ctx, ListChunksRequest{
+		DocumentID: req.DocumentID,
+		Limit:      datasourceV2DefaultChunkPageLimit,
+		Cursor:     &firstCursor,
+	})
 	if err != nil {
 		return GetDocumentResult{}, err
 	}
 	return GetDocumentResult{
-		Document: documentResult(*doc),
-		Chunks:   textChunkResults(chunks),
+		Document:   documentResult(*doc),
+		Chunks:     page.Chunks,
+		HasMore:    page.HasMore,
+		NextCursor: page.NextCursor,
 	}, nil
+}
+
+// ListChunks 按显式 limit/cursor 读取 datasource_v2 文档分块页。
+func (s *service) ListChunks(ctx context.Context, req ListChunksRequest) (ListChunksResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := s.requireStore(); err != nil {
+		return ListChunksResult{}, err
+	}
+	return s.listChunksPage(ctx, req)
 }
 
 // SearchRelevantChunks 将当前 chat 请求向量化，并按语义距离取 datasource_v2 的前 N 个 ready 分块。
@@ -336,6 +376,26 @@ func (s *service) requireStore() error {
 		return errDatasourceV2StoreNotConfigured
 	}
 	return nil
+}
+
+func (s *service) listChunksPage(ctx context.Context, req ListChunksRequest) (ListChunksResult, error) {
+	params, err := validateDatasourceV2ListChunksRequest(req)
+	if err != nil {
+		return ListChunksResult{}, err
+	}
+	page, err := s.store.ListChunksPage(ctx, params)
+	if err != nil {
+		return ListChunksResult{}, err
+	}
+	chunks := textChunkResults(page.Chunks)
+	if err := enforceDatasourceV2ChunkResponseBytes(chunks); err != nil {
+		return ListChunksResult{}, err
+	}
+	return ListChunksResult{
+		Chunks:     chunks,
+		HasMore:    page.HasMore,
+		NextCursor: page.NextCursor,
+	}, nil
 }
 
 // importSourceText 用 store 事务包住一次完整导入。
@@ -528,6 +588,41 @@ func validateDatasourceV2Limit(limit int32) error {
 	}
 	if limit > datasourceV2MaxListLimit {
 		return errDatasourceV2ListLimitTooLarge
+	}
+	return nil
+}
+
+// validateDatasourceV2ListChunksRequest 校验分块分页请求，cursor 必须显式提供。
+func validateDatasourceV2ListChunksRequest(req ListChunksRequest) (datasourceV2ListChunksParams, error) {
+	if req.DocumentID <= 0 {
+		return datasourceV2ListChunksParams{}, errDatasourceV2DocumentIDRequired
+	}
+	if req.Limit <= 0 {
+		return datasourceV2ListChunksParams{}, errDatasourceV2ListLimitRequired
+	}
+	if req.Limit > datasourceV2MaxChunkPageLimit {
+		return datasourceV2ListChunksParams{}, errDatasourceV2ListLimitTooLarge
+	}
+	if req.Cursor == nil {
+		return datasourceV2ListChunksParams{}, errDatasourceV2ChunkCursorRequired
+	}
+	if *req.Cursor < -1 {
+		return datasourceV2ListChunksParams{}, fmt.Errorf("datasource v2: cursor must be -1 or greater")
+	}
+	return datasourceV2ListChunksParams{
+		DocumentID: req.DocumentID,
+		Limit:      req.Limit,
+		Cursor:     *req.Cursor,
+	}, nil
+}
+
+func enforceDatasourceV2ChunkResponseBytes(chunks []TextChunkResult) error {
+	total := 0
+	for _, chunk := range chunks {
+		total += len([]byte(chunk.Content))
+		if total > datasourceV2MaxChunkResponseBytes {
+			return fmt.Errorf("datasource v2: response byte cap exceeded: %d > %d", total, datasourceV2MaxChunkResponseBytes)
+		}
 	}
 	return nil
 }

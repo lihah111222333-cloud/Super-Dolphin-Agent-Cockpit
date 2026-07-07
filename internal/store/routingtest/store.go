@@ -16,6 +16,8 @@ type Reader interface {
 	ListEnabled(ctx context.Context) ([]RoutingTest, error)
 }
 
+// RoutingTest 是一条启用的 prompt 路由验收用例。
+// ExpectedPromptKey 表示给定输入应命中的模板，用于检测路由规则漂移。
 type RoutingTest struct {
 	ID                int64     `json:"id"`
 	Input             string    `json:"input"`

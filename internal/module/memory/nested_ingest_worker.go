@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -96,14 +97,9 @@ func (w *nestedIngestWorker) Start() {
 		default:
 		}
 		w.started.Store(true)
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					pkglogger.Error("memory: recovered nested_ingest_worker panic", "panic", rec)
-				}
-			}()
+		safego.Go(context.Background(), pkglogger.Get(), "memory.nested_ingest.worker", func(context.Context) {
 			w.runWorker()
-		}()
+		})
 	})
 }
 

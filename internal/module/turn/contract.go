@@ -29,8 +29,10 @@ type SessionProvider interface {
 	GetSession(agentID string) (contract.Session, error)
 }
 
+// ThreadStateConfigReader 是 turn 准备阶段读取 thread runtime 配置的契约别名。
 type ThreadStateConfigReader = contract.ThreadStateConfigReader
 
+// InputItem 复用 shared DTO 中可发送给 provider 的输入片段。
 type InputItem = shareddto.InputItem
 
 // PrepareInput 包含一次 turn 准备所需的全部参数，包括输入内容、技能引用、MCP 快照和运行时配置。

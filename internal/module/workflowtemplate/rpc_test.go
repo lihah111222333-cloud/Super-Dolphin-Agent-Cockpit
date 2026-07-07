@@ -8,6 +8,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/workflowtemplates"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/creachadair/jrpc2"
 )
 
@@ -27,6 +29,72 @@ func TestWorkflowTemplateHandlersSaveAndRollbackTemplate(t *testing.T) {
 	server := newWorkflowTemplateRPCServer(t)
 	assertWorkflowTemplateSave(t, server)
 	assertWorkflowTemplateRollback(t, server)
+}
+
+func TestWorkflowTemplateRPCAndHostToolsShareTemplateRegistry(t *testing.T) {
+	t.Parallel()
+
+	registry := newWorkflowTemplateRegistryForTest(t)
+	svc, err := NewService(registry)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewHandlers(svc).Handlers)
+	readHost := toolbridge.NewWorkflowTemplateHostToolRegistry(registry)
+	writeHost := toolbridge.NewWorkflowTemplateWriteHostToolRegistry(registry, allowWorkflowTemplateWriteAuthority{})
+
+	assertWorkflowTemplateSave(t, server)
+	listResult, err := readHost.CallHostTool(context.Background(), toolbridge.HostToolCall{
+		Name:      toolbridge.ToolNameWorkflowTemplateList,
+		Arguments: json.RawMessage(`{"category":"government-enterprise","output_type":"docx"}`),
+	})
+	if err != nil {
+		t.Fatalf("host workflow_template_list after RPC save error = %v", err)
+	}
+	assertWorkflowTemplateHostListVersion(t, listResult, "government-enterprise/meeting-minutes", 2)
+	if _, err := writeHost.CallHostTool(context.Background(), toolbridge.HostToolCall{
+		Name:      toolbridge.ToolNameWorkflowTemplateRollback,
+		Arguments: json.RawMessage(`{"template_id":"government-enterprise/meeting-minutes","version":1}`),
+	}); err != nil {
+		t.Fatalf("host workflow_template_rollback error = %v", err)
+	}
+	if _, err := server.Dispatch(context.Background(), "workflowTemplates/get", json.RawMessage(`{"templateId":"government-enterprise/meeting-minutes","version":1}`)); err != nil {
+		t.Fatalf("RPC workflowTemplates/get after host rollback error = %v", err)
+	}
+}
+
+type allowWorkflowTemplateWriteAuthority struct{}
+
+func (allowWorkflowTemplateWriteAuthority) AuthorizeWorkflowTemplateWrite(context.Context, toolbridge.HostToolCall) error {
+	return nil
+}
+
+func assertWorkflowTemplateHostListVersion(t *testing.T, result any, id string, version int) {
+	t.Helper()
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal host list result: %v", err)
+	}
+	var decoded struct {
+		Templates []struct {
+			ID      string `json:"id"`
+			Version int    `json:"version"`
+		} `json:"templates"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode host list result: %v", err)
+	}
+	for _, tpl := range decoded.Templates {
+		if tpl.ID == id {
+			if tpl.Version != version {
+				t.Fatalf("host list template %s version = %d, want %d", id, tpl.Version, version)
+			}
+			return
+		}
+	}
+	t.Fatalf("host list missing template %s in %#v", id, decoded.Templates)
 }
 
 func TestWorkflowTemplateHandlersMapErrorsToRPCCodes(t *testing.T) {
@@ -98,13 +166,23 @@ func TestWorkflowTemplateHandlersMapErrorsToRPCCodes(t *testing.T) {
 func newWorkflowTemplateRPCServer(t *testing.T) *platformrpc.Server {
 	t.Helper()
 
-	svc, err := NewService()
+	svc, err := NewService(newWorkflowTemplateRegistryForTest(t))
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)
 	return server
+}
+
+func newWorkflowTemplateRegistryForTest(t *testing.T) *workflowtemplates.Registry {
+	t.Helper()
+
+	registry, err := NewRegistry()
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	return registry
 }
 
 func assertWorkflowTemplateRPCCode(t *testing.T, server *platformrpc.Server, method string, params json.RawMessage, want int) {

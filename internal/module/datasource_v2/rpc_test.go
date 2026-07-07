@@ -312,6 +312,28 @@ func TestExtractPDFTextRejectsOversizedFlateStream(t *testing.T) {
 	}
 }
 
+func TestImportLocalFileRejectsWorkspaceOutsidePathWithoutPickerCapability(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(source, []byte("outside workspace datasource"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	store := newRecordingDatasourceV2Store()
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
+	payload, err := json.Marshal(ImportLocalFileRequest{SourcePath: source})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	if _, err := server.Dispatch(context.Background(), "datasourceV2/importLocalFile", payload); err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("Dispatch error = %v, want outside workspace rejection without picker token", err)
+	}
+	if len(store.inserted) != 0 {
+		t.Fatalf("store inserted chunks after rejected local import: %+v", store.inserted)
+	}
+}
+
 func TestImportLocalFileRPCStoresOutsideWorkspaceSource(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
@@ -320,8 +342,15 @@ func TestImportLocalFileRPCStoresOutsideWorkspaceSource(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
-	payload, err := json.Marshal(ImportLocalFileRequest{SourcePath: source})
+	verifier := &recordingLocalFilePickerTokenVerifier{
+		sourcePath: source,
+		token:      "picker-token",
+	}
+	server := newDatasourceV2TestServerWithPickerVerifier(newDatasourceV2TestService(store), verifier)
+	payload, err := json.Marshal(ImportLocalFileRequest{
+		SourcePath:  source,
+		PickerToken: "picker-token",
+	})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -335,11 +364,10 @@ func TestImportLocalFileRPCStoresOutsideWorkspaceSource(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if got.SourcePath != source || got.FileName != "fj.txt" || got.ChunkCount != 1 {
-		t.Fatalf("import local file result = %+v", got)
-	}
-	if len(store.inserted) != 1 || store.inserted[0].Content != "outside workspace datasource" {
-		t.Fatalf("stored chunks = %+v", store.inserted)
+	assertDatasourceV2LocalFileImportResult(t, got, source, "fj.txt")
+	assertDatasourceV2StoredText(t, store, "outside workspace datasource")
+	if verifier.calls != 1 {
+		t.Fatalf("picker token verifier calls = %d, want 1", verifier.calls)
 	}
 }
 
@@ -376,8 +404,12 @@ func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
 }
 
 func newDatasourceV2TestServer(svc Service) *platformrpc.Server {
+	return newDatasourceV2TestServerWithPickerVerifier(svc, nil)
+}
+
+func newDatasourceV2TestServerWithPickerVerifier(svc Service, verifier LocalFilePickerTokenVerifier) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewHandlers(svc).Handlers)
+	server.Register(NewHandlers(svc, verifier).Handlers)
 	return server
 }
 
@@ -396,7 +428,34 @@ func datasourceV2RPCWorkspaceSource(t *testing.T, name string, body []byte) stri
 	return source
 }
 
+func assertDatasourceV2LocalFileImportResult(t *testing.T, got ImportFileTextResult, source string, fileName string) {
+	t.Helper()
+	if got.SourcePath != source || got.FileName != fileName || got.ChunkCount != 1 {
+		t.Fatalf("import local file result = %+v", got)
+	}
+}
+
+func assertDatasourceV2StoredText(t *testing.T, store *recordingDatasourceV2Store, content string) {
+	t.Helper()
+	if len(store.inserted) != 1 || store.inserted[0].Content != content {
+		t.Fatalf("stored chunks = %+v", store.inserted)
+	}
+}
+
+type recordingLocalFilePickerTokenVerifier struct {
+	sourcePath string
+	token      string
+	calls      int
+}
+
+func (v *recordingLocalFilePickerTokenVerifier) VerifyDatasourceImportPickerToken(sourcePath, token string) bool {
+	v.calls++
+	return sourcePath == v.sourcePath && token == v.token
+}
+
 type recordingDatasourceV2Store struct {
+	recordingDatasourceV2SemanticNoopStore
+
 	document datasourcev2store.Document
 	inserted []datasourcev2store.InsertChunkParams
 	chunks   []datasourcev2store.TextChunk
@@ -514,11 +573,38 @@ func (s *recordingDatasourceV2Store) GetDocument(context.Context, int64) (*datas
 	return &doc, nil
 }
 
-func (s *recordingDatasourceV2Store) ListChunks(context.Context, int64) ([]datasourcev2store.TextChunk, error) {
-	return append([]datasourcev2store.TextChunk(nil), s.chunks...), nil
+func (s *recordingDatasourceV2Store) ListChunksPage(
+	_ context.Context,
+	params datasourcev2store.ListChunksParams,
+) (datasourcev2store.TextChunkPage, error) {
+	limit := int(params.Limit)
+	pageChunks := make([]datasourcev2store.TextChunk, 0, limit+1)
+	for _, chunk := range s.chunks {
+		if chunk.DocumentID == params.DocumentID && chunk.ChunkIndex > params.Cursor {
+			pageChunks = append(pageChunks, chunk)
+		}
+		if len(pageChunks) >= limit+1 {
+			break
+		}
+	}
+	hasMore := len(pageChunks) > limit
+	if hasMore {
+		pageChunks = pageChunks[:limit]
+	}
+	nextCursor := int32(0)
+	if hasMore && len(pageChunks) > 0 {
+		nextCursor = pageChunks[len(pageChunks)-1].ChunkIndex
+	}
+	return datasourcev2store.TextChunkPage{
+		Chunks:     append([]datasourcev2store.TextChunk(nil), pageChunks...),
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	}, nil
 }
 
-func (s *recordingDatasourceV2Store) SearchChunks(
+type recordingDatasourceV2SemanticNoopStore struct{}
+
+func (recordingDatasourceV2SemanticNoopStore) SearchChunks(
 	context.Context,
 	datasourcev2store.SearchChunksParams,
 ) ([]datasourcev2store.SemanticChunk, error) {

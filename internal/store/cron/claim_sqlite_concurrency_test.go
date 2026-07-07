@@ -49,10 +49,17 @@ func TestClaimDueJobsSameProcessNoDuplicates(t *testing.T) {
 		claimed = make(map[string]int)
 		wg      sync.WaitGroup
 	)
-	for w := 0; w < workers; w++ {
-		wg.Add(1)
-		go func(worker int) {
-			defer wg.Done()
+	workersDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-workersDone:
+		case <-time.After(time.Second):
+			t.Fatal("same-process claim goroutines did not stop")
+		}
+	})
+	for w := range workers {
+		worker := w
+		wg.Go(func() {
 			claimedBy := fmt.Sprintf("scheduler-%d", worker)
 			for {
 				jobs, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
@@ -75,9 +82,10 @@ func TestClaimDueJobsSameProcessNoDuplicates(t *testing.T) {
 				}
 				mu.Unlock()
 			}
-		}(w)
+		})
 	}
 	wg.Wait()
+	close(workersDone)
 
 	assertExactlyOnce(t, ids, claimed)
 }
@@ -94,7 +102,7 @@ func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "secure", "cron-crossproc.db")
 	db := openMigratedCronDB(ctx, t, dbPath)
-	store := NewStore(sqlc.New(db))
+	store := NewStoreWithDB(db, sqlc.New(db))
 
 	now := time.Unix(1_700_000_000, 0).UTC()
 	const total = 100
@@ -112,16 +120,25 @@ func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
 		out string
 	}
 	results := make(chan result, 2)
-	for i := 0; i < 2; i++ {
+	var wg sync.WaitGroup
+	workersDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-workersDone:
+		case <-time.After(2 * time.Second):
+			t.Fatal("cross-process claim goroutines did not stop")
+		}
+	})
+	for i := range 2 {
 		claimedBy := fmt.Sprintf("proc-%d", i)
-		go func() {
+		wg.Go(func() {
 			out, err := runClaimSubprocess(dbPath, claimedBy, now.UnixMilli(), leaseMS)
 			results <- result{ids: parseClaimedIDs(out), err: err, out: out}
-		}()
+		})
 	}
 
 	claimed := make(map[string]int)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		r := <-results
 		if r.err != nil {
 			t.Fatalf("claim subprocess error: %v\noutput:\n%s", r.err, r.out)
@@ -130,6 +147,8 @@ func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
 			claimed[id]++
 		}
 	}
+	wg.Wait()
+	close(workersDone)
 
 	assertExactlyOnce(t, ids, claimed)
 }
@@ -249,7 +268,7 @@ func runCrossProcessClaimWorker(t *testing.T) {
 		os.Exit(2)
 	}
 	defer func() { _ = db.Close() }()
-	store := NewStore(sqlc.New(db))
+	store := NewStoreWithDB(db, sqlc.New(db))
 
 	for {
 		jobs, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
@@ -287,7 +306,7 @@ func runClaimSubprocess(dbPath, claimedBy string, nowMS, leaseMS int64) (string,
 
 func parseClaimedIDs(out string) []string {
 	var ids []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "CLAIMED "); ok {
 			ids = append(ids, strings.TrimSpace(rest))
 		}
@@ -386,7 +405,7 @@ func assertClaimStillActive(t *testing.T, ctx context.Context, store Store, jobI
 func seedDueJobs(ctx context.Context, t *testing.T, store Store, n int, now time.Time) []string {
 	t.Helper()
 	ids := make([]string, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := fmt.Sprintf("job-%04d", i)
 		_, err := store.CreateJob(ctx, CreateJobParams{
 			ID:           id,
@@ -443,7 +462,7 @@ func openMigratedCronStore(t *testing.T) (Store, *sql.DB) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "secure", "cron-claim.db")
 	db := openMigratedCronDB(ctx, t, dbPath)
-	return NewStore(sqlc.New(db)), db
+	return NewStoreWithDB(db, sqlc.New(db)), db
 }
 
 func openMigratedCronDB(ctx context.Context, t *testing.T, dbPath string) *sql.DB {
@@ -468,7 +487,7 @@ func sqliteMigrationsDir(t *testing.T) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return filepath.Join(dir, "internal", "platform", "db", "sqlite", "migrations")
 		}

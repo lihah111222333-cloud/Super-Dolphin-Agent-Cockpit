@@ -14,6 +14,7 @@ const backend = vi.hoisted(() => ({
   getDatasourceDocument: vi.fn(),
   importDatasourceLocalFile: vi.fn(),
   importSkillDirectories: vi.fn(),
+  listDatasourceChunks: vi.fn(),
   listDatasourceDocuments: vi.fn(),
   listMCPServers: vi.fn(),
   listSkillFiles: vi.fn(),
@@ -22,6 +23,7 @@ const backend = vi.hoisted(() => ({
   previewSkillResolution: vi.fn(),
   readSkill: vi.fn(),
   selectFiles: vi.fn(),
+  selectDatasourceImportFile: vi.fn(),
   selectProjectDirs: vi.fn(),
   startPlaywrightMCPServer: vi.fn(),
   startSQLiteMCPServer: vi.fn(),
@@ -141,6 +143,20 @@ beforeEach(() => {
       charCount: 7,
       byteCount: 7,
     }],
+    hasMore: true,
+    nextCursor: 0,
+  });
+  backend.listDatasourceChunks.mockResolvedValue({
+    chunks: [{
+      id: 502,
+      documentId: 101,
+      chunkIndex: 1,
+      content: 'more content',
+      charCount: 12,
+      byteCount: 12,
+    }],
+    hasMore: false,
+    nextCursor: 1,
   });
   backend.updateDatasourceDocument.mockResolvedValue({
     documentId: 101,
@@ -154,6 +170,10 @@ beforeEach(() => {
   });
   backend.deleteDatasourceDocument.mockResolvedValue({ documentId: 101, deleted: true });
   backend.selectFiles.mockResolvedValue(['C:\\data\\new.pdf']);
+  backend.selectDatasourceImportFile.mockResolvedValue({
+    sourcePath: 'C:\\data\\new.pdf',
+    pickerToken: 'picker-token',
+  });
 });
 
 describe('SkillsPage module', () => {
@@ -252,18 +272,24 @@ describe('SkillsPage backend migration', () => {
 
     fireEvent.click(screen.getByTestId('datasource-import-button'));
     await waitFor(() => {
-      expect(backend.selectFiles).toHaveBeenCalledWith({
+      expect(backend.selectDatasourceImportFile).toHaveBeenCalledWith({
         filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
       });
-      expect(backend.importDatasourceLocalFile).toHaveBeenCalledWith({ sourcePath: 'C:\\data\\new.pdf' });
+      expect(backend.selectFiles).not.toHaveBeenCalled();
+      expect(backend.importDatasourceLocalFile).toHaveBeenCalledWith({
+        sourcePath: 'C:\\data\\new.pdf',
+        pickerToken: 'picker-token',
+      });
     });
 
     fireEvent.click(screen.getByTestId('datasource-view-101'));
     await waitFor(() => {
       expect(backend.getDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 });
+      expect(backend.listDatasourceChunks).toHaveBeenCalledWith({ documentId: 101, limit: 50, cursor: 0 });
     });
     const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
-    expect(await within(detailDialog).findByTestId('datasource-detail-chunk')).toHaveTextContent('content');
+    const chunks = await within(detailDialog).findAllByTestId('datasource-detail-chunk');
+    expect(chunks.map((chunk) => chunk.textContent)).toEqual(['content', 'more content']);
     fireEvent.click(within(detailDialog).getByRole('button', { name: '关闭' }));
 
     fireEvent.click(screen.getByTestId('datasource-edit-101'));
@@ -376,6 +402,60 @@ describe('SkillsPage backend migration', () => {
       }));
     });
     expect(backend.writeSkill.mock.calls.at(-1)[0].content).toContain('description: "当你需要维护 Go 服务时使用。"');
+  });
+
+  it('shows partial failure feedback when applying a skill resolution needs follow-up', async () => {
+    backend.listSkillResolutions.mockResolvedValue({
+      items: [{
+        conflict_id: 'conflict-1',
+        kind: 'mirror_drift',
+        name: 'backend',
+        scope: 'project',
+        available_actions: ['canonical_overwrite_mirror'],
+        provider_entries: [{ provider: 'codex', source_path_id: 'codex:backend', display_label: 'Codex' }],
+      }],
+    });
+    backend.previewSkillResolution.mockResolvedValue({
+      items: [{
+        provider: 'codex',
+        source_provider: 'codex',
+        source_path_id: 'codex:backend',
+        preview_id: 'preview-1',
+        preview_hash: 'hash-1',
+        source_path: '/repo/app/.agents/skills/backend/SKILL.md',
+        target_path: '/home/user/.codex/skills/backend/SKILL.md',
+      }],
+    });
+    backend.applySkillResolution.mockResolvedValue({
+      action: 'canonical_overwrite_mirror',
+      name: 'backend',
+      partialFailure: true,
+      followUpAction: 'canonical_overwrite_mirror',
+    });
+
+    renderSkillsPage();
+    openSkillTools();
+
+    expect(await screen.findByText('发现 1 个技能冲突，需要处理后再使用。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
+
+    await waitFor(() => expect(backend.previewSkillResolution).toHaveBeenCalledWith(expect.objectContaining({
+      conflict_id: 'conflict-1',
+      action: 'canonical_overwrite_mirror',
+    })));
+    expect(await screen.findByText('请先确认将要写入的位置，确认应用后才会修改文件。')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '确认应用' }));
+
+    await waitFor(() => expect(backend.applySkillResolution).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'canonical_overwrite_mirror',
+      preview_id: 'preview-1',
+      preview_hash: 'hash-1',
+    })));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('技能冲突已部分处理');
+    expect(alert).toHaveTextContent('用本项目内容覆盖外部版本');
+    expect(screen.queryByText('已处理技能冲突')).not.toBeInTheDocument();
   });
 
   it('opens skill citation links from the editor preview through skills/local RPCs', async () => {

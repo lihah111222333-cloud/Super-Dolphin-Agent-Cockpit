@@ -31,6 +31,8 @@ type agentTimer struct {
 	timer       *time.Timer
 }
 
+// Manager 维护活跃 agent 会话的 keepalive timer。
+// 它只保存 session/thread/agent 绑定并通过窄接口发送 ping，Shutdown 时会取消并等待进行中的 ping。
 type Manager struct {
 	resolver     contract.SessionResolver
 	bindingStore contract.CacheKeepaliveBindingLookup
@@ -189,7 +191,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		_ = deadline
 	}
 	done := make(chan struct{})
-	go func() {
+	var drainWG sync.WaitGroup
+	drainWG.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				m.logger.Warn("cachekeepalive: recovered shutdown drain panic", "panic", r)
@@ -197,7 +200,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		}()
 		m.pingInflight.Wait()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 		return nil

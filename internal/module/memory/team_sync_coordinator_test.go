@@ -68,7 +68,9 @@ func TestTeamSyncCallbackEnqueueOnly(t *testing.T) {
 	c.Start()
 
 	enqueueDone := make(chan struct{})
-	go enqueueTeamSyncBurst(c, enqueueDone)
+	var enqueueWG sync.WaitGroup
+	enqueueWG.Go(func() { enqueueTeamSyncBurst(c, enqueueDone) })
+	defer enqueueWG.Wait()
 	assertTeamSyncEnqueueCompletes(t, enqueueDone)
 	assertTeamSyncWorkerBlocked(t, svc)
 	if enq := c.EnqueuedTotal(); enq != 33 { // 1 + 16*(Start+Stop)
@@ -88,7 +90,7 @@ func TestTeamSyncCallbackEnqueueOnly(t *testing.T) {
 
 func enqueueTeamSyncBurst(c *teamSyncCoordinator, done chan<- struct{}) {
 	c.EnqueueStart(threaddto.Started{ThreadID: "thread-A", CWD: "/tmp"})
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		c.EnqueueStart(threaddto.Started{ThreadID: "thread-burst", CWD: "/tmp"})
 		c.EnqueueStop(threaddto.Stopped{ThreadID: "thread-burst"})
 	}

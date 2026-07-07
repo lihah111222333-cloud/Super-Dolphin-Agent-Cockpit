@@ -3,7 +3,6 @@ package codexapp
 import (
 	"encoding/json"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -183,14 +182,11 @@ func TestCleanupHook_ApplyReplayedTurnDropsStaleBuffer(t *testing.T) {
 func TestSniffTurnOutput_ConcurrentPerTurn(t *testing.T) {
 	s := newAccumulatorTestSession()
 	const turns = 8
-	var wg sync.WaitGroup
-	wg.Add(turns)
-	for i := 0; i < turns; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
+	goroutines := newTestGoroutineGroup(t)
+	for i := range turns {
+		goroutines.Go(func() {
 			tid := "turn-" + string(rune('A'+i))
-			for j := 0; j < 4; j++ {
+			for range 4 {
 				_ = s.sniffTurnOutput("message.delta", makeDeltaParams(t, tid, "d"))
 			}
 			out := s.sniffTurnOutput("turn/completed", makeTerminalParams(t, tid))
@@ -202,7 +198,7 @@ func TestSniffTurnOutput_ConcurrentPerTurn(t *testing.T) {
 			if payload["result"] != "dddd" {
 				t.Errorf("turn %s expected result 'dddd', got %v", tid, payload["result"])
 			}
-		}()
+		})
 	}
-	wg.Wait()
+	goroutines.Wait()
 }

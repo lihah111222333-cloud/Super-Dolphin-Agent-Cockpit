@@ -81,7 +81,9 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'frontend'", "& npm run build", "Save-BuildPhaseCache")
 
 	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'go-binaries'")
-	assertScriptContains(t, script, "(Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')")
+	assertScriptContains(t, script, "$goBinaryCachePaths = @(")
+	assertScriptContains(t, script, "(Join-Path $Root 'go.mod')")
+	assertScriptContains(t, script, "(Join-Path $Root 'go.sum')")
 	assertScriptContains(t, script, "@('GOOS=windows', \"GOARCH=$WindowsPackageArch\"")
 	assertScriptContains(t, script, "$windowsGuiLdFlags = '-H=windowsgui'")
 	assertScriptContains(t, script, `"WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags"`)
@@ -310,6 +312,7 @@ func TestPackageWindowsScriptBundlesVerifiedCodexAndLSP(t *testing.T) {
 		"pyright|bin/pyright-langserver.cmd|pyright-langserver.cmd",
 		"rust-analyzer|bin/rust-analyzer.exe|rust-analyzer.exe",
 		"bash-language-server|bin/bash-language-server.cmd|bash-language-server.cmd",
+		"sql-language-server|bin/sql-language-server.cmd|sql-language-server.cmd",
 		"shellcheck|bin/shellcheck.exe|shellcheck.exe",
 		"sg|bin/sg.exe|sg.exe",
 		"go|bin/go.cmd|go.cmd",
@@ -529,6 +532,7 @@ func TestPackageWindowsLocalFastModeOptimizesRepeatPackaging(t *testing.T) {
 		"bin/typescript-language-server.cmd",
 		"bin/pyright-langserver.cmd",
 		"bin/rust-analyzer.exe",
+		"bin/sql-language-server.cmd",
 		"bin/sg.exe",
 		"bin/go.cmd",
 		"bin/shellcheck.exe",

@@ -22,20 +22,44 @@ var Module = fx.Module("datasource_v2",
 	fx.Provide(
 		newDatasourceV2StorePort,
 		NewService,
-		NewHandlers,
+		fx.Annotate(NewHandlers, fx.ParamTags("", `optional:"true"`)),
 		NewPromptProvider,
 	),
 	fx.Invoke(registerPromptProvider),
 )
 
 type datasourceV2StorePort struct {
+	*datasourceV2DocumentStorePort
+	*datasourceV2ChunkStorePort
+	*datasourceV2ImportStorePort
+	store datasourcev2store.Store
+}
+
+type datasourceV2DocumentStorePort struct {
+	store datasourcev2store.Store
+}
+
+type datasourceV2ChunkStorePort struct {
+	store datasourcev2store.Store
+}
+
+type datasourceV2ImportStorePort struct {
 	store datasourcev2store.Store
 }
 
 // newDatasourceV2StorePort 把 store concrete 投影为 datasource_v2 模块消费的本地端口。
 // store DTO 到模块 DTO 的转换集中在装配边界，避免 service/chunks 直接依赖 store 包。
 func newDatasourceV2StorePort(store datasourcev2store.Store) datasourceV2Store {
-	return datasourceV2StorePort{store: store}
+	return makeDatasourceV2StorePort(store)
+}
+
+func makeDatasourceV2StorePort(store datasourcev2store.Store) datasourceV2StorePort {
+	return datasourceV2StorePort{
+		datasourceV2DocumentStorePort: &datasourceV2DocumentStorePort{store: store},
+		datasourceV2ChunkStorePort:    &datasourceV2ChunkStorePort{store: store},
+		datasourceV2ImportStorePort:   &datasourceV2ImportStorePort{store: store},
+		store:                         store,
+	}
 }
 
 // WithTx 在 store 事务内重新包一层模块端口，保证事务回调也不泄漏 concrete store。
@@ -50,12 +74,12 @@ func (p datasourceV2StorePort) WithTx(
 		return errors.New("datasource v2 store tx callback is required")
 	}
 	return p.store.WithTx(ctx, func(txStore datasourcev2store.Store) error {
-		return fn(datasourceV2StorePort{store: txStore})
+		return fn(makeDatasourceV2StorePort(txStore))
 	})
 }
 
 // ListDocuments 查询文档列表，并把 store 文档 DTO 转为模块 DTO。
-func (p datasourceV2StorePort) ListDocuments(
+func (p datasourceV2DocumentStorePort) ListDocuments(
 	ctx context.Context,
 	params datasourceV2ListDocumentsParams,
 ) ([]datasourceV2Document, error) {
@@ -73,7 +97,7 @@ func (p datasourceV2StorePort) ListDocuments(
 }
 
 // GetDocument 读取单篇文档，并在装配边界完成 DTO 转换。
-func (p datasourceV2StorePort) GetDocument(ctx context.Context, documentID int64) (*datasourceV2Document, error) {
+func (p datasourceV2DocumentStorePort) GetDocument(ctx context.Context, documentID int64) (*datasourceV2Document, error) {
 	if err := p.requireStore(); err != nil {
 		return nil, err
 	}
@@ -85,20 +109,31 @@ func (p datasourceV2StorePort) GetDocument(ctx context.Context, documentID int64
 	return &converted, nil
 }
 
-// ListChunks 读取文档正文分块，并隐藏 store 层的分块类型。
-func (p datasourceV2StorePort) ListChunks(ctx context.Context, documentID int64) ([]datasourceV2TextChunk, error) {
+// ListChunksPage 读取文档正文分块页，并隐藏 store 层的分块类型。
+func (p datasourceV2ChunkStorePort) ListChunksPage(
+	ctx context.Context,
+	params datasourceV2ListChunksParams,
+) (datasourceV2TextChunkPage, error) {
 	if err := p.requireStore(); err != nil {
-		return nil, err
+		return datasourceV2TextChunkPage{}, err
 	}
-	chunks, err := p.store.ListChunks(ctx, documentID)
+	page, err := p.store.ListChunksPage(ctx, datasourcev2store.ListChunksParams{
+		DocumentID: params.DocumentID,
+		Limit:      params.Limit,
+		Cursor:     params.Cursor,
+	})
 	if err != nil {
-		return nil, err
+		return datasourceV2TextChunkPage{}, err
 	}
-	return datasourceV2TextChunksFromStore(chunks), nil
+	return datasourceV2TextChunkPage{
+		Chunks:     datasourceV2TextChunksFromStore(page.Chunks),
+		HasMore:    page.HasMore,
+		NextCursor: page.NextCursor,
+	}, nil
 }
 
 // SearchChunks 执行语义检索，并把带距离的分块结果转成模块 DTO。
-func (p datasourceV2StorePort) SearchChunks(
+func (p datasourceV2ChunkStorePort) SearchChunks(
 	ctx context.Context,
 	params datasourceV2SearchChunksParams,
 ) ([]datasourceV2SemanticChunk, error) {
@@ -118,7 +153,7 @@ func (p datasourceV2StorePort) SearchChunks(
 }
 
 // UpsertImporting 写入或重置 importing 文档元数据，参数在边界转换为 store DTO。
-func (p datasourceV2StorePort) UpsertImporting(
+func (p datasourceV2ImportStorePort) UpsertImporting(
 	ctx context.Context,
 	params datasourceV2UpsertDocumentParams,
 ) (*datasourceV2Document, error) {
@@ -139,7 +174,7 @@ func (p datasourceV2StorePort) UpsertImporting(
 }
 
 // UpdateDocument 更新文档元数据，并保持正文分块不经由该路径改写。
-func (p datasourceV2StorePort) UpdateDocument(
+func (p datasourceV2DocumentStorePort) UpdateDocument(
 	ctx context.Context,
 	params datasourceV2UpdateDocumentParams,
 ) (*datasourceV2Document, error) {
@@ -161,7 +196,7 @@ func (p datasourceV2StorePort) UpdateDocument(
 }
 
 // DeleteDocument 删除文档，级联清理由 store 层维持。
-func (p datasourceV2StorePort) DeleteDocument(ctx context.Context, documentID int64) error {
+func (p datasourceV2DocumentStorePort) DeleteDocument(ctx context.Context, documentID int64) error {
 	if err := p.requireStore(); err != nil {
 		return err
 	}
@@ -169,7 +204,7 @@ func (p datasourceV2StorePort) DeleteDocument(ctx context.Context, documentID in
 }
 
 // DeleteChunks 清理指定文档旧分块，供同事务导入流程重写正文。
-func (p datasourceV2StorePort) DeleteChunks(ctx context.Context, documentID int64) error {
+func (p datasourceV2ImportStorePort) DeleteChunks(ctx context.Context, documentID int64) error {
 	if err := p.requireStore(); err != nil {
 		return err
 	}
@@ -177,7 +212,7 @@ func (p datasourceV2StorePort) DeleteChunks(ctx context.Context, documentID int6
 }
 
 // InsertChunk 写入单个文本分块，并在边界转换向量和统计字段。
-func (p datasourceV2StorePort) InsertChunk(ctx context.Context, params datasourceV2InsertChunkParams) error {
+func (p datasourceV2ImportStorePort) InsertChunk(ctx context.Context, params datasourceV2InsertChunkParams) error {
 	if err := p.requireStore(); err != nil {
 		return err
 	}
@@ -195,7 +230,7 @@ func (p datasourceV2StorePort) InsertChunk(ctx context.Context, params datasourc
 }
 
 // MarkReady 在导入事务末尾写入摘要字段，并把文档推进为 ready。
-func (p datasourceV2StorePort) MarkReady(
+func (p datasourceV2ImportStorePort) MarkReady(
 	ctx context.Context,
 	params datasourceV2MarkReadyParams,
 ) (*datasourceV2Document, error) {
@@ -216,7 +251,23 @@ func (p datasourceV2StorePort) MarkReady(
 }
 
 func (p datasourceV2StorePort) requireStore() error {
-	if p.store == nil {
+	return requireDatasourceV2Store(p.store)
+}
+
+func (p datasourceV2DocumentStorePort) requireStore() error {
+	return requireDatasourceV2Store(p.store)
+}
+
+func (p datasourceV2ChunkStorePort) requireStore() error {
+	return requireDatasourceV2Store(p.store)
+}
+
+func (p datasourceV2ImportStorePort) requireStore() error {
+	return requireDatasourceV2Store(p.store)
+}
+
+func requireDatasourceV2Store(store datasourcev2store.Store) error {
+	if store == nil {
 		return errDatasourceV2StoreNotConfigured
 	}
 	return nil

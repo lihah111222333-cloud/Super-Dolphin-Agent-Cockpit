@@ -3,6 +3,7 @@ package claudecli
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,12 +55,13 @@ func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendin
 
 func restartLockedAsync(s *session, ctx context.Context) <-chan error {
 	result := make(chan error, 1)
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		s.mu.Lock()
 		err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
 		s.mu.Unlock()
 		result <- err
-	}()
+	})
 	return result
 }
 
@@ -230,12 +232,13 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		s.mu.Lock()
 		err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
 		s.mu.Unlock()
 		result <- err
-	}()
+	})
 
 	select {
 	case <-launched:

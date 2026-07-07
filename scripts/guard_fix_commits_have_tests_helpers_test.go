@@ -47,7 +47,7 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
 	assertOutputOmitsAll(t, out, "frontend-app tests")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1")
+	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1 skip-gosec=1")
 	assertOutputOmitsAll(t, log, "node ", "npx ", "npm ")
 }
 
@@ -157,7 +157,7 @@ func preparePrePushScopeRepo(t *testing.T) string {
 
 func writePrePushFakeGoTestScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'go-test %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nprintf 'fake go package test %s\\n' \"$*\"\n"
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'go-test %s skip-gosec=%s\\n' \"$*\" \"${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}\" >>\"$HOOK_SCOPE_LOG\"\nprintf 'fake go package test %s\\n' \"$*\"\n"
 	path := filepath.Join(root, "scripts", "test_with_guard.sh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake test_with_guard.sh: %v", err)
@@ -166,10 +166,28 @@ func writePrePushFakeGoTestScript(t *testing.T, root string) {
 
 func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake code guard %s\\n' \"$*\"\nif [ \"$*\" != \"--guard-only\" ]; then\n  echo \"unexpected guard args: $*\" >&2\n  exit 1\nfi\n"
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake code guard %s skip-gosec=%s\\n' \"$*\" \"${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}\"\nif [ \"$*\" != \"--guard-only\" ]; then\n  echo \"unexpected guard args: $*\" >&2\n  exit 1\nfi\n"
 	path := filepath.Join(root, "scripts", "test_with_guard.sh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake test_with_guard.sh: %v", err)
+	}
+}
+
+func writePreCommitFakeCodemapMakefile(t *testing.T, root string) {
+	t.Helper()
+	content := ".PHONY: codemap-refresh project-map-refresh\n\n" +
+		"codemap-refresh:\n" +
+		"\t@mkdir -p docs/doc/codemap\n" +
+		"\t@printf 'readme refreshed\\n' > docs/doc/codemap/README.md\n" +
+		"\t@printf '{\"generated\":true}\\n' > docs/doc/codemap/ai-index.json\n\n" +
+		"project-map-refresh:\n" +
+		"\t@mkdir -p docs/doc/codemap/project-map/index\n" +
+		"\t@printf 'project map refreshed\\n' > docs/doc/codemap/project-map/AI_PROJECT_MAP.md\n" +
+		"\t@printf 'drift refreshed\\n' > docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\n" +
+		"\t@printf '{\"generated\":true}\\n' > docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json\n" +
+		"\t@printf 'path\\tmodule\\n' > docs/doc/codemap/project-map/index/other.tsv\n"
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write fake Makefile: %v", err)
 	}
 }
 

@@ -51,7 +51,8 @@ func TestServiceLocalLauncherStopReapsViaExitEventStream(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runDone := make(chan error, 1)
-	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) }()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) })
 
 	if err := svc.StopAgent(context.Background(), agent.id); err != nil {
 		t.Fatalf("StopAgent() error = %v", err)

@@ -233,7 +233,8 @@ func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
 	writePreCommitFakeCodeGuardScript(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/test_with_guard.sh")
+	writePreCommitFakeCodemapMakefile(t, root)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/test_with_guard.sh", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -243,8 +244,37 @@ func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit failed: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "[pre-commit] full codebase guard", "fake code guard --guard-only", "pre-commit OK")
+	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "[pre-commit] full codebase guard", "fake code guard --guard-only skip-gosec=1", "pre-commit OK")
 	assertOutputOmitsAll(t, out, "go vet", "frontend-app tests")
+}
+
+func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	writePreCommitFakeCodeGuardScript(t, root)
+	writePreCommitFakeCodemapMakefile(t, root)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/test_with_guard.sh", "Makefile")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
+
+	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+
+	out, err := runPreCommitHook(t, root)
+	if err != nil {
+		t.Fatalf("pre-commit failed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "pre-commit OK")
+
+	cached := runFixTestGuardGitOutput(t, root, "diff", "--cached", "--name-only")
+	assertOutputContainsAll(t, cached,
+		"docs/doc/codemap/README.md",
+		"docs/doc/codemap/ai-index.json",
+		"docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
+		"docs/doc/codemap/project-map/index/other.tsv",
+	)
+
+	stagedMap := runFixTestGuardGitOutput(t, root, "show", ":docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
+	assertOutputContainsAll(t, stagedMap, "project map refreshed")
 }
 
 func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {

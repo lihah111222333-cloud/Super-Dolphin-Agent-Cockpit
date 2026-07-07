@@ -25,6 +25,8 @@ describe('backend API contract matrix', () => {
         backendOwner: expect.any(String),
         tests: expect.any(Array),
         rawLiteralRpc: expect.any(Boolean),
+        responseValidator: expect.any(String),
+        responsePassthroughReason: expect.any(String),
         notes: expect.any(Array),
       }));
       expect(Object.values(RPC_CONTRACT_LEVELS)).toContain(entry.level);
@@ -98,11 +100,24 @@ describe('backend API contract matrix', () => {
     }
   });
 
-  it('anchors known contract exceptions in notes instead of implicit defaults', () => {
+  it('anchors known contract exceptions in explicit policy fields instead of implicit defaults', () => {
     expect(RPC_CONTRACT_REGISTRY.DASHBOARD_SHARED_FILES.notes).toContain('params:{}-only');
-    expect(RPC_CONTRACT_REGISTRY.THREAD_START.notes).toContain('custom-decoder');
-    expect(RPC_CONTRACT_REGISTRY.TURN_START.notes).toContain('custom-decoder');
-    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.notes).toContain('custom-decoder');
-    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.notes).toContain('passthrough response');
+    expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_READ.responseValidator).toBe('lspPromptHintResponse');
+    expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_WRITE.responseValidator).toBe('lspPromptHintResponse');
+    expect(RPC_CONTRACT_REGISTRY.UI_STATE_GET.responseValidator).toBe('uiStateResponse');
+    expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_LIST.responseValidator).toBe('mcpServerListResponse');
+    expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_SQLITE_START.responseValidator).toBe('mcpServerControlResponse');
+    expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_SQLITE_STOP.responseValidator).toBe('mcpServerControlResponse');
+    expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_PLAYWRIGHT_START.responseValidator).toBe('mcpServerControlResponse');
+    expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_PLAYWRIGHT_STOP.responseValidator).toBe('mcpServerControlResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_START.responseValidator).toBe('threadStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_MESSAGES.responseValidator).toBe('threadMessagesResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_RESOLVE.responseValidator).toBe('threadResolveResponse');
+    expect(RPC_CONTRACT_REGISTRY.SKILLS_LOCAL_READ.responseValidator).toBe('skillReadResponse');
+    expect(RPC_CONTRACT_REGISTRY.TURN_START.responseValidator).toBe('turnStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.TURN_FORCE_COMPLETE.responseValidator).toBe('turnForceCompleteResponse');
+    expect(RPC_CONTRACT_REGISTRY.DASHBOARD_DAG_START.responseValidator).toBe('dashboardDagStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.DASHBOARD_DAG_CREATE_AND_START.responseValidator).toBe('dashboardDagCreateAndStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePassthroughReason).toContain('command result envelope');
   });
 });

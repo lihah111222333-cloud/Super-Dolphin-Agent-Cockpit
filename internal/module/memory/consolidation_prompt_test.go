@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -233,5 +235,105 @@ func TestRejectConsolidationPathRejectsHistoricalAgentMemoryPath(t *testing.T) {
 		if err := rejectConsolidationPath(cfg, path); err != ErrConsolidationAgentMemoryPath {
 			t.Fatalf("rejectConsolidationPath(%q) = %v, want ErrConsolidationAgentMemoryPath", path, err)
 		}
+	}
+}
+
+// TestConsolidationPromptRejectsTooManyTopicFiles verifies topic scans abort before prompt construction.
+func TestConsolidationPromptRejectsTooManyTopicFiles(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	writeMemoryIndexFixture(t, root)
+	for i := 0; i <= 200; i++ {
+		path := filepath.Join(root, "feedback", fmt.Sprintf("topic-%03d.md", i))
+		writeExtractFixture(t, path, testMemoryEntry(
+			fmt.Sprintf("Topic %03d", i),
+			"budget",
+			MemoryTypeFeedback,
+			"Keep this topic bounded.",
+		))
+	}
+
+	input, err := loadConsolidationPromptInput(root, &Config{Enabled: true, RootDir: root})
+	if err == nil || !strings.Contains(err.Error(), "consolidation") {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want topic budget diagnostic", err, input)
+	}
+}
+
+// TestConsolidationPromptRejectsOversizedLogDocuments verifies log scans enforce per-file budgets.
+func TestConsolidationPromptRejectsOversizedLogDocuments(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	writeMemoryIndexFixture(t, root)
+	logPath := filepath.Join(root, "logs", "2026", "07", "2026-07-05.md")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(logs) error = %v", err)
+	}
+	content := strings.Repeat("x", 256*1024+1)
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(log) error = %v", err)
+	}
+
+	input, err := loadConsolidationPromptInput(root, &Config{Enabled: true, RootDir: root})
+	if err == nil || !strings.Contains(err.Error(), "consolidation") {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want log budget diagnostic", err, input)
+	}
+}
+
+// TestConsolidationPromptRejectsOversizedIndexDocument verifies MEMORY.md is covered by the single-file budget.
+func TestConsolidationPromptRejectsOversizedIndexDocument(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
+	if err := os.WriteFile(memoryIndexPath(root), []byte(strings.Repeat("x", defaultMaxConsolidationFileBytes+1)), 0o644); err != nil {
+		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
+	}
+
+	input, err := loadConsolidationPromptInput(root, &Config{Enabled: true, RootDir: root})
+	var diagnostic *ConsolidationDiagnosticError
+	if !errors.As(err, &diagnostic) || !strings.Contains(diagnostic.Reason, "memory index budget exceeded") {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want memory index budget diagnostic", err, input)
+	}
+	wantPath, err := filepath.EvalSymlinks(memoryIndexPath(root))
+	if err != nil {
+		t.Fatalf("EvalSymlinks(MEMORY.md) error = %v", err)
+	}
+	if diagnostic.Path != wantPath {
+		t.Fatalf("diagnostic path = %q, want %q", diagnostic.Path, wantPath)
+	}
+}
+
+// TestConsolidationPromptCountsIndexDocumentInFileBudget verifies MEMORY.md shares the file-count budget.
+func TestConsolidationPromptCountsIndexDocumentInFileBudget(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	writeMemoryIndexFixture(t, root)
+	writeExtractFixture(t, filepath.Join(root, "feedback", "topic.md"), testMemoryEntry(
+		"Topic",
+		"budget",
+		MemoryTypeFeedback,
+		"Keep this topic bounded.",
+	))
+
+	input, err := loadConsolidationPromptInput(root, &Config{
+		Enabled:                    true,
+		RootDir:                    root,
+		MaxConsolidationFiles:      1,
+		MaxConsolidationFileBytes:  defaultMaxConsolidationFileBytes,
+		MaxConsolidationTotalBytes: defaultMaxConsolidationTotalBytes,
+	})
+	var diagnostic *ConsolidationDiagnosticError
+	if !errors.As(err, &diagnostic) || !strings.Contains(diagnostic.Reason, "memory index budget exceeded") {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want index file-count budget diagnostic", err, input)
+	}
+}
+
+// TestConsolidationPromptHonorsContextCancel verifies cancellation aborts before reading prompt inputs.
+func TestConsolidationPromptHonorsContextCancel(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	writeMemoryIndexFixture(t, root)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	input, err := loadConsolidationPromptInput(root, &Config{Enabled: true, RootDir: root}, ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("loadConsolidationPromptInput() error = %v input=%#v, want context.Canceled", err, input)
 	}
 }

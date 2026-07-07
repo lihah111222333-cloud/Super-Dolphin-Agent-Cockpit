@@ -8,40 +8,40 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-)
-
-var (
-	agentFilesMu sync.Mutex
-	agentFiles   = map[string]*os.File{}
 )
 
 // NewAgentLogger 创建绑定 agent_id 的日志器，并在文件日志已开启时额外写入 agent 专属文件。
 // 主日志未打开或 agent 文件创建失败时回退到全局日志器，不能影响主日志链路。
 func NewAgentLogger(agentID string) *slog.Logger {
+	return currentRuntime().NewAgentLogger(agentID)
+}
+
+// NewAgentLogger 创建绑定 agent_id 的 runtime 日志器，并在文件日志已开启时额外写入 agent 专属文件。
+func (r *Runtime) NewAgentLogger(agentID string) *slog.Logger {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
-		return getLogger()
+		return r.getLogger()
 	}
 
-	logFileMu.Lock()
-	mainFile := logFile
-	mainPath := logFilePath
-	mode := activeMode
-	level := activeLevel
-	console := logFileConsole
-	logFileMu.Unlock()
+	r.mu.Lock()
+	mainFile := r.logFile
+	mainPath := r.logFilePath
+	mode := r.activeMode
+	level := r.activeLevel
+	console := r.logFileConsole
+	project := r.project
+	r.mu.Unlock()
 
 	if mainFile == nil || mainPath == "" {
-		return withTraceAttrs(context.Background(), getLogger().With("agent_id", agentID))
+		return withTraceAttrs(context.Background(), r.getLogger().With("agent_id", agentID))
 	}
 
 	dir := filepath.Dir(mainPath)
 	agentPath := filepath.Join(dir, fmt.Sprintf("agent-%s.log", agentID))
 
-	agentFile := openOrReuseAgentFile(agentID, agentPath)
+	agentFile := r.openOrReuseAgentFile(agentID, agentPath)
 	if agentFile == nil {
-		return getLogger().With("agent_id", agentID)
+		return r.getLogger().With("agent_id", agentID)
 	}
 
 	// agent logger 必须和主日志共享控制台/主文件，同时追加 agent 专属文件。
@@ -52,52 +52,54 @@ func NewAgentLogger(agentID string) *slog.Logger {
 		out = io.MultiWriter(outputWriterForMode(mode), mainFile, agentFile)
 	}
 
-	l := slog.New(newHandler(mode, level, out))
-	if globalProject != "" {
-		l = l.With("project", globalProject)
+	l := slog.New(r.newHandler(mode, level, out))
+	if project != "" {
+		l = l.With("project", project)
 	}
 	return l.With("agent_id", agentID)
 }
 
-// openOrReuseAgentFile 复用或打开 agent 专属日志文件。
-// 打开失败返回 nil，由调用方回退到主日志器。
-func openOrReuseAgentFile(agentID, path string) *os.File {
-	agentFilesMu.Lock()
-	defer agentFilesMu.Unlock()
-	if f, ok := agentFiles[agentID]; ok {
+func (r *Runtime) openOrReuseAgentFile(agentID, path string) *os.File {
+	r.agentFilesMu.Lock()
+	defer r.agentFilesMu.Unlock()
+	if f, ok := r.agentFiles[agentID]; ok {
 		return f
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil
 	}
-	agentFiles[agentID] = f
+	r.agentFiles[agentID] = f
 	return f
 }
 
 // CloseAgentLogger 关闭指定 agent 的专属日志文件。
 // 未知或已关闭 ID 会被忽略，便于 shutdown 路径重复调用。
 func CloseAgentLogger(agentID string) {
+	currentRuntime().CloseAgentLogger(agentID)
+}
+
+// CloseAgentLogger 关闭 runtime 中指定 agent 的专属日志文件。
+func (r *Runtime) CloseAgentLogger(agentID string) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return
 	}
-	agentFilesMu.Lock()
-	defer agentFilesMu.Unlock()
-	if f, ok := agentFiles[agentID]; ok {
+	r.agentFilesMu.Lock()
+	defer r.agentFilesMu.Unlock()
+	if f, ok := r.agentFiles[agentID]; ok {
 		_ = f.Sync()
 		_ = f.Close()
-		delete(agentFiles, agentID)
+		delete(r.agentFiles, agentID)
 	}
 }
 
-// closeAllAgentLoggers 关闭全部 agent 专属日志文件，供进程退出和文件 handler 关闭时调用。
-func closeAllAgentLoggers() {
-	agentFilesMu.Lock()
-	defer agentFilesMu.Unlock()
-	for id, f := range agentFiles {
+func (r *Runtime) closeAllAgentLoggers() {
+	r.agentFilesMu.Lock()
+	defer r.agentFilesMu.Unlock()
+	for id, f := range r.agentFiles {
 		_ = f.Sync()
 		_ = f.Close()
-		delete(agentFiles, id)
+		delete(r.agentFiles, id)
 	}
 }

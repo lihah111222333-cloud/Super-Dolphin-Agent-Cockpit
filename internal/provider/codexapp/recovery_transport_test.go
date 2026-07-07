@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,12 +46,7 @@ func (r *rpcMethodRecorder) count(method string) int {
 }
 
 func (r *rpcMethodRecorder) contains(method string) bool {
-	for _, got := range r.snapshot() {
-		if got == method {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.snapshot(), method)
 }
 
 type codexRPCHandler func(jsonRPCMessage) (json.RawMessage, bool)
@@ -83,6 +79,7 @@ func serveCodexTestRPCConn(t *testing.T, conn *websocket.Conn, handler codexRPCH
 		if !respond || len(msg.ID) == 0 {
 			continue
 		}
+		result = codexTestRPCResultOrDefault(msg.Method, result)
 		if !writeRecoveryTransportRPCResponse(t, conn, msg, result) {
 			return
 		}
@@ -271,7 +268,7 @@ func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *t
 	defer cancel()
 	transport := newTestTransport(t, ctx, server)
 
-	dead, done := startConnectionDeadReadLoop(ctx, transport)
+	dead, done := startConnectionDeadReadLoop(t, ctx, transport)
 	waitForTransportLooping(t, transport)
 
 	if err := transport.reconnect(ctx); err != nil {
@@ -315,13 +312,15 @@ func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
 	assertConnectionDeadReceived(t, dead)
 }
 
-func startConnectionDeadReadLoop(ctx context.Context, transport *transport) (<-chan RawMessage, <-chan struct{}) {
+func startConnectionDeadReadLoop(t testing.TB, ctx context.Context, transport *transport) (<-chan RawMessage, <-chan struct{}) {
+	t.Helper()
 	dead := make(chan RawMessage, 1)
 	done := make(chan struct{})
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		defer close(done)
 		transport.ReadLoop(ctx, connectionDeadRecorder(dead))
-	}()
+	})
 	return dead, done
 }
 
@@ -617,7 +616,7 @@ func TestSessionAttemptRecoveryStopsAfterMaxAttempts(t *testing.T) {
 		suppressed: map[string]struct{}{},
 	}
 
-	for i := 0; i < maxRecoveryAttempts; i++ {
+	for i := range maxRecoveryAttempts {
 		err := s.attemptRecovery("test recovery")
 		if err == nil || !strings.Contains(err.Error(), "recovery unavailable") {
 			t.Fatalf("attempt %d error = %v, want recovery unavailable", i+1, err)

@@ -44,6 +44,40 @@ type transport struct {
 	codexHome  atomic.Value
 }
 
+type transportCallError struct {
+	method         string
+	writeAttempted bool
+	err            error
+}
+
+func newTransportCallError(method string, writeAttempted bool, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &transportCallError{method: strings.TrimSpace(method), writeAttempted: writeAttempted, err: err}
+}
+
+// Error 保留底层 transport 错误文案，避免改变现有 shouldReconnect 分类。
+func (e *transportCallError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+// Unwrap 暴露底层 websocket/context/RPC 错误，供 errors.Is/As 继续工作。
+func (e *transportCallError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func transportWriteAttempted(err error) bool {
+	var callErr *transportCallError
+	return errors.As(err, &callErr) && callErr.writeAttempted
+}
+
 func newTransport(ctx context.Context, serverURL string) (*transport, error) {
 	startupCtx, cancel := withTimeout(shared.NonNilContext(ctx), transportReadyTimeout)
 	defer cancel()
@@ -74,12 +108,15 @@ func (t *transport) Call(ctx context.Context, method string, params any) (json.R
 	t.pending.Store(key, pc)
 	defer t.pending.Delete(key)
 	if err := t.writeJSON(jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: sanitizeProviderPayload(method, params)}); err != nil {
-		return nil, err
+		return nil, newTransportCallError(method, true, err)
 	}
 	select {
 	case <-callCtx.Done():
-		return nil, callCtx.Err()
+		return nil, newTransportCallError(method, true, callCtx.Err())
 	case <-pc.done:
+		if pc.err != nil {
+			return nil, newTransportCallError(method, true, pc.err)
+		}
 		return pc.result, pc.err
 	}
 }

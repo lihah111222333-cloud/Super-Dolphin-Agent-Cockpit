@@ -63,6 +63,7 @@ lsp_server_specs=(
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
   "bash-language-server|bin/bash-language-server"
+  "sql-language-server|bin/sql-language-server"
   "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
@@ -71,6 +72,24 @@ lsp_shadow_execs=(python python3)
 if [[ "$lsp_profile" == "full" ]]; then
   lsp_server_specs+=("jdtls|bin/jdtls")
 fi
+
+validate_macos_app_name() {
+  local name="$1"
+  local pattern='^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$'
+  if [[ ! "$name" =~ $pattern ]]; then
+    echo "invalid APP_NAME: use 1-64 characters from A-Z, a-z, 0-9, space, dot, underscore, or hyphen; start with a letter or digit" >&2
+    exit 1
+  fi
+}
+
+shell_quote_literal() {
+  local value="$1"
+  validate_macos_app_name "$value"
+  printf "'%s'" "$value"
+}
+
+validate_macos_app_name "$app_name"
+install_app_name_literal="$(shell_quote_literal "$app_name")"
 
 phase_start() {
   phase_label="$1"
@@ -861,7 +880,7 @@ verify_lsp_checksums_file() {
 resolve_packaged_lsp_bundle() {
   packaged_lsp_bundle_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-}"
   if [[ -z "$packaged_lsp_bundle_dir" ]]; then
-    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, shellcheck, sg, and jdtls only for full profile" >&2
+    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sql-language-server, shellcheck, sg, and jdtls only for full profile" >&2
     exit 1
   fi
   if [[ ! -d "$packaged_lsp_bundle_dir" ]]; then
@@ -1517,7 +1536,8 @@ bundle_macho_dylibs() {
       [[ -f "$dep" ]] || continue
       is_macho "$dep" || continue
       if [[ "$dep" != "$lib_dir"/* ]]; then
-        local dest="$lib_dir/$(basename "$dep")"
+        local dest
+        dest="$lib_dir/$(basename "$dep")"
         if [[ ! -f "$dest" ]]; then
           cp -fL "$dep" "$dest"
           chmod u+w "$dest"
@@ -1691,13 +1711,35 @@ fi
 phase_end
 
 phase_start "go binaries"
-if ! phase_cache_check "go-binaries" "$root/cmd" "$root/internal" "$root/pkg" "$root/go.sum"; then
+macos_cgo_enabled="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
+macos_cgo_cflags="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=$macos_min_version"
+macos_cgo_cxxflags="${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version"
+macos_cgo_ldflags="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version"
+go_binary_cache_paths=(
+  "$root/cmd"
+  "$root/internal"
+  "$root/pkg"
+  "$root/go.mod"
+  "$root/go.sum"
+)
+go_binary_cache_inputs=(
+  "input:GOVERSION=$(go env GOVERSION)"
+  "input:GOOS=$goos"
+  "input:GOARCH=$goarch"
+  "input:CGO_ENABLED=$macos_cgo_enabled"
+  "input:MACOSX_DEPLOYMENT_TARGET=$macos_min_version"
+  "input:CGO_CFLAGS=$macos_cgo_cflags"
+  "input:CGO_CXXFLAGS=$macos_cgo_cxxflags"
+  "input:CGO_LDFLAGS=$macos_cgo_ldflags"
+)
+if ! phase_cache_check "go-binaries" "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"; then
   (
     cd "$root"
+    export CGO_ENABLED="$macos_cgo_enabled"
     export MACOSX_DEPLOYMENT_TARGET="$macos_min_version"
-    export CGO_CFLAGS="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=$macos_min_version"
-    export CGO_CXXFLAGS="${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version"
-    export CGO_LDFLAGS="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version"
+    export CGO_CFLAGS="$macos_cgo_cflags"
+    export CGO_CXXFLAGS="$macos_cgo_cxxflags"
+    export CGO_LDFLAGS="$macos_cgo_ldflags"
     make build-peer-binaries
     go build -o bin/agent-terminal ./cmd/agent-terminal
     go build -o bin/mcp-ida ./cmd/mcp-ida
@@ -1798,11 +1840,14 @@ rm -rf "$staging"
 mkdir -p "$staging"
 ditto "$app" "$staging/$app_name.app"
 install_script="$staging/安装 $app_name.command"
-cat > "$install_script" <<'INSTALL_SH'
+{
+cat <<INSTALL_SH
 #!/bin/bash
 set -e
 
-APP_NAME="Super Dolphin"
+APP_NAME=$install_app_name_literal
+INSTALL_SH
+cat <<'INSTALL_SH'
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_APP="$SRC_DIR/$APP_NAME.app"
 DEST_APP="/Applications/$APP_NAME.app"
@@ -1861,6 +1906,7 @@ open "$DEST_APP" || true
 sleep 2
 exit 0
 INSTALL_SH
+} > "$install_script"
 chmod 755 "$install_script"
 ln -s /Applications "$staging/Applications"
 phase_end

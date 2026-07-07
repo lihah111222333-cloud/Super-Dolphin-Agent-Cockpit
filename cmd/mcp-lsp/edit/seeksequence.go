@@ -8,6 +8,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// MatchMode 表示 seek 匹配时采用的文本对齐策略。
+// 调用方可用它解释匹配结果的严格程度。
 type MatchMode string
 
 // seek 匹配模式按从严格到宽松的顺序尝试，后续模式只在前序模式未命中时使用。

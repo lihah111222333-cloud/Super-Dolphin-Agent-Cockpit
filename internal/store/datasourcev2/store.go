@@ -16,7 +16,7 @@ type querier interface {
 		arg sqlc.ListDatasourceV2DocumentsParams,
 	) ([]sqlc.DatasourceV2Document, error)
 	GetDatasourceV2Document(ctx context.Context, arg sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error)
-	ListDatasourceV2Chunks(ctx context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error)
+	ListDatasourceV2ChunksPage(ctx context.Context, arg sqlc.ListDatasourceV2ChunksPageParams) ([]sqlc.ListDatasourceV2ChunksPageRow, error)
 	SearchDatasourceV2ChunksByEmbedding(
 		ctx context.Context,
 		arg sqlc.SearchDatasourceV2ChunksByEmbeddingParams,
@@ -49,6 +49,10 @@ type store struct {
 	runInTx txRunner
 }
 
+type datasourceQueryStore = store
+type datasourceCommandStore = store
+type datasourceTransactionStore = store
+
 // NewStore 创建 datasource_v2 的 sqlc 存储实现。
 // 该入口不配置事务 runner，仅适用于窄单元测试或只读场景。
 func NewStore(q *sqlc.Queries) Store {
@@ -61,7 +65,7 @@ func newStore(q querier, queries *sqlc.Queries, runInTx txRunner) Store {
 
 // WithTx 在同一个 SQLite 事务内执行 datasource_v2 写流程。
 // 导入文档时需要先删除旧分块再写入新分块，缺少事务 runner 时直接返回错误。
-func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
+func (s *datasourceTransactionStore) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if fn == nil {
 		return wrapDatasourceV2Error(errors.New("transaction callback is required"), "with_tx")
 	}
@@ -76,7 +80,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 
 // ListDocuments 按过滤条件列出 datasource_v2 文档元数据。
 // 调用方必须显式传入正数 limit，避免无界扫描导入文档表。
-func (s *store) ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error) {
+func (s *datasourceQueryStore) ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error) {
 	if err := validateListDocumentsParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "list_documents")
 	}
@@ -96,7 +100,7 @@ func (s *store) ListDocuments(ctx context.Context, params ListDocumentsParams) (
 
 // GetDocument 按 ID 读取单个 datasource_v2 文档元数据。
 // 非正 ID 会在进入 sqlc 前失败，防止把无效主键交给存储层兜底。
-func (s *store) GetDocument(ctx context.Context, documentID int64) (*Document, error) {
+func (s *datasourceQueryStore) GetDocument(ctx context.Context, documentID int64) (*Document, error) {
 	if documentID <= 0 {
 		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "get_document")
 	}
@@ -108,26 +112,46 @@ func (s *store) GetDocument(ctx context.Context, documentID int64) (*Document, e
 	return &doc, nil
 }
 
-// ListChunks 读取指定文档已经持久化的文本分块。
-// 查询结果由 SQL 保持分块顺序，调用方可直接用于重建文档内容。
-func (s *store) ListChunks(ctx context.Context, documentID int64) ([]TextChunk, error) {
-	if documentID <= 0 {
-		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "list_chunks")
+// ListChunksPage 读取指定文档已经持久化的文本分块页。
+// 查询结果由 SQL 保持分块顺序，调用方必须显式传入 limit 和 cursor。
+func (s *datasourceQueryStore) ListChunksPage(ctx context.Context, params ListChunksParams) (TextChunkPage, error) {
+	if params.DocumentID <= 0 {
+		return TextChunkPage{}, wrapDatasourceV2Error(errors.New("document id is required"), "list_chunks")
 	}
-	rows, err := s.q.ListDatasourceV2Chunks(ctx, sqlc.ListDatasourceV2ChunksParams{DocumentID: documentID})
+	if params.Limit <= 0 {
+		return TextChunkPage{}, wrapDatasourceV2Error(errors.New("limit is required"), "list_chunks")
+	}
+	rows, err := s.q.ListDatasourceV2ChunksPage(ctx, sqlc.ListDatasourceV2ChunksPageParams{
+		DocumentID: params.DocumentID,
+		Cursor:     params.Cursor,
+		Limit:      int64(params.Limit),
+	})
 	if err != nil {
-		return nil, wrapDatasourceV2Error(err, "list_chunks")
+		return TextChunkPage{}, wrapDatasourceV2Error(err, "list_chunks")
 	}
-	chunks := make([]TextChunk, 0, len(rows))
-	for _, row := range rows {
-		chunks = append(chunks, textChunkFromSQLC(row))
+	return textChunkPageFromSQLC(rows, int(params.Limit)), nil
+}
+
+func textChunkPageFromSQLC(rows []sqlc.ListDatasourceV2ChunksPageRow, limit int) TextChunkPage {
+	pageRows := rows
+	hasMore := len(rows) > limit
+	if hasMore {
+		pageRows = rows[:limit]
 	}
-	return chunks, nil
+	chunks := make([]TextChunk, 0, len(pageRows))
+	for _, row := range pageRows {
+		chunks = append(chunks, textChunkFromSQLCPage(row))
+	}
+	page := TextChunkPage{Chunks: chunks, HasMore: hasMore}
+	if hasMore && len(chunks) > 0 {
+		page.NextCursor = chunks[len(chunks)-1].ChunkIndex
+	}
+	return page
 }
 
 // SearchChunks 根据查询向量检索 ready 文档中最相近的 datasource_v2 分块。
 // 调用方必须传入与导入阶段同模型、同维度的 float32 BLOB，避免 sqlite-vec 运行时报维度错误。
-func (s *store) SearchChunks(ctx context.Context, params SearchChunksParams) ([]SemanticChunk, error) {
+func (s *datasourceQueryStore) SearchChunks(ctx context.Context, params SearchChunksParams) ([]SemanticChunk, error) {
 	if err := validateSearchChunksParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "search_chunks")
 	}
@@ -149,7 +173,7 @@ func (s *store) SearchChunks(ctx context.Context, params SearchChunksParams) ([]
 
 // UpsertImporting 写入或重置文档元数据为 importing 状态。
 // 重新导入同一路径时会复用唯一键并清空后续 ready 流程需要重新生成的摘要字段。
-func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error) {
+func (s *datasourceCommandStore) UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error) {
 	if err := validateUpsertDocumentParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "upsert_importing")
 	}
@@ -168,7 +192,7 @@ func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams
 
 // UpdateDocument 更新文档基础元数据。
 // 该方法不触碰分块、向量和 ready 状态，避免编辑文件名时破坏已完成导入结果。
-func (s *store) UpdateDocument(ctx context.Context, params UpdateDocumentParams) (*Document, error) {
+func (s *datasourceCommandStore) UpdateDocument(ctx context.Context, params UpdateDocumentParams) (*Document, error) {
 	if err := validateUpdateDocumentParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "update_document")
 	}
@@ -188,7 +212,7 @@ func (s *store) UpdateDocument(ctx context.Context, params UpdateDocumentParams)
 
 // DeleteDocument 删除文档及其级联拥有的文本分块。
 // 当 SQL 未删除任何行时返回 not found，调用方不应把重复删除当作成功。
-func (s *store) DeleteDocument(ctx context.Context, documentID int64) error {
+func (s *datasourceCommandStore) DeleteDocument(ctx context.Context, documentID int64) error {
 	if documentID <= 0 {
 		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_document")
 	}
@@ -204,7 +228,7 @@ func (s *store) DeleteDocument(ctx context.Context, documentID int64) error {
 
 // DeleteChunks 删除指定文档的旧文本分块。
 // 导入重跑会先清空旧分块，再在同一事务内写入新的向量分块。
-func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
+func (s *datasourceCommandStore) DeleteChunks(ctx context.Context, documentID int64) error {
 	if documentID <= 0 {
 		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_chunks")
 	}
@@ -216,7 +240,7 @@ func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 
 // InsertChunk 持久化一个文本分块及其向量。
 // 写入前校验 embedding 字节长度必须等于维度乘以 float32 宽度，避免 sqlite-vec 查询期才失败。
-func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error {
+func (s *datasourceCommandStore) InsertChunk(ctx context.Context, params InsertChunkParams) error {
 	if err := validateInsertChunkParams(params); err != nil {
 		return wrapDatasourceV2Error(err, "insert_chunk")
 	}
@@ -235,7 +259,7 @@ func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error
 
 // MarkReady 将 importing 文档标记为 ready。
 // 只有所有分块写入完成后才能调用，并同步写入内容哈希、分块数和总字符数。
-func (s *store) MarkReady(ctx context.Context, params MarkReadyParams) (*Document, error) {
+func (s *datasourceCommandStore) MarkReady(ctx context.Context, params MarkReadyParams) (*Document, error) {
 	if err := validateMarkReadyParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "mark_ready")
 	}
@@ -377,7 +401,7 @@ func documentFromSQLC(row sqlc.DatasourceV2Document) Document {
 	}
 }
 
-func textChunkFromSQLC(row sqlc.ListDatasourceV2ChunksRow) TextChunk {
+func textChunkFromSQLCPage(row sqlc.ListDatasourceV2ChunksPageRow) TextChunk {
 	return TextChunk{
 		ID:             row.ID,
 		DocumentID:     row.DocumentID,

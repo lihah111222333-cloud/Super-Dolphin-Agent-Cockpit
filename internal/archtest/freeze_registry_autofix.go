@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 )
 
+// FreezeRegistryAutoFix 描述一次 freeze registry 自动收缩或删除计划。
+// 这些字段只用于守卫报告和源码重写，不承载生产运行时配置。
 type FreezeRegistryAutoFix struct {
 	Path         string
 	Kind         string

@@ -147,6 +147,45 @@ function registerBridgeEventHandlersForTest() {
     backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({ path, content: `content for ${path}` }));
   });
 
+  it('reports log level preference save failures without changing the selected level', () => {
+    const setItemSpy = vi.spyOn(window.Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage denied');
+    });
+    try {
+      useClientStore.getState().setLogLevel('error');
+
+      const state = useClientStore.getState();
+      expect(state.logLevel).toBe('info');
+      expect(state.warningEntries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          level: 'error',
+          event: 'log_level.preference_save.failed',
+          fields: expect.objectContaining({
+            status: 'storage_write_failed',
+          }),
+        }),
+      ]));
+    } finally {
+      setItemSpy.mockRestore();
+    }
+  });
+
+  it('keeps composer file selection on plain path arrays without picker tokens', async () => {
+    backend.selectFiles.mockResolvedValue(['/tmp/plain.txt']);
+
+    const attachments = await useClientStore.getState().selectFilesForComposer();
+
+    expect(backend.selectFiles).toHaveBeenCalledWith();
+    expect(attachments).toEqual([expect.objectContaining({
+      path: '/tmp/plain.txt',
+      name: 'plain.txt',
+    })]);
+    expect(useClientStore.getState().attachments).toEqual([expect.objectContaining({
+      path: '/tmp/plain.txt',
+      name: 'plain.txt',
+    })]);
+  });
+
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
     await useClientStore.getState().bootstrap();
 
@@ -3408,7 +3447,14 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().sendDraft()).rejects.toThrow('turn/start failed');
 
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
-    expect(useClientStore.getState().draft).toBe('Clean up provisional thread');
+    const state = useClientStore.getState();
+    expect(state.draft).toBe('Clean up provisional thread');
+    expect(state.activeThreadId).not.toBe('thread-provisional');
+    expect(state.threads.some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect((state.sidebarThreadsByProject['/repo/app'] || []).some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect(state.timelinesByThread['thread-provisional']).toBeUndefined();
+    expect(state.threadTimelineReadyByThread['thread-provisional']).toBeUndefined();
+    expect(state.activityThreadAtById['thread-provisional']).toBeUndefined();
   });
 
 
@@ -3442,6 +3488,104 @@ function registerBridgeEventHandlersForTest() {
 
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
     expect(backend.deleteThread).not.toHaveBeenCalledWith({ threadId: 'thread-other' });
+  });
+
+  it('does not let a stale send failure overwrite the active composer after a thread switch', async () => {
+    const turnResult = deferred();
+    const nextAttachments = [{ path: '/tmp/next.txt', name: 'next.txt' }];
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Original pending send',
+      attachments: [{ path: '/tmp/original.txt', name: 'original.txt' }],
+      threads: [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      },
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-provisional' });
+    backend.startTurn.mockImplementation(() => turnResult.promise);
+
+    const sendPromise = useClientStore.getState().sendDraft();
+    await flushPromises();
+
+    useClientStore.setState({
+      activeThreadId: 'thread-other',
+      draft: 'New active draft',
+      attachments: nextAttachments,
+    });
+    turnResult.reject(new Error('turn/start failed'));
+
+    await expect(sendPromise).rejects.toThrow('turn/start failed');
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-other');
+    expect(state.draft).toBe('New active draft');
+    expect(state.attachments).toEqual(nextAttachments);
+    expect(state.threads.some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect((state.sidebarThreadsByProject['/repo/app'] || []).some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect(state.timelinesByThread['thread-provisional']).toBeUndefined();
+    expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
+  });
+
+  it('restores a failed new-chat draft when returning after a thread switch', async () => {
+    const turnResult = deferred();
+    const originalAttachments = [{ path: '/tmp/original.txt', name: 'original.txt' }];
+    const nextAttachments = [{ path: '/tmp/next.txt', name: 'next.txt' }];
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Original pending send',
+      attachments: originalAttachments,
+      threads: [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      },
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-provisional' });
+    backend.startTurn.mockImplementation(() => turnResult.promise);
+
+    const sendPromise = useClientStore.getState().sendDraft();
+    await flushPromises();
+
+    useClientStore.setState({
+      activeThreadId: 'thread-other',
+      draft: 'New active draft',
+      attachments: nextAttachments,
+    });
+    turnResult.reject(new Error('turn/start failed'));
+
+    await expect(sendPromise).rejects.toThrow('turn/start failed');
+
+    expect(useClientStore.getState().draft).toBe('New active draft');
+    expect(useClientStore.getState().attachments).toEqual(nextAttachments);
+
+    useClientStore.getState().newThread();
+
+    expect(useClientStore.getState().draft).toBe('Original pending send');
+    expect(useClientStore.getState().attachments).toEqual([
+      expect.objectContaining({ path: '/tmp/original.txt', name: 'original.txt' }),
+    ]);
   });
 
   it('keeps sending fail-fast when cwd is missing', async () => {
@@ -4822,6 +4966,55 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('routes agent failed bridge events into visible warning and action notice state', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'agent/failed',
+      payload: {
+        threadId: 'thread-1',
+        agentId: 'agent-1',
+        turnId: 'turn-1',
+        traceId: 'trace-1',
+        error: 'boom',
+        recoverable: false,
+        path: '/repo/app/private.txt',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: expect.stringContaining('boom'),
+      error: 'boom',
+      recoverable: false,
+    }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        event: 'agent/failed',
+        threadId: 'thread-1',
+        fields: expect.objectContaining({
+          threadId: 'thread-1',
+          agent_id: 'agent-1',
+          turn_id: 'turn-1',
+          trace_id: 'trace-1',
+          error: '[redacted]',
+          recoverable: false,
+        }),
+      }),
+    ]);
+    expect(state.warningEntries[0].fields).not.toHaveProperty('path');
+  });
+
   it('routes malformed bridge event parse failures into visible warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -4846,7 +5039,7 @@ function registerBridgeEventHandlersForTest() {
         event: 'bridge.event.parse_failed',
         fields: expect.objectContaining({
           eventName: 'bridge-event',
-          error: 'Unexpected end of JSON input',
+          error: '[redacted]',
           rawLen: 10,
         }),
       }),
@@ -5115,9 +5308,11 @@ function registerBridgeEventHandlersForTest() {
         event: 'tool.result',
         threadId: 'thread-1',
         message: expect.stringContaining('grep'),
-        detail: expect.stringContaining('src/App.jsx: found runtime log'),
+        detail: '[redacted]',
       }),
     ]);
+    expect(state.runtimeResultEntries[0].message).not.toContain('src/App.jsx');
+    expect(JSON.stringify(state.runtimeResultEntries[0].fields)).not.toContain('src/App.jsx');
   });
 
   it('preserves backend thinking start and duration fields for elapsed-time display', () => {
@@ -5286,23 +5481,33 @@ function registerBridgeEventHandlersForTest() {
       span_id: 'span-memory-1',
       thread_id: 'thread-1',
       status: 'error',
-      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
+      error: '[redacted]',
       metadata: { component: 'memory', req_id: 17 },
     }));
   });
 
   it('coalesces repeated backend RPC return entries while preserving occurrence count', () => {
+    const resultPreview = JSON.stringify({
+      messages: [{
+        id: 1,
+        content: 'private prompt body',
+        path: '/home/l4place/private-project/secret.txt',
+        api_key: 'sk-live-secret',
+        count: 2,
+      }],
+      total: 1,
+    });
     useClientStore.getState().addLog('debug', 'api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 1,
-      result_preview: '{"messages":[{"id":1}]}',
+      result_preview: resultPreview,
     });
     useClientStore.getState().addLog('debug', 'api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 2,
-      result_preview: '{"messages":[{"id":1}]}',
+      result_preview: resultPreview,
     });
 
     const results = useClientStore.getState().runtimeResultEntries;
@@ -5314,6 +5519,11 @@ function registerBridgeEventHandlersForTest() {
         req_id: 2,
       }),
     }));
+    const serializedFields = JSON.stringify(results[0].fields);
+    expect(serializedFields).not.toContain('private prompt body');
+    expect(serializedFields).not.toContain('/home/l4place');
+    expect(serializedFields).not.toContain('sk-live-secret');
+    expect(serializedFields).not.toContain('secret.txt');
   });
 
   it('connects conversation card actions to backend RPCs with explicit cwd', async () => {
@@ -5346,6 +5556,37 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
+  it('shows a warning when force complete returns a diagnosed no-target envelope', async () => {
+    backend.forceCompleteTurn.mockResolvedValueOnce({
+      ok: false,
+      forceCompleted: false,
+      errorCode: 'force_complete_target_not_found',
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      activeTurnByThread: {
+        'thread-1': { id: 'turn-1', threadId: 'thread-1', status: 'running' },
+      },
+    });
+
+    await expect(useClientStore.getState().forceCompleteActiveThread()).resolves.toBe(false);
+
+    expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '强制完成当前执行失败：force_complete_target_not_found',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
+      level: 'warn',
+      event: 'thread.force_complete.failed',
+      fields: expect.objectContaining({
+        error: '[redacted]',
+      }),
+    }));
+  });
+
   it('responds to timeline approval requests through the approval RPC', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -5360,6 +5601,24 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
       message: '审批结果已提交',
       tone: 'success',
+    }));
+  });
+
+  it('rejects malformed timeline approval request ids before calling the approval RPC', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+
+    await expect(useClientStore.getState().respondApproval({ requestId: '11.9', command: 'deploy' }, true)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval({ request_id: '11', command: 'deploy' }, false)).resolves.toBe(false);
+
+    expect(backend.respondApproval).not.toHaveBeenCalled();
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前审批缺少请求编号，无法提交',
+      tone: 'error',
     }));
   });
 

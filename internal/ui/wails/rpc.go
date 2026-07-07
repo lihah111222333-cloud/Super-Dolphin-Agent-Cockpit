@@ -67,9 +67,11 @@ type scopeParams struct {
 
 // codeSaveParams 是 ui/code/save 的请求参数。
 type codeSaveParams struct {
-	FilePath  string `json:"filePath"`
-	Content   string `json:"content"`
-	CreateNew bool   `json:"createNew,omitempty"`
+	FilePath       string  `json:"filePath"`
+	Content        *string `json:"content"`
+	CreateNew      bool    `json:"createNew,omitempty"`
+	PreviewMode    string  `json:"previewMode,omitempty"`
+	ContentVersion string  `json:"contentVersion,omitempty"`
 	scopeParams
 }
 
@@ -213,6 +215,13 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			}
 			return map[string][]string{"paths": paths}, nil
 		}),
+		"ui/selectDatasourceImportFile": rpc.StrictHandler(func(ctx context.Context, p selectFilesParams) (any, error) {
+			selection, err := app.selectDatasourceImportFile(p.DefaultPath, p.Filters)
+			if err != nil {
+				return nil, err
+			}
+			return selection, nil
+		}),
 		"ui/readDroppedTextFiles": rpc.StrictHandler(func(ctx context.Context, p readDroppedTextFilesParams) (any, error) {
 			return readDroppedTextFiles(app, p)
 		}),
@@ -233,11 +242,14 @@ func handleCodeSave(
 	uiState contract.UIProjectStateFacade,
 	p codeSaveParams,
 ) (codeSaveResult, error) {
+	if p.Content == nil {
+		return codeSaveResult{}, errors.New("ui/code/save: content must be a string")
+	}
 	roots, err := requestScopeRoots(ctx, cfg, uiState, p.Project, p.Projects)
 	if err != nil {
 		return codeSaveResult{}, err
 	}
-	return saveScopedFile(p.FilePath, p.Content, roots, p.CreateNew)
+	return saveScopedFile(p.FilePath, *p.Content, roots, p.CreateNew, p.PreviewMode, p.ContentVersion)
 }
 
 // handleCodeLocate 先解析项目范围，再在允许根目录内定位候选文件。

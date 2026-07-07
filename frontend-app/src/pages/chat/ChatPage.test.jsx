@@ -3,7 +3,7 @@ import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@t
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
-import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile, openPath } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile, openPath, saveCodeFile } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
@@ -92,6 +92,15 @@ function createFakeStore(overrides = {}) {
     ...overrides,
   };
   return store;
+}
+
+function deferred() {
+  const pending = {};
+  pending.promise = new Promise((resolve, reject) => {
+    pending.resolve = resolve;
+    pending.reject = reject;
+  });
+  return pending;
 }
 
 function createActiveThreadStore(messages, overrides = {}) {
@@ -380,6 +389,23 @@ describe('ChatPage module', () => {
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
   });
 
+  it('disables force complete controls when the selected thread has no active turn target', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '空闲线程', time: '2026-06-02T08:00:00Z' },
+    ], {
+      hasActiveThreadActions: vi.fn(() => true),
+      hasInterruptibleThreadAction: vi.fn(() => false),
+      hasForceCompleteThreadAction: vi.fn(() => false),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('button', { name: '强制完成（不可用）' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
+    const menu = screen.getByTestId('chat-actions-menu');
+    expect(within(menu).getByRole('button', { name: '强制完成（不可用）' })).toBeDisabled();
+  });
+
   it('turns the composer primary button into an interrupt action while the active thread is running', () => {
     const store = createFakeStore({
       activeThreadId: 'thread-1',
@@ -407,6 +433,31 @@ describe('ChatPage module', () => {
     fireEvent.click(interruptButton);
     expect(store.interruptActiveThread).toHaveBeenCalledTimes(1);
     expect(store.sendDraft).not.toHaveBeenCalled();
+  });
+
+  it('does not interrupt the active thread when Escape closes an image preview', () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'msg-image-preview',
+        role: 'assistant',
+        text: '请看截图：![sample.png](data:image/png;base64,AA==)',
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      hasInterruptibleThreadAction: vi.fn(() => true),
+      statuses: { 'thread-1': { state: 'running' } },
+      threads: [{ id: 'thread-1', name: '运行会话', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /sample\.png/ }));
+    expect(screen.getByRole('dialog', { name: /sample\.png/ })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: /sample\.png/ })).not.toBeInTheDocument();
+    expect(store.interruptActiveThread).not.toHaveBeenCalled();
   });
 
   it('accepts external file drops on the conversation window', async () => {
@@ -915,6 +966,9 @@ describe('ChatPage module', () => {
       projects: ['/repo/app'],
     });
     expect(within(preview).getByText('src/main.go')).toBeInTheDocument();
+    expect(within(preview).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
+    expect(within(preview).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
+    expect(saveCodeFile).not.toHaveBeenCalled();
     fireEvent.click(within(preview).getByRole('button', { name: '关闭' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Review task' }));
@@ -931,6 +985,120 @@ describe('ChatPage module', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Follow-up' }));
     expect(store.selectThread).toHaveBeenCalledWith('thread-2');
+  });
+
+  it('keeps snippet code previews read-only even when the snippet covers all returned lines', async () => {
+    openCodeFile.mockResolvedValue({
+      ok: true,
+      filePath: '/repo/app/src/one-line.js',
+      relative: 'src/one-line.js',
+      previewMode: 'snippet',
+      startLine: 1,
+      endLine: 1,
+      totalLines: 1,
+      snippet: [{ line: 1, text: 'const snippet = true;' }],
+    });
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-snippet',
+        role: 'assistant',
+        text: ':codex-file-citation[]{path="src/one-line.js" line_range_start="1" line_range_end="1"}',
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/one-line.js' }));
+
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(preview).getByText('const snippet = true;')).toBeInTheDocument();
+    expect(within(preview).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
+    expect(within(preview).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
+    expect(saveCodeFile).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale file preview responses when a newer timeline preview is open', async () => {
+    const firstOpen = deferred();
+    const secondOpen = deferred();
+    locateCodeFile.mockImplementation(({ filePath }) => Promise.resolve({
+      ok: true,
+      paths: [`/repo/app/${filePath}`],
+      matches: [{ path: `/repo/app/${filePath}`, relative: filePath }],
+    }));
+    openCodeFile.mockImplementation(({ filePath }) => {
+      if (filePath.endsWith('src/a.js')) return firstOpen.promise;
+      if (filePath.endsWith('src/b.js')) return secondOpen.promise;
+      throw new Error(`unexpected open path ${filePath}`);
+    });
+    saveCodeFile.mockResolvedValue({ ok: true, filePath: '/repo/app/src/b.js', relative: 'src/b.js', totalLines: 1 });
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-race',
+        role: 'assistant',
+        text: [
+          ':codex-file-citation[]{path="src/a.js" line_range_start="1" line_range_end="1"}',
+          ':codex-file-citation[]{path="src/b.js" line_range_start="1" line_range_end="1"}',
+        ].join(' '),
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/a.js' }));
+    await waitFor(() => expect(openCodeFile).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/b.js' }));
+    await waitFor(() => expect(openCodeFile).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      secondOpen.resolve({
+        ok: true,
+        filePath: '/repo/app/src/b.js',
+        relative: 'src/b.js',
+        previewMode: 'full',
+        contentVersion: 'sha256:b-version',
+        snippet: [{ line: 1, text: 'const latest = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+    });
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(preview).getByText('src/b.js')).toBeInTheDocument();
+    expect(within(preview).getByLabelText('文件预览内容')).toHaveValue('const latest = true;');
+
+    await act(async () => {
+      firstOpen.resolve({
+        ok: true,
+        filePath: '/repo/app/src/a.js',
+        relative: 'src/a.js',
+        snippet: [{ line: 1, text: 'const stale = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+    });
+
+    expect(within(preview).getByText('src/b.js')).toBeInTheDocument();
+    const editor = within(preview).getByLabelText('文件预览内容');
+    expect(editor).toHaveValue('const latest = true;');
+    fireEvent.change(editor, { target: { value: 'const latest = false;' } });
+    fireEvent.click(within(preview).getByRole('button', { name: '保存预览更改' }));
+
+    await waitFor(() => expect(saveCodeFile).toHaveBeenCalledTimes(1));
+    expect(saveCodeFile).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: '/repo/app/src/b.js',
+      content: 'const latest = false;',
+      previewMode: 'full',
+      contentVersion: 'sha256:b-version',
+    }));
   });
 
   it('opens local markdown links from timeline messages directly', async () => {

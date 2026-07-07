@@ -24,6 +24,28 @@ func (f failingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("dial failed")
 }
 
+func startFlusherForTest(t *testing.T, run func(context.Context) error) (context.Context, context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		defer close(finished)
+		done <- run(ctx)
+	})
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+			wg.Wait()
+		case <-time.After(time.Second):
+			t.Fatal("flusher goroutine did not stop")
+		}
+	})
+	return ctx, cancel, done
+}
+
 func flusherPostFailureLog(t *testing.T, cfg ChannelConfig) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -125,9 +147,7 @@ func TestFlusherSendsQueuedRequest(t *testing.T) {
 		t.Fatalf("TryEnqueue: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- f.Run(ctx) }()
+	_, cancel, done := startFlusherForTest(t, f.Run)
 
 	waitForFlusherBodies(bodies, mu, 1, 2*time.Second)
 	waitForFlusherDelivered(t, f, 1, 2*time.Second)
@@ -189,11 +209,9 @@ func TestFlusherDeliversBulkQueue(t *testing.T) {
 	n := NewNotifier(slog.Default(), resolver, 8)
 	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 5*time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- f.Run(ctx) }()
+	ctx, cancel, done := startFlusherForTest(t, f.Run)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := n.TryEnqueue(ctx, contract.NotifyRequest{
 			ChannelAlias: "s",
 			Message:      contract.NotifyMessage{Title: "t", Body: "b"},
@@ -250,7 +268,7 @@ func TestFlusherDrainBoundedContext(t *testing.T) {
 	n := NewNotifier(slog.Default(), resolver, 4)
 	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 5*time.Second)
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := n.TryEnqueue(context.Background(), contract.NotifyRequest{
 			ChannelAlias: "s",
 			Message:      contract.NotifyMessage{Title: "drain", Body: "b"},
@@ -282,10 +300,11 @@ func TestFlusherResolveErrorIsLoggedNotFatal(t *testing.T) {
 	f := NewFlusher(slog.Default(), n, NewWebhookClient(WebhookClientConfig{}), 200*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(50 * time.Millisecond)
+	timer := time.AfterFunc(50*time.Millisecond, cancel)
+	t.Cleanup(func() {
+		timer.Stop()
 		cancel()
-	}()
+	})
 	_ = f.Run(ctx)
 
 	m := f.Metrics()
@@ -300,26 +319,23 @@ func TestFlusherResolveErrorIsLoggedNotFatal(t *testing.T) {
 func TestFlusherNilQueueSitsOnCtx(t *testing.T) {
 	t.Parallel()
 	f := &Flusher{} // zero-value, no queue
-	ctx, cancel := context.WithCancel(context.Background())
 	var done atomic.Bool
-	go func() {
+	_, cancel, doneCh := startFlusherForTest(t, func(ctx context.Context) error {
 		_ = f.Run(ctx)
 		done.Store(true)
-	}()
+		return nil
+	})
 	// Give the goroutine a moment; it must NOT finish before cancel.
 	time.Sleep(20 * time.Millisecond)
 	if done.Load() {
 		t.Fatal("flusher with nil queue exited before ctx cancel")
 	}
 	cancel()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if done.Load() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-doneCh:
+	case <-time.After(time.Second):
+		t.Fatal("flusher did not exit after cancel")
 	}
-	t.Fatal("flusher did not exit after cancel")
 }
 
 // sanity: render dispatcher reaches all three platforms.

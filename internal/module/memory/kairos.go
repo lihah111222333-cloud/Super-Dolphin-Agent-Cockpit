@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const dateChangeAttachmentKind = "date_change"
@@ -529,6 +530,8 @@ func trackFeedbackIfApplicable(h *MemoryLifecycleHooks, intent SaveIntent) {
 	if h.feedbackTracker.ThresholdReached(slug) && h.onFeedbackThreshold != nil {
 		group := h.feedbackTracker.GetGroup(slug)
 		h.feedbackTracker.MarkProposed(slug)
-		go h.onFeedbackThreshold(slug, group)
+		safego.Go(context.Background(), nil, "memory.kairos.feedback_threshold", func(context.Context) {
+			h.onFeedbackThreshold(slug, group)
+		})
 	}
 }

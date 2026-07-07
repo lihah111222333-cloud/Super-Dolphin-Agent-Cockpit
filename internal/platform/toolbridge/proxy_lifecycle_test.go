@@ -191,8 +191,8 @@ func assertProxyToolBegin(t *testing.T, begin tooldto.ToolCallBegin) {
 	if begin.ThreadID != "thread-1" || begin.AgentID != "agent-1" || begin.CallID != "req-1" || begin.ToolName != "file" {
 		t.Fatalf("begin = %+v, want thread-1/agent-1/req-1/file", begin)
 	}
-	if !strings.Contains(begin.ArgumentsPreview, "read_file") {
-		t.Fatalf("begin ArgumentsPreview = %q, want read_file", begin.ArgumentsPreview)
+	if !strings.Contains(begin.ArgumentsPreview, "read_file") || !strings.Contains(begin.ArgumentsPreview, "[REDACTED]") || strings.Contains(begin.ArgumentsPreview, "smoke.go") {
+		t.Fatalf("begin ArgumentsPreview = %q, want read_file with redacted file path", begin.ArgumentsPreview)
 	}
 }
 
@@ -201,8 +201,8 @@ func assertProxyToolEnd(t *testing.T, end tooldto.ToolCallEnd, begin tooldto.Too
 	if end.ThreadID != begin.ThreadID || end.AgentID != begin.AgentID || end.CallID != begin.CallID || end.ToolName != begin.ToolName {
 		t.Fatalf("end = %+v, want same scope as begin %+v", end, begin)
 	}
-	if !end.Success || !strings.Contains(end.Result, "smoke.go") {
-		t.Fatalf("end = %+v, want successful result preview containing smoke.go", end)
+	if !end.Success || !strings.Contains(end.Result, "[REDACTED]") || strings.Contains(end.Result, "smoke.go") {
+		t.Fatalf("end = %+v, want successful redacted result preview", end)
 	}
 }
 

@@ -23,6 +23,8 @@ const (
 	walAutoCheckpointPage = 1000
 )
 
+// OpenOptions 描述 SQLite 打开所需的显式配置。
+// Path 必填，空路径必须在 Open 中 fail-fast，避免落到隐式默认数据库。
 type OpenOptions struct {
 	Path string
 }

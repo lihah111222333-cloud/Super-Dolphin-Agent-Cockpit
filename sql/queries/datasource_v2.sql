@@ -97,6 +97,14 @@ FROM datasource_v2_text_chunks
 WHERE document_id = sqlc.arg(document_id)
 ORDER BY chunk_index ASC;
 
+-- name: ListDatasourceV2ChunksPage :many
+SELECT id, document_id, chunk_index, content, char_count, byte_count, embedding, embedding_model, embedding_dim, token_count, created_at
+FROM datasource_v2_text_chunks
+WHERE document_id = sqlc.arg(document_id)
+  AND chunk_index > sqlc.arg(cursor)
+ORDER BY chunk_index ASC
+LIMIT sqlc.arg(limit) + 1;
+
 -- name: SearchDatasourceV2ChunksByEmbedding :many
 SELECT
     c.id,

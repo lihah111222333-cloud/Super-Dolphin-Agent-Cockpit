@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,21 +16,118 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// cronQuerierStub is a minimal recording fake of the store's internal querier.
 type cronQuerierStub struct {
-	createFn            func(context.Context, sqlc.CreateCronJobParams) (sqlc.CronJob, error)
-	getByIDFn           func(context.Context, string) (sqlc.CronJob, error)
-	listFn              func(context.Context) ([]sqlc.CronJob, error)
-	deleteFn            func(context.Context, string) error
-	updateScheduleFn    func(context.Context, sqlc.UpdateCronJobScheduleParams) error
-	setEnabledFn        func(context.Context, sqlc.SetCronJobEnabledParams) error
-	claimFn             func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error)
-	renewFn             func(context.Context, sqlc.RenewLeaseParams) (int64, error)
-	extendFn            func(context.Context, sqlc.ExtendClaimParams) (int64, error)
-	releaseFn           func(context.Context, sqlc.ReleaseClaimParams) (int64, error)
-	markFinishedFn      func(context.Context, sqlc.MarkCronJobFinishedParams) (int64, error)
-	markFailedFn        func(context.Context, sqlc.MarkCronJobFailedParams) (int64, error)
-	setActiveTurnFn     func(context.Context, sqlc.SetCronJobActiveTurnParams) (int64, error)
+	cronJobQuerierStub
+	cronClaimQuerierStub
+	cronRunQuerierStub
+}
+
+type cronJobQuerierStub struct {
+	createFn         func(context.Context, sqlc.CreateCronJobParams) (sqlc.CronJob, error)
+	getByIDFn        func(context.Context, string) (sqlc.CronJob, error)
+	listFn           func(context.Context) ([]sqlc.CronJob, error)
+	deleteFn         func(context.Context, string) error
+	updateScheduleFn func(context.Context, sqlc.UpdateCronJobScheduleParams) error
+	setEnabledFn     func(context.Context, sqlc.SetCronJobEnabledParams) error
+}
+
+func (s *cronJobQuerierStub) CreateCronJob(ctx context.Context, a sqlc.CreateCronJobParams) (sqlc.CronJob, error) {
+	if s.createFn != nil {
+		return s.createFn(ctx, a)
+	}
+	return sqlc.CronJob{ID: a.ID}, nil
+}
+func (s *cronJobQuerierStub) GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error) {
+	if s.getByIDFn != nil {
+		return s.getByIDFn(ctx, arg.ID)
+	}
+	return sqlc.CronJob{ID: arg.ID}, nil
+}
+func (s *cronJobQuerierStub) ListCronJobs(ctx context.Context) ([]sqlc.CronJob, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx)
+	}
+	return nil, nil
+}
+func (s *cronJobQuerierStub) DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error {
+	if s.deleteFn != nil {
+		return s.deleteFn(ctx, arg.ID)
+	}
+	return nil
+}
+func (s *cronJobQuerierStub) UpdateCronJobSchedule(ctx context.Context, a sqlc.UpdateCronJobScheduleParams) error {
+	if s.updateScheduleFn != nil {
+		return s.updateScheduleFn(ctx, a)
+	}
+	return nil
+}
+func (s *cronJobQuerierStub) SetCronJobEnabled(ctx context.Context, a sqlc.SetCronJobEnabledParams) error {
+	if s.setEnabledFn != nil {
+		return s.setEnabledFn(ctx, a)
+	}
+	return nil
+}
+func (s *cronJobQuerierStub) PatchCronJobNextRunAt(ctx context.Context, a sqlc.PatchCronJobNextRunAtParams) error {
+	return nil
+}
+
+type cronClaimQuerierStub struct {
+	claimFn         func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error)
+	renewFn         func(context.Context, sqlc.RenewLeaseParams) (int64, error)
+	extendFn        func(context.Context, sqlc.ExtendClaimParams) (int64, error)
+	releaseFn       func(context.Context, sqlc.ReleaseClaimParams) (int64, error)
+	markFinishedFn  func(context.Context, sqlc.MarkCronJobFinishedParams) (int64, error)
+	markFailedFn    func(context.Context, sqlc.MarkCronJobFailedParams) (int64, error)
+	setActiveTurnFn func(context.Context, sqlc.SetCronJobActiveTurnParams) (int64, error)
+}
+
+func (s *cronClaimQuerierStub) ClaimDueJobsForUpdate(ctx context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+	if s.claimFn != nil {
+		return s.claimFn(ctx, a)
+	}
+	return nil, nil
+}
+func (s *cronClaimQuerierStub) RenewLease(ctx context.Context, a sqlc.RenewLeaseParams) (int64, error) {
+	if s.renewFn != nil {
+		return s.renewFn(ctx, a)
+	}
+	return 1, nil
+}
+func (s *cronClaimQuerierStub) ExtendClaim(ctx context.Context, a sqlc.ExtendClaimParams) (int64, error) {
+	if s.extendFn != nil {
+		return s.extendFn(ctx, a)
+	}
+	return 1, nil
+}
+func (s *cronClaimQuerierStub) ReleaseClaim(ctx context.Context, a sqlc.ReleaseClaimParams) (int64, error) {
+	if s.releaseFn != nil {
+		return s.releaseFn(ctx, a)
+	}
+	return 1, nil
+}
+func (s *cronClaimQuerierStub) MarkCronJobFinished(ctx context.Context, a sqlc.MarkCronJobFinishedParams) (int64, error) {
+	if s.markFinishedFn != nil {
+		return s.markFinishedFn(ctx, a)
+	}
+	return 1, nil
+}
+func (s *cronClaimQuerierStub) MarkCronJobFailed(ctx context.Context, a sqlc.MarkCronJobFailedParams) (int64, error) {
+	if s.markFailedFn != nil {
+		return s.markFailedFn(ctx, a)
+	}
+	return 1, nil
+}
+func (s *cronClaimQuerierStub) SetCronJobActiveTurn(ctx context.Context, a sqlc.SetCronJobActiveTurnParams) (int64, error) {
+	if s.setActiveTurnFn != nil {
+		return s.setActiveTurnFn(ctx, a)
+	}
+	return 1, nil
+}
+func (s *cronClaimQuerierStub) ListCronJobsClaimedBy(ctx context.Context, arg sqlc.ListCronJobsClaimedByParams) ([]sqlc.CronJob, error) {
+	return nil, nil
+}
+
+type cronRunQuerierStub struct {
 	insertRunFn         func(context.Context, sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error)
 	casRunStatusFn      func(context.Context, sqlc.CASCronJobRunStatusParams) (int64, error)
 	setRunTurnFn        func(context.Context, sqlc.SetCronJobRunTurnParams) (int64, error)
@@ -39,134 +137,50 @@ type cronQuerierStub struct {
 	listUnresolvedFn    func(context.Context) ([]sqlc.CronJobRun, error)
 }
 
-func (s *cronQuerierStub) CreateCronJob(ctx context.Context, a sqlc.CreateCronJobParams) (sqlc.CronJob, error) {
-	if s.createFn != nil {
-		return s.createFn(ctx, a)
-	}
-	return sqlc.CronJob{ID: a.ID}, nil
-}
-func (s *cronQuerierStub) GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error) {
-	if s.getByIDFn != nil {
-		return s.getByIDFn(ctx, arg.ID)
-	}
-	return sqlc.CronJob{ID: arg.ID}, nil
-}
-func (s *cronQuerierStub) ListCronJobs(ctx context.Context) ([]sqlc.CronJob, error) {
-	if s.listFn != nil {
-		return s.listFn(ctx)
-	}
-	return nil, nil
-}
-func (s *cronQuerierStub) DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error {
-	if s.deleteFn != nil {
-		return s.deleteFn(ctx, arg.ID)
-	}
-	return nil
-}
-func (s *cronQuerierStub) UpdateCronJobSchedule(ctx context.Context, a sqlc.UpdateCronJobScheduleParams) error {
-	if s.updateScheduleFn != nil {
-		return s.updateScheduleFn(ctx, a)
-	}
-	return nil
-}
-func (s *cronQuerierStub) SetCronJobEnabled(ctx context.Context, a sqlc.SetCronJobEnabledParams) error {
-	if s.setEnabledFn != nil {
-		return s.setEnabledFn(ctx, a)
-	}
-	return nil
-}
-func (s *cronQuerierStub) PatchCronJobNextRunAt(ctx context.Context, a sqlc.PatchCronJobNextRunAtParams) error {
-	return nil
-}
-func (s *cronQuerierStub) ClaimDueJobsForUpdate(ctx context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
-	if s.claimFn != nil {
-		return s.claimFn(ctx, a)
-	}
-	return nil, nil
-}
-func (s *cronQuerierStub) RenewLease(ctx context.Context, a sqlc.RenewLeaseParams) (int64, error) {
-	if s.renewFn != nil {
-		return s.renewFn(ctx, a)
-	}
-	return 1, nil
-}
-func (s *cronQuerierStub) ExtendClaim(ctx context.Context, a sqlc.ExtendClaimParams) (int64, error) {
-	if s.extendFn != nil {
-		return s.extendFn(ctx, a)
-	}
-	return 1, nil
-}
-func (s *cronQuerierStub) ReleaseClaim(ctx context.Context, a sqlc.ReleaseClaimParams) (int64, error) {
-	if s.releaseFn != nil {
-		return s.releaseFn(ctx, a)
-	}
-	return 1, nil
-}
-func (s *cronQuerierStub) MarkCronJobFinished(ctx context.Context, a sqlc.MarkCronJobFinishedParams) (int64, error) {
-	if s.markFinishedFn != nil {
-		return s.markFinishedFn(ctx, a)
-	}
-	return 1, nil
-}
-func (s *cronQuerierStub) MarkCronJobFailed(ctx context.Context, a sqlc.MarkCronJobFailedParams) (int64, error) {
-	if s.markFailedFn != nil {
-		return s.markFailedFn(ctx, a)
-	}
-	return 1, nil
-}
-func (s *cronQuerierStub) SetCronJobActiveTurn(ctx context.Context, a sqlc.SetCronJobActiveTurnParams) (int64, error) {
-	if s.setActiveTurnFn != nil {
-		return s.setActiveTurnFn(ctx, a)
-	}
-	return 1, nil
-}
-func (s *cronQuerierStub) InsertCronJobRun(ctx context.Context, a sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error) {
+func (s *cronRunQuerierStub) InsertCronJobRun(ctx context.Context, a sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error) {
 	if s.insertRunFn != nil {
 		return s.insertRunFn(ctx, a)
 	}
 	return sqlc.CronJobRun{ID: a.ID, JobID: a.JobID, Status: a.Status}, nil
 }
-func (s *cronQuerierStub) CASCronJobRunStatus(ctx context.Context, a sqlc.CASCronJobRunStatusParams) (int64, error) {
+func (s *cronRunQuerierStub) CASCronJobRunStatus(ctx context.Context, a sqlc.CASCronJobRunStatusParams) (int64, error) {
 	if s.casRunStatusFn != nil {
 		return s.casRunStatusFn(ctx, a)
 	}
 	return 1, nil
 }
-func (s *cronQuerierStub) SetCronJobRunTurn(ctx context.Context, a sqlc.SetCronJobRunTurnParams) (int64, error) {
+func (s *cronRunQuerierStub) SetCronJobRunTurn(ctx context.Context, a sqlc.SetCronJobRunTurnParams) (int64, error) {
 	if s.setRunTurnFn != nil {
 		return s.setRunTurnFn(ctx, a)
 	}
 	return 1, nil
 }
-func (s *cronQuerierStub) GetCronJobRunByDedupeKey(ctx context.Context, arg sqlc.GetCronJobRunByDedupeKeyParams) (sqlc.CronJobRun, error) {
+func (s *cronRunQuerierStub) GetCronJobRunByDedupeKey(ctx context.Context, arg sqlc.GetCronJobRunByDedupeKeyParams) (sqlc.CronJobRun, error) {
 	if s.getRunByDedupeKeyFn != nil {
 		return s.getRunByDedupeKeyFn(ctx, arg.DedupeKey)
 	}
 	return sqlc.CronJobRun{}, nil
 }
-func (s *cronQuerierStub) GetCronJobRunByID(ctx context.Context, arg sqlc.GetCronJobRunByIDParams) (sqlc.CronJobRun, error) {
+func (s *cronRunQuerierStub) GetCronJobRunByID(ctx context.Context, arg sqlc.GetCronJobRunByIDParams) (sqlc.CronJobRun, error) {
 	if s.getRunByIDFn != nil {
 		return s.getRunByIDFn(ctx, arg.ID)
 	}
 	return sqlc.CronJobRun{ID: arg.ID}, nil
 }
-func (s *cronQuerierStub) ListCronJobRunsByJob(ctx context.Context, a sqlc.ListCronJobRunsByJobParams) ([]sqlc.CronJobRun, error) {
+func (s *cronRunQuerierStub) ListCronJobRunsByJob(ctx context.Context, a sqlc.ListCronJobRunsByJobParams) ([]sqlc.CronJobRun, error) {
 	if s.listRunsByJobFn != nil {
 		return s.listRunsByJobFn(ctx, a)
 	}
 	return nil, nil
 }
-func (s *cronQuerierStub) ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc.CronJobRun, error) {
+func (s *cronRunQuerierStub) ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc.CronJobRun, error) {
 	if s.listUnresolvedFn != nil {
 		return s.listUnresolvedFn(ctx)
 	}
 	return nil, nil
 }
-func (s *cronQuerierStub) GetRunningCronJobRunByTurnID(ctx context.Context, arg sqlc.GetRunningCronJobRunByTurnIDParams) (sqlc.CronJobRun, error) {
+func (s *cronRunQuerierStub) GetRunningCronJobRunByTurnID(ctx context.Context, arg sqlc.GetRunningCronJobRunByTurnIDParams) (sqlc.CronJobRun, error) {
 	return sqlc.CronJobRun{}, platformdb.ErrNotFound
-}
-func (s *cronQuerierStub) ListCronJobsClaimedBy(ctx context.Context, arg sqlc.ListCronJobsClaimedByParams) ([]sqlc.CronJob, error) {
-	return nil, nil
 }
 
 // ----- CreateJob validation -----
@@ -213,9 +227,11 @@ func TestCreateJobForwardsDefaultsToSqlc(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	var got sqlc.CreateCronJobParams
 	s := &store{q: &cronQuerierStub{
-		createFn: func(_ context.Context, a sqlc.CreateCronJobParams) (sqlc.CronJob, error) {
-			got = a
-			return sqlc.CronJob{ID: a.ID}, nil
+		cronJobQuerierStub: cronJobQuerierStub{
+			createFn: func(_ context.Context, a sqlc.CreateCronJobParams) (sqlc.CronJob, error) {
+				got = a
+				return sqlc.CronJob{ID: a.ID}, nil
+			},
 		},
 	}}
 	_, err := s.CreateJob(context.Background(), CreateJobParams{
@@ -242,8 +258,10 @@ func TestCreateJobForwardsDefaultsToSqlc(t *testing.T) {
 func TestGetJobByIDMapsNotFound(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		getByIDFn: func(context.Context, string) (sqlc.CronJob, error) {
-			return sqlc.CronJob{}, platformdb.ErrNotFound
+		cronJobQuerierStub: cronJobQuerierStub{
+			getByIDFn: func(context.Context, string) (sqlc.CronJob, error) {
+				return sqlc.CronJob{}, platformdb.ErrNotFound
+			},
 		},
 	}}
 	_, err := s.GetJobByID(context.Background(), "missing")
@@ -274,9 +292,11 @@ func TestClaimDueJobsForUpdateForwardsParamsAndMapsRows(t *testing.T) {
 	leaseExpiry := now.Add(30 * time.Minute)
 	var got sqlc.ClaimDueJobsForUpdateParams
 	s := &store{q: &cronQuerierStub{
-		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
-			got = a
-			return []sqlc.CronJob{{ID: "job-1", Name: "daily", Provider: "codex", CWD: "/repo"}}, nil
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+				got = a
+				return []sqlc.CronJob{{ID: "job-1", Name: "daily", Provider: "codex", CWD: "/repo"}}, nil
+			},
 		},
 	}}
 	jobs, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
@@ -299,9 +319,11 @@ func TestClaimDueJobsForUpdateDefaultsMaxClaim(t *testing.T) {
 	t.Parallel()
 	var got sqlc.ClaimDueJobsForUpdateParams
 	s := &store{q: &cronQuerierStub{
-		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
-			got = a
-			return nil, nil
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+				got = a
+				return nil, nil
+			},
 		},
 	}}
 	_, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
@@ -319,12 +341,14 @@ func TestClaimDueJobsForUpdateRetriesSQLiteBusy(t *testing.T) {
 	t.Parallel()
 	attempts := 0
 	s := &store{q: &cronQuerierStub{
-		claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
-			attempts++
-			if attempts < 3 {
-				return nil, errors.New("database is locked")
-			}
-			return []sqlc.CronJob{{ID: "job-1"}}, nil
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+				attempts++
+				if attempts < 3 {
+					return nil, errors.New("database is locked")
+				}
+				return []sqlc.CronJob{{ID: "job-1"}}, nil
+			},
 		},
 	}}
 	jobs, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
@@ -347,9 +371,11 @@ func TestClaimDueJobsForUpdateSQLiteBusyExhaustionReturnsContext(t *testing.T) {
 	const wantAttempts = 3
 	attempts := 0
 	s := &store{q: &cronQuerierStub{
-		claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
-			attempts++
-			return nil, errors.New("database is locked")
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+				attempts++
+				return nil, errors.New("database is locked")
+			},
 		},
 	}}
 	_, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
@@ -370,7 +396,9 @@ func TestClaimDueJobsForUpdateSQLiteBusyExhaustionReturnsContext(t *testing.T) {
 func TestRenewLeaseReturnsTokenMismatchOnZeroRows(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		renewFn: func(context.Context, sqlc.RenewLeaseParams) (int64, error) { return 0, nil },
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			renewFn: func(context.Context, sqlc.RenewLeaseParams) (int64, error) { return 0, nil },
+		},
 	}}
 	err := s.RenewLease(context.Background(), LeaseParams{ID: "j", ClaimToken: "tok"})
 	if !errors.Is(err, ErrClaimTokenMismatch) {
@@ -381,7 +409,9 @@ func TestRenewLeaseReturnsTokenMismatchOnZeroRows(t *testing.T) {
 func TestExtendClaimReturnsTokenMismatchOnZeroRows(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		extendFn: func(context.Context, sqlc.ExtendClaimParams) (int64, error) { return 0, nil },
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			extendFn: func(context.Context, sqlc.ExtendClaimParams) (int64, error) { return 0, nil },
+		},
 	}}
 	err := s.ExtendClaim(context.Background(), LeaseParams{ID: "j", ClaimToken: "tok"})
 	if !errors.Is(err, ErrClaimTokenMismatch) {
@@ -401,8 +431,10 @@ func TestMarkFinishedRejectsEmptyClaimToken(t *testing.T) {
 func TestMarkFinishedReturnsTokenMismatchOnZeroRows(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		markFinishedFn: func(context.Context, sqlc.MarkCronJobFinishedParams) (int64, error) {
-			return 0, nil
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			markFinishedFn: func(context.Context, sqlc.MarkCronJobFinishedParams) (int64, error) {
+				return 0, nil
+			},
 		},
 	}}
 	err := s.MarkFinished(context.Background(), MarkFinishedParams{ID: "j", ClaimToken: "tok", RunID: "run-1"})
@@ -416,9 +448,11 @@ func TestMarkFailedDefaultsStatus(t *testing.T) {
 	var got sqlc.MarkCronJobFailedParams
 	nextRunAt := time.Unix(1_700_000_000, 0).UTC()
 	s := &store{q: &cronQuerierStub{
-		markFailedFn: func(_ context.Context, a sqlc.MarkCronJobFailedParams) (int64, error) {
-			got = a
-			return 1, nil
+		cronClaimQuerierStub: cronClaimQuerierStub{
+			markFailedFn: func(_ context.Context, a sqlc.MarkCronJobFailedParams) (int64, error) {
+				got = a
+				return 1, nil
+			},
 		},
 	}}
 	err := s.MarkFailed(context.Background(), MarkFailedParams{ID: "j", ClaimToken: "tok", RunID: "run-1", NextRunAt: nextRunAt})
@@ -448,9 +482,11 @@ func TestInsertRunDefaultsStatusToPending(t *testing.T) {
 	t.Parallel()
 	var got sqlc.InsertCronJobRunParams
 	s := &store{q: &cronQuerierStub{
-		insertRunFn: func(_ context.Context, a sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error) {
-			got = a
-			return sqlc.CronJobRun{ID: a.ID, Status: a.Status}, nil
+		cronRunQuerierStub: cronRunQuerierStub{
+			insertRunFn: func(_ context.Context, a sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error) {
+				got = a
+				return sqlc.CronJobRun{ID: a.ID, Status: a.Status}, nil
+			},
 		},
 	}}
 	_, err := s.InsertRun(context.Background(), InsertRunParams{
@@ -467,8 +503,10 @@ func TestInsertRunDefaultsStatusToPending(t *testing.T) {
 func TestCASRunStatusRejectsMismatch(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		casRunStatusFn: func(context.Context, sqlc.CASCronJobRunStatusParams) (int64, error) {
-			return 0, nil
+		cronRunQuerierStub: cronRunQuerierStub{
+			casRunStatusFn: func(context.Context, sqlc.CASCronJobRunStatusParams) (int64, error) {
+				return 0, nil
+			},
 		},
 	}}
 	err := s.CASRunStatus(context.Background(), CASRunStatusParams{
@@ -483,9 +521,11 @@ func TestCASRunStatusForwardsExpectedAndNext(t *testing.T) {
 	t.Parallel()
 	var got sqlc.CASCronJobRunStatusParams
 	s := &store{q: &cronQuerierStub{
-		casRunStatusFn: func(_ context.Context, a sqlc.CASCronJobRunStatusParams) (int64, error) {
-			got = a
-			return 1, nil
+		cronRunQuerierStub: cronRunQuerierStub{
+			casRunStatusFn: func(_ context.Context, a sqlc.CASCronJobRunStatusParams) (int64, error) {
+				got = a
+				return 1, nil
+			},
 		},
 	}}
 	err := s.CASRunStatus(context.Background(), CASRunStatusParams{
@@ -511,8 +551,10 @@ func TestGetRunByDedupeKeyRejectsEmpty(t *testing.T) {
 func TestGetRunByDedupeKeyMapsNotFound(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		getRunByDedupeKeyFn: func(context.Context, string) (sqlc.CronJobRun, error) {
-			return sqlc.CronJobRun{}, platformdb.ErrNotFound
+		cronRunQuerierStub: cronRunQuerierStub{
+			getRunByDedupeKeyFn: func(context.Context, string) (sqlc.CronJobRun, error) {
+				return sqlc.CronJobRun{}, platformdb.ErrNotFound
+			},
 		},
 	}}
 	_, err := s.GetRunByDedupeKey(context.Background(), "dedupe-x")
@@ -524,12 +566,14 @@ func TestGetRunByDedupeKeyMapsNotFound(t *testing.T) {
 func TestListUnresolvedRunsPassesThrough(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
-		listUnresolvedFn: func(context.Context) ([]sqlc.CronJobRun, error) {
-			return []sqlc.CronJobRun{
-				{ID: "r1", Status: StatusSubmitting},
-				{ID: "r2", Status: StatusSubmitted},
-				{ID: "r3", Status: StatusRunning},
-			}, nil
+		cronRunQuerierStub: cronRunQuerierStub{
+			listUnresolvedFn: func(context.Context) ([]sqlc.CronJobRun, error) {
+				return []sqlc.CronJobRun{
+					{ID: "r1", Status: StatusSubmitting},
+					{ID: "r2", Status: StatusSubmitted},
+					{ID: "r3", Status: StatusRunning},
+				}, nil
+			},
 		},
 	}}
 	rows, err := s.ListUnresolvedRuns(context.Background())
@@ -546,6 +590,44 @@ func TestListUnresolvedRunsPassesThrough(t *testing.T) {
 			t.Fatalf("unexpected status in unresolved list: %q", r.Status)
 		}
 	}
+}
+
+// TestSubmitRunWithActiveTurnPersistsAllFieldsWithExplicitDB locks the explicit DB constructor path.
+func TestSubmitRunWithActiveTurnPersistsAllFieldsWithExplicitDB(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, db := openSubmitRunStore(t, "submit-success")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+
+	err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "claim-token",
+		ActiveTurnID: "turn-submit", ThreadID: "thread-submit", AgentID: "agent-submit",
+		SubmittedAt: now.Add(time.Second), Now: now.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v", err)
+	}
+	assertSubmittedTurnState(ctx, t, db, "turn-submit", StatusSubmitted)
+}
+
+// TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails proves one-transaction semantics.
+func TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, db := openSubmitRunStore(t, "submit-rollback")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+
+	err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "wrong-token",
+		ActiveTurnID: "turn-submit", ThreadID: "thread-submit", AgentID: "agent-submit",
+		SubmittedAt: now.Add(time.Second), Now: now.Add(2 * time.Second),
+	})
+	if !errors.Is(err, ErrClaimTokenMismatch) {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v, want %v", err, ErrClaimTokenMismatch)
+	}
+	assertSubmittedTurnState(ctx, t, db, "", StatusSubmitting)
 }
 
 // ----- migration + query lint (schema-level guarantees) -----
@@ -625,6 +707,61 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// openSubmitRunStore returns a migrated cron store built through the explicit DB constructor.
+func openSubmitRunStore(t *testing.T, name string) (Store, *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "secure", name+".db")
+	db := openMigratedCronDB(ctx, t, dbPath)
+	return NewStoreWithDB(db, sqlc.New(db)), db
+}
+
+// seedClaimedSubmittingRun creates the exact precondition SubmitRunWithActiveTurn requires.
+func seedClaimedSubmittingRun(ctx context.Context, t *testing.T, store Store, now time.Time) {
+	t.Helper()
+	if _, err := store.CreateJob(ctx, CreateJobParams{
+		ID: "job-submit", Name: "submit", Prompt: "run", ScheduleExpr: "0 9 * * *",
+		Timezone: "UTC", Provider: ProviderCodex, CWD: "/repo", Enabled: true,
+		NextRunAt: now.Add(-time.Minute), CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	claimed, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+		Now: now, ClaimedBy: "scheduler", LeaseExpiresAt: now.Add(time.Minute),
+		ClaimToken: "claim-token", MaxClaim: 1,
+	})
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueJobsForUpdate() = %v, %v; want one claim", claimed, err)
+	}
+	if _, err := store.InsertRun(ctx, InsertRunParams{
+		ID: "run-submit", JobID: "job-submit", ScheduledAt: now,
+		IdempotencyKey: "idem-submit", DedupeKey: "dedupe-submit",
+		Status: StatusSubmitting, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertRun() error = %v", err)
+	}
+}
+
+// assertSubmittedTurnState checks run and job state from the same committed SQLite view.
+func assertSubmittedTurnState(ctx context.Context, t *testing.T, db *sql.DB, wantTurn, wantStatus string) {
+	t.Helper()
+	var runTurn, runStatus, threadID, agentID, activeTurn string
+	err := db.QueryRowContext(ctx, `
+		SELECT r.turn_id, r.status, r.thread_id, r.agent_id, j.active_turn_id
+		FROM cron_job_runs AS r JOIN cron_jobs AS j ON j.id = r.job_id
+		WHERE r.id = 'run-submit'
+	`).Scan(&runTurn, &runStatus, &threadID, &agentID, &activeTurn)
+	if err != nil {
+		t.Fatalf("read submitted state: %v", err)
+	}
+	if runTurn != wantTurn || activeTurn != wantTurn || runStatus != wantStatus {
+		t.Fatalf("state = run:%q active:%q status:%q, want turn %q status %q", runTurn, activeTurn, runStatus, wantTurn, wantStatus)
+	}
+	if wantTurn != "" && (threadID != "thread-submit" || agentID != "agent-submit") {
+		t.Fatalf("thread/agent = %q/%q, want submitted identities", threadID, agentID)
+	}
 }
 
 // readMigration0045 loads the 0045 migration SQL from the repo checkout.

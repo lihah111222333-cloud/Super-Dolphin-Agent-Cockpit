@@ -10,13 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf16"
 
+	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -41,6 +39,8 @@ type decodeMode int
 type actionHandler[T any] func(context.Context, T) (any, error)
 
 type appManagedWriteCapabilityContextKey struct{}
+type appManagedReadCapabilityContextKey struct{}
+type runtimeWorkspaceRootCapabilityContextKey struct{}
 
 // 解码模式常量决定未知字段、空参数和原始 payload 的处理策略。
 const (
@@ -58,6 +58,27 @@ func WithAppManagedWriteCapability(ctx context.Context) context.Context {
 	return context.WithValue(ctx, appManagedWriteCapabilityContextKey{}, true)
 }
 
+// WithAppManagedReadCapability 标记调用方已经通过应用侧授权，可读取 app-managed 数据根。
+// 默认 direct file/diagnostics 不带该能力，因此只能读取 workspace roots 内文件。
+func WithAppManagedReadCapability(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, appManagedReadCapabilityContextKey{}, true)
+}
+
+// WithRuntimeWorkspaceRootCapability 在 context 中授予主控确认过的 runtime roots 访问能力。
+func WithRuntimeWorkspaceRootCapability(ctx context.Context, roots []string) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	normalized, err := normalizeRuntimeWorkspaceRootCapability(roots)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, runtimeWorkspaceRootCapabilityContextKey{}, normalized), nil
+}
+
 // hasAppManagedWriteCapability 读取应用侧授予的 app-managed 写能力标记。
 func hasAppManagedWriteCapability(ctx context.Context) bool {
 	if ctx == nil {
@@ -67,24 +88,107 @@ func hasAppManagedWriteCapability(ctx context.Context) bool {
 	return allowed
 }
 
+// hasAppManagedReadCapability 读取应用侧授予的 app-managed 读能力标记。
+func hasAppManagedReadCapability(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	allowed, _ := ctx.Value(appManagedReadCapabilityContextKey{}).(bool)
+	return allowed
+}
+
+func runtimeWorkspaceRootCapabilityFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	roots, _ := ctx.Value(runtimeWorkspaceRootCapabilityContextKey{}).([]string)
+	return append([]string(nil), roots...)
+}
+
+// normalizeRuntimeWorkspaceRootCapability 校验并规范化主控授予的 runtime roots。
+func normalizeRuntimeWorkspaceRootCapability(roots []string) ([]string, error) {
+	out := make([]string, 0, len(roots))
+	seen := map[string]struct{}{}
+	for _, root := range roots {
+		trimmed := strings.TrimSpace(root)
+		if trimmed == "" {
+			return nil, errors.New("runtime workspace root capability contains empty root")
+		}
+		absolute, err := filepath.Abs(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("resolve runtime workspace root capability: %w", err)
+		}
+		resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+		if err != nil {
+			return nil, fmt.Errorf("resolve runtime workspace root capability: %w", err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("stat runtime workspace root capability: %w", err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("runtime workspace root capability is not a directory: %s", resolved)
+		}
+		clean := filepath.Clean(resolved)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("runtime workspace root capability requires at least one root")
+	}
+	return out, nil
+}
+
 func toolWorkspaceRoot(ctx context.Context) (string, error) {
 	return common.WorkspaceRootFromContextStrict(ctx)
 }
 
-func toolWorkspaceRoots(ctx context.Context) (string, []string, error) {
+func scopedWorkspaceRoots(ctx context.Context) ([]string, error) {
 	roots, err := common.WorkspaceRootsFromContextStrict(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(roots) == 0 {
+		return nil, common.ErrMissingWorkspaceRoots
+	}
+	return append([]string(nil), roots...), nil
+}
+
+func appendAppManagedRoots(roots []string, capability string) ([]string, error) {
+	appRoots, err := platformshared.AppManagedDataRoots()
+	if err != nil {
+		return nil, fmt.Errorf("resolve app-managed %s roots: %w", capability, err)
+	}
+	return append(append([]string(nil), roots...), appRoots...), nil
+}
+
+func toolWorkspaceRoots(ctx context.Context) (string, []string, error) {
+	roots, err := scopedWorkspaceRoots(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	if len(roots) == 0 {
-		return "", nil, common.ErrMissingWorkspaceRoots
-	}
 	if hasAppManagedWriteCapability(ctx) {
-		appRoots, err := platformshared.AppManagedDataRoots()
+		roots, err = appendAppManagedRoots(roots, "write")
 		if err != nil {
-			return "", nil, fmt.Errorf("resolve app-managed write roots: %w", err)
+			return "", nil, err
 		}
-		roots = append(append([]string(nil), roots...), appRoots...)
+	}
+	return roots[0], append([]string(nil), roots[1:]...), nil
+}
+
+func toolReadableRoots(ctx context.Context) (string, []string, error) {
+	roots, err := scopedWorkspaceRoots(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if hasAppManagedReadCapability(ctx) {
+		roots, err = appendAppManagedRoots(roots, "read")
+		if err != nil {
+			return "", nil, err
+		}
 	}
 	return roots[0], append([]string(nil), roots[1:]...), nil
 }
@@ -143,7 +247,10 @@ func decodeLenientToolParams[T any](raw json.RawMessage, value *T) error {
 
 func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
 	normalized := normalizeOptionalToolParams(raw)
-	stripped := stripToolWrapperFields(normalized)
+	stripped, err := stripToolWrapperFields(normalized)
+	if err != nil {
+		return err
+	}
 	if err := validateStrictToolFields(stripped, value); err != nil {
 		return formatDecodeParamsError(err)
 	}
@@ -232,36 +339,28 @@ func addStrictJSONField(field reflect.StructField, allowed map[string]struct{}) 
 }
 
 // stripToolWrapperFields 去掉 handler 外层已经消费的参数，剩余字段继续走严格 schema。
-// work_dir 由 wrapper 处理；agent_id/cwd 是旧兼容字段，只能被可信 ToolScope 覆盖。
-func stripToolWrapperFields(raw []byte) []byte {
+// work_dir 只允许由 wrapper 处理；agent_id/cwd 旧字段必须显式迁移。
+func stripToolWrapperFields(raw []byte) ([]byte, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return raw
+		return raw, nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &fields); err != nil {
-		return raw
+		return nil, fmt.Errorf("parse wrapper fields: %w", err)
 	}
-	if !stripKnownToolWrapperFields(fields) {
-		return raw
+	changed, err := validateReservedToolWrapperFields(fields)
+	if err != nil {
+		return nil, err
+	}
+	if !changed {
+		return raw, nil
 	}
 	encoded, err := json.Marshal(fields)
 	if err != nil {
-		return raw
+		return nil, fmt.Errorf("encode params without wrapper fields: %w", err)
 	}
-	return encoded
-}
-
-// stripKnownToolWrapperFields 删除明确受支持的 wrapper/legacy 字段并报告是否修改。
-func stripKnownToolWrapperFields(fields map[string]json.RawMessage) bool {
-	changed := false
-	for _, field := range []string{"work_dir", "agent_id", "cwd"} {
-		if _, ok := fields[field]; ok {
-			delete(fields, field)
-			changed = true
-		}
-	}
-	return changed
+	return encoded, nil
 }
 
 func normalizeOptionalToolParams(raw json.RawMessage) []byte {
@@ -447,240 +546,6 @@ func requireFilePath(raw string) (string, error) {
 	return filePath, nil
 }
 
-// ResolveLSPPosition 把用户传入的 1-based rune 列转换为 LSP UTF-16 Position。
-// LSP 协议的 character 是 UTF-16 code unit，不能直接使用人读列号减一。
-func ResolveLSPPosition(ctx context.Context, filePath string, line int, column int) (protocol.Position, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return protocol.Position{}, err
-	}
-	mapping, err := loadLinePositionMapping(filePath, line)
-	if err != nil {
-		return protocol.Position{}, err
-	}
-	return mapping.positionFromRuneColumn(column)
-}
-
-type linePositionMapping struct {
-	lineNumber   int
-	lineText     string
-	runes        []rune
-	utf16Offsets []int
-}
-
-func loadLinePositionMapping(filePath string, line int) (linePositionMapping, error) {
-	if line <= 0 {
-		return linePositionMapping{}, errors.New("line must be >= 1")
-	}
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return linePositionMapping{}, err
-	}
-	lines := splitNormalizedLines(string(content))
-	if line > len(lines) {
-		return linePositionMapping{}, newLineOutOfRangeError(line, len(lines))
-	}
-	lineText := lines[line-1]
-	runes := []rune(lineText)
-	return linePositionMapping{
-		lineNumber:   line,
-		lineText:     lineText,
-		runes:        runes,
-		utf16Offsets: utf16OffsetsForRunes(runes),
-	}, nil
-}
-
-func utf16OffsetsForRunes(runes []rune) []int {
-	offsets := make([]int, len(runes)+1)
-	current := 0
-	for index, value := range runes {
-		offsets[index] = current
-		current += utf16.RuneLen(value)
-	}
-	offsets[len(runes)] = current
-	return offsets
-}
-
-func (m linePositionMapping) positionFromRuneColumn(column int) (protocol.Position, error) {
-	if column <= 0 {
-		return protocol.Position{}, errors.New("column must be >= 1")
-	}
-	runeIndex := column - 1
-	if runeIndex > len(m.runes) {
-		return protocol.Position{}, newPositionOutOfRangeError(m.lineNumber, column, m.lineText, len(m.runes), len(m.runes)+1)
-	}
-	return protocol.Position{
-		Line:      m.lineNumber - 1,
-		Character: m.utf16Offsets[runeIndex],
-	}, nil
-}
-
-func (m linePositionMapping) positionFromRuneIndex(runeIndex int) (protocol.Position, error) {
-	if runeIndex < 0 || runeIndex > len(m.runes) {
-		return protocol.Position{}, fmt.Errorf("rune index %d is outside line length %d", runeIndex, len(m.runes))
-	}
-	return protocol.Position{Line: m.lineNumber - 1, Character: m.utf16Offsets[runeIndex]}, nil
-}
-
-func (m linePositionMapping) runeIndexFromUTF16Character(character int) (int, error) {
-	if character < 0 {
-		return 0, errors.New("character must be >= 0")
-	}
-	for index, offset := range m.utf16Offsets {
-		if offset == character {
-			return index, nil
-		}
-		if offset > character {
-			return 0, fmt.Errorf("character %d splits UTF-16 code units before rune column %d", character, index+1)
-		}
-	}
-	return 0, fmt.Errorf("character %d is outside line UTF-16 length %d", character, m.utf16Offsets[len(m.utf16Offsets)-1])
-}
-
-// resolveFilePositionRequest 解析 pos 参数、解析路径、校验位置是否在文件范围内。
-func resolveFilePositionRequest(ctx context.Context, params filePositionParams) (string, protocol.Position, error) {
-	filePathRaw, line, col, err := parsePos(params.Pos)
-	if err != nil {
-		return "", protocol.Position{}, err
-	}
-	filePath, err := resolveFilePath(ctx, filePathRaw)
-	if err != nil {
-		return "", protocol.Position{}, err
-	}
-	position, err := ResolveLSPPosition(ctx, filePath, line, col)
-	if err != nil {
-		return "", protocol.Position{}, err
-	}
-	return filePath, position, nil
-}
-
-// parsePos 解析三段式 pos（file:line:column），缺少 column 时报错。
-func parsePos(pos string) (string, int, int, error) {
-	filePath, line, col, hasCol, err := parseFilePos(pos, true)
-	if err != nil {
-		return "", 0, 0, err
-	}
-	if !hasCol {
-		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column' (example internal/foo.go:42:9)", pos)
-	}
-	return filePath, line, col, nil
-}
-
-// parseFilePos 解析 `file:line` 或 `file:line:col` 位置参数。
-// file 工具允许两段式，inspect/xref/completion 要求列号；统一解析器让模型可在工具间复用位置格式。
-func parseFilePos(pos string, requireCol bool) (string, int, int, bool, error) {
-	pos = strings.TrimSpace(pos)
-	if pos == "" {
-		return "", 0, 0, false, errors.New("position parameter 'pos' is empty; expected 'file_path:line[:column]' (example internal/foo.go:42:9)")
-	}
-	lastColon := strings.LastIndex(pos, ":")
-	if lastColon == -1 {
-		return "", 0, 0, false, fmt.Errorf("invalid pos format %q; expected 'file_path:line[:column]' (example internal/foo.go:42:9)", pos)
-	}
-	tailStr := pos[lastColon+1:]
-	tail, ok := parsePositivePosSegment(tailStr)
-	if !ok {
-		return "", 0, 0, false, fmt.Errorf("invalid trailing segment %q in pos %q; expected a positive integer line or column (format 'file_path:line[:column]')", tailStr, pos)
-	}
-	remaining := pos[:lastColon]
-	secondLastColon := strings.LastIndex(remaining, ":")
-	if secondLastColon == -1 {
-		return parseFileLinePos(pos, remaining, tail, requireCol)
-	}
-	maybeLineStr := remaining[secondLastColon+1:]
-	maybeLine, ok := parsePositivePosSegment(maybeLineStr)
-	if !ok {
-		// 倒数第二段不是数字时，把该冒号视为路径内容，例如 Windows 盘符路径。
-		return parseFileLinePos(pos, remaining, tail, requireCol)
-	}
-	return parseFileLineColumnPos(pos, remaining[:secondLastColon], maybeLine, tail)
-}
-
-// parsePositivePosSegment 把字符串解析为正整数，失败时返回 false。
-func parsePositivePosSegment(value string) (int, bool) {
-	parsed, parseErr := strconv.Atoi(value)
-	return parsed, parseErr == nil && parsed > 0
-}
-
-// parseFileLinePos 解析 file:line 两段式 pos。
-func parseFileLinePos(pos string, rawFilePath string, line int, requireCol bool) (string, int, int, bool, error) {
-	filePath := strings.TrimSpace(rawFilePath)
-	if filePath == "" {
-		return "", 0, 0, false, fmt.Errorf("invalid pos format %q; missing file path before ':line' (example internal/foo.go:42)", pos)
-	}
-	if requireCol {
-		return "", 0, 0, false, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column' (example internal/foo.go:42:9)", pos)
-	}
-	return filePath, line, 0, false, nil
-}
-
-// parseFileLineColumnPos 解析 file:line:col 三段式 pos。
-func parseFileLineColumnPos(pos string, rawFilePath string, line int, col int) (string, int, int, bool, error) {
-	filePath := strings.TrimSpace(rawFilePath)
-	if filePath == "" {
-		return "", 0, 0, false, fmt.Errorf("invalid pos format %q; missing file path before ':line:column' (example internal/foo.go:42:9)", pos)
-	}
-	return filePath, line, col, true, nil
-}
-
-// newLineOutOfRangeError 构建行号超出文件范围的 coded error，附带元信息。
-func newLineOutOfRangeError(line int, lineCount int) error {
-	err := common.NewCodedToolError(
-		"line_out_of_range",
-		fmt.Errorf("line %d is beyond end of file with %d lines", line, lineCount),
-		false,
-		"next: file action=read_file pos=<file>:1 limit=200, then retry with an existing 1-based line in pos=<file>:<line>:<col>",
-	)
-	var coded *common.CodedToolError
-	if errors.As(err, &coded) {
-		coded.Meta = map[string]any{
-			"requested_line": line,
-			"line_count":     lineCount,
-		}
-	}
-	return err
-}
-
-var positionIdentifierRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-
-// newPositionOutOfRangeError 构建列号超出行范围的 coded error，附带建议列位置。
-func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int, maxColumn int) error {
-	err := common.NewCodedToolError(
-		"position_out_of_range",
-		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, maxColumn),
-		false,
-		"next: retry with pos=<file>:<line>:<col> using a column inside the target identifier or at end of line; inspect meta.line_text and meta.suggested_columns",
-	)
-	var coded *common.CodedToolError
-	if errors.As(err, &coded) {
-		coded.Meta = map[string]any{
-			"line":              line,
-			"line_text":         lineText,
-			"line_length":       lineLength,
-			"max_column":        maxColumn,
-			"requested_column":  column,
-			"suggested_columns": suggestedIdentifierColumns(lineText),
-		}
-	}
-	return err
-}
-
-// suggestedIdentifierColumns 扫描行文本，返回标识符起始列位置建议列表。
-func suggestedIdentifierColumns(lineText string) []map[string]any {
-	matches := positionIdentifierRE.FindAllStringIndex(lineText, -1)
-	suggestions := make([]map[string]any, 0, len(matches))
-	for _, match := range matches {
-		identifier := lineText[match[0]:match[1]]
-		suggestions = append(suggestions, map[string]any{
-			"identifier": identifier,
-			"column":     match[0] + 1,
-		})
-	}
-	return suggestions
-}
-
 // normalizeAction 把 action 字符串规范化为小写无空白。
 func normalizeAction(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
@@ -700,29 +565,53 @@ func renderListResult[T any](items []T, limit int, emptyMessage string, render f
 	return render(items, total), nil
 }
 
+const toolTimeoutDisabled time.Duration = -1
+
 // wrapToolHandler 用 Recovery/Logging/Timeout/Budget 中间件链包装工具处理函数。
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
+	return wrapToolHandlerWithTimeoutResolver(toolName, tier, nil, handler)
+}
+
+// wrapToolHandlerWithTimeoutResolver 在统一工作区校验、日志和预算外，允许少数 action 按参数选择或关闭工具层 timeout。
+func wrapToolHandlerWithTimeoutResolver(toolName string, tier time.Duration, timeoutTier func(json.RawMessage) time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
 	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
 		var err error
+		ctx = lspinstaller.WithInstallCommandCapability(ctx)
 		ctx, err = contextWithExplicitToolWorkDir(ctx, params)
 		if err != nil {
 			return nil, err
 		}
 		return handler(ctx, params)
 	}
+	normalHandler := middleware.Timeout(tier)(scopedHandler)
+	slowHandler := middleware.Timeout(middleware.TierSlow)(scopedHandler)
+	timedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
+		selected := tier
+		if timeoutTier != nil {
+			selected = timeoutTier(params)
+			if selected == toolTimeoutDisabled {
+				return scopedHandler(ctx, params)
+			}
+			if selected <= 0 {
+				selected = tier
+			}
+		}
+		switch selected {
+		case tier:
+			return normalHandler(ctx, params)
+		case middleware.TierSlow:
+			return slowHandler(ctx, params)
+		default:
+			return middleware.Timeout(selected)(scopedHandler)(ctx, params)
+		}
+	}
 	chained := middleware.Chain(
-		scopedHandler,
+		timedHandler,
 		middleware.Recovery(log, toolName),
 		middleware.Logging(log, toolName),
-		middleware.Timeout(tier),
 	)
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
-}
-
-// explicitToolWorkDirParams 是工具请求中 work_dir 字段的解码容器。
-type explicitToolWorkDirParams struct {
-	WorkDir string `json:"work_dir,omitempty"`
 }
 
 // contextWithExplicitToolWorkDir 从工具请求参数中提取 work_dir 并写入 tool scope。
@@ -732,13 +621,21 @@ func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return ctx, nil
 	}
-	var input explicitToolWorkDirParams
-	if err := json.Unmarshal(trimmed, &input); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil {
 		return ctx, fmt.Errorf("parse explicit tool work_dir params: %w", err)
 	}
-	workDir := strings.TrimSpace(input.WorkDir)
-	if workDir == "" {
+	rawWorkDir, ok := fields["work_dir"]
+	if !ok {
 		return ctx, nil
+	}
+	var workDir string
+	if err := json.Unmarshal(rawWorkDir, &workDir); err != nil {
+		return ctx, fmt.Errorf("parse explicit tool work_dir: %w", err)
+	}
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" {
+		return ctx, errors.New("work_dir is required")
 	}
 	scopedCtx, _, err := contextWithExplicitWorkDir(ctx, workDir)
 	if err != nil {
@@ -772,6 +669,11 @@ func ensureExplicitWorkDirWithinWorkspaceRoots(ctx context.Context, workDir stri
 		return fmt.Errorf("explicit work_dir requires trusted workspace roots: %w", err)
 	}
 	for _, root := range roots {
+		if platformshared.ContainsPath(root, workDir) {
+			return nil
+		}
+	}
+	for _, root := range runtimeWorkspaceRootCapabilityFromContext(ctx) {
 		if platformshared.ContainsPath(root, workDir) {
 			return nil
 		}

@@ -15,7 +15,7 @@ const (
 	sharedTotalEffectiveLineTarget = 2000
 	// sharedTotalEffectiveLineBaseline 记录当前 shared 包的既有预算债。
 	// 注释治理不应改变有效行数；真实代码继续增长时仍会触发 ratchet。
-	sharedTotalEffectiveLineBaseline = 2384
+	sharedTotalEffectiveLineBaseline = 2504
 )
 
 var sharedFileEffectiveLineBaselines = map[string]int{

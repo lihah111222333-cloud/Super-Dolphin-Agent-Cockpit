@@ -63,14 +63,30 @@ func TestForceCompleteIgnoresStaleProviderID(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 
 	oldTurn, newTurn := configureForceCompleteTurns(s, "turn-old", "turn-new", "turn-new")
-	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1", ProviderID: "turn-old"}); err != nil {
-		t.Fatalf("ForceComplete() error = %v", err)
+	err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1", ProviderID: "turn-old"})
+	if !errors.Is(err, ErrForceCompleteTargetNotFound) {
+		t.Fatalf("ForceComplete() error = %v, want ErrForceCompleteTargetNotFound", err)
 	}
 
 	fixture.assertNoForceComplete(t)
 	assertTurnOpen(t, oldTurn, "stale ProviderID completed old turn")
 	assertTurnOpen(t, newTurn, "stale ProviderID completed active turn")
 	assertStaleProviderSessionState(t, s)
+}
+
+// TestForceCompleteNoTargetReturnsError verifies no-target force complete is not a silent success.
+func TestForceCompleteNoTargetReturnsError(t *testing.T) {
+	fixture := newCountingForceCompleteFixture(t)
+	defer fixture.close()
+
+	s := newForceCompleteTestSession(t, fixture.url())
+	defer closeCodexTestSession(t, s)
+
+	err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"})
+	if err == nil || !strings.Contains(err.Error(), "force complete target not found") {
+		t.Fatalf("ForceComplete() error = %v, want force complete target not found", err)
+	}
+	fixture.assertNoForceComplete(t)
 }
 
 type forceCompleteResponseMode int
@@ -365,9 +381,10 @@ func configureSingleForceCompleteTurn(s *session, providerID string) *turnHandle
 func startForceComplete(t *testing.T, s *session) chan error {
 	t.Helper()
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		done <- s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"})
-	}()
+	})
 	return done
 }
 

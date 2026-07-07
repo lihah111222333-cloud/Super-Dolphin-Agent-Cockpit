@@ -12,6 +12,9 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
   const actionsMenuRef = useRef(null);
   const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
   const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
+  const canForceCompleteThread = typeof store?.hasForceCompleteThreadAction === 'function'
+    ? Boolean(store.hasForceCompleteThreadAction())
+    : canInterruptThread;
   const feedback = chatHeaderFeedbackForStore(store);
   const activeThread = activeThreadForStore(store);
   const title = store?.activeThreadId && activeThread ? displayThreadName(activeThread) : '聊天页面';
@@ -58,6 +61,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
       {actionsOpen ? (
         <ChatActionsMenu
           copy={copy}
+          canForceCompleteThread={canForceCompleteThread}
           canInterruptThread={canInterruptThread}
           canUseThreadActions={canUseThreadActions}
           menuRef={actionsMenuRef}
@@ -121,9 +125,9 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
         <button
           type="button"
           className="icon-btn"
-          aria-label={canUseThreadActions ? '强制完成' : '强制完成（不可用）'}
-          title={canUseThreadActions ? '强制完成当前执行' : '请先选择会话'}
-          disabled={!canUseThreadActions}
+          aria-label={canForceCompleteThread ? '强制完成' : '强制完成（不可用）'}
+          title={canForceCompleteThread ? '强制完成当前执行' : '无运行中任务'}
+          disabled={!canForceCompleteThread}
           onClick={() => runUIAction(() => store.forceCompleteActiveThread?.())}
         >
           <CheckCircle2 size={14} />
@@ -150,6 +154,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
 
 function ChatActionsMenu({
   copy = APP_COPY.zh.chat,
+  canForceCompleteThread,
   canInterruptThread,
   canUseThreadActions,
   menuRef,
@@ -192,8 +197,8 @@ function ChatActionsMenu({
       />
       <ChatActionMenuButton
         icon={CheckCircle2}
-        label={canUseThreadActions ? '强制完成' : '强制完成（不可用）'}
-        disabled={!canUseThreadActions}
+        label={canForceCompleteThread ? '强制完成' : '强制完成（不可用）'}
+        disabled={!canForceCompleteThread}
         onClick={() => runMenuAction(() => store.forceCompleteActiveThread?.())}
       />
       <ChatActionMenuButton

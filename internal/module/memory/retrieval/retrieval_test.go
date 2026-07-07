@@ -40,6 +40,31 @@ func TestRelevantMemoryFinderFindRelevantMemoriesHydratesAndDedupes(t *testing.T
 	}
 }
 
+func TestRelevantMemoryFinderFindRelevantMemoriesIgnoresMemoryRootPathTerms(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "review-root", "memory-root", "project-space")
+	primary := testMemoryEntry("Review Style", "Keep review diffs focused", MemoryTypeUser, "Keep diffs small and review focused.")
+	unrelated := testMemoryEntry("Build Guard", "Use guarded build commands", MemoryTypeProject, "Run ./scripts/go_with_guard.sh build ./...")
+
+	writeTestTopicFile(t, filepath.Join(root, string(MemoryTypeUser), "style.md"), primary)
+	writeTestTopicFile(t, filepath.Join(root, string(MemoryTypeProject), "build-guard.md"), unrelated)
+
+	manifest, err := NewManifestBuilder().BuildManifest(root)
+	if err != nil {
+		t.Fatalf("BuildManifest() error = %v", err)
+	}
+	finder := NewRelevantMemoryFinder()
+	got, err := finder.FindRelevantMemories(context.Background(), "review", manifest)
+	if err != nil {
+		t.Fatalf("FindRelevantMemories() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("FindRelevantMemories() entries = %d, want 1", len(got))
+	}
+	if got[0].CanonicalName != CanonicalName("Review Style") {
+		t.Fatalf("FindRelevantMemories()[0].CanonicalName = %q, want %q", got[0].CanonicalName, CanonicalName("Review Style"))
+	}
+}
+
 func TestRelevantMemoryFinderFindRelevantMemoriesSkipsFilesDeletedAfterManifest(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	primaryPath := filepath.Join(root, string(MemoryTypeUser), "review-style.md")

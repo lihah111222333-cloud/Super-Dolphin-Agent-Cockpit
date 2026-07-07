@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 40,
-    "total_functions": 2054,
-    "total_methods": 992,
-    "total_interfaces": 133,
-    "total_interface_methods": 273,
-    "total_exported": 1120,
-    "total_unexported": 2592,
-    "total_structs": 533
+    "total_functions": 2152,
+    "total_methods": 1034,
+    "total_interfaces": 136,
+    "total_interface_methods": 279,
+    "total_exported": 1159,
+    "total_unexported": 2716,
+    "total_structs": 553
   },
   "packages": [
     {
@@ -1354,6 +1354,19 @@
           ]
         },
         {
+          "name": "cleanStringSlice",
+          "exported": false,
+          "params": [
+            {
+              "name": "values",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "cleanupAgentState",
           "exported": false,
           "params": [
@@ -1468,6 +1481,19 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "completeWakeupFence",
+          "exported": false,
+          "params": [
+            {
+              "name": "fence",
+              "type": "taskdag.WakeupFence"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -5138,6 +5164,19 @@
           ]
         },
         {
+          "name": "routeWakeupFence",
+          "exported": false,
+          "params": [
+            {
+              "name": "w",
+              "type": "*taskdag.Wakeup"
+            }
+          ],
+          "returns": [
+            "taskdag.WakeupFence"
+          ]
+        },
+        {
           "name": "rpcCall",
           "exported": false,
           "params": [
@@ -6419,8 +6458,8 @@
               "type": "int64"
             },
             {
-              "name": "wakeupID",
-              "type": "int64"
+              "name": "wakeupFence",
+              "type": "taskdag.WakeupFence"
             },
             {
               "name": "oldStatus",
@@ -6528,8 +6567,8 @@
               "type": "nodeexec.RunContext"
             },
             {
-              "name": "wakeupID",
-              "type": "int64"
+              "name": "wakeupFence",
+              "type": "taskdag.WakeupFence"
             },
             {
               "name": "oldStatus",
@@ -6563,12 +6602,8 @@
               "type": "time.Duration"
             },
             {
-              "name": "wakeupID",
-              "type": "int64"
-            },
-            {
-              "name": "wakeupAttempt",
-              "type": "int32"
+              "name": "wakeupFence",
+              "type": "taskdag.WakeupFence"
             },
             {
               "name": "oldStatus",
@@ -6606,12 +6641,8 @@
               "type": "time.Duration"
             },
             {
-              "name": "wakeupID",
-              "type": "int64"
-            },
-            {
-              "name": "wakeupAttempt",
-              "type": "int32"
+              "name": "wakeupFence",
+              "type": "taskdag.WakeupFence"
             },
             {
               "name": "oldStatus",
@@ -6645,8 +6676,8 @@
               "type": "nodeexec.RunContext"
             },
             {
-              "name": "wakeupID",
-              "type": "int64"
+              "name": "wakeupFence",
+              "type": "taskdag.WakeupFence"
             },
             {
               "name": "oldStatus",
@@ -8981,6 +9012,7 @@
             }
           ],
           "returns": [
+            "ArchiveOutcome",
             "error"
           ]
         },
@@ -9778,13 +9810,13 @@
             }
           ],
           "returns": [
-            "bool",
+            "ArchiveOutcome",
             "error"
           ]
         },
         {
           "receiver": "*service",
-          "name": "assignAndPersist",
+          "name": "assignAndEnqueueDispatch",
           "exported": false,
           "params": [
             {
@@ -9805,7 +9837,33 @@
             }
           ],
           "returns": [
-            "*taskdag.Node",
+            "*taskdag.AssignNodeAndEnqueueWakeupResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*service",
+          "name": "blockDispatchIncomplete",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "target",
+              "type": "*taskdag.Node"
+            },
+            {
+              "name": "assignedTo",
+              "type": "string"
+            },
+            {
+              "name": "runID",
+              "type": "int64"
+            }
+          ],
+          "returns": [
             "error"
           ]
         },
@@ -10100,37 +10158,6 @@
             }
           ],
           "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "enqueueManualDispatchWakeup",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "nodeKey",
-              "type": "string"
-            },
-            {
-              "name": "runID",
-              "type": "int64"
-            },
-            {
-              "name": "assignedTo",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "int64",
             "error"
           ]
         },
@@ -10612,9 +10639,13 @@
         },
         {
           "receiver": "*service",
-          "name": "forkParentForLaunchLocked",
+          "name": "forkParentForLaunch",
           "exported": false,
           "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
             {
               "name": "req",
               "type": "LaunchRequest"
@@ -11309,6 +11340,25 @@
         },
         {
           "receiver": "*service",
+          "name": "persistedForkParentForLaunch",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "parentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "agentRuntime",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*service",
           "name": "persistedThreadForBinding",
           "exported": false,
           "params": [
@@ -11910,6 +11960,22 @@
           ],
           "returns": [
             "[]AgentSnapshot",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*service",
+          "name": "runtimeForkParentForLaunch",
+          "exported": false,
+          "params": [
+            {
+              "name": "parentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "agentRuntime",
+            "bool",
             "error"
           ]
         },
@@ -12713,6 +12779,14 @@
           ]
         },
         {
+          "receiver": "ArchiveOutcome",
+          "name": "Archived",
+          "exported": true,
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "receiver": "WakeupDispatcherConfig",
           "name": "ConfigOrDefaults",
           "exported": true,
@@ -13337,6 +13411,10 @@
         }
       ],
       "structs": [
+        {
+          "name": "ArchiveOutcome",
+          "exported": true
+        },
         {
           "name": "DAGSubscriberDeps",
           "exported": true
@@ -14229,6 +14307,19 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "isGeneratedDocumentTempPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "sourcePath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -15592,6 +15683,23 @@
           ]
         },
         {
+          "name": "WithLaunchedThreadCapture",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dst",
+              "type": "*string"
+            }
+          ],
+          "returns": [
+            "context.Context"
+          ]
+        },
+        {
           "name": "WithRecorder",
           "exported": true,
           "params": [
@@ -16126,6 +16234,20 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "captureLaunchedThread",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "threadID",
+              "type": "string"
+            }
           ]
         },
         {
@@ -17853,6 +17975,28 @@
         },
         {
           "receiver": "*AgentExecutor",
+          "name": "StopLaunchedThreadAfterWritebackFailure",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "threadID",
+              "type": "string"
+            },
+            {
+              "name": "cause",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*AgentExecutor",
           "name": "agentLaunchOutcome",
           "exported": false,
           "params": [
@@ -19018,6 +19162,10 @@
         },
         {
           "name": "executionTimeoutEnvelope",
+          "exported": false
+        },
+        {
+          "name": "launchedThreadCaptureKey",
           "exported": false
         },
         {
@@ -20589,6 +20737,19 @@
             "platformrunner.Runner",
             "error"
           ]
+        },
+        {
+          "name": "nodeRunIDForLog",
+          "exported": false,
+          "params": [
+            {
+              "name": "node",
+              "type": "taskdag.Node"
+            }
+          ],
+          "returns": [
+            "int64"
+          ]
         }
       ],
       "methods": [
@@ -21524,6 +21685,13 @@
           ]
         },
         {
+          "name": "applyOpsInputSchema",
+          "exported": false,
+          "returns": [
+            "Schema"
+          ]
+        },
+        {
           "name": "applyOpsOpSchema",
           "exported": false,
           "returns": [
@@ -21801,6 +21969,20 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "cleanWorkspaceRelativePath",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
           ]
         },
         {
@@ -22098,6 +22280,37 @@
           ]
         },
         {
+          "name": "decodeVideoWithAudioInput",
+          "exported": false,
+          "params": [
+            {
+              "name": "input",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "videoWithAudioInput",
+            "error"
+          ]
+        },
+        {
+          "name": "defaultSharedMediaOutput",
+          "exported": false,
+          "params": [
+            {
+              "name": "prefix",
+              "type": "string"
+            },
+            {
+              "name": "ext",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "defineGovernedTool",
           "exported": false,
           "params": [
@@ -22302,6 +22515,32 @@
           ],
           "returns": [
             "contract.DispatchNodeRequest",
+            "error"
+          ]
+        },
+        {
+          "name": "downloadVideoToControlledPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "videoURL",
+              "type": "string"
+            },
+            {
+              "name": "requestID",
+              "type": "string"
+            },
+            {
+              "name": "outputPath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "controlledMediaPath",
             "error"
           ]
         },
@@ -22638,10 +22877,14 @@
             {
               "name": "voice",
               "type": "string"
+            },
+            {
+              "name": "outputPath",
+              "type": "string"
             }
           ],
           "returns": [
-            "string",
+            "controlledMediaPath",
             "error"
           ]
         },
@@ -23078,6 +23321,19 @@
           ]
         },
         {
+          "name": "launchCodexNativeDisabledTools",
+          "exported": false,
+          "params": [
+            {
+              "name": "readOnlyToolSurface",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "launchEnv",
           "exported": false,
           "params": [
@@ -23122,6 +23378,19 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "launchReadOnlyToolSurface",
+          "exported": false,
+          "params": [
+            {
+              "name": "in",
+              "type": "LaunchAgentInput"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -23623,6 +23892,27 @@
           ]
         },
         {
+          "name": "mediaToolMetadata",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "readFields",
+              "type": "[]string"
+            },
+            {
+              "name": "writeFields",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "ToolMetadata"
+          ]
+        },
+        {
           "name": "mergeAV",
           "exported": false,
           "params": [
@@ -23637,10 +23927,14 @@
             {
               "name": "audioPath",
               "type": "string"
+            },
+            {
+              "name": "outputPath",
+              "type": "string"
             }
           ],
           "returns": [
-            "string",
+            "controlledMediaPath",
             "error"
           ]
         },
@@ -23687,6 +23981,10 @@
           "name": "mergeLaunchDisabledTools",
           "exported": false,
           "params": [
+            {
+              "name": "readOnlyToolSurface",
+              "type": "bool"
+            },
             {
               "name": "userValue",
               "type": "string"
@@ -24155,6 +24453,20 @@
           ]
         },
         {
+          "name": "normalizeSharedFileListLimit",
+          "exported": false,
+          "params": [
+            {
+              "name": "limit",
+              "type": "int32"
+            }
+          ],
+          "returns": [
+            "int32",
+            "error"
+          ]
+        },
+        {
           "name": "normalizeWorkflowDiagnosticsLimit",
           "exported": false,
           "params": [
@@ -24230,6 +24542,29 @@
           ],
           "returns": [
             "map[string]struct{}"
+          ]
+        },
+        {
+          "name": "parseControlledMediaRef",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "string"
+            },
+            {
+              "name": "field",
+              "type": "string"
+            },
+            {
+              "name": "write",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "ToolPathAuthority",
+            "string",
+            "error"
           ]
         },
         {
@@ -24670,6 +25005,19 @@
           ]
         },
         {
+          "name": "readOnlyLaunchAgentType",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentType",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "readSharedFile",
           "exported": false,
           "params": [
@@ -24837,6 +25185,23 @@
             {
               "name": "schedule",
               "type": "DAGScheduleInput"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "rejectUncontrolledOutputPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "string"
+            },
+            {
+              "name": "field",
+              "type": "string"
             }
           ],
           "returns": [
@@ -25055,6 +25420,54 @@
           ]
         },
         {
+          "name": "resolveControlledMediaInput",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "raw",
+              "type": "string"
+            },
+            {
+              "name": "field",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "resolveControlledMediaOutput",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "raw",
+              "type": "string"
+            },
+            {
+              "name": "prefix",
+              "type": "string"
+            },
+            {
+              "name": "ext",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "controlledMediaPath",
+            "error"
+          ]
+        },
+        {
           "name": "resolveCreateDAGAgentID",
           "exported": false,
           "params": [
@@ -25211,6 +25624,28 @@
           ]
         },
         {
+          "name": "resolveSharedMediaAbs",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "cleaned",
+              "type": "string"
+            },
+            {
+              "name": "write",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
           "name": "resolveSharedPathInput",
           "exported": false,
           "params": [
@@ -25220,6 +25655,24 @@
             },
             {
               "name": "pos",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "resolveWorkspaceMediaAbs",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "cleaned",
               "type": "string"
             }
           ],
@@ -26334,6 +26787,19 @@
           ]
         },
         {
+          "name": "validateRegistryPathPolicies",
+          "exported": false,
+          "params": [
+            {
+              "name": "defs",
+              "type": "[]ToolDefinition"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "validateRootAgentAssignees",
           "exported": false,
           "params": [
@@ -26361,6 +26827,27 @@
           ]
         },
         {
+          "name": "validateSharedFilePolicyPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "field",
+              "type": "string"
+            },
+            {
+              "name": "value",
+              "type": "string"
+            },
+            {
+              "name": "write",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "validateStandaloneOrchPos",
           "exported": false,
           "params": [
@@ -26375,6 +26862,48 @@
           ],
           "returns": [
             "bool",
+            "error"
+          ]
+        },
+        {
+          "name": "validateToolPathPolicyField",
+          "exported": false,
+          "params": [
+            {
+              "name": "policy",
+              "type": "ToolPathPolicy"
+            },
+            {
+              "name": "field",
+              "type": "string"
+            },
+            {
+              "name": "raw",
+              "type": "any"
+            },
+            {
+              "name": "write",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateToolPathPolicyInput",
+          "exported": false,
+          "params": [
+            {
+              "name": "policy",
+              "type": "ToolPathPolicy"
+            },
+            {
+              "name": "input",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
             "error"
           ]
         },
@@ -26512,6 +27041,19 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "withToolPathPolicy",
+          "exported": false,
+          "params": [
+            {
+              "name": "def",
+              "type": "ToolDefinition"
+            }
+          ],
+          "returns": [
+            "ToolDefinition"
           ]
         },
         {
@@ -26922,7 +27464,8 @@
           "name": "List",
           "exported": true,
           "returns": [
-            "[]ToolDefinition"
+            "[]ToolDefinition",
+            "error"
           ]
         },
         {
@@ -26965,6 +27508,7 @@
                 }
               ],
               "returns": [
+                "orch.ArchiveOutcome",
                 "error"
               ]
             }
@@ -27165,6 +27709,10 @@
           "exported": true
         },
         {
+          "name": "ToolPathPolicy",
+          "exported": true
+        },
+        {
           "name": "UpdateNodeInput",
           "exported": true
         },
@@ -27234,6 +27782,10 @@
         },
         {
           "name": "commandListInput",
+          "exported": false
+        },
+        {
+          "name": "controlledMediaPath",
           "exported": false
         },
         {
@@ -27949,6 +28501,19 @@
           ]
         },
         {
+          "name": "IsBlockingSkillMirrorConflict",
+          "exported": true,
+          "params": [
+            {
+              "name": "item",
+              "type": "SkillMirrorReportItem"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "IsCriticalPromptSectionError",
           "exported": true,
           "params": [
@@ -28325,6 +28890,20 @@
           ],
           "returns": [
             "[]BaseInstructionBlock"
+          ]
+        },
+        {
+          "name": "ReadOnlyAgentDeniedTools",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "ReadOnlyCodexNativeDeniedTools",
+          "exported": true,
+          "returns": [
+            "[]string"
           ]
         },
         {
@@ -28808,6 +29387,19 @@
           ]
         },
         {
+          "name": "isActiveProviderMirrorTarget",
+          "exported": false,
+          "params": [
+            {
+              "name": "item",
+              "type": "SkillMirrorReportItem"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "isEmptyJSON",
           "exported": false,
           "params": [
@@ -28817,6 +29409,20 @@
             }
           ],
           "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "managedRuntimeStdioCommandName",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
             "bool"
           ]
         },
@@ -28891,6 +29497,19 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "normalizeRuntimeStdioArgs",
+          "exported": false,
+          "params": [
+            {
+              "name": "args",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "[]string"
           ]
         },
         {
@@ -29023,6 +29642,157 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "runtimeDefaultSQLiteArgsAllowed",
+          "exported": false,
+          "params": [
+            {
+              "name": "args",
+              "type": "[]string"
+            },
+            {
+              "name": "sqliteProductDBPath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "runtimeLegacySQLiteArgsAllowed",
+          "exported": false,
+          "params": [
+            {
+              "name": "args",
+              "type": "[]string"
+            },
+            {
+              "name": "sqliteProductDBPath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "runtimeLegacySQLiteDatabasePath",
+          "exported": false,
+          "params": [
+            {
+              "name": "args",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "runtimeNPXArgsAllowed",
+          "exported": false,
+          "params": [
+            {
+              "name": "args",
+              "type": "[]string"
+            },
+            {
+              "name": "sqliteProductDBPath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "runtimeNormalizeSQLiteDatabasePath",
+          "exported": false,
+          "params": [
+            {
+              "name": "path",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "runtimeSQLiteDBHubDSN",
+          "exported": false,
+          "params": [
+            {
+              "name": "databasePath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "runtimeStdioCommandAllowed",
+          "exported": false,
+          "params": [
+            {
+              "name": "command",
+              "type": "string"
+            },
+            {
+              "name": "args",
+              "type": "[]string"
+            },
+            {
+              "name": "sqliteProductDBPath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "runtimeStdioCommandBase",
+          "exported": false,
+          "params": [
+            {
+              "name": "command",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "runtimeStdioCommandHasPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "command",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "runtimeStdioCommandLabel",
+          "exported": false,
+          "params": [
+            {
+              "name": "command",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
@@ -29312,6 +30082,28 @@
         },
         {
           "receiver": "RuntimeMCPPolicy",
+          "name": "ValidateManagedRuntimeStdioCommand",
+          "exported": true,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "command",
+              "type": "string"
+            },
+            {
+              "name": "args",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "RuntimeMCPPolicy",
           "name": "ValidateManifestBinary",
           "exported": true,
           "params": [
@@ -29340,6 +30132,64 @@
           ],
           "returns": [
             "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "RuntimeMCPPolicy",
+          "name": "ValidateRuntimeStdioCommand",
+          "exported": true,
+          "params": [
+            {
+              "name": "command",
+              "type": "string"
+            },
+            {
+              "name": "args",
+              "type": "[]string"
+            },
+            {
+              "name": "sqliteProductDBPath",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "RuntimeMCPPolicy",
+          "name": "validateManagedManifestBinary",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "binary",
+              "type": "providerdto.MCPBinary"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "RuntimeMCPPolicy",
+          "name": "validateTrustedManifestBinary",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "binary",
+              "type": "providerdto.MCPBinary"
+            }
+          ],
+          "returns": [
             "error"
           ]
         },
@@ -30187,6 +31037,30 @@
               ]
             },
             {
+              "name": "ListPromptDocuments",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "int"
+                },
+                {
+                  "type": "int64"
+                },
+                {
+                  "type": "int64"
+                }
+              ],
+              "returns": [
+                "[]DatasourceDocument",
+                "error"
+              ]
+            },
+            {
               "name": "UpsertDocument",
               "params": [
                 {
@@ -30452,6 +31326,23 @@
               ]
             },
             {
+              "name": "GetPendingReviewsPage",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "params",
+                  "type": "HookPendingReviewPageParams"
+                }
+              ],
+              "returns": [
+                "HookPendingReviewPage",
+                "error"
+              ]
+            },
+            {
               "name": "Resolve",
               "params": [
                 {
@@ -30490,6 +31381,42 @@
               ],
               "returns": [
                 "mcp.HookSubscribeResponse",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "HookPendingReviewPager",
+          "exported": true,
+          "methods": [
+            {
+              "name": "CountPendingReviews",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "int64",
+                "error"
+              ]
+            },
+            {
+              "name": "ListPendingReviewsPage",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "params",
+                  "type": "HookPendingReviewPageParams"
+                }
+              ],
+              "returns": [
+                "HookPendingReviewPage",
                 "error"
               ]
             }
@@ -32461,6 +33388,25 @@
           ]
         },
         {
+          "name": "ThreadActiveCounter",
+          "exported": true,
+          "methods": [
+            {
+              "name": "CountActive",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "int64",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
           "name": "ThreadConfigReader",
           "exported": true,
           "methods": [
@@ -33317,6 +34263,14 @@
           "exported": true
         },
         {
+          "name": "HookPendingReviewPage",
+          "exported": true
+        },
+        {
+          "name": "HookPendingReviewPageParams",
+          "exported": true
+        },
+        {
           "name": "InsightApprovalSnapshot",
           "exported": true
         },
@@ -33597,6 +34551,18 @@
           "exported": true
         },
         {
+          "name": "ThreadListPage",
+          "exported": true
+        },
+        {
+          "name": "ThreadListPageParams",
+          "exported": true
+        },
+        {
+          "name": "ThreadListRecord",
+          "exported": true
+        },
+        {
           "name": "ThreadMetadata",
           "exported": true
         },
@@ -33769,6 +34735,10 @@
           "name": "allowedStdioMCPCommand",
           "exported": false,
           "params": [
+            {
+              "name": "serverName",
+              "type": "string"
+            },
             {
               "name": "command",
               "type": "string"
@@ -34199,19 +35169,6 @@
           ],
           "returns": [
             "int"
-          ]
-        },
-        {
-          "name": "claudeProviderErrorPayload",
-          "exported": false,
-          "params": [
-            {
-              "name": "data",
-              "type": "any"
-            }
-          ],
-          "returns": [
-            "json.RawMessage"
           ]
         },
         {
@@ -36007,6 +36964,20 @@
           ]
         },
         {
+          "name": "releaseTransportAsync",
+          "exported": false,
+          "params": [
+            {
+              "name": "tr",
+              "type": "*transport"
+            },
+            {
+              "name": "cleanup",
+              "type": "func()"
+            }
+          ]
+        },
+        {
           "name": "releaseTransport",
           "exported": false,
           "params": [
@@ -36262,6 +37233,19 @@
           ]
         },
         {
+          "name": "safeCLICommandName",
+          "exported": false,
+          "params": [
+            {
+              "name": "command",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "sanitizeClaudeModel",
           "exported": false,
           "params": [
@@ -36432,6 +37416,16 @@
             "string",
             "string",
             "bool"
+          ]
+        },
+        {
+          "name": "startTransportWait",
+          "exported": false,
+          "params": [
+            {
+              "name": "tr",
+              "type": "*transport"
+            }
           ]
         },
         {
@@ -37615,6 +38609,11 @@
               "type": "time.Time"
             }
           ]
+        },
+        {
+          "receiver": "*sessionLogWatcher",
+          "name": "startPollLoop",
+          "exported": false
         },
         {
           "receiver": "*sessionLogWatcher",
@@ -39772,6 +40771,9 @@
               "name": "disabled",
               "type": "[]string"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -39812,6 +40814,46 @@
             {
               "name": "requestID",
               "type": "int64"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "assistantMessageContentText",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "assistantMessagePayload",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "map[string]any",
+            "bool"
+          ]
+        },
+        {
+          "name": "assistantMessageText",
+          "exported": false,
+          "params": [
+            {
+              "name": "item",
+              "type": "map[string]any"
             }
           ],
           "returns": [
@@ -40098,7 +41140,8 @@
             }
           ],
           "returns": [
-            "turnStartParams"
+            "turnStartParams",
+            "error"
           ]
         },
         {
@@ -40115,7 +41158,8 @@
             }
           ],
           "returns": [
-            "map[string]any"
+            "map[string]any",
+            "error"
           ]
         },
         {
@@ -40227,6 +41271,23 @@
             {
               "name": "timestamp",
               "type": "time.Time"
+            },
+            {
+              "name": "preview",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "providershared.ToolResultRecord"
+          ]
+        },
+        {
+          "name": "captureSessionToolResult",
+          "exported": false,
+          "params": [
+            {
+              "name": "header",
+              "type": "shareddto.ToolCallHeader"
             },
             {
               "name": "preview",
@@ -40415,7 +41476,7 @@
           ]
         },
         {
-          "name": "codexDisabledNativeToolIDs",
+          "name": "codexDisabledToolsFromConfig",
           "exported": false,
           "params": [
             {
@@ -40424,7 +41485,8 @@
             }
           ],
           "returns": [
-            "[]string"
+            "[]string",
+            "error"
           ]
         },
         {
@@ -40605,7 +41667,8 @@
             }
           ],
           "returns": [
-            "codexNativeToolPolicy"
+            "codexNativeToolPolicy",
+            "error"
           ]
         },
         {
@@ -40618,7 +41681,8 @@
             }
           ],
           "returns": [
-            "codexNativeToolPolicy"
+            "codexNativeToolPolicy",
+            "error"
           ]
         },
         {
@@ -40632,6 +41696,65 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "codexReadOnlySandboxPolicyValueFromAny",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "map[string]any"
+          ]
+        },
+        {
+          "name": "codexReadOnlySandboxPolicyValueFromMap",
+          "exported": false,
+          "params": [
+            {
+              "name": "policy",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "map[string]any"
+          ]
+        },
+        {
+          "name": "codexReadOnlySandboxPolicyValueFromRaw",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "map[string]any"
+          ]
+        },
+        {
+          "name": "codexReadOnlySandboxPolicyValue",
+          "exported": false,
+          "returns": [
+            "map[string]any"
+          ]
+        },
+        {
+          "name": "codexReadOnlySandboxPolicy",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "json.RawMessage"
           ]
         },
         {
@@ -40702,6 +41825,36 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "codexSandboxPolicyFromMode",
+          "exported": false,
+          "params": [
+            {
+              "name": "mode",
+              "type": "string"
+            },
+            {
+              "name": "obj",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "json.RawMessage"
+          ]
+        },
+        {
+          "name": "codexSandboxPolicyWireJSON",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "json.RawMessage"
           ]
         },
         {
@@ -40872,6 +42025,42 @@
           ],
           "returns": [
             "error"
+          ]
+        },
+        {
+          "name": "copySandboxBoolField",
+          "exported": false,
+          "params": [
+            {
+              "name": "policy",
+              "type": "map[string]any"
+            },
+            {
+              "name": "obj",
+              "type": "map[string]any"
+            },
+            {
+              "name": "camelKey",
+              "type": "string"
+            },
+            {
+              "name": "snakeKey",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "name": "copySandboxReadOnlyAccessField",
+          "exported": false,
+          "params": [
+            {
+              "name": "policy",
+              "type": "map[string]any"
+            },
+            {
+              "name": "obj",
+              "type": "map[string]any"
+            }
           ]
         },
         {
@@ -41046,6 +42235,20 @@
           ]
         },
         {
+          "name": "decodeTurnToolFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "turnToolFailure",
+            "bool"
+          ]
+        },
+        {
           "name": "defaultCodexAppLogger",
           "exported": false,
           "params": [
@@ -41174,6 +42377,19 @@
           ],
           "returns": [
             "json.RawMessage"
+          ]
+        },
+        {
+          "name": "encodeTurnToolFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "failure",
+              "type": "turnToolFailure"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
@@ -41451,19 +42667,6 @@
           ],
           "returns": [
             "string"
-          ]
-        },
-        {
-          "name": "fallbackTurnInput",
-          "exported": false,
-          "params": [
-            {
-              "name": "item",
-              "type": "dto.InputItem"
-            }
-          ],
-          "returns": [
-            "turnInputItem"
           ]
         },
         {
@@ -41992,6 +43195,32 @@
             {
               "name": "method",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isAssistantMessageCompletedMethod",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isAssistantMessageItem",
+          "exported": false,
+          "params": [
+            {
+              "name": "item",
+              "type": "map[string]any"
             }
           ],
           "returns": [
@@ -42624,7 +43853,8 @@
             }
           ],
           "returns": [
-            "turnInputItem"
+            "turnInputItem",
+            "error"
           ]
         },
         {
@@ -42774,6 +44004,19 @@
           ]
         },
         {
+          "name": "newCodexModelResolver",
+          "exported": false,
+          "params": [
+            {
+              "name": "target",
+              "type": "callTarget"
+            }
+          ],
+          "returns": [
+            "codexModelResolver"
+          ]
+        },
+        {
           "name": "newDreamExecutor",
           "exported": false,
           "params": [
@@ -42913,6 +44156,23 @@
           ]
         },
         {
+          "name": "newRecoverableTransportWriteError",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "newSessionRuntime",
           "exported": false,
           "params": [
@@ -43031,6 +44291,27 @@
           ]
         },
         {
+          "name": "newTransportCallError",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "writeAttempted",
+              "type": "bool"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "newTransport",
           "exported": false,
           "params": [
@@ -43128,6 +44409,24 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "normalizeCodexDisabledToolsConfig",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            },
+            {
+              "name": "raw",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "[]string",
+            "error"
           ]
         },
         {
@@ -43648,6 +44947,24 @@
           ]
         },
         {
+          "name": "positiveApprovalRequestID",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "int64"
+            },
+            {
+              "name": "ok",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "int64",
+            "bool"
+          ]
+        },
+        {
           "name": "prepareCodexInstallWorkDir",
           "exported": false,
           "params": [
@@ -44058,6 +45375,23 @@
           ]
         },
         {
+          "name": "requestedCodexModelAllowed",
+          "exported": false,
+          "params": [
+            {
+              "name": "requested",
+              "type": "string"
+            },
+            {
+              "name": "models",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "requireProviderResumeThreadID",
           "exported": false,
           "params": [
@@ -44204,7 +45538,7 @@
             },
             {
               "name": "t",
-              "type": "*transport"
+              "type": "callTarget"
             },
             {
               "name": "requested",
@@ -44212,8 +45546,7 @@
             }
           ],
           "returns": [
-            "string",
-            "bool",
+            "codexModelResolution",
             "error"
           ]
         },
@@ -44228,6 +45561,19 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "restrictedReadOnlyAccessValue",
+          "exported": false,
+          "params": [
+            {
+              "name": "access",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "map[string]any"
           ]
         },
         {
@@ -44277,6 +45623,19 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "retryPolicyForTransportMethod",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "transportRetryPolicy"
           ]
         },
         {
@@ -44341,6 +45700,42 @@
           ]
         },
         {
+          "name": "sandboxBoolField",
+          "exported": false,
+          "params": [
+            {
+              "name": "obj",
+              "type": "map[string]any"
+            },
+            {
+              "name": "keys",
+              "type": "...string"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool"
+          ]
+        },
+        {
+          "name": "sandboxMapField",
+          "exported": false,
+          "params": [
+            {
+              "name": "obj",
+              "type": "map[string]any"
+            },
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "map[string]any",
+            "bool"
+          ]
+        },
+        {
           "name": "sandboxModeObjectValue",
           "exported": false,
           "params": [
@@ -44351,6 +45746,36 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "sandboxPolicyLogShape",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "sandboxStringSliceField",
+          "exported": false,
+          "params": [
+            {
+              "name": "obj",
+              "type": "map[string]any"
+            },
+            {
+              "name": "keys",
+              "type": "...string"
+            }
+          ],
+          "returns": [
+            "[]string"
           ]
         },
         {
@@ -44381,6 +45806,24 @@
           ],
           "returns": [
             "any"
+          ]
+        },
+        {
+          "name": "selectCodexModel",
+          "exported": false,
+          "params": [
+            {
+              "name": "requested",
+              "type": "string"
+            },
+            {
+              "name": "models",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "codexModelResolution",
+            "error"
           ]
         },
         {
@@ -44700,6 +46143,38 @@
           ]
         },
         {
+          "name": "strictApprovalRequestIDValue",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "int64",
+            "bool"
+          ]
+        },
+        {
+          "name": "strictApprovalRequestID",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "keys",
+              "type": "...string"
+            }
+          ],
+          "returns": [
+            "int64",
+            "bool"
+          ]
+        },
+        {
           "name": "stringInSet",
           "exported": false,
           "params": [
@@ -44814,6 +46289,19 @@
           ],
           "returns": [
             "turnInputItem"
+          ]
+        },
+        {
+          "name": "threadStartModelResolutionSource",
+          "exported": false,
+          "params": [
+            {
+              "name": "req",
+              "type": "dto.StartSessionRequest"
+            }
+          ],
+          "returns": [
+            "supportutil.CodexModelResolutionSource"
           ]
         },
         {
@@ -45004,6 +46492,19 @@
           ]
         },
         {
+          "name": "toolFailureSummary",
+          "exported": false,
+          "params": [
+            {
+              "name": "failures",
+              "type": "[]turnToolFailure"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "translateAgentEvent",
           "exported": false,
           "params": [
@@ -45132,6 +46633,19 @@
           ]
         },
         {
+          "name": "transportWriteAttempted",
+          "exported": false,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "trimInjectedLSPHint",
           "exported": false,
           "params": [
@@ -45248,7 +46762,8 @@
             }
           ],
           "returns": [
-            "[]turnInputItem"
+            "[]turnInputItem",
+            "error"
           ]
         },
         {
@@ -45266,6 +46781,23 @@
           ],
           "returns": [
             "turndto.TurnOutputDelta"
+          ]
+        },
+        {
+          "name": "turnTerminalError",
+          "exported": false,
+          "params": [
+            {
+              "name": "success",
+              "type": "bool"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
@@ -45438,6 +46970,19 @@
             {
               "name": "resp",
               "type": "*http.Response"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateCodexNativeToolIDs",
+          "exported": false,
+          "params": [
+            {
+              "name": "ids",
+              "type": "[]string"
             }
           ],
           "returns": [
@@ -46297,6 +47842,33 @@
         },
         {
           "receiver": "*PeerSupervisor",
+          "name": "startSuperviseOne",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "h",
+              "type": "peerHandle"
+            },
+            {
+              "name": "wg",
+              "type": "*sync.WaitGroup"
+            },
+            {
+              "name": "cancel",
+              "type": "context.CancelCauseFunc"
+            }
+          ]
+        },
+        {
+          "receiver": "*PeerSupervisor",
           "name": "stopAfterPeerError",
           "exported": false,
           "params": [
@@ -46427,6 +47999,21 @@
             {
               "name": "ch",
               "type": "chan\u003c- error"
+            }
+          ]
+        },
+        {
+          "receiver": "*PeerSupervisor",
+          "name": "waitSupervisorsAsync",
+          "exported": false,
+          "params": [
+            {
+              "name": "wg",
+              "type": "*sync.WaitGroup"
+            },
+            {
+              "name": "done",
+              "type": "chan\u003c- struct{}"
             }
           ]
         },
@@ -46862,6 +48449,36 @@
         },
         {
           "receiver": "*SessionRuntime",
+          "name": "startReaderLoop",
+          "exported": false,
+          "params": [
+            {
+              "name": "readCtx",
+              "type": "context.Context"
+            },
+            {
+              "name": "done",
+              "type": "chan struct{}"
+            }
+          ]
+        },
+        {
+          "receiver": "*SessionRuntime",
+          "name": "startRuntimeWorker",
+          "exported": false,
+          "params": [
+            {
+              "name": "label",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func()"
+            }
+          ]
+        },
+        {
+          "receiver": "*SessionRuntime",
           "name": "tickHealth",
           "exported": false
         },
@@ -47084,6 +48701,33 @@
         },
         {
           "receiver": "*driver",
+          "name": "finishOrCleanupResumedSession",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "s",
+              "type": "*session"
+            },
+            {
+              "name": "req",
+              "type": "dto.ResumeSessionRequest"
+            },
+            {
+              "name": "threadID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*driver",
           "name": "finishResumedSession",
           "exported": false,
           "params": [
@@ -47105,7 +48749,8 @@
             }
           ],
           "returns": [
-            "contract.Session"
+            "contract.Session",
+            "error"
           ]
         },
         {
@@ -47271,6 +48916,29 @@
               "name": "serverURL",
               "type": "string"
             }
+          ]
+        },
+        {
+          "receiver": "*driver",
+          "name": "resolveResumeOptionsWithPolicy",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "dto.ResumeSessionRequest"
+            },
+            {
+              "name": "policy",
+              "type": "codexNativeToolPolicy"
+            }
+          ],
+          "returns": [
+            "[]sessionOption",
+            "error"
           ]
         },
         {
@@ -47717,6 +49385,30 @@
           "exported": false
         },
         {
+          "receiver": "*recoverableTransportWriteError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*recoverableTransportWriteError",
+          "name": "Recoverable",
+          "exported": true,
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*recoverableTransportWriteError",
+          "name": "Unwrap",
+          "exported": true,
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "*recoveryManager",
           "name": "CheckHealth",
           "exported": true,
@@ -48146,6 +49838,24 @@
         },
         {
           "receiver": "*session",
+          "name": "applyRuntimeTurnStartOverrides",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "params",
+              "type": "*turnStartParams"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "applySlashConfig",
           "exported": false,
           "params": [
@@ -48305,21 +50015,7 @@
         },
         {
           "receiver": "*session",
-          "name": "completeRecoveryReplay",
-          "exported": false,
-          "params": [
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*session",
-          "name": "completeRolloutAssistantMessage",
+          "name": "completeAssistantMessageCompleted",
           "exported": false,
           "params": [
             {
@@ -48333,6 +50029,20 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "completeRecoveryReplay",
+          "exported": false,
+          "params": [
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -48506,6 +50216,17 @@
           "exported": false,
           "returns": [
             "string"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "discardTurnToolFailures",
+          "exported": false,
+          "params": [
+            {
+              "name": "turnID",
+              "type": "string"
+            }
           ]
         },
         {
@@ -48924,6 +50645,69 @@
         },
         {
           "receiver": "*session",
+          "name": "recordDirectToolFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "recordToolFailureFromRaw",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "recordTranslatedToolFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "translate",
+              "type": "toolEndTranslator"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "recordTurnToolFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "header",
+              "type": "shareddto.ToolCallHeader"
+            },
+            {
+              "name": "errorText",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "recoveryResumeCWD",
           "exported": false,
           "returns": [
@@ -49091,7 +50875,8 @@
             }
           ],
           "returns": [
-            "string"
+            "string",
+            "error"
           ]
         },
         {
@@ -49158,6 +50943,21 @@
           "returns": [
             "string",
             "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "runtimeConfigJSON",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "json.RawMessage",
+            "error"
           ]
         },
         {
@@ -49362,6 +51162,20 @@
         },
         {
           "receiver": "*session",
+          "name": "takeTurnToolFailures",
+          "exported": false,
+          "params": [
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]turnToolFailure"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "takeTurn",
           "exported": false,
           "params": [
@@ -49440,6 +51254,22 @@
           ],
           "returns": [
             "contract.ApprovalDecision",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*transportCallError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*transportCallError",
+          "name": "Unwrap",
+          "exported": true,
+          "returns": [
             "error"
           ]
         },
@@ -50103,6 +51933,32 @@
         },
         {
           "receiver": "*transport",
+          "name": "startCollectProcessStderr",
+          "exported": false,
+          "params": [
+            {
+              "name": "proc",
+              "type": "*localProcess"
+            },
+            {
+              "name": "stderr",
+              "type": "io.ReadCloser"
+            }
+          ]
+        },
+        {
+          "receiver": "*transport",
+          "name": "startWatchLocalProcess",
+          "exported": false,
+          "params": [
+            {
+              "name": "proc",
+              "type": "*localProcess"
+            }
+          ]
+        },
+        {
+          "receiver": "*transport",
           "name": "stopProcess",
           "exported": false,
           "params": [
@@ -50276,6 +52132,44 @@
           ]
         },
         {
+          "receiver": "codexModelResolver",
+          "name": "Resolve",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "requested",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "codexModelResolution",
+            "error"
+          ]
+        },
+        {
+          "receiver": "codexModelResolver",
+          "name": "listModels",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "requested",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]string",
+            "error"
+          ]
+        },
+        {
           "receiver": "codexNativeToolPolicy",
           "name": "ApplyThreadResumeParams",
           "exported": true,
@@ -50337,6 +52231,22 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "receiver": "forceCompleteTargetNotFoundError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "forceCompleteTargetNotFoundError",
+          "name": "ForceCompleteTargetNotFound",
+          "exported": true,
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -50622,6 +52532,14 @@
           "exported": false
         },
         {
+          "name": "codexModelResolution",
+          "exported": false
+        },
+        {
+          "name": "codexModelResolver",
+          "exported": false
+        },
+        {
           "name": "codexNativeToolPolicy",
           "exported": false
         },
@@ -50647,6 +52565,10 @@
         },
         {
           "name": "execPeerLauncher",
+          "exported": false
+        },
+        {
+          "name": "forceCompleteTargetNotFoundError",
           "exported": false
         },
         {
@@ -50698,6 +52620,10 @@
           "exported": false
         },
         {
+          "name": "poolEvictedServer",
+          "exported": false
+        },
+        {
           "name": "poolSpawnAppServerArgsContextKey",
           "exported": false
         },
@@ -50731,6 +52657,10 @@
         },
         {
           "name": "processedApprovalEntry",
+          "exported": false
+        },
+        {
+          "name": "recoverableTransportWriteError",
           "exported": false
         },
         {
@@ -50790,6 +52720,14 @@
           "exported": false
         },
         {
+          "name": "transportCallError",
+          "exported": false
+        },
+        {
+          "name": "transportRetryPolicy",
+          "exported": false
+        },
+        {
           "name": "transportServer",
           "exported": false
         },
@@ -50815,6 +52753,10 @@
         },
         {
           "name": "turnStartResult",
+          "exported": false
+        },
+        {
+          "name": "turnToolFailure",
           "exported": false
         }
       ]
@@ -51476,6 +53418,23 @@
           ]
         },
         {
+          "name": "CodexModelNeedsListResolutionForSource",
+          "exported": true,
+          "params": [
+            {
+              "name": "model",
+              "type": "string"
+            },
+            {
+              "name": "source",
+              "type": "CodexModelResolutionSource"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "CodexModelNeedsListResolution",
           "exported": true,
           "params": [
@@ -51568,6 +53527,23 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "NewModelResolutionRequiredError",
+          "exported": true,
+          "params": [
+            {
+              "name": "requested",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -51713,7 +53689,43 @@
           ]
         }
       ],
+      "methods": [
+        {
+          "receiver": "*ModelResolutionRequiredError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*ModelResolutionRequiredError",
+          "name": "Is",
+          "exported": true,
+          "params": [
+            {
+              "name": "target",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*ModelResolutionRequiredError",
+          "name": "Unwrap",
+          "exported": true,
+          "returns": [
+            "error"
+          ]
+        }
+      ],
       "structs": [
+        {
+          "name": "ModelResolutionRequiredError",
+          "exported": true
+        },
         {
           "name": "codexConfigTOML",
           "exported": false
@@ -52852,6 +54864,32 @@
           ]
         },
         {
+          "name": "SafeToolArgumentsPreviewString",
+          "exported": true,
+          "params": [
+            {
+              "name": "raw",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "SafeToolArgumentsPreview",
+          "exported": true,
+          "params": [
+            {
+              "name": "raw",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "SanitizeConfigString",
           "exported": true,
           "params": [
@@ -53146,6 +55184,24 @@
           ]
         },
         {
+          "name": "ensureExplicitProviderHome",
+          "exported": false,
+          "params": [
+            {
+              "name": "provider",
+              "type": "string"
+            },
+            {
+              "name": "home",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
           "name": "fillTraceDefaults",
           "exported": false,
           "params": [
@@ -53265,12 +55321,12 @@
           ]
         },
         {
-          "name": "isBlockingSkillMirrorConflict",
+          "name": "isManagedManifestServerName",
           "exported": false,
           "params": [
             {
-              "name": "item",
-              "type": "contract.SkillMirrorReportItem"
+              "name": "name",
+              "type": "string"
             }
           ],
           "returns": [
@@ -53278,11 +55334,11 @@
           ]
         },
         {
-          "name": "isManagedManifestServerName",
+          "name": "isMirrorDriftConflictKind",
           "exported": false,
           "params": [
             {
-              "name": "name",
+              "name": "kind",
               "type": "string"
             }
           ],
@@ -53297,6 +55353,23 @@
             {
               "name": "path",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isProviderReadableMirrorDrift",
+          "exported": false,
+          "params": [
+            {
+              "name": "target",
+              "type": "string"
+            },
+            {
+              "name": "item",
+              "type": "contract.SkillMirrorReportItem"
             }
           ],
           "returns": [
@@ -53453,6 +55526,31 @@
           ]
         },
         {
+          "name": "providerHomePermissionError",
+          "exported": false,
+          "params": [
+            {
+              "name": "provider",
+              "type": "string"
+            },
+            {
+              "name": "path",
+              "type": "string"
+            },
+            {
+              "name": "operation",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "providerHomeRoot",
           "exported": false,
           "params": [
@@ -53532,6 +55630,36 @@
             {
               "name": "projectRoot",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "providerStartupGateBaseMessage",
+          "exported": false,
+          "params": [
+            {
+              "name": "code",
+              "type": "string"
+            },
+            {
+              "name": "count",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "providerStartupGateDetails",
+          "exported": false,
+          "params": [
+            {
+              "name": "e",
+              "type": "*ProviderStartupGateError"
             }
           ],
           "returns": [
@@ -53652,6 +55780,30 @@
       ],
       "methods": [
         {
+          "receiver": "*ProviderStartupGateError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*ProviderStartupGateError",
+          "name": "GateCode",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*ProviderStartupGateError",
+          "name": "Unwrap",
+          "exported": true,
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "binaryDirResolver",
           "name": "ResolveBinaryDir",
           "exported": true,
@@ -53687,6 +55839,10 @@
         }
       ],
       "structs": [
+        {
+          "name": "ProviderStartupGateError",
+          "exported": true
+        },
         {
           "name": "ToolResultMeta",
           "exported": true
@@ -53725,6 +55881,72 @@
           "returns": [
             "mcp.BeforeDecision"
           ]
+        },
+        {
+          "name": "reviewerAllowedTools",
+          "exported": false,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "reviewerDeniedTools",
+          "exported": false,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "reviewerPolicyAllowedTools",
+          "exported": false,
+          "params": [
+            {
+              "name": "candidates",
+              "type": "[]reviewerToolCandidate"
+            }
+          ],
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "reviewerToolPolicyDecision",
+          "exported": false,
+          "params": [
+            {
+              "name": "candidate",
+              "type": "reviewerToolCandidate"
+            }
+          ],
+          "returns": [
+            "toolpolicy.Decision"
+          ]
+        },
+        {
+          "name": "trustedReadOnlyTool",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "reviewerToolCandidate"
+          ]
+        },
+        {
+          "name": "workerDeniedTools",
+          "exported": false,
+          "returns": [
+            "[]string"
+          ]
+        }
+      ],
+      "structs": [
+        {
+          "name": "reviewerToolCandidate",
+          "exported": false
         }
       ]
     },
@@ -53933,6 +56155,23 @@
             {
               "name": "candidates",
               "type": "[]string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "autoResumeSingleflightKey",
+          "exported": false,
+          "params": [
+            {
+              "name": "binding",
+              "type": "*contract.SessionBinding"
+            },
+            {
+              "name": "req",
+              "type": "dto.ResumeSessionRequest"
             }
           ],
           "returns": [
@@ -55465,6 +57704,25 @@
         },
         {
           "receiver": "*sessionResolver",
+          "name": "ResolveSessionByAgentID",
+          "exported": true,
+          "params": [
+            {
+              "name": "_",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*sessionResolver",
           "name": "ResolveSession",
           "exported": true,
           "params": [
@@ -55593,6 +57851,25 @@
         },
         {
           "receiver": "*sessionResolver",
+          "name": "lookupAutoResumeBindingByAgentID",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*contract.SessionBinding",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*sessionResolver",
           "name": "lookupAutoResumeThreadState",
           "exported": false,
           "params": [
@@ -55694,6 +57971,29 @@
         },
         {
           "receiver": "*sessionResolver",
+          "name": "runAutoResumeSession",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "binding",
+              "type": "*contract.SessionBinding"
+            },
+            {
+              "name": "plan",
+              "type": "autoResumePlan"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*sessionResolver",
           "name": "tryCreateSession",
           "exported": false,
           "params": [
@@ -55709,21 +58009,6 @@
           "returns": [
             "contract.Session",
             "[]error"
-          ]
-        },
-        {
-          "receiver": "*sessionResolver",
-          "name": "tryExistingSession",
-          "exported": false,
-          "params": [
-            {
-              "name": "threadID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "contract.Session",
-            "bool"
           ]
         },
         {
@@ -55792,6 +58077,29 @@
         }
       ],
       "interfaces": [
+        {
+          "name": "AgentSessionResolver",
+          "exported": true,
+          "methods": [
+            {
+              "name": "ResolveSessionByAgentID",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.Session",
+                "error"
+              ]
+            }
+          ]
+        },
         {
           "name": "driverRegistry",
           "exported": false,

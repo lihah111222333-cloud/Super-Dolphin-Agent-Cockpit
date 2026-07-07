@@ -53,6 +53,7 @@ type promptTemplateDTO struct {
 	Description    string          `json:"description"`
 }
 
+// PromptListOutput 是 prompt_list envelope 响应，保留 Prompts/Data 双字段兼容旧调用方。
 type PromptListOutput struct {
 	Prompts   []promptTemplateDTO `json:"prompts"`
 	Data      []promptTemplateDTO `json:"data"`

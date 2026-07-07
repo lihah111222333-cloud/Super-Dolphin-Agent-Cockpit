@@ -40,14 +40,17 @@ type ComplexityMetrics struct {
 // │  保证任何遗漏都会在测试中立即暴露。                                   │
 // └───────────────────────────────────────────────────────────────────────┘
 type QualityMetrics struct {
-	GlobalVars      int  `json:"global_vars"`
-	HasInit         bool `json:"has_init,omitempty"`
-	PanicCount      int  `json:"panic_count"`
-	NakedReturns    int  `json:"naked_returns"`
-	EmptyFuncs      int  `json:"empty_funcs"`
-	TodoCount       int  `json:"todo_count"`
-	MaxStructFields int  `json:"max_struct_fields,omitempty"`
-	NakedGoroutines int  `json:"naked_goroutines,omitempty"`
+	GlobalVars       int  `json:"global_vars"`
+	HasInit          bool `json:"has_init,omitempty"`
+	PanicCount       int  `json:"panic_count"`
+	NakedReturns     int  `json:"naked_returns"`
+	EmptyFuncs       int  `json:"empty_funcs"`
+	TodoCount        int  `json:"todo_count"`
+	MaxStructFields  int  `json:"max_struct_fields,omitempty"`
+	NakedGoroutines  int  `json:"naked_goroutines,omitempty"`
+	RawGoroutines    int  `json:"raw_goroutines,omitempty"`
+	MissingDocs      int  `json:"missing_docs,omitempty"`
+	MaxStructMethods int  `json:"max_struct_methods,omitempty"`
 }
 
 // FileMetrics 聚合单文件的全部可棘轮指标。

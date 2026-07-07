@@ -12,6 +12,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
@@ -34,6 +35,9 @@ type AgentLauncher interface {
 	SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error)
 	IsRunning(ctx context.Context, agent *agentRuntime) bool
 }
+
+// LaunchResult 返回 launcher 启动后写回 service runtime 的远端身份。
+// 本地 launcher 可以保持空值；远端 launcher 必须提供 thread/agent id 供后续 turn 和 archive 路由。
 type LaunchResult struct {
 	ThreadID, RemoteAgentID string
 }
@@ -213,7 +217,9 @@ func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.R
 	if interval <= 0 {
 		interval = remoteLauncherInterval
 	}
-	go remoteLauncherHeartbeat(ctx, client, lease, interval)
+	safego.Go(ctx, nil, "mcp-orch.remoteLauncher.heartbeat", func(runCtx context.Context) {
+		remoteLauncherHeartbeat(runCtx, client, lease, interval)
+	})
 }
 func (r *remoteLauncher) stopHeartbeatLocked() {
 	if r.heartbeatCancel != nil {

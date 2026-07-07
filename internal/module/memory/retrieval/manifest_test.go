@@ -1,8 +1,10 @@
 package retrieval
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -150,5 +152,64 @@ func TestManifestBuilderBuildManifestMissingRoot(t *testing.T) {
 	}
 	if len(manifest) != 0 {
 		t.Fatalf("BuildManifest(missing) entries = %d, want 0", len(manifest))
+	}
+}
+
+// TestBuildManifestStopsWalkingAtMaxFiles verifies the scan budget stops before reading the next file.
+func TestBuildManifestStopsWalkingAtMaxFiles(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	writeTestTopicFile(t, filepath.Join(root, string(MemoryTypeUser), "0001-valid.md"), testMemoryEntry("One", "first", MemoryTypeUser, "one"))
+	writeOversizedHeaderFile(t, filepath.Join(root, string(MemoryTypeUser), "0002-broken.md"))
+
+	builder := NewManifestBuilder()
+	builder.MaxFiles = 1
+	manifest, err := builder.BuildManifest(root)
+	if err == nil || !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("BuildManifest() error = %v, want max-files truncation before reading second file", err)
+	}
+	if len(manifest) != 1 || manifest[0].Frontmatter.Name != "One" {
+		t.Fatalf("BuildManifest() entries = %#v, want first valid entry retained", manifest)
+	}
+}
+
+// TestScanHeadersSafeReturnsReadError verifies header scan failures are reported instead of skipped.
+func TestScanHeadersSafeReturnsReadError(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	brokenPath := filepath.Join(root, string(MemoryTypeUser), "broken.md")
+	writeOversizedHeaderFile(t, brokenPath)
+
+	headers, err := ScanHeadersSafe(root)
+	if err == nil || !strings.Contains(err.Error(), "broken.md") {
+		t.Fatalf("ScanHeadersSafe() error = %v entries=%#v, want typed read/header error", err, headers)
+	}
+}
+
+func TestManifestScanErrorSafeMessageOmitsPathAndCause(t *testing.T) {
+	absPath := filepath.Join(t.TempDir(), "project", "broken.md")
+	err := &ManifestScanError{
+		Path:      absPath,
+		Operation: "scan memory header",
+		Err:       errors.New("permission denied for " + absPath),
+	}
+
+	got := err.SafeMessage()
+	if got != "memory_manifest_scan_error stage=scan_memory_header" {
+		t.Fatalf("SafeMessage() = %q, want code/stage only", got)
+	}
+	for _, leak := range []string{absPath, "permission denied", "broken.md"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("SafeMessage() = %q, leaked %q", got, leak)
+		}
+	}
+}
+
+func writeOversizedHeaderFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	content := "---\nname: " + strings.Repeat("x", manifestHeaderScanLimit+1) + "\n---\nbody\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }

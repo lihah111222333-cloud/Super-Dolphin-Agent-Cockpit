@@ -98,6 +98,68 @@ func TestBuildThreadStartParamsBuildsSandboxPolicyForTurns(t *testing.T) {
 	assertJSONEqual(t, params.SandboxPolicy, `{"type":"workspaceWrite","writableRoots":["/repo"],"networkAccess":false}`)
 }
 
+// TestBuildThreadStartParamsPreservesRestrictedReadOnlySandboxPolicy 锁定只读沙箱的权限边界：
+// 用户配置的可读根必须随 thread/start 进入 sandboxPolicy，不能被压成裸 readOnly。
+func TestBuildThreadStartParamsPreservesRestrictedReadOnlySandboxPolicy(t *testing.T) {
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+		Config: map[string]any{
+			"sandbox": map[string]any{
+				"type": "readOnly",
+				"access": map[string]any{
+					"type":                    "restricted",
+					"readableRoots":           []string{"/repo/app", "/Users/ai/shared"},
+					"includePlatformDefaults": true,
+				},
+			},
+		},
+	})
+	if string(params.Sandbox) != `"read-only"` {
+		t.Fatalf("Sandbox = %s, want read-only mode string", string(params.Sandbox))
+	}
+	wantPolicy := `{
+		"type":"readOnly",
+		"access":{
+			"type":"restricted",
+			"readableRoots":["/repo/app","/Users/ai/shared"],
+			"includePlatformDefaults":true
+		}
+	}`
+	assertJSONEqual(t, params.SandboxPolicy, wantPolicy)
+}
+
+// TestBuildThreadStartParamsPreservesSnakeCaseRestrictedReadOnlySandboxPolicy 覆盖历史配置字段名，
+// 防止 readable_roots / include_platform_defaults 在兼容转换时被静默丢弃。
+func TestBuildThreadStartParamsPreservesSnakeCaseRestrictedReadOnlySandboxPolicy(t *testing.T) {
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+		Config: map[string]any{
+			"sandbox": map[string]any{
+				"mode": "read-only",
+				"access": map[string]any{
+					"type":                      "restricted",
+					"readable_roots":            []any{"/repo/app", "/Users/ai/docs"},
+					"include_platform_defaults": true,
+				},
+			},
+		},
+	})
+	if string(params.Sandbox) != `"read-only"` {
+		t.Fatalf("Sandbox = %s, want read-only mode string", string(params.Sandbox))
+	}
+	wantPolicy := `{
+		"type":"readOnly",
+		"access":{
+			"type":"restricted",
+			"readableRoots":["/repo/app","/Users/ai/docs"],
+			"includePlatformDefaults":true
+		}
+	}`
+	assertJSONEqual(t, params.SandboxPolicy, wantPolicy)
+}
+
 func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	t.Parallel()
 

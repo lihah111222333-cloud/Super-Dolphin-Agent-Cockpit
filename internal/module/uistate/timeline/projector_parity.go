@@ -251,7 +251,7 @@ func isMessageItemType(itemType string) bool {
 // 大结果会先压缩 preview，防止 timeline 快照携带过大的工具输出。
 func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	it.Kind = "tool"
-	it.Status = toolCallStatus(success, ev.Error)
+	it.Status = toolCallStatus(success, ev.Error, ev.PersistFailed)
 	it.Success = &success
 	it.Done = true
 	if strings.TrimSpace(it.Ts) == "" {
@@ -266,7 +266,7 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	if preview := toolCallEndPreview(ev.Result, ev.Error, success); preview != "" {
 		it.Preview = preview
 	}
-	if errText := strings.TrimSpace(ev.Error); errText != "" {
+	if errText := toolCallDiagnostic(ev); errText != "" {
 		it.Error = errText
 	}
 }
@@ -283,11 +283,11 @@ func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCa
 		lookupKey: updateKey,
 		ID:        timelineID("tool", ev.CallID, ev.ToolName),
 		Kind:      "tool",
-		Status:    toolCallStatus(success, ev.Error),
+		Status:    toolCallStatus(success, ev.Error, ev.PersistFailed),
 		CallID:    strings.TrimSpace(ev.CallID),
 		Tool:      tool,
 		ToolName:  tool,
-		Error:     strings.TrimSpace(ev.Error),
+		Error:     toolCallDiagnostic(ev),
 		Success:   &success,
 		Done:      true,
 		AgentID:   strings.TrimSpace(ev.AgentID),
@@ -306,11 +306,27 @@ func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCa
 }
 
 // toolCallStatus 将工具结束结果映射为前端状态。
-func toolCallStatus(success bool, errText string) string {
+func toolCallStatus(success bool, errText string, persistFailed bool) string {
 	if !success || strings.TrimSpace(errText) != "" {
 		return "failed"
 	}
+	if persistFailed {
+		return "warning"
+	}
 	return "completed"
+}
+
+func toolCallDiagnostic(ev tooldto.ToolCallEnd) string {
+	if errText := strings.TrimSpace(ev.Error); errText != "" {
+		return errText
+	}
+	if !ev.PersistFailed {
+		return ""
+	}
+	if persistErr := strings.TrimSpace(ev.PersistError); persistErr != "" {
+		return persistErr
+	}
+	return "tool result persistence failed"
 }
 
 // parsedPlanContent 承载结构化 plan payload 中的文本和完成态。
@@ -340,12 +356,6 @@ func planContent(delta string, payload []byte) parsedPlanContent {
 		return parsed
 	}
 	return parsedPlanContent{Text: strings.TrimSpace(string(payload))}
-}
-
-// parseStructuredPlan 从结构化 plan payload 中提取前端可展示文本。
-// payload 可包含 explanation 字符串，也可包含 status/step 数组。
-func parseStructuredPlan(data []byte) string {
-	return parseStructuredPlanContent(data).Text
 }
 
 // parseStructuredPlanContent 按 JSON 顶层类型分派 plan payload 解析。

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -280,13 +281,15 @@ func TestRequestApprovalReplayWaitsForExistingPending(t *testing.T) {
 		t.Fatal("registerPending() did not create initial pending")
 	}
 
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		time.Sleep(20 * time.Millisecond)
 		_ = manager.Respond("call-1", &requestID, contract.ApprovalDecision{
 			Approved: boolPtr(true),
 			Reason:   "approved",
 		})
-	}()
+	})
+	defer wg.Wait()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

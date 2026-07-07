@@ -1,6 +1,6 @@
 package mcp
 
-// 标准协议错误码：-326xx 沿用 JSON-RPC 规范，4xxx 为 MCP 自定义业务码。
+// 标准协议错误码：-326xx 沿用 JSON-RPC 规范，4 开头为 MCP 自定义业务码。
 const (
 	ErrCodeInternal            = -32603 // JSON-RPC 内部错误。
 	ErrCodeInvalidParams       = -32602 // JSON-RPC 参数非法。

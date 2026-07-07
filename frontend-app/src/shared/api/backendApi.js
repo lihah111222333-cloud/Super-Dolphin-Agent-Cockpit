@@ -15,12 +15,14 @@ import {
   previewSharedFile as previewSharedFileViaBridge,
   beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
   copyTextToClipboard as copyTextToClipboardViaBridge,
+  selectDatasourceImportFile as selectDatasourceImportFileViaBridge,
   selectFiles as selectFilesViaBridge,
   selectProjectDir as selectProjectDirViaBridge,
   selectProjectDirs as selectProjectDirsViaBridge,
   sendFrontendLogBatch,
   emitFrontendTraceEvent,
 } from './wailsBridge';
+import { positiveApprovalRequestIdFromFields } from './approvalRequestId.js';
 
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
@@ -143,6 +145,7 @@ export const RPC_METHODS = Object.freeze({
   DATASOURCE_V2_IMPORT_LOCAL_FILE: 'datasourceV2/importLocalFile',
   DATASOURCE_V2_LIST: 'datasourceV2/list',
   DATASOURCE_V2_GET: 'datasourceV2/get',
+  DATASOURCE_V2_LIST_CHUNKS: 'datasourceV2/list_chunks',
   DATASOURCE_V2_UPDATE: 'datasourceV2/update',
   DATASOURCE_V2_DELETE: 'datasourceV2/delete',
 
@@ -156,6 +159,8 @@ export const RPC_METHODS = Object.freeze({
   MCP_TOOL_LIFECYCLE_EXPORT: 'mcpServer/toolLifecycle/export',
 
   THREAD_START: 'thread/start',
+  THREAD_LIST_PAGE: 'thread/listPage',
+  THREAD_LOADED_LIST_PAGE: 'thread/loaded/listPage',
   THREAD_MESSAGES: 'thread/messages',
   THREAD_RESOLVE: 'thread/resolve',
   THREAD_ARCHIVE: 'thread/archive',
@@ -312,6 +317,14 @@ function normalizeOptionalLimit(method, payload) {
   return limit;
 }
 
+function normalizeOptionalCursorInteger(method, payload, camelKey, snakeKey) {
+  const raw = payload[camelKey] ?? payload[snakeKey];
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${method}: ${camelKey} must be a non-negative integer`);
+  return value;
+}
+
 function observabilityTracePayload(method, params) {
   const payload = assertPlainObject(method, params);
   const traceId = normalizeString(payload.traceId || payload.trace_id);
@@ -354,8 +367,20 @@ function legacyThreadNamePayload(method, params) {
   return { threadId, name };
 }
 
+function memoryTargetPayload(method, value, field = 'target') {
+  const target = normalizeString(value);
+  if (target !== 'private' && target !== 'team') {
+    throw new Error(`${method}: ${field} must be private or team`);
+  }
+  return target;
+}
+
 function memoryEntryGetPayload(method, params) {
-  return requireKey(method, requireCwd(method, params), 'path');
+  const payload = requireKey(method, requireCwd(method, params), 'path');
+  return {
+    ...payload,
+    target: memoryTargetPayload(method, payload.target),
+  };
 }
 
 function memoryEntryUpsertPayload(method, params) {
@@ -365,7 +390,7 @@ function memoryEntryUpsertPayload(method, params) {
   }
   return cleanObject({
     cwd: payload.cwd,
-    target: normalizeString(payload.target),
+    target: memoryTargetPayload(method, payload.target),
     existingPath: normalizeString(payload.existingPath),
     name: normalizeString(payload.name),
     description: normalizeString(payload.description),
@@ -377,14 +402,14 @@ function memoryEntryUpsertPayload(method, params) {
 
 function memoryPairPayload(method, params) {
   const payload = requireCwd(method, params);
-  for (const key of ['targetA', 'pathA', 'targetB', 'pathB']) {
+  for (const key of ['pathA', 'pathB']) {
     if (!normalizeString(payload[key])) throw new Error(`${method}: ${key} is required`);
   }
   return {
     cwd: payload.cwd,
-    targetA: normalizeString(payload.targetA),
+    targetA: memoryTargetPayload(method, payload.targetA, 'targetA'),
     pathA: normalizeString(payload.pathA),
-    targetB: normalizeString(payload.targetB),
+    targetB: memoryTargetPayload(method, payload.targetB, 'targetB'),
     pathB: normalizeString(payload.pathB),
   };
 }
@@ -401,11 +426,15 @@ function normalizeSkillSummarySuggestion(raw) {
   throw new Error(`${RPC_METHODS.SKILLS_SUMMARY_SUGGEST}: description is required`);
 }
 
-function skillResolutionPayload(params = {}) {
-  const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params);
+function skillResolutionPayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  const conflictID = normalizeString(payload.conflict_id ?? payload.conflictId);
+  const action = normalizeString(payload.action);
+  if (!conflictID) throw new Error(`${method}: conflict_id is required`);
+  if (!action) throw new Error(`${method}: action is required`);
   const entries = [
-    ['conflict_id', payload.conflict_id ?? payload.conflictId],
-    ['action', payload.action],
+    ['conflict_id', conflictID],
+    ['action', action],
     ['name', payload.name],
     ['scope', payload.scope],
     ['personal_type', payload.personal_type ?? payload.personalType],
@@ -620,11 +649,6 @@ function cronIdPayload(method, params) {
   };
 }
 
-function cronUpdatePayload(params) {
-  const payload = requireKey(RPC_METHODS.CRONJOB_UPDATE, assertPlainObject(RPC_METHODS.CRONJOB_UPDATE, params), 'id');
-  return { ...payload, id: payload.id };
-}
-
 function cronSetEnabledPayload(params) {
   const payload = requireBoolean(
     RPC_METHODS.CRONJOB_SET_ENABLED,
@@ -642,6 +666,63 @@ function cronListRunsPayload(params) {
     job_id: jobID,
     limit: normalizeOptionalLimit(RPC_METHODS.CRONJOB_LIST_RUNS, payload),
   });
+}
+
+function cronJobMutationPayload(method, params, options = {}) {
+  const payload = requireCwd(method, params);
+  const name = normalizeString(payload.name);
+  const prompt = normalizeString(payload.prompt);
+  const scheduleExpr = normalizeString(payload.schedule_expr ?? payload.scheduleExpr);
+  if (!name) throw new Error(`${method}: name is required`);
+  if (!prompt) throw new Error(`${method}: prompt is required`);
+  if (!scheduleExpr) throw new Error(`${method}: schedule_expr is required`);
+  return cleanObject({
+    id: options.requireId ? requireKey(method, payload, 'id').id : undefined,
+    cwd: payload.cwd,
+    name,
+    prompt,
+    schedule_type: normalizeString(payload.schedule_type ?? payload.scheduleType),
+    schedule_expr: scheduleExpr,
+    timezone: normalizeString(payload.timezone),
+    provider: normalizeString(payload.provider),
+    model: normalizeString(payload.model),
+    config: cronJobConfigPayload(method, payload),
+    skills: cronJobSkillsPayload(method, payload),
+    notify_channel: normalizeString(payload.notify_channel ?? payload.notifyChannel),
+    enabled: cronJobEnabledPayload(method, payload),
+    next_run_at: normalizeString(payload.next_run_at ?? payload.nextRunAt),
+    max_attempts: cronJobMaxAttemptsPayload(method, payload),
+  });
+}
+
+function cronJobConfigPayload(method, payload) {
+  if (!hasOwn(payload, 'config') || payload.config == null) return undefined;
+  if (typeof payload.config !== 'object' || Array.isArray(payload.config)) {
+    throw new Error(`${method}: config must be an object`);
+  }
+  return payload.config;
+}
+
+function cronJobSkillsPayload(method, payload) {
+  if (!hasOwn(payload, 'skills') || payload.skills == null) return undefined;
+  if (!Array.isArray(payload.skills)) throw new Error(`${method}: skills must be an array`);
+  return payload.skills.map(normalizeString).filter(Boolean);
+}
+
+function cronJobEnabledPayload(method, payload) {
+  if (!hasOwn(payload, 'enabled') || payload.enabled == null) return undefined;
+  if (typeof payload.enabled !== 'boolean') throw new Error(`${method}: enabled must be boolean`);
+  return payload.enabled;
+}
+
+function cronJobMaxAttemptsPayload(method, payload) {
+  const raw = payload.max_attempts ?? payload.maxAttempts;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${method}: max_attempts must be a non-negative integer`);
+  }
+  return value;
 }
 
 function codeProjectsPayload(method, payload) {
@@ -671,7 +752,8 @@ function codeFilePayload(method, params, options = {}) {
   }
   if (options.includeContent) {
     if (!hasOwn(payload, 'content')) throw new Error(`${method}: content is required`);
-    request.content = (payload.content ?? '').toString();
+    if (typeof payload.content !== 'string') throw new Error(`${method}: content must be a string`);
+    request.content = payload.content;
   }
   return cleanObject(request);
 }
@@ -864,6 +946,250 @@ function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
 
+function assertBackendResponseObject(method, response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new TypeError(`${method} response must be an object`);
+  }
+  return response;
+}
+
+function requireResponseKey(method, response, keys) {
+  for (const key of keys) {
+    if (normalizeString(response[key])) return;
+  }
+  throw new Error(`${method} response missing ${keys.join(' or ')}`);
+}
+
+function validateUIStateResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const snapshotKeys = [
+    'threads',
+    'agents',
+    'active_turn',
+    'recent_turns',
+    'token_usage',
+    'statuses',
+    'unchanged',
+    'activeThreadId',
+    'mainAgentId',
+  ];
+  if (!snapshotKeys.some((key) => hasOwn(value, key))) {
+    throw new Error(`${method} response missing UI state snapshot fields`);
+  }
+  if (hasOwn(value, 'threads') && value.threads !== null && !Array.isArray(value.threads)) {
+    throw new TypeError(`${method} response threads must be an array or null`);
+  }
+  if (hasOwn(value, 'agents') && value.agents !== null && !Array.isArray(value.agents)) {
+    throw new TypeError(`${method} response agents must be an array or null`);
+  }
+  return value;
+}
+
+function validateLspPromptHintResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  for (const key of ['hint', 'defaultHint', 'overrideHint']) {
+    if (typeof value[key] !== 'string') {
+      throw new TypeError(`${method} response ${key} must be a string`);
+    }
+  }
+  if (typeof value.usingDefault !== 'boolean') {
+    throw new TypeError(`${method} response usingDefault must be a boolean`);
+  }
+  return value;
+}
+
+function validateThreadStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (value.thread && (typeof value.thread !== 'object' || Array.isArray(value.thread))) {
+    throw new TypeError(`${method} response thread must be an object`);
+  }
+  if (value.thread && normalizeString(value.thread.id)) return value;
+  requireResponseKey(method, value, ['threadId', 'thread_id']);
+  return value;
+}
+
+function validateThreadMessagesResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (!Array.isArray(value.messages)) {
+    throw new TypeError(`${method} response messages must be an array`);
+  }
+  if (hasOwn(value, 'total') && (typeof value.total !== 'number' || !Number.isFinite(value.total))) {
+    throw new TypeError(`${method} response total must be a number`);
+  }
+  if (hasOwn(value, 'hasMore') && typeof value.hasMore !== 'boolean') {
+    throw new TypeError(`${method} response hasMore must be a boolean`);
+  }
+  if (hasOwn(value, 'nextBefore') && typeof value.nextBefore !== 'string') {
+    throw new TypeError(`${method} response nextBefore must be a string`);
+  }
+  return value;
+}
+
+function validateThreadResolveResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['id', 'threadId', 'thread_id']);
+  return value;
+}
+
+function validateTurnStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['turn_id', 'turnId']);
+  return value;
+}
+
+function hasTurnForceCompleteFailureDiagnostic(value) {
+  return ['errorCode', 'error', 'message'].some((key) => (
+    typeof value[key] === 'string' && value[key].trim() !== ''
+  ));
+}
+
+function validateTurnForceCompleteResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (typeof value.forceCompleted !== 'boolean') {
+    throw new TypeError(`${method} response forceCompleted must be a boolean`);
+  }
+  if (value.forceCompleted) {
+    if (value.ok !== true) {
+      throw new TypeError(`${method} response ok must be true when forceCompleted is true`);
+    }
+    return value;
+  }
+  if (value.ok === true) {
+    throw new TypeError(`${method} response ok true cannot have forceCompleted false`);
+  }
+  if (value.ok !== false) {
+    throw new TypeError(`${method} response ok must be false when forceCompleted is false`);
+  }
+  if (!hasTurnForceCompleteFailureDiagnostic(value)) {
+    throw new TypeError(`${method} response failure must include errorCode, error, or message`);
+  }
+  return value;
+}
+
+function validateDashboardDagStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['runKey', 'run_key']);
+  return value;
+}
+
+function validateDashboardDagCreateAndStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['dagKey', 'dag_key']);
+  requireResponseKey(method, value, ['runKey', 'run_key']);
+  return value;
+}
+
+function validateSkillReadResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const skill = value.skill;
+  if (!skill || typeof skill !== 'object' || Array.isArray(skill)) {
+    throw new TypeError(`${method} response skill must be an object`);
+  }
+  requireResponseKey(method, skill, ['path']);
+  if (!hasOwn(skill, 'content') || typeof skill.content !== 'string') {
+    throw new TypeError(`${method} response skill.content must be a string`);
+  }
+  return value;
+}
+
+function validateAppUpdateInstallResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (value.started !== true) {
+    throw new TypeError(`${method} response started must be true`);
+  }
+  if (typeof value.helper !== 'string' || !normalizeString(value.helper)) {
+    throw new TypeError(`${method} response helper must be a non-empty string`);
+  }
+  return value;
+}
+
+const MCP_SERVER_CONTROL_RESPONSE_SPECS = Object.freeze({
+  [RPC_METHODS.MCP_SERVER_SQLITE_START]: { serverName: 'sqlite', enabled: true },
+  [RPC_METHODS.MCP_SERVER_SQLITE_STOP]: { serverName: 'sqlite', enabled: false },
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: { serverName: 'playwright', enabled: true },
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: { serverName: 'playwright', enabled: false },
+});
+const MCP_SERVER_LIST_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'mcpServers', 'mcp_servers']);
+const MCP_SERVER_STATUS_RESPONSE_KEYS = new Set(['enabled']);
+const MCP_SERVER_CONTROL_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'serverName', 'server_name', 'added', 'enabled']);
+
+function assertOnlyResponseKeys(method, value, allowedKeys, label) {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw new TypeError(`${method} response ${label} must not include ${key}`);
+    }
+  }
+}
+
+function validateMCPServerListResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, MCP_SERVER_LIST_RESPONSE_KEYS, 'body');
+  const configPath = normalizeString(value.configPath || value.config_path);
+  if (!configPath) {
+    throw new Error(`${method} response configPath must be a non-empty string`);
+  }
+  const servers = value.mcpServers || value.mcp_servers;
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
+    throw new TypeError(`${method} response mcpServers must be an object`);
+  }
+  for (const [serverName, server] of Object.entries(servers)) {
+    const normalizedName = normalizeString(serverName);
+    if (!normalizedName) {
+      throw new Error(`${method} response mcpServers must not include an empty server name`);
+    }
+    if (!server || typeof server !== 'object' || Array.isArray(server)) {
+      throw new TypeError(`${method} response mcpServers.${normalizedName} must be an object`);
+    }
+    assertOnlyResponseKeys(method, server, MCP_SERVER_STATUS_RESPONSE_KEYS, `mcpServers.${normalizedName}`);
+    if (typeof server.enabled !== 'boolean') {
+      throw new TypeError(`${method} response mcpServers.${normalizedName}.enabled must be a boolean`);
+    }
+  }
+  return value;
+}
+
+function validateMCPServerControlResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, MCP_SERVER_CONTROL_RESPONSE_KEYS, 'body');
+  const configPath = normalizeString(value.configPath || value.config_path);
+  if (!configPath) {
+    throw new Error(`${method} response configPath must be a non-empty string`);
+  }
+  const spec = MCP_SERVER_CONTROL_RESPONSE_SPECS[method];
+  const serverName = normalizeString(value.serverName || value.server_name);
+  if (!spec || serverName !== spec.serverName) {
+    throw new Error(`${method} response serverName must be ${spec?.serverName || 'a known MCP server'}`);
+  }
+  if (value.enabled !== spec.enabled) {
+    throw new TypeError(`${method} response enabled must be ${spec.enabled}`);
+  }
+  if (hasOwn(value, 'added') && typeof value.added !== 'boolean') {
+    throw new TypeError(`${method} response added must be a boolean`);
+  }
+  return value;
+}
+
+const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
+  [RPC_METHODS.APP_UPDATE_INSTALL]: validateAppUpdateInstallResponse,
+  [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
+  [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
+  [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
+  [RPC_METHODS.MCP_SERVER_LIST]: validateMCPServerListResponse,
+  [RPC_METHODS.MCP_SERVER_SQLITE_START]: validateMCPServerControlResponse,
+  [RPC_METHODS.MCP_SERVER_SQLITE_STOP]: validateMCPServerControlResponse,
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: validateMCPServerControlResponse,
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: validateMCPServerControlResponse,
+  [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
+  [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
+  [RPC_METHODS.THREAD_START]: validateThreadStartResponse,
+  [RPC_METHODS.THREAD_MESSAGES]: validateThreadMessagesResponse,
+  [RPC_METHODS.THREAD_RESOLVE]: validateThreadResolveResponse,
+  [RPC_METHODS.TURN_START]: validateTurnStartResponse,
+  [RPC_METHODS.TURN_FORCE_COMPLETE]: validateTurnForceCompleteResponse,
+  [RPC_METHODS.DASHBOARD_DAG_START]: validateDashboardDagStartResponse,
+  [RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START]: validateDashboardDagCreateAndStartResponse,
+});
+
 /** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */
 const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['getBuildInfo', getWailsBuildInfo],
@@ -878,6 +1204,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['previewSharedFile', previewSharedFileViaBridge],
   ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
   ['copyTextToClipboard', copyTextToClipboardViaBridge],
+  ['selectDatasourceImportFile', selectDatasourceImportFileViaBridge],
   ['selectFiles', selectFilesViaBridge],
   ['selectProjectDir', selectProjectDirViaBridge],
   ['selectProjectDirs', selectProjectDirsViaBridge],
@@ -889,10 +1216,12 @@ function resolveNativeDeps(deps) {
 }
 
 function createBackendCaller(callAPI) {
-  return (method, params = {}) => {
+  return async (method, params = {}) => {
     const rpcMethod = normalizeString(method);
     if (!rpcMethod) throw new Error('backend RPC method is required');
-    return callAPI(rpcMethod, assertPlainObject(rpcMethod, params));
+    const response = await callAPI(rpcMethod, assertPlainObject(rpcMethod, params));
+    const validator = BACKEND_RESPONSE_VALIDATORS[rpcMethod];
+    return validator ? validator(rpcMethod, response) : response;
   };
 }
 
@@ -931,9 +1260,12 @@ function createConfigProjectApi(callBackend) {
       if (!hasOwn(payload, 'value')) throw new Error(`${RPC_METHODS.UI_PREFERENCES_SET}: value is required`);
       return callBackend(RPC_METHODS.UI_PREFERENCES_SET, payload);
     },
-    listModelProviders: (params = {}) => callBackend(RPC_METHODS.MODEL_PROVIDERS_LIST, assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_LIST, params)),
+    listModelProviders: (params) => callBackend(
+      RPC_METHODS.MODEL_PROVIDERS_LIST,
+      requireCwd(RPC_METHODS.MODEL_PROVIDERS_LIST, params),
+    ),
     saveModelProviders: (params) => {
-      const payload = assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_SAVE, params);
+      const payload = requireCwd(RPC_METHODS.MODEL_PROVIDERS_SAVE, params);
       if (!payload.registry || typeof payload.registry !== 'object' || Array.isArray(payload.registry)) {
         throw new Error(`${RPC_METHODS.MODEL_PROVIDERS_SAVE}: registry is required`);
       }
@@ -941,7 +1273,7 @@ function createConfigProjectApi(callBackend) {
     },
     applyModelProvider: (params) => callBackend(
       RPC_METHODS.MODEL_PROVIDERS_APPLY,
-      requireKey(RPC_METHODS.MODEL_PROVIDERS_APPLY, assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_APPLY, params), 'vendorId'),
+      requireKey(RPC_METHODS.MODEL_PROVIDERS_APPLY, requireCwd(RPC_METHODS.MODEL_PROVIDERS_APPLY, params), 'vendorId'),
     ),
     getDashboardPage: (params) => callBackend(
       RPC_METHODS.UI_DASHBOARD_GET,
@@ -979,6 +1311,13 @@ function datasourceCreatePayload(method, params) {
   return { sourcePath };
 }
 
+function datasourceImportLocalFilePayload(params) {
+  const method = RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE;
+  const payload = datasourceCreatePayload(method, params);
+  const pickerToken = normalizeString(params?.pickerToken || params?.picker_token);
+  return cleanObject({ ...payload, pickerToken });
+}
+
 function datasourceListPayload(params = {}) {
   const method = RPC_METHODS.DATASOURCE_V2_LIST;
   const payload = assertPlainObject(method, params);
@@ -994,6 +1333,20 @@ function datasourceDocumentIDPayload(method, params) {
     throw new Error(`${method}: documentId is required`);
   }
   return { documentId: documentID };
+}
+
+function datasourceChunksPayload(params) {
+  const method = RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS;
+  const payload = assertPlainObject(method, params);
+  const { documentId } = datasourceDocumentIDPayload(method, payload);
+  const limit = normalizeOptionalLimit(method, payload);
+  if (!limit) throw new Error(`${method}: limit must be a positive integer`);
+  if (!hasOwn(payload, 'cursor')) throw new Error(`${method}: cursor is required`);
+  const cursor = Number(payload.cursor);
+  if (!Number.isInteger(cursor) || cursor < -1) {
+    throw new Error(`${method}: cursor must be -1 or greater`);
+  }
+  return { documentId, limit, cursor };
 }
 
 function datasourceUpdatePayload(params) {
@@ -1028,7 +1381,7 @@ function createDatasourceApi(callBackend) {
     ),
     importDatasourceLocalFile: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE,
-      datasourceCreatePayload(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, params),
+      datasourceImportLocalFilePayload(params),
     ),
     listDatasourceDocuments: (params = {}) => callBackend(
       RPC_METHODS.DATASOURCE_V2_LIST,
@@ -1037,6 +1390,10 @@ function createDatasourceApi(callBackend) {
     getDatasourceDocument: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_GET,
       datasourceDocumentIDPayload(RPC_METHODS.DATASOURCE_V2_GET, params),
+    ),
+    listDatasourceChunks: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS,
+      datasourceChunksPayload(params),
     ),
     updateDatasourceDocument: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_UPDATE,
@@ -1265,8 +1622,8 @@ function createCronApi(callBackend) {
   return {
     listCronJobs: () => callBackend(RPC_METHODS.CRONJOB_LIST, {}),
     getCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_GET, cronIdPayload(RPC_METHODS.CRONJOB_GET, params)),
-    createCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_CREATE, assertPlainObject(RPC_METHODS.CRONJOB_CREATE, params)),
-    updateCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_UPDATE, cronUpdatePayload(params)),
+    createCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_CREATE, cronJobMutationPayload(RPC_METHODS.CRONJOB_CREATE, params)),
+    updateCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_UPDATE, cronJobMutationPayload(RPC_METHODS.CRONJOB_UPDATE, params, { requireId: true })),
     deleteCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_DELETE, cronIdPayload(RPC_METHODS.CRONJOB_DELETE, params)),
     runCronJobOnce: (params) => callBackend(RPC_METHODS.CRONJOB_RUN_ONCE, cronIdPayload(RPC_METHODS.CRONJOB_RUN_ONCE, params)),
     setCronJobEnabled: (params) => callBackend(RPC_METHODS.CRONJOB_SET_ENABLED, cronSetEnabledPayload(params)),
@@ -1300,7 +1657,7 @@ function createSkillApi(callBackend) {
     listSkillResolutions: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_LIST, requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params)),
     previewSkillResolution: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, {
       cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params).cwd,
-      ...skillResolutionPayload(params),
+      ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params),
     }),
     applySkillResolution: (params) => applySkillResolutionPayload(callBackend, params),
     deleteSkill: (params) => deleteSkillPayload(callBackend, params),
@@ -1404,11 +1761,15 @@ async function suggestSkillSummaryPayload(callBackend, params) {
 
 function applySkillResolutionPayload(callBackend, params) {
   const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_APPLY, params);
+  const previewID = normalizeString(payload.preview_id ?? payload.previewId);
+  const previewHash = normalizeString(payload.preview_hash ?? payload.previewHash);
+  if (!previewID) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_id is required`);
+  if (!previewHash) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_hash is required`);
   return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
     cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
-    ...skillResolutionPayload(payload),
-    preview_id: normalizeString(payload.preview_id ?? payload.previewId),
-    preview_hash: normalizeString(payload.preview_hash ?? payload.previewHash),
+    ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload),
+    preview_id: previewID,
+    preview_hash: previewHash,
   }));
 }
 
@@ -1432,22 +1793,29 @@ function emptyStrictPayload(method, params = {}) {
   return {};
 }
 
-function mcpToolLifecycleString(payload, camelKey, snakeKey = camelKey) {
+function normalizeMCPToolLifecycleString(method, value, key) {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new Error(`${method}: ${key} must be a string`);
+  return value.trim();
+}
+
+function mcpToolLifecycleString(method, payload, camelKey, snakeKey = camelKey) {
   const camelValue = takePayloadField(payload, camelKey);
   const snakeValue = snakeKey === camelKey ? undefined : takePayloadField(payload, snakeKey);
-  return normalizeString(camelValue || snakeValue);
+  const value = camelValue === undefined || camelValue === null || camelValue === '' ? snakeValue : camelValue;
+  return normalizeMCPToolLifecycleString(method, value, camelKey);
 }
 
 function mcpToolLifecycleSetPayload(params) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_SET;
   const payload = { ...assertStrictPlainObject(method, params) };
-  const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
-  const toolName = mcpToolLifecycleString(payload, 'toolName', 'tool_name');
-  const state = normalizeString(takePayloadField(payload, 'state'));
-  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
-  const manifestName = mcpToolLifecycleString(payload, 'manifestName', 'manifest_name');
-  const reason = normalizeString(takePayloadField(payload, 'reason'));
-  const replacementTool = mcpToolLifecycleString(payload, 'replacementTool', 'replacement_tool');
+  const serverName = mcpToolLifecycleString(method, payload, 'serverName', 'server_name');
+  const toolName = mcpToolLifecycleString(method, payload, 'toolName', 'tool_name');
+  const state = mcpToolLifecycleString(method, payload, 'state');
+  const workspaceRoot = mcpToolLifecycleString(method, payload, 'workspaceRoot', 'workspace_root');
+  const manifestName = mcpToolLifecycleString(method, payload, 'manifestName', 'manifest_name');
+  const reason = mcpToolLifecycleString(method, payload, 'reason');
+  const replacementTool = mcpToolLifecycleString(method, payload, 'replacementTool', 'replacement_tool');
   assertNoExtraPayloadFields(method, payload);
   if (!serverName) throw new Error(`${method}: serverName is required`);
   if (!toolName) throw new Error(`${method}: toolName is required`);
@@ -1469,8 +1837,8 @@ function mcpToolLifecycleSetPayload(params) {
 function mcpToolLifecycleListPayload(params) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST;
   const payload = { ...assertStrictPlainObject(method, params) };
-  const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
-  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  const serverName = mcpToolLifecycleString(method, payload, 'serverName', 'server_name');
+  const workspaceRoot = mcpToolLifecycleString(method, payload, 'workspaceRoot', 'workspace_root');
   assertNoExtraPayloadFields(method, payload);
   if (!serverName) throw new Error(`${method}: serverName is required`);
   return cleanObject({
@@ -1482,7 +1850,7 @@ function mcpToolLifecycleListPayload(params) {
 function mcpToolLifecycleExportPayload(params = {}) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_EXPORT;
   const payload = { ...assertStrictPlainObject(method, params) };
-  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  const workspaceRoot = mcpToolLifecycleString(method, payload, 'workspaceRoot', 'workspace_root');
   assertNoExtraPayloadFields(method, payload);
   return cleanObject({
     workspaceRoot,
@@ -1528,6 +1896,8 @@ function createMCPServerApi(callBackend) {
 
 function createThreadApi(callBackend) {
   return {
+    listThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LIST_PAGE, params)),
+    listLoadedThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LOADED_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LOADED_LIST_PAGE, params)),
     getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, threadMessagesPayload(params)),
     resolveThreadIdentity: (params) => callBackend(RPC_METHODS.THREAD_RESOLVE, threadIdOnlyPayload(RPC_METHODS.THREAD_RESOLVE, params)),
     archiveThread: (params) => callBackend(RPC_METHODS.THREAD_ARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_ARCHIVE, params)),
@@ -1544,6 +1914,17 @@ function createThreadApi(callBackend) {
     recoverThread: (params) => callBackend(RPC_METHODS.THREAD_RECOVER, threadIdOnlyPayload(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params))),
     renameThread: (params) => callBackend(RPC_METHODS.THREAD_NAME_SET, legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params)),
   };
+}
+
+function threadListPagePayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  const limit = normalizeOptionalLimit(method, payload);
+  if (!limit) throw new Error(`${method}: limit is required`);
+  return cleanObject({
+    limit,
+    cursor_created_at: normalizeOptionalCursorInteger(method, payload, 'cursorCreatedAt', 'cursor_created_at'),
+    cursor_thread_id: normalizeString(payload.cursorThreadId || payload.cursor_thread_id),
+  });
 }
 
 function threadIdOnlyPayload(method, params) {
@@ -1737,9 +2118,15 @@ function approvalRespondPayload(params) {
     ...unused
   } = payload;
   assertNoExtraPayloadFields(RPC_METHODS.APPROVAL_RESPOND, unused);
-  const rawRequestId = Number(requestId ?? requestIdAlias);
-  const normalizedRequestId = Number.isFinite(rawRequestId) ? Math.trunc(rawRequestId) : 0;
-  if (normalizedRequestId <= 0) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+  const normalizedRequestId = positiveApprovalRequestIdFromFields(payload);
+  if (normalizedRequestId <= 0) {
+    const hasRequestId = hasOwn(payload, 'requestId') || hasOwn(payload, 'request_id');
+    const rawRequestId = hasOwn(payload, 'requestId') ? requestId : requestIdAlias;
+    if (!hasRequestId || rawRequestId === undefined || rawRequestId === null || rawRequestId === '' || rawRequestId === 0) {
+      throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+    }
+    throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId must be a positive integer`);
+  }
   if (!hasOwn(payload, 'approved')) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved is required`);
   if (typeof approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
   return { requestId: normalizedRequestId, approved };
@@ -1771,6 +2158,7 @@ function createNativeApi(native) {
     previewSharedFile: (params) => native.previewSharedFile(requireKey('previewSharedFile', assertPlainObject('previewSharedFile', params), 'path')),
     beginTextClipboardWrite: native.beginTextClipboardWrite,
     copyTextToClipboard: native.copyTextToClipboard,
+    selectDatasourceImportFile: native.selectDatasourceImportFile,
     selectFiles: native.selectFiles,
     selectProjectDir: native.selectProjectDir,
     selectProjectDirs: native.selectProjectDirs,
@@ -1906,6 +2294,7 @@ export const createDatasourceDocument = backendApi.createDatasourceDocument;
 export const importDatasourceLocalFile = backendApi.importDatasourceLocalFile;
 export const listDatasourceDocuments = backendApi.listDatasourceDocuments;
 export const getDatasourceDocument = backendApi.getDatasourceDocument;
+export const listDatasourceChunks = backendApi.listDatasourceChunks;
 export const updateDatasourceDocument = backendApi.updateDatasourceDocument;
 export const deleteDatasourceDocument = backendApi.deleteDatasourceDocument;
 export const listMCPServers = backendApi.listMCPServers;
@@ -1916,6 +2305,8 @@ export const stopPlaywrightMCPServer = backendApi.stopPlaywrightMCPServer;
 export const setMCPToolLifecycle = backendApi.setMCPToolLifecycle;
 export const listMCPToolLifecycle = backendApi.listMCPToolLifecycle;
 export const exportMCPToolLifecycle = backendApi.exportMCPToolLifecycle;
+export const listThreadsPage = backendApi.listThreadsPage;
+export const listLoadedThreadsPage = backendApi.listLoadedThreadsPage;
 export const getThreadMessages = backendApi.getThreadMessages;
 export const resolveThreadIdentity = backendApi.resolveThreadIdentity;
 export const archiveThread = backendApi.archiveThread;
@@ -1944,6 +2335,7 @@ export const previewSharedFile = backendApi.previewSharedFile;
 export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
 export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;
+export const selectDatasourceImportFile = backendApi.selectDatasourceImportFile;
 export const selectProjectDir = backendApi.selectProjectDir;
 export const selectProjectDirs = backendApi.selectProjectDirs;
 export { registerBridgeLogStore, sendFrontendLogBatch, emitFrontendTraceEvent };

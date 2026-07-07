@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestRegisterDynamicProviderRebuildsCachedSection(t *testing.T) {
@@ -60,9 +62,7 @@ func TestConcurrentInvalidateAndAssembleTurnRemainSafe(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	for range 6 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -79,7 +79,7 @@ func TestConcurrentInvalidateAndAssembleTurnRemainSafe(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	for next := int64(2); next <= 6; next++ {
@@ -101,6 +101,34 @@ func TestConcurrentInvalidateAndAssembleTurnRemainSafe(t *testing.T) {
 	}
 }
 
+func TestPersonalizationProfileCacheIsScopedByCWD(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(&Config{}, nil)
+	var calls atomic.Int64
+	mustRegisterDynamicTextProvider(t, svc, DynamicSectionPersonalizationProfile, func(_ context.Context, input SectionContext) (*string, error) {
+		calls.Add(1)
+		text := "profile for " + contract.SectionContextCWD(input)
+		return &text, nil
+	})
+
+	first := mustTurnSectionWithInput(t, svc, DynamicSectionPersonalizationProfile, TurnInput{CWD: "/repo/a"})
+	second := mustTurnSectionWithInput(t, svc, DynamicSectionPersonalizationProfile, TurnInput{CWD: "/repo/b"})
+	third := mustTurnSectionWithInput(t, svc, DynamicSectionPersonalizationProfile, TurnInput{CWD: "/repo/a"})
+	if !strings.Contains(first, "/repo/a") {
+		t.Fatalf("first profile = %q, want /repo/a", first)
+	}
+	if strings.Contains(second, "/repo/a") || !strings.Contains(second, "/repo/b") {
+		t.Fatalf("second profile = %q, want only /repo/b", second)
+	}
+	if third != first {
+		t.Fatalf("same cwd personalization profile cache mismatch: first=%q third=%q", first, third)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("provider calls = %d, want one per distinct cwd", got)
+	}
+}
+
 func mustRegisterDynamicTextProvider(t *testing.T, svc Service, name string, resolve func(context.Context, SectionContext) (*string, error)) {
 	t.Helper()
 
@@ -110,7 +138,17 @@ func mustRegisterDynamicTextProvider(t *testing.T, svc Service, name string, res
 func mustTurnSection(t *testing.T, svc Service, name string) string {
 	t.Helper()
 
-	text, err := turnSectionText(svc, name)
+	text, err := turnSectionTextWithInput(svc, name, TurnInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return text
+}
+
+func mustTurnSectionWithInput(t *testing.T, svc Service, name string, input TurnInput) string {
+	t.Helper()
+
+	text, err := turnSectionTextWithInput(svc, name, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +156,11 @@ func mustTurnSection(t *testing.T, svc Service, name string) string {
 }
 
 func turnSectionText(svc Service, name string) (string, error) {
-	turn, err := svc.AssembleTurn(context.Background(), TurnInput{})
+	return turnSectionTextWithInput(svc, name, TurnInput{})
+}
+
+func turnSectionTextWithInput(svc Service, name string, input TurnInput) (string, error) {
+	turn, err := svc.AssembleTurn(context.Background(), input)
 	if err != nil {
 		return "", fmt.Errorf("AssembleTurn(): %w", err)
 	}

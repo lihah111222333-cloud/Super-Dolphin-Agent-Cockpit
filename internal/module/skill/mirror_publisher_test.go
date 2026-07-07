@@ -221,6 +221,36 @@ func TestSkillMirrorPublisherDoesNotOverwriteUnmanagedOrDriftedMirrors(t *testin
 	assertConflictReportItem(t, report.Conflicts, "codex:project:repo", SkillProviderCodex, skillScopeProject, "build", "project/build", "drift")
 }
 
+func TestPublisherUsesSharedManagedMirrorDriftPredicate(t *testing.T) {
+	project := t.TempDir()
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
+	records, err := newCanonicalStore("").scan(project)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
+	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+		t.Fatalf("PublishSkillMirrors initial: %v", err)
+	}
+	manifest, err := readSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	entry := manifest.Skills["build"]
+	entry.Owned = false
+	manifest.Skills["build"] = entry
+	if err := writeSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	if err != nil {
+		t.Fatalf("PublishSkillMirrors owned=false: %v", err)
+	}
+
+	assertConflictReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopeProject, "build", "project/build", "drift")
+}
+
 func TestSkillMirrorPublisherDeletesAndRegeneratesOwnedMirrors(t *testing.T) {
 	project := t.TempDir()
 	skillDir := filepath.Join(project, ".agents", "skills", "build")

@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -35,7 +35,6 @@ func sanitizeResumeID(id string) string {
 
 const (
 	defaultClaudeCLIBin = "claude"
-	managedMCPPrefix    = "mcp-"
 	systemPromptDumpEnv = "SUPER_DOLPHIN_CLAUDE_SYSTEM_PROMPT_DUMP"
 )
 
@@ -92,50 +91,26 @@ func claudeLaunchEnv(cfg cliLaunchConfig) []string {
 }
 
 // logManifestLaunch 记录本轮写给 Claude CLI 的 MCP manifest 摘要。
-// 日志只暴露命令、参数和 env key，不输出敏感 env value，便于排查启动与权限边界。
+// 日志只暴露路径存在性、命令 basename、参数摘要和 env key，不输出 cwd、配置路径、args 或 URL secret。
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
-	servers := make([]map[string]any, 0, len(manifest.Binaries))
-	for _, bin := range manifest.Binaries {
-		serverType := strings.TrimSpace(bin.Type)
-		if serverType == "" {
-			serverType = "stdio"
-		}
-		command := ""
-		args := []string(nil)
-		commandExists := false
-		if len(bin.Command) > 0 {
-			command = strings.TrimSpace(bin.Command[0])
-			args = append(args, bin.Command[1:]...)
-			if command != "" {
-				_, statErr := os.Stat(command)
-				commandExists = statErr == nil
-			}
-		}
-		envKeys := make([]string, 0, len(bin.Env))
-		for key := range bin.Env {
-			envKeys = append(envKeys, key)
-		}
-		sort.Strings(envKeys)
-		servers = append(servers, map[string]any{
-			"name":           strings.TrimSpace(bin.Name),
-			"type":           serverType,
-			"command":        command,
-			"args":           args,
-			"command_exists": commandExists,
-			"url":            strings.TrimSpace(bin.URL),
-			"env_keys":       envKeys,
-			"has_rpc_addr":   strings.TrimSpace(bin.Env["GO_AGENT_CTL_RPC_ADDR"]) != "",
-			"has_bootstrap":  strings.TrimSpace(bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]) != "",
-		})
-	}
+	servers := observability.SafeMCPServerSummaries(manifest)
 	pkglogger.Info("claudecli: launch mcp manifest",
-		"binary", strings.TrimSpace(binary),
-		"cwd", strings.TrimSpace(cwd),
+		"binary", safeCLICommandName(binary),
+		"cwd_present", strings.TrimSpace(cwd) != "",
 		"model", strings.TrimSpace(model),
-		"mcp_config_path", strings.TrimSpace(mcpPath),
+		"mcp_config_present", strings.TrimSpace(mcpPath) != "",
 		"server_count", len(servers),
 		"servers", servers,
 	)
+}
+
+func safeCLICommandName(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.ReplaceAll(command, "\\", "/")
+	return filepath.Base(filepath.FromSlash(command))
 }
 
 // logSystemPromptArgs 记录即将交给 Claude CLI 的每段 --system-prompt。
@@ -575,7 +550,7 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 	if command == "" {
 		return nil, errors.New("empty stdio command")
 	}
-	if !allowedStdioMCPCommand(command, bin.Command[1:]) {
+	if !allowedStdioMCPCommand(bin.Name, command, bin.Command[1:]) {
 		return nil, fmt.Errorf("stdio command %q is not allowed", command)
 	}
 	server := map[string]any{"command": command}
@@ -593,23 +568,13 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 }
 
 // allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。
-// 托管 sidecar 按 mcp-* 放行；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
-func allowedStdioMCPCommand(command string, args []string) bool {
-	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
-	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
-	if strings.HasPrefix(base, managedMCPPrefix) {
-		return true
+// 托管 sidecar 和用户可配 stdio server 共用 contract policy，避免各 provider 漂移出不同白名单。
+func allowedStdioMCPCommand(serverName, command string, args []string) bool {
+	policy := contract.DefaultRuntimeMCPPolicy()
+	if contract.IsManagedRuntimeMCPServerName(serverName) {
+		return policy.ValidateManagedRuntimeStdioCommand(serverName, command, args) == nil
 	}
-	if base != "npx" {
-		return false
-	}
-	for _, arg := range args {
-		switch strings.TrimSpace(arg) {
-		case "@modelcontextprotocol/server-postgres", "@bytebase/dbhub", "@playwright/mcp@latest":
-			return true
-		}
-	}
-	return false
+	return policy.ValidateRuntimeStdioCommand(command, args, "") == nil
 }
 
 func applyAutoApprove(server map[string]any, autoApprove []string) {

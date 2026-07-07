@@ -84,6 +84,39 @@ func TestSanitizerMetadataAllowedShapes(t *testing.T) {
 	}
 }
 
+// TestSanitizerRedactsSensitiveMetadataFieldNames 确认自由文本和路径类 metadata 按键名整体隐藏。
+func TestSanitizerRedactsSensitiveMetadataFieldNames(t *testing.T) {
+	cfg, err := ParseConfig(EnvMap{"OBS_TRACING_ENABLED": "1"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	s := NewSanitizer(cfg)
+	got := s.SanitizeMetadata(map[string]any{
+		"component":   "memory",
+		"req_id":      int64(17),
+		"prompt":      "draft private prompt payload",
+		"tool_result": "tool returned private payload",
+		"file_path":   "/home/alice/private.txt",
+		"nested":      map[string]string{"content": "nested private payload", "ok": "value"},
+	})
+
+	for _, key := range []string{"prompt", "tool_result", "file_path"} {
+		if got[key] != redacted {
+			t.Fatalf("metadata key %q = %#v, want redacted", key, got[key])
+		}
+	}
+	nested, ok := got["nested"].(map[string]string)
+	if !ok {
+		t.Fatalf("nested metadata = %#v, want map[string]string", got["nested"])
+	}
+	if nested["content"] != redacted || nested["ok"] != "value" {
+		t.Fatalf("nested metadata = %#v, want sensitive child redacted only", nested)
+	}
+	if got["component"] != "memory" || got["req_id"] != int64(17) {
+		t.Fatalf("safe metadata changed: %#v", got)
+	}
+}
+
 func assertNoSecretLeak(t *testing.T, encoded string) {
 	t.Helper()
 	for _, secret := range []string{"abc123", "hunter2", "Bearer secret", "sk-123", "PLAINSECRET"} {

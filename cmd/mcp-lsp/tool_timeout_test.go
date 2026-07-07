@@ -19,6 +19,7 @@ func TestHandleScopedToolsCallTimesOutBlockedToolHandler(t *testing.T) {
 	t.Setenv("GO_AGENT_LSP_ROOT", t.TempDir())
 	release := make(chan struct{})
 	started := make(chan struct{})
+	goroutines := newTestGoroutineGroup(t)
 	t.Cleanup(func() { close(release) })
 
 	defs := []toolDefinition{{
@@ -29,7 +30,7 @@ func TestHandleScopedToolsCallTimesOutBlockedToolHandler(t *testing.T) {
 			return map[string]any{"ok": true}, nil
 		})),
 	}}
-	done := callScopedToolInBackground(defs)
+	done := callScopedToolInBackground(goroutines, defs)
 
 	waitForBlockedHandlerToStart(t, started)
 	got := waitForScopedToolCall(t, done)
@@ -39,9 +40,9 @@ func TestHandleScopedToolsCallTimesOutBlockedToolHandler(t *testing.T) {
 	assertTimeoutToolResult(t, got.result)
 }
 
-func callScopedToolInBackground(defs []toolDefinition) <-chan scopedToolCallResult {
+func callScopedToolInBackground(goroutines *testGoroutineGroup, defs []toolDefinition) <-chan scopedToolCallResult {
 	done := make(chan scopedToolCallResult, 1)
-	go func() {
+	goroutines.Go(func() {
 		result, err := handleScopedToolsCall(
 			context.Background(),
 			registryToolProvider{defs: defs},
@@ -49,7 +50,7 @@ func callScopedToolInBackground(defs []toolDefinition) <-chan scopedToolCallResu
 			json.RawMessage(`{"name":"inspect","arguments":{}}`),
 		)
 		done <- scopedToolCallResult{result: result, err: err}
-	}()
+	})
 	return done
 }
 

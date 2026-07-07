@@ -209,7 +209,40 @@ func TestDAGAgentExecutorRemoteLauncherKeepsCommandlessSpawnWritebackPath(t *tes
 	}
 }
 
-func TestServiceForkedLaunchUsesParentThreadIDWhenParentAgentIsExternal(t *testing.T) {
+func TestForkedLaunchRejectsPayloadParentThreadID(t *testing.T) {
+	var forked map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		launcherwire.MethodThreadFork: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			forked = req
+			t.Fatalf("thread/fork should not be called when payload parent_thread_id is supplied: %#v", req)
+			return map[string]any{launcherwire.RespNewThreadID: "thread-child", launcherwire.RespAgentID: "remote-child"}, nil
+		}),
+	}), nil, nil, nil)
+	parent := svc.newAgentLocked("agent-parent")
+	parent.state = agentdto.StateIdle
+	parent.threadID = "thread-parent-trusted"
+	parent.remoteThreadID = "thread-parent-trusted"
+	parent.launchSeq = 1
+	svc.agents[parent.id] = parent
+
+	err := svc.LaunchAgent(context.Background(), LaunchRequest{
+		AgentID:        "agent-child",
+		Name:           "forked child",
+		ParentID:       "agent-parent",
+		ParentThreadID: "thread-parent-payload",
+		ContextMode:    "forked",
+		Cwd:            t.TempDir(),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "parent_thread_id") {
+		t.Fatalf("LaunchAgent() error = %v, want parent_thread_id trust-boundary rejection", err)
+	}
+	if forked != nil {
+		t.Fatalf("thread/fork request = %#v, want no fork", forked)
+	}
+}
+
+func TestForkedLaunchRequiresTrustedParentBinding(t *testing.T) {
 	var forked map[string]any
 	var named map[string]any
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
@@ -222,21 +255,31 @@ func TestServiceForkedLaunchUsesParentThreadIDWhenParentAgentIsExternal(t *testi
 			return struct{}{}, nil
 		}),
 	}), nil, nil, nil)
+	svc.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+		AgentID:       "agent-parent",
+		Provider:      "codex",
+		CodexThreadID: "thread-parent-trusted",
+		Cwd:           t.TempDir(),
+	}}
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{
+		ThreadID: "thread-parent-trusted",
+		AgentID:  "agent-parent",
+		Status:   "running",
+	}}}
 
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
-		AgentID:        "agent-child",
-		Name:           "forked child",
-		ParentID:       "agent-parent",
-		ParentThreadID: "thread-parent-public",
-		ContextMode:    "forked",
-		Cwd:            t.TempDir(),
+		AgentID:     "agent-child",
+		Name:        "forked child",
+		ParentID:    "agent-parent",
+		ContextMode: "forked",
+		Cwd:         t.TempDir(),
 	})
 
 	if err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	if got := forked[launcherwire.ParamThreadID]; got != "thread-parent-public" {
-		t.Fatalf("thread/fork thread_id = %#v, want thread-parent-public", got)
+	if got := forked[launcherwire.ParamThreadID]; got != "thread-parent-trusted" {
+		t.Fatalf("thread/fork thread_id = %#v, want trusted persisted parent thread", got)
 	}
 	if got := named[launcherwire.ParamThreadID]; got != "thread-child" {
 		t.Fatalf("thread/name/set thread_id = %#v, want thread-child", got)

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -14,6 +15,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+// ErrNoUIPeer reports that an approval callback has no authenticated UI peer.
+var ErrNoUIPeer = errors.New("rpc no UI peer")
 
 // Module 组装 RPC server、handler、push bridge、审批生命周期和后台 runner。
 var Module = fx.Module("rpc",
@@ -60,7 +64,12 @@ func (r approvalRequester) RequestApproval(ctx context.Context, req contract.App
 	if r.manager == nil {
 		return contract.ApprovalDecision{}, ErrInvalidState("approval manager is nil")
 	}
-	return r.manager.RequestApproval(ctx, r.bridge, r.activeServer(), ApprovalRequest{
+	server := r.activeServer()
+	bridge := r.bridge
+	if server == nil {
+		bridge = nil
+	}
+	decision, err := r.manager.RequestApproval(ctx, bridge, server, ApprovalRequest{
 		CallID:       req.CallID,
 		ApprovalID:   req.ApprovalID,
 		ToolName:     req.ToolName,
@@ -72,9 +81,16 @@ func (r approvalRequester) RequestApproval(ctx context.Context, req contract.App
 		SourceMethod: req.SourceMethod,
 		Payload:      req.Payload,
 	})
+	if err != nil {
+		return decision, err
+	}
+	if server == nil {
+		return decision, ErrNoUIPeer
+	}
+	return decision, nil
 }
 
-// activeServer 优先选择 UI peer 作为审批回调目标，缺失时退回任意活跃 peer。
+// activeServer 只选择 UI peer 作为审批回调目标，缺失时由调用方 fail-closed。
 func (r approvalRequester) activeServer() *jrpc2.Server {
 	if r.server == nil {
 		return nil
@@ -83,9 +99,6 @@ func (r approvalRequester) activeServer() *jrpc2.Server {
 		if r.server.PeerKind(current) == dto.PeerKindUI {
 			return current
 		}
-	}
-	for _, current := range r.server.snapshotActive() {
-		return current
 	}
 	return nil
 }

@@ -79,6 +79,8 @@ type lspCacheStore struct {
 	persistentReady bool
 }
 
+type lspCacheMutationStore = lspCacheStore
+
 type lspCacheDiskState struct {
 	Documents  []lspCacheValue  `json:"documents"`
 	Tombstones map[string]int64 `json:"tombstones,omitempty"`
@@ -158,7 +160,7 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 
 // Upsert 写入文档缓存并清除同 key 墓碑。
 // 持久化开启时会同步落盘，落盘失败直接返回给调用方，避免内存和磁盘状态悄悄分叉。
-func (s *lspCacheStore) Upsert(value lspCacheValue) error {
+func (s *lspCacheMutationStore) Upsert(value lspCacheValue) error {
 	if s == nil {
 		return nil
 	}
@@ -173,7 +175,7 @@ func (s *lspCacheStore) Upsert(value lspCacheValue) error {
 
 // Delete 从内存和磁盘缓存中移除文档记录。
 // 它不写墓碑，适合普通过期或显式释放场景。
-func (s *lspCacheStore) Delete(key lspCacheKey) error {
+func (s *lspCacheMutationStore) Delete(key lspCacheKey) error {
 	if s == nil {
 		return nil
 	}
@@ -186,7 +188,7 @@ func (s *lspCacheStore) Delete(key lspCacheKey) error {
 
 // Tombstone 删除记录并留下短期墓碑。
 // 墓碑用于阻止旧磁盘缓存或延迟刷新把已释放文档重新加载回来。
-func (s *lspCacheStore) Tombstone(key lspCacheKey) error {
+func (s *lspCacheMutationStore) Tombstone(key lspCacheKey) error {
 	if s == nil {
 		return nil
 	}
@@ -279,7 +281,7 @@ func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 
 // RememberDocumentScope 记录文档最近一次解析出的 resolved scope。
 // 该索引用于后续释放或重新启动时找回文档归属，不写入持久化缓存。
-func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) error {
+func (s *lspCacheMutationStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) error {
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return nil
 	}

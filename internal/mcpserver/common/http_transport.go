@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -88,7 +89,8 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
-	go func() {
+	var serveWG sync.WaitGroup
+	serveWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("mcp http: recovered serve panic",
@@ -98,7 +100,7 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 		if err := h.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			pkglogger.Warn("mcp http: serve error", "server", h.name, "error", err)
 		}
-	}()
+	})
 
 	pkglogger.Info("mcp http: started", "server", h.name, "addr", addr)
 	return addr, nil
@@ -230,10 +232,10 @@ func (h *HTTPServer) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	return maybeResult(req.ID, result)
 }
 
-// handleToolsList 返回 legacy HTTP transport 可见的工具列表，未注入 provider 时为空列表。
+// handleToolsList 返回 legacy HTTP transport 可见的工具列表，未注入 provider 时 fail-fast。
 func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	if h.tools == nil {
-		return maybeResult(req.ID, map[string]any{"tools": []MCPTool{}})
+		return errorResponse(req.ID, codeInternal, ErrToolProviderUnavailable.Error())
 	}
 	tools, err := h.tools.ListTools(ctx)
 	if err != nil {

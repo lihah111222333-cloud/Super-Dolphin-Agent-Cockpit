@@ -10,6 +10,8 @@ import (
 	"syscall"
 )
 
+// Guard 是 Unix 进程控制的跨平台占位句柄。
+// Unix 依赖进程组信号管理 agent 进程树，因此这里无需持有额外资源。
 type Guard struct{}
 
 // Configure 让子进程进入独立进程组，便于停止整个 agent 进程树。

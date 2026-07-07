@@ -9,11 +9,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
+	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"go.uber.org/fx"
@@ -31,6 +33,7 @@ var Module = fx.Module("ui.wails",
 		NewWailsApplication,
 		NewHTTPAssetServer,
 		provideAppUpdateRequestQuit,
+		provideDatasourceImportPickerTokenVerifier,
 	),
 	fx.Invoke(bindWailsLifecycle),
 	fx.Invoke(bindEventBridge),
@@ -61,15 +64,22 @@ func NewApp(p appParams) *App {
 		pushRuntimeEvent: func(ctx context.Context, event string, payload any) {
 			p.RPCServer.NotifyAll(ctx, p.PushBridge, event, payload)
 		},
-		windowTitle:   applicationTitle(),
-		debug:         isDebug(p.Config),
-		observability: p.Observability,
+		windowTitle:                  applicationTitle(),
+		debug:                        isDebug(p.Config),
+		observability:                p.Observability,
+		datasourceImportPickerTokens: newDatasourceImportPickerTokens(nil),
 	}
 }
 
 // NewService 把 App 绑定包装为 Wails application.Service。
 func NewService(app *App) application.Service {
 	return application.NewService(app)
+}
+
+// provideDatasourceImportPickerTokenVerifier 只把桌面 App 暴露为 datasource 本地导入 capability 验证器。
+// token 状态仍保存在 Wails 层，业务模块只能调用验证接口，不能自行签发。
+func provideDatasourceImportPickerTokenVerifier(app *App) datasourcev2.LocalFilePickerTokenVerifier {
+	return app
 }
 
 // activeAgentCounterParams 汇总创建活跃 agent 计数器所需依赖。
@@ -83,17 +93,25 @@ type activeAgentCounterParams struct {
 func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	if p.Threads != nil {
 		return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
-			threads, err := p.Threads.List(ctx)
+			counter, ok := p.Threads.(contract.ThreadActiveCounter)
+			if !ok {
+				return 0, errors.New("active agent count source is not configured")
+			}
+			if !contract.IsActiveAgentState("created") {
+				return 0, errors.New("active agent state predicate rejected created state")
+			}
+			count, err := counter.CountActive(ctx)
 			if err != nil {
 				return 0, err
 			}
-			active := 0
-			for _, thread := range threads {
-				if contract.IsActiveAgentState(thread.Status) {
-					active++
-				}
+			if count < 0 {
+				return 0, errors.New("active agent count source returned negative count")
 			}
-			return active, nil
+			maxInt := int64(^uint(0) >> 1)
+			if count > maxInt {
+				return 0, errors.New("active agent count exceeds int range")
+			}
+			return int(count), nil
 		})
 	}
 	return ActiveAgentCounterFunc(func(context.Context) (int, error) {
@@ -130,7 +148,7 @@ type httpAssetServerParams struct {
 
 // NewWailsApplication 创建 Wails 桌面应用。
 // 窗口标题和调试开关来自绑定对象，避免应用层重复解析桌面配置。
-func NewWailsApplication(p applicationParams) *application.App {
+func NewWailsApplication(p applicationParams) (*application.App, error) {
 	title := applicationTitle()
 	debug := false
 	if p.Binding != nil {
@@ -139,13 +157,17 @@ func NewWailsApplication(p applicationParams) *application.App {
 		}
 		debug = p.Binding.debug
 	}
+	assetHandler, err := assetHandlerFromForMode(p.Frontend, debug)
+	if err != nil {
+		return nil, err
+	}
 	wailsApp := application.New(application.Options{
 		Name:        title,
 		Description: "Super Dolphin desktop",
 		Logger:      p.Logger,
 		Services:    []application.Service{p.Service},
 		Assets: application.AssetOptions{
-			Handler: withClipboardAssets(AssetHandlerFromForMode(p.Frontend, debug)),
+			Handler: withClipboardAssets(assetHandler),
 		},
 		ShouldQuit: p.Lifecycle.ShouldQuit,
 		OnShutdown: p.Lifecycle.OnShutdown,
@@ -160,10 +182,12 @@ func NewWailsApplication(p applicationParams) *application.App {
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		p.Lifecycle.MarkFrontendReady()
-		go cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
+		safego.Go(context.Background(), nil, "wails.clipboard.cleanup", func(context.Context) {
+			cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
+		})
 	})
 	createWindow(wailsApp, title, debug, "main", "", "", p.Binding)
-	return wailsApp
+	return wailsApp, nil
 }
 
 // applicationTitle 返回桌面应用标题。

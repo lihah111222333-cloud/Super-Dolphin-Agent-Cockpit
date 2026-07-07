@@ -101,7 +101,7 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 	var lastErr error
 	launchStartedAt := time.Now()
 	pkglogger.Info("orchestration: launch attempt sequence start", pkglogger.String(pkglogger.FieldAgentID, attempt.agentID), pkglogger.Int64("max_retries", int64(launcherrors.MaxRetries)))
-	for i := 0; i < launcherrors.MaxRetries; i++ {
+	for i := range launcherrors.MaxRetries {
 		if i > 0 {
 			if err := launcherrors.WaitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
 				return "", LaunchResult{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
@@ -170,6 +170,10 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 		pkglogger.Warn("orchestration: launch rejected: validation failed", "agent_id", req.AgentID, "name", req.Name, "error", err)
 		return launcherLaunchAttempt{}, true, err
 	}
+	forkParent, err := s.forkParentForLaunch(ctx, req)
+	if err != nil {
+		return launcherLaunchAttempt{}, true, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, err := lookupAgentByIdentityLocked(s.agents, req.AgentID, agentIdentityLocalOnly); err == nil && launchInProgress(ctx, s, existing) {
@@ -180,10 +184,6 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 		if strings.TrimSpace(existing.requestedAgentID) == req.AgentID && launchInProgress(ctx, s, existing) {
 			return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", existing.id)
 		}
-	}
-	forkParent, err := s.forkParentForLaunchLocked(req)
-	if err != nil {
-		return launcherLaunchAttempt{}, true, err
 	}
 	agent := s.agentForLaunchLocked(req)
 	if err := s.prepareLaunchLocked(ctx, agent); err != nil {
@@ -198,33 +198,89 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 	return attempt, false, nil
 }
 
-// forkParentForLaunchLocked 在 forked 模式下读取父 agent 快照供 Fork RPC 使用。
-func (s *service) forkParentForLaunchLocked(req LaunchRequest) (agentRuntime, error) {
+// forkParentForLaunch 在 forked 模式下只从可信 runtime 或持久化绑定解析父线程。
+func (s *service) forkParentForLaunch(ctx context.Context, req LaunchRequest) (agentRuntime, error) {
 	if !strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
 		return agentRuntime{}, nil
+	}
+	if strings.TrimSpace(req.ParentThreadID) != "" {
+		return agentRuntime{}, errors.New("parent_thread_id is not accepted for forked launch; pass parent_id only")
 	}
 	parentID := strings.TrimSpace(req.ParentID)
 	if parentID == "" {
 		return agentRuntime{}, errors.New("parent agent id is required for forked launch")
 	}
-	parentThreadID := strings.TrimSpace(req.ParentThreadID)
-	parent, lookupErr := lookupAgentByIdentityLocked(s.agents, parentID, agentIdentityLocalOnly)
-	parentMissing := lookupErr != nil
-	if parentMissing && parentThreadID == "" {
-		return agentRuntime{}, fmt.Errorf("parent agent %q is required for forked launch: %w", parentID, lookupErr)
-	}
-	if parentMissing {
-		return agentRuntime{id: parentID, threadID: parentThreadID, remoteThreadID: parentThreadID}, nil
-	}
-	if strings.TrimSpace(parent.remoteThreadID) == "" {
-		if parentThreadID == "" {
-			return agentRuntime{}, fmt.Errorf("parent agent %q remote thread id is required for forked launch", parentID)
+	if parent, ok, err := s.runtimeForkParentForLaunch(parentID); err != nil {
+		return agentRuntime{}, err
+	} else if ok && strings.TrimSpace(parent.remoteThreadID) != "" {
+		return parent, nil
+	} else if ok {
+		persistedParent, persistedErr := s.persistedForkParentForLaunch(ctx, parentID)
+		if persistedErr == nil {
+			return persistedParent, nil
 		}
-		parentCopy := *parent
-		parentCopy.threadID, parentCopy.remoteThreadID = parentThreadID, parentThreadID
-		return parentCopy, nil
+		return agentRuntime{}, fmt.Errorf("parent agent %q remote thread id is required for forked launch and trusted persisted binding could not prove ownership: %w", parentID, persistedErr)
 	}
-	return *parent, nil
+	persistedParent, err := s.persistedForkParentForLaunch(ctx, parentID)
+	if err != nil {
+		return agentRuntime{}, fmt.Errorf("parent agent %q is required for forked launch: %w", parentID, err)
+	}
+	return persistedParent, nil
+}
+
+// runtimeForkParentForLaunch 从当前进程内存态读取可信父 agent 快照。
+func (s *service) runtimeForkParentForLaunch(parentID string) (agentRuntime, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	parent, lookupErr := lookupAgentByIdentityLocked(s.agents, parentID, agentIdentityLocalOnly)
+	if lookupErr != nil {
+		if errors.Is(lookupErr, errAgentNotFound) {
+			return agentRuntime{}, false, nil
+		}
+		return agentRuntime{}, false, lookupErr
+	}
+	return *parent, true, nil
+}
+
+// persistedForkParentForLaunch 从持久化 binding 和 active thread 证明父 agent 归属并组装 fork 父快照。
+func (s *service) persistedForkParentForLaunch(ctx context.Context, parentID string) (agentRuntime, error) {
+	if s == nil || s.agentBindings == nil {
+		return agentRuntime{}, fmt.Errorf("trusted parent binding for forked launch %q is required", parentID)
+	}
+	source, reason, err := s.loadPersistedRuntimeSource(ctx, parentID)
+	if err != nil {
+		return agentRuntime{}, fmt.Errorf("trusted parent binding for forked launch %q lookup failed: %w", parentID, err)
+	}
+	if reason != "" {
+		return agentRuntime{}, fmt.Errorf("trusted parent binding for forked launch %q is not usable: %s", parentID, reason)
+	}
+	thread, reason, err := s.activePersistedThreadForBinding(ctx, parentID, source.remoteThreadID)
+	if err != nil {
+		return agentRuntime{}, fmt.Errorf("trusted parent thread for forked launch %q lookup failed: %w", parentID, err)
+	}
+	if reason != "" {
+		return agentRuntime{}, fmt.Errorf("trusted parent thread for forked launch %q is not usable: %s", parentID, reason)
+	}
+	if thread == nil {
+		return agentRuntime{}, fmt.Errorf("trusted parent thread for forked launch %q is missing", parentID)
+	}
+	now := persistedRuntimeTime(source.binding, thread)
+	return agentRuntime{
+		id:              parentID,
+		name:            persistedRuntimeName(parentID, thread),
+		cwd:             persistedRuntimeCWD(source.binding, thread),
+		provider:        source.provider,
+		providerSource:  "persisted-binding",
+		runtimeProvider: source.provider,
+		runtimePort:     persistedRuntimePort(thread),
+		portSource:      "persisted-thread",
+		state:           agentdto.StateIdle,
+		threadID:        source.remoteThreadID,
+		remoteThreadID:  source.remoteThreadID,
+		remoteAgentID:   parentID,
+		startedAt:       now,
+		updatedAt:       now,
+	}, nil
 }
 
 // launchInProgress 判断 agent 是否正处于启动或恢复中。
