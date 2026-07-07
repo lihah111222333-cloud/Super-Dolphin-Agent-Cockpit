@@ -14,7 +14,7 @@ func TestProviderTemplateSnippetsCompile(t *testing.T) {
 	dir := renderProviderTemplatePackage(t)
 	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go")
 	runTemplateCommand(t, dir, "go", "mod", "tidy")
-	runTemplateCommand(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplateProductionOmissions$", "-count=1")
+	runTemplateCommand(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplate(ProductionOmissions|ModuleGraph)$", "-count=1")
 }
 
 func renderProviderTemplatePackage(t *testing.T) string {
@@ -132,7 +132,11 @@ func NewDriver(cfg DriverConfig) contract.Driver {
 	return &renderedTemplateDriver{cfg: cfg}
 }
 
-func RegisterEventTranslators() {}
+var renderedTemplateEventTranslatorsRegistered int
+
+func RegisterEventTranslators() {
+	renderedTemplateEventTranslatorsRegistered++
+}
 
 type renderedTemplateDriver struct {
 	cfg DriverConfig
@@ -162,6 +166,7 @@ const renderedTemplateOmissionTests = `package template
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -172,47 +177,52 @@ import (
 
 func TestRenderedTemplateProductionOmissions(t *testing.T) {
 	cases := []struct {
-		name         string
-		mutate       func(*driverFactoryParams)
-		wantDirect   string
-		wantFx       string
-		wantTypedDep string
+		name       string
+		mutate     func(*driverFactoryParams)
+		omitModule renderedTemplateModuleOmission
+		wantDirect string
+		wantFx     string
+		wantTyped  string
 	}{
 		{
 			name: "runtime reporter",
 			mutate: func(p *driverFactoryParams) {
 				p.Reporter = nil
 			},
-			wantDirect:   "provider.template.runtime_reporter",
-			wantFx:       "provider.template.runtime_reporter",
-			wantTypedDep: "provider.template.runtime_reporter",
+			omitModule: omitRenderedTemplateRuntimeReporter,
+			wantDirect: "provider.template.runtime_reporter",
+			wantFx:     "contract.RuntimeReporter",
+			wantTyped:  "provider.template.runtime_reporter",
 		},
 		{
 			name: "toolbridge proxy",
 			mutate: func(p *driverFactoryParams) {
 				p.ToolbridgeProxy = nil
 			},
-			wantDirect:   "provider.template.toolbridge_proxy",
-			wantFx:       "provider.template.toolbridge_proxy",
-			wantTypedDep: "provider.template.toolbridge_proxy",
+			omitModule: omitRenderedTemplateToolbridgeProxy,
+			wantDirect: "provider.template.toolbridge_proxy",
+			wantFx:     "TemplateToolbridgeProxy",
+			wantTyped:  "provider.template.toolbridge_proxy",
 		},
 		{
 			name: "provider mirror",
 			mutate: func(p *driverFactoryParams) {
 				p.Mirror = nil
 			},
-			wantDirect:   "provider.template.mirror",
-			wantFx:       "provider.template.mirror",
-			wantTypedDep: "provider.template.mirror",
+			omitModule: omitRenderedTemplateMirror,
+			wantDirect: "provider.template.mirror",
+			wantFx:     "TemplateProviderMirror",
+			wantTyped:  "provider.template.mirror",
 		},
 		{
 			name: "session recovery",
 			mutate: func(p *driverFactoryParams) {
 				p.Recovery = nil
 			},
-			wantDirect:   "provider.template.session_recovery",
-			wantFx:       "provider.template.session_recovery",
-			wantTypedDep: "provider.template.session_recovery",
+			omitModule: omitRenderedTemplateRecovery,
+			wantDirect: "provider.template.session_recovery",
+			wantFx:     "TemplateSessionRecovery",
+			wantTyped:  "provider.template.session_recovery",
 		},
 		{
 			name: "dependency profile",
@@ -229,11 +239,41 @@ func TestRenderedTemplateProductionOmissions(t *testing.T) {
 			params := completeRenderedTemplateParams()
 			tc.mutate(&params)
 			_, err := NewDriverFactory(params)
-			assertRenderedTemplateError(t, "direct NewDriverFactory", err, tc.wantDirect, tc.wantTypedDep)
+			assertRenderedTemplateError(t, "direct NewDriverFactory", err, tc.wantDirect, tc.wantTyped)
 
-			err = renderedTemplateFxError(params)
-			assertRenderedTemplateError(t, "fx graph", err, tc.wantFx, tc.wantTypedDep)
+			err = renderedTemplateFxError(params, tc.omitModule)
+			assertRenderedTemplateError(t, "fx Module graph", err, tc.wantFx, "")
 		})
+	}
+}
+
+func TestRenderedTemplateModuleGraph(t *testing.T) {
+	renderedTemplateEventTranslatorsRegistered = 0
+	var drivers []contract.DriverFactory
+	app := fx.New(
+		renderedTemplateModuleOptions(completeRenderedTemplateParams(), ""),
+		fx.Invoke(func(g renderedTemplateDriverGroup) {
+			drivers = append(drivers, g.Drivers...)
+		}),
+		fx.NopLogger,
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("rendered Module graph error = %v", err)
+	}
+	if renderedTemplateEventTranslatorsRegistered == 0 {
+		t.Fatal("rendered Module did not invoke RegisterEventTranslators")
+	}
+	if len(drivers) != 1 {
+		t.Fatalf("rendered Module drivers len = %d, want 1", len(drivers))
+	}
+	if drivers[0].Name != "template" {
+		t.Fatalf("rendered Module driver name = %q, want template", drivers[0].Name)
+	}
+	if len(drivers[0].NativeTools) == 0 {
+		t.Fatal("rendered Module driver did not expose native tools")
+	}
+	if driver := drivers[0].Create(); driver == nil {
+		t.Fatal("rendered Module driver factory Create() = nil")
 	}
 }
 
@@ -249,19 +289,50 @@ func completeRenderedTemplateParams() driverFactoryParams {
 	}
 }
 
-func renderedTemplateFxError(params driverFactoryParams) error {
-	type driverGroup struct {
-		fx.In
-		Drivers []contract.DriverFactory ` + "`" + `group:"drivers"` + "`" + `
-	}
+func renderedTemplateFxError(params driverFactoryParams, omission renderedTemplateModuleOmission) error {
 	app := fx.New(
-		fx.Provide(fx.Annotate(func() (contract.DriverFactory, error) {
-			return NewDriverFactory(params)
-		}, fx.ResultTags(` + "`" + `group:"drivers"` + "`" + `))),
-		fx.Invoke(func(driverGroup) {}),
+		renderedTemplateModuleOptions(params, omission),
+		fx.Invoke(func(renderedTemplateDriverGroup) {}),
 		fx.NopLogger,
 	)
 	return app.Err()
+}
+
+type renderedTemplateDriverGroup struct {
+	fx.In
+
+	Drivers []contract.DriverFactory ` + "`" + `group:"drivers"` + "`" + `
+}
+
+type renderedTemplateModuleOmission string
+
+const (
+	omitRenderedTemplateRuntimeReporter renderedTemplateModuleOmission = "runtime_reporter"
+	omitRenderedTemplateToolbridgeProxy renderedTemplateModuleOmission = "toolbridge_proxy"
+	omitRenderedTemplateMirror          renderedTemplateModuleOmission = "mirror"
+	omitRenderedTemplateRecovery        renderedTemplateModuleOmission = "recovery"
+)
+
+func renderedTemplateModuleOptions(params driverFactoryParams, omission renderedTemplateModuleOmission) fx.Option {
+	opts := []fx.Option{Module}
+	if omission != omitRenderedTemplateRuntimeReporter {
+		opts = append(opts, fx.Provide(func() contract.RuntimeReporter { return params.Reporter }))
+	}
+	if omission != omitRenderedTemplateToolbridgeProxy {
+		opts = append(opts, fx.Provide(func() TemplateToolbridgeProxy { return params.ToolbridgeProxy }))
+	}
+	opts = append(opts, fx.Provide(func() TemplateApprovalBridge { return params.Approvals }))
+	if omission != omitRenderedTemplateMirror {
+		opts = append(opts, fx.Provide(func() TemplateProviderMirror { return params.Mirror }))
+	}
+	if omission != omitRenderedTemplateRecovery {
+		opts = append(opts, fx.Provide(func() TemplateSessionRecovery { return params.Recovery }))
+	}
+	opts = append(opts,
+		fx.Provide(func() TemplateTracer { return params.Tracer }),
+		fx.Supply(params.Dependency),
+	)
+	return fx.Options(opts...)
 }
 
 func assertRenderedTemplateError(t *testing.T, label string, err error, want, wantTypedDep string) {
@@ -315,6 +386,19 @@ func TestRenderedTemplateUnsupportedErrorType(t *testing.T) {
 	err := contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, "provider.template.toolbridge_proxy", contract.DependencyProfileProduction)
 	if !errors.Is(err, contract.ErrUnsupportedDependencyMode) {
 		t.Fatalf("dependency mode error = %v, want unsupported sentinel", err)
+	}
+}
+
+func TestRenderedTemplateLSPDiagnosticsEvidenceDesign(t *testing.T) {
+	evidence := strings.TrimSpace(os.Getenv("RENDERED_TEMPLATE_LSP_DIAGNOSTICS"))
+	if evidence == "" {
+		t.Skip("set RENDERED_TEMPLATE_LSP_DIAGNOSTICS to captured MCP LSP file(diagnostics) output for rendered module.go/provider_contract_test.go/template_stubs.go/template_omission_test.go")
+	}
+	if !strings.Contains(evidence, "diagnostics") {
+		t.Fatalf("RENDERED_TEMPLATE_LSP_DIAGNOSTICS missing diagnostics payload: %s", evidence)
+	}
+	if strings.Contains(evidence, "\"severity\"") {
+		t.Fatalf("rendered template LSP diagnostics are not clean: %s", evidence)
 	}
 }
 `
