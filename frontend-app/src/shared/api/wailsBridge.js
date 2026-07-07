@@ -1,5 +1,6 @@
 // Wails Bridge Adapter for React Frontend
 
+import { isSafeNumber, parse as parseLosslessJSON } from 'lossless-json';
 import { compactSafeDiagnosticPreview } from './safeDiagnosticPreview.js';
 
 const METHOD_IDS = Object.freeze({
@@ -251,17 +252,14 @@ function bridgeEventParseFailureEnvelope(rawText, error, eventName) {
   };
 }
 
+function parseRuntimeEventNumber(value) {
+  return isSafeNumber(value) ? Number(value) : value;
+}
+
 function parseRuntimeEventJSON(rawText, eventName) {
   let parsed;
   try {
-    if (typeof rawText === 'string') {
-      const preparedText = rawText
-        .replace(/:\s*(-?\d{16,21})\b/g, ':"$1"')
-        .replace(/([[,]\s*)(-?\d{16,21})\b/g, '$1"$2"');
-      parsed = JSON.parse(preparedText);
-    } else {
-      parsed = JSON.parse(rawText);
-    }
+    parsed = parseLosslessJSON(String(rawText), null, { parseNumber: parseRuntimeEventNumber });
   }
   catch (error) {
     return bridgeEventParseFailureEnvelope(rawText, error, eventName);

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { cwd } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
-import { beginTextClipboardWrite, copyTextToClipboard } from './wailsBridge.js';
+import { beginTextClipboardWrite, copyTextToClipboard, normalizeRuntimeEventEnvelope } from './wailsBridge.js';
 
 const runtimeModule = '/wails/runtime.js';
 const devRuntimeShimModule = '../../../public/wails/runtime.js?test-runtime-shim';
@@ -50,6 +50,29 @@ describe('wails bridge runtime loading', () => {
     expect(source).toContain('nativeImportModule(WAILS_RUNTIME_MODULE)');
     expect(source).toContain("return import(modulePath)");
     expect(source).not.toContain('import(/* @vite-ignore */ WAILS_RUNTIME_MODULE)');
+  });
+});
+
+describe('wails bridge runtime event JSON parsing', () => {
+  it('preserves large integer-looking text inside JSON strings', () => {
+    expect(normalizeRuntimeEventEnvelope({
+      name: 'runtime',
+      data: '{"payload":{"message":"keep : 1234567890123456 inside string"}}',
+    }).payload.message).toBe('keep : 1234567890123456 inside string');
+  });
+
+  it('converts unsafe runtime event object integers to strings', () => {
+    expect(normalizeRuntimeEventEnvelope({
+      name: 'runtime',
+      data: '{"payload":{"requestId":9007199254740993}}',
+    }).payload.requestId).toBe('9007199254740993');
+  });
+
+  it('converts unsafe runtime event array integers to strings', () => {
+    expect(normalizeRuntimeEventEnvelope({
+      name: 'runtime',
+      data: '{"payload":{"ids":[9007199254740993]}}',
+    }).payload.ids).toEqual(['9007199254740993']);
   });
 });
 

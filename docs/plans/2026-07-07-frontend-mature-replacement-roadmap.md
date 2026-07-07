@@ -282,7 +282,7 @@ git commit -m "fix(frontend): 恢复 Markdown URL 安全过滤"
 - Modify: `frontend-app/src/shared/api/wailsBridge.js`
 - Test: `frontend-app/src/shared/api/wailsBridge.test.js`
 
-- [ ] **Step 1: Decide the number policy**
+- [x] **Step 1: Decide the number policy**
 
 Use one policy consistently:
 
@@ -291,7 +291,9 @@ Preferred: lossless-json parses unsafe JSON numbers as strings for bridge event 
 Rejected for this task: native BigInt in UI state, because downstream comparisons currently expect JSON-serializable values.
 ```
 
-- [ ] **Step 2: Add failing bridge tests**
+Actual: 2026-07-07 selected `lossless-json` with unsafe JSON numbers converted to strings. Native `BigInt` is intentionally not used in bridge event payloads.
+
+- [x] **Step 2: Add failing bridge tests**
 
 Add cases near the runtime event parse tests:
 
@@ -314,7 +316,9 @@ expect(normalizeRuntimeEventEnvelope({
 
 Expected before implementation: current regex handling either misses a case or risks modifying string content.
 
-- [ ] **Step 3: Add the dependency**
+Actual: 2026-07-07 added tests covering string preservation, object unsafe integer conversion, and array unsafe integer conversion. RED run failed before implementation because the regex-prepared payload could not preserve the large-number-looking string case.
+
+- [x] **Step 3: Add the dependency**
 
 Run:
 
@@ -325,7 +329,9 @@ npm install lossless-json
 
 Do not hand-edit lockfile.
 
-- [ ] **Step 4: Replace regex preparation in `parseRuntimeEventJSON`**
+Actual: 2026-07-07 ran `npm install lossless-json`, adding `lossless-json` to `frontend-app/package.json` and `frontend-app/package-lock.json`.
+
+- [x] **Step 4: Replace regex preparation in `parseRuntimeEventJSON`**
 
 Replace:
 
@@ -338,7 +344,9 @@ parsed = JSON.parse(preparedText);
 
 With a structured parser that converts unsafe numbers to strings and leaves normal JSON strings untouched. Keep malformed JSON returning `bridge.event.parse_failed`.
 
-- [ ] **Step 5: Verify**
+Actual: 2026-07-07 `parseRuntimeEventJSON` now calls `parseLosslessJSON(String(rawText), null, { parseNumber })`; `parseNumber` returns `Number(value)` only for safe JSON numbers and returns the original numeric string for unsafe values. Malformed JSON still returns `bridge.event.parse_failed`. LSP grep/read/hover/xref confirmed the implementation and references; diagnostics were clean for `wailsBridge.js` and `wailsBridge.test.js`.
+
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -352,7 +360,24 @@ npm run build
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+Actual: 2026-07-07 `npm test -- src/shared/api/wailsBridge.test.js` passed with 1 file and 44 tests. `npm run lint` exited 0. Full `npm test` passed with 83 files and 1053 tests. `npm run build` exited 0. The plan command with duplicate `--maxWorkers=1` was incompatible with the current npm script because `npm test` already supplies that option; the compatible command passed by passing only the test file path.
+
+- [x] **Step 6: Milestone app smoke**
+
+Run an isolated `run-new-ui-desktop.sh` instance after validation:
+
+```bash
+SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4526 \
+VITE_DEV_URL=http://127.0.0.1:5189 \
+GO_AGENT_CTL_RPC_ADDR=127.0.0.1:8106 \
+./run-new-ui-desktop.sh
+```
+
+Expected: Vite and backend start, `/skills` returns the Vite app entry, the Vite `/wails/ws` proxy accepts a WebSocket, and `ui/sidebar/get`, `ui/dashboard/get` with `page: 'skills'`, and `observability/status` return object results.
+
+Actual: 2026-07-07 Vite became ready at `http://127.0.0.1:5189`, backend became ready at `http://127.0.0.1:4526/metrics`, `/skills` returned the Vite app entry, and direct WebSocket RPCs through `ws://127.0.0.1:5189/wails/ws` passed for `ui/sidebar/get`, `ui/dashboard/get` with `page: 'skills'`, and `observability/status`. Existing `npm run smoke:desktop:rpc` also passed. The isolated 4526/5189/8106 ports were released after the smoke run.
+
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend-app/package.json frontend-app/package-lock.json \
