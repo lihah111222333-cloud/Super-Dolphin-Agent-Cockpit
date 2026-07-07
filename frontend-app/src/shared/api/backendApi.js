@@ -22,7 +22,13 @@ import {
   emitFrontendTraceEvent,
 } from './wailsBridge';
 import { positiveApprovalRequestIdFromFields } from './approvalRequestId.js';
-import { parseSharedFileDetailResponse } from './backendSchemas.js';
+import {
+  parseMemorySnapshotResponse,
+  parseModelProviderRegistryResponse,
+  parseObservabilityResultResponse,
+  parseSharedFileDetailResponse,
+  parseSharedFilesDashboardResponse,
+} from './backendSchemas.js';
 
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
@@ -1165,26 +1171,41 @@ function validateMCPServerControlResponse(method, response) {
   return value;
 }
 
-function validateSharedFileDetailResponse(method, response) {
+function validateSchemaResponse(method, response, parser) {
   try {
-    return parseSharedFileDetailResponse(response);
+    return parser(response);
   }
   catch (error) {
-    throw new TypeError(`${method} response ${error.message || 'shared file detail is invalid'}`, { cause: error });
+    throw new TypeError(`${method} response ${error.message || 'schema is invalid'}`, { cause: error });
   }
 }
+
+const validateObservabilityResultResponse = (method, response) => validateSchemaResponse(method, response, parseObservabilityResultResponse);
+const validateMemorySnapshotResponse = (method, response) => validateSchemaResponse(method, response, parseMemorySnapshotResponse);
+const validateSharedFilesDashboardResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFilesDashboardResponse);
+const validateSharedFileDetailResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFileDetailResponse);
+const validateModelProviderRegistryResponse = (method, response) => validateSchemaResponse(method, response, parseModelProviderRegistryResponse);
 
 const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.APP_UPDATE_INSTALL]: validateAppUpdateInstallResponse,
   [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
   [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
   [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
+  [RPC_METHODS.DASHBOARD_SHARED_FILES]: validateSharedFilesDashboardResponse,
   [RPC_METHODS.MCP_SERVER_LIST]: validateMCPServerListResponse,
   [RPC_METHODS.MCP_SERVER_SQLITE_START]: validateMCPServerControlResponse,
   [RPC_METHODS.MCP_SERVER_SQLITE_STOP]: validateMCPServerControlResponse,
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: validateMCPServerControlResponse,
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: validateMCPServerControlResponse,
+  [RPC_METHODS.MODEL_PROVIDERS_APPLY]: validateModelProviderRegistryResponse,
+  [RPC_METHODS.MODEL_PROVIDERS_LIST]: validateModelProviderRegistryResponse,
+  [RPC_METHODS.OBSERVABILITY_ERROR_LIST]: validateObservabilityResultResponse,
+  [RPC_METHODS.OBSERVABILITY_RECENT_LIST]: validateObservabilityResultResponse,
+  [RPC_METHODS.OBSERVABILITY_SLOW_LIST]: validateObservabilityResultResponse,
+  [RPC_METHODS.OBSERVABILITY_THREAD_RECENT]: validateObservabilityResultResponse,
+  [RPC_METHODS.OBSERVABILITY_TRACE_GET]: validateObservabilityResultResponse,
   [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
+  [RPC_METHODS.UI_MEMORY_GET]: validateMemorySnapshotResponse,
   [RPC_METHODS.UI_SHARED_FILE_GET]: validateSharedFileDetailResponse,
   [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
   [RPC_METHODS.THREAD_START]: validateThreadStartResponse,

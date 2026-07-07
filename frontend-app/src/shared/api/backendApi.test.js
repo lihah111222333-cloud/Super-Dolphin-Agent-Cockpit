@@ -39,7 +39,18 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
 function guardedBackendResponse(method) {
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ) return { hint: 'effective prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
+  if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return { files: [], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } };
+  if (method === RPC_METHODS.MODEL_PROVIDERS_APPLY || method === RPC_METHODS.MODEL_PROVIDERS_LIST) return { activeVendorId: '', vendors: [] };
+  if (
+    method === RPC_METHODS.OBSERVABILITY_ERROR_LIST
+    || method === RPC_METHODS.OBSERVABILITY_RECENT_LIST
+    || method === RPC_METHODS.OBSERVABILITY_SLOW_LIST
+    || method === RPC_METHODS.OBSERVABILITY_THREAD_RECENT
+    || method === RPC_METHODS.OBSERVABILITY_TRACE_GET
+  ) return { source: 'memory', events: [] };
+  if (method === RPC_METHODS.UI_MEMORY_GET) return { overview: {}, private: { entries: [] }, team: { entries: [] } };
   if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
+  if (method === RPC_METHODS.UI_SHARED_FILE_GET) return { path: 'reports/final.md', content: '' };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
   if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
   if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
@@ -73,6 +84,22 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_SLOW_LIST, { component: 'rpc' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_ERROR_LIST, { limit: 3 });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_STATUS, {});
+  });
+
+  it('rejects malformed registered dashboard response boundaries', async () => {
+    const callAPI = vi.fn((method) => {
+      if (method === RPC_METHODS.UI_MEMORY_GET) return Promise.resolve({ private: null, team: { entries: [] } });
+      if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return Promise.resolve({ files: null });
+      if (method === RPC_METHODS.MODEL_PROVIDERS_LIST) return Promise.resolve(null);
+      if (method === RPC_METHODS.OBSERVABILITY_TRACE_GET) return Promise.resolve(null);
+      return Promise.resolve({ ok: true });
+    });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.getMemorySnapshot({ cwd: '/repo/app' })).rejects.toThrow(/memory private entries must be an array/);
+    await expect(api.listSharedFiles()).rejects.toThrow(/shared files dashboard response files must be an array/);
+    await expect(api.listModelProviders({ cwd: '/repo/app' })).rejects.toThrow(/model provider registry/);
+    await expect(api.getObservabilityTrace({ traceId: 'trace-1' })).rejects.toThrow(/observability response must be an object/);
   });
 
   it('fails fast without extra backend calls for representative invalid facade inputs', () => {
@@ -1440,7 +1467,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('exposes model provider management RPC facade methods', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
     const registry = { vendors: [{ id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1' }] };
 
@@ -1761,7 +1788,7 @@ function expectPromptFacadeValidation(api) {
   });
 
   it('wraps memory center RPCs with the legacy payload shapes', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await callMemoryCenterApis(api);
@@ -1862,11 +1889,7 @@ function expectMemoryCenterValidation(api) {
   });
 
   it('wraps shared file list, read, delete, open and preview helpers with the expected payload shapes', async () => {
-    const callAPI = vi.fn().mockImplementation((method) => Promise.resolve(
-      method === RPC_METHODS.UI_SHARED_FILE_GET
-        ? { path: 'reports/final.md', content: 'final markdown' }
-        : { ok: true },
-    ));
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
     const previewSharedFile = vi.fn().mockResolvedValue({ url: '/shared-file-preview?id=sf_1' });
     const api = createBackendApi({ callAPI, openSharedFile, previewSharedFile });

@@ -1,3 +1,5 @@
+import { parseSharedFilesDashboardResponse } from '../shared/api/backendSchemas.js';
+
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
 }
@@ -80,17 +82,12 @@ function adaptSharedFileRetention(value) {
 }
 
 function adaptSharedFilesDashboard(response) {
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error('shared files dashboard response must be an object');
-  }
-  const rawFiles = Array.isArray(response.files) ? response.files : response.memory;
-  if (!Array.isArray(rawFiles)) {
-    throw new Error('shared files dashboard response files must be an array');
-  }
+  const value = parseSharedFilesDashboardResponse(response);
+  const rawFiles = Array.isArray(value.files) ? value.files : value.memory;
   return {
     files: rawFiles.map((item, index) => adaptSharedFile(item, index)),
-    finalOutputRefs: adaptFinalOutputRefs(response.finalOutputRefs),
-    retention: adaptSharedFileRetention(response.sharedFileRetention),
+    finalOutputRefs: adaptFinalOutputRefs(value.finalOutputRefs),
+    retention: adaptSharedFileRetention(value.sharedFileRetention),
   };
 }
 

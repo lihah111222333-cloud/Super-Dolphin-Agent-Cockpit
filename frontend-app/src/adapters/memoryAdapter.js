@@ -1,3 +1,5 @@
+import { parseMemorySnapshotResponse } from '../shared/api/backendSchemas.js';
+
 const MEMORY_TYPE_INFO = Object.freeze({
   user: { category: 'preference', label: '偏好' },
   feedback: { category: 'preference', label: '偏好' },
@@ -28,14 +30,12 @@ function objectValue(value) {
 }
 
 function normalizeMemorySnapshot(response) {
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error('memory snapshot response must be an object');
-  }
+  const value = parseMemorySnapshotResponse(response);
   return {
-    overview: objectValue(response.overview),
+    overview: objectValue(value.overview),
     entries: [
-      ...normalizeMemorySection(response.private, 'private'),
-      ...normalizeMemorySection(response.team, 'team'),
+      ...normalizeMemorySection(value.private, 'private'),
+      ...normalizeMemorySection(value.team, 'team'),
     ],
   };
 }

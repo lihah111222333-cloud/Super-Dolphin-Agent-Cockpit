@@ -1,3 +1,5 @@
+import { parseObservabilityResultResponse } from '../shared/api/backendSchemas.js';
+
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
 }
@@ -62,19 +64,17 @@ function joinParseErrors(existing, next) {
 }
 
 function adaptObservabilityResult(response) {
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error('observability response must be an object');
-  }
-  let parseError = textValue(response.parseError ?? response.parse_error);
+  const value = parseObservabilityResultResponse(response);
+  let parseError = textValue(value.parseError ?? value.parse_error);
   let events;
-  if (!Array.isArray(response.events)) {
+  if (!Array.isArray(value.events)) {
     parseError = joinParseErrors(parseError, 'events must be an array');
     events = [observabilityParseFailureEvent('events must be an array', {
       method: 'observability.events.invalid',
-      metadata: { receivedType: response.events === null ? 'null' : typeof response.events },
+      metadata: { receivedType: value.events === null ? 'null' : typeof value.events },
     })];
   } else {
-    events = response.events.map((event, index) => {
+    events = value.events.map((event, index) => {
       const adapted = adaptObservabilityEvent(event, index);
       if (adapted.method === 'observability.event.parse_failed') {
         parseError = joinParseErrors(parseError, adapted.error);
@@ -83,14 +83,14 @@ function adaptObservabilityResult(response) {
     });
   }
   return {
-    source: textValue(response.source),
-    truncated: Boolean(response.truncated),
-    degraded: Boolean(response.degraded) || Boolean(parseError),
+    source: textValue(value.source),
+    truncated: Boolean(value.truncated),
+    degraded: Boolean(value.degraded) || Boolean(parseError),
     parseError,
-    tailError: textValue(response.tailError ?? response.tail_error),
-    tailTimedOut: Boolean(response.tailTimedOut ?? response.tail_timed_out),
-    tailFilesScanned: Number(response.tailFilesScanned ?? response.tail_files_scanned) || 0,
-    totalDurationMs: Number(response.totalDurationMs ?? response.total_duration_ms) || 0,
+    tailError: textValue(value.tailError ?? value.tail_error),
+    tailTimedOut: Boolean(value.tailTimedOut ?? value.tail_timed_out),
+    tailFilesScanned: Number(value.tailFilesScanned ?? value.tail_files_scanned) || 0,
+    totalDurationMs: Number(value.totalDurationMs ?? value.total_duration_ms) || 0,
     events,
   };
 }

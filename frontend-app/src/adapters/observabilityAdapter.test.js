@@ -38,6 +38,24 @@ describe('observabilityAdapter', () => {
     });
   });
 
+  it('keeps malformed observability result bodies visible as degraded parse failures', () => {
+    const result = adaptObservabilityResult({
+      source: 'memory',
+      tail: 10,
+    });
+
+    expect(result).toMatchObject({
+      degraded: true,
+      parseError: expect.stringContaining('events must be an array'),
+      events: [
+        expect.objectContaining({
+          method: 'observability.events.invalid',
+          status: 'error',
+        }),
+      ],
+    });
+  });
+
   it('keeps malformed events visible as parse failures', () => {
     const result = adaptObservabilityResult({
       source: 'memory',

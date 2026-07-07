@@ -25,6 +25,43 @@ Highest-priority findings:
 - Some UI controls are hand-written menus/popovers that should use existing `react-aria-components`.
 - Some hand-written logic must stay: chat timeline/sticky scroll, runtime patch transforms, redaction, FocusTrapDialog wrapper, and apply_patch diff fallbacks.
 
+## 中文整理版改动计划
+
+### 当前执行边界
+
+- 前端唯一源码目录是 `frontend-app/`；`cmd/agent-terminal/web-dist/` 是构建同步产物，不作为本轮手改目标。
+- 本轮目标不是“换框架”，而是逐步替换已被审计确认的重复自研基础设施：解析、响应校验、静默兜底、纯 RPC 状态、低风险交互控件、安全边界和测试守卫。
+- 每个阶段只处理一个能力面。阶段完成后必须运行聚焦测试、`npm run lint`、`npm test`、`npm run build`，必要时再用独立端口启动 `run-new-ui-desktop.sh` 做页面/RPC smoke。
+- 提交边界按 `$Git原子提交规范` 执行：精确 staging，禁止 `git add .`，每个阶段一个可回滚提交。
+- LSP 证据已确认 `backendApi.js` 的响应 validator 注册表、`backendSchemas.js` 的 zod 边界、`ObservabilityPage.jsx` 的手写 reducer/trace cache、`ComposerModelSelector.jsx` 的 document listener + native dialog 交互点。部分 JSX/JS 文件 hover/xref/diagnostics 会超时，实施阶段必须收窄重试；仍失败时记录 blocker，并用 lint/typecheck/focused tests/full tests 补证。
+
+### 阶段总览
+
+| 阶段 | 状态 | 为什么做 | 怎么做 | 主要副作用 | 验证口径 |
+|---|---|---|---|---|---|
+| Task 0 LSP 诊断清理 | 已完成 | refactor 前先清掉 Error 级诊断，避免后续改动把类型噪声和真实回归混在一起。 | 只补 JSDoc/typedef，不改运行时逻辑。 | 可能留下 TypeScript hint；只要不是 Error/Warning/Information/Hint 新增，记录后进入后续 JS typing 专项。 | 相关 model focused tests + LSP diagnostics + lint/test/build。 |
+| Task 1 Markdown URL 安全过滤 | 已完成 | Chat/Skills 曾绕过 `react-markdown` 默认 URL 安全策略，安全收益高且改动面可控。 | 用默认策略做基线，只为产品链接和本地图片 token 保留显式 allowlist。 | 以前能渲染的 `data:*` 或不安全协议会被拒绝；需要正向用例覆盖 `agent://`、`app://`、`SKILL.md` 等产品路径。 | Markdown/Skills focused tests + `/skills` smoke。 |
+| Task 2 Wails 大整数 JSON 解析 | 已完成 | regex 改 JSON 文本容易误伤字符串内容，也无法表达真实 JSON number 策略。 | 使用 `lossless-json` 解析 runtime event payload；安全整数仍转 Number，非安全整数转字符串，避免 BigInt 污染 JSON-serializable UI state。 | 下游如果依赖大整数 Number 比较会改变类型；本轮策略是显式字符串化，并用测试固定。 | `wailsBridge.test.js` + full frontend checks + Wails RPC smoke。 |
+| Task 3 高风险静默兜底移除 | 已完成 | 缺失目录、畸形 shared-file detail、chat UI action 异常被吞会制造“看似成功”的 UI 状态。 | 守卫脚本缺根 fail-fast；shared-file detail 由 zod/RPC 边界校验；chat 复用共享 `runUIAction`。 | 以前被空数组/ fallback 掩盖的问题会直接报错；这是预期行为。 | guard + adapter/API/chat focused tests + `/files` smoke。 |
+| Task 4 扩展 zod 响应边界 | 进行中 | adapter 仍承担过多手写 shape 校验，容易把后端坏数据标准化成可显示数据。 | 把 observability、memory、shared files dashboard、model provider registry 的入口 shape 放进 `backendSchemas.js` 和 `BACKEND_RESPONSE_VALIDATORS`；adapter 只保留 UI 字段转换。 | `observability.events` 缺失保留 degraded parse failure，不改成直接崩；memory/provider/files 的必需数组/对象缺失应 fail-fast。 | adapter/API/settings/files focused tests + typecheck contracts + audit rpc contracts + full checks + `/settings` smoke。 |
+| Task 5 纯 RPC 状态迁移到 TanStack Query | 未开始 | settings/observability 仍有 reducer、request sequence、手写 cache；已有 Query 依赖可承接查询状态。 | 先迁移 observability recent/trace，再迁移 settings read/write；dirty draft state 保留本地，不让 background refetch 覆盖用户输入。 | Query 默认 focus refetch、retry、stale 策略可能改变请求时机；所有 query key 和 refetch 策略必须显式。 | Observability/Settings focused tests + full checks。 |
+| Task 6 低风险交互控件迁移 React Aria | 未开始 | Memory create menu、Prompt scope、Composer model selector 有手写 outside-click/Escape/dialog 行为，易出现可访问性和焦点回归。 | 引入或使用 `react-aria-components` 的 Menu/Popover/Dialog/RadioGroup；保持现有 props、copy、CSS 结构尽量不动。 | DOM 结构和焦点顺序会改变；需要键盘、Escape、outside click、focus restore 测试先行。 | Memory/Prompt/Composer focused tests + full checks。 |
+| Task 7 图片与 Mermaid SVG 安全边界 | 未开始 | 本地图片和 SVG sanitizer 是安全边界，不能依赖字符串拼接和宽泛协议。 | 用 `URL`/`URLSearchParams` 验证 generated/local image route；禁止 frontend 直接生成 `file://` 预览；Mermaid 先补 fixture，再决定是否引入 DOMPurify。 | 旧的 raw file path preview 可能不可见，必须走后端 token URL；DOMPurify 若引入会改变 SVG 属性保留集合。 | Markdown/Mermaid/code preview focused tests + full checks。 |
+| Task 8 后续 Query/virtualization | 延后 | Memory polling、Skills chunk loading、大 diff 渲染有性能/状态收益，但副作用较大。 | 分成三个子任务：memory polling -> `useQuery`/polling；skills chunks -> `useInfiniteQuery`；runtime diff -> `@tanstack/react-virtual`。 | 请求并发、取消、滚动锚点和局部渲染都可能改变 UX；必须一项一项做。 | 每个子任务单独 focused tests + full checks + 必要页面 smoke。 |
+| Task 9 测试/CSS 守卫强化 | 未开始 | regex import guard 容易误判 multiline/default/namespace import，也会被注释字符串干扰。 | 使用已有 TypeScript compiler API 解析 import；CSS 继续保留 PostCSS 守卫，只对关键 cascade 加 computed-style/Playwright 检查。 | AST guard 会更严格，可能暴露已有测试绕行；这是测试守卫收益。 | guard/script focused tests + `npm run guard:critical-skip` + full checks。 |
+
+### 执行顺序和停机条件
+
+执行顺序保持：Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 分拆子任务 -> Task 9。Task 0-3 已作为安全和 fail-fast 前置阶段完成，不再和后续阶段混提交。
+
+任何阶段出现以下情况必须停下修当前阶段，不进入下一阶段：
+
+- 聚焦测试、lint、full `npm test` 或 build 失败。
+- 触摸文件出现新的 LSP Error/Warning/Information/Hint，且无法解释或记录 blocker。
+- 成熟依赖把 fail-fast 行为变成静默 fallback。
+- 产品语义被通用库吃掉，例如 redaction、Wails event envelope、apply_patch diff fallback、chat scroll anchor、local file safety。
+- 需要新增依赖但收益只是不确定的“看起来更现代”。
+
 ## File Responsibility Map
 
 - `frontend-app/src/entities/client/model/*.js`: runtime/thread/timeline state, type diagnostics, approval id normalization, domain rules that mostly stay hand-written.
@@ -527,21 +564,24 @@ git commit -m "fix(frontend): 移除前端静默兜底路径"
 - Modify: `frontend-app/src/adapters/memoryAdapter.js`
 - Modify: `frontend-app/src/adapters/fileAdapter.js`
 - Modify: `frontend-app/src/pages/settings/components/ModelProvidersCard.jsx`
+- Create: `frontend-app/src/pages/settings/components/ModelProvidersCardModel.js`
 - Test: focused adapter/page tests
 
-- [ ] **Step 1: Add malformed response tests first**
+- [x] **Step 1: Add malformed response tests first**
 
 Add explicit invalid cases:
 
 ```js
 expect(() => adaptObservabilityResult({ tail: 10 })).toThrow(/events/);
-expect(() => adaptMemorySnapshot({ personal: null })).toThrow(/memory/);
+expect(() => normalizeMemorySnapshot({ private: null, team: { entries: [] } })).toThrow(/memory/);
 expect(() => normalizeRegistry(null)).toThrow(/model provider registry/);
 ```
 
 For `observabilityAdapter`, decide whether missing `events` remains degraded parse failure. If preserving degraded display, test for that exact explicit conversion; do not leave it implicit.
 
-- [ ] **Step 2: Move schemas into `backendSchemas.js`**
+Actual: 2026-07-07 added RED/GREEN coverage for malformed observability, memory, shared-files dashboard, and model-provider registry responses. `adaptObservabilityResult({ tail: 10 })` intentionally remains a degraded parse failure with an `observability.events.invalid` event instead of throwing, because the observability page already exposes partial parse failures in UI. The memory adapter export is `normalizeMemorySnapshot`, not `adaptMemorySnapshot`, so the test and implementation use the actual symbol.
+
+- [x] **Step 2: Move schemas into `backendSchemas.js`**
 
 Create schemas for:
 
@@ -560,11 +600,15 @@ Use `transform` for real compatibility requirements:
 
 Do not use transforms to hide missing required arrays/objects.
 
-- [ ] **Step 3: Register validators and simplify adapters**
+Actual: 2026-07-07 `backendSchemas.js` now contains `observabilityResultSchema`, `memorySnapshotSchema`, `sharedFilesDashboardSchema`, `sharedFileDetailResponseSchema`, and `modelProviderRegistrySchema` plus parse helpers with stable fail-fast messages. The schemas allow passthrough fields for backend compatibility but do not synthesize missing required arrays/objects.
+
+- [x] **Step 3: Register validators and simplify adapters**
 
 Register schemas in `backendApi.js` where RPCs are known. Keep adapter transforms for UI-specific fields only.
 
-- [ ] **Step 4: Verify**
+Actual: 2026-07-07 registered zod-backed validators for shared files dashboard, model provider list/apply, observability list/trace methods, UI memory snapshot, and shared-file detail. `fileAdapter.js`, `memoryAdapter.js`, `observabilityAdapter.js`, and provider registry normalization now parse response boundaries first and keep UI-only mapping in adapters. `ModelProvidersCardModel.js` was created so provider registry normalization can be unit-tested without exporting non-components from `ModelProvidersCard.jsx`, preserving React Fast Refresh lint rules.
+
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -584,15 +628,54 @@ npm test
 npm run build
 ```
 
-- [ ] **Step 5: Commit**
+Actual: 2026-07-07 focused Task 4 suite passed with 8 files and 113 tests:
+
+```bash
+cd frontend-app
+npm test -- src/adapters/observabilityAdapter.test.js \
+  src/adapters/memoryAdapter.test.js \
+  src/adapters/fileAdapter.test.js \
+  src/pages/files/FilesPage.test.jsx \
+  src/pages/settings/SettingsPage.test.jsx \
+  src/pages/settings/components/ModelProvidersCard.test.jsx \
+  src/shared/api/backendApi.test.js \
+  src/shared/api/backendApi.contractMatrix.test.js
+```
+
+The command also ran `guard:critical-skip`, `typecheck:contracts`, and `audit:rpc-contracts`, all passing. Full `npm run lint`, full `npm test` with 86 files and 1061 tests, and `npm run build` passed after the Task 4 fix. LSP diagnostics were clean for `ModelProvidersCardModel.js`; diagnostics for large JSX/test files timed out after narrowed retries and are recorded as an LSP tooling gap covered by lint/typecheck/focused/full tests/build.
+
+- [x] **Step 5: Milestone app smoke**
+
+Run an isolated `run-new-ui-desktop.sh` instance after validation:
+
+```bash
+SUPER_DOLPHIN_HOME=/tmp/sd-task4-browser-smoke-${USER:-user}/super-dolphin-home \
+SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4528 \
+VITE_DEV_URL=http://127.0.0.1:5191 \
+GO_AGENT_CTL_RPC_ADDR=127.0.0.1:8108 \
+./run-new-ui-desktop.sh
+```
+
+Actual: 2026-07-07 Vite became ready at `http://127.0.0.1:5191`, backend became ready at `http://127.0.0.1:4528/metrics`, `/settings` returned the Vite app entry, and direct WebSocket RPCs through `ws://127.0.0.1:5191/wails/ws` passed for `ui/sidebar/get`, `ui/dashboard/get` with `page: 'settings'`, and `observability/status`. The isolated 4528/5191/8108 ports were released after the smoke run.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend-app/src/shared/api/backendSchemas.js \
   frontend-app/src/shared/api/backendApi.js \
+  frontend-app/src/shared/api/backendApi.test.js \
   frontend-app/src/adapters/observabilityAdapter.js \
+  frontend-app/src/adapters/observabilityAdapter.test.js \
   frontend-app/src/adapters/memoryAdapter.js \
+  frontend-app/src/adapters/memoryAdapter.test.js \
   frontend-app/src/adapters/fileAdapter.js \
-  frontend-app/src/pages/settings/components/ModelProvidersCard.jsx
+  frontend-app/src/adapters/fileAdapter.test.js \
+  frontend-app/src/pages/files/FilesPage.test.jsx \
+  frontend-app/src/pages/settings/SettingsPage.test.jsx \
+  frontend-app/src/pages/settings/components/ModelProvidersCard.jsx \
+  frontend-app/src/pages/settings/components/ModelProvidersCardModel.js \
+  frontend-app/src/pages/settings/components/ModelProvidersCard.test.jsx \
+  docs/plans/2026-07-07-frontend-mature-replacement-roadmap.md
 git commit -m "refactor(frontend): 用 zod 收敛前端响应边界"
 ```
 
