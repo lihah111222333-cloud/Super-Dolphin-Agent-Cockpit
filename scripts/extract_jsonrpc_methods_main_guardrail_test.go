@@ -25,11 +25,11 @@ func TestExtractJSONRPCMethodsMainShapeAndFileOwnership(t *testing.T) {
 	assertExtractJSONRPCMethodsMainShape(t, mainDecl)
 
 	roots := extractMainRoots(mainDecl)
-	wantRoots := []string{"internal/module/thread", "internal/module/turn", "internal/module/uistate"}
+	wantRoots := []string{"internal/module", "internal/platform/mcpcontrol"}
 	if !reflect.DeepEqual(roots, wantRoots) {
 		t.Fatalf("main roots = %v, want %v", roots, wantRoots)
 	}
-	assertExtractJSONRPCMethodsMainFeatures(t, inspectExtractJSONRPCMethodsMain(mainDecl))
+	assertExtractJSONRPCMethodsMainFeatures(t, inspectExtractJSONRPCMethodsScript(file))
 }
 
 func parseExtractJSONRPCMethodsScript(t *testing.T, scriptPath string) *ast.File {
@@ -74,15 +74,18 @@ func assertExtractJSONRPCMethodsMainShape(t *testing.T, mainDecl *ast.FuncDecl) 
 }
 
 type extractMainFeatures struct {
-	hasWalkDir     bool
-	hasInspect     bool
-	hasSort        bool
-	skipsTestFiles bool
+	hasWalkDir          bool
+	hasInspect          bool
+	hasSort             bool
+	hasNonZeroFailFast  bool
+	skipsTestFiles      bool
+	walksContractConsts bool
+	walksMCPDTOConsts   bool
 }
 
-func inspectExtractJSONRPCMethodsMain(mainDecl *ast.FuncDecl) extractMainFeatures {
+func inspectExtractJSONRPCMethodsScript(file *ast.File) extractMainFeatures {
 	features := extractMainFeatures{}
-	ast.Inspect(mainDecl.Body, func(n ast.Node) bool {
+	ast.Inspect(file, func(n ast.Node) bool {
 		features.observe(n)
 		return true
 	})
@@ -109,19 +112,54 @@ func (f *extractMainFeatures) observe(n ast.Node) {
 }
 
 func (f *extractMainFeatures) observeSelector(pkg, name string, args []ast.Expr) {
-	switch pkg + "." + name {
-	case "filepath.WalkDir":
-		f.hasWalkDir = true
-	case "ast.Inspect":
-		f.hasInspect = true
-	case "sort.Strings":
-		if callHasIdentArg(args, "out") {
-			f.hasSort = true
-		}
-	case "strings.HasSuffix":
-		if callHasStringArg(args, 1, "_test.go") {
-			f.skipsTestFiles = true
-		}
+	observer, ok := extractMainFeatureObservers[pkg+"."+name]
+	if !ok {
+		return
+	}
+	observer(f, args)
+}
+
+var extractMainFeatureObservers = map[string]func(*extractMainFeatures, []ast.Expr){
+	"filepath.WalkDir":  observeWalkDirCall,
+	"ast.Inspect":       observeASTInspectCall,
+	"sort.Strings":      observeSortStringsCall,
+	"strings.HasSuffix": observeStringsHasSuffixCall,
+	"os.Exit":           observeOSExitCall,
+	"ctx.walkConstRoot": observeConstRootCall,
+}
+
+func observeWalkDirCall(f *extractMainFeatures, _ []ast.Expr) {
+	f.hasWalkDir = true
+}
+
+func observeASTInspectCall(f *extractMainFeatures, _ []ast.Expr) {
+	f.hasInspect = true
+}
+
+func observeSortStringsCall(f *extractMainFeatures, args []ast.Expr) {
+	if callHasIdentArg(args, "out") {
+		f.hasSort = true
+	}
+}
+
+func observeStringsHasSuffixCall(f *extractMainFeatures, args []ast.Expr) {
+	if callHasStringArg(args, 1, "_test.go") {
+		f.skipsTestFiles = true
+	}
+}
+
+func observeOSExitCall(f *extractMainFeatures, args []ast.Expr) {
+	if callHasIntArg(args, 0, "1") {
+		f.hasNonZeroFailFast = true
+	}
+}
+
+func observeConstRootCall(f *extractMainFeatures, args []ast.Expr) {
+	if callHasStringArg(args, 0, "internal/contract") {
+		f.walksContractConsts = true
+	}
+	if callHasStringArg(args, 0, "internal/dto/mcp") {
+		f.walksMCPDTOConsts = true
 	}
 }
 
@@ -147,6 +185,17 @@ func callHasStringArg(args []ast.Expr, index int, want string) bool {
 	return strings.Trim(lit.Value, "\"") == want
 }
 
+func callHasIntArg(args []ast.Expr, index int, want string) bool {
+	if len(args) <= index {
+		return false
+	}
+	lit, ok := args[index].(*ast.BasicLit)
+	if !ok {
+		return false
+	}
+	return lit.Value == want
+}
+
 func assertExtractJSONRPCMethodsMainFeatures(t *testing.T, features extractMainFeatures) {
 	t.Helper()
 	if !features.hasWalkDir {
@@ -161,16 +210,75 @@ func assertExtractJSONRPCMethodsMainFeatures(t *testing.T, features extractMainF
 	if !features.skipsTestFiles {
 		t.Fatal("main must explicitly skip _test.go files")
 	}
+	if !features.hasNonZeroFailFast {
+		t.Fatal("main must exit non-zero when extraction diagnostics are present")
+	}
+	if !features.walksContractConsts {
+		t.Fatal("main must load internal/contract as a const-only method key source")
+	}
+	if !features.walksMCPDTOConsts {
+		t.Fatal("main must load internal/dto/mcp as a const-only method key source")
+	}
 }
 
 func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T) {
 	repoRoot := t.TempDir()
-	for _, dir := range []string{"internal/module/thread", "internal/module/turn", "internal/module/uistate"} {
+	writeExtractJSONRPCMethodsSuccessFixture(t, repoRoot)
+
+	stdout, stderr, err := runExtractJSONRPCMethodsScript(t, repoRoot)
+	if err != nil {
+		t.Fatalf("run script err=%v stdout=%q stderr=%q", err, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	got := nonEmptyLines(stdout)
+	want := []string{
+		"alpha/method",
+		"beta/method",
+		"ctl/register",
+		"dashboard/agentStatus",
+		"dashboard/insights/list",
+		"memory/consolidate",
+		"zeta/method",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stdout lines = %v, want %v", got, want)
+	}
+	if strings.Contains(stdout, "bad method!") {
+		t.Fatalf("stdout should not include invalid methods: %q", stdout)
+	}
+	if strings.Contains(stdout, "test-only/method") {
+		t.Fatalf("stdout should ignore _test.go files: %q", stdout)
+	}
+}
+
+func writeExtractJSONRPCMethodsSuccessFixture(t *testing.T, repoRoot string) {
+	t.Helper()
+	mkdirExtractJSONRPCMethodsFixtureDirs(t, repoRoot)
+	writeExtractJSONRPCMethodsMethodFixtures(t, repoRoot)
+	writeExtractJSONRPCMethodsConstFixtures(t, repoRoot)
+}
+
+func mkdirExtractJSONRPCMethodsFixtureDirs(t *testing.T, repoRoot string) {
+	t.Helper()
+	for _, dir := range []string{
+		"internal/module/thread",
+		"internal/module/dashboard",
+		"internal/module/memory",
+		"internal/platform/mcpcontrol",
+		"internal/contract",
+		"internal/dto/mcp",
+	} {
 		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
+}
 
+func writeExtractJSONRPCMethodsMethodFixtures(t *testing.T, repoRoot string) {
+	t.Helper()
 	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/thread/scan.go", strings.Join([]string{
 		"package thread",
 		"",
@@ -185,11 +293,37 @@ func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T)
 		"}",
 		"",
 	}, "\n"))
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/turn/scan.go", strings.Join([]string{
-		"package turn",
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/dashboard/scan.go", strings.Join([]string{
+		"package dashboard",
+		"",
+		"const dashboardPrefix = \"dashboard/\"",
+		"",
+		"func bindMethods(handler.Map) {}",
 		"",
 		"func collectAgain() {",
-		"\t_ = handler.Map{\"alpha/method\": nil}",
+		"\tm := handler.Map{}",
+		"\tm[dashboardPrefix+\"agentStatus\"] = nil",
+		"\tbindMethods(handler.Map{\"beta/method\": nil})",
+		"}",
+		"",
+		"func addDashboardInsightHandlers(m handler.Map) {",
+		"\tm[\"dashboard/insights/list\"] = nil",
+		"}",
+		"",
+	}, "\n"))
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/memory/scan.go", strings.Join([]string{
+		"package memory",
+		"",
+		"func helperReturn() handler.Map {",
+		"\treturn handler.Map{\"memory/consolidate\": nil}",
+		"}",
+		"",
+	}, "\n"))
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/platform/mcpcontrol/scan.go", strings.Join([]string{
+		"package mcpcontrol",
+		"",
+		"func collectMCPControl() {",
+		"\t_ = handler.Map{dto.MethodRegister: nil}",
 		"}",
 		"",
 	}, "\n"))
@@ -203,29 +337,25 @@ func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T)
 		"}",
 		"",
 	}, "\n"))
-
-	stdout, stderr, err := runExtractJSONRPCMethodsScript(t, repoRoot)
-	if err != nil {
-		t.Fatalf("run script err=%v stdout=%q stderr=%q", err, stdout, stderr)
-	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty", stderr)
-	}
-
-	got := nonEmptyLines(stdout)
-	want := []string{"alpha/method", "zeta/method"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("stdout lines = %v, want %v", got, want)
-	}
-	if strings.Contains(stdout, "bad method!") {
-		t.Fatalf("stdout should not include invalid methods: %q", stdout)
-	}
-	if strings.Contains(stdout, "test-only/method") {
-		t.Fatalf("stdout should ignore _test.go files: %q", stdout)
-	}
 }
 
-func TestExtractJSONRPCMethodsScript_ReportsWalkAndParseErrorsButKeepsValidOutput(t *testing.T) {
+func writeExtractJSONRPCMethodsConstFixtures(t *testing.T, repoRoot string) {
+	t.Helper()
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/dto/mcp/constants.go", strings.Join([]string{
+		"package mcp",
+		"",
+		"const MethodRegister = \"ctl/register\"",
+		"",
+	}, "\n"))
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/contract/constants.go", strings.Join([]string{
+		"package contract",
+		"",
+		"const ThreadRPCStart = \"thread/start\"",
+		"",
+	}, "\n"))
+}
+
+func TestExtractJSONRPCMethodsScript_FailsFastOnWalkAndParseErrors(t *testing.T) {
 	repoRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoRoot, "internal", "module", "thread"), 0o755); err != nil {
 		t.Fatalf("mkdir internal/module/thread: %v", err)
@@ -244,20 +374,18 @@ func TestExtractJSONRPCMethodsScript_ReportsWalkAndParseErrorsButKeepsValidOutpu
 	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/thread/broken.go", "package thread\nfunc broken(\n")
 
 	stdout, stderr, err := runExtractJSONRPCMethodsScript(t, repoRoot)
-	if err != nil {
-		t.Fatalf("run script err=%v stdout=%q stderr=%q", err, stdout, stderr)
+	if err == nil {
+		t.Fatalf("run script err=nil stdout=%q stderr=%q", stdout, stderr)
 	}
-
-	got := nonEmptyLines(stdout)
-	want := []string{"turn/interrupt"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("stdout lines = %v, want %v", got, want)
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty on fail-fast diagnostics", stdout)
 	}
 	normalizedStderr := filepath.ToSlash(stderr)
 	for _, wantErr := range []string{
 		"extract_jsonrpc_methods: parse internal/module/thread/broken.go",
-		"extract_jsonrpc_methods: walk internal/module/turn",
-		"extract_jsonrpc_methods: walk internal/module/uistate",
+		"extract_jsonrpc_methods: walk internal/platform/mcpcontrol",
+		"extract_jsonrpc_methods: walk internal/contract",
+		"extract_jsonrpc_methods: walk internal/dto/mcp",
 	} {
 		if !strings.Contains(normalizedStderr, wantErr) {
 			t.Fatalf("stderr = %q, want substring %q", stderr, wantErr)

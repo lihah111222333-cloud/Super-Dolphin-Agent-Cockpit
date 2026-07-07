@@ -68,7 +68,7 @@ func assertPrePushFrontendAppOnlyScope(t *testing.T) {
 	assertOutputContainsAll(t, out, "[pre-push] frontend-app lint", "[pre-push] frontend-app tests", "[pre-push] frontend-app build", "pre-push OK")
 	assertOutputOmitsAll(t, out, "go package tests")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "npm run lint", "npm test", "npm run build")
+	assertOutputContainsAll(t, log, "npm run lint", "npm run test:hook", "npm run build")
 	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ")
 }
 
