@@ -952,7 +952,7 @@ internal/provider/e2efixture/dream_executor_test.go	internal	platform-provider	g
 internal/provider/e2efixture/dream_executor.go	internal	platform-provider	go-source	4858	AI provider 集成层	internal,provider,e2efixture,dream,executor,AI,集成层
 internal/provider/e2efixture/module.go	internal	platform-provider	go-source	202	AI provider 集成层	internal,provider,e2efixture,module,AI,集成层
 internal/provider/manifestbuilder/manifest.go	internal	platform-provider	go-source	429	AI provider 集成层	internal,provider,manifestbuilder,manifest,AI,集成层
-internal/provider/provider_contract_manifest_test.go	internal	platform-provider	go-test	9981	AI provider 集成层	internal,provider,contract,manifest,test,AI,集成层
+internal/provider/provider_contract_manifest_test.go	internal	platform-provider	go-test	10660	AI provider 集成层	internal,provider,contract,manifest,test,AI,集成层
 internal/provider/provider_template_compile_test.go	internal	platform-provider	go-test	12777	AI provider 集成层	internal,provider,template,compile,test,AI,集成层
 internal/provider/shared/argument_preview_test.go	internal	platform-provider	go-test	1907	provider home、配置和共享 helpers	internal,provider,shared,argument,preview,test,home,配置和共享,helpers
 internal/provider/shared/argument_preview.go	internal	platform-provider	go-source	721	provider home、配置和共享 helpers	internal,provider,shared,argument,preview,home,配置和共享,helpers

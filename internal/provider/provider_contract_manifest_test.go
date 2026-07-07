@@ -201,13 +201,17 @@ func assertProviderContractRequiredCases(t *testing.T, file *ast.File, specFunc 
 		t.Fatalf("%s is required", specFunc)
 	}
 	required := map[string]bool{
-		"CasePromptParity":  false,
+		"CaseEventMatrix":   false,
 		"CaseApproval":      false,
 		"CaseInterrupt":     false,
 		"CaseForceComplete": false,
 		"CaseResume":        false,
 		"CaseToolbridge":    false,
 		"CaseRuntimeReport": false,
+	}
+	promptAlternatives := map[string]bool{
+		"CasePromptParity":              false,
+		"CasePromptMaterializedCarrier": false,
 	}
 	ast.Inspect(fn, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
@@ -217,13 +221,28 @@ func assertProviderContractRequiredCases(t *testing.T, file *ast.File, specFunc 
 		if _, ok := required[sel.Sel.Name]; ok {
 			required[sel.Sel.Name] = true
 		}
+		if _, ok := promptAlternatives[sel.Sel.Name]; ok {
+			promptAlternatives[sel.Sel.Name] = true
+		}
 		return true
 	})
+	if !anyProviderContractCaseFound(promptAlternatives) {
+		t.Fatalf("%s missing prompt contract case: want contracttest.CasePromptParity or contracttest.CasePromptMaterializedCarrier", specFunc)
+	}
 	for key, found := range required {
 		if !found {
 			t.Fatalf("%s missing contracttest.%s", specFunc, key)
 		}
 	}
+}
+
+func anyProviderContractCaseFound(cases map[string]bool) bool {
+	for _, found := range cases {
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 func assertProviderContractSnapshots(t *testing.T, file *ast.File) {
@@ -308,7 +327,7 @@ func assertNoForbiddenIdent(t *testing.T, n ast.Node) {
 		return
 	}
 	switch ident.Name {
-	case "CompleteFixtureSpec", "NewDependencyModeError", "DependencyModeError":
+	case "CompleteFixtureSpec", "DependencyModeError":
 		t.Fatalf("provider contract test uses forbidden shortcut %s", ident.Name)
 	}
 }
@@ -322,7 +341,13 @@ func assertNoForbiddenSelector(t *testing.T, n ast.Node) {
 	if strings.HasPrefix(sel.Sel.Name, "Skip") {
 		t.Fatalf("provider contract test uses %s", sel.Sel.Name)
 	}
-	if sel.Sel.Name == "NewDependencyModeError" || sel.Sel.Name == "DependencyModeError" {
+	if sel.Sel.Name == "NewDependencyModeError" {
+		if identName(sel.X, "contract") {
+			return
+		}
+		t.Fatalf("provider contract test uses forbidden shortcut %s", sel.Sel.Name)
+	}
+	if sel.Sel.Name == "DependencyModeError" {
 		t.Fatalf("provider contract test uses forbidden shortcut %s", sel.Sel.Name)
 	}
 }

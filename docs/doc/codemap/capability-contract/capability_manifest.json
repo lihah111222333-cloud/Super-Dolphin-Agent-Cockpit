@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2209,
-    "total_methods": 1057,
+    "total_functions": 2215,
+    "total_methods": 1059,
     "total_interfaces": 136,
     "total_interface_methods": 279,
-    "total_exported": 1198,
-    "total_unexported": 2775,
-    "total_structs": 571
+    "total_exported": 1202,
+    "total_unexported": 2781,
+    "total_structs": 573
   },
   "packages": [
     {
@@ -54807,6 +54807,19 @@
           ]
         },
         {
+          "name": "trimmedNonEmptyStrings",
+          "exported": false,
+          "params": [
+            {
+              "name": "values",
+              "type": "...string"
+            }
+          ],
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "validateDependencyModeError",
           "exported": false,
           "params": [
@@ -54826,6 +54839,32 @@
             {
               "name": "cases",
               "type": "[]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateEventMatrixCategory",
+          "exported": false,
+          "params": [
+            {
+              "name": "category",
+              "type": "EventMatrixCategoryEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateEventMatrixEvidence",
+          "exported": false,
+          "params": [
+            {
+              "name": "matrix",
+              "type": "EventMatrixEvidence"
             }
           ],
           "returns": [
@@ -54897,6 +54936,19 @@
           ]
         },
         {
+          "name": "validatePromptCaseAlternative",
+          "exported": false,
+          "params": [
+            {
+              "name": "cases",
+              "type": "map[CaseKey]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "validatePromptEvidenceOrigins",
           "exported": false,
           "params": [
@@ -54907,6 +54959,19 @@
             {
               "name": "want",
               "type": "PromptParityEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateRequiredCaseSet",
+          "exported": false,
+          "params": [
+            {
+              "name": "cases",
+              "type": "map[CaseKey]Case"
             }
           ],
           "returns": [
@@ -54932,6 +54997,19 @@
             {
               "name": "raw",
               "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateSpecEntrypoints",
+          "exported": false,
+          "params": [
+            {
+              "name": "spec",
+              "type": "Spec"
             }
           ],
           "returns": [
@@ -54997,6 +55075,21 @@
         },
         {
           "receiver": "*CaseEvidence",
+          "name": "RecordEventMatrix",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "matrix",
+              "type": "EventMatrixEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
           "name": "RecordEventTranslation",
           "exported": true,
           "params": [
@@ -55034,6 +55127,25 @@
             {
               "name": "outcome",
               "type": "OutcomeEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "RecordPromptMaterializedCarrier",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "got",
+              "type": "PromptParityEvidence"
+            },
+            {
+              "name": "want",
+              "type": "PromptParityEvidence"
             }
           ]
         },
@@ -55135,6 +55247,14 @@
         },
         {
           "name": "CaseEvidence",
+          "exported": true
+        },
+        {
+          "name": "EventMatrixCategoryEvidence",
+          "exported": true
+        },
+        {
+          "name": "EventMatrixEvidence",
           "exported": true
         },
         {
