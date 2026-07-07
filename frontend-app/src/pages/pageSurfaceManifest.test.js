@@ -10,9 +10,14 @@ import {
 import { pageSurfaceManifest } from './pageSurfaceManifest.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ownershipModes = new Set(['dto-golden', 'service-boundary']);
 
 function read(relPath) {
   return fs.readFileSync(path.join(sourceRoot, relPath), 'utf8');
+}
+
+function exists(relPath) {
+  return fs.existsSync(path.join(sourceRoot, relPath));
 }
 
 function resolveEntryImport(entry, specifier) {
@@ -27,14 +32,44 @@ describe('page surface manifest', () => {
     for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
       expect(surface.servicePrefix).toBe(`pages/${feature}/services/`);
       expect(surface.adapterPrefix).toBe(`pages/${feature}/adapters/`);
+      expect(surface.serviceEntry).toEqual(expect.stringMatching(new RegExp(`^pages/${feature}/services/.+\\.js$`)));
+      expect(ownershipModes.has(surface.ownershipMode)).toBe(true);
+      expect(surface.ownedStateFiles).toEqual(expect.arrayContaining([surface.entry]));
+      expect(surface.ownedStateFiles.length).toBeGreaterThan(0);
+      expect(exists(surface.entry)).toBe(true);
+      expect(exists(surface.serviceEntry)).toBe(true);
+      for (const ownedStateFile of surface.ownedStateFiles) {
+        expect(exists(ownedStateFile)).toBe(true);
+      }
       const entrySource = read(surface.entry);
       const imports = importSpecifiers(entrySource)
         .map((specifier) => resolveEntryImport(surface.entry, specifier));
-      if (!imports.some((resolved) => resolved.startsWith(surface.servicePrefix))) {
-        missing.push(`${feature}:${surface.entry} does not import a service under ${surface.servicePrefix}`);
+      if (!imports.includes(surface.serviceEntry)) {
+        missing.push(`${feature}:${surface.entry} does not import ${surface.serviceEntry}`);
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it('keeps DTO golden ownership explicit and avoids service-boundary placeholders', () => {
+    const violations = [];
+    for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
+      const hasDtoGoldenTest = Object.prototype.hasOwnProperty.call(surface, 'dtoGoldenTest');
+      if (surface.ownershipMode === 'dto-golden') {
+        if (!hasDtoGoldenTest || !surface.dtoGoldenTest) {
+          violations.push(`${feature} is dto-golden without dtoGoldenTest`);
+        } else if (!surface.dtoGoldenTest.startsWith(surface.servicePrefix) || !surface.dtoGoldenTest.endsWith('.test.js')) {
+          violations.push(`${feature} dtoGoldenTest must live beside its feature service`);
+        } else if (!exists(surface.dtoGoldenTest)) {
+          violations.push(`${feature} dtoGoldenTest does not exist: ${surface.dtoGoldenTest}`);
+        }
+        continue;
+      }
+      if (hasDtoGoldenTest) {
+        violations.push(`${feature} is service-boundary but declares placeholder dtoGoldenTest`);
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   it('prevents page entries from importing shared module services directly', () => {
