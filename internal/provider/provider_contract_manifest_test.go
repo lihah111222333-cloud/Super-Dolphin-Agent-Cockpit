@@ -6,31 +6,113 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestProviderPackagesHaveContractTests(t *testing.T) {
-	cases := []struct {
-		provider string
-		testFunc string
-		specFunc string
-	}{
-		{provider: "unified", testFunc: "TestUnifiedProviderContract", specFunc: "CompleteUnifiedContractSpec"},
-		{provider: "claudecli", testFunc: "TestClaudeCLIProviderContract", specFunc: "CompleteClaudeCLIContractSpec"},
-		{provider: "codexapp", testFunc: "TestCodexAppProviderContract", specFunc: "CompleteCodexAppContractSpec"},
+	providers := discoverProviderPackages(t)
+	if len(providers) == 0 {
+		t.Fatal("no provider packages with provider.<name> Module declarations found")
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.provider, func(t *testing.T) {
-			file := parseProviderContractTest(t, tc.provider)
-			assertProviderContractEntrypoint(t, file, tc.testFunc, tc.specFunc)
-			assertProviderContractRequiredCases(t, file, tc.specFunc)
+	for _, provider := range providers {
+		t.Run(provider, func(t *testing.T) {
+			file := parseProviderContractTest(t, provider)
+			_, specFunc := findProviderContractEntrypoint(t, file)
+			assertProviderContractRequiredCases(t, file, specFunc)
 			assertProviderContractSnapshots(t, file)
 			assertProviderContractEventCapture(t, file)
 			assertProviderContractNoForbiddenShortcuts(t, file)
 		})
 	}
+}
+
+func discoverProviderPackages(t *testing.T) []string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() error = %v", err)
+	}
+	entries, err := os.ReadDir(wd)
+	if err != nil {
+		t.Fatalf("read provider dir %s: %v", wd, err)
+	}
+
+	var providers []string
+	for _, entry := range entries {
+		provider, ok := providerPackageCandidate(t, wd, entry)
+		if ok {
+			providers = append(providers, provider)
+		}
+	}
+	sort.Strings(providers)
+	return providers
+}
+
+func providerPackageCandidate(t *testing.T, wd string, entry os.DirEntry) (string, bool) {
+	t.Helper()
+	provider := entry.Name()
+	if !entry.IsDir() || isNonProviderPackage(provider) {
+		return "", false
+	}
+	modulePath := filepath.Join(wd, provider, "module.go")
+	if _, err := os.Stat(modulePath); os.IsNotExist(err) {
+		return "", false
+	} else if err != nil {
+		t.Fatalf("stat %s: %v", modulePath, err)
+	}
+	if !declaresProviderModule(t, modulePath, provider) {
+		t.Fatalf("%s has module.go but no fx.Module(%q); exclude it explicitly if it is not a provider package", provider, "provider."+provider)
+	}
+	return provider, true
+}
+
+func isNonProviderPackage(name string) bool {
+	switch name {
+	case "_template", "contracttest", "dreamexec", "e2e", "e2efixture", "manifestbuilder", "shared", "toolfilter":
+		return true
+	default:
+		return false
+	}
+}
+
+func declaresProviderModule(t *testing.T, modulePath, provider string) bool {
+	t.Helper()
+	file := parseGoFile(t, modulePath, 0)
+	want := "provider." + provider
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name, ok := fxModuleName(t, modulePath, call)
+		if !ok {
+			return true
+		}
+		found = name == want
+		return !found
+	})
+	return found
+}
+
+func fxModuleName(t *testing.T, modulePath string, call *ast.CallExpr) (string, bool) {
+	t.Helper()
+	if !selectorCall(call.Fun, "fx", "Module") || len(call.Args) == 0 {
+		return "", false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	name, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		t.Fatalf("unquote fx.Module name in %s: %v", modulePath, err)
+	}
+	return name, true
 }
 
 func parseProviderContractTest(t *testing.T, provider string) *ast.File {
@@ -40,34 +122,76 @@ func parseProviderContractTest(t *testing.T, provider string) *ast.File {
 		t.Fatalf("os.Getwd() error = %v", err)
 	}
 	path := filepath.Join(wd, provider, "provider_contract_test.go")
+	return parseGoFile(t, path, parser.ParseComments)
+}
+
+func parseGoFile(t *testing.T, path string, mode parser.Mode) *ast.File {
+	t.Helper()
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	file, err := parser.ParseFile(fset, path, nil, mode)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 	return file
 }
 
-func assertProviderContractEntrypoint(t *testing.T, file *ast.File, testFunc, specFunc string) {
+func findProviderContractEntrypoint(t *testing.T, file *ast.File) (string, string) {
 	t.Helper()
-	fn := findFuncDecl(file, testFunc)
-	if fn == nil {
-		t.Fatalf("%s is required", testFunc)
+	var testFunc, specFunc string
+	for _, decl := range file.Decls {
+		fn := testFuncDecl(decl)
+		if fn == nil {
+			continue
+		}
+		spec, ok := providerContractSpecCall(t, fn)
+		if !ok {
+			continue
+		}
+		if testFunc != "" {
+			t.Fatalf("multiple provider contract entrypoints found: %s and %s", testFunc, fn.Name.Name)
+		}
+		testFunc = fn.Name.Name
+		specFunc = spec
 	}
-	found := false
+	if testFunc == "" || specFunc == "" {
+		t.Fatal("provider contract test must define Test*ProviderContract calling contracttest.Run(t, Complete*ContractSpec())")
+	}
+	return testFunc, specFunc
+}
+
+func testFuncDecl(decl ast.Decl) *ast.FuncDecl {
+	fn, ok := decl.(*ast.FuncDecl)
+	if !ok || !strings.HasPrefix(fn.Name.Name, "Test") {
+		return nil
+	}
+	return fn
+}
+
+func providerContractSpecCall(t *testing.T, fn *ast.FuncDecl) (string, bool) {
+	t.Helper()
+	var specFunc string
 	ast.Inspect(fn, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || !selectorCall(call.Fun, "contracttest", "Run") || len(call.Args) < 2 {
 			return true
 		}
-		if specCall, ok := call.Args[1].(*ast.CallExpr); ok && identCall(specCall.Fun, specFunc) {
-			found = true
-		}
-		return true
+		specFunc = contractSpecFuncName(t, fn.Name.Name, call.Args[1])
+		return false
 	})
-	if !found {
-		t.Fatalf("%s must call contracttest.Run(t, %s())", testFunc, specFunc)
+	return specFunc, specFunc != ""
+}
+
+func contractSpecFuncName(t *testing.T, testFunc string, expr ast.Expr) string {
+	t.Helper()
+	specCall, ok := expr.(*ast.CallExpr)
+	if !ok {
+		t.Fatalf("%s must call contracttest.Run(t, Complete*ContractSpec())", testFunc)
 	}
+	specIdent, ok := specCall.Fun.(*ast.Ident)
+	if !ok || !strings.HasPrefix(specIdent.Name, "Complete") || !strings.HasSuffix(specIdent.Name, "ContractSpec") {
+		t.Fatalf("%s contract spec call = %T, want Complete*ContractSpec()", testFunc, specCall.Fun)
+	}
+	return specIdent.Name
 }
 
 func assertProviderContractRequiredCases(t *testing.T, file *ast.File, specFunc string) {
@@ -227,11 +351,6 @@ func findFuncDecl(file *ast.File, name string) *ast.FuncDecl {
 func selectorCall(expr ast.Expr, pkg, name string) bool {
 	sel, ok := expr.(*ast.SelectorExpr)
 	return ok && identName(sel.X, pkg) && sel.Sel.Name == name
-}
-
-func identCall(expr ast.Expr, name string) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == name
 }
 
 func identName(expr ast.Expr, name string) bool {

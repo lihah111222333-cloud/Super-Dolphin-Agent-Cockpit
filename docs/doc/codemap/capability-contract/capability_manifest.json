@@ -8,14 +8,14 @@
     "internal/provider"
   ],
   "summary": {
-    "total_packages": 40,
-    "total_functions": 2152,
-    "total_methods": 1034,
+    "total_packages": 41,
+    "total_functions": 2209,
+    "total_methods": 1057,
     "total_interfaces": 136,
     "total_interface_methods": 279,
-    "total_exported": 1159,
-    "total_unexported": 2716,
-    "total_structs": 553
+    "total_exported": 1198,
+    "total_unexported": 2775,
+    "total_structs": 571
   },
   "packages": [
     {
@@ -28527,6 +28527,31 @@
           ]
         },
         {
+          "name": "IsDependencyModeError",
+          "exported": true,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
+            },
+            {
+              "name": "target",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "IsForbiddenDatabaseEnvKey",
           "exported": true,
           "params": [
@@ -28669,6 +28694,27 @@
             {
               "name": "err",
               "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "NewDependencyModeError",
+          "exported": true,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
             }
           ],
           "returns": [
@@ -30028,6 +30074,22 @@
         },
         {
           "receiver": "CriticalPromptSectionError",
+          "name": "Unwrap",
+          "exported": true,
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "DependencyModeError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "DependencyModeError",
           "name": "Unwrap",
           "exported": true,
           "returns": [
@@ -34207,6 +34269,14 @@
           "exported": true
         },
         {
+          "name": "DependencyConfig",
+          "exported": true
+        },
+        {
+          "name": "DependencyModeError",
+          "exported": true
+        },
+        {
           "name": "DispatchNodeRequest",
           "exported": true
         },
@@ -35738,6 +35808,28 @@
           ]
         },
         {
+          "name": "dependencyProfileFromFactoryParams",
+          "exported": false,
+          "params": [
+            {
+              "name": "dependency",
+              "type": "contract.DependencyConfig"
+            },
+            {
+              "name": "cfg",
+              "type": "*contract.Config"
+            },
+            {
+              "name": "provider",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "contract.DependencyProfile",
+            "error"
+          ]
+        },
+        {
           "name": "disallowedBuiltinToolsFromMap",
           "exported": false,
           "params": [
@@ -36506,6 +36598,36 @@
           ]
         },
         {
+          "name": "newModeAwareRuntimeReporter",
+          "exported": false,
+          "params": [
+            {
+              "name": "base",
+              "type": "contract.RuntimeReporter"
+            },
+            {
+              "name": "dependency",
+              "type": "contract.DependencyConfig"
+            },
+            {
+              "name": "cfg",
+              "type": "*contract.Config"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "provider",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*modeAwareRuntimeReporter",
+            "error"
+          ]
+        },
+        {
           "name": "newSessionLogWatcher",
           "exported": false,
           "params": [
@@ -36865,6 +36987,20 @@
           "exported": false,
           "returns": [
             "contract.DreamExecutorProvider"
+          ]
+        },
+        {
+          "name": "provideDriverFactory",
+          "exported": false,
+          "params": [
+            {
+              "name": "p",
+              "type": "driverFactoryParams"
+            }
+          ],
+          "returns": [
+            "contract.DriverFactory",
+            "error"
           ]
         },
         {
@@ -38342,6 +38478,9 @@
               "name": "agentID",
               "type": "string"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -38465,6 +38604,79 @@
           "returns": [
             "int",
             "error"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "ReportRuntime",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "report",
+              "type": "contract.RuntimeReport"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "acceptDeferredRuntimeReport",
+          "exported": false,
+          "params": [
+            {
+              "name": "report",
+              "type": "contract.RuntimeReport"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "allowDeferred",
+          "exported": false,
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "providerName",
+          "exported": false,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "recordDeferred",
+          "exported": false,
+          "params": [
+            {
+              "name": "report",
+              "type": "contract.RuntimeReport"
+            }
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "runtimeReportDeferredForTest",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -40322,6 +40534,10 @@
           "exported": false
         },
         {
+          "name": "modeAwareRuntimeReporter",
+          "exported": false
+        },
+        {
           "name": "preparedSessionRestart",
           "exported": false
         },
@@ -40343,6 +40559,10 @@
         },
         {
           "name": "restartSnapshot",
+          "exported": false
+        },
+        {
+          "name": "runtimeReportDeferredStatus",
           "exported": false
         },
         {
@@ -42290,6 +42510,28 @@
           ]
         },
         {
+          "name": "dependencyProfileFromFactoryParams",
+          "exported": false,
+          "params": [
+            {
+              "name": "dependency",
+              "type": "contract.DependencyConfig"
+            },
+            {
+              "name": "cfg",
+              "type": "*contract.Config"
+            },
+            {
+              "name": "provider",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "contract.DependencyProfile",
+            "error"
+          ]
+        },
+        {
           "name": "discoverAllProcesses",
           "exported": false,
           "returns": [
@@ -44126,6 +44368,36 @@
           ]
         },
         {
+          "name": "newModeAwareRuntimeReporter",
+          "exported": false,
+          "params": [
+            {
+              "name": "base",
+              "type": "contract.RuntimeReporter"
+            },
+            {
+              "name": "dependency",
+              "type": "contract.DependencyConfig"
+            },
+            {
+              "name": "cfg",
+              "type": "*contract.Config"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "provider",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*modeAwareRuntimeReporter",
+            "error"
+          ]
+        },
+        {
           "name": "newPoolEntry",
           "exported": false,
           "params": [
@@ -45151,7 +45423,8 @@
             }
           ],
           "returns": [
-            "*DriverFactory"
+            "*DriverFactory",
+            "error"
           ]
         },
         {
@@ -48772,7 +49045,8 @@
             }
           ],
           "returns": [
-            "contract.Session"
+            "contract.Session",
+            "error"
           ]
         },
         {
@@ -48916,6 +49190,9 @@
               "name": "serverURL",
               "type": "string"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -49335,6 +49612,79 @@
               "name": "timeout",
               "type": "time.Duration"
             }
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "ReportRuntime",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "report",
+              "type": "contract.RuntimeReport"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "acceptDeferredRuntimeReport",
+          "exported": false,
+          "params": [
+            {
+              "name": "report",
+              "type": "contract.RuntimeReport"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "allowDeferred",
+          "exported": false,
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "providerName",
+          "exported": false,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "recordDeferred",
+          "exported": false,
+          "params": [
+            {
+              "name": "report",
+              "type": "contract.RuntimeReport"
+            }
+          ]
+        },
+        {
+          "receiver": "*modeAwareRuntimeReporter",
+          "name": "runtimeReportDeferredForTest",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -52600,6 +52950,10 @@
           "exported": false
         },
         {
+          "name": "modeAwareRuntimeReporter",
+          "exported": false
+        },
+        {
           "name": "peerBinaryMissingError",
           "exported": false
         },
@@ -52685,6 +53039,10 @@
         },
         {
           "name": "rolloutReader",
+          "exported": false
+        },
+        {
+          "name": "runtimeReportDeferredStatus",
           "exported": false
         },
         {
@@ -53772,6 +54130,1051 @@
       "structs": [
         {
           "name": "TurnInput",
+          "exported": true
+        }
+      ]
+    },
+    {
+      "path": "internal/provider/contracttest",
+      "name": "contracttest",
+      "description": "提供 provider 共享契约测试入口和强类型证据校验。",
+      "functions": [
+        {
+          "name": "CaptureProviderEventTranslation",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "testing.TB"
+            },
+            {
+              "name": "captureID",
+              "type": "string"
+            },
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "translate",
+              "type": "func(dto.RawProviderEvent, func(any))"
+            }
+          ],
+          "returns": [
+            "EventTranslationEvidence"
+          ]
+        },
+        {
+          "name": "CaptureUnsupportedOutcome",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "testing.TB"
+            },
+            {
+              "name": "operationID",
+              "type": "string"
+            },
+            {
+              "name": "dependencyName",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "contract.DependencyProfile"
+            },
+            {
+              "name": "run",
+              "type": "func() error"
+            }
+          ],
+          "returns": [
+            "*UnsupportedOutcomeEvidence"
+          ]
+        },
+        {
+          "name": "LoadExpectedEventSnapshot",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "testing.TB"
+            },
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "ExpectedEventSnapshot"
+          ]
+        },
+        {
+          "name": "LoadExpectedPromptSnapshot",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "testing.TB"
+            },
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "ExpectedPromptSnapshot"
+          ]
+        },
+        {
+          "name": "NewEvidence",
+          "exported": true,
+          "returns": [
+            "*CaseEvidence"
+          ]
+        },
+        {
+          "name": "NewExpectedEventEvidence",
+          "exported": true,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "ExpectedEventSnapshot"
+            }
+          ],
+          "returns": [
+            "EventTranslationEvidence"
+          ]
+        },
+        {
+          "name": "NewExpectedPromptEvidence",
+          "exported": true,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "ExpectedPromptSnapshot"
+            }
+          ],
+          "returns": [
+            "PromptParityEvidence"
+          ]
+        },
+        {
+          "name": "NewProviderPromptEvidence",
+          "exported": true,
+          "params": [
+            {
+              "name": "captureID",
+              "type": "string"
+            },
+            {
+              "name": "fields",
+              "type": "PromptParityFields"
+            }
+          ],
+          "returns": [
+            "PromptParityEvidence"
+          ]
+        },
+        {
+          "name": "RunSpecForTest",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "spec",
+              "type": "Spec"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "Run",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "spec",
+              "type": "Spec"
+            }
+          ]
+        },
+        {
+          "name": "ValidateSpec",
+          "exported": true,
+          "params": [
+            {
+              "name": "spec",
+              "type": "Spec"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "applyUnsupportedDependency",
+          "exported": false,
+          "params": [
+            {
+              "name": "outcome",
+              "type": "*OutcomeEvidence"
+            }
+          ]
+        },
+        {
+          "name": "assertSessionContract",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "session",
+              "type": "contract.Session"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertSessionIdentity",
+          "exported": false,
+          "params": [
+            {
+              "name": "session",
+              "type": "contract.Session"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertSessionOperations",
+          "exported": false,
+          "params": [
+            {
+              "name": "session",
+              "type": "contract.Session"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertSessionShutdown",
+          "exported": false,
+          "params": [
+            {
+              "name": "session",
+              "type": "contract.Session"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertStartTurnContract",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "session",
+              "type": "contract.Session"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertThreadForkContract",
+          "exported": false,
+          "params": [
+            {
+              "name": "session",
+              "type": "contract.Session"
+            },
+            {
+              "name": "caps",
+              "type": "dto.CapabilitySet"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertThreadListContract",
+          "exported": false,
+          "params": [
+            {
+              "name": "session",
+              "type": "contract.Session"
+            },
+            {
+              "name": "caps",
+              "type": "dto.CapabilitySet"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "assertTurnHandle",
+          "exported": false,
+          "params": [
+            {
+              "name": "handle",
+              "type": "contract.TurnHandle"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "canonicalEventJSONBytes",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "[]byte",
+            "error"
+          ]
+        },
+        {
+          "name": "canonicalEventJSON",
+          "exported": false,
+          "params": [
+            {
+              "name": "event",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "[]byte",
+            "error"
+          ]
+        },
+        {
+          "name": "captureTranslatedEvents",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "translate",
+              "type": "func(dto.RawProviderEvent, func(any))"
+            }
+          ],
+          "returns": [
+            "[]any"
+          ]
+        },
+        {
+          "name": "cleanSnapshotPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "concreteDependencyModeError",
+          "exported": false,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "contract.DependencyModeError",
+            "bool"
+          ]
+        },
+        {
+          "name": "contractStartRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "provider",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "dto.StartSessionRequest"
+          ]
+        },
+        {
+          "name": "isCapabilityError",
+          "exported": false,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "capability",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isTautologicalEvidence",
+          "exported": false,
+          "params": [
+            {
+              "name": "got",
+              "type": "any"
+            },
+            {
+              "name": "want",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "loadCheckedSnapshot",
+          "exported": false,
+          "params": [
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]byte",
+            "error"
+          ]
+        },
+        {
+          "name": "loadExpectedEventSnapshot",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]byte",
+            "error"
+          ]
+        },
+        {
+          "name": "loadExpectedPromptSnapshotFields",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "PromptParityFields",
+            "error"
+          ]
+        },
+        {
+          "name": "newProviderEventEvidence",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "testing.TB"
+            },
+            {
+              "name": "captureID",
+              "type": "string"
+            },
+            {
+              "name": "event",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "EventTranslationEvidence"
+          ]
+        },
+        {
+          "name": "promptSnapshotFieldsIncomplete",
+          "exported": false,
+          "params": [
+            {
+              "name": "fields",
+              "type": "PromptParityFields"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "readTrackedSnapshot",
+          "exported": false,
+          "params": [
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "path",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]byte",
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "runCase",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "c",
+              "type": "Case"
+            },
+            {
+              "name": "required",
+              "type": "[]EvidenceKey"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "runEventCases",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "cases",
+              "type": "[]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "runRequiredCases",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "cases",
+              "type": "map[CaseKey]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "runResumeSmoke",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "spec",
+              "type": "Spec"
+            },
+            {
+              "name": "snapshot",
+              "type": "dto.PromptAssemblySnapshot"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "runStartResumeSmoke",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "spec",
+              "type": "Spec"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "snapshotPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "snapshotID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "trackedSnapshotPath",
+          "exported": false,
+          "params": [
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "path",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "validateDependencyModeError",
+          "exported": false,
+          "params": [
+            {
+              "name": "unsupported",
+              "type": "*UnsupportedOutcomeEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateEventCases",
+          "exported": false,
+          "params": [
+            {
+              "name": "cases",
+              "type": "[]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateEventTranslationEvidence",
+          "exported": false,
+          "params": [
+            {
+              "name": "got",
+              "type": "EventTranslationEvidence"
+            },
+            {
+              "name": "want",
+              "type": "EventTranslationEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateExpectedUnsupportedDependency",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            },
+            {
+              "name": "outcome",
+              "type": "*OutcomeEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateOutcomeEvidenceKey",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateOutcomeEvidence",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            },
+            {
+              "name": "outcome",
+              "type": "*OutcomeEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validatePromptEvidenceOrigins",
+          "exported": false,
+          "params": [
+            {
+              "name": "got",
+              "type": "PromptParityEvidence"
+            },
+            {
+              "name": "want",
+              "type": "PromptParityEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateSnapshotIndex",
+          "exported": false,
+          "params": [
+            {
+              "name": "kind",
+              "type": "string"
+            },
+            {
+              "name": "path",
+              "type": "string"
+            },
+            {
+              "name": "repoPath",
+              "type": "string"
+            },
+            {
+              "name": "raw",
+              "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateUnsupportedOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "unsupported",
+              "type": "*UnsupportedOutcomeEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        }
+      ],
+      "methods": [
+        {
+          "receiver": "*CaseEvidence",
+          "name": "AssertEqual",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            },
+            {
+              "name": "got",
+              "type": "any"
+            },
+            {
+              "name": "want",
+              "type": "any"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "AssertNoError",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "RecordEventTranslation",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "got",
+              "type": "EventTranslationEvidence"
+            },
+            {
+              "name": "want",
+              "type": "EventTranslationEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "RecordOutcome",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            },
+            {
+              "name": "outcome",
+              "type": "OutcomeEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "RecordPromptParity",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "got",
+              "type": "PromptParityEvidence"
+            },
+            {
+              "name": "want",
+              "type": "PromptParityEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "RecordResumeIdentity",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "identity",
+              "type": "ResumeIdentityEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "RecordRuntimeReport",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "report",
+              "type": "RuntimeReportEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "Validate",
+          "exported": true,
+          "params": [
+            {
+              "name": "caseName",
+              "type": "string"
+            },
+            {
+              "name": "required",
+              "type": "[]EvidenceKey"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
+          "name": "recordPromptField",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "key",
+              "type": "EvidenceKey"
+            },
+            {
+              "name": "got",
+              "type": "string"
+            },
+            {
+              "name": "want",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "structs": [
+        {
+          "name": "Case",
+          "exported": true
+        },
+        {
+          "name": "CaseEvidence",
+          "exported": true
+        },
+        {
+          "name": "EventTranslationEvidence",
+          "exported": true
+        },
+        {
+          "name": "ExpectedEventSnapshot",
+          "exported": true
+        },
+        {
+          "name": "ExpectedPromptSnapshot",
+          "exported": true
+        },
+        {
+          "name": "OutcomeEvidence",
+          "exported": true
+        },
+        {
+          "name": "PromptParityEvidence",
+          "exported": true
+        },
+        {
+          "name": "PromptParityFields",
+          "exported": true
+        },
+        {
+          "name": "ResumeIdentityEvidence",
+          "exported": true
+        },
+        {
+          "name": "RuntimeReportEvidence",
+          "exported": true
+        },
+        {
+          "name": "Spec",
+          "exported": true
+        },
+        {
+          "name": "UnsupportedOutcomeEvidence",
           "exported": true
         }
       ]
