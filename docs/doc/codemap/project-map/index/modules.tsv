@@ -375,7 +375,7 @@ internal/module/prompt/types.go	internal	modules	go-source	12897	prompt 模板�
 internal/module/prompt/user_context_builder_untrusted_test.go	internal	modules	go-test	9474	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,user,context,builder,untrusted,test,模板,启用条件,system,组装
 internal/module/prompt/user_context_builder.go	internal	modules	go-source	15058	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,user,context,builder,模板,启用条件,system,组装
 internal/module/rag/chunker_test.go	internal	modules	go-test	2949	业务模块层	internal,module,rag,chunker,test,业务模块层
-internal/module/rag/chunker.go	internal	modules	go-source	8243	业务模块层	internal,module,rag,chunker,业务模块层
+internal/module/rag/chunker.go	internal	modules	go-source	8208	业务模块层	internal,module,rag,chunker,业务模块层
 internal/module/skill/approval_test.go	internal	modules	go-test	16702	skill canonical 管理与 provider-native mirror	internal,module,skill,approval,test,canonical,管理与,provider-native,mirror
 internal/module/skill/approval.go	internal	modules	go-source	14647	skill canonical 管理与 provider-native mirror	internal,module,skill,approval,canonical,管理与,provider-native,mirror
 internal/module/skill/builtin_seed_test.go	internal	modules	go-test	4993	skill canonical 管理与 provider-native mirror	internal,module,skill,builtin,seed,test,canonical,管理与,provider-native,mirror
