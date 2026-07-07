@@ -2,10 +2,14 @@ package claudecli
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 func TestResolveAbsCWDDropsDotCWD(t *testing.T) {
@@ -59,7 +63,10 @@ func TestNewDriverDefaultsLoggerAndBinaryPath(t *testing.T) {
 func TestNewDriverFactoryCreateReturnsClaudeDriver(t *testing.T) {
 	t.Parallel()
 
-	factory := NewDriverFactory(driverFactoryParams{})
+	factory, err := provideDriverFactory(completeClaudeDriverFactoryParamsForTest())
+	if err != nil {
+		t.Fatalf("provideDriverFactory() error = %v", err)
+	}
 	if factory.Name != "claude" {
 		t.Fatalf("factory.Name = %q, want claude", factory.Name)
 	}
@@ -76,12 +83,30 @@ func TestNewDriverFactoryCreateReturnsClaudeDriver(t *testing.T) {
 	}
 }
 
+func TestClaudeDriverFactoryRequiresDependencyProfile(t *testing.T) {
+	params := completeClaudeDriverFactoryParamsForTest()
+	params.Dependency = contract.DependencyConfig{}
+	_, err := provideDriverFactory(params)
+	if err == nil || !strings.Contains(err.Error(), "dependency profile") {
+		t.Fatalf("provideDriverFactory() error = %v, want missing dependency profile", err)
+	}
+}
+
+func completeClaudeDriverFactoryParamsForTest() driverFactoryParams {
+	return driverFactoryParams{
+		Reporter:   &stubRuntimeReporter{},
+		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
+	}
+}
+
 func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	t.Parallel()
 
 	reporter := &stubRuntimeReporter{}
 	got := newDriver(nil, nil, reporter, nil, nil, nil, nil, nil).(*driver)
-	got.reportRuntime(" agent-1 ")
+	if err := got.reportRuntime(" agent-1 "); err != nil {
+		t.Fatalf("reportRuntime() error = %v", err)
+	}
 	if reporter.calls != 1 {
 		t.Fatalf("ReportRuntime() calls = %d, want 1", reporter.calls)
 	}
@@ -93,6 +118,113 @@ func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	}
 	if reporter.last.Port != 0 {
 		t.Fatalf("Port = %d, want 0 for stdio transport", reporter.last.Port)
+	}
+}
+
+func TestClaudeDriverReportRuntimeProductionFailsOnDeferredReporter(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileProduction)}
+	driver, _ := newClaudeDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileProduction)
+
+	err := driver.reportRuntime("agent-1")
+	if !errors.Is(err, contract.ErrDependencyDeferred) {
+		t.Fatalf("reportRuntime() error = %v, want ErrDependencyDeferred", err)
+	}
+}
+
+func TestClaudeDriverReportRuntimeDesktopRecordsDeferredStatus(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost)}
+	driver, modeReporter := newClaudeDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileDesktopHost)
+
+	if err := driver.reportRuntime("agent-1"); err != nil {
+		t.Fatalf("reportRuntime() error = %v", err)
+	}
+	if !modeReporter.runtimeReportDeferredForTest("agent-1") {
+		t.Fatal("runtime report deferred status was not recorded")
+	}
+}
+
+func TestClaudeStartSessionFailsWhenRuntimeReporterReturnsDeferredInProduction(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileProduction)}
+	driver, _ := newClaudeDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileProduction)
+
+	_, err := driver.StartSession(context.Background(), claudeStartRequestForRuntimeReportTest(t))
+	if !errors.Is(err, contract.ErrDependencyDeferred) {
+		t.Fatalf("StartSession() error = %v, want ErrDependencyDeferred", err)
+	}
+}
+
+func TestClaudeResumeSessionFailsWhenRuntimeReporterReturnsDeferredInProduction(t *testing.T) {
+	reporter := &stubRuntimeReporter{err: contract.NewDependencyModeError(contract.ErrDependencyDeferred, "runtime_reporter.orchestration_service", contract.DependencyProfileProduction)}
+	driver, _ := newClaudeDriverWithRuntimeReporterForTest(t, reporter, contract.DependencyProfileProduction)
+
+	_, err := driver.ResumeSession(context.Background(), claudeResumeRequestForRuntimeReportTest(t))
+	if !errors.Is(err, contract.ErrDependencyDeferred) {
+		t.Fatalf("ResumeSession() error = %v, want ErrDependencyDeferred", err)
+	}
+}
+
+func TestClaudeStartSessionGenericReporterErrorFailsInEveryProfile(t *testing.T) {
+	for _, profile := range []contract.DependencyProfile{contract.DependencyProfileProduction, contract.DependencyProfileDesktopHost, contract.DependencyProfileTest} {
+		t.Run(string(profile), func(t *testing.T) {
+			reportErr := errors.New("runtime reporter down")
+			reporter := &stubRuntimeReporter{err: reportErr}
+			driver, _ := newClaudeDriverWithRuntimeReporterForTest(t, reporter, profile)
+
+			_, err := driver.StartSession(context.Background(), claudeStartRequestForRuntimeReportTest(t))
+			if !errors.Is(err, reportErr) {
+				t.Fatalf("StartSession() error = %v, want %v", err, reportErr)
+			}
+		})
+	}
+}
+
+func TestClaudeResumeSessionGenericReporterErrorFailsInEveryProfile(t *testing.T) {
+	for _, profile := range []contract.DependencyProfile{contract.DependencyProfileProduction, contract.DependencyProfileDesktopHost, contract.DependencyProfileTest} {
+		t.Run(string(profile), func(t *testing.T) {
+			reportErr := errors.New("runtime reporter down")
+			reporter := &stubRuntimeReporter{err: reportErr}
+			driver, _ := newClaudeDriverWithRuntimeReporterForTest(t, reporter, profile)
+
+			_, err := driver.ResumeSession(context.Background(), claudeResumeRequestForRuntimeReportTest(t))
+			if !errors.Is(err, reportErr) {
+				t.Fatalf("ResumeSession() error = %v, want %v", err, reportErr)
+			}
+		})
+	}
+}
+
+func newClaudeDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.RuntimeReporter, profile contract.DependencyProfile) (*driver, *modeAwareRuntimeReporter) {
+	t.Helper()
+	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
+	modeReporter, err := newModeAwareRuntimeReporter(reporter, contract.DependencyConfig{Profile: profile}, nil, nil, "claude")
+	if err != nil {
+		t.Fatalf("newModeAwareRuntimeReporter() error = %v", err)
+	}
+	driver := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		return closedTransport(), func() {}, nil
+	})
+	driver.reporter = modeReporter
+	return driver, modeReporter
+}
+
+func claudeStartRequestForRuntimeReportTest(t *testing.T) dto.StartSessionRequest {
+	t.Helper()
+	return dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
+	}
+}
+
+func claudeResumeRequestForRuntimeReportTest(t *testing.T) dto.ResumeSessionRequest {
+	t.Helper()
+	return dto.ResumeSessionRequest{
+		AgentID:          "agent-1",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              t.TempDir(),
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
+		ClaudeHome:       t.TempDir(),
 	}
 }
 

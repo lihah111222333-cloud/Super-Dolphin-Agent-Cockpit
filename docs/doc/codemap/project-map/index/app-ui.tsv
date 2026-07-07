@@ -6,8 +6,8 @@ frontend-app/.gitignore	frontend-app	app-ui	file	30	当前 React/Vite 前端包	
 frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vite 前端包	frontend,app,eslint,config,当前,React,Vite,前端包
 frontend-app/index.html	frontend-app	app-ui	html	357	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
-frontend-app/package-lock.json	frontend-app	app-ui	json	233559	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	1941	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package-lock.json	frontend-app	app-ui	json	233595	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	1973	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
 frontend-app/public/favicon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
@@ -28,14 +28,14 @@ frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-source	3
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-source	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/src/adapters/apiErrorAdapter.js	frontend-app	app-ui	js-source	200	当前 React/Vite 前端包	frontend,app,src,adapters,apiErrorAdapter,当前,React,Vite,前端包
-frontend-app/src/adapters/fileAdapter.js	frontend-app	app-ui	js-source	4287	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,当前,React,Vite,前端包
-frontend-app/src/adapters/fileAdapter.test.js	frontend-app	app-ui	js-test	813	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,test,当前,React,Vite,前端包
+frontend-app/src/adapters/fileAdapter.js	frontend-app	app-ui	js-source	4811	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,当前,React,Vite,前端包
+frontend-app/src/adapters/fileAdapter.test.js	frontend-app	app-ui	js-test	1799	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,test,当前,React,Vite,前端包
 frontend-app/src/adapters/memoryAdapter.js	frontend-app	app-ui	js-source	4149	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,当前,React,Vite,前端包
 frontend-app/src/adapters/memoryAdapter.test.js	frontend-app	app-ui	js-test	422	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,test,当前,React,Vite,前端包
 frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	3541	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端包
 frontend-app/src/adapters/observabilityAdapter.test.js	frontend-app	app-ui	js-test	2343	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,test,当前,React,Vite,前端包
-frontend-app/src/App.jsx	frontend-app	app-ui	jsx	58594	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
-frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	344566	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
+frontend-app/src/App.jsx	frontend-app	app-ui	jsx	58665	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
+frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	344764	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.js	frontend-app	app-ui	js-source	2767	当前 React/Vite 前端包	frontend,app,src,appShellModel,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.test.js	frontend-app	app-ui	js-test	1760	当前 React/Vite 前端包	frontend,app,src,appShellModel,test,当前,React,Vite,前端包
 frontend-app/src/AppChrome.css	frontend-app	app-ui	css	7375	当前 React/Vite 前端包	frontend,app,src,AppChrome,当前,React,Vite,前端包
@@ -85,16 +85,16 @@ frontend-app/src/entities/client/model/threadMessagesRuntime.test.js	frontend-ap
 frontend-app/src/entities/client/model/timelineRuntime.js	frontend-app	app-ui	js-source	22140	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/timelineRuntime.test.js	frontend-app	app-ui	js-test	5414	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/useClientStore.js	frontend-app	app-ui	js-source	129593	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	238968	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	238945	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/warningRuntime.js	frontend-app	app-ui	js-source	6216	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,warningRuntime,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/warningRuntime.test.js	frontend-app	app-ui	js-test	5244	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,warningRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2531	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4875	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	8230	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	58245	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	22624	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	58264	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	22643	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
 frontend-app/src/main.jsx	frontend-app	app-ui	jsx	2646	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
-frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	5354	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
+frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	10642	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.js	frontend-app	app-ui	js-source	7112	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.test.js	frontend-app	app-ui	js-test	2777	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewMetaAdapter.js	frontend-app	app-ui	js-source	1066	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewMetaAdapter,React,页面与路由级,UI
@@ -200,16 +200,27 @@ frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js	frontend-app	app
 frontend-app/src/pages/chat/hooks/useTimelineMaterialization.test.jsx	frontend-app	app-ui	jsx	2108	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/services/chatCodeService.js	frontend-app	app-ui	js-source	956	React 页面与路由级 UI	frontend,app,src,pages,chat,services,chatCodeService,React,页面与路由级,UI
 frontend-app/src/pages/files/FilesPage.css	frontend-app	app-ui	css	4692	React 页面与路由级 UI	frontend,app,src,pages,files,FilesPage,React,页面与路由级,UI
-frontend-app/src/pages/files/FilesPage.jsx	frontend-app	app-ui	jsx	28973	React 页面与路由级 UI	frontend,app,src,pages,files,FilesPage,React,页面与路由级,UI
-frontend-app/src/pages/files/FilesPage.test.jsx	frontend-app	app-ui	jsx	8022	React 页面与路由级 UI	frontend,app,src,pages,files,FilesPage,test,React,页面与路由级,UI
+frontend-app/src/pages/files/FilesPage.jsx	frontend-app	app-ui	jsx	28948	React 页面与路由级 UI	frontend,app,src,pages,files,FilesPage,React,页面与路由级,UI
+frontend-app/src/pages/files/FilesPage.test.jsx	frontend-app	app-ui	jsx	7981	React 页面与路由级 UI	frontend,app,src,pages,files,FilesPage,test,React,页面与路由级,UI
 frontend-app/src/pages/files/FilesPageWorkbench.css	frontend-app	app-ui	css	4670	React 页面与路由级 UI	frontend,app,src,pages,files,FilesPageWorkbench,React,页面与路由级,UI
+frontend-app/src/pages/files/services/filesPageService.js	frontend-app	app-ui	js-source	2530	React 页面与路由级 UI	frontend,app,src,pages,files,services,filesPageService,React,页面与路由级,UI
+frontend-app/src/pages/files/services/filesPageService.test.js	frontend-app	app-ui	js-test	5030	React 页面与路由级 UI	frontend,app,src,pages,files,services,filesPageService,test,React,页面与路由级,UI
+frontend-app/src/pages/importSurfaceGuard.test-helper.js	frontend-app	app-ui	js-source	5791	React 页面与路由级 UI	frontend,app,src,pages,importSurfaceGuard,test,helper,React,页面与路由级,UI
 frontend-app/src/pages/memory/MemoryPage.css	frontend-app	app-ui	css	4768	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,React,页面与路由级,UI
-frontend-app/src/pages/memory/MemoryPage.jsx	frontend-app	app-ui	jsx	47445	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,React,页面与路由级,UI
-frontend-app/src/pages/memory/MemoryPage.test.jsx	frontend-app	app-ui	jsx	16038	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,test,React,页面与路由级,UI
+frontend-app/src/pages/memory/MemoryPage.jsx	frontend-app	app-ui	jsx	47437	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,React,页面与路由级,UI
+frontend-app/src/pages/memory/MemoryPage.test.jsx	frontend-app	app-ui	jsx	16022	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,test,React,页面与路由级,UI
+frontend-app/src/pages/memory/services/memoryPageService.js	frontend-app	app-ui	js-source	5285	React 页面与路由级 UI	frontend,app,src,pages,memory,services,memoryPageService,React,页面与路由级,UI
+frontend-app/src/pages/memory/services/memoryPageService.test.js	frontend-app	app-ui	js-test	7889	React 页面与路由级 UI	frontend,app,src,pages,memory,services,memoryPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/observability/ObservabilityPage.css	frontend-app	app-ui	css	11997	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,React,页面与路由级,UI
-frontend-app/src/pages/observability/ObservabilityPage.jsx	frontend-app	app-ui	jsx	31541	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,React,页面与路由级,UI
-frontend-app/src/pages/observability/ObservabilityPage.test.jsx	frontend-app	app-ui	jsx	20929	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,test,React,页面与路由级,UI
-frontend-app/src/pages/prompts/PromptPage.jsx	frontend-app	app-ui	jsx	348	React 页面与路由级 UI	frontend,app,src,pages,prompts,PromptPage,React,页面与路由级,UI
+frontend-app/src/pages/observability/ObservabilityPage.jsx	frontend-app	app-ui	jsx	31416	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,React,页面与路由级,UI
+frontend-app/src/pages/observability/ObservabilityPage.test.jsx	frontend-app	app-ui	jsx	20921	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,test,React,页面与路由级,UI
+frontend-app/src/pages/observability/services/observabilityPageService.js	frontend-app	app-ui	js-source	2501	React 页面与路由级 UI	frontend,app,src,pages,observability,services,observabilityPageService,React,页面与路由级,UI
+frontend-app/src/pages/observability/services/observabilityPageService.test.js	frontend-app	app-ui	js-test	3145	React 页面与路由级 UI	frontend,app,src,pages,observability,services,observabilityPageService,test,React,页面与路由级,UI
+frontend-app/src/pages/pageSurfaceManifest.js	frontend-app	app-ui	js-source	1280	React 页面与路由级 UI	frontend,app,src,pages,pageSurfaceManifest,React,页面与路由级,UI
+frontend-app/src/pages/pageSurfaceManifest.test.js	frontend-app	app-ui	js-test	4095	React 页面与路由级 UI	frontend,app,src,pages,pageSurfaceManifest,test,React,页面与路由级,UI
+frontend-app/src/pages/prompts/PromptPage.jsx	frontend-app	app-ui	jsx	455	React 页面与路由级 UI	frontend,app,src,pages,prompts,PromptPage,React,页面与路由级,UI
+frontend-app/src/pages/prompts/services/promptPageService.js	frontend-app	app-ui	js-source	5990	React 页面与路由级 UI	frontend,app,src,pages,prompts,services,promptPageService,React,页面与路由级,UI
+frontend-app/src/pages/prompts/services/promptPageService.test.js	frontend-app	app-ui	js-test	9445	React 页面与路由级 UI	frontend,app,src,pages,prompts,services,promptPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/BuiltinToolsCard.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,BuiltinToolsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/BuiltinToolsCard.jsx	frontend-app	app-ui	jsx	3655	React 页面与路由级 UI	frontend,app,src,pages,settings,components,BuiltinToolsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/ModelProvidersCard.jsx	frontend-app	app-ui	jsx	12257	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ModelProvidersCard,React,页面与路由级,UI
@@ -232,9 +243,10 @@ frontend-app/src/pages/settings/SettingsPage.css	frontend-app	app-ui	css	1237	Re
 frontend-app/src/pages/settings/SettingsPage.jsx	frontend-app	app-ui	jsx	50258	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,React,页面与路由级,UI
 frontend-app/src/pages/settings/SettingsPage.test.jsx	frontend-app	app-ui	jsx	39311	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,test,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.jsx	frontend-app	app-ui	jsx	1364	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,React,页面与路由级,UI
-frontend-app/src/pages/shared/pageComponents.test.jsx	frontend-app	app-ui	jsx	1296	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,test,React,页面与路由级,UI
-frontend-app/src/pages/shared/pageShared.js	frontend-app	app-ui	js-source	7655	React 页面与路由级 UI	frontend,app,src,pages,shared,pageShared,React,页面与路由级,UI
+frontend-app/src/pages/shared/pageComponents.test.jsx	frontend-app	app-ui	jsx	1393	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,test,React,页面与路由级,UI
+frontend-app/src/pages/shared/pageShared.js	frontend-app	app-ui	js-source	7767	React 页面与路由级 UI	frontend,app,src,pages,shared,pageShared,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageShared.test.js	frontend-app	app-ui	js-test	3367	React 页面与路由级 UI	frontend,app,src,pages,shared,pageShared,test,React,页面与路由级,UI
+frontend-app/src/pages/shared/sharedSurfaceBoundary.test.js	frontend-app	app-ui	js-test	1277	React 页面与路由级 UI	frontend,app,src,pages,shared,sharedSurfaceBoundary,test,React,页面与路由级,UI
 frontend-app/src/pages/skills/DatasourcePage.css	frontend-app	app-ui	css	5709	React 页面与路由级 UI	frontend,app,src,pages,skills,DatasourcePage,React,页面与路由级,UI
 frontend-app/src/pages/skills/services/skillsPageService.js	frontend-app	app-ui	js-source	4017	React 页面与路由级 UI	frontend,app,src,pages,skills,services,skillsPageService,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPage.css	frontend-app	app-ui	css	16043	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
@@ -252,7 +264,8 @@ frontend-app/src/pages/workflows/WorkflowPage.jsx	frontend-app	app-ui	jsx	147922
 frontend-app/src/pages/workflows/WorkflowPage.test.jsx	frontend-app	app-ui	jsx	67309	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPolish.css	frontend-app	app-ui	css	912	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPolish,React,页面与路由级,UI
 frontend-app/src/services/apiClient.js	frontend-app	app-ui	js-source	1582	当前 React/Vite 前端包	frontend,app,src,services,apiClient,当前,React,Vite,前端包
-frontend-app/src/services/modules/fileService.js	frontend-app	app-ui	js-source	1715	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,当前,React,Vite,前端包
+frontend-app/src/services/modules/fileService.js	frontend-app	app-ui	js-source	1710	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,当前,React,Vite,前端包
+frontend-app/src/services/modules/fileService.test.js	frontend-app	app-ui	js-test	2147	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,test,当前,React,Vite,前端包
 frontend-app/src/services/modules/memoryService.js	frontend-app	app-ui	js-source	3720	当前 React/Vite 前端包	frontend,app,src,services,modules,memoryService,当前,React,Vite,前端包
 frontend-app/src/services/modules/memoryService.test.js	frontend-app	app-ui	js-test	1957	当前 React/Vite 前端包	frontend,app,src,services,modules,memoryService,test,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityPage.degradation.test.jsx	frontend-app	app-ui	jsx	2077	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityPage,degradation,test,当前,React,Vite,前端包
@@ -260,8 +273,8 @@ frontend-app/src/services/modules/observabilityService.js	frontend-app	app-ui	js
 frontend-app/src/services/modules/observabilityService.test.js	frontend-app	app-ui	js-test	2196	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,test,当前,React,Vite,前端包
 frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	24743	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
 frontend-app/src/shared/api/approvalRequestId.js	frontend-app	app-ui	js-source	546	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,approvalRequestId,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-source	23132	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendApi.contractMatrix.test.js	frontend-app	app-ui	js-test	5717	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-source	24479	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendApi.contractMatrix.test.js	frontend-app	app-ui	js-test	7735	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	107192	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.surface.test.js	frontend-app	app-ui	js-test	6576	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,surface,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	88435	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge

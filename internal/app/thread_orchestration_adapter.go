@@ -19,6 +19,7 @@ import (
 // 它不直接注入 contract.OrchestrationService，避免桌面进程内嵌另一套编排器。
 type mcpOrchOrchestrationFacade struct {
 	tools             dagToolCaller
+	dependency        contract.DependencyConfig
 	peerReadyTimeout  time.Duration
 	peerReadyInterval time.Duration
 	now               func() time.Time
@@ -33,8 +34,11 @@ const (
 )
 
 // newMCPOrchOrchestrationFacade 创建基于 toolbridge 的 thread orchestration facade。
-func newMCPOrchOrchestrationFacade(ref *toolbridgeHandlerRef) *mcpOrchOrchestrationFacade {
-	return &mcpOrchOrchestrationFacade{tools: ref}
+func newMCPOrchOrchestrationFacade(
+	ref *toolbridgeHandlerRef,
+	dependency contract.DependencyConfig,
+) *mcpOrchOrchestrationFacade {
+	return &mcpOrchOrchestrationFacade{tools: ref, dependency: dependency}
 }
 
 // toolbridgeHandlerRef 延迟持有 toolbridge handler，打断 thread service 与 toolbridge host tools 的 fx 构造环。
@@ -105,10 +109,28 @@ func (f *mcpOrchOrchestrationFacade) Recover(ctx context.Context, agentID string
 }
 
 // BindSessionGeneration 绑定 agent session generation。
-// 当前 mcp-orch 未暴露为独立 MCP 工具；generation 保留在 core 侧 binding store。
-// thread 模块已有 nil-safe guard，此处返回 nil 确保不阻断正常流程。
+// 当前 mcp-orch 未暴露为独立 MCP 工具；允许缺失的 profile 返回 typed unsupported，生产 profile fail-fast。
 func (f *mcpOrchOrchestrationFacade) BindSessionGeneration(_ context.Context, _ string, _ uint64) error {
-	return nil
+	if f == nil {
+		return errors.New("app: mcp-orch orchestration facade is required for thread.bind_session_generation")
+	}
+	switch f.dependency.Profile {
+	case contract.DependencyProfileDesktopHost, contract.DependencyProfileTest:
+		return contract.NewDependencyModeError(
+			contract.ErrUnsupportedDependencyMode,
+			"thread.bind_session_generation",
+			f.dependency.Profile,
+		)
+	case contract.DependencyProfileProduction:
+		return errors.New("app: thread.bind_session_generation binding port is required in production profile")
+	case "":
+		return errors.New("app: dependency profile is required for thread.bind_session_generation")
+	default:
+		return fmt.Errorf(
+			"app: dependency profile %q is not supported for thread.bind_session_generation",
+			f.dependency.Profile,
+		)
+	}
 }
 
 // orchFacadeToolMetadata 保存 toolbridge 生命周期层需要的顶层 metadata。

@@ -1,0 +1,7 @@
+{
+  "baseInstructions": "codex resume cached prefix\n\ncodex resume uncached tail",
+  "developerInstructions": "codex resume developer instructions",
+  "prefixHash": "codex-resume-prefix-hash",
+  "boundary": "{\"cachedPrefix\":\"codex resume cached prefix\",\"uncachedTail\":\"codex resume uncached tail\"}",
+  "sectionSnapshot": "{\"developer\":\"codex resume developer instructions\",\"system\":\"codex resume base instructions\"}"
+}

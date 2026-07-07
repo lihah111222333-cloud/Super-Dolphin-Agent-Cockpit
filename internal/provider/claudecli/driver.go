@@ -295,7 +295,11 @@ func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Se
 		return nil, err
 	}
 	d.dispatchStartEvents(s, started.launchModel)
-	d.reportRuntime(s.agentID)
+	if err := d.reportRuntime(s.agentID); err != nil {
+		shared.LogIgnoredError(d.logger, "stop failed on runtime report error", s.stop(true))
+		d.clearStaleProviderThreadID(s.agentID, "claudecli: clear stale binding failed")
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -600,13 +604,13 @@ func (s *session) restartResumeIDLocked() string {
 }
 
 // reportRuntime 向 runtime reporter 上报 Claude provider 已启动；当前 stdio 模式不暴露控制端口。
-func (d *driver) reportRuntime(agentID string) {
+func (d *driver) reportRuntime(agentID string) error {
 	if d == nil || d.reporter == nil {
-		return
+		return nil
 	}
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
-		return
+		return nil
 	}
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -617,8 +621,9 @@ func (d *driver) reportRuntime(agentID string) {
 		AgentID:  agentID,
 		Provider: d.Name(),
 	}); err != nil {
-		d.logger.Warn("claudecli: report runtime failed", "agent_id", agentID, "error", err)
+		return err
 	}
+	return nil
 }
 
 var _ contract.Driver = (*driver)(nil)

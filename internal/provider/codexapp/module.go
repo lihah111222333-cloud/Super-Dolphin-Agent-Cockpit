@@ -3,6 +3,8 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -66,14 +68,20 @@ type DriverFactoryParams struct {
 	Dispatcher *unified.EventDispatcher
 	Approvals  *rpc.ApprovalManager
 	Reporter   contract.RuntimeReporter
+	Dependency contract.DependencyConfig `optional:"true"`
+	Config     *contract.Config          `optional:"true"`
 	Manager    *ServerManager
 	Pool       *ServerPool
 	Mirror     contract.SkillMirrorReconciler
 	Recovery   contract.SessionRecoveryReporter `optional:"true"`
 }
 
-func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.Mirror, p.Recovery)
+func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
+	reporter, err := newModeAwareRuntimeReporter(p.Reporter, p.Dependency, p.Config, p.Logger, "codex")
+	if err != nil {
+		return nil, err
+	}
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery), nil
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
@@ -81,6 +89,113 @@ func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory
 		return contract.DriverFactory{}
 	}
 	return factory.DriverFactory
+}
+
+type runtimeReportDeferredStatus struct {
+	AgentID    string
+	Provider   string
+	Port       int
+	Dependency string
+	Profile    contract.DependencyProfile
+	Status     string
+}
+
+type modeAwareRuntimeReporter struct {
+	base     contract.RuntimeReporter
+	logger   *slog.Logger
+	profile  contract.DependencyProfile
+	provider string
+
+	mu       sync.Mutex
+	deferred map[string]runtimeReportDeferredStatus
+}
+
+func newModeAwareRuntimeReporter(base contract.RuntimeReporter, dependency contract.DependencyConfig, cfg *contract.Config, logger *slog.Logger, provider string) (*modeAwareRuntimeReporter, error) {
+	if base == nil {
+		return nil, fmt.Errorf("%s runtime reporter is required", strings.TrimSpace(provider))
+	}
+	profile, err := dependencyProfileFromFactoryParams(dependency, cfg, provider)
+	if err != nil {
+		return nil, err
+	}
+	return &modeAwareRuntimeReporter{
+		base:     base,
+		logger:   logger,
+		profile:  profile,
+		provider: strings.TrimSpace(provider),
+		deferred: map[string]runtimeReportDeferredStatus{},
+	}, nil
+}
+
+func dependencyProfileFromFactoryParams(dependency contract.DependencyConfig, cfg *contract.Config, provider string) (contract.DependencyProfile, error) {
+	profile := dependency.Profile
+	if strings.TrimSpace(string(profile)) == "" && cfg != nil {
+		profile = cfg.Dependency.Profile
+	}
+	switch profile {
+	case contract.DependencyProfileDesktopHost, contract.DependencyProfileProduction, contract.DependencyProfileTest:
+		return profile, nil
+	case "":
+		return "", fmt.Errorf("%s dependency profile is required", strings.TrimSpace(provider))
+	default:
+		return "", fmt.Errorf("%s dependency profile %q is not supported", strings.TrimSpace(provider), profile)
+	}
+}
+
+// ReportRuntime 在 Codex start/resume 收尾阶段执行 mode-aware runtime 上报。
+// production 和 generic error 都必须阻断，desktop/test 只接受 typed deferred 并记录状态。
+func (r *modeAwareRuntimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
+	if r == nil || r.base == nil {
+		return fmt.Errorf("%s runtime reporter is required", r.providerName())
+	}
+	err := r.base.ReportRuntime(ctx, report)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, contract.ErrDependencyDeferred) || !r.allowDeferred() {
+		return fmt.Errorf("%s runtime report failed: %w", r.providerName(), err)
+	}
+	return r.acceptDeferredRuntimeReport(report)
+}
+
+func (r *modeAwareRuntimeReporter) allowDeferred() bool {
+	return r.profile == contract.DependencyProfileDesktopHost || r.profile == contract.DependencyProfileTest
+}
+
+func (r *modeAwareRuntimeReporter) recordDeferred(report contract.RuntimeReport) {
+	status := runtimeReportDeferredStatus{
+		AgentID:    strings.TrimSpace(report.AgentID),
+		Provider:   strings.TrimSpace(report.Provider),
+		Port:       report.Port,
+		Dependency: "runtime_reporter.orchestration_service",
+		Profile:    r.profile,
+		Status:     "deferred",
+	}
+	r.mu.Lock()
+	r.deferred[status.AgentID] = status
+	r.mu.Unlock()
+	if r.logger != nil {
+		r.logger.Info("runtime report deferred", "agent_id", status.AgentID, "provider", status.Provider, "dependency", status.Dependency, "profile", status.Profile, "status", status.Status)
+	}
+}
+
+func (r *modeAwareRuntimeReporter) acceptDeferredRuntimeReport(report contract.RuntimeReport) error {
+	r.recordDeferred(report)
+	return nil
+}
+
+func (r *modeAwareRuntimeReporter) runtimeReportDeferredForTest(agentID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	status, ok := r.deferred[strings.TrimSpace(agentID)]
+	return ok && status.Dependency == "runtime_reporter.orchestration_service" && status.Profile == r.profile && status.Status == "deferred"
+}
+
+func (r *modeAwareRuntimeReporter) providerName() string {
+	if r == nil || strings.TrimSpace(r.provider) == "" {
+		return "provider"
+	}
+	return r.provider
 }
 
 // ToolHandler 是 app-server 回调到 toolbridge 的最小处理函数。

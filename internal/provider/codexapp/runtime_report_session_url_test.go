@@ -18,11 +18,14 @@ func newRuntimeReportSessionForTest(agentID, serverURL string) *session {
 }
 
 // finishRuntimeReportSession 走生产 finishStartedSession 路径，避免只测 reportRuntime 私有细节。
-func finishRuntimeReportSession(d *driver, s *session) {
-	d.finishStartedSession(s, dto.StartSessionRequest{CWD: "/tmp/runtime-report-cwd"}, startResult{
+func finishRuntimeReportSession(t *testing.T, d *driver, s *session) {
+	t.Helper()
+	if _, err := d.finishStartedSession(s, dto.StartSessionRequest{CWD: "/tmp/runtime-report-cwd"}, startResult{
 		threadID: "thread-1",
 		model:    "gpt-5",
-	})
+	}); err != nil {
+		t.Fatalf("finishStartedSession() error = %v", err)
+	}
 }
 
 // assertRuntimeReportFromSessionURL 校验 runtimeConfig 和外部 reporter 都使用当前 session transport URL。
@@ -48,7 +51,7 @@ func TestFinishStartedSessionReportsRuntimeFromSessionURL(t *testing.T) {
 	d := &driver{reporter: reporter}
 	s := newRuntimeReportSessionForTest(" agent-1 ", " ws://127.0.0.1:4567/ws ")
 
-	finishRuntimeReportSession(d, s)
+	finishRuntimeReportSession(t, d, s)
 
 	assertRuntimeReportFromSessionURL(t, reporter, s, 4567)
 }

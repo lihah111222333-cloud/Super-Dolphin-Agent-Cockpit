@@ -1,0 +1,7 @@
+{
+  "baseInstructions": "base contract instructions",
+  "developerInstructions": "developer contract instructions",
+  "prefixHash": "hash-contract",
+  "boundary": "{\"cachedPrefix\":\"base contract instructions\",\"uncachedTail\":\"runtime context\"}",
+  "sectionSnapshot": "{\"developer\":\"developer contract instructions\",\"system\":\"base contract instructions\"}"
+}

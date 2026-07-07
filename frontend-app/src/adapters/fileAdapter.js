@@ -1,4 +1,4 @@
-import { parseSharedFilesDashboardResponse } from '../shared/api/backendSchemas.js';
+import { parseSharedFileDetailResponse, parseSharedFilesDashboardResponse } from '../shared/api/backendSchemas.js';
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
@@ -91,14 +91,28 @@ function adaptSharedFilesDashboard(response) {
   };
 }
 
+function detailResponseFile(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('shared file detail response must be an object');
+  }
+  if (Object.prototype.hasOwnProperty.call(response, 'file')) {
+    if (!response.file || typeof response.file !== 'object' || Array.isArray(response.file)) {
+      throw new Error('shared file detail file must be an object');
+    }
+    return response.file;
+  }
+  return response;
+}
+
 function adaptSharedFileDetail(response, fallbackFile = {}) {
-  if (!firstText(response?.path)) throw new Error('shared file detail path is required');
-  const detail = adaptSharedFile(response || {}, 0);
+  const rawDetail = detailResponseFile(response);
+  const detail = parseSharedFileDetailResponse(rawDetail);
+  const adapted = adaptSharedFile(detail, 0);
   return {
-    ...detail,
-    updatedBy: firstText(detail.updatedBy, fallbackFile.updatedBy, fallbackFile.updated_by),
-    updatedAt: firstText(detail.updatedAt, fallbackFile.updatedAt, fallbackFile.updated_at),
-    createdAt: firstText(detail.createdAt, fallbackFile.createdAt, fallbackFile.created_at),
+    ...adapted,
+    updatedBy: firstText(adapted.updatedBy, fallbackFile.updatedBy, fallbackFile.updated_by),
+    updatedAt: firstText(adapted.updatedAt, fallbackFile.updatedAt, fallbackFile.updated_at),
+    createdAt: firstText(adapted.createdAt, fallbackFile.createdAt, fallbackFile.created_at),
   };
 }
 

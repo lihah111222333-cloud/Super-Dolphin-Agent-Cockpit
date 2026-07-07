@@ -393,6 +393,10 @@ func (p *historyTestSessionProvider) RemoveSession(sessionID string) {
 	_ = sessionID
 }
 
+func (p *historyTestSessionProvider) SessionGeneration(string) uint64 {
+	return 1
+}
+
 type historyReadCall struct {
 	ThreadID string
 	Limit    int

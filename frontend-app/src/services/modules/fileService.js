@@ -24,7 +24,7 @@ async function listSharedFilesDashboard() {
   }, '加载共享文件失败');
 }
 
-async function readSharedFile(params, fallbackFile = {}) {
+async function readSharedFile(params, fallbackFile) {
   return runServiceRequest(async () => {
     const response = await readSharedFileBackend(params);
     return adaptSharedFileDetail(response, fallbackFile);

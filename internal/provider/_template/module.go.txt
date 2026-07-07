@@ -1,0 +1,86 @@
+package template
+
+import (
+	"errors"
+
+	"go.uber.org/fx"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+)
+
+var Module = fx.Module("provider.template",
+	fx.Provide(
+		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
+	),
+	fx.Invoke(RegisterEventTranslators),
+)
+
+type driverFactoryParams struct {
+	fx.In
+
+	Reporter        contract.RuntimeReporter
+	ToolbridgeProxy TemplateToolbridgeProxy
+	Approvals       TemplateApprovalBridge `optional:"true"`
+	Mirror          TemplateProviderMirror
+	Recovery        TemplateSessionRecovery
+	Tracer          TemplateTracer `optional:"true"`
+	Dependency      contract.DependencyConfig
+}
+
+func NewDriverFactory(p driverFactoryParams) (contract.DriverFactory, error) {
+	if err := ValidateProviderDependencies(p); err != nil {
+		return contract.DriverFactory{}, err
+	}
+	return contract.DriverFactory{
+		Name: "template",
+		Create: func() contract.Driver {
+			return NewDriver(DriverConfig{
+				Reporter:        p.Reporter,
+				ToolbridgeProxy: p.ToolbridgeProxy,
+				Approvals:       p.Approvals,
+				Mirror:          p.Mirror,
+				Recovery:        p.Recovery,
+				Tracer:          p.Tracer,
+				Dependency:      p.Dependency,
+			})
+		},
+		NativeTools: templateNativeTools(),
+	}, nil
+}
+
+func ValidateProviderDependencies(p driverFactoryParams) error {
+	if p.Dependency.Profile == "" {
+		return errors.New("provider template dependency profile required")
+	}
+	if p.Dependency.Profile != contract.DependencyProfileProduction {
+		return nil
+	}
+	required := []struct {
+		name    string
+		missing bool
+	}{
+		{name: "provider.template.runtime_reporter", missing: p.Reporter == nil},
+		{name: "provider.template.toolbridge_proxy", missing: p.ToolbridgeProxy == nil},
+		{name: "provider.template.mirror", missing: p.Mirror == nil},
+		{name: "provider.template.session_recovery", missing: p.Recovery == nil},
+	}
+	for _, dep := range required {
+		if dep.missing {
+			return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, dep.name, p.Dependency.Profile)
+		}
+	}
+	return nil
+}
+
+func templateNativeTools() []contract.NativeToolDescriptor {
+	return []contract.NativeToolDescriptor{
+		{
+			ID:              "template.read",
+			Label:           "provider native read",
+			Description:     "provider-native file read bypasses project file tools",
+			DefaultDisabled: true,
+			Provider:        "template",
+			FilterMode:      contract.NativeToolFilterModeHard,
+		},
+	}
+}

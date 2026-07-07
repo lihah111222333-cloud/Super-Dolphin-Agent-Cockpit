@@ -1,0 +1,10 @@
+{
+  "agent_id": "agent-codex-contract",
+  "error": "provider failed",
+  "message": "provider failed",
+  "status": "failed",
+  "success": false,
+  "thread_id": "agent-codex-contract",
+  "timestamp": "2026-07-07T01:02:03Z",
+  "turn_id": "turn-codex-contract"
+}

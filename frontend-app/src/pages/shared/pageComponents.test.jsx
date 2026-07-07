@@ -28,5 +28,6 @@ describe('pageComponents', () => {
 
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('重试同步失败：backend offline')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('重试同步失败：backend offline');
   });
 });

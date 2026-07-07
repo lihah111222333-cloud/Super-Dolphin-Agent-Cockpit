@@ -1,0 +1,7 @@
+{
+  "baseInstructions": "codex contract base instructions",
+  "developerInstructions": "codex contract developer instructions",
+  "prefixHash": "codex-contract-prefix-hash",
+  "boundary": "{\"cachedPrefix\":\"codex contract cached prefix\",\"uncachedTail\":\"codex contract uncached tail\"}",
+  "sectionSnapshot": "{\"developer\":\"codex contract developer instructions\",\"system\":\"codex contract base instructions\",\"tools\":\"codex contract tool instructions\"}"
+}

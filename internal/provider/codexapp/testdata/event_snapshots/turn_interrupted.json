@@ -1,0 +1,7 @@
+{
+  "agent_id": "agent-codex-contract",
+  "reason": "user_interrupt",
+  "thread_id": "agent-codex-contract",
+  "timestamp": "2026-07-07T01:02:03Z",
+  "turn_id": "turn-codex-contract"
+}

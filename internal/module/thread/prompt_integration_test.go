@@ -134,7 +134,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 		&stubThreadOrchestration{},
 		nil,
 		promptAssembly,
-		&contract.Config{},
+		testThreadDependencyConfig(),
 		nil,
 		nil,
 		store,

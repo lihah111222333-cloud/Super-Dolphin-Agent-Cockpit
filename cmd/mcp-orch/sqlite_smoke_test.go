@@ -28,6 +28,8 @@ func TestSQLiteMCPOrchConfigCreatesCleanDatabaseAndIgnoresPostgresEnv(t *testing
 	projectRoot := t.TempDir()
 	sqlitePath := filepath.Join(t.TempDir(), "state", "orch.db")
 	t.Setenv("PROJECT_ROOT", projectRoot)
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP", "test")
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_PROFILE", "")
 	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", sqlitePath)
 	t.Setenv("DATABASE_URL", "postgres://127.0.0.1:1/should-not-connect")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://127.0.0.1:1/should-not-connect")

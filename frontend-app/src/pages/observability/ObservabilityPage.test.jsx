@@ -3,9 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityPage } from './ObservabilityPage.jsx';
-import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from '../../services/modules/observabilityService.js';
+import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from './services/observabilityPageService.js';
 
-vi.mock('../../services/modules/observabilityService.js', () => ({
+vi.mock('./services/observabilityPageService.js', () => ({
   copyTextToClipboard: vi.fn(),
   getObservabilityTrace: vi.fn(),
   listObservabilityRecent: vi.fn(),
@@ -116,7 +116,7 @@ describe('ObservabilityPage module', () => {
     const [payload] = listObservabilityRecent.mock.calls[0];
 
     expect(payload).toEqual({
-      limit: 50,
+      limit: '50',
       status: 'error',
       component: '',
       method: '',
@@ -303,7 +303,7 @@ describe('ObservabilityPage module', () => {
 
     await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledTimes(1));
     const [payload] = getObservabilityTrace.mock.calls[0];
-    expect(payload).toEqual({ traceId: 'trace-frontend-1', limit: 50 });
+    expect(payload).toEqual({ traceId: 'trace-frontend-1', limit: '50' });
     expect(payload).not.toHaveProperty('includeTail');
     expect(await within(table).findByTestId('observability-inline-trace-trace-frontend-1')).toHaveTextContent('Trace 结果');
     expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
@@ -379,8 +379,8 @@ describe('ObservabilityPage module', () => {
     fireEvent.change(screen.getByLabelText('Limit'), { target: { value: '25' } });
     await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledTimes(2));
     expect(getObservabilityTrace.mock.calls.map(([payload]) => payload)).toEqual([
-      { traceId: 'trace-frontend-1', limit: 50 },
-      { traceId: 'trace-frontend-1', limit: 25 },
+      { traceId: 'trace-frontend-1', limit: '50' },
+      { traceId: 'trace-frontend-1', limit: '25' },
     ]);
   });
 

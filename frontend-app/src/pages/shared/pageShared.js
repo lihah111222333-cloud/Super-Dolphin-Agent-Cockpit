@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MEMORY_TYPE_INFO, memoryHealth, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeSimilarityGroups } from '../../adapters/memoryAdapter.js';
-import { fetchMemoryDashboard } from '../../services/modules/memoryService.js';
+import { memoryPageService } from '../memory/services/memoryPageService.js';
 
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
 const DASHBOARD_FOCUS_INVALIDATION_COALESCE_MS = 50;
 
-function withTimeout(promise, timeoutMs, message) {
+async function withTimeout(promise, timeoutMs, message) {
   let timeoutID;
   const timeout = new Promise((_, reject) => {
     timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -80,6 +80,10 @@ function optionalSettingsCwd(value) {
 
 function dashboardQueryKey(cwd, page, ...parts) {
   return ['dashboard', 'project', cwd, page, ...parts.map((part) => textValue(part)).filter(Boolean)];
+}
+
+async function loadMemoryDashboard(cwd, options) {
+  return memoryPageService.loadDashboard(cwd, options);
 }
 
 function queryErrorMessage(query) {
@@ -200,4 +204,4 @@ function listToText(words) {
   return Array.isArray(words) ? words.join(', ') : '';
 }
 
-export { appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, dashboardQueryErrorState, dashboardQueryKey, errorMessage, fetchMemoryDashboard, firstText, listToText, MEMORY_TYPE_INFO, memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalSettingsCwd, queryErrorMessage, queryHasSnapshot, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText };
+export { appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, loadMemoryDashboard, MEMORY_TYPE_INFO, memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalSettingsCwd, queryErrorMessage, queryHasSnapshot, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText };

@@ -148,7 +148,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('reports log level preference save failures without changing the selected level', () => {
-    const setItemSpy = vi.spyOn(Object.getPrototypeOf(window.localStorage), 'setItem').mockImplementation(() => {
+    const setItemSpy = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
       throw new Error('storage denied');
     });
     try {

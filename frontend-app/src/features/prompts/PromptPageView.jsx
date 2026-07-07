@@ -17,7 +17,7 @@ import {
   savePersonalizationProfile,
   setPreference,
   writePrompt,
-} from '../../shared/api/backendApi.js';
+} from '../../pages/prompts/services/promptPageService.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import './PromptPageView.css';

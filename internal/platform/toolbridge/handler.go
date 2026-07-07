@@ -29,6 +29,19 @@ const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn
 // persistentSubagentDefaultFallbackTotal 统计兼容 fallback 被触发的次数，便于后续移除旧路径。
 var persistentSubagentDefaultFallbackTotal atomic.Uint64
 
+const (
+	toolbridgeDependencyDispatcher            = "toolbridge.dispatcher"
+	toolbridgeDependencyWorkdirResolver       = "toolbridge.workdir_resolver"
+	toolbridgeDependencyPreferences           = "toolbridge.preferences"
+	toolbridgeDependencyConfig                = "toolbridge.config"
+	toolbridgeDependencyLifecycleBackfiller   = "toolbridge.lifecycle_backfiller"
+	toolbridgeDependencyLifecyclePolicyReader = "toolbridge.lifecycle_policy_reader"
+	toolbridgeDependencyAgentThreadLookup     = "toolbridge.agent_thread_lookup"
+	toolbridgeDependencyThreadConfigOverride  = "toolbridge.thread_config_override_store"
+	toolbridgeDependencyHostTools             = "toolbridge.host_tools"
+	toolbridgeDependencySkillTools            = "toolbridge.skill_tools"
+)
+
 // Handler 负责把模型侧 tool call 路由到 host-direct、Codex surface 或外部 MCP peer。
 // 结构体持有的 store、registry 与 hostTools 都是可选边界，调用路径必须显式处理缺失依赖。
 type Handler struct {
@@ -103,7 +116,10 @@ type toolCallRuntimeLookupResult struct {
 }
 
 // NewHandler 创建 toolbridge 路由器，并为可注入的 stdio client factory 设置默认实现。
-func NewHandler(in handlerIn) *Handler {
+func NewHandler(in handlerIn) (*Handler, error) {
+	if err := validateToolbridgeDependencies(in); err != nil {
+		return nil, err
+	}
 	logger := in.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -128,7 +144,74 @@ func NewHandler(in handlerIn) *Handler {
 		proxyAuthToken:  newProxyAuthToken(),
 	}
 	handler.stdioClientFactory = handler.defaultStdioClientFactory
-	return handler
+	return handler, nil
+}
+
+// validateToolbridgeDependencies 在构造 Handler 前按 dependency profile 校验关键端口，防止生产图退化为空能力。
+func validateToolbridgeDependencies(in handlerIn) error {
+	profile := in.Dependency.Profile
+	if strings.TrimSpace(string(profile)) == "" {
+		return fmt.Errorf("toolbridge dependency profile is required")
+	}
+	if err := validateToolbridgeConfigDependency(in.Config, in.Dependency); err != nil {
+		return err
+	}
+	for _, dependency := range []struct {
+		name    string
+		missing bool
+	}{
+		{name: toolbridgeDependencyDispatcher, missing: in.Dispatcher == nil || in.Emitter == nil},
+		{name: toolbridgeDependencyWorkdirResolver, missing: in.Resolver == nil},
+		{name: toolbridgeDependencyPreferences, missing: in.Preferences == nil},
+		{name: toolbridgeDependencyLifecycleBackfiller, missing: in.Lifecycle == nil},
+		{name: toolbridgeDependencyLifecyclePolicyReader, missing: in.LifecyclePolicy == nil},
+		{name: toolbridgeDependencyAgentThreadLookup, missing: in.BindingStore == nil},
+		{name: toolbridgeDependencyThreadConfigOverride, missing: in.ThreadStore == nil},
+		{name: toolbridgeDependencyHostTools, missing: toolbridgeHostToolsMissing(in.HostTools)},
+		{name: toolbridgeDependencySkillTools, missing: in.SkillTools == nil},
+	} {
+		if dependency.missing {
+			return toolbridgeMissingDependencyError(dependency.name, profile)
+		}
+	}
+	return nil
+}
+
+func validateToolbridgeConfigDependency(cfg *platformconfig.Config, dependency contract.DependencyConfig) error {
+	profile := dependency.Profile
+	if cfg == nil || strings.TrimSpace(string(cfg.Dependency.Profile)) == "" {
+		return toolbridgeMissingDependencyError(toolbridgeDependencyConfig, profile)
+	}
+	if cfg.Dependency.Profile != profile {
+		return fmt.Errorf(
+			"toolbridge dependency profile mismatch: injected %q config %q",
+			profile,
+			cfg.Dependency.Profile,
+		)
+	}
+	return nil
+}
+
+func toolbridgeHostToolsMissing(hostTools HostToolRegistry) bool {
+	return hostTools == nil || len(hostTools.ListHostTools()) == 0
+}
+
+func toolbridgeMissingDependencyError(name string, profile contract.DependencyProfile) error {
+	if toolbridgeAllowsMissingDependency(name, profile) {
+		return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, name, profile)
+	}
+	return fmt.Errorf("toolbridge dependency %q is required in %s profile", name, profile)
+}
+
+func toolbridgeAllowsMissingDependency(name string, profile contract.DependencyProfile) bool {
+	switch profile {
+	case contract.DependencyProfileDesktopHost:
+		return name == toolbridgeDependencyAgentThreadLookup || name == toolbridgeDependencyThreadConfigOverride
+	case contract.DependencyProfileTest:
+		return name == toolbridgeDependencyLifecycleBackfiller || name == toolbridgeDependencySkillTools
+	default:
+		return false
+	}
 }
 
 // HandleToolCall 是 JSON-RPC tool call 的入口。

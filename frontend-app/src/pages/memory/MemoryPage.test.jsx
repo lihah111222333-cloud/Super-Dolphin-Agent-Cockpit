@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryPage } from './MemoryPage.jsx';
 import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
-import { fetchMemoryDashboard, upsertMemoryEntry } from '../../services/modules/memoryService.js';
+import { fetchMemoryDashboard, upsertMemoryEntry } from './services/memoryPageService.js';
 
 const backend = vi.hoisted(() => ({
   deleteMemoryEntry: vi.fn(),
@@ -18,7 +18,7 @@ const backend = vi.hoisted(() => ({
   upsertMemoryEntry: vi.fn(),
 }));
 
-vi.mock('../../services/modules/memoryService.js', () => backend);
+vi.mock('./services/memoryPageService.js', () => backend);
 
 function memorySnapshot({ privateEntries = [], similarGroups = [], teamEntries = [] } = {}) {
   return {

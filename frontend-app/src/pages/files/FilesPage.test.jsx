@@ -12,7 +12,7 @@ const backend = vi.hoisted(() => ({
   saveTextFile: vi.fn(),
 }));
 
-vi.mock('../../services/modules/fileService.js', () => backend);
+vi.mock('./services/filesPageService.js', () => backend);
 
 function renderFilesPage(store = {}) {
   const queryClient = new QueryClient({
@@ -102,7 +102,7 @@ describe('FilesPage module', () => {
     expect(await screen.findByText('final.mp4')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '打开' }));
 
-    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
+    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith(finalPath));
     expect(backend.readSharedFile).not.toHaveBeenCalled();
   });
 
@@ -141,7 +141,7 @@ describe('FilesPage module', () => {
       finalOutputRefs: [],
       retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     });
-    backend.readSharedFile.mockImplementation(({ path }) => {
+    backend.readSharedFile.mockImplementation((path) => {
       if (path === firstPath) return firstDetail.promise;
       if (path === secondPath) return secondDetail.promise;
       return Promise.reject(new Error(`Unexpected shared file path: ${path}`));
@@ -152,9 +152,9 @@ describe('FilesPage module', () => {
     const firstCard = (await screen.findByText('first.md')).closest('article');
     const secondCard = screen.getByText('second.md').closest('article');
     fireEvent.click(within(firstCard).getByRole('button', { name: '打开' }));
-    await waitFor(() => expect(backend.readSharedFile).toHaveBeenCalledWith({ path: firstPath }, expect.objectContaining({ path: firstPath })));
+    await waitFor(() => expect(backend.readSharedFile).toHaveBeenCalledWith(firstPath, expect.objectContaining({ path: firstPath })));
     fireEvent.click(within(secondCard).getByRole('button', { name: '打开' }));
-    await waitFor(() => expect(backend.readSharedFile).toHaveBeenCalledWith({ path: secondPath }, expect.objectContaining({ path: secondPath })));
+    await waitFor(() => expect(backend.readSharedFile).toHaveBeenCalledWith(secondPath, expect.objectContaining({ path: secondPath })));
 
     await act(async () => {
       secondDetail.resolve({ path: secondPath, content: 'latest preview content', updatedAt: '2026-06-06T09:00:00Z' });

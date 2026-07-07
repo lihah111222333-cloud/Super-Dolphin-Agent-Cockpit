@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy } from 'lucide-react';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from '../../services/modules/observabilityService.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
+import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from './services/observabilityPageService.js';
 import './ObservabilityPage.css';
 
 function observabilityRecentQueryKey(cwd, params) {
@@ -140,12 +140,9 @@ function useObservabilityFilters() {
   const setFilter = useCallback((key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
   }, []);
-  const queryLimit = useMemo(() => {
-    const value = Number(filters.limit);
-    return Number.isInteger(value) && value > 0 ? value : 50;
-  }, [filters.limit]);
+  const queryLimit = filters.limit;
   const buildRecentParams = useCallback((overrides = {}) => ({
-    limit: queryLimit,
+    limit: overrides.limit ?? filters.limit,
     status: overrides.status ?? filters.status.trim(),
     component: overrides.component ?? filters.component.trim(),
     method: overrides.method ?? filters.method.trim(),
@@ -153,7 +150,7 @@ function useObservabilityFilters() {
     threadId: overrides.threadId ?? filters.threadId.trim(),
     agentId: overrides.agentId ?? filters.agentId.trim(),
     keyword: overrides.keyword ?? filters.keyword.trim(),
-  }), [filters, queryLimit]);
+  }), [filters]);
   return { buildRecentParams, filters, queryLimit, setFilter };
 }
 

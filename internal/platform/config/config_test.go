@@ -198,6 +198,7 @@ func assertFileStatUnchanged(t *testing.T, before, after os.FileInfo) {
 }
 
 func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
+	declareTestDependencyBootstrap(t)
 	root := t.TempDir()
 	t.Setenv("PROJECT_ROOT", root)
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
@@ -470,6 +471,7 @@ func requireStringSliceContains(t *testing.T, label string, got []string, want s
 }
 
 func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
+	declareTestDependencyBootstrap(t)
 	root := t.TempDir()
 	t.Setenv("PROJECT_ROOT", root)
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
@@ -516,7 +518,14 @@ func isolateConfigTestEnv(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("RPC_ADDR", "")
+	declareTestDependencyBootstrap(t)
 	clearLSPConfigEnv(t)
+}
+
+func declareTestDependencyBootstrap(t *testing.T) {
+	t.Helper()
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP", "test")
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_PROFILE", "")
 }
 
 func unsetEnvForTest(t *testing.T, key string) {

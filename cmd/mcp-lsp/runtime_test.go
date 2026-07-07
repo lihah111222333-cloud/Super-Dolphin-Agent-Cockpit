@@ -19,6 +19,7 @@ import (
 )
 
 func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
+	declareTestDependencyBootstrap(t)
 	root := runtimeCanonicalTempDir(t)
 	t.Setenv("GO_AGENT_LSP_ROOT", root)
 	binDir := t.TempDir()
@@ -75,6 +76,7 @@ func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
 }
 
 func TestNewManagerUsesPlatformLSPConfig(t *testing.T) {
+	declareTestDependencyBootstrap(t)
 	root := runtimeCanonicalTempDir(t)
 	t.Setenv("PROJECT_ROOT", root)
 	t.Setenv("GO_AGENT_LSP_ROOT", root)
@@ -492,6 +494,7 @@ printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
 }
 
 func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
+	declareTestDependencyBootstrap(t)
 	root := t.TempDir()
 	bundle := t.TempDir()
 	writeMcpLSPBundleManifest(t, bundle, `{
@@ -536,6 +539,7 @@ func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
 }
 
 func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T) {
+	declareTestDependencyBootstrap(t)
 	root := t.TempDir()
 	bundle := t.TempDir()
 	writeMcpLSPBundleManifest(t, bundle, `{
@@ -619,6 +623,12 @@ func unsetEnvForTest(t *testing.T, key string) {
 		}
 		_ = os.Unsetenv(key)
 	})
+}
+
+func declareTestDependencyBootstrap(t *testing.T) {
+	t.Helper()
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP", "test")
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_PROFILE", "")
 }
 
 func writeMcpLSPBundleManifest(t *testing.T, bundle, body string) {

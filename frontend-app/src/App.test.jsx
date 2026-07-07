@@ -47,7 +47,7 @@ const backend = vi.hoisted(() => {
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
-    listPromptSections writePromptSection deletePromptSection
+    getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
     deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
     getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
     ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
@@ -281,6 +281,8 @@ function mockPromptDefaults() {
   backend.getPrompt.mockResolvedValue({ prompt: { content: '' } });
   backend.writePrompt.mockResolvedValue({ prompt: { id: 'saved-prompt' } });
   backend.deletePrompt.mockResolvedValue({ deleted: true });
+  backend.getPersonalizationProfile.mockResolvedValue({ profile: {} });
+  backend.savePersonalizationProfile.mockResolvedValue({ profile: {} });
   backend.listPromptSections.mockResolvedValue({ sections: [] });
   backend.writePromptSection.mockResolvedValue({ ok: true });
   backend.deletePromptSection.mockResolvedValue({ ok: true });

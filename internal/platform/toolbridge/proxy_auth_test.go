@@ -10,7 +10,7 @@ import (
 func TestNewHandlerProxyRejectsMissingBearerToken(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(handlerIn{})
+	h := mustNewToolbridgeDependencyHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/mcp/lsp/agent-1", strings.NewReader(`{"jsonrpc":"2.0","id":"req-1","method":"initialize"}`))
 	resp := httptest.NewRecorder()
 
@@ -24,7 +24,7 @@ func TestNewHandlerProxyRejectsMissingBearerToken(t *testing.T) {
 func TestNewHandlerProxyAcceptsBearerToken(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(handlerIn{})
+	h := mustNewToolbridgeDependencyHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/mcp/lsp/agent-1", strings.NewReader(`{"jsonrpc":"2.0","id":"req-1","method":"initialize"}`))
 	req.Header.Set("Authorization", "Bearer "+h.proxyAuthToken)
 	resp := httptest.NewRecorder()

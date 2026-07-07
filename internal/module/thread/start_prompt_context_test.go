@@ -52,7 +52,7 @@ func buildConfigFallbackStartCtx(repoRoot, cwd string) contract.BuildCtx {
 				"keepCodingInstructions": true,
 			},
 		},
-	}, &contract.Config{ProjectRoot: repoRoot}, promptToolRegistryStub{instances: []contract.ToolInstance{
+	}, testThreadDependencyConfigWithProjectRoot(repoRoot), promptToolRegistryStub{instances: []contract.ToolInstance{
 		{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive},
 		{BinaryName: "mcp-orch", ClientKind: "orch", Status: mcpdto.StatusActive},
 		{BinaryName: "mcp-ida", ClientKind: "ida", Status: mcpdto.StatusDisconnected},
@@ -190,7 +190,7 @@ func newPromptAssemblyStartService(t *testing.T, repoRoot string) (*service, *ca
 		orch,
 		nil,
 		assembly,
-		&contract.Config{ProjectRoot: repoRoot},
+		testThreadDependencyConfigWithProjectRoot(repoRoot),
 		promptToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}},
 	).(*service)
 	return svc, assembly, orch
