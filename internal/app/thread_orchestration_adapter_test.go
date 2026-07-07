@@ -63,21 +63,27 @@ func TestBindSessionGenerationFailsForProductionWithoutBindingPort(t *testing.T)
 }
 
 func TestMCPOrchOrchestrationFacadeDependencyConfig(t *testing.T) {
-	t.Run("test_profile_typed_unsupported", func(t *testing.T) {
-		facade := &mcpOrchOrchestrationFacade{
-			dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
-		}
+	profiles := bindSessionGenerationPolicyProfilesForTest()
+	if len(profiles) == 0 {
+		t.Fatal("shared thread.bind_session_generation dependency absence policies are empty")
+	}
+	for _, profile := range profiles {
+		t.Run(string(profile)+"_profile_typed_unsupported", func(t *testing.T) {
+			facade := &mcpOrchOrchestrationFacade{
+				dependency: contract.DependencyConfig{Profile: profile},
+			}
 
-		err := facade.BindSessionGeneration(context.Background(), "agent-1", 7)
-		if !contract.IsDependencyModeError(
-			err,
-			"thread.bind_session_generation",
-			contract.DependencyProfileTest,
-			contract.ErrUnsupportedDependencyMode,
-		) {
-			t.Fatalf("BindSessionGeneration() error = %v, want test typed unsupported", err)
-		}
-	})
+			err := facade.BindSessionGeneration(context.Background(), "agent-1", 7)
+			if !contract.IsDependencyModeError(
+				err,
+				"thread.bind_session_generation",
+				profile,
+				contract.ErrUnsupportedDependencyMode,
+			) {
+				t.Fatalf("BindSessionGeneration() error = %v, want shared-policy typed unsupported", err)
+			}
+		})
+	}
 
 	t.Run("empty_profile_fails_fast", func(t *testing.T) {
 		facade := &mcpOrchOrchestrationFacade{}
@@ -90,6 +96,16 @@ func TestMCPOrchOrchestrationFacadeDependencyConfig(t *testing.T) {
 			t.Fatalf("BindSessionGeneration() error = %v, empty profile must not be typed unsupported", err)
 		}
 	})
+}
+
+func bindSessionGenerationPolicyProfilesForTest() []contract.DependencyProfile {
+	var profiles []contract.DependencyProfile
+	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
+		if policy.Name == "thread.bind_session_generation" {
+			profiles = append(profiles, policy.Profile)
+		}
+	}
+	return profiles
 }
 
 func TestMCPOrchOrchestrationFacadeConstructorInjectsDependencyConfig(t *testing.T) {

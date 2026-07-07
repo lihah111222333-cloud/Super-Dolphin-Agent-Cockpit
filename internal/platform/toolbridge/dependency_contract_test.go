@@ -44,9 +44,9 @@ func TestToolbridgeProductionProfileRequiresCriticalDependencies(t *testing.T) {
 }
 
 func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T) {
-	allowed := map[string]bool{
-		"toolbridge.agent_thread_lookup":          true,
-		"toolbridge.thread_config_override_store": true,
+	allowed := toolbridgeDependencyAbsencePolicyNamesForTest(contract.DependencyProfileDesktopHost)
+	if len(allowed) == 0 {
+		t.Fatal("shared toolbridge desktop dependency absence policies are empty")
 	}
 	for _, dependency := range allToolbridgeDependencyNamesForTest() {
 		err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
@@ -66,9 +66,9 @@ func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T
 }
 
 func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.T) {
-	allowed := map[string]bool{
-		"toolbridge.lifecycle_backfiller": true,
-		"toolbridge.skill_tools":          true,
+	allowed := toolbridgeDependencyAbsencePolicyNamesForTest(contract.DependencyProfileTest)
+	if len(allowed) == 0 {
+		t.Fatal("shared toolbridge test dependency absence policies are empty")
 	}
 	for _, dependency := range allToolbridgeDependencyNamesForTest() {
 		err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
@@ -83,6 +83,23 @@ func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.
 		}
 		if err == nil || !strings.Contains(err.Error(), dependency) {
 			t.Fatalf("%s error = %v, want required dependency failure", dependency, err)
+		}
+	}
+}
+
+func TestToolbridgeDependencyAbsencePoliciesAreCoveredByFixture(t *testing.T) {
+	fixtureNames := map[string]bool{}
+	for _, name := range allToolbridgeDependencyNamesForTest() {
+		fixtureNames[name] = true
+	}
+	for _, profile := range []contract.DependencyProfile{
+		contract.DependencyProfileDesktopHost,
+		contract.DependencyProfileTest,
+	} {
+		for name := range toolbridgeDependencyAbsencePolicyNamesForTest(profile) {
+			if !fixtureNames[name] {
+				t.Fatalf("shared policy %q for %s is not covered by toolbridge dependency fixture", name, profile)
+			}
 		}
 	}
 }
@@ -113,6 +130,16 @@ func allToolbridgeDependencyNamesForTest() []string {
 		"toolbridge.host_tools",
 		"toolbridge.skill_tools",
 	}
+}
+
+func toolbridgeDependencyAbsencePolicyNamesForTest(profile contract.DependencyProfile) map[string]bool {
+	names := map[string]bool{}
+	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
+		if policy.Profile == profile && strings.HasPrefix(policy.Name, "toolbridge.") {
+			names[policy.Name] = true
+		}
+	}
+	return names
 }
 
 func mustNewToolbridgeDependencyHandler(t *testing.T) *Handler {

@@ -24,6 +24,24 @@ func TestDependencyContractAllowsDesktopRuntimeReporterNoop(t *testing.T) {
 	}
 }
 
+func TestDependencyContractAllowedMissingDependenciesComeFromSharedPolicy(t *testing.T) {
+	for _, profile := range []contract.DependencyProfile{
+		contract.DependencyProfileDesktopHost,
+		contract.DependencyProfileTest,
+	} {
+		dependencies := appDependencyAbsencePolicyNamesForTest(profile)
+		if len(dependencies) == 0 {
+			t.Fatalf("shared app dependency absence policies for %s profile are empty", profile)
+		}
+		for _, dependency := range dependencies {
+			err := newDependencyContract(profile).Require(dependency, nil)
+			if err != nil {
+				t.Fatalf("Require(%q, nil) in %s profile error = %v, want shared policy allowance", dependency, profile, err)
+			}
+		}
+	}
+}
+
 func TestDependencyContractRejectsUnknownOptionalDependency(t *testing.T) {
 	policy := newDependencyContract(contract.DependencyProfileDesktopHost)
 	err := policy.Require("unknown.optional", nil)
@@ -45,6 +63,16 @@ func TestDependencyContractTypedUnsupported(t *testing.T) {
 	if !errors.Is(err, contract.ErrUnsupportedDependencyMode) {
 		t.Fatalf("error = %v, want ErrUnsupportedDependencyMode", err)
 	}
+}
+
+func appDependencyAbsencePolicyNamesForTest(profile contract.DependencyProfile) []string {
+	var names []string
+	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
+		if policy.Profile == profile && policy.Owner == "internal/app" {
+			names = append(names, policy.Name)
+		}
+	}
+	return names
 }
 
 func TestNewRuntimeReporterFailsInProductionWithoutOrchestrationService(t *testing.T) {

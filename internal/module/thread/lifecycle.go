@@ -139,19 +139,17 @@ func threadDependencyProfile(cfg *contract.Config) (contract.DependencyProfile, 
 }
 
 func missingBindSessionGenerationDependency(profile contract.DependencyProfile) error {
+	err := contract.MissingDependencyModeError(bindSessionGenerationDependency, profile)
+	if contract.IsDependencyModeError(err, bindSessionGenerationDependency, profile, contract.ErrUnsupportedDependencyMode) {
+		return err
+	}
 	switch profile {
-	case contract.DependencyProfileDesktopHost, contract.DependencyProfileTest:
-		return contract.NewDependencyModeError(
-			contract.ErrUnsupportedDependencyMode,
-			bindSessionGenerationDependency,
-			profile,
-		)
 	case contract.DependencyProfileProduction:
 		return errors.New(
 			"thread.bind_session_generation requires orchestration and session generation provider in production profile",
 		)
 	default:
-		return fmt.Errorf("thread dependency profile %q is not supported", profile)
+		return err
 	}
 }
 

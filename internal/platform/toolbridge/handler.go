@@ -197,21 +197,11 @@ func toolbridgeHostToolsMissing(hostTools HostToolRegistry) bool {
 }
 
 func toolbridgeMissingDependencyError(name string, profile contract.DependencyProfile) error {
-	if toolbridgeAllowsMissingDependency(name, profile) {
-		return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, name, profile)
+	err := contract.MissingDependencyModeError(name, profile)
+	if contract.IsDependencyModeError(err, name, profile, contract.ErrUnsupportedDependencyMode) {
+		return err
 	}
 	return fmt.Errorf("toolbridge dependency %q is required in %s profile", name, profile)
-}
-
-func toolbridgeAllowsMissingDependency(name string, profile contract.DependencyProfile) bool {
-	switch profile {
-	case contract.DependencyProfileDesktopHost:
-		return name == toolbridgeDependencyAgentThreadLookup || name == toolbridgeDependencyThreadConfigOverride
-	case contract.DependencyProfileTest:
-		return name == toolbridgeDependencyLifecycleBackfiller || name == toolbridgeDependencySkillTools
-	default:
-		return false
-	}
 }
 
 // HandleToolCall 是 JSON-RPC tool call 的入口。

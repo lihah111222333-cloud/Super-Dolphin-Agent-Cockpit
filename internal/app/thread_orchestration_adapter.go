@@ -114,13 +114,13 @@ func (f *mcpOrchOrchestrationFacade) BindSessionGeneration(_ context.Context, _ 
 	if f == nil {
 		return errors.New("app: mcp-orch orchestration facade is required for thread.bind_session_generation")
 	}
-	switch f.dependency.Profile {
-	case contract.DependencyProfileDesktopHost, contract.DependencyProfileTest:
-		return contract.NewDependencyModeError(
-			contract.ErrUnsupportedDependencyMode,
-			"thread.bind_session_generation",
-			f.dependency.Profile,
-		)
+	const dependency = "thread.bind_session_generation"
+	profile := f.dependency.Profile
+	err := contract.MissingDependencyModeError(dependency, profile)
+	if contract.IsDependencyModeError(err, dependency, profile, contract.ErrUnsupportedDependencyMode) {
+		return err
+	}
+	switch profile {
 	case contract.DependencyProfileProduction:
 		return errors.New("app: thread.bind_session_generation binding port is required in production profile")
 	case "":
@@ -128,7 +128,7 @@ func (f *mcpOrchOrchestrationFacade) BindSessionGeneration(_ context.Context, _ 
 	default:
 		return fmt.Errorf(
 			"app: dependency profile %q is not supported for thread.bind_session_generation",
-			f.dependency.Profile,
+			profile,
 		)
 	}
 }

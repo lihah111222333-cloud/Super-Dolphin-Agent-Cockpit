@@ -12,8 +12,7 @@ import (
 )
 
 func TestThreadLifecycleSkipsOnlyTypedBindSessionGenerationUnsupported(t *testing.T) {
-	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileDesktopHost, contract.NewDependencyModeError(
-		contract.ErrUnsupportedDependencyMode,
+	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileDesktopHost, contract.MissingDependencyModeError(
 		bindSessionGenerationDependency,
 		contract.DependencyProfileDesktopHost,
 	))
@@ -25,8 +24,7 @@ func TestThreadLifecycleSkipsOnlyTypedBindSessionGenerationUnsupported(t *testin
 }
 
 func TestThreadLifecycleSkipsOnlyTypedBindSessionGenerationUnsupportedOnResumePath(t *testing.T) {
-	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileTest, contract.NewDependencyModeError(
-		contract.ErrUnsupportedDependencyMode,
+	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileTest, contract.MissingDependencyModeError(
 		bindSessionGenerationDependency,
 		contract.DependencyProfileTest,
 	))
