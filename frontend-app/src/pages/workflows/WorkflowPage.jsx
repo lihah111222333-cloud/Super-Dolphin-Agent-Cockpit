@@ -142,8 +142,14 @@ function enterpriseTemplateVersionNumber(template) {
 function enterpriseAvailableVersions(template) {
   const raw = template?.available_versions || template?.availableVersions || [];
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))]
-    .sort((left, right) => left - right);
+  const versions = new Set();
+  for (const item of raw) {
+    const version = Number(item);
+    if (Number.isInteger(version) && version > 0) versions.add(version);
+  }
+  const sortedVersions = Array.from(versions);
+  sortedVersions.sort((left, right) => left - right);
+  return sortedVersions;
 }
 
 function enterpriseRollbackVersion(template) {
@@ -163,17 +169,25 @@ function enterpriseTemplateCompatibilityRuntime(template) {
 function enterpriseTemplateNodeTypes(template) {
   const nodeTypes = template?.compatibility?.node_types || template?.compatibility?.nodeTypes || [];
   if (!Array.isArray(nodeTypes)) return '';
-  return nodeTypes.map((item) => textValue(item)).filter(Boolean).join(', ');
+  return nodeTypes.flatMap((item) => {
+    const nodeType = textValue(item);
+    return nodeType ? [nodeType] : [];
+  }).join(', ');
 }
 
 function enterpriseTemplateSearchText(template) {
-  return [
+  const terms = [];
+  for (const item of [
     enterpriseTemplateId(template),
     enterpriseTemplateTitle(template),
     enterpriseTemplateDescription(template),
     textValue(template?.business_flow || template?.businessFlow),
     ...(Array.isArray(template?.tags) ? template.tags : []),
-  ].map((item) => textValue(item).toLowerCase()).filter(Boolean).join(' ');
+  ]) {
+    const term = textValue(item).toLowerCase();
+    if (term) terms.push(term);
+  }
+  return terms.join(' ');
 }
 
 function enterpriseTemplateOutputSlug(templateId) {
@@ -1164,17 +1178,11 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
   const list = useWorkflowListQuery(workflowCwd);
   const { refreshDags } = list;
   useWorkflowListFocusRefresh(workflowCwd, refreshDags);
-  const activePage = store?.activePage;
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    if (!mountedRef.current) { mountedRef.current = true; return; }
-    if (activePage === 'workflows' && workflowCwd) void refreshDags();
-  }, [activePage, refreshDags, workflowCwd]);
   const selection = useWorkflowSelection(list.items);
   const detail = useWorkflowDetailQuery({ items: list.items, selectedDag: selection.selectedDag, selectedDagKey: selection.selectedDagKey, workflowCwd });
   const run = useWorkflowRunDetail({ activeRun: detail.activeRun, runs: detail.runs, workflowCwd });
   const notices = useWorkflowNotice(selection.selectedDagKey);
-  const refresh = useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
+  const refresh = useWorkflowRefresh({ refreshDags, refreshKey, reportRefreshError: list.reportSyncFailure, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
   const actionState = useWorkflowActionState(detail.activeDetailDag);
   const [designSession, setDesignSession] = useState(null);
   const templates = useWorkflowTemplatesQuery();
@@ -1228,6 +1236,14 @@ function useWorkflowListQuery(workflowCwd) {
   const workflowSyncFailure = workflowSyncFailureState.message && dagsDataUpdatedAt <= workflowSyncFailureState.dataUpdatedAt
     ? workflowSyncFailureState.message
     : '';
+  const reportSyncFailure = useCallback((err) => {
+    if (!workflowCwd || isCancelledError(err)) return;
+    const key = dashboardQueryKey(workflowCwd, 'dags');
+    setWorkflowSyncFailureState({
+      dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0,
+      message: '同步失败，显示的是上次成功的数据：' + errorMessage(err),
+    });
+  }, [queryClient, workflowCwd]);
   const refreshDags = useCallback(async () => {
     if (!workflowCwd) return [];
     const key = dashboardQueryKey(workflowCwd, 'dags');
@@ -1237,12 +1253,7 @@ function useWorkflowListQuery(workflowCwd) {
         await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true, cancelRefetch: false });
         setWorkflowSyncFailureState({ dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0, message: '' });
       } catch (err) {
-        if (!isCancelledError(err)) {
-          setWorkflowSyncFailureState({
-            dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0,
-            message: '同步失败，显示的是上次成功的数据：' + errorMessage(err),
-          });
-        }
+        reportSyncFailure(err);
       }
       return queryClient.getQueryData(key) || [];
     })();
@@ -1251,8 +1262,8 @@ function useWorkflowListQuery(workflowCwd) {
       if (refreshPromiseRef.current?.promise === refreshPromise) refreshPromiseRef.current = null;
     });
     return refreshPromise;
-  }, [queryClient, workflowCwd]);
-  return { errorState, items, loading, refreshDags, syncFailure: workflowSyncFailure };
+  }, [queryClient, reportSyncFailure, workflowCwd]);
+  return { errorState, items, loading, refreshDags, reportSyncFailure, syncFailure: workflowSyncFailure };
 }
 
 function useWorkflowListFocusRefresh(workflowCwd, refreshDags) {
@@ -1449,7 +1460,7 @@ async function refreshWorkflowAfterAction({ fallbackItems, list, refresh, runKey
   return { error: firstWorkflowRefreshError(listResult.error, detailError), items: listResult.items };
 }
 
-function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, selectedRunKey, setSelectedRunKey, workflowCwd }) {
+function useWorkflowRefresh({ refreshDags, refreshKey, reportRefreshError, selectedDagKeyRef, selectedRunKey, setSelectedRunKey, workflowCwd }) {
   const queryClient = useQueryClient();
   const handledWorkflowRefreshRef = useRef(0);
   const workflowRefreshKey = Number(refreshKey || 0);
@@ -1474,8 +1485,8 @@ function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, select
   useEffect(() => {
     if (workflowRefreshKey <= 0 || handledWorkflowRefreshRef.current === workflowRefreshKey) return;
     handledWorkflowRefreshRef.current = workflowRefreshKey;
-    void refreshWorkflowSurface().catch(() => {});
-  }, [refreshWorkflowSurface, workflowRefreshKey]);
+    void refreshWorkflowSurface().catch(reportRefreshError);
+  }, [refreshWorkflowSurface, reportRefreshError, workflowRefreshKey]);
   return { refreshDetail, refreshWorkflowSurface };
 }
 
@@ -2645,23 +2656,14 @@ function WorkflowSubpageHeader({ onBack, title }) {
   );
 }
 
-function WorkflowMessages({ copy, model }) {
+function WorkflowMessages({ model }) {
   const { actionState, derived, refresh } = model;
   return (
     <>
-      {derived.syncError ? <WorkflowSyncAlert copy={copy} message={derived.syncError} onRetry={refresh.refreshWorkflowSurface} /> : null}
+      <RetryableSyncError className="danger-text workflow-sync-alert" message={derived.syncError} onRetry={refresh.refreshWorkflowSurface} />
       {actionState.error ? <p className="danger-text" role="alert">{actionState.error}</p> : null}
       <RetryableSyncError className="danger-text workflow-sync-alert" message={derived.blockingLoadError} onRetry={refresh.refreshWorkflowSurface} />
     </>
-  );
-}
-
-function WorkflowSyncAlert({ copy, message, onRetry }) {
-  return (
-    <div className="danger-text workflow-sync-alert" role="alert">
-      <span>{message}</span>
-      <button type="button" className="ghost" onClick={() => { void onRetry().catch(() => {}); }}>{copy.retrySync}</button>
-    </div>
   );
 }
 

@@ -7,7 +7,7 @@ frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vit
 frontend-app/index.html	frontend-app	app-ui	html	357	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	168922	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	1702	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	1746	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
 frontend-app/public/favicon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
@@ -21,6 +21,8 @@ frontend-app/scripts/desktop-ux-smoke.mjs	frontend-app	app-ui	js-source	7636	Rea
 frontend-app/scripts/desktop-ux-smoke.test.mjs	frontend-app	app-ui	js-source	2456	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/no-critical-skip.mjs	frontend-app	app-ui	js-source	4458	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,React,前端构建与校验脚本
 frontend-app/scripts/no-critical-skip.test.mjs	frontend-app	app-ui	js-source	1448	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,test,React,前端构建与校验脚本
+frontend-app/scripts/no-silent-async-failure.mjs	frontend-app	app-ui	js-source	6280	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,React,前端构建与校验脚本
+frontend-app/scripts/no-silent-async-failure.test.mjs	frontend-app	app-ui	js-source	4473	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,test,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	20510	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-source	3684	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
@@ -242,7 +244,7 @@ frontend-app/src/pages/workflows/components/WorkflowFinalOutputPanel.jsx	fronten
 frontend-app/src/pages/workflows/services/workflowPageService.js	frontend-app	app-ui	js-source	2863	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowPageService,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowEmptyState.css	frontend-app	app-ui	css	1663	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowEmptyState,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.css	frontend-app	app-ui	css	22507	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
-frontend-app/src/pages/workflows/WorkflowPage.jsx	frontend-app	app-ui	jsx	147951	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
+frontend-app/src/pages/workflows/WorkflowPage.jsx	frontend-app	app-ui	jsx	147922	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.test.jsx	frontend-app	app-ui	jsx	67309	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPolish.css	frontend-app	app-ui	css	912	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPolish,React,页面与路由级,UI
 frontend-app/src/services/apiClient.js	frontend-app	app-ui	js-source	1582	当前 React/Vite 前端包	frontend,app,src,services,apiClient,当前,React,Vite,前端包
@@ -265,8 +267,8 @@ frontend-app/src/shared/api/eventWireMethods.js	frontend-app	app-ui	js-source	16
 frontend-app/src/shared/api/safeDiagnosticPreview.js	frontend-app	app-ui	js-source	3156	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,safeDiagnosticPreview,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/sessionApi.js	frontend-app	app-ui	js-source	481	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,sessionApi,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/sessionApi.test.js	frontend-app	app-ui	js-test	2198	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,sessionApi,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	45081	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	57480	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	45176	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	58413	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/i18n/appI18n.js	frontend-app	app-ui	js-source	46547	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,当前,React,Vite,前端包
 frontend-app/src/shared/styles/MarkdownReferences.css	frontend-app	app-ui	css	0	当前 React/Vite 前端包	frontend,app,src,shared,styles,MarkdownReferences,当前,React,Vite,前端包
 frontend-app/src/shared/styles/PagePrimitives.css	frontend-app	app-ui	css	1448	当前 React/Vite 前端包	frontend,app,src,shared,styles,PagePrimitives,当前,React,Vite,前端包

@@ -136,6 +136,39 @@ describe('wails bridge clipboard helpers', () => {
     expect(copiedText).toBe('thread info');
   });
 
+  it('surfaces prepared clipboard write failures when committing text', async () => {
+    class TestClipboardItem {
+      constructor(items) {
+        this.items = items;
+      }
+
+      getType(type) {
+        return this.items[type];
+      }
+    }
+    class TestBlob {
+      constructor(parts, options = {}) {
+        this.parts = parts;
+        this.type = options.type || '';
+      }
+    }
+    const write = vi.fn(async ([item]) => {
+      await item.getType('text/plain');
+      throw new Error('clipboard write rejected');
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { write },
+    });
+    vi.stubGlobal('ClipboardItem', TestClipboardItem);
+    vi.stubGlobal('Blob', TestBlob);
+
+    const prepared = beginTextClipboardWrite();
+
+    expect(write).toHaveBeenCalledTimes(1);
+    await expect(prepared.commit('thread info')).rejects.toThrow('clipboard write rejected');
+  });
+
   it('falls back to a focused textarea copy when async clipboard is unavailable', async () => {
     window.__WAILS_SHIM_DEBUG__ = true;
     Object.defineProperty(navigator, 'clipboard', {

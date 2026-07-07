@@ -1289,7 +1289,9 @@ export function beginTextClipboardWrite() {
     return null;
   }
 
-  writePromise.catch(() => {});
+  writePromise.catch(() => {
+    // commit() awaits writePromise and surfaces the clipboard write failure to the caller.
+  });
 
   return {
     async commit(text) {
