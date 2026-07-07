@@ -8,6 +8,7 @@ import {
   importSpecifiers,
   namedImportsFrom,
   NON_LITERAL_DYNAMIC_IMPORT,
+  NON_LITERAL_REQUIRE,
   staticImportSpecifiers,
 } from './importSurfaceGuard.test-helper.js';
 import { pageSurfaceManifest } from './pageSurfaceManifest.js';
@@ -133,7 +134,13 @@ function crossFeatureSurfaceViolations(relativePath, source) {
   if (!owner) return [];
   const violations = [];
   for (const specifier of importSpecifiers(source)) {
-    if (specifier === NON_LITERAL_DYNAMIC_IMPORT || specifier === COMPUTED_VITEST_MODULE_MOCK) continue;
+    if (
+      specifier === NON_LITERAL_DYNAMIC_IMPORT
+      || specifier === NON_LITERAL_REQUIRE
+      || specifier === COMPUTED_VITEST_MODULE_MOCK
+    ) {
+      continue;
+    }
     const resolved = resolveImportSpecifier(relativePath, specifier);
     for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
       if (surface === owner) continue;
@@ -161,6 +168,10 @@ function surfaceImportViolations(relativePath, source) {
   for (const specifier of importSpecifiers(source)) {
     if (specifier === NON_LITERAL_DYNAMIC_IMPORT) {
       violations.push(`${relativePath} uses non-literal dynamic import`);
+      continue;
+    }
+    if (specifier === NON_LITERAL_REQUIRE) {
+      violations.push(`${relativePath} uses non-literal require`);
       continue;
     }
     if (specifier === COMPUTED_VITEST_MODULE_MOCK) {
@@ -251,6 +262,8 @@ describe('backend API consumer guardrails', () => {
       export { callAPI } from '../../shared/api/backendApi.js';
       export * from '../../shared/api/backendApi.js';
       const api = require('../../shared/api/backendApi.js');
+      const computedApi = require(backendApiPath);
+      const joinedApi = require('../../shared/api/' + 'backendApi.js');
       vi.mock('../../shared/api/backendApi.js', () => ({}));
       vi.doMock('../../shared/api/backendApi.js', () => ({}));
       vi.unstable_mockModule('../../shared/api/backendApi.js', () => ({}));
@@ -270,6 +283,8 @@ describe('backend API consumer guardrails', () => {
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
+      'pages/files/FilesPage.jsx uses non-literal require',
+      'pages/files/FilesPage.jsx uses non-literal require',
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',

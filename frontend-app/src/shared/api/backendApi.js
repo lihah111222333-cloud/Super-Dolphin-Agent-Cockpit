@@ -772,11 +772,15 @@ function promptWritePayload(params) {
     requireCwd(RPC_METHODS.PROMPTS_WRITE, params),
     'name',
   );
+  const promptID = normalizeString(payload.id) || normalizeString(payload.key);
+  if (!promptID) {
+    throw new Error(`${RPC_METHODS.PROMPTS_WRITE}: id or key is required`);
+  }
   const priority = optionalInteger(payload.priority);
   const matchWhen = promptMatchWhen(payload);
   return cleanObject({
     cwd: payload.cwd,
-    id: normalizeString(payload.id),
+    id: promptID,
     name: payload.name,
     description: normalizeString(payload.description),
     agentType: normalizeString(payload.agentType || payload.agent_key || payload.agentKey) || 'main',

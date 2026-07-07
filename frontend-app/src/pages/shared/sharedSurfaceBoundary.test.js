@@ -3,7 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseStaticImports } from '../../test-utils/importAst.js';
-import { importSpecifiers } from '../importSurfaceGuard.test-helper.js';
+import {
+  COMPUTED_VITEST_MODULE_MOCK,
+  importSpecifiers,
+  NON_LITERAL_DYNAMIC_IMPORT,
+  NON_LITERAL_REQUIRE,
+} from '../importSurfaceGuard.test-helper.js';
 import { pageSurfaceManifest } from '../pageSurfaceManifest.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -11,6 +16,15 @@ const appShellBackendApiAllowlist = new Set([
   'checkAppUpdate',
   'getSidebarState',
   'installLatestAppUpdate',
+]);
+const ownerlessFeatureSurfaceImportAllowlist = new Map([
+  ['App.jsx', new Set([
+    'pages/chat/adapters/threadStateAdapter.js',
+    'pages/memory/services/memoryPageService.js',
+  ])],
+  ['pages/shared/pageShared.js', new Set([
+    'pages/memory/services/memoryPageService.js',
+  ])],
 ]);
 
 function read(relPath) {
@@ -79,6 +93,52 @@ function sharedBackendFacadeViolations() {
   return violations;
 }
 
+function ownerlessSurfaceFiles() {
+  return [
+    path.join(sourceRoot, 'App.jsx'),
+    ...collectSourceFiles('pages/shared'),
+  ];
+}
+
+function isFeatureServiceOrAdapter(resolvedSpecifier) {
+  return Object.values(pageSurfaceManifest).some((surface) => (
+    resolvedSpecifier.startsWith(surface.servicePrefix)
+    || resolvedSpecifier.startsWith(surface.adapterPrefix)
+  ));
+}
+
+function ownerlessFeatureSurfaceImportViolations(relativePath, source) {
+  const allowlist = ownerlessFeatureSurfaceImportAllowlist.get(relativePath) ?? new Set();
+  const violations = [];
+  for (const specifier of importSpecifiers(source)) {
+    if (specifier === NON_LITERAL_DYNAMIC_IMPORT) {
+      violations.push(`${relativePath} uses non-literal dynamic import`);
+      continue;
+    }
+    if (specifier === NON_LITERAL_REQUIRE) {
+      violations.push(`${relativePath} uses non-literal require`);
+      continue;
+    }
+    if (specifier === COMPUTED_VITEST_MODULE_MOCK) {
+      violations.push(`${relativePath} uses computed Vitest module mock`);
+      continue;
+    }
+    const resolved = resolveImportSpecifier(relativePath, specifier);
+    if (!isFeatureServiceOrAdapter(resolved) || allowlist.has(resolved)) continue;
+    violations.push(`${relativePath} imports ownerless feature surface ${specifier}`);
+  }
+  return violations;
+}
+
+function actualOwnerlessFeatureSurfaceImportViolations() {
+  const violations = [];
+  for (const filePath of ownerlessSurfaceFiles()) {
+    const relativePath = rel(filePath);
+    violations.push(...ownerlessFeatureSurfaceImportViolations(relativePath, read(relativePath)));
+  }
+  return violations;
+}
+
 describe('shared page surface boundary', () => {
   it('keeps App memory badge and pageShared behind page-owned memory services', () => {
     const checked = ['App.jsx', 'pages/shared/pageShared.js'];
@@ -107,6 +167,20 @@ describe('shared page surface boundary', () => {
 
   it('keeps shared page components away from backend facades', () => {
     expect(sharedBackendFacadeViolations()).toEqual([]);
+  });
+
+  it('keeps App and shared page files away from ownerless feature services and adapters', () => {
+    expect(actualOwnerlessFeatureSurfaceImportViolations()).toEqual([]);
+  });
+
+  it('blocks new ownerless feature service and adapter imports unless explicitly allowlisted', () => {
+    expect(ownerlessFeatureSurfaceImportViolations('pages/shared/SharedWidget.jsx', `
+      import { promptPageService } from '../prompts/services/promptPageService.js';
+      import { threadStatusBusy } from '../chat/adapters/threadStateAdapter.js';
+    `)).toEqual([
+      'pages/shared/SharedWidget.jsx imports ownerless feature surface ../prompts/services/promptPageService.js',
+      'pages/shared/SharedWidget.jsx imports ownerless feature surface ../chat/adapters/threadStateAdapter.js',
+    ]);
   });
 
   it('keeps prompt feature view behind the prompt page service', () => {

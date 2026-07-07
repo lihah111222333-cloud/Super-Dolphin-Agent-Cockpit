@@ -1660,6 +1660,7 @@ async function callPromptFacadeMethods(api) {
   await api.getDashboardPrompts({ cwd: '/repo/app' });
   await api.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' });
   await writePromptFacadePrompt(api);
+  await writePromptFacadePromptWithKey(api);
   await api.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer', scope: 'global' });
   await callPromptIntentFacadeMethods(api);
 }
@@ -1677,6 +1678,15 @@ async function writePromptFacadePrompt(api) {
     enabled: true,
     scope: 'global',
     priority: 5,
+  });
+}
+
+async function writePromptFacadePromptWithKey(api) {
+  await api.writePrompt({
+    cwd: '/repo/app',
+    key: 'project/reviewer',
+    name: 'Reviewer',
+    content: 'Check risks first',
   });
 }
 
@@ -1746,6 +1756,15 @@ function expectPromptWriteCall(callAPI) {
     scope: 'global',
     priority: 5,
   });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_WRITE, {
+    cwd: '/repo/app',
+    id: 'project/reviewer',
+    name: 'Reviewer',
+    content: 'Check risks first',
+    tags: [],
+    agentType: 'main',
+    scope: 'project',
+  });
 }
 
 function expectPromptIntentFacadeCalls(callAPI) {
@@ -1803,6 +1822,7 @@ function expectPromptFacadeValidation(api) {
   expect(() => api.listPromptAssets({ cwd: '' })).toThrow('cwd is required');
   expect(() => api.getPrompt({ cwd: '/repo/app', id: '' })).toThrow('id is required');
   expect(() => api.writePrompt({ cwd: '/repo/app', name: '' })).toThrow('name is required');
+  expect(() => api.writePrompt({ cwd: '/repo/app', name: 'Missing identity' })).toThrow('id or key is required');
   expect(() => api.commitPromptIntent({ cwd: '/repo/app', draftKey: '' })).toThrow('draft_key is required');
   expect(() => api.dryRunPromptIntent({ cwd: '/repo/app', draftKey: 'd1', question: '' })).toThrow('question is required');
   expect(() => api.getPersonalizationProfile({ cwd: '' })).toThrow('cwd is required');
