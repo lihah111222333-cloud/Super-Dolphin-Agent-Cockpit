@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
 )
 
 func TestProviderPackagesHaveContractTests(t *testing.T) {
@@ -200,19 +202,7 @@ func assertProviderContractRequiredCases(t *testing.T, file *ast.File, specFunc 
 	if fn == nil {
 		t.Fatalf("%s is required", specFunc)
 	}
-	required := map[string]bool{
-		"CaseEventMatrix":   false,
-		"CaseApproval":      false,
-		"CaseInterrupt":     false,
-		"CaseForceComplete": false,
-		"CaseResume":        false,
-		"CaseToolbridge":    false,
-		"CaseRuntimeReport": false,
-	}
-	promptAlternatives := map[string]bool{
-		"CasePromptParity":              false,
-		"CasePromptMaterializedCarrier": false,
-	}
+	required, promptAlternatives := providerAcceptanceRequiredSelectors(t)
 	ast.Inspect(fn, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok || !identName(sel.X, "contracttest") {
@@ -233,6 +223,59 @@ func assertProviderContractRequiredCases(t *testing.T, file *ast.File, specFunc 
 		if !found {
 			t.Fatalf("%s missing contracttest.%s", specFunc, key)
 		}
+	}
+}
+
+func providerAcceptanceRequiredSelectors(t *testing.T) (map[string]bool, map[string]bool) {
+	t.Helper()
+	required := map[string]bool{}
+	promptAlternatives := map[string]bool{}
+	for _, prompt := range []contracttest.AcceptanceCriterion{
+		contracttest.AcceptancePromptSnapshotParity,
+		contracttest.AcceptancePromptMaterializedCarrier,
+	} {
+		spec := contracttest.Spec{
+			RequiredCases: map[contracttest.CaseKey]contracttest.Case{
+				contracttest.CaseKey(prompt): {Name: string(prompt), Run: func(*testing.T, *contracttest.CaseEvidence) {}},
+			},
+		}
+		for _, criterion := range contracttest.RequiredAcceptanceCriteria(spec) {
+			selector := acceptanceCriterionSelector(t, criterion)
+			switch criterion {
+			case contracttest.AcceptancePromptSnapshotParity, contracttest.AcceptancePromptMaterializedCarrier:
+				promptAlternatives[selector] = false
+			default:
+				required[selector] = false
+			}
+		}
+	}
+	return required, promptAlternatives
+}
+
+func acceptanceCriterionSelector(t *testing.T, criterion contracttest.AcceptanceCriterion) string {
+	t.Helper()
+	switch criterion {
+	case contracttest.AcceptanceEventTranslation:
+		return "CaseEventMatrix"
+	case contracttest.AcceptancePromptSnapshotParity:
+		return "CasePromptParity"
+	case contracttest.AcceptancePromptMaterializedCarrier:
+		return "CasePromptMaterializedCarrier"
+	case contracttest.AcceptanceApproval:
+		return "CaseApproval"
+	case contracttest.AcceptanceInterrupt:
+		return "CaseInterrupt"
+	case contracttest.AcceptanceForceComplete:
+		return "CaseForceComplete"
+	case contracttest.AcceptanceResume:
+		return "CaseResume"
+	case contracttest.AcceptanceToolbridge:
+		return "CaseToolbridge"
+	case contracttest.AcceptanceRuntimeReport:
+		return "CaseRuntimeReport"
+	default:
+		t.Fatalf("unknown acceptance criterion %q", criterion)
+		return ""
 	}
 }
 
