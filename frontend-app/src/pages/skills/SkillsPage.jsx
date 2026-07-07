@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { defaultUrlTransform } from 'react-markdown';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
@@ -1065,6 +1065,7 @@ const DATASOURCE_UI = Object.freeze({
   import: '\u5bfc\u5165',
   importPlaceholder: '\u652f\u6301 PDF\u3001TXT \u548c TEXT \u6587\u4ef6',
   importSuccess: '\u5df2\u5bfc\u5165\u6570\u636e\u6e90\u3002',
+  loadingMore: '\u7ee7\u7eed\u8bfb\u53d6\u5206\u5757...',
   loading: '\u8bfb\u53d6\u4e2d...',
   noChunks: '\u6682\u65e0\u5206\u5757\u3002',
   path: '\u8def\u5f84',
@@ -1243,6 +1244,10 @@ function datasourceDocumentsQueryKey() {
   return ['datasourceV2', 'documents'];
 }
 
+function datasourceDocumentQueryKey(documentId) {
+  return ['datasourceV2', 'document', documentId];
+}
+
 function normalizeDatasourceDocument(raw, index = 0) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error(`datasource document ${index} must be an object`);
@@ -1310,25 +1315,43 @@ function normalizeDatasourceChunkPage(response, document, source) {
   };
 }
 
-async function fetchDatasourceDetail(documentId) {
-  const initial = normalizeDatasourceDetail(await getDatasourceDocument({ documentId }));
-  let chunks = [...initial.chunks];
-  let hasMore = initial.hasMore;
-  let nextCursor = initial.nextCursor;
-  while (hasMore) {
-    const page = normalizeDatasourceChunkPage(
-      await listDatasourceChunks({ documentId, limit: DATASOURCE_CHUNK_PAGE_LIMIT, cursor: nextCursor }),
-      initial.document,
-      'datasourceV2/list_chunks',
-    );
-    if (page.chunks.length === 0) {
-      throw new Error('datasourceV2/list_chunks returned hasMore without chunks');
-    }
-    chunks = chunks.concat(page.chunks);
-    hasMore = page.hasMore;
-    nextCursor = page.nextCursor;
+function assertDatasourceChunkPageProgress(page, source) {
+  if (page.hasMore && page.chunks.length === 0) {
+    throw new Error(`${source} returned hasMore without chunks`);
   }
-  return { ...initial, chunks, hasMore, nextCursor };
+  return page;
+}
+
+async function fetchDatasourceDetailPage(documentId, pageParam) {
+  if (pageParam === null || pageParam === undefined) {
+    return assertDatasourceChunkPageProgress(
+      normalizeDatasourceDetail(await getDatasourceDocument({ documentId })),
+      'datasourceV2/get',
+    );
+  }
+  return {
+    document: null,
+    ...assertDatasourceChunkPageProgress(
+      normalizeDatasourceChunkPage(
+        await listDatasourceChunks({ documentId, limit: DATASOURCE_CHUNK_PAGE_LIMIT, cursor: pageParam }),
+        { documentId },
+        'datasourceV2/list_chunks',
+      ),
+      'datasourceV2/list_chunks',
+    ),
+  };
+}
+
+function combineDatasourceDetailPages(pages) {
+  if (!Array.isArray(pages) || pages.length === 0) return undefined;
+  const first = pages[0];
+  const last = pages[pages.length - 1];
+  return {
+    ...first,
+    chunks: pages.flatMap((page) => page.chunks),
+    hasMore: last.hasMore,
+    nextCursor: last.nextCursor,
+  };
 }
 
 function datasourceMatches(doc, search) {
@@ -1391,16 +1414,30 @@ function DataSourceView({ copy }) {
     queryFn: async () => normalizeDatasourceDocuments(await listDatasourceDocuments({ limit: DATASOURCE_LIST_LIMIT })),
   });
   const {
-    data: detailData,
+    data: detailPagesData,
     error: detailError,
+    fetchNextPage: fetchNextDatasourcePage,
+    hasNextPage: detailHasNextPage,
     isError: detailIsError,
+    isFetchingNextPage: detailIsFetchingNextPage,
     isLoading: detailIsLoading,
-  } = useQuery({
-    queryKey: ['datasourceV2', 'document', detailID],
+  } = useInfiniteQuery({
+    queryKey: datasourceDocumentQueryKey(detailID),
     enabled: detailID > 0,
-    queryFn: async () => fetchDatasourceDetail(detailID),
+    initialPageParam: null,
+    queryFn: async ({ pageParam }) => fetchDatasourceDetailPage(detailID, pageParam),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
   });
+  const detailData = useMemo(
+    () => combineDatasourceDetailPages(detailPagesData?.pages),
+    [detailPagesData],
+  );
   const filtered = documents.filter((doc) => datasourceMatches(doc, search));
+
+  useEffect(() => {
+    if (detailID <= 0 || detailIsError || !detailHasNextPage || detailIsFetchingNextPage) return;
+    void fetchNextDatasourcePage();
+  }, [detailHasNextPage, detailID, detailIsError, detailIsFetchingNextPage, fetchNextDatasourcePage]);
 
   const invalidateDocuments = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: datasourceDocumentsQueryKey() });
@@ -1452,9 +1489,15 @@ function DataSourceView({ copy }) {
       setEditingDoc(null);
       const normalized = normalizeDatasourceDocument(updated, 0);
       if (detailID === normalized.documentId) {
-        queryClient.setQueryData(['datasourceV2', 'document', detailID], (current) => (
-          current ? { ...current, document: normalized } : current
-        ));
+        queryClient.setQueryData(datasourceDocumentQueryKey(detailID), (current) => {
+          if (!current || !Array.isArray(current.pages)) return current;
+          return {
+            ...current,
+            pages: current.pages.map((page, index) => (
+              index === 0 ? { ...page, document: normalized } : page
+            )),
+          };
+        });
       }
     }, DATASOURCE_UI.updateSuccess);
     setBusyAction('');
@@ -1468,7 +1511,7 @@ function DataSourceView({ copy }) {
       await deleteDatasourceDocument({ documentId: documentID });
       setDeletingDoc(null);
       if (detailID === documentID) setDetailID(0);
-      queryClient.removeQueries({ queryKey: ['datasourceV2', 'document', documentID] });
+      queryClient.removeQueries({ queryKey: datasourceDocumentQueryKey(documentID) });
     }, DATASOURCE_UI.deleteSuccess);
     setBusyAction('');
   }, [deletingDoc, detailID, queryClient, runAction]);
@@ -1572,6 +1615,7 @@ function DataSourceView({ copy }) {
           detail={detailData}
           error={detailError}
           isError={detailIsError}
+          isFetchingNextPage={detailIsFetchingNextPage}
           isLoading={detailIsLoading}
           onClose={() => setDetailID(0)}
         />
@@ -1597,7 +1641,7 @@ function DataSourceView({ copy }) {
   );
 }
 
-function DatasourceDetailModal({ detail, error, isError, isLoading, onClose }) {
+function DatasourceDetailModal({ detail, error, isError, isFetchingNextPage, isLoading, onClose }) {
   return (
     <FocusTrapDialog ariaLabel={DATASOURCE_UI.detailTitle} className="modal-box datasource-modal" closeDisabled={false} onClose={onClose}>
       <header>
@@ -1621,6 +1665,7 @@ function DatasourceDetailModal({ detail, error, isError, isLoading, onClose }) {
             {detail.chunks.length === 0 ? <p>{DATASOURCE_UI.noChunks}</p> : detail.chunks.map((chunk) => (
               <pre key={`${chunk.id}-${chunk.chunkIndex}`} data-testid="datasource-detail-chunk">{chunk.content}</pre>
             ))}
+            {isFetchingNextPage ? <p className="datasource-chunk-loading" role="status">{DATASOURCE_UI.loadingMore}</p> : null}
           </div>
         </>
       ) : null}

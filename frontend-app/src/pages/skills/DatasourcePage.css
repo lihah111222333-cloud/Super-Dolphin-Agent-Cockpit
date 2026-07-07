@@ -246,6 +246,12 @@
   word-break: break-word;
 }
 
+.datasource-chunk-loading {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .datasource-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

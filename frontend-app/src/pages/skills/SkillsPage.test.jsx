@@ -49,6 +49,16 @@ function renderSkillsPage(projectPath = '/repo/app') {
   );
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function openSkillTools() {
   fireEvent.click(screen.getByRole('button', { name: 'skills' }));
 }
@@ -306,6 +316,72 @@ describe('SkillsPage backend migration', () => {
     await waitFor(() => {
       expect(backend.deleteDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 });
     });
+  });
+
+  it('renders the first datasource chunk before later chunk pages finish and appends the next page', async () => {
+    const nextPage = deferred();
+    backend.listDatasourceChunks.mockImplementationOnce(() => nextPage.promise);
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+    expect(await screen.findByText('source.txt')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('datasource-view-101'));
+
+    const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
+    const firstChunk = await within(detailDialog).findByTestId('datasource-detail-chunk');
+    expect(firstChunk).toHaveTextContent('content');
+    expect(within(detailDialog).queryByText('more content')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(backend.listDatasourceChunks).toHaveBeenCalledWith({ documentId: 101, limit: 50, cursor: 0 });
+    });
+
+    nextPage.resolve({
+      chunks: [{
+        id: 502,
+        documentId: 101,
+        chunkIndex: 1,
+        content: 'more content',
+        charCount: 12,
+        byteCount: 12,
+      }],
+      hasMore: false,
+      nextCursor: 1,
+    });
+
+    await waitFor(() => {
+      const chunks = within(detailDialog).getAllByTestId('datasource-detail-chunk');
+      expect(chunks.map((chunk) => chunk.textContent)).toEqual(['content', 'more content']);
+    });
+  });
+
+  it('fails fast when a datasource chunk page reports hasMore without chunks', async () => {
+    backend.getDatasourceDocument.mockResolvedValueOnce({
+      document: {
+        documentId: 101,
+        sourcePath: 'C:\\data\\source.txt',
+        fileName: 'source.txt',
+        extension: '.txt',
+        sizeBytes: 7,
+        chunkCount: 1,
+        totalChars: 7,
+        status: 'ready',
+      },
+      chunks: [],
+      hasMore: true,
+      nextCursor: 0,
+    });
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+    expect(await screen.findByText('source.txt')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('datasource-view-101'));
+
+    const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
+    expect(await within(detailDialog).findByRole('alert')).toHaveTextContent(
+      '操作失败：datasourceV2/get returned hasMore without chunks',
+    );
+    expect(backend.listDatasourceChunks).not.toHaveBeenCalled();
   });
 
   it('frames the plugin entry around the current local skills surface', async () => {

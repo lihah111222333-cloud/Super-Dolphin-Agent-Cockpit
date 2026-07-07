@@ -1024,7 +1024,7 @@ npm run build
 
 Counts: MemoryPage focused tests passed with 1 file and 13 tests. Full `npm test` passed with 86 files and 1080 tests. Build passed and synced frontend dist. LSP diagnostics for `MemoryPage.jsx` and `MemoryPage.test.jsx` were clean after a narrowed single-file retry.
 
-- [ ] **Step 2: Skills datasource chunks**
+- [x] **Step 2: Skills datasource chunks**
 
 Replace the blocking while-loop chunk load with `useInfiniteQuery`.
 
@@ -1035,6 +1035,20 @@ first page renders before all chunks finish
 hasMore with empty chunks fails fast
 next page appends without losing existing chunks
 ```
+
+Actual: 2026-07-07 replaced the blocking `while (hasMore)` detail loader with TanStack Query `useInfiniteQuery`. The first datasource detail page now renders as soon as `getDatasourceDocument` returns; follow-up chunk pages are fetched with `fetchNextPage` and appended automatically, preserving the previous eventual "show all chunks" behavior without blocking the dialog on later pages. A `hasMore` chunk page with no chunks now fails fast for both the initial `datasourceV2/get` page and follow-up `datasourceV2/list_chunks` pages.
+
+Focused validation:
+
+```bash
+npx vitest run --no-file-parallelism --maxWorkers=1 src/pages/skills/SkillsPage.test.jsx
+npm run lint
+npm test
+npm run build
+npx vitest run
+```
+
+Counts: SkillsPage focused tests passed with 1 file and 15 tests. Full `npm test` and stop-gate-style bare `npx vitest run` both passed with 86 files and 1082 tests. Build passed and synced frontend dist. LSP diagnostics for `SkillsPage.jsx` and `SkillsPage.test.jsx` were clean after opening the files and retrying diagnostics individually; the first batch diagnostics request timed out on the large `SkillsPage.jsx`.
 
 - [ ] **Step 3: Runtime diff rendering**
 
