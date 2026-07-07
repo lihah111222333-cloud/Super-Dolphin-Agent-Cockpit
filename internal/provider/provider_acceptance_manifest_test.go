@@ -29,6 +29,30 @@ func TestProviderAcceptanceManifest(t *testing.T) {
 	}
 }
 
+func TestProviderLocalFunctionNamesExcludeTestFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "event_map.go"), []byte(`package provider
+
+func translateProviderEvent() {}
+`), 0o644); err != nil {
+		t.Fatalf("write production provider file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "event_map_test.go"), []byte(`package provider
+
+func fakeTestOnlyTranslator() {}
+`), 0o644); err != nil {
+		t.Fatalf("write test provider file: %v", err)
+	}
+
+	funcs := providerLocalFunctionNames(t, dir)
+	if !funcs["translateProviderEvent"] {
+		t.Fatal("production provider function translateProviderEvent was not discovered")
+	}
+	if funcs["fakeTestOnlyTranslator"] {
+		t.Fatal("test-only translator fakeTestOnlyTranslator must not count as provider-local")
+	}
+}
+
 func assertProviderContractSnapshotFiles(t *testing.T, provider, snapshotDir string) {
 	t.Helper()
 	matches, err := filepath.Glob(filepath.Join(provider, "testdata", snapshotDir, "*.json"))
@@ -77,7 +101,7 @@ func providerLocalFunctionNames(t *testing.T, provider string) map[string]bool {
 	}
 	funcs := make(map[string]bool)
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
 		path := filepath.Join(provider, entry.Name())
