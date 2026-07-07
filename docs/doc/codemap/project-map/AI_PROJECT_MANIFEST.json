@@ -2,12 +2,12 @@
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.js",
   "generated_at": "2026-07-07",
-  "files": 4058,
+  "files": 4061,
   "domains": {
     "docs-agent": 847,
     "other": 471,
     "app-ui": 308,
-    "platform-provider": 1003,
+    "platform-provider": 1006,
     "orchestration": 406,
     "modules": 717,
     "store-sql": 306

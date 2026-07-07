@@ -25,6 +25,7 @@ func CompleteTemplateContractSpec() contracttest.Spec {
 		Resume:     resumeTemplateContractSession,
 		EventCases: []contracttest.Case{templateEventTranslationContractCase()},
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
+			contracttest.CaseEventMatrix:   templateEventMatrixContractCase(),
 			contracttest.CasePromptParity:  templatePromptParityContractCase(),
 			contracttest.CaseApproval:      templateApprovalContractCase(),
 			contracttest.CaseInterrupt:     templateInterruptContractCase(),
@@ -56,6 +57,13 @@ func templateEventTranslationContractCase() contracttest.Case {
 	return contracttest.Case{Name: "event translation", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
 		t.Fatal("replace templateEventTranslationContractCase with provider raw-event capture and translator evidence")
+	}}
+}
+
+func templateEventMatrixContractCase() contracttest.Case {
+	return contracttest.Case{Name: "event matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		t.Fatal("replace templateEventMatrixContractCase with provider event matrix manifest evidence")
 	}}
 }
 
