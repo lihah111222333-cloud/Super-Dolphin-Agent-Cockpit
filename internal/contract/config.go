@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // SkillConfig 保存技能发现和加载时使用的运行配置。
@@ -53,6 +54,125 @@ const (
 // DependencyConfig is the typed dependency-mode envelope shared through Fx config.
 type DependencyConfig struct {
 	Profile DependencyProfile
+}
+
+// DependencyAbsenceReason 描述某个依赖在指定 profile 下允许缺失的原因。
+type DependencyAbsenceReason string
+
+const (
+	// DependencyAbsenceDesktopExternal 表示桌面宿主外部装配负责提供该依赖。
+	DependencyAbsenceDesktopExternal DependencyAbsenceReason = "desktop_external"
+	// DependencyAbsenceTestHarness 表示该缺失只允许出现在显式测试脚手架中。
+	DependencyAbsenceTestHarness DependencyAbsenceReason = "test_harness"
+)
+
+// DependencyAbsencePolicy 记录一个被集中登记并可审计的依赖缺失例外。
+type DependencyAbsencePolicy struct {
+	Name    string
+	Profile DependencyProfile
+	Reason  DependencyAbsenceReason
+	Owner   string
+	Error   error
+}
+
+var registeredDependencyAbsencePolicies = []DependencyAbsencePolicy{
+	newDependencyAbsencePolicy(
+		"runtime_reporter.orchestration_service",
+		DependencyProfileDesktopHost,
+		DependencyAbsenceDesktopExternal,
+		"internal/app",
+	),
+	newDependencyAbsencePolicy(
+		"runtime_reporter.orchestration_service",
+		DependencyProfileTest,
+		DependencyAbsenceDesktopExternal,
+		"internal/app",
+	),
+	newDependencyAbsencePolicy(
+		"toolbridge.agent_thread_lookup",
+		DependencyProfileDesktopHost,
+		DependencyAbsenceDesktopExternal,
+		"internal/platform/toolbridge",
+	),
+	newDependencyAbsencePolicy(
+		"toolbridge.thread_config_override_store",
+		DependencyProfileDesktopHost,
+		DependencyAbsenceDesktopExternal,
+		"internal/platform/toolbridge",
+	),
+	newDependencyAbsencePolicy(
+		"toolbridge.lifecycle_backfiller",
+		DependencyProfileTest,
+		DependencyAbsenceTestHarness,
+		"internal/platform/toolbridge",
+	),
+	newDependencyAbsencePolicy(
+		"toolbridge.skill_tools",
+		DependencyProfileTest,
+		DependencyAbsenceTestHarness,
+		"internal/platform/toolbridge",
+	),
+	newDependencyAbsencePolicy(
+		"thread.bind_session_generation",
+		DependencyProfileDesktopHost,
+		DependencyAbsenceDesktopExternal,
+		"internal/module/thread",
+	),
+	newDependencyAbsencePolicy(
+		"thread.bind_session_generation",
+		DependencyProfileTest,
+		DependencyAbsenceDesktopExternal,
+		"internal/module/thread",
+	),
+}
+
+func newDependencyAbsencePolicy(
+	name string,
+	profile DependencyProfile,
+	reason DependencyAbsenceReason,
+	owner string,
+) DependencyAbsencePolicy {
+	return DependencyAbsencePolicy{
+		Name:    name,
+		Profile: profile,
+		Reason:  reason,
+		Owner:   owner,
+		Error:   NewDependencyModeError(ErrUnsupportedDependencyMode, name, profile),
+	}
+}
+
+// RegisteredDependencyAbsencePolicies 返回所有集中登记的依赖缺失例外，调用方只能读取副本。
+func RegisteredDependencyAbsencePolicies() []DependencyAbsencePolicy {
+	policies := make([]DependencyAbsencePolicy, len(registeredDependencyAbsencePolicies))
+	copy(policies, registeredDependencyAbsencePolicies)
+	return policies
+}
+
+// AllowsMissingDependency 判断指定依赖在当前 profile 下是否允许缺失。
+func AllowsMissingDependency(name string, profile DependencyProfile) bool {
+	return dependencyAbsencePolicy(name, profile) != nil
+}
+
+// MissingDependencyModeError 为被允许缺失的依赖返回带 name/profile 的 typed unsupported 错误。
+func MissingDependencyModeError(name string, profile DependencyProfile) error {
+	if strings.TrimSpace(string(profile)) == "" {
+		return fmt.Errorf("dependency profile is required for %s", name)
+	}
+	policy := dependencyAbsencePolicy(name, profile)
+	if policy == nil {
+		return fmt.Errorf("dependency %q is required in %s profile", name, profile)
+	}
+	return policy.Error
+}
+
+func dependencyAbsencePolicy(name string, profile DependencyProfile) *DependencyAbsencePolicy {
+	for i := range registeredDependencyAbsencePolicies {
+		policy := &registeredDependencyAbsencePolicies[i]
+		if policy.Name == name && policy.Profile == profile {
+			return policy
+		}
+	}
+	return nil
 }
 
 var (
