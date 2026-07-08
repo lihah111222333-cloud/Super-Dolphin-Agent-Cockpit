@@ -28,10 +28,10 @@ type serviceParams struct {
 	AuditLogs     auditlogstore.Store
 	BusLogs       buslogstore.Store
 	AILogs        ailogstore.Store
-	DBQueries     dbquerystore.Store
-	CommandCards  commandcardstore.Reader
+	DBQueries     DBQueryExecutor
+	CommandCards  CommandCardReader
 	Prompts       PromptTemplateReader
-	SharedFiles   sharedfilestore.Reader
+	SharedFiles   SharedFileReader
 	Skills        contract.SkillLister
 }
 
@@ -202,6 +202,14 @@ func (a systemLogStoreAdapter) List(ctx context.Context, filter SystemLogFilter)
 		return nil, err
 	}
 	return mapSystemLogs(items), nil
+}
+
+// adaptDBQueryExecutor 将 dbquery store 收窄为 dashboard 查询执行 port。
+func adaptDBQueryExecutor(store dbquerystore.Store) DBQueryExecutor {
+	if store == nil {
+		return nil
+	}
+	return store
 }
 
 type commandCardReaderAdapter struct {
@@ -544,7 +552,12 @@ func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.Han
 
 // Module 组装 dashboard service、handler 和可选 insights RPC。
 var Module = fx.Module("dashboard",
-	fx.Provide(adaptPromptTemplateReader),
+	fx.Provide(
+		adaptDBQueryExecutor,
+		adaptCommandCardReader,
+		adaptPromptTemplateReader,
+		adaptSharedFileReader,
+	),
 	fx.Provide(func(p serviceParams) Service {
 		return newServiceWithDAGRuntime(
 			p.Orchestration,
@@ -555,9 +568,9 @@ var Module = fx.Module("dashboard",
 			adaptBusLogReader(p.BusLogs),
 			adaptAILogReader(p.AILogs),
 			p.DBQueries,
-			adaptCommandCardReader(p.CommandCards),
+			p.CommandCards,
 			p.Prompts,
-			adaptSharedFileReader(p.SharedFiles),
+			p.SharedFiles,
 			p.Skills,
 		)
 	}),
