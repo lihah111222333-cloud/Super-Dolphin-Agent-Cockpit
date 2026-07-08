@@ -25,82 +25,83 @@ import { sessionApi } from '../../../shared/api/sessionApi.js';
  * 数据整理、缓存刷新和错误文案都留在 WorkflowPage。
  */
 
-export function applyDagOps(payload) {
-  return applyDagOpsBackend(payload);
-}
+function applyDagOps(payload) { return applyDagOpsBackend(payload); }
 
-export function createAndStartDag(payload) {
-  return createAndStartDagBackend(payload);
-}
+function createAndStartDag(payload) { return createAndStartDagBackend(payload); }
 
-export function deleteDag(payload) {
+function deleteDag(payload) {
   return deleteDagBackend(payload);
 }
 
-export function dispatchDagNode(payload) {
+function dispatchDagNode(payload) {
   return dispatchDagNodeBackend(payload);
 }
 
-export function getDashboardPage(payload) {
+function getDashboardPage(payload) {
   return getDashboardPageBackend(payload);
 }
 
-export function getDagDetail(payload) {
+function getDagDetail(payload) {
   return getDagDetailBackend(payload);
 }
 
-export function getDagRun(payload) {
+function getDagRun(payload) {
   return getDagRunBackend(payload);
 }
 
-export function getDagRuns(payload) {
+function getDagRuns(payload) {
   return getDagRunsBackend(payload);
 }
 
-export function getWorkflowTemplate(payload) {
+function getWorkflowTemplate(payload) {
   return getWorkflowTemplateBackend(payload);
 }
 
-export function listWorkflowTemplates(payload) {
+function listWorkflowTemplates(payload) {
   return listWorkflowTemplatesBackend(payload);
 }
 
-export function renderWorkflowTemplateDraft(payload) {
+function renderWorkflowTemplateDraft(payload) {
   return renderWorkflowTemplateDraftBackend(payload);
 }
 
-export function rollbackWorkflowTemplate(payload) {
+function rollbackWorkflowTemplate(payload) {
   return rollbackWorkflowTemplateBackend(payload);
 }
 
-export function saveWorkflowTemplate(payload) {
+function saveWorkflowTemplate(payload) {
   return saveWorkflowTemplateBackend(payload);
 }
 
-export function openSharedFile(payload) {
+function openSharedFile(payload) {
   return openSharedFileBackend(payload);
 }
 
-export function readSharedFile(payload) {
+function readSharedFile(payload) {
   return readSharedFileBackend(payload);
 }
 
-export function startDag(payload) {
+function startDag(payload) {
   return startDagBackend(payload);
 }
 
-export function startThread(payload) {
+function startThread(payload) {
   return sessionApi.start(payload);
 }
 
-export function startTurn(payload) {
+function startTurn(payload) {
   return sessionApi.startTurn(payload);
 }
 
-export function terminateDagRun(payload) {
+function terminateDagRun(payload) {
   return terminateDagRunBackend(payload);
 }
 
-export function writeWorkflowMaterial(payload) {
+function writeWorkflowMaterial(payload) {
   return writeWorkflowMaterialBackend(payload);
 }
+
+export {
+  applyDagOps, createAndStartDag, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, getWorkflowTemplate, listWorkflowTemplates, openSharedFile, readSharedFile, renderWorkflowTemplateDraft, rollbackWorkflowTemplate, saveWorkflowTemplate, startDag,
+  startThread, startTurn, terminateDagRun, writeWorkflowMaterial,
+};

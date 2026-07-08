@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { optionalDateFromValue, firstPresentRawText, firstPresentText } from '../../shared/pageShared.js';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
+import { UILogLevelRow } from './UILogLevelRow.jsx';
+import { UILogRefreshButton } from './UILogRefreshButton.jsx';
 import './UILogCard.css';
 
 function UILogCard({ copy, loadLogs, store }) {
@@ -27,7 +29,7 @@ function UILogCard({ copy, loadLogs, store }) {
       <div className="data-card-vue settings-log-card" data-testid="settings-log-card">
         <div className="data-row-vue"><strong>{logsCopy.level}</strong><span>{store.logLevel}</span></div>
         <UILogLevelRow logsCopy={logsCopy} store={store} />
-        <div className="settings-action-row settings-log-action-row"><button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button" onClick={() => { void refreshLogs(); }} disabled={refreshing}>{refreshing ? logsCopy.refreshing : logsCopy.refresh}</button></div>
+        <UILogRefreshButton logsCopy={logsCopy} onRefresh={refreshLogs} refreshing={refreshing} />
         {logError ? <SettingsPromptNotice notice={{ level: 'error', message: logError }} testId="settings-log-notice" /> : null}
         <UILogList logList={logList} logsCopy={logsCopy} />
       </div>
@@ -51,18 +53,6 @@ function normalizeDashboardLogEntry(entry, index) {
     event,
     fields: entry,
   };
-}
-
-function UILogLevelRow({ logsCopy, store }) {
-  return (
-    <div className="settings-stall-row settings-log-control-row">
-      <label className="settings-stall-label" htmlFor="settings-log-level-select">{logsCopy.level}</label>
-      <select id="settings-log-level-select" className="settings-stall-input settings-log-level-select" data-testid="settings-log-level-select" value={store.logLevel} onChange={(event) => store.setLogLevel(event.target.value)}>
-        <option value="debug">{logsCopy.debug}</option><option value="info">{logsCopy.info}</option><option value="warn">{logsCopy.warn}</option><option value="error">{logsCopy.error}</option>
-      </select>
-      <span className="settings-stall-unit">{logsCopy.live}</span>
-    </div>
-  );
 }
 
 function UILogList({ logList, logsCopy }) {

@@ -10,7 +10,7 @@ function optionalUiObject() {
 // @ts-check
 
 import {
-  normalizeThreadId } from './threadIdentity.js';
+  normalizeThreadId } from './helpers/threadIdentity.js';
 
 /**
  * @typedef {{
@@ -110,7 +110,7 @@ export function createLoadForkSharedFiles({ readSharedFile } = {}) {
   };
 }
 
-export function buildForkThreadState(state, threadId, identity, launchPreferences, name, kickoffText, deps = {}) {
+export function buildForkThreadState(options) { const { state, threadId, identity, launchPreferences, name, kickoffText, deps = {} } = options;
   const {
     actionNotice,
     defaultProvider = '',

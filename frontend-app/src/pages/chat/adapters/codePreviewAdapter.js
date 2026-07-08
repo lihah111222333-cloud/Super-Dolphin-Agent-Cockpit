@@ -1,4 +1,4 @@
-import { trustedImagePreviewSource } from '../components/markdownMessageModel.js';
+import { trustedImagePreviewSource } from '../markdown/markdownMessageModel.js';
 
 function codePreviewTextValue(value) {
   if (value === null || value === undefined) return '';

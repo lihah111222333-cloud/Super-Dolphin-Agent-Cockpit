@@ -9,7 +9,7 @@ import {
   normalizeProviderRuntimeConfig,
   providerDisplayDefaultConfig,
   requireActiveProviderPreference,
-  requireProviderPreferenceValue } from './providerRuntimeConfig.js';
+  requireProviderPreferenceValue } from './helpers/providerRuntimeConfig.js';
 
 describe('providerRuntimeConfig', () => {
   it('normalizes provider preference values from primitive and object-shaped payloads', () => {

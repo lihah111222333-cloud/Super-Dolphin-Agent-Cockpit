@@ -1,22 +1,13 @@
-const UNIFIED_DIFF_METADATA_PREFIXES = [
-  'diff --git',
-  'index ',
-  '--- ',
-  '+++ ',
-  '*** Begin Patch',
-  '*** Update File:',
-  '*** Add File:',
-  '*** Delete File:',
-  '*** Move to:',
-  '*** End Patch',
-  '*** End of File',
-];
+import { isUnifiedDiffMetadataLine } from './runtimeDiffMetadata.js';
 
-function isUnifiedDiffMetadataLine(line) {
-  return UNIFIED_DIFF_METADATA_PREFIXES.some((prefix) => line.startsWith(prefix));
-}
-
-function diffLineEntry({ index, type, oldNo = '', newNo = '', prefix = '', content }) {
+function diffLineEntry({
+  index,
+  type,
+  oldNo = '',
+  newNo = '',
+  prefix = '',
+  content,
+}) {
   return { key: `${index}:${type}`, type, oldNo, newNo, prefix, content };
 }
 

@@ -28,7 +28,7 @@ function throwIfMemoryScanCanceled(signal) {
 function withMemoryScanAbort(promise, signal) {
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
-    let abortScan = () => {};
+    let abortScan;
     const cleanup = () => signal.removeEventListener?.('abort', abortScan);
     abortScan = () => {
       cleanup();

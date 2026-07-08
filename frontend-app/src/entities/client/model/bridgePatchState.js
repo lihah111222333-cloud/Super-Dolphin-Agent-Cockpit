@@ -9,8 +9,8 @@ import {
   normalizeActivityStats,
   normalizeTokenUsage,
   normalizeTurnSummary,
-  threadActivityTimestamp as defaultThreadActivityTimestamp } from './threadActivityMetrics.js';
-import { firstThreadCopyText } from './threadCopyPayload.js';
+  threadActivityTimestamp as defaultThreadActivityTimestamp } from './helpers/threadActivityMetrics.js';
+import { firstThreadCopyText } from './helpers/threadCopyPayload.js';
 
 function optionalUiArray() {
   return [];
@@ -60,7 +60,7 @@ function bridgePatchStatusText(payload, rawThread) {
   return firstThreadCopyText(payload.statusHeader, payload.status, rawThread.state, rawThread.status);
 }
 
-function bridgePatchedThread({ payload, threadId, rawRuntime, rawThread, patchProvider, statusText, normalizeThread }) {
+function bridgePatchedThread(options) { const { payload, threadId, rawRuntime, rawThread, patchProvider, statusText, normalizeThread } = options;
   if (typeof normalizeThread !== 'function') throw new Error('bridgePatchData requires normalizeThread');
   return normalizeThread({
     ...rawThread,

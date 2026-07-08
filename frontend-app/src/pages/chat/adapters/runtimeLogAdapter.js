@@ -1,8 +1,18 @@
-import { safeWarningFields } from '../../../entities/client/model/warningRuntime.js';
-import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
+import { compactSafeDiagnosticPreview, safeDiagnosticPreviewValue } from '../../../shared/api/safeDiagnosticPreview.js';
 import { parseStrictJsonValue, requireTimestampMillis } from '../../shared/pageShared.js';
 
 const RUNTIME_LOG_DETAIL_LIMIT = 1600;
+const SAFE_WARNING_FIELD_ALIASES = [
+  ['method'],
+  ['rpcMethod'],
+  ['rpc_method'],
+  ['action'],
+  ['code'],
+  ['status'],
+  ['provider'],
+  ['req_id'],
+  ['reqId', 'req_id'],
+];
 
 function runtimeLogTextValue(value) {
   if (value === null || value === undefined) return '';
@@ -47,10 +57,31 @@ function compactRuntimeLogText(value) {
   return `${text.slice(0, RUNTIME_LOG_DETAIL_LIMIT)}...`;
 }
 
+function safeWarningCorrelationValue(value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'boolean') return value;
+  const text = value.toString().trim();
+  if (!text || text.length > 160) return undefined;
+  if (text.startsWith('/') || text.includes('\\') || /[A-Za-z]:[\\/]/.test(text)) return undefined;
+  if (!/^[A-Za-z0-9_.:/-]+$/.test(text)) return undefined;
+  return text;
+}
+
+function safeRuntimeWarningFields(fields = {}) {
+  const preview = safeDiagnosticPreviewValue(fields);
+  const out = preview && typeof preview === 'object' && !Array.isArray(preview) ? { ...preview } : {};
+  for (const [source, target = source] of SAFE_WARNING_FIELD_ALIASES) {
+    const value = safeWarningCorrelationValue(fields?.[source]);
+    if (value !== undefined) out[target] = value;
+  }
+  return out;
+}
+
 function safeRuntimeWarningDetail(value) {
   const source = parseRuntimeLogJSONText(value);
   if (source && typeof source === 'object' && !Array.isArray(source)) {
-    return compactRuntimeLogText(safeWarningFields(source));
+    return compactRuntimeLogText(safeRuntimeWarningFields(source));
   }
   return safeRuntimeLogDetail(source);
 }

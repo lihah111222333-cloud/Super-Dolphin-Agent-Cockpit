@@ -101,6 +101,9 @@ function createMemoryPageService(api = memoryService) {
     loadDashboard(cwd, options) {
       return service.fetchMemoryDashboard(cwd, options);
     },
+    loadBadgeDashboard(cwd, options) {
+      return service.fetchMemoryDashboard(cwd, options);
+    },
     getMemoryEntry(params) {
       return api.getMemoryEntry(memoryEntryPayload(params));
     },
@@ -139,6 +142,7 @@ const {
   getMemoryConsolidationStatus,
   getMemoryEntry,
   ignoreMemorySimilarity,
+  loadBadgeDashboard,
   mergeMemoryEntries,
   setMemoryAutoDreamIntent,
   startConsolidateMemorySimilarities,
@@ -152,6 +156,7 @@ export {
   getMemoryConsolidationStatus,
   getMemoryEntry,
   ignoreMemorySimilarity,
+  loadBadgeDashboard,
   memoryPageService,
   mergeMemoryEntries,
   setMemoryAutoDreamIntent,

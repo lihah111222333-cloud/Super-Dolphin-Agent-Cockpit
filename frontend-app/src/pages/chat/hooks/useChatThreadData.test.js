@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import {
   scopedActivityEntries,
   threadScopedTimelineValue,
@@ -31,8 +31,6 @@ function createStore(overrides = {}) {
     ...overrides,
   };
 }
-
-describe('useChatThreadData', () => {
   it('rejects invalid thread store shapes', () => {
     expect(() => useChatThreadData(createStore({ timelinesByThread: [] }), 'agent-1')).toThrow('timelinesByThread object');
   });
@@ -131,4 +129,3 @@ describe('useChatThreadData', () => {
       expect.objectContaining({ id: 'warning' }),
     ]);
   });
-});

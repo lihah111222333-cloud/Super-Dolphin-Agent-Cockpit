@@ -69,27 +69,27 @@ describe('threadForkState', () => {
   });
 
   it('builds local state for a newly forked thread', () => {
-    const state = buildForkThreadState({
+    const baseState = {
       provider: 'codex',
       activityThreadAtById: { old: 1 },
-      threads: [
-        { id: 'thread-fork', name: 'old duplicate' },
-        { id: 'thread-old', name: 'old' },
-      ],
+      threads: [{ id: 'thread-fork', name: 'old duplicate' }, { id: 'thread-old', name: 'old' }],
       timelinesByThread: { old: [{ id: 'old' }] },
-    }, 'thread-fork', {
-      agentId: 'agent-1',
-      providerThreadId: 'provider-1',
-      sessionId: 'session-1',
-    }, {
-      modelProvider: 'codex',
-    }, 'Forked thread', 'continue', {
-      actionNotice: (message, tone) => ({ message, tone }),
+    };
+    const identity = { agentId: 'agent-1', providerThreadId: 'provider-1', sessionId: 'session-1' };
+    const deps = { actionNotice: (message, tone) => ({ message, tone }),
       emptyForkDraft: () => ({ open: false }),
       nowISO: () => '2026-06-15T01:00:00Z',
       nowMillis: () => 123,
       threadActivityTimestamp: () => 456,
-      threadMatchesIdentifier: (thread, id) => thread.id === id,
+      threadMatchesIdentifier: (thread, id) => thread.id === id };
+    const state = buildForkThreadState({
+      state: baseState,
+      threadId: 'thread-fork',
+      identity,
+      launchPreferences: { modelProvider: 'codex' },
+      name: 'Forked thread',
+      kickoffText: 'continue',
+      deps,
     });
 
     expect(state).toEqual({

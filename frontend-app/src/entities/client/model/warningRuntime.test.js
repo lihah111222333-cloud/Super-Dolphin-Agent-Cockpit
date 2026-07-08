@@ -5,7 +5,7 @@ import {
   mergeWarningEntries,
   safeWarningFields,
   warningTraceComponent,
-  warningTraceStatus } from './warningRuntime.js';
+  warningTraceStatus } from './helpers/warningRuntime.js';
 
 const cleanObject = (payload) => Object.fromEntries(
   Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),

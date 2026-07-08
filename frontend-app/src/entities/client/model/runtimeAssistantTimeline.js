@@ -1,15 +1,7 @@
 import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 // @ts-check
 
-import {
-  compactTimelineText,
-  dedupeAssistantTimelineItems,
-  preferredAssistantTimelineItem,
-  sameRuntimeAssistantContentLoose,
-  sameTimelineContent,
-  sameTimelineContentCompact,
-  sameTimelineContentPrefix,
-  sortTimelineChronologically } from './timelineRuntime.js';
+export { mergeRuntimeAssistantCompletionImpl as mergeRuntimeAssistantCompletion } from './helpers/runtimeAssistantTimelineMerge.js';
 
 function normalizeString(value) {
   return normalizeOptionalTextField(value);
@@ -111,76 +103,4 @@ export function appendAssistantDeltaText(existingText, deltaText) {
 
 export function assistantDeltaBufferKey(threadId, itemId) {
   return `${threadId}\u0000${itemId}`;
-}
-
-export function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
-  if (!completion?.item) return existingItems;
-  const finalItem = completion.item;
-
-  let lastUserIndex = -1;
-  for (let index = existingItems.length - 1; index >= 0; index -= 1) {
-    if (existingItems[index]?.role === 'user') {
-      lastUserIndex = index;
-      break;
-    }
-  }
-
-  const turnAssistantItems = existingItems.slice(lastUserIndex + 1).filter(
-    (item) => item?.role === 'assistant' && (item?.kind === 'assistant' || !item?.kind)
-  );
-  const accumulatedText = turnAssistantItems.map((item) => optionalTextField(item.text)).join('');
-  const compactAccumulated = compactTimelineText(accumulatedText);
-  const compactFinal = compactTimelineText(finalItem.text);
-
-  if (compactAccumulated && compactAccumulated === compactFinal) {
-    if (turnAssistantItems.length === 1) {
-      const singleItem = turnAssistantItems[0];
-      const isStreamItem = singleItem.id === completion.streamId;
-      const preferred = isStreamItem ? finalItem : preferredAssistantTimelineItem(singleItem, finalItem);
-      return existingItems.map((item) => {
-        if (item.id === singleItem.id) {
-          return { ...preferred, done: true };
-        }
-        return item;
-      });
-    }
-    return existingItems.map((item, index) => {
-      if (index > lastUserIndex && item.role === 'assistant' && item.done === false) {
-        return { ...item, done: true };
-      }
-      return item;
-    });
-  }
-
-  const dropIds = new Set([finalItem.id, completion.streamId].filter(Boolean));
-  const withoutReplaced = existingItems.filter((item) => !dropIds.has(item.id));
-  lastUserIndex = -1;
-  for (let index = withoutReplaced.length - 1; index >= 0; index -= 1) {
-    if (withoutReplaced[index]?.role === 'user') {
-      lastUserIndex = index;
-      break;
-    }
-  }
-  const duplicateIndex = withoutReplaced.findIndex((item, index) => (
-    item.role === 'assistant' &&
-    item.done !== false &&
-    (
-      sameTimelineContent(item, finalItem) ||
-      (index > lastUserIndex && (
-        sameTimelineContentCompact(item, finalItem) ||
-        sameRuntimeAssistantContentLoose(item, finalItem) ||
-        (item.runtime && finalItem.runtime && sameTimelineContentPrefix(item, finalItem))
-      ))
-    )
-  ));
-  if (duplicateIndex >= 0 && (
-    !completion.explicitId ||
-    withoutReplaced[duplicateIndex].runtime ||
-    duplicateIndex > lastUserIndex
-  )) {
-    return dedupeAssistantTimelineItems(sortTimelineChronologically(withoutReplaced.map((item, index) => (
-      index === duplicateIndex ? preferredAssistantTimelineItem(item, finalItem) : item
-    ))));
-  }
-  return dedupeAssistantTimelineItems([...withoutReplaced, finalItem]);
 }

@@ -4,7 +4,7 @@ import {
   buildThreadCopyPayload,
   firstThreadCopyText,
   formatUTC8HumanReadable,
-  positiveThreadCopyPort } from './threadCopyPayload.js';
+  positiveThreadCopyPort } from './helpers/threadCopyPayload.js';
 
 describe('threadCopyPayload', () => {
   it('filters non-copyable text and ports', () => {

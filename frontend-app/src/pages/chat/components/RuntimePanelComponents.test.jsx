@@ -1,15 +1,32 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { RuntimeActivityPanel } from './RuntimeActivityPanel.jsx';
-import { RuntimeDiffView } from './RuntimeDiffView.jsx';
-import { RuntimeToolbar } from './RuntimeToolbar.jsx';
+import { expect, it, vi } from 'vitest';
+import { RuntimeActivityPanel } from '../runtime/RuntimeActivityPanel.jsx';
+import { RuntimeDiffView } from '../runtime/RuntimeDiffView.jsx';
+import { RuntimeToolbar } from '../runtime/RuntimeToolbar.jsx';
 
 const diffFile = {
   filename: 'src/App.jsx',
   additions: 2,
   deletions: 1,
   text: '+new line\n-old line',
+};
+
+const PRIVATE_WARNING_DETAIL = {
+  path: '/home/l4place/private-project/secret.txt',
+  api_key: 'sk-live-secret',
+  prompt: 'private prompt body',
+};
+
+const PRIVATE_WARNING_FIELDS = {
+  method: 'thread/messages',
+  req_id: 9,
+  path: '/home/l4place/private-project/secret.txt',
+  prompt: 'private prompt body',
+  api_key: 'sk-live-secret',
+  rawPreview: {
+    content: 'private prompt body',
+  },
 };
 
 function parseLineEntries() {
@@ -56,8 +73,6 @@ function renderRuntimeActivityPanel(overrides = {}) {
     />,
   );
 }
-
-describe('RuntimeToolbar', () => {
   it('renders diff counters from the provided summary', () => {
     render(<RuntimeToolbar diffSummary={{ fileCount: 1, changedLines: 3, additions: 2, deletions: 1 }} />);
 
@@ -66,9 +81,7 @@ describe('RuntimeToolbar', () => {
     expect(screen.getByLabelText('代码新增行数')).toHaveTextContent('+2');
     expect(screen.getByLabelText('代码删除行数')).toHaveTextContent('-1');
   });
-});
 
-describe('RuntimeActivityPanel', () => {
   it('renders runtime stats and context usage from props', () => {
     renderRuntimeActivityPanel({
       activityStats: {
@@ -126,21 +139,8 @@ describe('RuntimeActivityPanel', () => {
         id: 'warn-1',
         timestamp: '2026-06-11T06:00:00.123456Z',
         message: 'RPC 失败',
-        detail: JSON.stringify({
-          path: '/home/l4place/private-project/secret.txt',
-          api_key: 'sk-live-secret',
-          prompt: 'private prompt body',
-        }),
-        fields: {
-          method: 'thread/messages',
-          req_id: 9,
-          path: '/home/l4place/private-project/secret.txt',
-          prompt: 'private prompt body',
-          api_key: 'sk-live-secret',
-          rawPreview: {
-            content: 'private prompt body',
-          },
-        },
+        detail: JSON.stringify(PRIVATE_WARNING_DETAIL),
+        fields: PRIVATE_WARNING_FIELDS,
       }],
     });
 
@@ -155,6 +155,16 @@ describe('RuntimeActivityPanel', () => {
   });
 
   it('redacts runtime result popover fields before display', () => {
+    const resultPreview = {
+      messages: [{
+        id: 1,
+        content: 'private prompt body',
+        path: '/home/l4place/private-project/secret.txt',
+        api_key: 'sk-live-secret',
+        count: 2,
+      }],
+      total: 1,
+    };
     renderRuntimeActivityPanel({
       runtimeResults: [{
         id: 'result-1',
@@ -164,16 +174,7 @@ describe('RuntimeActivityPanel', () => {
         fields: {
           method: 'thread/messages',
           req_id: 9,
-          result_preview: JSON.stringify({
-            messages: [{
-              id: 1,
-              content: 'private prompt body',
-              path: '/home/l4place/private-project/secret.txt',
-              api_key: 'sk-live-secret',
-              count: 2,
-            }],
-            total: 1,
-          }),
+          result_preview: JSON.stringify(resultPreview),
         },
       }],
     });
@@ -197,9 +198,7 @@ describe('RuntimeActivityPanel', () => {
     expect(screen.getByLabelText('工具使用面板')).toHaveClass('is-log-collapsed');
     expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
   });
-});
 
-describe('RuntimeDiffView', () => {
   it('renders an empty state when there is no diff text', () => {
     render(
       <RuntimeDiffView
@@ -291,4 +290,3 @@ describe('RuntimeDiffView', () => {
     expect(screen.getByRole('button', { name: '定位 src/App.jsx' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '打开 src/App.jsx' })).toBeInTheDocument();
   });
-});

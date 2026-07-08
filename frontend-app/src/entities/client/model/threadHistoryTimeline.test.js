@@ -5,7 +5,7 @@ import {
   extractHistoryMetadata,
   normalizeThreadMessageItems,
   stripHistoryImagePlaceholders,
-  threadOpenHistoryFallbackItems } from './threadHistoryTimeline.js';
+  threadOpenHistoryFallbackItems } from './helpers/threadHistoryTimeline.js';
 
 describe('threadHistoryTimeline', () => {
   it('extracts object metadata and ignores invalid values', () => {

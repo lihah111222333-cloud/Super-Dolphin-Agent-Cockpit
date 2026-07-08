@@ -1,67 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { runUIAction } from '../components/chatUiActions.js';
+import { runUIAction } from '../model/chatUiActions.js';
+import { RIGHT_PANEL_CLOSE_THRESHOLD, SPLITTER_WIDTH, THREAD_RAIL_MIN_WIDTH, chatLayoutWidthBudget, clampWidth, currentViewportWidth, ratioWidth, resizerNextWidth, rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from '../model/chatWorkbenchLayoutModel.js';
 
-export const THREAD_RAIL_MIN_WIDTH = 240;
-export const RIGHT_PANEL_CLOSE_THRESHOLD = 0;
-export const SPLITTER_WIDTH = 6;
-
-const THREAD_RAIL_RATIO = 0.2;
-const RIGHT_PANEL_DEFAULT_RATIO = 0.2;
-const RIGHT_PANEL_MAX_RATIO = 0.4;
-const CONVERSATION_MIN_RATIO = 0.4;
-const NAV_RAIL_WIDTH = 76;
-const RESIZER_KEY_STEP = 16;
-
-function clampWidth(value, min, max) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return min;
-  return Math.max(min, Math.min(max, numeric));
-}
-
-function currentViewportWidth() {
-  if (typeof window === 'undefined') return 0;
-  const width = Number(window.innerWidth);
-  return Number.isFinite(width) ? width : 0;
-}
-
-export function chatLayoutWidthBudget(viewportWidth = currentViewportWidth()) {
-  return Math.max(0, viewportWidth - NAV_RAIL_WIDTH);
-}
-
-export function ratioWidth(ratio, viewportWidth = currentViewportWidth()) {
-  return Math.floor(chatLayoutWidthBudget(viewportWidth) * ratio);
-}
-
-export function threadRailTargetWidth(viewportWidth = currentViewportWidth()) {
-  return Math.max(THREAD_RAIL_MIN_WIDTH, ratioWidth(THREAD_RAIL_RATIO, viewportWidth));
-}
-
-export function rightPanelDefaultWidth(viewportWidth = currentViewportWidth()) {
-  return Math.max(0, ratioWidth(RIGHT_PANEL_DEFAULT_RATIO, viewportWidth));
-}
-
-export function rightPanelMaxWidth(viewportWidth, threadRailWidth) {
-  const layoutWidth = chatLayoutWidthBudget(viewportWidth);
-  const ratioMax = ratioWidth(RIGHT_PANEL_MAX_RATIO, viewportWidth);
-  const conversationMin = ratioWidth(CONVERSATION_MIN_RATIO, viewportWidth);
-  const remainingAfterConversation = layoutWidth - threadRailWidth - (SPLITTER_WIDTH * 2) - conversationMin;
-  return Math.max(0, Math.min(ratioMax, remainingAfterConversation));
-}
-
-export function resizerNextWidth(event, currentWidth, maxWidth, minWidth, mode) {
-  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
-  if (event.key === 'Home') return minWidth;
-  if (event.key === 'End') return maxWidth;
-  const direction = mode === 'right' ? 1 : -1;
-  const deltaByKey = {
-    ArrowLeft: RESIZER_KEY_STEP * direction,
-    ArrowRight: -RESIZER_KEY_STEP * direction,
-  };
-  const delta = deltaByKey[event.key];
-  return delta === undefined ? null : clampWidth(currentWidth + delta, minWidth, maxWidth);
-}
-
-export function useViewportWidth() {
+function useViewportWidth() {
   const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
   useEffect(() => {
     let frameId = null;
@@ -81,7 +22,7 @@ export function useViewportWidth() {
   return viewportWidth;
 }
 
-export function useThreadRailLayout({ viewportWidth, rightPanelOpen, store, layoutRef }) {
+function useThreadRailLayout({ viewportWidth, rightPanelOpen, store, layoutRef }) {
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const resizedRef = useRef(false);
   const maxWidth = threadRailTargetWidth(viewportWidth);
@@ -150,7 +91,15 @@ export function useThreadRailLayout({ viewportWidth, rightPanelOpen, store, layo
   return { beginResize, handleKeyDown, maxWidth, width };
 }
 
-export function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen, layoutRef }) {
+function useRuntimeSidePanelLayout({
+  activeThreadId,
+  railWidth,
+  store,
+  viewportWidth,
+  open,
+  setOpen,
+  layoutRef,
+}) {
   const resizedRef = useRef(false);
   const maxWidth = rightPanelMaxWidth(viewportWidth, railWidth);
   const width = clampWidth(store.rightPanelWidth, 0, maxWidth);
@@ -176,7 +125,14 @@ export function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, vi
   return { beginResize, handleKeyDown, maxWidth, open, toggle, width };
 }
 
-function useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
+function useRuntimePanelWidthSync({
+  maxWidth,
+  open,
+  resizedRef,
+  setOpen,
+  store,
+  viewportWidth,
+}) {
   useEffect(() => {
     if (!open) return;
     const savedWidth = clampWidth(store.rightPanelWidth, 0, maxWidth);
@@ -211,7 +167,14 @@ function useRuntimeDiffSync({ activeThreadId, open, store }) {
   }, [activeThreadId, open, store]);
 }
 
-function toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
+function toggleRuntimePanel({
+  maxWidth,
+  open,
+  resizedRef,
+  setOpen,
+  store,
+  viewportWidth,
+}) {
   const next = !open;
   if (next) {
     resizedRef.current = false;
@@ -220,7 +183,14 @@ function toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewpo
   setOpen(next);
 }
 
-function beginRightPanelDrag({ event, layoutRef, maxWidth, setOpen, store, width }) {
+function beginRightPanelDrag({
+  event,
+  layoutRef,
+  maxWidth,
+  setOpen,
+  store,
+  width,
+}) {
   event.preventDefault();
   event.currentTarget?.setPointerCapture?.(event.pointerId);
   const drag = rightPanelDragState({ event, layoutRef, maxWidth, setOpen, store, width });
@@ -230,7 +200,14 @@ function beginRightPanelDrag({ event, layoutRef, maxWidth, setOpen, store, width
   window.addEventListener('blur', drag.finish);
 }
 
-function rightPanelDragState({ event, layoutRef, maxWidth, setOpen, store, width }) {
+function rightPanelDragState({
+  event,
+  layoutRef,
+  maxWidth,
+  setOpen,
+  store,
+  width,
+}) {
   const startX = event.clientX;
   const startWidth = width;
   const layoutColumnsForWidth = (nextWidth) => `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${nextWidth}px`;
@@ -244,7 +221,15 @@ function rightPanelDragState({ event, layoutRef, maxWidth, setOpen, store, width
   return drag;
 }
 
-function moveRightPanelDrag({ applyDragWidth, finish, maxWidth, moveEvent, startWidth, startX, state }) {
+function moveRightPanelDrag({
+  applyDragWidth,
+  finish,
+  maxWidth,
+  moveEvent,
+  startWidth,
+  startX,
+  state,
+}) {
   if (Number(moveEvent.buttons) === 0) {
     finish();
     return;
@@ -275,3 +260,5 @@ function finishRightPanelDrag({ event, setOpen, state, store, drag }) {
   }
   store.setRightPanelWidth?.(state.latestWidth);
 }
+
+export { RIGHT_PANEL_CLOSE_THRESHOLD, SPLITTER_WIDTH, THREAD_RAIL_MIN_WIDTH, chatLayoutWidthBudget, ratioWidth, resizerNextWidth, rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth, useRuntimeSidePanelLayout, useThreadRailLayout, useViewportWidth };

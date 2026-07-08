@@ -1,4 +1,5 @@
 import React from 'react';
+import { PromptTextareas } from './PromptSettingsCardTextareas.jsx';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
 import './PromptSettingsCard.css';
 import './SettingsPromptToggle.css';
@@ -35,18 +36,6 @@ function PromptVisibilityToggle({ prompt, promptCopy }) {
       <div className="settings-prompt-toggle-copy"><span className="settings-prompt-toggle-title">{promptCopy.showInjectedTitle}</span><span className="settings-prompt-toggle-desc">{promptCopy.showInjectedDesc}</span></div>
       <input type="checkbox" className="settings-prompt-toggle-input" data-testid="settings-show-injected-toggle-input" checked={prompt.showInjected} onChange={prompt.toggleVisibility} disabled={prompt.loading || prompt.showInjectedSaving} />
     </label>
-  );
-}
-
-function PromptTextareas({ prompt, promptCopy }) {
-  return (
-    <>
-      <div className="settings-prompt-meta">{promptCopy.stats.replace('{lines}', prompt.lineCount).replace('{chars}', prompt.charCount)}</div>
-      <label className="settings-prompt-label" htmlFor="settings-lsp-effective-output">{promptCopy.effectiveContent}</label>
-      <textarea id="settings-lsp-effective-output" className="settings-prompt-textarea settings-prompt-textarea-readonly" data-testid="settings-lsp-effective-output" rows={12} value={prompt.displayHint} readOnly />
-      <label className="settings-prompt-label" htmlFor="settings-lsp-prompt-input">{promptCopy.customOverride}</label>
-      <textarea id="settings-lsp-prompt-input" className="settings-prompt-textarea" data-testid="settings-lsp-prompt-input" rows={8} value={prompt.hint} onChange={(event) => prompt.setHint(event.target.value)} placeholder={prompt.defaultHint || promptCopy.placeholder} disabled={prompt.loading || prompt.saving} />
-    </>
   );
 }
 

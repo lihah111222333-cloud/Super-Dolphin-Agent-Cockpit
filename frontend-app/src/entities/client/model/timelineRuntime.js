@@ -384,7 +384,34 @@ export function preferredAssistantTimelineItem(existingItem, incomingItem) {
   );
 }
 
-export function dedupeAssistantTimelineItems(items = []) {
+function assistantDuplicateIndices(output, item, lastUserIndex) {
+  return output.map((candidate, index) => ({ candidate, index })).filter(({ candidate, index }) => index > lastUserIndex && candidate?.role === 'assistant' && sameTimelineDuplicateContent(candidate, item)).map(({ index }) => index).reverse();
+}
+
+function compactOutputAfterAssistantMerge(output, lastUserIndex, duplicateIndices) {
+  const indicesToRemove = new Set(duplicateIndices.slice(0, -1));
+  if (indicesToRemove.size === 0) return;
+
+  const retainedItems = output
+    .slice(lastUserIndex + 1)
+    .filter((_, offset) => !indicesToRemove.has(lastUserIndex + 1 + offset));
+  output.splice(lastUserIndex + 1, output.length - lastUserIndex - 1, ...retainedItems);
+}
+
+function mergeAssistantDuplicateItems(context) {
+  const { output, item, lastUserIndex, duplicateIndices } = context;
+  const mergedItem = duplicateIndices.reduce(
+    (current, index) => preferredAssistantTimelineItem(output[index], current),
+    item,
+  );
+  const anyDone = Boolean(item.done) || duplicateIndices.some((index) => output[index].done);
+  const nextMergedItem = anyDone ? { ...mergedItem, done: true } : mergedItem;
+  const primaryIndex = duplicateIndices[duplicateIndices.length - 1];
+  output[primaryIndex] = nextMergedItem;
+  compactOutputAfterAssistantMerge(output, lastUserIndex, duplicateIndices);
+}
+
+function dedupeAssistantTimelineItems(items = []) {
   const output = [];
   let lastUserIndex = -1;
   const seenIds = new Set();
@@ -403,38 +430,9 @@ export function dedupeAssistantTimelineItems(items = []) {
 
     if (item.id && seenIds.has(item.id)) continue;
 
-    const duplicateIndices = [];
-    for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
-      const candidate = output[index];
-      if (candidate?.role === 'assistant' && sameTimelineDuplicateContent(candidate, item)) {
-        duplicateIndices.push(index);
-      }
-    }
-
+    const duplicateIndices = assistantDuplicateIndices(output, item, lastUserIndex);
     if (duplicateIndices.length > 0) {
-      let mergedItem = item;
-      let anyDone = Boolean(item.done);
-      for (const index of duplicateIndices) {
-        if (output[index].done) anyDone = true;
-        mergedItem = preferredAssistantTimelineItem(output[index], mergedItem);
-      }
-      if (anyDone) {
-        mergedItem = { ...mergedItem, done: true };
-      }
-      const primaryIndex = duplicateIndices[duplicateIndices.length - 1];
-      output[primaryIndex] = mergedItem;
-
-      const indicesToRemove = new Set(duplicateIndices.slice(0, -1));
-      if (indicesToRemove.size > 0) {
-        let writeIdx = lastUserIndex + 1;
-        for (let readIdx = lastUserIndex + 1; readIdx < output.length; readIdx++) {
-          if (!indicesToRemove.has(readIdx)) {
-            output[writeIdx] = output[readIdx];
-            writeIdx++;
-          }
-        }
-        output.length = writeIdx;
-      }
+      mergeAssistantDuplicateItems({ output, item, lastUserIndex, duplicateIndices });
       continue;
     }
 
@@ -472,7 +470,9 @@ function areTimelineItemsEquivalent(left, right) {
   return true;
 }
 
-export function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
+function mergedTimelineReplacement(existingItem, replacement) { return areTimelineItemsEquivalent(existingItem, replacement) ? existingItem : { ...replacement, attachments: replacement.attachments || existingItem.attachments }; }
+
+function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
   const preserveExistingVisible = options?.preserveExistingVisible === true;
   const visibleIncomingItems = incomingItems.filter(isVisibleTimelineItem);
   const incomingById = new Map(visibleIncomingItems.map((item) => [item.id, item]));
@@ -505,14 +505,7 @@ export function mergeTimelineItems(existingItems = [], incomingItems = [], optio
 
     const replacement = incomingById.get(existingItem.id);
     if (replacement) {
-      if (areTimelineItemsEquivalent(existingItem, replacement)) {
-        merged.push(existingItem);
-      } else {
-        merged.push({
-          ...replacement,
-          attachments: replacement.attachments || existingItem.attachments,
-        });
-      }
+      merged.push(mergedTimelineReplacement(existingItem, replacement));
       consumedIncomingIds.add(replacement.id);
       continue;
     }
@@ -538,3 +531,4 @@ export function mergeTimelineItems(existingItems = [], incomingItems = [], optio
 
   return dedupeAssistantTimelineItems(coalesceTimelineLifecycleItems(sortTimelineChronologically(merged)));
 }
+export { dedupeAssistantTimelineItems, mergeTimelineItems };

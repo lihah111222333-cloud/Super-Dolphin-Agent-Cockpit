@@ -18,70 +18,24 @@ import {
   writeLspPromptHint as writeLspPromptHintRpc,
 } from '../../../shared/api/backendApi.js';
 
-export function applyModelProvider(payload) {
-  return applyModelProviderBackend(payload);
-}
+const settingsPageService = Object.freeze({
+  applyModelProvider: (payload) => applyModelProviderBackend(payload),
+  checkAppUpdate: (payload) => checkAppUpdateBackend(payload),
+  copyTextToClipboard: (text) => copyTextToClipboardBackend(text),
+  getBuildInfo: (payload) => getBuildInfoBackend(payload),
+  getPreference: (payload) => getPreferenceBackend(payload),
+  getVideoApiKey: (payload) => getVideoApiKeyBackend(payload),
+  installLatestAppUpdate: (payload) => installLatestAppUpdateBackend(payload),
+  listDashboardLogs: (payload) => listDashboardLogsBackend(payload),
+  listModelProviders: (payload) => listModelProvidersBackend(payload),
+  readBuiltinTools: (payload) => readBuiltinToolsBackend(payload),
+  readConfig: (payload) => readConfigBackend(payload),
+  readLspPromptHint: (payload) => readLspPromptHintBackend(payload),
+  saveModelProviders: (payload) => saveModelProvidersBackend(payload),
+  setPreference: (payload) => setPreferenceBackend(payload),
+  setVideoApiKey: (payload) => setVideoApiKeyBackend(payload),
+  writeBuiltinTool: (payload) => writeBuiltinToolBackend(payload),
+  writeLspPromptHint: (payload) => writeLspPromptHintRpc(payload),
+});
 
-export function checkAppUpdate(payload) {
-  return checkAppUpdateBackend(payload);
-}
-
-export function copyTextToClipboard(text) {
-  return copyTextToClipboardBackend(text);
-}
-
-export function getBuildInfo(payload) {
-  return getBuildInfoBackend(payload);
-}
-
-export function getPreference(payload) {
-  return getPreferenceBackend(payload);
-}
-
-export function getVideoApiKey(payload) {
-  return getVideoApiKeyBackend(payload);
-}
-
-export function installLatestAppUpdate(payload) {
-  return installLatestAppUpdateBackend(payload);
-}
-
-export function listDashboardLogs(payload) {
-  return listDashboardLogsBackend(payload);
-}
-
-export function listModelProviders(payload) {
-  return listModelProvidersBackend(payload);
-}
-
-export function readBuiltinTools(payload) {
-  return readBuiltinToolsBackend(payload);
-}
-
-export function readConfig(payload) {
-  return readConfigBackend(payload);
-}
-
-export function readLspPromptHint(payload) {
-  return readLspPromptHintBackend(payload);
-}
-
-export function saveModelProviders(payload) {
-  return saveModelProvidersBackend(payload);
-}
-
-export function setPreference(payload) {
-  return setPreferenceBackend(payload);
-}
-
-export function setVideoApiKey(payload) {
-  return setVideoApiKeyBackend(payload);
-}
-
-export function writeBuiltinTool(payload) {
-  return writeBuiltinToolBackend(payload);
-}
-
-export function writeLspPromptHint(payload) {
-  return writeLspPromptHintRpc(payload);
-}
+export { settingsPageService };

@@ -13,7 +13,7 @@ import {
   isVisibleTimelineItem,
   mergeTimelineItems } from './timelineRuntime.js';
 import {
-  normalizeThreadMessageItems } from './threadHistoryTimeline.js';
+  normalizeThreadMessageItems } from './helpers/threadHistoryTimeline.js';
 import {
   messagePageParams,
   normalizeThreadMessagesPageMeta,
@@ -47,17 +47,15 @@ export function markThreadMessagesReadyPatch(state, id) {
   const currentItems = state.timelinesByThread[id] || optionalUiArray();
   const hasActiveItems = currentItems.some((item) => item.done === false || item.optimistic);
   const preserve = timelineWasReady || hasActiveItems;
+  const nextTimeline = mergeTimelineItems(state.timelinesByThread[id] || optionalUiArray(), [], { preserveExistingVisible: preserve });
   return {
-    timelinesByThread: {
-      ...state.timelinesByThread,
-      [id]: mergeTimelineItems(state.timelinesByThread[id] || optionalUiArray(), [], { preserveExistingVisible: preserve }),
-    },
-    threadTimelineReadyByThread: {
-      ...state.threadTimelineReadyByThread,
-      [id]: true,
-    },
+    ...threadTimelineItemsPatch(state, id, nextTimeline),
+    ...threadTimelineReadyPatch(state, id),
   };
 }
+
+function threadTimelineItemsPatch(state, id, nextTimeline) { return { timelinesByThread: { ...state.timelinesByThread, [id]: nextTimeline } }; }
+function threadTimelineReadyPatch(state, id) { return { threadTimelineReadyByThread: { ...state.threadTimelineReadyByThread, [id]: true } }; }
 
 export function applyThreadHistoryFallbackPatch(state, id, fallbackItems) {
   const items = Array.isArray(fallbackItems) ? fallbackItems.filter(isVisibleTimelineItem) : [];
@@ -67,14 +65,8 @@ export function applyThreadHistoryFallbackPatch(state, id, fallbackItems) {
     ? existing
     : mergeTimelineItems(existing, items, { preserveExistingVisible: true });
   return {
-    timelinesByThread: {
-      ...state.timelinesByThread,
-      [id]: nextTimeline,
-    },
-    threadTimelineReadyByThread: {
-      ...state.threadTimelineReadyByThread,
-      [id]: true,
-    },
+    ...threadTimelineItemsPatch(state, id, nextTimeline),
+    ...threadTimelineReadyPatch(state, id),
     ...threadMessagesPaginationPatch(state, id, {
       hasMore: false,
       nextBefore: '',
@@ -98,15 +90,10 @@ export function threadHistoryInitialPageTracePayload(id, page, status, error) {
 }
 
 export function applyThreadMessageItemsPatch(state, id, pageItems, pageMeta = {}) {
+  const nextTimeline = mergeTimelineItems(state.timelinesByThread[id] || optionalUiArray(), pageItems, { preserveExistingVisible: true });
   return {
-    timelinesByThread: {
-      ...state.timelinesByThread,
-      [id]: mergeTimelineItems(state.timelinesByThread[id] || optionalUiArray(), pageItems, { preserveExistingVisible: true }),
-    },
-    threadTimelineReadyByThread: {
-      ...state.threadTimelineReadyByThread,
-      [id]: true,
-    },
+    ...threadTimelineItemsPatch(state, id, nextTimeline),
+    ...threadTimelineReadyPatch(state, id),
     ...threadMessagesPaginationPatch(state, id, {
       hasMore: Boolean(pageMeta.hasMore),
       nextBefore: normalizeString(pageMeta.nextBefore),
@@ -147,6 +134,10 @@ function applyThreadHistoryFallback(set, id, fallbackItems) {
 function applyThreadMessageItems(set, id, pageItems, pageMeta = {}) {
   set((state) => applyThreadMessageItemsPatch(state, id, pageItems, pageMeta));
 }
+
+function applyEmptyThreadMessagePage(set, id, historyFallback) { if (!applyThreadHistoryFallback(set, id, historyFallback)) markThreadMessagesReady(set, id); }
+function markThreadMessagesExhaustedPatch(state, id) { return threadMessagesPaginationPatch(state, id, { hasMore: false, nextBefore: '', loading: false }); }
+function addThreadMessagesFailureWarning(addWarning, id, error) { addWarning('error', 'thread.messages.failed', { threadId: id, error: error.message }); }
 
 export function attachThreadMessagesRuntime(runtime, deps = {}) {
   /*
@@ -196,9 +187,7 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
       emitThreadHistoryInitialPageTrace(id, page, 'ok');
       if (!isCurrentThreadMessageGeneration(id, generation)) return;
       if (page.messages.length === 0) {
-        if (!applyThreadHistoryFallback(set, id, loadOptions.historyFallback)) {
-          markThreadMessagesReady(set, id);
-        }
+        applyEmptyThreadMessagePage(set, id, loadOptions.historyFallback);
         setThreadMessagesLoading(id, generation, false);
         return;
       }
@@ -249,11 +238,7 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
       if (!isCurrentThreadMessageGeneration(id, generation)) return false;
       if (page.messages.length === 0) {
         markThreadMessagesReady(set, id);
-        set((state) => threadMessagesPaginationPatch(state, id, {
-          hasMore: false,
-          nextBefore: '',
-          loading: false,
-        }));
+        set((state) => markThreadMessagesExhaustedPatch(state, id));
         return true;
       }
       applyThreadMessageItems(set, id, page.items, page.meta);
@@ -261,7 +246,7 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
     }
     catch (error) {
       if (isCurrentThreadMessageGeneration(id, generation)) {
-        addWarning('error', 'thread.messages.failed', { threadId: id, error: error.message });
+        addThreadMessagesFailureWarning(addWarning, id, error);
       }
       return false;
     }

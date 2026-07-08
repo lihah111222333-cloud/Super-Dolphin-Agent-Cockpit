@@ -4,7 +4,7 @@ import {
   archiveThreadFailureState,
   archiveThreadOptimisticState,
   isArchivedStatus,
-  threadArchiveStatus } from './threadListMutations.js';
+  threadArchiveStatus } from './helpers/threadListMutations.js';
 
 describe('threadListMutations', () => {
   it('renames only the exact thread id used by the backend action', () => {
