@@ -18,7 +18,7 @@ const DEFAULT_PORT = 5177;
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_RPC_TIMEOUT_MS = 15000;
-const DEFAULT_STOP_TIMEOUT_MS = 5000;
+export const DEFAULT_STOP_TIMEOUT_MS = 5000;
 const INPUT_TEXT = 'MCP UI test input';
 const REQUIRED_SNAPSHOT_KEYS = [
   'availableActions',
@@ -167,7 +167,7 @@ async function runMCPAcceptanceFlow(client, config) {
   await assertAfterStopFails(client);
 }
 
-function startVite(config) {
+export function startVite(config) {
   const viteBin = path.join(config.frontendRoot, 'node_modules', 'vite', 'bin', 'vite.js');
   if (!existsSync(viteBin)) {
     throw new Error(`missing Vite binary: ${viteBin}; run npm install in frontend-app`);
@@ -192,7 +192,7 @@ function startVite(config) {
   });
 }
 
-function startMCPServer(config) {
+export function startMCPServer(config) {
   const serverPath = path.join(config.frontendRoot, 'scripts', 'ui-test-mcp-server.mjs');
   if (!existsSync(serverPath)) {
     throw new Error(`missing MCP server: ${serverPath}`);
@@ -218,7 +218,7 @@ function startMCPServer(config) {
   });
 }
 
-function createMCPClient(child, { mode, timeoutMs }) {
+export function createMCPClient(child, { mode, timeoutMs }) {
   let nextID = 1;
   let stopped = false;
   const pending = new Map();
@@ -342,7 +342,7 @@ function feedFrameReader(reader, chunk) {
   throw new Error('createMCPFrameReader returned no push/write/feed/append method');
 }
 
-async function callTool(client, name, args) {
+export async function callTool(client, name, args) {
   const result = await callToolRaw(client, name, args);
   if (result.isError) {
     throw new Error(`${name} returned tool error: ${JSON.stringify(result.structuredContent || result.content || result)}`);
@@ -499,7 +499,7 @@ function positiveInt(value, fallback) {
   return parsed;
 }
 
-async function assertPortFree(host, port) {
+export async function assertPortFree(host, port) {
   await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', (error) => reject(new Error(`port ${port} is already in use on ${host}: ${error.message}`)));
@@ -509,7 +509,7 @@ async function assertPortFree(host, port) {
   });
 }
 
-async function waitForHTTP(url, timeoutMs, child, label) {
+export async function waitForHTTP(url, timeoutMs, child, label) {
   const deadline = Date.now() + timeoutMs;
   const tail = attachProcessLogTail(child, label);
   while (Date.now() < deadline) {
@@ -556,7 +556,7 @@ async function withTimeout(promise, timeoutMs, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function stopProcess(child, label, timeoutMs) {
+export async function stopProcess(child, label, timeoutMs) {
   if (!child || child.exitCode != null || child.signalCode != null) return;
   child.kill('SIGTERM');
   try {
@@ -568,7 +568,7 @@ async function stopProcess(child, label, timeoutMs) {
   }
 }
 
-function waitForProcessExit(child, timeoutMs, message) {
+export function waitForProcessExit(child, timeoutMs, message) {
   if (child.exitCode != null || child.signalCode != null) return Promise.resolve();
   return withTimeout(new Promise((resolve) => child.once('exit', resolve)), timeoutMs, message);
 }
