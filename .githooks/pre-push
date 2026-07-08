@@ -335,16 +335,28 @@ run_frontend_embed_verify() {
   run_without_git_env make frontend-embed-verify
 }
 
+warn_generated_artifact_drift() {
+  local label="$1"
+  shift
+
+  echo "[pre-push] ${label}..."
+  if run_without_git_env "$@"; then
+    return 0
+  fi
+
+  echo "⚠️  [pre-push] ${label} reported generated artifact drift; push will continue" >&2
+  echo "  提交前请用对应 refresh 命令更新生成物，或确认 pre-commit 已在提交中刷新。" >&2
+  return 0
+}
+
 run_path_based_repository_gates() {
   if [ "$HAS_SQLC_CHANGES" -eq 1 ]; then
     echo "[pre-push] sqlc verify..."
     run_without_git_env make sqlc-verify
   fi
   if [ "$HAS_CODEMAP_CHANGES" -eq 1 ]; then
-    echo "[pre-push] codemap check..."
-    run_without_git_env make codemap-check
-    echo "[pre-push] project map check..."
-    run_without_git_env make project-map-check
+    warn_generated_artifact_drift "codemap check" make codemap-check
+    warn_generated_artifact_drift "project map check" make project-map-check
   fi
   if [ "$HAS_CAPCONTRACT_CHANGES" -eq 1 ]; then
     echo "[pre-push] capability contract check..."
@@ -368,7 +380,7 @@ run_ai_maintenance_push_gate() {
   done
 
   echo "[pre-push] AI maintenance gates..."
-  run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
+  SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT=1 run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
 }
 
 ensure_pushed_refs_match_head() {

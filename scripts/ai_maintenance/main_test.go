@@ -51,6 +51,26 @@ func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
 	assertStringSetContains(t, plan.RequiredGates, "codemap:check", "project-map:check", "diff:whitespace")
 }
 
+func TestExecuteGatePlanSoftensGeneratedDriftOnlyForPrePush(t *testing.T) {
+	binDir := t.TempDir()
+	makePath := filepath.Join(binDir, "make")
+	if err := os.WriteFile(makePath, []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write fake make: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT", "")
+	plan := gatePlan{RequiredGates: []string{"codemap:check", "project-map:check"}}
+
+	if err := executeGatePlan(plan); err == nil {
+		t.Fatal("generated drift gate succeeded without pre-push softening")
+	}
+
+	t.Setenv("SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT", "1")
+	if err := executeGatePlan(plan); err != nil {
+		t.Fatalf("pre-push soft generated drift gate failed: %v", err)
+	}
+}
+
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 	plan := buildGatePlan([]string{"scripts/ai_maintenance/main.go"})
 

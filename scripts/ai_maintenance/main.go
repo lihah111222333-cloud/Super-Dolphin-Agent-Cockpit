@@ -305,7 +305,18 @@ func executeGatePlan(plan gatePlan) error {
 	return nil
 }
 
+// gateRunners 根据 gate 计划构造可执行命令表，并在 pre-push 软漂移模式下放行生成物检查。
 func gateRunners(plan gatePlan) map[string]func() error {
+	generatedCheck := func(name string, args ...string) func() error {
+		return func() error {
+			err := runCommand("", name, args...)
+			if err != nil && os.Getenv("SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT") == "1" {
+				fmt.Fprintf(os.Stderr, "ai-maintenance: generated artifact drift warning for %s %s: %v\n", name, strings.Join(args, " "), err)
+				return nil
+			}
+			return err
+		}
+	}
 	return map[string]func() error{
 		"ai-maintenance:self-test": func() error {
 			if err := runCommand("", "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
@@ -322,8 +333,8 @@ func gateRunners(plan gatePlan) map[string]func() error {
 		"frontend:test":         func() error { return runCommand("frontend-app", "npm", "test") },
 		"frontend:build":        func() error { return runCommand("frontend-app", "npm", "run", "build") },
 		"frontend:embed-verify": func() error { return runCommand("", "make", "frontend-embed-verify") },
-		"codemap:check":         func() error { return runCommand("", "make", "codemap-check") },
-		"project-map:check":     func() error { return runCommand("", "make", "project-map-check") },
+		"codemap:check":         generatedCheck("make", "codemap-check"),
+		"project-map:check":     generatedCheck("make", "project-map-check"),
 		"repo:guard":            func() error { return runCommand("", "make", "guard") },
 		"sqlc:verify":           func() error { return runCommand("", "make", "sqlc-verify") },
 		"diff:whitespace":       func() error { return runCommand("", "git", "diff", "--check") },

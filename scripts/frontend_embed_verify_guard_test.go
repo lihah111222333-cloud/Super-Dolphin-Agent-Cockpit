@@ -150,6 +150,27 @@ func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
 	}
 }
 
+func TestPrePushWarnsButAllowsGeneratedArtifactDrift(t *testing.T) {
+	fixture := newPrePushScopeFixture(t)
+	writePrePushFakeMake(t, fixture.binDir)
+	t.Setenv("HOOK_SCOPE_FAIL_MAKE_TARGETS", "codemap-check project-map-check")
+
+	writeFixTestGuardFile(t, fixture.root, "docs/doc/codemap/01-terminal-ui.md", "codemap\n")
+	runFixTestGuardGit(t, fixture.root, "add", "docs/doc/codemap/01-terminal-ui.md")
+	runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 更新 codemap")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, fixture.root, "rev-parse", "HEAD"))
+
+	out := fixture.run(t, head)
+	assertOutputContainsAll(t, out,
+		"[pre-push] codemap check",
+		"[pre-push] project map check",
+		"generated artifact drift; push will continue",
+		"pre-push OK",
+	)
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, "make codemap-check", "make project-map-check")
+}
+
 func TestCodeSizeGuardDefaultAndStrictEnableFunctionCommentGuard(t *testing.T) {
 	guard := readScript(t, "code_size_guard.go")
 
@@ -274,7 +295,14 @@ func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
 func writePrePushFakeMake(t *testing.T, binDir string) {
 	t.Helper()
 	path := filepath.Join(binDir, "make")
-	content := "#!/usr/bin/env bash\nprintf 'make %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n"
+	content := `#!/usr/bin/env bash
+printf 'make %s\n' "$*" >>"$HOOK_SCOPE_LOG"
+for target in ${HOOK_SCOPE_FAIL_MAKE_TARGETS:-}; do
+  if [ "$*" = "$target" ]; then
+    exit 1
+  fi
+done
+`
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake make: %v", err)
 	}
