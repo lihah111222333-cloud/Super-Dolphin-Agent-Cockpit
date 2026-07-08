@@ -32,13 +32,16 @@ func TestOptionalDependencyBoundary(t *testing.T) {
 	occurrences := scanOptionalDependencyOccurrences(t, optionalDependencyRepoRoot(t))
 	classifications := registeredOptionalDependencyClassifications()
 	var unclassified []string
+	var staleClassifications []string
 	var missingAudit []string
+	seenClassifications := make(map[string]bool)
 	for _, occurrence := range occurrences {
 		classification, ok := classifications[occurrence.key()]
 		if !ok {
 			unclassified = append(unclassified, occurrence.String())
 			continue
 		}
+		seenClassifications[occurrence.key()] = true
 		if violation := classification.auditViolation(occurrence); violation != "" {
 			missingAudit = append(missingAudit, violation)
 			continue
@@ -50,13 +53,47 @@ func TestOptionalDependencyBoundary(t *testing.T) {
 			t.Fatalf("%s is dependency_absence but policy denies %s in %s", occurrence, classification.dependency, classification.profile)
 		}
 	}
+	staleClassifications = staleOptionalDependencyClassifications(classifications, seenClassifications)
 	if len(unclassified) > 0 {
 		sort.Strings(unclassified)
 		t.Fatalf("unclassified optional dependency boundaries:\n%s", strings.Join(unclassified, "\n"))
 	}
+	if len(staleClassifications) > 0 {
+		sort.Strings(staleClassifications)
+		t.Fatalf("stale optional dependency classifications:\n%s", strings.Join(staleClassifications, "\n"))
+	}
 	if len(missingAudit) > 0 {
 		sort.Strings(missingAudit)
 		t.Fatalf("optional dependency classifications missing audit evidence:\n%s", strings.Join(missingAudit, "\n"))
+	}
+}
+
+func TestOptionalDependencyBudgetGuard(t *testing.T) {
+	t.Parallel()
+
+	classifications := registeredOptionalDependencyClassifications()
+	budgets := optionalDependencyBudgets()
+	actual := optionalDependencyBudgetCounts(classifications)
+	var violations []string
+	for key, count := range actual {
+		budget, ok := budgets[key]
+		if !ok {
+			violations = append(violations, fmt.Sprintf("%s has %d classifications without a budget", key, count))
+			continue
+		}
+		if count != budget {
+			violations = append(violations, fmt.Sprintf("%s has %d classifications, budget %d", key, count, budget))
+		}
+	}
+	for key, budget := range budgets {
+		if _, ok := actual[key]; ok {
+			continue
+		}
+		violations = append(violations, fmt.Sprintf("%s budget %d is stale; no matching classifications remain", key, budget))
+	}
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		t.Fatalf("optional dependency budget drift:\n%s", strings.Join(violations, "\n"))
 	}
 }
 
@@ -100,6 +137,66 @@ func newService() any {
 		return
 	}
 	t.Fatalf("scanOptionalDependencyFile() occurrences = %#v, want %#v", occurrences, want)
+}
+
+func TestOptionalDependencyBudgetCountsDetectDrift(t *testing.T) {
+	t.Parallel()
+
+	classifications := map[string]optionalDependencyClassification{
+		"internal/app/example.go:optional_tag:Logger": {
+			category: optionalAdjunct,
+			owner:    "internal/app",
+			evidence: "internal/app/example.go: logger is diagnostic-only",
+		},
+		"internal/app/example.go:typed_unsupported:runtime_reporter.orchestration_service": {
+			category:   optionalDependencyAbsence,
+			dependency: "runtime_reporter.orchestration_service",
+			profile:    contract.DependencyProfileDesktopHost,
+			owner:      "internal/app",
+			evidence:   "internal/app/example.go: missing orchestration is deferred in desktop",
+		},
+		"internal/app/template.go.txt:optional_tag:Tracer": {
+			category: optionalTestOrTemplate,
+			owner:    "internal/provider/_template",
+			evidence: "internal/app/template.go.txt: template optional field",
+		},
+	}
+
+	got := optionalDependencyBudgetCounts(classifications)
+	want := map[optionalDependencyBudgetKey]int{
+		{owner: "internal/app", category: optionalAdjunct}:                       1,
+		{owner: "internal/app", category: optionalDependencyAbsence}:             1,
+		{owner: "internal/provider/_template", category: optionalTestOrTemplate}: 1,
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("optionalDependencyBudgetCounts() = %#v, want %#v", got, want)
+	}
+}
+
+func TestStaleOptionalDependencyClassificationsDetectsUnusedRegistration(t *testing.T) {
+	t.Parallel()
+
+	classifications := map[string]optionalDependencyClassification{
+		"internal/app/example.go:optional_tag:Logger": {
+			category: optionalAdjunct,
+			owner:    "internal/app",
+			evidence: "internal/app/example.go: logger is diagnostic-only",
+		},
+		"internal/app/deleted.go:optional_tag:Tracer": {
+			category: optionalAdjunct,
+			owner:    "internal/app",
+			evidence: "internal/app/deleted.go: stale registration",
+		},
+	}
+	seen := map[string]bool{
+		"internal/app/example.go:optional_tag:Logger": true,
+	}
+
+	got := staleOptionalDependencyClassifications(classifications, seen)
+	want := []string{"internal/app/deleted.go:optional_tag:Tracer"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("staleOptionalDependencyClassifications() = %#v, want %#v", got, want)
+	}
 }
 
 type optionalDependencyOccurrence struct {
@@ -151,6 +248,66 @@ func (c optionalDependencyClassification) auditViolation(occurrence optionalDepe
 		return occurrence.String() + " non-policy optional classification must not carry dependency policy fields"
 	}
 	return ""
+}
+
+type optionalDependencyBudgetKey struct {
+	owner    string
+	category optionalDependencyCategory
+}
+
+func (k optionalDependencyBudgetKey) String() string {
+	return string(k.category) + " " + k.owner
+}
+
+func optionalDependencyBudgets() map[optionalDependencyBudgetKey]int {
+	return map[optionalDependencyBudgetKey]int{
+		{owner: "internal/app", category: optionalDependencyAbsence}:                 2,
+		{owner: "internal/app", category: optionalAdjunct}:                           7,
+		{owner: "internal/module/thread", category: optionalDependencyAbsence}:       1,
+		{owner: "internal/module/thread", category: optionalAdjunct}:                 8,
+		{owner: "internal/platform/toolbridge", category: optionalDependencyAbsence}: 8,
+		{owner: "internal/platform/toolbridge", category: optionalAdjunct}:           11,
+		{owner: "internal/provider/claudecli", category: optionalAdjunct}:            4,
+		{owner: "internal/provider/codexapp", category: optionalAdjunct}:             5,
+		{owner: "internal/provider/unified", category: optionalAdjunct}:              5,
+		{owner: "internal/provider/_template", category: optionalTestOrTemplate}:     2,
+	}
+}
+
+func optionalDependencyBudgetCounts(classifications map[string]optionalDependencyClassification) map[optionalDependencyBudgetKey]int {
+	counts := make(map[optionalDependencyBudgetKey]int)
+	for _, classification := range classifications {
+		key := optionalDependencyBudgetKey{
+			owner:    classification.owner,
+			category: classification.category,
+		}
+		counts[key]++
+	}
+	return counts
+}
+
+func staleOptionalDependencyClassifications(
+	classifications map[string]optionalDependencyClassification,
+	seen map[string]bool,
+) []string {
+	var stale []string
+	for key := range classifications {
+		if !optionalDependencyClassificationRequiresOccurrence(key) {
+			continue
+		}
+		if seen[key] {
+			continue
+		}
+		stale = append(stale, key)
+	}
+	slices.Sort(stale)
+	return stale
+}
+
+func optionalDependencyClassificationRequiresOccurrence(key string) bool {
+	return strings.Contains(key, ":optional_tag:") ||
+		strings.Contains(key, ":fx_optional:") ||
+		strings.Contains(key, ":noop_success:")
 }
 
 func registeredOptionalDependencyClassifications() map[string]optionalDependencyClassification {
