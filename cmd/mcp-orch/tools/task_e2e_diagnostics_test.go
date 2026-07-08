@@ -180,7 +180,7 @@ func TestInvalidHybridVerifierDAGCreateFailsBeforeStoreStartAndWakeup(t *testing
 }
 
 func TestTaskDiagnoseDAGPromptIdentityGapsToolRegistered(t *testing.T) {
-	registry := NewRegistry(Dependencies{Orchestration: &golden.OrchestrationStub{}})
+	registry := NewRegistry(Dependencies{ToolPorts: ToolPorts{DAGIdentityDiagnostics: &golden.OrchestrationStub{}}})
 	def, ok := registry.Lookup("task_diagnose_dag_prompt_identity_gaps")
 	if !ok {
 		t.Fatal("task_diagnose_dag_prompt_identity_gaps tool not registered")

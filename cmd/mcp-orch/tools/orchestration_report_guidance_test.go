@@ -3,12 +3,10 @@ package tools
 import (
 	"strings"
 	"testing"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
 )
 
 func TestReportToolGuidanceDistinguishesSingleAndBatchReports(t *testing.T) {
-	defs := orchestrationToolDefinitions(&golden.OrchestrationStub{})
+	defs := orchestrationToolDefinitions(ToolPorts{})
 	def := requireToolDefinition(t, defs, "list_agents")
 
 	requireContains(t, def.Description, "get_agent_report")

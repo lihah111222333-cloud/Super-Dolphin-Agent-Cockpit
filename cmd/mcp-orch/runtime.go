@@ -185,7 +185,7 @@ func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
 // newRegistry 汇总 orchestration、workspace、prompt 等依赖并注册 MCP tools。
 func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
-		Orchestration:  p.Orchestration,
+		ToolPorts:      toolPortsFromOrchestration(p.Orchestration),
 		Workspace:      p.WS,
 		Prompt:         p.Prompt,
 		BuiltinPrompts: p.BuiltinPrompts,
@@ -193,6 +193,26 @@ func newRegistry(p newRegistryParams) tools.Registry {
 		SharedFile:     p.SharedFile,
 		ModelRegistry:  p.ModelRegistry,
 	})
+}
+
+func toolPortsFromOrchestration(svc contract.OrchestrationService) tools.ToolPorts {
+	return tools.ToolPorts{
+		AgentLaunch:            svc,
+		AgentMessenger:         svc,
+		AgentLifecycle:         svc,
+		AgentRecovery:          svc,
+		AgentInterrupt:         svc,
+		AgentList:              svc,
+		AgentReports:           svc,
+		DAGCreate:              svc,
+		DAGRuntime:             svc,
+		DAGDelete:              svc,
+		NodeStatus:             svc,
+		NodeDispatch:           svc,
+		WorkflowDiagnostics:    svc,
+		WorkflowRecovery:       svc,
+		DAGIdentityDiagnostics: svc,
+	}
 }
 
 // newStdioServer 创建 mcp-orch stdio MCP server，stdout 使用已绑定的 MCP 输出通道。

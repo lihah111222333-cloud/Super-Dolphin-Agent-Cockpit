@@ -11,7 +11,7 @@ import (
 )
 
 func TestInterruptAgentSchemaSupportsPosAndAgentID(t *testing.T) {
-	def := mustFindToolDefinition(t, orchestrationToolDefinitions(nil), "interrupt_agent")
+	def := mustFindToolDefinition(t, orchestrationToolDefinitions(ToolPorts{}), "interrupt_agent")
 	props := def.InputSchema["properties"].(map[string]any)
 	for _, field := range []string{"pos", "agent_id", "source", "timeout_ms"} {
 		if _, ok := props[field].(map[string]any); !ok {

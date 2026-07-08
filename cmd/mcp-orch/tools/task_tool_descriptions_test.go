@@ -6,7 +6,7 @@ import (
 )
 
 func TestTaskCreateDAGDescriptionSeparatesTemplateFromExecution(t *testing.T) {
-	defs := taskToolDefinitions(nil)
+	defs := taskToolDefinitions(ToolPorts{})
 	var desc string
 	for _, def := range defs {
 		if def.Name == "task_create_dag" {

@@ -13,9 +13,9 @@
     "total_methods": 1062,
     "total_interfaces": 156,
     "total_interface_methods": 316,
-    "total_exported": 1215,
+    "total_exported": 1216,
     "total_unexported": 2806,
-    "total_structs": 575
+    "total_structs": 576
   },
   "packages": [
     {
@@ -24523,8 +24523,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "ports",
+              "type": "ToolPorts"
             }
           ],
           "returns": [
@@ -26241,8 +26241,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "ports",
+              "type": "ToolPorts"
             }
           ],
           "returns": [
@@ -28185,6 +28185,10 @@
         },
         {
           "name": "ToolPathPolicy",
+          "exported": true
+        },
+        {
+          "name": "ToolPorts",
           "exported": true
         },
         {

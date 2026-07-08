@@ -125,7 +125,7 @@ func assertCreateDAGInvalidInputCode(t *testing.T, err error) {
 }
 
 func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
-	defs := taskToolDefinitions(nil)
+	defs := taskToolDefinitions(ToolPorts{})
 	createDAG := mustFindToolDefinition(t, defs, "task_create_dag")
 	props := createDAG.InputSchema["properties"].(map[string]any)
 	for _, want := range []string{"trigger", "default_retry", "max_concurrency"} {

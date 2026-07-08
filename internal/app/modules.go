@@ -57,6 +57,7 @@ const promptIntentE2EFixtureHarnessEnv = "PROMPT_INTENT_E2E_FIXTURE_HARNESS"
 var Module = fx.Options(
 	fx.Provide(NewLogger),
 	fx.Provide(pidregistry.New),
+	fx.Provide(newDashboardOrchestrationReader),
 	config.Module,
 	db.Module,
 	bus.Module,

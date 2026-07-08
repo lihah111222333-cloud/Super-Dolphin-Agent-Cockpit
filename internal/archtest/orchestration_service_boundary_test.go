@@ -20,6 +20,7 @@ func TestOrchestrationServiceConsumersUseNarrowPorts(t *testing.T) {
 
 	root := repoRoot(t)
 	allowances := allowedOrchestrationServiceConsumers()
+	packageAliases := orchestrationServicePackageAliases(t, root)
 	var violations []string
 	for _, absPath := range walkGoFiles(t, root, "cmd", "internal") {
 		relPath, err := filepath.Rel(root, absPath)
@@ -27,7 +28,7 @@ func TestOrchestrationServiceConsumersUseNarrowPorts(t *testing.T) {
 			t.Fatalf("rel path for %s: %v", absPath, err)
 		}
 		relPath = filepath.ToSlash(relPath)
-		count := countOrchestrationServiceSelectors(t, absPath)
+		count := countOrchestrationServiceSelectors(t, absPath, packageAliases[filepath.Dir(absPath)])
 		if count == 0 {
 			continue
 		}
@@ -48,24 +49,21 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 		return orchestrationServiceAllowance{max: max, reason: reason}
 	}
 	return map[string]orchestrationServiceAllowance{
-		"cmd/mcp-orch/orchestration/service.go":                compat(4, "production implementation facade re-exports and exposes the full service"),
-		"cmd/mcp-orch/runtime.go":                              compat(1, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
-		"cmd/mcp-orch/tools/registry.go":                       compat(1, "tool registry compatibility adapter keeps legacy dependency shape"),
-		"cmd/mcp-orch/tools/orchestration_tool_definitions.go": compat(1, "orchestration tool definition fanout adapter"),
-		"cmd/mcp-orch/tools/task_tool_definitions.go":          compat(1, "task tool definition fanout adapter"),
-		"internal/app/runtime_reporter_adapter.go":             compat(2, "explicit app adapter narrows full service to RuntimeReporter"),
-		"internal/module/dashboard/module.go":                  compat(1, "legacy optional dashboard input pending read-model port split"),
-		"internal/module/dashboard/service.go":                 compat(3, "legacy dashboard read-model adapter pending narrow port split"),
-		"internal/module/memory/module.go":                     compat(2, "legacy memory runtime bridge pending narrow state port split"),
-		"internal/module/uistate/module.go":                    compat(1, "legacy optional uistate input pending read-model port split"),
-		"internal/module/uistate/service.go":                   compat(3, "legacy uistate read-model adapter pending narrow port split"),
-		"internal/platform/mcpcontrol/handlers.go":             compat(1, "mcpcontrol context resolver compatibility adapter"),
-		"internal/platform/mcpcontrol/module.go":               compat(2, "mcpcontrol optional report handler adapter"),
-		"internal/platform/mcpcontrol/report_handlers.go":      compat(2, "mcpcontrol completion/report compatibility adapter"),
+		"cmd/mcp-orch/orchestration/service.go":           compat(2, "production facade may only re-export Service and provide the interface"),
+		"cmd/mcp-orch/orchestration/rpc.go":               compat(3, "legacy RPC facade consumes the package Service alias until split"),
+		"cmd/mcp-orch/runtime.go":                         compat(2, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
+		"internal/app/dashboard_adapter.go":               compat(2, "explicit app adapter narrows full service to dashboard OrchestrationReader"),
+		"internal/app/runtime_reporter_adapter.go":        compat(2, "explicit app adapter narrows full service to RuntimeReporter"),
+		"internal/module/memory/module.go":                compat(2, "legacy memory runtime bridge pending narrow state port split"),
+		"internal/module/uistate/module.go":               compat(1, "legacy optional uistate input pending read-model port split"),
+		"internal/module/uistate/service.go":              compat(3, "legacy uistate read-model adapter pending narrow port split"),
+		"internal/platform/mcpcontrol/handlers.go":        compat(1, "mcpcontrol context resolver compatibility adapter"),
+		"internal/platform/mcpcontrol/module.go":          compat(2, "mcpcontrol optional report handler adapter"),
+		"internal/platform/mcpcontrol/report_handlers.go": compat(2, "mcpcontrol completion/report compatibility adapter"),
 	}
 }
 
-func countOrchestrationServiceSelectors(t *testing.T, absPath string) int {
+func countOrchestrationServiceSelectors(t *testing.T, absPath string, packageAliases map[string]bool) int {
 	t.Helper()
 
 	fset := token.NewFileSet()
@@ -74,7 +72,37 @@ func countOrchestrationServiceSelectors(t *testing.T, absPath string) int {
 		t.Fatalf("parse %s: %v", absPath, err)
 	}
 	contractAliases := contractImportAliases(t, absPath, file)
-	return countOrchestrationServiceSelectorUses(file, contractAliases)
+	return countOrchestrationServiceSelectorUses(file, contractAliases, packageAliases)
+}
+
+func orchestrationServicePackageAliases(t *testing.T, root string) map[string]map[string]bool {
+	t.Helper()
+
+	aliasesByDir := map[string]map[string]bool{}
+	for _, absPath := range walkGoFiles(t, root, "cmd", "internal") {
+		file, err := parser.ParseFile(token.NewFileSet(), absPath, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", absPath, err)
+		}
+		contractAliases := contractImportAliases(t, absPath, file)
+		if len(contractAliases) == 0 {
+			continue
+		}
+		localAliases := orchestrationServiceLocalAliases(file, contractAliases)
+		if len(localAliases) == 0 {
+			continue
+		}
+		dir := filepath.Dir(absPath)
+		aliases := aliasesByDir[dir]
+		if aliases == nil {
+			aliases = map[string]bool{}
+			aliasesByDir[dir] = aliases
+		}
+		for name := range localAliases {
+			aliases[name] = true
+		}
+	}
+	return aliasesByDir
 }
 
 func contractImportAliases(t *testing.T, absPath string, file *ast.File) map[string]bool {
@@ -105,28 +133,49 @@ func contractImportAliases(t *testing.T, absPath string, file *ast.File) map[str
 	return contractAliases
 }
 
-func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[string]bool) int {
-	if len(contractAliases) == 0 {
+func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[string]bool, packageAliases map[string]bool) int {
+	if len(contractAliases) == 0 && len(packageAliases) == 0 {
 		return 0
 	}
 	localAliases := orchestrationServiceLocalAliases(file, contractAliases)
+	for name := range packageAliases {
+		localAliases[name] = true
+	}
 	count := 0
 	ast.Inspect(file, func(n ast.Node) bool {
-		selector, ok := n.(*ast.SelectorExpr)
-		if ok {
-			if selector.Sel.Name != "OrchestrationService" {
-				return true
+		switch typed := n.(type) {
+		case *ast.TypeSpec:
+			count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
+			return false
+		case *ast.Field:
+			count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
+			return false
+		case *ast.ValueSpec:
+			if typed.Type != nil {
+				count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
 			}
-			base, ok := selector.X.(*ast.Ident)
-			if ok && contractAliases[base.Name] {
+			return false
+		}
+		return true
+	})
+	return count
+}
+
+func countOrchestrationServiceTypeExpr(expr ast.Expr, contractAliases map[string]bool, localAliases map[string]bool) int {
+	count := 0
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch typed := n.(type) {
+		case *ast.Field:
+			count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
+			return false
+		case *ast.SelectorExpr:
+			if isOrchestrationServiceSelector(typed, contractAliases) {
 				count++
 			}
-			return true
-		}
-
-		ident, ok := n.(*ast.Ident)
-		if ok && localAliases[ident.Name] && !isTypeSpecName(file, ident) {
-			count++
+		case *ast.Ident:
+			if localAliases[typed.Name] {
+				count++
+			}
 		}
 		return true
 	})
@@ -136,7 +185,14 @@ func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[s
 func TestCountOrchestrationServiceSelectorUsesCountsLocalAliases(t *testing.T) {
 	t.Parallel()
 
-	src := `package fixture
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{
+			name: "local alias declaration and field parameter return uses",
+			src: `package fixture
 
 import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
@@ -148,16 +204,97 @@ type wrapper struct {
 func use(svc OS) OS {
 	return svc
 }
+`,
+			want: 4,
+		},
+		{
+			name: "direct selector field parameter return uses",
+			src: `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type wrapper struct {
+	service contract.OrchestrationService
+}
+
+func use(svc contract.OrchestrationService) contract.OrchestrationService {
+	return svc
+}
+`,
+			want: 3,
+		},
+		{
+			name: "facade allows service alias and interface provider return",
+			src: `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type Service = contract.OrchestrationService
+
+type service struct{}
+
+func ProvideServiceInterface(s *service) Service { return s }
+`,
+			want: 2,
+		},
+		{
+			name: "facade fixture would fail on extra full service field",
+			src: `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type Service = contract.OrchestrationService
+
+type holder struct {
+	service Service
+}
+
+type service struct{}
+
+func ProvideServiceInterface(s *service) Service { return s }
+`,
+			want: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", tt.src, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parse fixture: %v", err)
+			}
+			contractAliases := contractImportAliases(t, "fixture.go", file)
+			got := countOrchestrationServiceSelectorUses(file, contractAliases, nil)
+			if got != tt.want {
+				t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountOrchestrationServiceSelectorUsesCountsPackageAliases(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type holder struct {
+	service Service
+}
+
+func use(svc Service) Service {
+	return svc
+}
 `
-	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", src, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(token.NewFileSet(), "consumer.go", src, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	contractAliases := contractImportAliases(t, "fixture.go", file)
-	got := countOrchestrationServiceSelectorUses(file, contractAliases)
-	const want = 4
+	got := countOrchestrationServiceSelectorUses(file, nil, map[string]bool{"Service": true})
+	const want = 3
 	if got != want {
-		t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d; local alias use must consume the boundary budget", got, want)
+		t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d; package alias use must consume the boundary budget", got, want)
 	}
 }
 
@@ -188,20 +325,4 @@ func isOrchestrationServiceSelector(expr ast.Expr, contractAliases map[string]bo
 	}
 	base, ok := selector.X.(*ast.Ident)
 	return ok && contractAliases[base.Name]
-}
-
-func isTypeSpecName(file *ast.File, ident *ast.Ident) bool {
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if ok && typeSpec.Name == ident {
-				return true
-			}
-		}
-	}
-	return false
 }
