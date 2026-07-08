@@ -221,11 +221,11 @@ func applyFileGateRules(file string, gates, evidence, generated map[string]bool)
 
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。
 func aiMaintenanceRelevant(file string) bool {
-	return file == ".github/workflows/ai-maintenance-gates.yml" ||
+	return file == ".githooks/pre-commit" ||
+		file == ".githooks/pre-push" ||
 		file == "scripts/ai_maintenance_gates.sh" ||
 		file == "scripts/ai_maintenance_gates_guard_test.go" ||
-		strings.HasPrefix(file, "scripts/ai_maintenance/") ||
-		file == "Makefile"
+		strings.HasPrefix(file, "scripts/ai_maintenance/")
 }
 
 func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
@@ -708,6 +708,7 @@ func codemapRelevant(file string) bool {
 		strings.HasPrefix(file, "pkg/") ||
 		strings.HasPrefix(file, "frontend-app/src/") ||
 		strings.HasPrefix(file, "docs/doc/codemap/") ||
+		file == ".ai-project-map.overrides.json" ||
 		file == "scripts/generate_ai_project_map.mjs" ||
 		file == "scripts/codemap_index.go"
 }

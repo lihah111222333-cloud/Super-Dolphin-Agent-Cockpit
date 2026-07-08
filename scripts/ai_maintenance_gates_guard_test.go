@@ -2,17 +2,18 @@ package main
 
 import "testing"
 
-func TestAIMaintenanceGateVerifiesFrontendEmbedArtifacts(t *testing.T) {
+func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	script := readScript(t, "ai_maintenance_gates.sh")
-	workflow := readRepoFile(t, "../.github/workflows/ai-maintenance-gates.yml")
-	makefile := readRepoFile(t, "../Makefile")
+	preCommit := readRepoFile(t, "../.githooks/pre-commit")
+	prePush := readRepoFile(t, "../.githooks/pre-push")
 
 	assertScriptContains(t, script, "go run ./scripts/ai_maintenance run \"$@\"")
-	assertScriptContains(t, makefile, "ai-maintenance-gates:")
-	assertScriptContains(t, makefile, "./scripts/ai_maintenance_gates.sh $(AI_MAINTENANCE_ARGS)")
-	assertScriptContains(t, workflow, "Run AI maintenance gates")
-	assertScriptContains(t, workflow, "./scripts/ai_maintenance_gates.sh")
-	assertScriptContains(t, workflow, "github.event.pull_request.base.sha")
+	assertScriptContains(t, preCommit, "run_ai_maintenance_staged_gate")
+	assertScriptContains(t, preCommit, "./scripts/ai_maintenance_gates.sh")
+	assertScriptContains(t, preCommit, "--changed-file")
+	assertScriptContains(t, prePush, "run_ai_maintenance_push_gate")
+	assertScriptContains(t, prePush, "./scripts/ai_maintenance_gates.sh")
+	assertScriptContains(t, prePush, "--changed-file")
 }
 
 func TestAIMaintenanceGateImplementationContracts(t *testing.T) {

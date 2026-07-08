@@ -232,9 +232,11 @@ func TestFixTestGuardSkipsMergeCommitSubjects(t *testing.T) {
 func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFakeCodeGuardScript(t, root)
+	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/test_with_guard.sh", "Makefile")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -244,16 +246,18 @@ func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit failed: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "[pre-commit] full codebase guard", "fake code guard --guard-only skip-gosec=1", "pre-commit OK")
+	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "[generated] refresh codemap artifacts", "[generated] refresh AI project map", "[pre-commit] AI maintenance gates", "[pre-commit] full codebase guard", "fake code guard --guard-only skip-gosec=1", "pre-commit OK")
 	assertOutputOmitsAll(t, out, "go vet", "frontend-app tests")
 }
 
 func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFakeCodeGuardScript(t, root)
+	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/test_with_guard.sh", "Makefile")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -263,7 +267,7 @@ func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit failed: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "pre-commit OK")
+	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "[generated] refresh codemap artifacts", "[generated] refresh AI project map", "[pre-commit] AI maintenance gates", "pre-commit OK")
 
 	cached := runFixTestGuardGitOutput(t, root, "diff", "--cached", "--name-only")
 	assertOutputContainsAll(t, cached,

@@ -25,6 +25,7 @@ PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
 GO_LIST_ERR=$(mktemp -t pre-push-golist.XXXXXX)
 LOG=
 GO_PKG_CANDIDATES=()
+AI_MAINTENANCE_CHANGED_FILES=()
 HAS_FRONTEND_APP_CODE_CHANGES=0
 HAS_SQLC_CHANGES=0
 HAS_CODEMAP_CHANGES=0
@@ -106,6 +107,12 @@ add_go_pkg_for_path() {
   fi
 }
 
+add_ai_maintenance_path() {
+  if ! array_contains "$1" "${AI_MAINTENANCE_CHANGED_FILES[@]}"; then
+    AI_MAINTENANCE_CHANGED_FILES+=("$1")
+  fi
+}
+
 is_frontend_app_code_path() {
   case "$1" in
     frontend-app/node_modules/*|\
@@ -157,7 +164,7 @@ add_sqlc_path() {
 
 add_codemap_path() {
   case "$1" in
-    docs/doc/codemap/*|scripts/codemap_index.go|scripts/generate_ai_project_map.mjs)
+    docs/doc/codemap/*|.ai-project-map.overrides.json|scripts/codemap_index.go|scripts/generate_ai_project_map.mjs)
       HAS_CODEMAP_CHANGES=1
       ;;
   esac
@@ -183,6 +190,7 @@ add_skill_path() {
 }
 
 record_changed_path() {
+  add_ai_maintenance_path "$1"
   add_go_pkg_for_path "$1"
   add_frontend_path "$1"
   add_sqlc_path "$1"
@@ -348,6 +356,21 @@ run_path_based_repository_gates() {
   fi
 }
 
+run_ai_maintenance_push_gate() {
+  if [ ${#AI_MAINTENANCE_CHANGED_FILES[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  local args=()
+  local path
+  for path in "${AI_MAINTENANCE_CHANGED_FILES[@]}"; do
+    args+=(--changed-file "$path")
+  done
+
+  echo "[pre-push] AI maintenance gates..."
+  run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
+}
+
 ensure_pushed_refs_match_head() {
   # 手工直接运行脚本时 stdin 是终端；不要阻塞等待输入。
   if [ -t 0 ]; then
@@ -395,6 +418,7 @@ if [ -s "$PUSH_RANGES" ]; then
 fi
 
 collect_changed_test_scopes
+run_ai_maintenance_push_gate
 run_go_package_tests
 run_frontend_app_package_tests
 run_frontend_embed_verify

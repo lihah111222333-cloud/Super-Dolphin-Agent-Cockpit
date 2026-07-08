@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-08
 >
-> 已索引文件：**4072**
+> 已索引文件：**4073**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -29,7 +29,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1006 | 185.4 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 306 | 45.5 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 850 | 151.1 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 477 | 90.2 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 478 | 90.5 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -53,7 +53,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `cmd` | 643 | 可执行入口与 MCP peer |
 | `frontend-app` | 308 | 当前 React/Vite 新 UI |
 | `migrations` | 111 | 数据库 migration |
-| `scripts` | 107 | 工程自动化脚本 |
+| `scripts` | 108 | 工程自动化脚本 |
 | `sql` | 30 | SQL query 源文件 |
 | `pkg` | 25 | 可复用公共库 |
 | `test` | 9 | 测试夹具和辅助资源 |
@@ -88,7 +88,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 修改持久化/SQL | `internal/store/` | `sql/queries/` | `store sqlc migration queries` |
 | 修改代码地图 | `docs/doc/codemap/` | `scripts/codemap_index.go` | `codemap ai-index make codemap-refresh` |
 | 修改架构守卫 | `internal/archtest/` | `internal/archtest/baseline.json` | `guard baseline ratchet freeze` |
-| 查 AI maintenance gates | `scripts/ai_maintenance/` | `.github/workflows/ai-maintenance-gates.yml` | `ai maintenance gates validation generated files` |
+| 查 AI maintenance gates | `scripts/ai_maintenance/` | `.githooks/pre-push` | `ai maintenance gates validation local hooks generated files` |
 | 查 runtime skill 行为 | `internal/module/skill/` | `internal/provider/shared/provider_home.go` | `skill canonical mirror provider home personal hub` |
 | 查 LSP 工作流规则 | `docs/internal-notes/LSP系统提示词.md` | `cmd/mcp-lsp/tools/` | `lsp diagnostics grep inspect xref` |
 | 查 provider bridge | `internal/provider/` | `internal/platform/toolbridge/` | `provider manifest session toolbridge codex claude` |

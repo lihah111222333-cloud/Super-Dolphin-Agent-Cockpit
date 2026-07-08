@@ -5,10 +5,10 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4072,
+  "files": 4073,
   "domains": {
     "docs-agent": 850,
-    "other": 477,
+    "other": 478,
     "app-ui": 310,
     "platform-provider": 1006,
     "orchestration": 406,
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 477,
-        "size_kb": 90.2,
+        "file_count": 478,
+        "size_kb": 90.5,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -78,7 +78,7 @@
     "internal": 1975,
     "migrations": 111,
     "pkg": 25,
-    "scripts": 107,
+    "scripts": 108,
     "sql": 30,
     "test": 9,
     "tests": 1,
@@ -160,8 +160,8 @@
     {
       "goal": "查 AI maintenance gates",
       "primary": "scripts/ai_maintenance/",
-      "secondary": ".github/workflows/ai-maintenance-gates.yml",
-      "keywords": "ai maintenance gates validation generated files"
+      "secondary": ".githooks/pre-push",
+      "keywords": "ai maintenance gates validation local hooks generated files"
     },
     {
       "goal": "查 runtime skill 行为",

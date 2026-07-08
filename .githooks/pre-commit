@@ -123,8 +123,8 @@ refresh_codemap_generated_files() {
   git -c core.autocrlf=false checkout-index -a --prefix="$CODEMAP_TMP/"
   (
     cd "$CODEMAP_TMP"
-    run_go_without_git_env make codemap-refresh
-    run_go_without_git_env make project-map-refresh PROJECT_MAP_ARGS=--filesystem-scan
+    run_go_without_git_env scripts/refresh_generated_artifacts.sh codemap
+    run_go_without_git_env scripts/refresh_generated_artifacts.sh project-map -- --filesystem-scan
   )
 
   for generated in \
@@ -144,6 +144,25 @@ refresh_codemap_generated_files() {
   cp "$CODEMAP_TMP/docs/doc/codemap/ai-index.json" docs/doc/codemap/ai-index.json
   cp -R "$CODEMAP_TMP/docs/doc/codemap/project-map" docs/doc/codemap/project-map
   git add -A -- "${CODEMAP_GENERATED_PATHS[@]}"
+}
+
+run_ai_maintenance_staged_gate() {
+  local args=()
+  local path
+  while IFS= read -r -d '' path; do
+    args+=(--changed-file "$path")
+  done < <(git diff --cached --name-only -z --diff-filter=ACMRD)
+
+  if [ ${#args[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  echo "[pre-commit] AI maintenance gates..."
+  if ! run_go_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"; then
+    echo "❌ AI maintenance gates 未通过" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
 }
 
 is_go_path() {
@@ -252,6 +271,7 @@ while IFS= read -r -d '' status; do
 done < <(git diff --cached --name-status -z --diff-filter=ACMRD)
 
 refresh_codemap_generated_files
+run_ai_maintenance_staged_gate
 
 # go vet / go test 以 worktree 包为输入；为避免测试到未提交内容，
 # staged Go 影响到的包内若还有未暂存或未跟踪 .go，也必须先处理。

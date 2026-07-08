@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2215,
-    "total_methods": 1061,
-    "total_interfaces": 136,
-    "total_interface_methods": 279,
-    "total_exported": 1202,
-    "total_unexported": 2783,
-    "total_structs": 573
+    "total_functions": 2227,
+    "total_methods": 1062,
+    "total_interfaces": 137,
+    "total_interface_methods": 280,
+    "total_exported": 1211,
+    "total_unexported": 2790,
+    "total_structs": 575
   },
   "packages": [
     {
@@ -28261,6 +28261,23 @@
           ]
         },
         {
+          "name": "AllowsMissingDependency",
+          "exported": true,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "AppManagedCodexHome",
           "exported": true,
           "returns": [
@@ -28637,6 +28654,23 @@
           ]
         },
         {
+          "name": "MissingDependencyModeError",
+          "exported": true,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "NewAgentMemoryError",
           "exported": true,
           "params": [
@@ -28950,6 +28984,13 @@
           "exported": true,
           "returns": [
             "[]string"
+          ]
+        },
+        {
+          "name": "RegisteredDependencyAbsencePolicies",
+          "exported": true,
+          "returns": [
+            "[]DependencyAbsencePolicy"
           ]
         },
         {
@@ -29380,6 +29421,19 @@
           ]
         },
         {
+          "name": "dependencyAbsencePolicyNameExists",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "eventTypeName",
           "exported": false,
           "params": [
@@ -29455,6 +29509,37 @@
             }
           ],
           "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isKnownDependencyProfile",
+          "exported": false,
+          "params": [
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "lookupDependencyAbsencePolicy",
+          "exported": false,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
+            }
+          ],
+          "returns": [
+            "DependencyAbsencePolicy",
             "bool"
           ]
         },
@@ -32080,6 +32165,24 @@
           ]
         },
         {
+          "name": "MemoryExtractionDrainer",
+          "exported": true,
+          "methods": [
+            {
+              "name": "DrainPendingExtraction",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
           "name": "MemoryService",
           "exported": true,
           "methods": [
@@ -34266,6 +34369,10 @@
         },
         {
           "name": "DeleteDAGRequest",
+          "exported": true
+        },
+        {
+          "name": "DependencyAbsencePolicy",
           "exported": true
         },
         {
@@ -54298,6 +54405,19 @@
           ]
         },
         {
+          "name": "RequiredAcceptanceCriteria",
+          "exported": true,
+          "params": [
+            {
+              "name": "spec",
+              "type": "Spec"
+            }
+          ],
+          "returns": [
+            "[]AcceptanceCriterion"
+          ]
+        },
+        {
           "name": "RunSpecForTest",
           "exported": true,
           "params": [
@@ -54326,6 +54446,19 @@
               "name": "spec",
               "type": "Spec"
             }
+          ]
+        },
+        {
+          "name": "ValidateAcceptanceSpec",
+          "exported": true,
+          "params": [
+            {
+              "name": "spec",
+              "type": "Spec"
+            }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -54840,12 +54973,64 @@
           ]
         },
         {
+          "name": "validateAcceptanceEventTranslation",
+          "exported": false,
+          "params": [
+            {
+              "name": "cases",
+              "type": "[]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateAcceptancePromptCaseAlternative",
+          "exported": false,
+          "params": [
+            {
+              "name": "cases",
+              "type": "map[CaseKey]Case"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "validateDependencyModeError",
           "exported": false,
           "params": [
             {
               "name": "unsupported",
               "type": "*UnsupportedOutcomeEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateDynamicToolObserved",
+          "exported": false,
+          "params": [
+            {
+              "name": "responder",
+              "type": "DynamicToolResponderEvidence"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateDynamicToolUnsupported",
+          "exported": false,
+          "params": [
+            {
+              "name": "responder",
+              "type": "DynamicToolResponderEvidence"
             }
           ],
           "returns": [
@@ -55095,6 +55280,21 @@
         },
         {
           "receiver": "*CaseEvidence",
+          "name": "RecordDynamicToolResponder",
+          "exported": true,
+          "params": [
+            {
+              "name": "t",
+              "type": "*testing.T"
+            },
+            {
+              "name": "responder",
+              "type": "DynamicToolResponderEvidence"
+            }
+          ]
+        },
+        {
+          "receiver": "*CaseEvidence",
           "name": "RecordEventMatrix",
           "exported": true,
           "params": [
@@ -55267,6 +55467,10 @@
         },
         {
           "name": "CaseEvidence",
+          "exported": true
+        },
+        {
+          "name": "DynamicToolResponderEvidence",
           "exported": true
         },
         {

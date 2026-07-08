@@ -110,6 +110,13 @@ func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
 			wantLog: []string{"make codemap-check", "make project-map-check"},
 		},
 		{
+			name:    "project map overrides changes run codemap checks",
+			path:    ".ai-project-map.overrides.json",
+			content: "{}\n",
+			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
+			wantLog: []string{"make codemap-check", "make project-map-check"},
+		},
+		{
 			name:    "skill changes run skill validation",
 			path:    ".agents/skills/demo/SKILL.md",
 			content: "---\nname: demo\ndescription: demo\n---\n",

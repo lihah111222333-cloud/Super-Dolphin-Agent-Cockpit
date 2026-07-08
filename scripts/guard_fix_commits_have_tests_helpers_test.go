@@ -87,10 +87,10 @@ func assertPrePushDocsOnlyScope(t *testing.T) {
 	head := commitPrePushDocsOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
 	assertOutputOmitsAll(t, out, "go package tests", "frontend-app tests")
-	assertOutputContainsAll(t, out, "pre-push OK")
-	if log := fixture.log(t); log != "" {
-		t.Fatalf("package command log should be empty for docs-only push\n%s", log)
-	}
+	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, "ai-maintenance --changed-file docs/readme.md")
+	assertOutputOmitsAll(t, log, "go-test", "npm ", "node ", "npx ")
 }
 
 func commitPrePushDocsOnlyChange(t *testing.T, root string) string {
@@ -150,7 +150,8 @@ func preparePrePushScopeRepo(t *testing.T) string {
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
 	writePrePushFakeGoTestScript(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh")
+	writeFakeAIMaintenanceGateScript(t, root)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
 	return root
 }
@@ -170,6 +171,18 @@ func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
 	path := filepath.Join(root, "scripts", "test_with_guard.sh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake test_with_guard.sh: %v", err)
+	}
+}
+
+func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
+	t.Helper()
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake ai maintenance gate %s\\n' \"$*\"\nif [ -n \"${HOOK_SCOPE_LOG:-}\" ]; then\n  printf 'ai-maintenance %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nfi\n"
+	path := filepath.Join(root, "scripts", "ai_maintenance_gates.sh")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fake ai maintenance gate dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake ai_maintenance_gates.sh: %v", err)
 	}
 }
 

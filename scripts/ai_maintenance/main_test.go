@@ -39,10 +39,16 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 	}
 }
 
-func TestBuildGatePlanRoutesAIMaintenanceWorkflowToSelfTest(t *testing.T) {
-	plan := buildGatePlan([]string{".github/workflows/ai-maintenance-gates.yml"})
+func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
+	plan := buildGatePlan([]string{".githooks/pre-commit", ".githooks/pre-push"})
 
 	assertStringSetContains(t, plan.RequiredGates, "ai-maintenance:self-test", "diff:whitespace")
+}
+
+func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
+	plan := buildGatePlan([]string{".ai-project-map.overrides.json"})
+
+	assertStringSetContains(t, plan.RequiredGates, "codemap:check", "project-map:check", "diff:whitespace")
 }
 
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
