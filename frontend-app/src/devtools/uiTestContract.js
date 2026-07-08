@@ -5,6 +5,7 @@ const UI_TEST_TOOLS = Object.freeze([
   'ui_action',
   'ui_diagnostics',
   'ui_frontend_logs',
+  'ui_scenario_run',
 ]);
 
 const UI_TEST_ACTIONS = Object.freeze([
@@ -23,6 +24,11 @@ const UI_TEST_ROUTES = Object.freeze({
   chat: '/',
   settings: '/settings',
   observability: '/observability',
+  skills: '/skills',
+  automation: '/dags',
+  prompts: '/prompts',
+  files: '/files',
+  memory: '/memory',
 });
 
 const UI_TEST_WAIT_STATES = Object.freeze([
@@ -46,6 +52,31 @@ const UI_TEST_LIMITS = Object.freeze({
   maxLineBytes: 1024 * 1024,
 });
 
+const UI_TEST_SCENARIOS = Object.freeze({
+  chat_composer_probe: Object.freeze({
+    id: 'chat_composer_probe',
+    risk: 'local_ui_only',
+  }),
+  frontend_navigation_probe: Object.freeze({
+    id: 'frontend_navigation_probe',
+    risk: 'local_ui_only',
+  }),
+  observability_logs_probe: Object.freeze({
+    id: 'observability_logs_probe',
+    risk: 'read_only',
+  }),
+  settings_open_probe: Object.freeze({
+    id: 'settings_open_probe',
+    risk: 'read_only',
+  }),
+  open_route_probe: Object.freeze({
+    id: 'open_route_probe',
+    risk: 'read_only',
+  }),
+});
+
+const UI_TEST_SCENARIO_IDS = Object.freeze(Object.keys(UI_TEST_SCENARIOS));
+
 function assertKnownName(name, values, label) {
   if (typeof name === 'string' && values.includes(name)) return name;
   throw new Error(`unknown UI test ${label}: ${String(name)}`);
@@ -61,6 +92,10 @@ function assertKnownActionName(name) {
 
 function assertKnownTargetName(target) {
   return assertKnownName(target, UI_TEST_TARGETS, 'target');
+}
+
+function assertKnownScenarioName(name) {
+  return assertKnownName(name, UI_TEST_SCENARIO_IDS, 'scenario');
 }
 
 function normalizePositiveInteger(value, defaultValue, maxValue, label) {
@@ -117,9 +152,12 @@ export {
   UI_TEST_ROUTES,
   UI_TEST_WAIT_STATES,
   UI_TEST_LIMITS,
+  UI_TEST_SCENARIOS,
+  UI_TEST_SCENARIO_IDS,
   assertKnownToolName,
   assertKnownActionName,
   assertKnownTargetName,
+  assertKnownScenarioName,
   normalizeLimit,
   normalizeTimeoutMs,
   validateExactKeys,

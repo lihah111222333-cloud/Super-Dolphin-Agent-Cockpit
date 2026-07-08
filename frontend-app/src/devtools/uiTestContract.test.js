@@ -4,10 +4,13 @@ import {
   UI_TEST_GLOBAL,
   UI_TEST_LIMITS,
   UI_TEST_ROUTES,
+  UI_TEST_SCENARIO_IDS,
+  UI_TEST_SCENARIOS,
   UI_TEST_TARGETS,
   UI_TEST_TOOLS,
   UI_TEST_WAIT_STATES,
   assertKnownActionName,
+  assertKnownScenarioName,
   assertKnownTargetName,
   assertKnownToolName,
   normalizeLimit,
@@ -31,6 +34,7 @@ describe('uiTestContract constants', () => {
       'ui_action',
       'ui_diagnostics',
       'ui_frontend_logs',
+      'ui_scenario_run',
     ]);
   });
 
@@ -55,12 +59,32 @@ describe('uiTestContract constants', () => {
       chat: '/',
       settings: '/settings',
       observability: '/observability',
+      skills: '/skills',
+      automation: '/dags',
+      prompts: '/prompts',
+      files: '/files',
+      memory: '/memory',
     });
     expectExactUniqueValues(UI_TEST_WAIT_STATES, [
       'frontend_ready',
       'composer_text_length',
       'route',
     ]);
+  });
+
+  it('exports exact scenario names without duplicates', () => {
+    expectExactUniqueValues(UI_TEST_SCENARIO_IDS, [
+      'chat_composer_probe',
+      'frontend_navigation_probe',
+      'observability_logs_probe',
+      'settings_open_probe',
+      'open_route_probe',
+    ]);
+    expect(Object.keys(UI_TEST_SCENARIOS)).toEqual(UI_TEST_SCENARIO_IDS);
+    expect(UI_TEST_SCENARIOS.frontend_navigation_probe).toMatchObject({
+      id: 'frontend_navigation_probe',
+      risk: 'local_ui_only',
+    });
   });
 
   it('exports exact shared limits', () => {
@@ -86,10 +110,12 @@ describe('uiTestContract validators', () => {
     expect(assertKnownToolName('ui_snapshot')).toBe('ui_snapshot');
     expect(assertKnownActionName('navigate')).toBe('navigate');
     expect(assertKnownTargetName('composer_input')).toBe('composer_input');
+    expect(assertKnownScenarioName('frontend_navigation_probe')).toBe('frontend_navigation_probe');
 
     expect(() => assertKnownToolName('eval_js')).toThrow('unknown UI test tool: eval_js');
     expect(() => assertKnownActionName('click_selector')).toThrow('unknown UI test action: click_selector');
     expect(() => assertKnownTargetName('body')).toThrow('unknown UI test target: body');
+    expect(() => assertKnownScenarioName('click_everything')).toThrow('unknown UI test scenario: click_everything');
   });
 
   it('normalizes limits and timeouts through contract bounds', () => {

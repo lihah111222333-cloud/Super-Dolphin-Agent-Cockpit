@@ -58,8 +58,8 @@ frontend-app/src/AppShellWorkbench.css	frontend-app	app-ui	css	13711	当前 Reac
 frontend-app/src/AppWindowFrame.jsx	frontend-app	app-ui	jsx	4478	当前 React/Vite 前端包	frontend,app,src,AppWindowFrame,当前,React,Vite,前端包
 frontend-app/src/assets/suiyuan-brand-icon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,src,assets,suiyuan,brand,icon,当前,React,Vite,前端包
 frontend-app/src/assets/super-dolphin-logo.png	frontend-app	app-ui	png	5140	当前 React/Vite 前端包	frontend,app,src,assets,super,dolphin,logo,当前,React,Vite,前端包
-frontend-app/src/devtools/uiTestContract.js	frontend-app	app-ui	js-source	3027	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,当前,React,Vite,前端包
-frontend-app/src/devtools/uiTestContract.test.js	frontend-app	app-ui	js-test	4784	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,test,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestContract.js	frontend-app	app-ui	js-source	3980	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestContract.test.js	frontend-app	app-ui	js-test	5731	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,test,当前,React,Vite,前端包
 frontend-app/src/devtools/uiTestHarness.js	frontend-app	app-ui	js-source	16422	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,当前,React,Vite,前端包
 frontend-app/src/devtools/uiTestHarness.test.js	frontend-app	app-ui	js-test	12492	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,test,当前,React,Vite,前端包
 frontend-app/src/devtools/UITestMCPShell.jsx	frontend-app	app-ui	jsx	502	当前 React/Vite 前端包	frontend,app,src,devtools,UITestMCPShell,当前,React,Vite,前端包
