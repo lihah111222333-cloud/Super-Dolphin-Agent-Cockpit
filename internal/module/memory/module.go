@@ -46,20 +46,18 @@ type promptProviderParams struct {
 type memoryHandlerFxDeps struct {
 	fx.In
 
-	Service            Service                       `optional:"true"`
-	Orchestration      contract.OrchestrationService `optional:"true"`
-	DAGRuntime         contract.DAGRuntime           `optional:"true"`
-	SharedFiles        sharedfilestore.Reader        `optional:"true"`
-	SharedFilesDeleter sharedfilestore.Deleter       `optional:"true"`
-	Sections           contract.SectionInvalidator   `optional:"true"`
-	Logger             *slog.Logger                  `optional:"true"`
-	DreamExecutor      contract.DreamExecutor        `optional:"true"`
-	Dispatcher         *event.Dispatcher             `optional:"true"`
+	Service            Service                     `optional:"true"`
+	DAGRuntime         contract.DAGRuntime         `optional:"true"`
+	SharedFiles        sharedfilestore.Reader      `optional:"true"`
+	SharedFilesDeleter sharedfilestore.Deleter     `optional:"true"`
+	Sections           contract.SectionInvalidator `optional:"true"`
+	Logger             *slog.Logger                `optional:"true"`
+	DreamExecutor      contract.DreamExecutor      `optional:"true"`
+	Dispatcher         *event.Dispatcher           `optional:"true"`
 }
 
 type memoryHandlerDeps struct {
 	Service            Service
-	Orchestration      contract.OrchestrationService
 	DAGRuntime         contract.DAGRuntime
 	SharedFiles        sharedfileport.Reader
 	SharedFilesDeleter sharedfileport.Deleter
@@ -447,7 +445,6 @@ func provideMemoryService(p provideMemoryServiceParams) Service {
 func newMemoryHandlerDeps(p memoryHandlerFxDeps) memoryHandlerDeps {
 	return memoryHandlerDeps{
 		Service:            p.Service,
-		Orchestration:      p.Orchestration,
 		DAGRuntime:         p.DAGRuntime,
 		SharedFiles:        adaptSharedFileReader(p.SharedFiles),
 		SharedFilesDeleter: adaptSharedFileDeleter(p.SharedFilesDeleter),

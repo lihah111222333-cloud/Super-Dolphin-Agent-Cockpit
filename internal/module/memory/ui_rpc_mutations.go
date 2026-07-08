@@ -114,7 +114,7 @@ func sharedFileCleanupDeps(p memoryHandlerDeps) sharedfilecleanup.Deps {
 	return sharedfilecleanup.Deps{
 		Reader:     p.SharedFiles,
 		Deleter:    p.SharedFilesDeleter,
-		DAGRuntime: sharedFileDeleteGuardRuntime(p),
+		DAGRuntime: p.DAGRuntime,
 	}
 }
 

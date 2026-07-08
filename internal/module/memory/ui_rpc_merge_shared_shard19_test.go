@@ -419,7 +419,7 @@ func TestDeleteUISharedFileRejectsFinalOutputReference(t *testing.T) {
 	deleter := &recordingSharedFileDeleter{}
 	deps := memoryHandlerDeps{
 		SharedFilesDeleter: deleter,
-		Orchestration: &finalOutputOrchestrationStub{
+		DAGRuntime: &finalOutputDAGRuntimeStub{
 			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
 			runs: []contract.Run{{
 				RunKey: "run-1",
@@ -453,7 +453,7 @@ func TestDeleteUISharedFileAllowsUnreferencedSharedFile(t *testing.T) {
 	deleter := &recordingSharedFileDeleter{}
 	deps := memoryHandlerDeps{
 		SharedFilesDeleter: deleter,
-		Orchestration: &finalOutputOrchestrationStub{
+		DAGRuntime: &finalOutputDAGRuntimeStub{
 			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
 			runs: []contract.Run{{
 				RunKey:   "run-1",
@@ -481,7 +481,7 @@ func TestDeleteUISharedFileRejectsMalformedFinalOutputMetadata(t *testing.T) {
 	deleter := &recordingSharedFileDeleter{}
 	deps := memoryHandlerDeps{
 		SharedFilesDeleter: deleter,
-		Orchestration: &finalOutputOrchestrationStub{
+		DAGRuntime: &finalOutputDAGRuntimeStub{
 			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
 			runs: []contract.Run{{
 				RunKey:   "run-1",
@@ -509,7 +509,7 @@ func TestDeleteUISharedFileUsesDAGRuntimeGuardWithoutOrchestration(t *testing.T)
 	deleter := &recordingSharedFileDeleter{}
 	deps := memoryHandlerDeps{
 		SharedFilesDeleter: deleter,
-		DAGRuntime: &finalOutputOrchestrationStub{
+		DAGRuntime: &finalOutputDAGRuntimeStub{
 			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
 			runs: []contract.Run{{
 				RunKey:   "run-1",
@@ -560,17 +560,17 @@ func (r *recordingSharedFileDeleter) Delete(_ context.Context, path string) (int
 	return 1, nil
 }
 
-type finalOutputOrchestrationStub struct {
-	contract.OrchestrationService
+type finalOutputDAGRuntimeStub struct {
+	contract.DAGRuntime
 	dags []contract.DAGSummary
 	runs []contract.Run
 }
 
-func (s *finalOutputOrchestrationStub) ListDAGs(context.Context, contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
+func (s *finalOutputDAGRuntimeStub) ListDAGs(context.Context, contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	return s.dags, nil
 }
 
-func (s *finalOutputOrchestrationStub) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+func (s *finalOutputDAGRuntimeStub) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	out := make([]contract.Run, 0, len(s.runs))
 	for _, run := range s.runs {
 		if run.DagKey == req.DagKey {
