@@ -193,6 +193,17 @@ func (s *threadListerStub) List(context.Context) ([]contract.ThreadRef, error) {
 	return s.refs, s.err
 }
 
+type agentListStub struct {
+	items []contract.AgentSnapshot
+	err   error
+	calls int
+}
+
+func (s *agentListStub) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
+	s.calls++
+	return s.items, s.err
+}
+
 type runtimeConfigLookupStub struct {
 	cfg             map[string]any
 	err             error

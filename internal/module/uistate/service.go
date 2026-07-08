@@ -20,7 +20,7 @@ import (
 type service struct {
 	logger                *slog.Logger
 	threads               contract.ThreadLister
-	agents                contract.OrchestrationService
+	agents                AgentLister
 	preferences           preferenceStore
 	bindings              bindingLookup
 	runtimeConfig         runtimeConfigLookup
@@ -40,6 +40,11 @@ type service struct {
 	emitProjectionUpdated projectionUpdatedEmitter
 	emitPreferenceChange  preferenceChangedEmitter
 	trace                 *observability.Service
+}
+
+// AgentLister 是 uistate 启动投影读取 agent 列表的窄端口。
+type AgentLister interface {
+	ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error)
 }
 
 type bindingLookup interface {
@@ -101,7 +106,7 @@ func WithObservability(trace *observability.Service) ServiceOption {
 func NewService(
 	logger *slog.Logger,
 	threads contract.ThreadLister,
-	agents contract.OrchestrationService,
+	agents AgentLister,
 	preferences preferenceStore,
 	bindings bindingLookup,
 	runtimeCfg runtimeConfigLookup,
@@ -151,9 +156,9 @@ func (s *service) loadInitialState(ctx context.Context) error {
 	return nil
 }
 
-// buildInitialState 从 thread 和 orchestration 模块读取首屏快照。
+// buildInitialState 从 thread 与 agent 列表端口读取首屏快照。
 // 任一依赖读取失败都会返回错误，避免用不完整初始状态启动 UI 投影。
-func buildInitialState(ctx context.Context, threads contract.ThreadLister, agents contract.OrchestrationService) (UIState, error) {
+func buildInitialState(ctx context.Context, threads contract.ThreadLister, agents AgentLister) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
 		items, err := threads.List(ctx)

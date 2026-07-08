@@ -5,6 +5,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"go.uber.org/fx"
 )
 
@@ -14,19 +15,20 @@ type dashboardOrchestrationReaderParams struct {
 	Service contract.OrchestrationService `optional:"true"`
 }
 
-// newDashboardOrchestrationReader 将完整 orchestration service 收窄为 dashboard 读端口。
-func newDashboardOrchestrationReader(p dashboardOrchestrationReaderParams) dashboard.OrchestrationReader {
+// newDashboardOrchestrationReader 将完整 orchestration service 收窄为 UI 读端口。
+func newDashboardOrchestrationReader(p dashboardOrchestrationReaderParams) (dashboard.OrchestrationReader, uistate.AgentLister) {
 	if p.Service == nil {
-		return nil
+		return nil, nil
 	}
-	return dashboardOrchestrationReader{service: p.Service}
+	reader := dashboardOrchestrationReader{service: p.Service}
+	return reader, reader
 }
 
 type dashboardOrchestrationReader struct {
 	service contract.OrchestrationService
 }
 
-// ListAgents 转发 dashboard 需要的 agent 列表读取。
+// ListAgents 转发 UI 读模型需要的 agent 列表读取。
 func (r dashboardOrchestrationReader) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {
 	return r.service.ListAgents(ctx)
 }

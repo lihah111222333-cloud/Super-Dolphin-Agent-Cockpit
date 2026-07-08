@@ -11,7 +11,7 @@ cmd/super-dolphin-updater/main.go	cmd	other	go-source	8714	Super-Dolphin updater
 go.mod	(root)	other	mod	3844	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app_test.go	internal	other	go-test	4257	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/app.go	internal	other	go-source	12858	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/dashboard_adapter.go	internal	other	go-source	1352	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dashboard,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/dashboard_adapter.go	internal	other	go-source	1467	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dashboard,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/dependency_contract_test.go	internal	other	go-test	3724	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/dependency_contract.go	internal	other	go-source	1784	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/desktop_preflight_test.go	internal	other	go-test	15173	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,desktop,preflight,test,root,Fx,装配,runner,与,toolbridge,adapters

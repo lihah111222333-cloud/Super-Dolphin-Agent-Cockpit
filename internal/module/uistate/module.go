@@ -32,8 +32,8 @@ type serviceParams struct {
 	fx.In
 
 	Logger        *slog.Logger
-	ThreadLister  contract.ThreadLister         `optional:"true"`
-	Agents        contract.OrchestrationService `optional:"true"`
+	ThreadLister  contract.ThreadLister `optional:"true"`
+	Agents        AgentLister           `optional:"true"`
 	Preferences   preferenceStore
 	Bindings      bindingstore.Store                 `optional:"true"`
 	RuntimeConfig contract.ThreadRuntimeConfigReader `optional:"true"`
