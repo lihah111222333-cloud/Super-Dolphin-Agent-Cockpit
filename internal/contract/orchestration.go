@@ -69,6 +69,36 @@ type DAGCreateRuntime interface {
 	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
 }
 
+// AgentLifecyclePort 是 agent 生命周期工具和适配器应优先消费的窄端口。
+type AgentLifecyclePort interface {
+	LaunchAgent(ctx context.Context, req LaunchRequest) error
+	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
+	StopAgent(ctx context.Context, agentID string) error
+	InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error)
+	Recover(ctx context.Context, agentID string) error
+	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
+	GetState(ctx context.Context, agentID string) (AgentStateResult, error)
+}
+
+// AgentRuntimePort 是 provider/thread 运行时元数据同步的窄端口。
+type AgentRuntimePort interface {
+	UpdateRuntime(ctx context.Context, report RuntimeReport) error
+	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
+}
+
+// AgentReportPort 是 agent report 读取、请求跟踪和事件处理的窄端口。
+type AgentReportPort interface {
+	GetReport(ctx context.Context, agentID string) (AgentReportResult, error)
+	RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
+	HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
+}
+
+// TurnSubmissionPort 是 orchestration 与 turn 模块之间提交和完成 turn 的窄端口。
+type TurnSubmissionPort interface {
+	SubmitTurn(ctx context.Context, req TurnSubmission) error
+	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
+}
+
 // OrchestrationService 是内部模块和 MCP orchestration runtime 共用的总边界。
 // 这里聚合 agent 生命周期、DAG runtime、报告和恢复入口，调用方不应在本接口外私接 mcp-orch 内部实现。
 type OrchestrationService interface {

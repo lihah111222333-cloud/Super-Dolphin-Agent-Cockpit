@@ -131,22 +131,16 @@ func requireStopWaitMap(t *testing.T, result any) map[string]any {
 
 func stopAgentSchemaProperties(t *testing.T) map[string]any {
 	t.Helper()
-	for _, def := range orchestrationToolDefinitions(&stopWaitService{}) {
-		if def.Name != "stop_agent" {
-			continue
-		}
-		props, ok := def.InputSchema["properties"].(map[string]any)
-		if !ok {
-			t.Fatalf("properties schema type = %T, want map[string]any", def.InputSchema["properties"])
-		}
-		return props
+	def := stopAgentToolDefinition(&stopWaitService{})
+	props, ok := def.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties schema type = %T, want map[string]any", def.InputSchema["properties"])
 	}
-	t.Fatal("stop_agent definition not found")
-	return nil
+	return props
 }
 
 type stopWaitService struct {
-	contract.OrchestrationService
+	contract.AgentLifecyclePort
 	snapshots    []contract.AgentSnapshot
 	archiveCalls int
 	listCalls    int

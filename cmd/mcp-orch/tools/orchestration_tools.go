@@ -395,7 +395,7 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 }
 
 // HandleStopAgent 停止或归档 agent，并可等待 list_agents 快照进入终态。
-func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
+func HandleStopAgent(svc contract.AgentLifecyclePort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in stopAgentInput) (map[string]any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {
@@ -485,7 +485,7 @@ func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsO
 }
 
 // listAgentSnapshots 带超时保护地获取所有 agent 快照列表。
-func listAgentSnapshots(ctx context.Context, svc contract.OrchestrationService) ([]contract.AgentSnapshot, error) {
+func listAgentSnapshots(ctx context.Context, svc contract.AgentLifecyclePort) ([]contract.AgentSnapshot, error) {
 	listCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 	return svc.ListAgents(listCtx)
