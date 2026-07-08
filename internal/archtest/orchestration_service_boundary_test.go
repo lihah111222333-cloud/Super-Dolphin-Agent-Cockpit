@@ -80,14 +80,7 @@ func TestOrchestrationServiceConsumersUseNarrowPorts(t *testing.T) {
 }
 
 func temporaryOrchestrationServiceConsumers() map[string]orchestrationServiceTemporaryAllowance {
-	compat := func(max int, reason string) orchestrationServiceTemporaryAllowance {
-		return orchestrationServiceTemporaryAllowance{max: max, reason: reason}
-	}
-	return map[string]orchestrationServiceTemporaryAllowance{
-		"cmd/mcp-orch/runtime.go":                  compat(2, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
-		"internal/app/dashboard_adapter.go":        compat(1, "temporary app provider narrows full service to dashboard read port"),
-		"internal/app/runtime_reporter_adapter.go": compat(1, "temporary app provider narrows full service to runtime update port"),
-	}
+	return map[string]orchestrationServiceTemporaryAllowance{}
 }
 
 func orchestrationServiceUses(t *testing.T, root string, absPath string, packageAliases map[string]orchestrationServiceAliasSource) []orchestrationServiceUse {
