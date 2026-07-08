@@ -14,11 +14,34 @@ import {
 } from './ui-test-mcp-server.mjs';
 
 const CONTRACT = Object.freeze({
-  UI_TEST_TOOLS: ['ui_snapshot', 'ui_action', 'ui_diagnostics', 'ui_frontend_logs'],
+  UI_TEST_TOOLS: ['ui_snapshot', 'ui_action', 'ui_diagnostics', 'ui_frontend_logs', 'ui_scenario_run'],
   UI_TEST_ACTIONS: ['navigate', 'fill_composer', 'submit_composer', 'wait_for'],
   UI_TEST_TARGETS: ['composer_input', 'composer_submit'],
-  UI_TEST_ROUTES: { chat: '/', settings: '/settings', observability: '/observability' },
+  UI_TEST_ROUTES: {
+    chat: '/',
+    settings: '/settings',
+    observability: '/observability',
+    skills: '/skills',
+    automation: '/dags',
+    prompts: '/prompts',
+    files: '/files',
+    memory: '/memory',
+  },
   UI_TEST_WAIT_STATES: ['frontend_ready', 'composer_text_length', 'route'],
+  UI_TEST_SCENARIOS: {
+    chat_composer_probe: { id: 'chat_composer_probe', risk: 'local_ui_only' },
+    frontend_navigation_probe: { id: 'frontend_navigation_probe', risk: 'local_ui_only' },
+    observability_logs_probe: { id: 'observability_logs_probe', risk: 'read_only' },
+    settings_open_probe: { id: 'settings_open_probe', risk: 'read_only' },
+    open_route_probe: { id: 'open_route_probe', risk: 'read_only' },
+  },
+  UI_TEST_SCENARIO_IDS: [
+    'chat_composer_probe',
+    'frontend_navigation_probe',
+    'observability_logs_probe',
+    'settings_open_probe',
+    'open_route_probe',
+  ],
   UI_TEST_LIMITS: {
     defaultLimit: 100,
     maxLimit: 100,
@@ -41,6 +64,9 @@ const CONTRACT = Object.freeze({
   },
   assertKnownTargetName(name) {
     if (!this.UI_TEST_TARGETS.includes(name)) throw new Error(`unknown target: ${name}`);
+  },
+  assertKnownScenarioName(name) {
+    if (!this.UI_TEST_SCENARIO_IDS.includes(name)) throw new Error(`unknown scenario: ${name}`);
   },
   normalizeLimit(limit) {
     if (limit == null) return this.UI_TEST_LIMITS.defaultLimit;
@@ -179,6 +205,13 @@ describe('UI test MCP server lifecycle and protocol', () => {
       id: 4,
       error: { code: -32602 },
     });
+    expect(await server.handleMessage(request(5, 'tools/call', {
+      name: 'ui_scenario_run',
+      arguments: { scenario: 'frontend_navigation_probe', selector: 'body' },
+    }))).toMatchObject({
+      id: 5,
+      error: { code: -32602 },
+    });
   });
 
   it('lists exact tools with strict input schemas from the contract', async () => {
@@ -192,6 +225,13 @@ describe('UI test MCP server lifecycle and protocol', () => {
     }
     expect(response.result.tools.find((tool) => tool.name === 'ui_action').inputSchema.properties.action.enum)
       .toEqual(CONTRACT.UI_TEST_ACTIONS);
+    const scenarioTool = response.result.tools.find((tool) => tool.name === 'ui_scenario_run');
+    expect(scenarioTool.inputSchema).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['scenario'],
+    });
+    expect(scenarioTool.inputSchema.properties.scenario.enum).toEqual(CONTRACT.UI_TEST_SCENARIO_IDS);
   });
 
   it('returns tool-shaped success and failure results without top-level tool execution errors', async () => {
@@ -267,6 +307,77 @@ describe('UI test MCP server lifecycle and protocol', () => {
     });
     expect(fake.page.initScripts).toHaveLength(1);
     expect(fake.page.submittedToken).toBe('token-1');
+  });
+
+  it('runs an allowlisted scenario through existing MCP primitives', async () => {
+    const fake = createFakeBrowser();
+    const server = createServer({ browserFactory: async () => fake.browser });
+    await server.handleMessage(request(1, 'initialize'));
+
+    const response = await server.handleMessage(request(2, 'tools/call', {
+      name: 'ui_scenario_run',
+      arguments: {
+        scenario: 'frontend_navigation_probe',
+        text: 'MCP UI test input',
+        timeoutMs: 1000,
+      },
+    }));
+
+    expect(response).not.toHaveProperty('error');
+    expect(response.result).toMatchObject({
+      isError: false,
+      structuredContent: {
+        tool: 'ui_scenario_run',
+        scenario: 'frontend_navigation_probe',
+        success: true,
+        finalSnapshot: expect.objectContaining({ route: '/observability' }),
+        diagnostics: expect.objectContaining({ consoleErrors: [] }),
+      },
+    });
+    expect(response.result.structuredContent.steps.map((step) => step.name)).toEqual([
+      'diagnostics_before',
+      'snapshot_before',
+      'navigate_chat',
+      'fill_composer',
+      'wait_composer_text',
+      'navigate_observability',
+      'snapshot_after',
+      'diagnostics_after',
+      'logs_after',
+    ]);
+  });
+
+  it('stops a scenario when diagnostics contain unhandled errors', async () => {
+    const fake = createFakeBrowser({
+      diagnostics: {
+        consoleErrors: [{ ts: '2026-07-09T00:00:00.000Z', message: 'boom' }],
+        bridgeErrors: [],
+        unhandledErrors: [],
+        warningEntries: [],
+        url: 'http://127.0.0.1:5175/',
+        readyState: 'complete',
+      },
+    });
+    const server = createServer({ browserFactory: async () => fake.browser });
+    await server.handleMessage(request(1, 'initialize'));
+
+    const response = await server.handleMessage(request(2, 'tools/call', {
+      name: 'ui_scenario_run',
+      arguments: { scenario: 'chat_composer_probe', text: 'blocked' },
+    }));
+
+    expect(response).not.toHaveProperty('error');
+    expect(response.result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: {
+          tool: 'ui_scenario_run',
+          scenario: 'chat_composer_probe',
+          code: 'scenario_diagnostics_failed',
+          reason: expect.stringContaining('consoleErrors'),
+        },
+      },
+    });
   });
 
   it('rejects unsafe base URLs and production mode without explicit enablement', () => {
@@ -400,6 +511,7 @@ function createFakeBrowser(options = {}) {
     },
     async goto(url) {
       this.url = url;
+      this.snapshot = { ...this.snapshot, route: new URL(url).pathname };
     },
     locator(selector) {
       if (selector !== '[data-testid="composer-input"]') throw new Error(`unexpected selector: ${selector}`);
@@ -413,7 +525,16 @@ function createFakeBrowser(options = {}) {
     async evaluate(fn, arg) {
       const source = fn.toString();
       if (source.includes('.snapshot()')) return this.snapshot;
-      if (source.includes('.diagnostics()')) return { consoleErrors: [], bridgeErrors: [], unhandledErrors: [] };
+      if (source.includes('.diagnostics()')) {
+        return options.diagnostics || {
+          consoleErrors: [],
+          bridgeErrors: [],
+          unhandledErrors: [],
+          warningEntries: [],
+          url: this.url || 'http://127.0.0.1:5175/',
+          readyState: 'complete',
+        };
+      }
       if (source.includes('.frontendLogs(input)')) return [];
       if (source.includes('.recordLog(entry)')) {
         this.recordedLogs.push(arg);

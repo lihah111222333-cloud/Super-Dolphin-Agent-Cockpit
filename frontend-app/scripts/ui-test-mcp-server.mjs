@@ -107,6 +107,26 @@ export function createToolDefinitions(contract) {
         limit: { type: 'integer', minimum: 1, maximum: limit.maxLimit },
       }),
     },
+    ui_scenario_run: {
+      name: 'ui_scenario_run',
+      description: 'Run an allowlisted local UI test scenario through existing UI Test MCP primitives.',
+      inputSchema: strictSchema({
+        scenario: { type: 'string', enum: checked.UI_TEST_SCENARIO_IDS },
+        route: { type: 'string', enum: routeNames },
+        text: { type: 'string', maxLength: limit.maxTextLength },
+        timeoutMs: { type: 'integer', minimum: 1, maximum: limit.maxTimeoutMs },
+        logs: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            level: { type: 'string' },
+            source: { type: 'string' },
+            since: { type: 'string' },
+            limit: { type: 'integer', minimum: 1, maximum: limit.maxLimit },
+          },
+        },
+      }, ['scenario']),
+    },
   };
 
   return checked.UI_TEST_TOOLS.map((toolName) => {
@@ -236,6 +256,8 @@ export function createUITestMCPServer(options = {}) {
             return toolResult({ tool: name, logs: await readFrontendLogs(args) });
           case 'ui_action':
             return runAction(args);
+          case 'ui_scenario_run':
+            return runScenario(args);
           default:
             throw invalidParams(`unknown UI test MCP tool: ${name}`);
         }
@@ -253,66 +275,76 @@ export function createUITestMCPServer(options = {}) {
   }
 
   async function runAction(args) {
+    const content = await executeAction(args);
+    if (content?.error) return toolError(content.error);
+    return toolResult(content);
+  }
+
+  async function executeAction(args) {
     switch (args.action) {
       case 'navigate':
-        return runNavigate(args);
+        return executeNavigate(args);
       case 'fill_composer':
-        return runFillComposer(args);
+        return executeFillComposer(args);
       case 'submit_composer':
-        return runSubmitComposer(args);
+        return executeSubmitComposer(args);
       case 'wait_for':
-        return runWaitFor(args);
+        return executeWaitFor(args);
       default:
         throw invalidParams(`unknown UI test action: ${args.action}`);
     }
   }
 
-  async function runNavigate(args) {
+  async function executeNavigate(args) {
     const page = await ensurePage();
     const targetURL = new URL(contract.UI_TEST_ROUTES[args.route], baseURL);
     await page.goto(targetURL.toString(), { waitUntil: 'domcontentloaded' });
     await recordActionLog('navigate', { route: args.route, path: targetURL.pathname });
-    return toolResult({
+    return {
       action: args.action,
       route: args.route,
       path: targetURL.pathname,
-    });
+    };
   }
 
-  async function runFillComposer(args) {
+  async function executeFillComposer(args) {
     const page = await ensurePage();
     await page.locator('[data-testid="composer-input"]').fill(args.text);
     await recordActionLog('fill_composer', {
       target: 'composer_input',
       textLength: args.text.length,
     });
-    return toolResult({
+    return {
       action: args.action,
       target: 'composer_input',
       textLength: args.text.length,
-    });
+    };
   }
 
-  async function runSubmitComposer(args) {
+  async function executeSubmitComposer(args) {
     if (!config.allowSubmit || !config.acceptanceOwnsUI || !config.acceptanceToken) {
-      return toolError({
-        tool: 'ui_action',
-        action: args.action,
-        target: 'composer_submit',
-        timeoutMs: null,
-        reason: 'submit_composer requires server-owned isolated acceptance mode',
-      });
+      return {
+        error: {
+          tool: 'ui_action',
+          action: args.action,
+          target: 'composer_submit',
+          timeoutMs: null,
+          reason: 'submit_composer requires server-owned isolated acceptance mode',
+        },
+      };
     }
 
     const snapshot = await readSnapshot();
     if (!isActionEnabled(snapshot, 'submit_composer')) {
-      return toolError({
-        tool: 'ui_action',
-        action: args.action,
-        target: 'composer_submit',
-        timeoutMs: null,
-        reason: 'submit_composer is not enabled in the current UI state',
-      });
+      return {
+        error: {
+          tool: 'ui_action',
+          action: args.action,
+          target: 'composer_submit',
+          timeoutMs: null,
+          reason: 'submit_composer is not enabled in the current UI state',
+        },
+      };
     }
 
     const page = await ensurePage();
@@ -321,26 +353,28 @@ export function createUITestMCPServer(options = {}) {
       window.__SUPER_DOLPHIN_UI_TEST__.verifyIsolatedAcceptance(input)
     ), tokenInput);
     if (!verification?.isolated || !verification?.tokenMatched) {
-      return toolError({
-        tool: 'ui_action',
-        action: args.action,
-        target: 'composer_submit',
-        timeoutMs: null,
-        reason: 'isolated acceptance token was not verified by the page',
-      });
+      return {
+        error: {
+          tool: 'ui_action',
+          action: args.action,
+          target: 'composer_submit',
+          timeoutMs: null,
+          reason: 'isolated acceptance token was not verified by the page',
+        },
+      };
     }
 
     const result = await page.evaluate((input) => (
       window.__SUPER_DOLPHIN_UI_TEST__.submitComposerInIsolation(input)
     ), tokenInput);
-    return toolResult({
+    return {
       action: args.action,
       target: 'composer_submit',
       result,
-    });
+    };
   }
 
-  async function runWaitFor(args) {
+  async function executeWaitFor(args) {
     const timeoutMs = args.timeoutMs;
     const started = Date.now();
     while (Date.now() - started <= timeoutMs) {
@@ -350,11 +384,11 @@ export function createUITestMCPServer(options = {}) {
           waitState: args.waitState,
           elapsedMs: Date.now() - started,
         });
-        return toolResult({
+        return {
           action: args.action,
           waitState: args.waitState,
           elapsedMs: Date.now() - started,
-        });
+        };
       }
       await sleep(contract.UI_TEST_LIMITS.pollIntervalMs, undefined, {
         signal: state.waitAbortController.signal,
@@ -364,6 +398,143 @@ export function createUITestMCPServer(options = {}) {
       action: args.action,
       timeoutMs,
     });
+  }
+
+  async function runScenario(args) {
+    try {
+      return toolResult(await executeScenario(args));
+    }
+    catch (error) {
+      return toolError({
+        tool: 'ui_scenario_run',
+        scenario: args.scenario,
+        stepIndex: error.details?.stepIndex ?? null,
+        code: error.details?.code || 'scenario_failed',
+        action: error.details?.action || null,
+        target: error.details?.target || null,
+        timeoutMs: error.details?.timeoutMs ?? args.timeoutMs,
+        reason: error.message || 'scenario failed',
+      });
+    }
+  }
+
+  async function executeScenario(args) {
+    const steps = [];
+    await scenarioDiagnosticsGate(args.scenario, steps, 'diagnostics_before');
+    for (const step of scenarioSteps(args)) {
+      await executeScenarioStep(args, step, steps);
+    }
+    const finalSnapshot = await readSnapshot();
+    steps.push({ index: steps.length, name: 'snapshot_after', status: 'passed' });
+    const diagnostics = await scenarioDiagnosticsGate(args.scenario, steps, 'diagnostics_after');
+    const logs = await readFrontendLogs(args.logs);
+    steps.push({ index: steps.length, name: 'logs_after', status: 'passed' });
+    return {
+      tool: 'ui_scenario_run',
+      scenario: args.scenario,
+      success: true,
+      steps,
+      finalSnapshot,
+      diagnostics,
+      logs,
+    };
+  }
+
+  function scenarioSteps(args) {
+    const text = args.text || 'MCP UI test input';
+    if (args.scenario === 'chat_composer_probe') {
+      return [
+        { name: 'snapshot_before', kind: 'snapshot' },
+        { name: 'navigate_chat', kind: 'action', args: { action: 'navigate', route: 'chat' } },
+        { name: 'fill_composer', kind: 'action', args: { action: 'fill_composer', target: 'composer_input', text } },
+        { name: 'wait_composer_text', kind: 'action', args: { action: 'wait_for', waitState: 'composer_text_length', expected: text.length, timeoutMs: args.timeoutMs } },
+      ];
+    }
+    if (args.scenario === 'frontend_navigation_probe') {
+      return [
+        { name: 'snapshot_before', kind: 'snapshot' },
+        { name: 'navigate_chat', kind: 'action', args: { action: 'navigate', route: 'chat' } },
+        { name: 'fill_composer', kind: 'action', args: { action: 'fill_composer', target: 'composer_input', text } },
+        { name: 'wait_composer_text', kind: 'action', args: { action: 'wait_for', waitState: 'composer_text_length', expected: text.length, timeoutMs: args.timeoutMs } },
+        { name: 'navigate_observability', kind: 'action', args: { action: 'navigate', route: 'observability' } },
+      ];
+    }
+    if (args.scenario === 'observability_logs_probe') {
+      return [
+        { name: 'snapshot_before', kind: 'snapshot' },
+        { name: 'navigate_observability', kind: 'action', args: { action: 'navigate', route: 'observability' } },
+      ];
+    }
+    if (args.scenario === 'settings_open_probe') {
+      return [
+        { name: 'snapshot_before', kind: 'snapshot' },
+        { name: 'navigate_settings', kind: 'action', args: { action: 'navigate', route: 'settings' } },
+      ];
+    }
+    if (args.scenario === 'open_route_probe') {
+      return [
+        { name: 'snapshot_before', kind: 'snapshot' },
+        { name: `navigate_${args.route}`, kind: 'action', args: { action: 'navigate', route: args.route } },
+      ];
+    }
+    throw invalidParams(`unknown UI test scenario: ${args.scenario}`);
+  }
+
+  async function executeScenarioStep(args, step, steps) {
+    const index = steps.length;
+    try {
+      if (step.kind === 'snapshot') {
+        await readSnapshot();
+      }
+      else if (step.kind === 'action') {
+        const result = await executeAction(step.args);
+        if (result?.error) {
+          throw new ToolExecutionError(result.error.reason || 'scenario action failed', {
+            stepIndex: index,
+            code: 'scenario_action_rejected',
+            action: step.args.action,
+            target: step.args.target || null,
+            timeoutMs: step.args.timeoutMs || args.timeoutMs,
+          });
+        }
+      }
+      else {
+        throw new ToolExecutionError(`unknown scenario step kind: ${step.kind}`, {
+          stepIndex: index,
+          code: 'scenario_step_kind_unknown',
+        });
+      }
+      steps.push({ index, name: step.name, status: 'passed' });
+    }
+    catch (error) {
+      throw new ToolExecutionError(error.message || 'scenario step failed', {
+        stepIndex: index,
+        code: error.details?.code || 'scenario_step_failed',
+        action: step.args?.action || null,
+        target: step.args?.target || null,
+        timeoutMs: step.args?.timeoutMs || args.timeoutMs,
+      });
+    }
+  }
+
+  async function scenarioDiagnosticsGate(scenario, steps, name) {
+    const diagnostics = await readDiagnostics();
+    const issueCounts = {
+      consoleErrors: Array.isArray(diagnostics.consoleErrors) ? diagnostics.consoleErrors.length : 0,
+      bridgeErrors: Array.isArray(diagnostics.bridgeErrors) ? diagnostics.bridgeErrors.length : 0,
+      unhandledErrors: Array.isArray(diagnostics.unhandledErrors) ? diagnostics.unhandledErrors.length : 0,
+    };
+    const failingKeys = Object.entries(issueCounts)
+      .filter(([, count]) => count > 0)
+      .map(([key]) => key);
+    if (failingKeys.length > 0) {
+      throw new ToolExecutionError(`scenario ${scenario} diagnostics contain ${failingKeys.join(', ')}`, {
+        stepIndex: steps.length,
+        code: 'scenario_diagnostics_failed',
+      });
+    }
+    steps.push({ index: steps.length, name, status: 'passed' });
+    return diagnostics;
   }
 
   async function readSnapshot() {
@@ -464,6 +635,7 @@ export function createUITestMCPServer(options = {}) {
     }
     if (name === 'ui_frontend_logs') return validateFrontendLogArgs(args);
     if (name === 'ui_action') return validateActionArgs(args);
+    if (name === 'ui_scenario_run') return validateScenarioArgs(args);
     throw invalidParams(`unknown UI test MCP tool: ${name}`);
   }
 
@@ -510,6 +682,41 @@ export function createUITestMCPServer(options = {}) {
       default:
         throw invalidParams(`unknown UI test action: ${args.action}`);
     }
+  }
+
+  function validateScenarioArgs(args) {
+    validateExactObject(args, ['scenario', 'route', 'text', 'timeoutMs', 'logs'], 'ui_scenario_run arguments', contract);
+    if (typeof args.scenario !== 'string') throw invalidParams('ui_scenario_run scenario must be a string');
+    wrapContractValidation(() => contract.assertKnownScenarioName(args.scenario));
+
+    const normalized = { scenario: args.scenario };
+    normalized.timeoutMs = wrapContractValidation(() => contract.normalizeTimeoutMs(args.timeoutMs));
+
+    if (args.route != null) {
+      if (args.scenario !== 'open_route_probe') {
+        throw invalidParams('ui_scenario_run route is only valid for open_route_probe');
+      }
+      normalized.route = normalizeRoute(contract, args.route);
+    }
+    else if (args.scenario === 'open_route_probe') {
+      throw invalidParams('ui_scenario_run route is required for open_route_probe');
+    }
+
+    if (args.text != null) {
+      if (!['chat_composer_probe', 'frontend_navigation_probe'].includes(args.scenario)) {
+        throw invalidParams(`ui_scenario_run text is not valid for ${args.scenario}`);
+      }
+      if (typeof args.text !== 'string') throw invalidParams('ui_scenario_run text must be a string');
+      if (args.text.length > contract.UI_TEST_LIMITS.maxTextLength) {
+        throw invalidParams('ui_scenario_run text exceeds maxTextLength');
+      }
+      normalized.text = args.text;
+    }
+
+    normalized.logs = args.logs == null
+      ? { source: 'ui_test_mcp', limit: Math.min(20, contract.UI_TEST_LIMITS.maxLimit) }
+      : validateFrontendLogArgs(args.logs);
+    return normalized;
   }
 
   function validateWaitForArgs(args) {
@@ -732,10 +939,11 @@ function toolResult(structuredContent) {
   };
 }
 
-function toolError({ tool, action, target, timeoutMs, reason }) {
+function toolError({ tool, action, target, timeoutMs, reason, ...details }) {
   const structuredContent = {
     error: {
       tool,
+      ...details,
       action,
       target,
       timeoutMs,
@@ -779,16 +987,18 @@ function isPlainObject(value) {
 
 function assertContract(contract) {
   if (contract == null || typeof contract !== 'object') throw new Error('UI test MCP contract module is required');
-  const arrayKeys = ['UI_TEST_TOOLS', 'UI_TEST_ACTIONS', 'UI_TEST_TARGETS', 'UI_TEST_WAIT_STATES'];
+  const arrayKeys = ['UI_TEST_TOOLS', 'UI_TEST_ACTIONS', 'UI_TEST_TARGETS', 'UI_TEST_WAIT_STATES', 'UI_TEST_SCENARIO_IDS'];
   for (const key of arrayKeys) {
     if (!Array.isArray(contract[key])) throw new Error(`UI test MCP contract missing ${key}`);
   }
   if (!isPlainObject(contract.UI_TEST_ROUTES)) throw new Error('UI test MCP contract missing UI_TEST_ROUTES');
+  if (!isPlainObject(contract.UI_TEST_SCENARIOS)) throw new Error('UI test MCP contract missing UI_TEST_SCENARIOS');
   if (!isPlainObject(contract.UI_TEST_LIMITS)) throw new Error('UI test MCP contract missing UI_TEST_LIMITS');
   const functionKeys = [
     'assertKnownToolName',
     'assertKnownActionName',
     'assertKnownTargetName',
+    'assertKnownScenarioName',
     'normalizeLimit',
     'normalizeTimeoutMs',
     'validateExactKeys',
