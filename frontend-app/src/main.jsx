@@ -43,6 +43,21 @@ import App, { APP_PROFILER_ID } from './App.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
 
 const REACT_RENDER_SLOW_MS = 50;
+const isUITestMCPRun = !import.meta.env.PROD && import.meta.env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
+const shouldLoadUITestHarness = !import.meta.env.PROD && (
+  import.meta.env.DEV ||
+  import.meta.env.MODE === 'test' ||
+  isUITestMCPRun
+);
+
+if (shouldLoadUITestHarness) {
+  void Promise.all([
+    import('./devtools/uiTestHarness.js'),
+    import('./entities/client/model/useClientStore.js'),
+  ]).then(([{ installUITestHarness }, { useClientStore }]) => {
+    installUITestHarness({ getState: () => useClientStore.getState() });
+  });
+}
 
 /**
  * @param {string} id
@@ -70,7 +85,7 @@ createRoot(document.getElementById('root')).render(
     createElement(
       Profiler,
       { id: APP_PROFILER_ID, onRender: emitSlowRenderTrace },
-      createElement(App),
+      createElement(App, isUITestMCPRun ? { skipBootstrap: true } : null),
     ),
   ),
 );

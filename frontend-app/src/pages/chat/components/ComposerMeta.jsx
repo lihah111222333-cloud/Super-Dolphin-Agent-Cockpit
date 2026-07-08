@@ -61,7 +61,15 @@ function ComposerMeta({
       </div>
       <div className="composer-actions">
         <ComposerModelSelector copy={copy} store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
-        <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
+        <button
+          type="button"
+          className={primaryActionClass}
+          data-testid={canInterrupt ? 'composer-interrupt' : 'composer-submit'}
+          aria-label={primaryActionLabel}
+          title={primaryActionTitle}
+          disabled={primaryActionDisabled}
+          onClick={onPrimaryAction}
+        >
           {canInterrupt ? <CircleStop size={18} /> : <ArrowUp size={22} />}
         </button>
       </div>

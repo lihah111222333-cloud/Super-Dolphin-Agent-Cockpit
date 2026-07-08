@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { describe, expect, it } from 'vitest';
-import config, { createFrontendViteConfig } from './vite.config.js';
+import { createFrontendViteConfig } from './vite.config.js';
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
 
 describe('frontend vite dev proxy', () => {
   it('proxies generated image assets to the Go asset server', () => {
     const backendAddr = process.env.SUPER_DOLPHIN_HTTP_ADDR || '127.0.0.1:4512';
+    const config = createFrontendViteConfig(process.env, { command: 'serve', mode: 'development' });
 
     expect(config.server.proxy['/generated-image']).toEqual({
       target: `http://${backendAddr}`,
@@ -59,5 +60,29 @@ describe('frontend vite watch config', () => {
 describe('frontend vite build budget', () => {
   it('keeps the lazy mermaid parser bundle under the configured warning limit', () => {
     expect(createFrontendViteConfig({}).build.chunkSizeWarningLimit).toBe(650);
+  });
+});
+
+describe('frontend vite ui test MCP gate', () => {
+  it('allows the UI test MCP flag for dev and test config', () => {
+    expect(() => createFrontendViteConfig(
+      { VITE_SUPER_DOLPHIN_UI_TEST_MCP: '1' },
+      { command: 'serve', mode: 'development' },
+    )).not.toThrow();
+    expect(() => createFrontendViteConfig(
+      { VITE_SUPER_DOLPHIN_UI_TEST_MCP: '1' },
+      { command: 'serve', mode: 'test' },
+    )).not.toThrow();
+  });
+
+  it('rejects the UI test MCP flag for production builds', () => {
+    expect(() => createFrontendViteConfig(
+      { VITE_SUPER_DOLPHIN_UI_TEST_MCP: '1' },
+      { command: 'build', mode: 'production' },
+    )).toThrow(/VITE_SUPER_DOLPHIN_UI_TEST_MCP/);
+    expect(() => createFrontendViteConfig(
+      { VITE_SUPER_DOLPHIN_UI_TEST_MCP: '0', NODE_ENV: 'production' },
+      { command: 'serve', mode: 'development' },
+    )).toThrow(/production builds/);
   });
 });

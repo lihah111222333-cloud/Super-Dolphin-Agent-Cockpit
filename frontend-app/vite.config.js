@@ -74,7 +74,21 @@ function resolveFrontendWatchUsePolling(env) {
   return true;
 }
 
-export function createFrontendViteConfig(env = process.env) {
+function isProductionViteInvocation(env, viteEnv = {}) {
+  return viteEnv.command === 'build' || viteEnv.mode === 'production' || env.NODE_ENV === 'production';
+}
+
+function assertUITestMCPFlagAllowed(env, viteEnv = {}) {
+  if (env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === undefined) {
+    return;
+  }
+  if (isProductionViteInvocation(env, viteEnv)) {
+    throw new Error('VITE_SUPER_DOLPHIN_UI_TEST_MCP is dev/test-only and must not be set for production builds');
+  }
+}
+
+export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
+  assertUITestMCPFlagAllowed(env, viteEnv);
   const backendAddr = env.SUPER_DOLPHIN_HTTP_ADDR || '127.0.0.1:4512';
   const usePolling = resolveFrontendWatchUsePolling(env);
   const wailsWebSocketProxyHeaders = resolveWailsWebSocketProxyHeaders(env);
@@ -137,4 +151,4 @@ export function createFrontendViteConfig(env = process.env) {
   });
 }
 
-export default createFrontendViteConfig();
+export default defineConfig((viteEnv) => createFrontendViteConfig(process.env, viteEnv));

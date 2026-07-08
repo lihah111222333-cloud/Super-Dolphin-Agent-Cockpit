@@ -81,6 +81,37 @@ describe('ComposerDock', () => {
     expect(composer.handlePaste).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes an accessible submit anchor only in send mode', () => {
+    const props = { ...baseProps, composer: createComposer(), store: createStore(), sendMessage: vi.fn() };
+
+    render(<ComposerDock {...props} />);
+
+    const submitButton = screen.getByTestId('composer-submit');
+    expect(submitButton).toBe(screen.getByRole('button', { name: '发送消息' }));
+    expect(submitButton).toHaveAccessibleName('发送消息');
+    expect(submitButton).toBeEnabled();
+    expect(screen.queryByTestId('composer-interrupt')).not.toBeInTheDocument();
+
+    fireEvent.click(submitButton);
+
+    expect(props.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the submit anchor disabled when the send action is unavailable', () => {
+    const props = { ...baseProps, draft: '', composer: createComposer(), store: createStore(), sendMessage: vi.fn() };
+
+    render(<ComposerDock {...props} />);
+
+    const submitButton = screen.getByTestId('composer-submit');
+    expect(submitButton).toBe(screen.getByRole('button', { name: '发送消息' }));
+    expect(submitButton).toBeDisabled();
+    expect(screen.queryByTestId('composer-interrupt')).not.toBeInTheDocument();
+
+    fireEvent.click(submitButton);
+
+    expect(props.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('uses the floating class for the new-chat intro composer', () => {
     render(<ComposerDock {...baseProps} floating composer={createComposer()} store={createStore()} />);
 
@@ -93,7 +124,13 @@ describe('ComposerDock', () => {
 
     render(<ComposerDock {...baseProps} composer={createComposer()} store={store} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '中断当前执行' }));
+    const interruptButton = screen.getByTestId('composer-interrupt');
+    expect(interruptButton).toBe(screen.getByRole('button', { name: '中断当前执行' }));
+    expect(interruptButton).toHaveAccessibleName('中断当前执行');
+    expect(interruptButton).toBeEnabled();
+    expect(screen.queryByTestId('composer-submit')).not.toBeInTheDocument();
+
+    fireEvent.click(interruptButton);
 
     expect(store.interruptActiveThread).toHaveBeenCalledTimes(1);
   });

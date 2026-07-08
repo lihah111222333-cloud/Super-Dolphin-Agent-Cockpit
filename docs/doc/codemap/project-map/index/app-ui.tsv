@@ -51,6 +51,10 @@ frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	app-ui	css	4594	�
 frontend-app/src/AppShellWorkbench.css	frontend-app	app-ui	css	13711	当前 React/Vite 前端包	frontend,app,src,AppShellWorkbench,当前,React,Vite,前端包
 frontend-app/src/assets/suiyuan-brand-icon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,src,assets,suiyuan,brand,icon,当前,React,Vite,前端包
 frontend-app/src/assets/super-dolphin-logo.png	frontend-app	app-ui	png	5140	当前 React/Vite 前端包	frontend,app,src,assets,super,dolphin,logo,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestContract.js	frontend-app	app-ui	js-source	2839	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestContract.test.js	frontend-app	app-ui	js-test	4784	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,test,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestHarness.js	frontend-app	app-ui	js-source	16422	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestHarness.test.js	frontend-app	app-ui	js-test	12539	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,test,当前,React,Vite,前端包
 frontend-app/src/entities/client/model/bridgePatchState.js	frontend-app	app-ui	js-source	16187	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgePatchState,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgePatchState.test.js	frontend-app	app-ui	js-test	8102	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgePatchState,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgeRevision.js	frontend-app	app-ui	js-source	2613	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgeRevision,React,客户端状态,thread,composer,store,模型
@@ -100,7 +104,7 @@ frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	8230	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	58700	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	23212	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
-frontend-app/src/main.jsx	frontend-app	app-ui	jsx	2646	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
+frontend-app/src/main.jsx	frontend-app	app-ui	jsx	3238	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
 frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.js	frontend-app	app-ui	js-source	8269	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.test.js	frontend-app	app-ui	js-test	3919	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,test,React,页面与路由级,UI
@@ -144,8 +148,8 @@ frontend-app/src/pages/chat/components/ComposerAttachments.jsx	frontend-app	app-
 frontend-app/src/pages/chat/components/ComposerAttachments.test.jsx	frontend-app	app-ui	jsx	5346	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerAttachments,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ComposerDock.css	frontend-app	app-ui	css	9427	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerDock,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ComposerDock.jsx	frontend-app	app-ui	jsx	5286	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerDock,React,页面与路由级,UI
-frontend-app/src/pages/chat/components/ComposerDock.test.jsx	frontend-app	app-ui	jsx	3985	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerDock,test,React,页面与路由级,UI
-frontend-app/src/pages/chat/components/ComposerMeta.jsx	frontend-app	app-ui	jsx	2709	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerMeta,React,页面与路由级,UI
+frontend-app/src/pages/chat/components/ComposerDock.test.jsx	frontend-app	app-ui	jsx	5567	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerDock,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/components/ComposerMeta.jsx	frontend-app	app-ui	jsx	2858	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerMeta,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ComposerModelSelector.jsx	frontend-app	app-ui	jsx	5878	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerModelSelector,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ComposerModelSelector.test.jsx	frontend-app	app-ui	jsx	4950	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerModelSelector,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ComposerTextarea.jsx	frontend-app	app-ui	jsx	739	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ComposerTextarea,React,页面与路由级,UI
@@ -316,5 +320,5 @@ frontend-app/src/test-setup.js	frontend-app	app-ui	js-source	1024	当前 React/V
 frontend-app/src/test-utils/importAst.js	frontend-app	app-ui	js-source	1384	当前 React/Vite 前端包	frontend,app,src,test,utils,importAst,当前,React,Vite,前端包
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	326	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
-frontend-app/vite.config.js	frontend-app	app-ui	js-source	3903	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
-frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	2472	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包
+frontend-app/vite.config.js	frontend-app	app-ui	js-source	4474	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
+frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	3472	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包
