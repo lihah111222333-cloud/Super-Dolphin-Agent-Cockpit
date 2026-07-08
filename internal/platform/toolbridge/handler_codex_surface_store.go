@@ -42,6 +42,9 @@ func (s codexDisabledToolSet) match(names ...string) (string, bool) {
 
 func mcpSurfaceToolAliases(family, realName, canonical string) []string {
 	aliases := []string{canonical, realName, wrappedMCPToolName(family, realName)}
+	if isLegacyOrchestrationSurfaceName(family, realName) {
+		aliases = append(aliases, wrappedMCPToolName(family, canonical))
+	}
 	aliases = append(aliases, legacyCodexToolAliases(family, canonical)...)
 	return aliases
 }

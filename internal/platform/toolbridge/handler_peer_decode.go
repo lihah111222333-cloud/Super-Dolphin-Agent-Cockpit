@@ -265,9 +265,7 @@ func addHiddenMCPToolAliases(surface *codexToolSurface, family string, tools []m
 			canonical = wrappedMCPToolName(family, tool.Name)
 		}
 		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family)}
-		aliases := []string{canonical, tool.Name, wrappedMCPToolName(family, tool.Name)}
-		aliases = append(aliases, legacyCodexToolAliases(family, canonical)...)
-		for _, alias := range aliases {
+		for _, alias := range mcpSurfaceToolAliases(family, tool.Name, canonical) {
 			alias = strings.TrimSpace(alias)
 			if alias == "" {
 				continue

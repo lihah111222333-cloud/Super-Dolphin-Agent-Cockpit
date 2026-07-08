@@ -160,7 +160,7 @@ func assertDisabledCodexSurfaceTools(
 ) {
 	t.Helper()
 
-	disabledNames := []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "orchestration_launch_agent", "connect_tool_source"}
+	disabledNames := []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "mcp__orch__launch_agent", "orchestration_launch_agent", "connect_tool_source"}
 	disabledTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-deny",
 		ProviderThreadID: "provider-thread-deny",

@@ -247,6 +247,54 @@ func TestCodexSurfaceToolCallDeniesHiddenDisabledLifecycleAliases(t *testing.T) 
 	}
 }
 
+func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T) {
+	root := t.TempDir()
+	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", InputSchema: strictEmptyObjectSchema()}}}
+	owner := newFakeMCPToolLifecycleOwner()
+	owner.setDecision(root, mcpdto.ClientKindOrch, "orchestration_launch_agent", contract.MCPToolLifecycleDisabled, "blocked before prepare")
+	h := &Handler{
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: client}),
+		lifecycle:          owner,
+		lifecyclePolicy:    owner,
+	}
+
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID: "agent-1",
+		CWD:     root,
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+			{Name: mcpdto.ClientKindOrch, Command: []string{"mcp-orch"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	assertNoDynamicToolName(t, tools, "launch_agent")
+
+	for _, name := range []string{"launch_agent", "mcp__orch__launch_agent", "orchestration_launch_agent", "mcp__orch__orchestration_launch_agent"} {
+		t.Run(name, func(t *testing.T) {
+			result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+				Params: mustRawJSON(t, map[string]any{
+					"name":      name,
+					"arguments": map[string]any{"illegal": true},
+					"_agentId":  "agent-1",
+					"_cwd":      root,
+				}),
+			})
+			if err != nil {
+				t.Fatalf("HandleToolCall(%q) error = %v", name, err)
+			}
+			got, ok := result.(*ToolCallResult)
+			if !ok {
+				t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
+			}
+			assertLifecycleDeniedResult(t, got, mcpdto.ClientKindOrch, "orchestration_launch_agent", contract.MCPToolLifecycleDenyCodeDisabled)
+		})
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("hidden disabled lifecycle call reached MCP client: calls=%#v", client.calls)
+	}
+}
+
 func TestPeerToolCallDeniesDisabledLifecycleAliasesBeforePeerSelection(t *testing.T) {
 	root := t.TempDir()
 	owner := newFakeMCPToolLifecycleOwner()
