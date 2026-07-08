@@ -800,6 +800,19 @@ describe('agentic e2e config', () => {
     ]));
   });
 
+  it('exposes stable provider settings anchors for dangerous-action e2e', async () => {
+    const source = await readFile(path.join(process.cwd(), 'src/pages/settings/components/ProviderSettingsPanels.jsx'), 'utf8');
+    expect(source).toContain('data-testid="settings-provider-runtime-card"');
+    expect(source).toContain('data-testid="settings-provider-save-button"');
+    expect(source).toContain('data-testid="settings-provider-model"');
+    expect(source).toContain('data-testid="settings-provider-effort"');
+    expect(source).toContain('data-testid="settings-provider-personality"');
+    expect(source).toContain('data-testid="settings-provider-codex-home"');
+    expect(source).toContain('data-testid="settings-provider-instance-key"');
+    expect(source).toContain('data-testid="settings-provider-network-access"');
+    expect(source).toContain('data-testid="settings-provider-writable-roots"');
+  });
+
   it('fails fast for unsupported goals', () => {
     expect(() => normalizeGoal({ id: 'missing-goal' })).toThrow(/unsupported agentic e2e goal/);
   });
