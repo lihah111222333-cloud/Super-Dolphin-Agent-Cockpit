@@ -71,18 +71,25 @@ func addSingleMCPToolToSurface(
 	if err := addSurfaceTool(surface, out, tool, entry); err != nil {
 		return err
 	}
-	if err := addMCPToolAlias(surface, family, tool.Name, canonical); err != nil {
+	if err := addCallableMCPToolAliases(surface, family, tool.Name, canonical); err != nil {
 		return err
 	}
-	if err := addSurfaceAlias(surface, wrappedMCPToolName(family, tool.Name), canonical); err != nil {
-		return err
-	}
-	for _, alias := range legacyCodexToolAliases(family, canonical) {
+	for _, alias := range callableLegacyCodexToolAliases(family, canonical) {
 		if err := addSurfaceAlias(surface, alias, canonical); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func addCallableMCPToolAliases(surface *codexToolSurface, family, realName, canonical string) error {
+	if isLegacyOrchestrationSurfaceName(family, realName) {
+		return addSurfaceAlias(surface, wrappedMCPToolName(family, canonical), canonical)
+	}
+	if err := addMCPToolAlias(surface, family, realName, canonical); err != nil {
+		return err
+	}
+	return addSurfaceAlias(surface, wrappedMCPToolName(family, realName), canonical)
 }
 
 // addDisabledSurfaceToolAliases 记录被 session config 禁用的工具别名。

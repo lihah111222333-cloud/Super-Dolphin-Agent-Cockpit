@@ -369,6 +369,27 @@ func legacyCodexToolAliases(family, canonical string) []string {
 	return nil
 }
 
+// callableLegacyCodexToolAliases 只返回仍允许作为调用入口的 legacy alias。
+// orchestration 旧前缀名仅保留给 deny/hidden 识别，不再进入 prepared Codex surface 的可调用入口。
+func callableLegacyCodexToolAliases(family, canonical string) []string {
+	if strings.TrimSpace(family) == mcpdto.ClientKindOrch {
+		return nil
+	}
+	return legacyCodexToolAliases(family, canonical)
+}
+
+func isLegacyOrchestrationSurfaceName(family, name string) bool {
+	if strings.TrimSpace(family) != mcpdto.ClientKindOrch {
+		return false
+	}
+	name = strings.TrimSpace(name)
+	canonical := canonicalOrchName(name)
+	if canonical == "" || canonical == name {
+		return false
+	}
+	return legacyOrchName(canonical) == name
+}
+
 // codexSurfaceKeys 生成 surface 可被查找的所有作用域 key。
 func codexSurfaceKeys(scope contract.CodexToolSurfaceScope) []string {
 	return nonEmptyUnique(surfaceIDKey(scope.SurfaceID), scope.AgentID, scope.ProviderThreadID, scope.LocalThreadID, scope.UIThreadID)
