@@ -811,6 +811,8 @@ describe('agentic e2e config', () => {
     expect(source).toContain('data-testid="settings-provider-instance-key"');
     expect(source).toContain('data-testid="settings-provider-network-access"');
     expect(source).toContain('data-testid="settings-provider-writable-roots"');
+    const writableRootsTextarea = source.match(/<textarea[^>]*data-testid="settings-provider-writable-roots"[^>]*>/)?.[0];
+    expect(writableRootsTextarea).toContain('placeholder={copy.provider.rootPlaceholder}');
   });
 
   it('fails fast for unsupported goals', () => {
