@@ -32,15 +32,19 @@ type dashboardOrchestrationReaderPort interface {
 type dashboardOrchestrationReaderPortParams struct {
 	fx.In
 
-	Service contract.OrchestrationService `optional:"true"`
+	Lifecycle contract.AgentLifecyclePort `optional:"true"`
+	Reports   contract.AgentReportPort    `optional:"true"`
 }
 
-// provideDashboardOrchestrationReaderPort 集中暂存 full service 到 dashboard 读端口的兼容接线。
+// provideDashboardOrchestrationReaderPort 组合 agent 生命周期和报告读取窄端口。
 func provideDashboardOrchestrationReaderPort(p dashboardOrchestrationReaderPortParams) dashboardOrchestrationReaderPort {
-	if p.Service == nil {
+	if p.Lifecycle == nil || p.Reports == nil {
 		return nil
 	}
-	return p.Service
+	return dashboardOrchestrationReaderPortAdapter{
+		lifecycle: p.Lifecycle,
+		reports:   p.Reports,
+	}
 }
 
 type uiStateAgentListerParams struct {
@@ -59,6 +63,26 @@ func provideUIStateAgentLister(p uiStateAgentListerParams) uistate.AgentLister {
 
 type dashboardOrchestrationReader struct {
 	reader dashboardOrchestrationReaderPort
+}
+
+type dashboardOrchestrationReaderPortAdapter struct {
+	lifecycle contract.AgentLifecyclePort
+	reports   contract.AgentReportPort
+}
+
+// ListAgents 从 agent 生命周期端口读取列表快照。
+func (a dashboardOrchestrationReaderPortAdapter) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {
+	return a.lifecycle.ListAgents(ctx)
+}
+
+// Snapshot 从 agent 生命周期端口读取单 agent 快照。
+func (a dashboardOrchestrationReaderPortAdapter) Snapshot(ctx context.Context, agentID string) (contract.AgentSnapshot, error) {
+	return a.lifecycle.Snapshot(ctx, agentID)
+}
+
+// GetReport 从 agent report 端口读取报告。
+func (a dashboardOrchestrationReaderPortAdapter) GetReport(ctx context.Context, agentID string) (contract.AgentReportResult, error) {
+	return a.reports.GetReport(ctx, agentID)
 }
 
 // ListAgents 转发 UI 读模型需要的 agent 列表读取。

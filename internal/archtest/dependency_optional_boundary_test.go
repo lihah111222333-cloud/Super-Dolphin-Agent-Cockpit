@@ -262,7 +262,7 @@ func (k optionalDependencyBudgetKey) String() string {
 func optionalDependencyBudgets() map[optionalDependencyBudgetKey]int {
 	return map[optionalDependencyBudgetKey]int{
 		{owner: "internal/app", category: optionalDependencyAbsence}:                 2,
-		{owner: "internal/app", category: optionalAdjunct}:                           8,
+		{owner: "internal/app", category: optionalAdjunct}:                           9,
 		{owner: "internal/module/thread", category: optionalDependencyAbsence}:       1,
 		{owner: "internal/module/thread", category: optionalAdjunct}:                 8,
 		{owner: "internal/platform/toolbridge", category: optionalDependencyAbsence}: 8,
@@ -338,8 +338,9 @@ func registeredOptionalDependencyAppClassifications() map[string]optionalDepende
 		return dependency(name, profile, "internal/app", path+": "+evidence)
 	}
 	return map[string]optionalDependencyClassification{
-		"internal/app/dashboard_adapter.go:optional_tag:Service":                                        appAdjunct("internal/app/dashboard_adapter.go", "dashboard reader is absent in desktop-host external orchestration mode; dashboard read entrypoints fail-fast on nil reader"),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Service":                                 appDependency("internal/app/runtime_reporter_adapter.go", "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost, "newRuntimeReporter gates absent orchestration service through dependency policy before desktopExternalRuntimeReporter"),
+		"internal/app/dashboard_adapter.go:optional_tag:Lifecycle":                                      appAdjunct("internal/app/dashboard_adapter.go", "provideDashboardOrchestrationReaderPort returns nil unless AgentLifecyclePort and AgentReportPort are both present; dashboard read entrypoints fail-fast on nil reader"),
+		"internal/app/dashboard_adapter.go:optional_tag:Reports":                                        appAdjunct("internal/app/dashboard_adapter.go", "provideDashboardOrchestrationReaderPort returns nil unless AgentLifecyclePort and AgentReportPort are both present; dashboard read entrypoints fail-fast on nil reader"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Runtime":                                 appDependency("internal/app/runtime_reporter_adapter.go", "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost, "provideRuntimeUpdater narrows AgentRuntimePort to UpdateRuntime before newRuntimeReporter gates absent updater through dependency policy"),
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Logger":                                  appAdjunct("internal/app/runtime_reporter_adapter.go", "desktopExternalRuntimeReporter uses logger only for debug diagnostics"),
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Dependency":                              appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the mode-aware policy from Dependency or Config"),
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Config":                                  appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the fallback dependency profile from Config"),
