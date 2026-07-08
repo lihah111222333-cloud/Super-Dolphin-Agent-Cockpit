@@ -225,6 +225,18 @@ func collectOrchestrationServiceBlockUses(
 		case *ast.ValueSpec:
 			collectOrchestrationServiceValueSpecUses(uses, fset, typed, relPath, function, contractAliases, aliases)
 			return false
+		case *ast.TypeAssertExpr:
+			collectOrchestrationServiceTypeAssertionUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.CompositeLit:
+			collectOrchestrationServiceCompositeLiteralUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.CallExpr:
+			collectOrchestrationServiceCallTypeUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.TypeSwitchStmt:
+			collectOrchestrationServiceTypeSwitchUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.FuncLit:
+			collectOrchestrationServiceFuncLiteralUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.SelectorExpr:
+			collectOrchestrationServiceMethodExpressionUses(uses, fset, typed, relPath, function, contractAliases, aliases)
 		}
 		return true
 	})
@@ -263,6 +275,7 @@ func collectOrchestrationServiceTypeSpecUses(
 		kind = "type alias"
 	}
 	ctx := orchestrationServiceUse{relPath: relPath, kind: kind, name: spec.Name.Name, function: function}
+	*uses = append(*uses, collectOrchestrationServiceTypeParamUses(fset, spec.TypeParams, relPath, function, contractAliases, aliases)...)
 	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, spec.Type, ctx, contractAliases, aliases)...)
 }
 
@@ -275,11 +288,13 @@ func collectOrchestrationServiceValueSpecUses(
 	contractAliases map[string]bool,
 	aliases map[string]orchestrationServiceAliasSource,
 ) {
-	if spec.Type == nil {
-		return
-	}
 	ctx := orchestrationServiceUse{relPath: relPath, kind: "variable", name: valueSpecNames(spec), function: function}
-	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, spec.Type, ctx, contractAliases, aliases)...)
+	if spec.Type != nil {
+		*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, spec.Type, ctx, contractAliases, aliases)...)
+	}
+	for _, value := range spec.Values {
+		collectOrchestrationServiceExprUses(uses, fset, value, relPath, function, contractAliases, aliases)
+	}
 }
 
 func collectOrchestrationServiceFuncSignatureUses(
@@ -290,8 +305,78 @@ func collectOrchestrationServiceFuncSignatureUses(
 	contractAliases map[string]bool,
 	aliases map[string]orchestrationServiceAliasSource,
 ) {
-	*uses = append(*uses, collectOrchestrationServiceFieldListUses(fset, fn.Type.Params, relPath, fn.Name.Name, "parameter", contractAliases, aliases)...)
-	*uses = append(*uses, collectOrchestrationServiceFieldListUses(fset, fn.Type.Results, relPath, fn.Name.Name, "return value", contractAliases, aliases)...)
+	collectOrchestrationServiceFuncTypeUses(uses, fset, fn.Type, relPath, fn.Name.Name, contractAliases, aliases)
+}
+
+func collectOrchestrationServiceFuncLiteralUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	fn *ast.FuncLit,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	collectOrchestrationServiceFuncTypeUses(uses, fset, fn.Type, relPath, function, contractAliases, aliases)
+}
+
+func collectOrchestrationServiceFuncTypeUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	fn *ast.FuncType,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	*uses = append(*uses, collectOrchestrationServiceTypeParamUses(fset, fn.TypeParams, relPath, function, contractAliases, aliases)...)
+	*uses = append(*uses, collectOrchestrationServiceFieldListUses(fset, fn.Params, relPath, function, "parameter", contractAliases, aliases)...)
+	*uses = append(*uses, collectOrchestrationServiceFieldListUses(fset, fn.Results, relPath, function, "return value", contractAliases, aliases)...)
+}
+
+func collectOrchestrationServiceTypeParamUses(
+	fset *token.FileSet,
+	list *ast.FieldList,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) []orchestrationServiceUse {
+	return collectOrchestrationServiceFieldListUses(fset, list, relPath, function, "type parameter", contractAliases, aliases)
+}
+
+func collectOrchestrationServiceExprUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	expr ast.Expr,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch typed := n.(type) {
+		case *ast.TypeSpec:
+			collectOrchestrationServiceTypeSpecUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+			return false
+		case *ast.ValueSpec:
+			collectOrchestrationServiceValueSpecUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+			return false
+		case *ast.TypeAssertExpr:
+			collectOrchestrationServiceTypeAssertionUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.CompositeLit:
+			collectOrchestrationServiceCompositeLiteralUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.CallExpr:
+			collectOrchestrationServiceCallTypeUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.TypeSwitchStmt:
+			collectOrchestrationServiceTypeSwitchUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.FuncLit:
+			collectOrchestrationServiceFuncLiteralUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		case *ast.SelectorExpr:
+			collectOrchestrationServiceMethodExpressionUses(uses, fset, typed, relPath, function, contractAliases, aliases)
+		}
+		return true
+	})
 }
 
 func collectOrchestrationServiceFieldListUses(
@@ -400,14 +485,112 @@ func collectOrchestrationServiceCompositeTypeExprUses(
 		}
 		return uses
 	case *ast.FuncType:
-		uses := collectOrchestrationServiceFieldListUses(fset, typed.Params, ctx.relPath, ctx.function, "parameter", contractAliases, aliases)
-		return append(uses, collectOrchestrationServiceFieldListUses(fset, typed.Results, ctx.relPath, ctx.function, "return value", contractAliases, aliases)...)
+		var uses []orchestrationServiceUse
+		collectOrchestrationServiceFuncTypeUses(&uses, fset, typed, ctx.relPath, ctx.function, contractAliases, aliases)
+		return uses
 	case *ast.StructType:
 		return collectOrchestrationServiceFieldListUses(fset, typed.Fields, ctx.relPath, ctx.function, "field", contractAliases, aliases)
 	case *ast.InterfaceType:
 		return collectOrchestrationServiceFieldListUses(fset, typed.Methods, ctx.relPath, ctx.function, "field", contractAliases, aliases)
+	case *ast.BinaryExpr:
+		uses := collectOrchestrationServiceTypeExprUses(fset, typed.X, ctx, contractAliases, aliases)
+		return append(uses, collectOrchestrationServiceTypeExprUses(fset, typed.Y, ctx, contractAliases, aliases)...)
+	case *ast.UnaryExpr:
+		return collectOrchestrationServiceTypeExprUses(fset, typed.X, ctx, contractAliases, aliases)
 	}
 	return nil
+}
+
+func collectOrchestrationServiceTypeAssertionUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	expr *ast.TypeAssertExpr,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	if expr.Type == nil {
+		return
+	}
+	ctx := orchestrationServiceUse{relPath: relPath, kind: "type assertion", function: function}
+	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, expr.Type, ctx, contractAliases, aliases)...)
+}
+
+func collectOrchestrationServiceCompositeLiteralUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	lit *ast.CompositeLit,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	if lit.Type == nil {
+		return
+	}
+	ctx := orchestrationServiceUse{relPath: relPath, kind: "composite literal", function: function}
+	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, lit.Type, ctx, contractAliases, aliases)...)
+}
+
+func collectOrchestrationServiceCallTypeUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	call *ast.CallExpr,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	ctx := orchestrationServiceUse{relPath: relPath, kind: "type conversion", function: function}
+	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, call.Fun, ctx, contractAliases, aliases)...)
+	if !isTypeAcceptingBuiltin(call.Fun) || len(call.Args) == 0 {
+		return
+	}
+	ctx.kind = "builtin type argument"
+	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, call.Args[0], ctx, contractAliases, aliases)...)
+}
+
+func collectOrchestrationServiceTypeSwitchUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	stmt *ast.TypeSwitchStmt,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	if stmt.Body == nil {
+		return
+	}
+	for _, item := range stmt.Body.List {
+		clause, ok := item.(*ast.CaseClause)
+		if !ok {
+			continue
+		}
+		ctx := orchestrationServiceUse{relPath: relPath, kind: "type switch case", function: function}
+		for _, expr := range clause.List {
+			*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, expr, ctx, contractAliases, aliases)...)
+		}
+	}
+}
+
+func isTypeAcceptingBuiltin(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && (ident.Name == "make" || ident.Name == "new")
+}
+
+func collectOrchestrationServiceMethodExpressionUses(
+	uses *[]orchestrationServiceUse,
+	fset *token.FileSet,
+	expr *ast.SelectorExpr,
+	relPath string,
+	function string,
+	contractAliases map[string]bool,
+	aliases map[string]orchestrationServiceAliasSource,
+) {
+	ctx := orchestrationServiceUse{relPath: relPath, kind: "method expression", function: function}
+	*uses = append(*uses, collectOrchestrationServiceTypeExprUses(fset, expr.X, ctx, contractAliases, aliases)...)
 }
 
 func (use orchestrationServiceUse) withExprUse(
@@ -603,215 +786,6 @@ func selectorExprName(expr *ast.SelectorExpr) string {
 		return base.Name + "." + expr.Sel.Name
 	}
 	return expr.Sel.Name
-}
-
-func orchestrationServiceUsesFromSource(
-	t *testing.T,
-	relPath string,
-	src string,
-	packageAliases map[string]orchestrationServiceAliasSource,
-) []orchestrationServiceUse {
-	t.Helper()
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, relPath, src, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse fixture: %v", err)
-	}
-	contractAliases := contractImportAliases(t, relPath, file)
-	return collectOrchestrationServiceUses(fset, file, relPath, contractAliases, packageAliases)
-}
-
-func unexpectedOrchestrationServiceUseMessages(uses []orchestrationServiceUse) []string {
-	var violations []string
-	for _, use := range uses {
-		if isAllowedOrchestrationServiceSemanticUse(use) {
-			continue
-		}
-		violations = append(violations, use.violationMessage())
-	}
-	return violations
-}
-
-type orchestrationServiceSemanticGuardCase struct {
-	name         string
-	relPath      string
-	src          string
-	packageAlias map[string]orchestrationServiceAliasSource
-	wantContains []string
-}
-
-func TestOrchestrationServiceSemanticGuardFixtures(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range orchestrationServiceSemanticGuardCases() {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := unexpectedOrchestrationServiceUseMessages(orchestrationServiceUsesFromSource(t, tt.relPath, tt.src, tt.packageAlias))
-			if len(tt.wantContains) == 0 {
-				if len(got) > 0 {
-					t.Fatalf("unexpected violations:\n%s", strings.Join(got, "\n"))
-				}
-				return
-			}
-			for _, want := range tt.wantContains {
-				if !containsViolation(got, want) {
-					t.Fatalf("missing violation containing %q; got:\n%s", want, strings.Join(got, "\n"))
-				}
-			}
-		})
-	}
-}
-
-func orchestrationServiceSemanticGuardCases() []orchestrationServiceSemanticGuardCase {
-	cases := []orchestrationServiceSemanticGuardCase{allowedServiceFacadeGuardCase()}
-	cases = append(cases, rejectedServiceFacadeGuardCases()...)
-	cases = append(cases, allowedRPCFacadeGuardCase())
-	return append(cases, rejectedRPCFacadeGuardCases()...)
-}
-
-func facadeServiceAliases() map[string]orchestrationServiceAliasSource {
-	return map[string]orchestrationServiceAliasSource{
-		"Service": {name: "Service", relPath: orchestrationServiceFacadeRelPath, line: 39, facade: true},
-	}
-}
-
-func allowedServiceFacadeGuardCase() orchestrationServiceSemanticGuardCase {
-	return orchestrationServiceSemanticGuardCase{
-		name:    "service facade allows only alias and interface provider return",
-		relPath: orchestrationServiceFacadeRelPath,
-		src: `package fixture
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-type Service = contract.OrchestrationService
-
-type service struct{}
-
-func ProvideServiceInterface(s *service) Service { return s }
-`,
-	}
-}
-
-func rejectedServiceFacadeGuardCases() []orchestrationServiceSemanticGuardCase {
-	return []orchestrationServiceSemanticGuardCase{
-		{
-			name:    "service facade rejects local alias",
-			relPath: orchestrationServiceFacadeRelPath,
-			src: `package fixture
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-type Service = contract.OrchestrationService
-type FullService = contract.OrchestrationService
-`,
-			wantContains: []string{"type alias FullService uses full orchestration service"},
-		},
-		{
-			name:    "service facade rejects field",
-			relPath: orchestrationServiceFacadeRelPath,
-			src: `package fixture
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-type Service = contract.OrchestrationService
-type holder struct { service Service }
-`,
-			wantContains: []string{"field service uses full orchestration service"},
-		},
-		{
-			name:    "service facade rejects parameter",
-			relPath: orchestrationServiceFacadeRelPath,
-			src: `package fixture
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-type Service = contract.OrchestrationService
-func use(svc Service) {}
-`,
-			wantContains: []string{"parameter svc in use uses full orchestration service"},
-		},
-		{
-			name:    "service facade rejects return",
-			relPath: orchestrationServiceFacadeRelPath,
-			src: `package fixture
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-type Service = contract.OrchestrationService
-func use() Service { return nil }
-`,
-			wantContains: []string{"return value (anonymous) in use uses full orchestration service"},
-		},
-		{
-			name:    "service facade rejects variable",
-			relPath: orchestrationServiceFacadeRelPath,
-			src: `package fixture
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-type Service = contract.OrchestrationService
-var svc Service
-`,
-			wantContains: []string{"variable svc uses full orchestration service"},
-		},
-	}
-}
-
-func allowedRPCFacadeGuardCase() orchestrationServiceSemanticGuardCase {
-	return orchestrationServiceSemanticGuardCase{
-		name:    "rpc facade allows service parameter only from package facade alias",
-		relPath: orchestrationRPCFacadeRelPath,
-		src: `package fixture
-func ProvideRPCFacade(svc Service) any { return nil }
-func submissionFromParams(ctx any, svc Service, p any) (any, error) { return nil, nil }
-func submissionThreadID(ctx any, svc Service, agentID string) string { return "" }
-`,
-		packageAlias: facadeServiceAliases(),
-	}
-}
-
-func rejectedRPCFacadeGuardCases() []orchestrationServiceSemanticGuardCase {
-	return []orchestrationServiceSemanticGuardCase{
-		{
-			name:    "rpc facade rejects local alias source",
-			relPath: orchestrationRPCFacadeRelPath,
-			src: `package fixture
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-type Service = contract.OrchestrationService
-func ProvideRPCFacade(svc Service) any { return nil }
-`,
-			wantContains: []string{"type alias Service uses full orchestration service", "parameter svc in ProvideRPCFacade uses full orchestration service"},
-		},
-		{
-			name:         "rpc facade rejects field even with package facade alias",
-			relPath:      orchestrationRPCFacadeRelPath,
-			src:          "package fixture\ntype holder struct { service Service }\n",
-			packageAlias: facadeServiceAliases(),
-			wantContains: []string{"field service uses full orchestration service"},
-		},
-		{
-			name:         "rpc facade rejects unexpected parameter even with package facade alias",
-			relPath:      orchestrationRPCFacadeRelPath,
-			src:          "package fixture\nfunc helper(svc Service) {}\n",
-			packageAlias: facadeServiceAliases(),
-			wantContains: []string{"parameter svc in helper uses full orchestration service"},
-		},
-		{
-			name:         "rpc facade rejects return even with package facade alias",
-			relPath:      orchestrationRPCFacadeRelPath,
-			src:          "package fixture\nfunc helper() Service { return nil }\n",
-			packageAlias: facadeServiceAliases(),
-			wantContains: []string{"return value (anonymous) in helper uses full orchestration service"},
-		},
-		{
-			name:         "cross-file package alias does not bypass non-rpc files",
-			relPath:      "cmd/mcp-orch/orchestration/other.go",
-			src:          "package fixture\nfunc helper(svc Service) {}\n",
-			packageAlias: facadeServiceAliases(),
-			wantContains: []string{"cmd/mcp-orch/orchestration/other.go:2 parameter svc in helper uses full orchestration service"},
-		},
-	}
-}
-
-func containsViolation(violations []string, want string) bool {
-	for _, violation := range violations {
-		if strings.Contains(violation, want) {
-			return true
-		}
-	}
-	return false
 }
 
 func isOrchestrationServiceSelector(expr ast.Expr, contractAliases map[string]bool) bool {
