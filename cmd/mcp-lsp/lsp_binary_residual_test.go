@@ -547,6 +547,7 @@ func lspBinaryEnv(t *testing.T, root string) []string {
 		"PROJECT_ROOT="+repoRoot,
 		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+repoRoot,
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
 	)
 	return env
 }
