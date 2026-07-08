@@ -48,7 +48,7 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 		return orchestrationServiceAllowance{max: max, reason: reason}
 	}
 	return map[string]orchestrationServiceAllowance{
-		"cmd/mcp-orch/orchestration/service.go":                compat(4, "production implementation facade re-exports and exposes the full service"),
+		"cmd/mcp-orch/orchestration/service.go":                compat(2, "production facade may only re-export Service and provide the interface"),
 		"cmd/mcp-orch/runtime.go":                              compat(1, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
 		"cmd/mcp-orch/tools/registry.go":                       compat(1, "tool registry compatibility adapter keeps legacy dependency shape"),
 		"cmd/mcp-orch/tools/orchestration_tool_definitions.go": compat(1, "orchestration tool definition fanout adapter"),
@@ -112,21 +112,39 @@ func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[s
 	localAliases := orchestrationServiceLocalAliases(file, contractAliases)
 	count := 0
 	ast.Inspect(file, func(n ast.Node) bool {
-		selector, ok := n.(*ast.SelectorExpr)
-		if ok {
-			if selector.Sel.Name != "OrchestrationService" {
-				return true
+		switch typed := n.(type) {
+		case *ast.TypeSpec:
+			count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
+			return false
+		case *ast.Field:
+			count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
+			return false
+		case *ast.ValueSpec:
+			if typed.Type != nil {
+				count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
 			}
-			base, ok := selector.X.(*ast.Ident)
-			if ok && contractAliases[base.Name] {
+			return false
+		}
+		return true
+	})
+	return count
+}
+
+func countOrchestrationServiceTypeExpr(expr ast.Expr, contractAliases map[string]bool, localAliases map[string]bool) int {
+	count := 0
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch typed := n.(type) {
+		case *ast.Field:
+			count += countOrchestrationServiceTypeExpr(typed.Type, contractAliases, localAliases)
+			return false
+		case *ast.SelectorExpr:
+			if isOrchestrationServiceSelector(typed, contractAliases) {
 				count++
 			}
-			return true
-		}
-
-		ident, ok := n.(*ast.Ident)
-		if ok && localAliases[ident.Name] && !isTypeSpecName(file, ident) {
-			count++
+		case *ast.Ident:
+			if localAliases[typed.Name] {
+				count++
+			}
 		}
 		return true
 	})
@@ -136,7 +154,14 @@ func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[s
 func TestCountOrchestrationServiceSelectorUsesCountsLocalAliases(t *testing.T) {
 	t.Parallel()
 
-	src := `package fixture
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{
+			name: "local alias declaration and field parameter return uses",
+			src: `package fixture
 
 import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
@@ -148,16 +173,73 @@ type wrapper struct {
 func use(svc OS) OS {
 	return svc
 }
-`
-	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", src, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse fixture: %v", err)
+`,
+			want: 4,
+		},
+		{
+			name: "direct selector field parameter return uses",
+			src: `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type wrapper struct {
+	service contract.OrchestrationService
+}
+
+func use(svc contract.OrchestrationService) contract.OrchestrationService {
+	return svc
+}
+`,
+			want: 3,
+		},
+		{
+			name: "facade allows service alias and interface provider return",
+			src: `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type Service = contract.OrchestrationService
+
+type service struct{}
+
+func ProvideServiceInterface(s *service) Service { return s }
+`,
+			want: 2,
+		},
+		{
+			name: "facade fixture would fail on extra full service field",
+			src: `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type Service = contract.OrchestrationService
+
+type holder struct {
+	service Service
+}
+
+type service struct{}
+
+func ProvideServiceInterface(s *service) Service { return s }
+`,
+			want: 3,
+		},
 	}
-	contractAliases := contractImportAliases(t, "fixture.go", file)
-	got := countOrchestrationServiceSelectorUses(file, contractAliases)
-	const want = 4
-	if got != want {
-		t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d; local alias use must consume the boundary budget", got, want)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", tt.src, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parse fixture: %v", err)
+			}
+			contractAliases := contractImportAliases(t, "fixture.go", file)
+			got := countOrchestrationServiceSelectorUses(file, contractAliases)
+			if got != tt.want {
+				t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -188,20 +270,4 @@ func isOrchestrationServiceSelector(expr ast.Expr, contractAliases map[string]bo
 	}
 	base, ok := selector.X.(*ast.Ident)
 	return ok && contractAliases[base.Name]
-}
-
-func isTypeSpecName(file *ast.File, ident *ast.Ident) bool {
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if ok && typeSpec.Name == ident {
-				return true
-			}
-		}
-	}
-	return false
 }
