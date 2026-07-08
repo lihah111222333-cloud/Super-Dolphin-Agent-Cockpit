@@ -299,7 +299,7 @@ func TestHandleCreateDAGRejectsFlatScheduleConflict(t *testing.T) {
 }
 
 func TestTaskCreateDAGSchemaExposesNodeConfig(t *testing.T) {
-	defs := taskToolDefinitions(nil)
+	defs := taskToolDefinitions(ToolPorts{})
 	var createDAG ToolDefinition
 	for _, def := range defs {
 		if def.Name == "task_create_dag" {
@@ -320,7 +320,7 @@ func TestTaskCreateDAGSchemaExposesNodeConfig(t *testing.T) {
 }
 
 func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
-	defs := taskToolDefinitions(nil)
+	defs := taskToolDefinitions(ToolPorts{})
 	var applyOps ToolDefinition
 	for _, def := range defs {
 		if def.Name == "task_dag_apply_ops" {
@@ -356,7 +356,7 @@ func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 }
 
 func TestTaskDAGApplyOpsSchemaExposesFlatAction(t *testing.T) {
-	defs := taskToolDefinitions(nil)
+	defs := taskToolDefinitions(ToolPorts{})
 	applyOps := mustFindToolDefinition(t, defs, "task_dag_apply_ops")
 	props := applyOps.InputSchema["properties"].(map[string]any)
 	action, ok := props["action"].(map[string]any)

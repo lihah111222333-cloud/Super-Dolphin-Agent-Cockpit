@@ -239,7 +239,7 @@ func TestLaunchAgentSchemaDocumentsReadOnly(t *testing.T) {
 
 func launchAgentSchemaProperties(t *testing.T) map[string]any {
 	t.Helper()
-	defs := orchestrationToolDefinitions(&golden.OrchestrationStub{})
+	defs := orchestrationToolDefinitions(ToolPorts{})
 	for _, def := range defs {
 		if def.Name != "launch_agent" {
 			continue

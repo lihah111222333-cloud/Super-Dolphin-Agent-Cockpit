@@ -76,10 +76,10 @@ func TestReadToolSchemasExposePosWithoutLegacyRequired(t *testing.T) {
 		toolName    string
 		legacyField string
 	}{
-		{defs: orchestrationToolDefinitions(nil), toolName: "get_agent_report", legacyField: "agent_id"},
-		{defs: taskToolDefinitions(nil), toolName: "task_get_dag", legacyField: "dag_key"},
-		{defs: taskToolDefinitions(nil), toolName: "task_get_run", legacyField: "run_key"},
-		{defs: taskToolDefinitions(nil), toolName: "task_list_runs", legacyField: "dag_key"},
+		{defs: orchestrationToolDefinitions(ToolPorts{}), toolName: "get_agent_report", legacyField: "agent_id"},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_get_dag", legacyField: "dag_key"},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_get_run", legacyField: "run_key"},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_list_runs", legacyField: "dag_key"},
 		{defs: workspaceToolDefinitions(nil), toolName: "workspace_get_run", legacyField: "run_key"},
 		{defs: workspaceToolDefinitions(nil), toolName: "workspace_list_runs", legacyField: "dag_key"},
 		{defs: sharedFileToolDefinitions(nil), toolName: "shared_file_read", legacyField: "path"},
@@ -273,13 +273,13 @@ func TestMutationToolSchemasExposePosWithoutSelectorRequired(t *testing.T) {
 		legacyFields   []string
 		requiredFields []string
 	}{
-		{defs: orchestrationToolDefinitions(nil), toolName: "send_message", legacyFields: []string{"agent_id"}, requiredFields: []string{"message"}},
-		{defs: orchestrationToolDefinitions(nil), toolName: "stop_agent", legacyFields: []string{"agent_id"}},
-		{defs: taskToolDefinitions(nil), toolName: "task_start_dag", legacyFields: []string{"dag_key"}},
-		{defs: taskToolDefinitions(nil), toolName: "task_terminate_dag", legacyFields: []string{"dag_key", "run_key"}},
-		{defs: taskToolDefinitions(nil), toolName: "task_delete_dag", legacyFields: []string{"dag_key"}},
-		{defs: taskToolDefinitions(nil), toolName: "task_update_node", legacyFields: []string{"dag_key", "node_key", "run_id"}, requiredFields: []string{"status"}},
-		{defs: taskToolDefinitions(nil), toolName: "task_dispatch_node", legacyFields: []string{"dag_key", "node_key", "run_id"}, requiredFields: []string{"assigned_to"}},
+		{defs: orchestrationToolDefinitions(ToolPorts{}), toolName: "send_message", legacyFields: []string{"agent_id"}, requiredFields: []string{"message"}},
+		{defs: orchestrationToolDefinitions(ToolPorts{}), toolName: "stop_agent", legacyFields: []string{"agent_id"}},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_start_dag", legacyFields: []string{"dag_key"}},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_terminate_dag", legacyFields: []string{"dag_key", "run_key"}},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_delete_dag", legacyFields: []string{"dag_key"}},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_update_node", legacyFields: []string{"dag_key", "node_key", "run_id"}, requiredFields: []string{"status"}},
+		{defs: taskToolDefinitions(ToolPorts{}), toolName: "task_dispatch_node", legacyFields: []string{"dag_key", "node_key", "run_id"}, requiredFields: []string{"assigned_to"}},
 	}
 
 	for _, tc := range cases {

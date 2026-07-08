@@ -13,9 +13,28 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// ToolPorts 按工具消费面拆分 orchestration 依赖，避免 registry 持有完整服务边界。
+type ToolPorts struct {
+	AgentLaunch            agentLaunchPort
+	AgentMessenger         sendMessagePort
+	AgentLifecycle         contract.AgentLifecyclePort
+	AgentRecovery          agentRecoverPort
+	AgentInterrupt         agentInterruptPort
+	AgentList              agentListPort
+	AgentReports           agentReportPort
+	DAGCreate              contract.DAGCreateRuntime
+	DAGRuntime             contract.DAGRuntime
+	DAGDelete              contract.DAGDeleteRuntime
+	NodeStatus             taskNodeStatusUpdater
+	NodeDispatch           taskNodeDispatcher
+	WorkflowDiagnostics    workflowDiagnosticsPort
+	WorkflowRecovery       workflowRecoveryPort
+	DAGIdentityDiagnostics dagPromptIdentityDiagnosticsPort
+}
+
 // Dependencies 汇总 mcp-orch 工具注册所需的服务和 store 依赖。
 type Dependencies struct {
-	Orchestration  contract.OrchestrationService
+	ToolPorts      ToolPorts
 	Workspace      workspace.Service
 	Prompt         promptstore.Store
 	BuiltinPrompts contract.BuiltinPromptRegistry
@@ -43,7 +62,7 @@ var legacyOrchestrationAliases = map[string]string{
 
 // NewRegistry 汇总所有工具定义并建立名称索引；旧 orchestration_* 名称在 Lookup 时映射到新名。
 func NewRegistry(deps Dependencies) Registry {
-	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
+	tools := append(orchestrationToolDefinitions(deps.ToolPorts), taskToolDefinitions(deps.ToolPorts)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
 	tools = append(tools, promptToolDefinitions(deps.Prompt, deps.BuiltinPrompts)...)
 	tools = append(tools, recallToolDefinitions(deps.Prompt)...)

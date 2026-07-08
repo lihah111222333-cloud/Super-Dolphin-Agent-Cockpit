@@ -107,7 +107,7 @@ func TestLaunchHandlerRejectsChildAgentDelegation(t *testing.T) {
 }
 
 func TestRegistryLegacyLaunchAliasRejectsChildAgentDelegation(t *testing.T) {
-	registry := NewRegistry(Dependencies{Orchestration: &golden.OrchestrationStub{
+	registry := NewRegistry(Dependencies{ToolPorts: ToolPorts{AgentLaunch: &golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 			require.Equal(t, "agent-child", agentID)
 			return contract.AgentSnapshot{ID: "agent-child", AgentID: "agent-child", ParentID: "agent-root"}, nil
@@ -116,7 +116,7 @@ func TestRegistryLegacyLaunchAliasRejectsChildAgentDelegation(t *testing.T) {
 			t.Fatal("LaunchAgentSnapshot should not be called through legacy alias")
 			return contract.AgentSnapshot{}, nil
 		},
-	}})
+	}}})
 	tool, ok := registry.Lookup("orchestration_launch_agent")
 	require.True(t, ok)
 
@@ -283,7 +283,7 @@ func TestLaunchHandlerReturnsFinalPersistedAgentID(t *testing.T) {
 
 func TestLaunchAgentCWDDescriptionDocumentsConditionalRequirement(t *testing.T) {
 	var found ToolDefinition
-	for _, tool := range orchestrationToolDefinitions(&golden.OrchestrationStub{}) {
+	for _, tool := range orchestrationToolDefinitions(ToolPorts{}) {
 		if tool.Name == "launch_agent" {
 			found = tool
 			break
