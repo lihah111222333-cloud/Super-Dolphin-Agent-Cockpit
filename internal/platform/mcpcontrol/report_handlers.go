@@ -21,6 +21,16 @@ type CompletionReportHandler interface {
 	HandleCompletionReport(ctx context.Context, instance *ToolInstance, report dto.CompletionReport, req dto.ReportRequest) (dto.ReportResponse, error)
 }
 
+// RuntimeReportUpdater 是默认 runtime report handler 需要的最小持久化端口。
+type RuntimeReportUpdater interface {
+	UpdateRuntime(ctx context.Context, report contract.RuntimeReport) error
+}
+
+// ReportEventHandler 是默认 completion report handler 需要的最小事件端口。
+type ReportEventHandler interface {
+	HandleReportEvent(ctx context.Context, event contract.ReportEvent) (contract.ReportEventResult, error)
+}
+
 // handleReport 先为 report_id 做幂等预留，再按报告类型分发；成功结果会缓存供重复提交复用。
 func handleReport(
 	ctx context.Context,
@@ -82,7 +92,7 @@ func dispatchReport(
 
 // defaultRuntimeReportHandler 将 runtime report 写入 orchestration 服务。
 type defaultRuntimeReportHandler struct {
-	orchestration contract.OrchestrationService
+	updates RuntimeReportUpdater
 }
 
 // HandleRuntimeReport 持久化 agent 运行时端口和 provider，缺少 orchestration 时直接报能力不匹配。
@@ -92,10 +102,10 @@ func (h defaultRuntimeReportHandler) HandleRuntimeReport(
 	report dto.RuntimeReport,
 	_ dto.ReportRequest,
 ) (dto.ReportResponse, error) {
-	if h.orchestration == nil {
+	if h.updates == nil {
 		return dto.ReportResponse{}, errCapabilityMismatch("runtime report orchestration service is not configured")
 	}
-	if err := h.orchestration.UpdateRuntime(ctx, contract.RuntimeReport{
+	if err := h.updates.UpdateRuntime(ctx, contract.RuntimeReport{
 		AgentID:  instance.AgentID,
 		Port:     report.Port,
 		Provider: report.Provider,
@@ -112,7 +122,7 @@ func (h defaultRuntimeReportHandler) HandleRuntimeReport(
 
 // defaultCompletionReportHandler 将 completion report 转成 orchestration report event。
 type defaultCompletionReportHandler struct {
-	orchestration contract.OrchestrationService
+	events ReportEventHandler
 }
 
 // HandleCompletionReport 持久化 completion 事件，并保留原始 metadata 作为事件数据。
@@ -122,11 +132,11 @@ func (h defaultCompletionReportHandler) HandleCompletionReport(
 	report dto.CompletionReport,
 	req dto.ReportRequest,
 ) (dto.ReportResponse, error) {
-	if h.orchestration == nil {
+	if h.events == nil {
 		return dto.ReportResponse{}, errCapabilityMismatch("completion report orchestration service is not configured")
 	}
 	eventType := shared.FirstNonEmpty(report.Status, dto.ReportVariantCompletion)
-	_, err := h.orchestration.HandleReportEvent(ctx, contract.ReportEvent{
+	_, err := h.events.HandleReportEvent(ctx, contract.ReportEvent{
 		AgentID:   instance.AgentID,
 		Report:    shared.FirstNonEmpty(report.Report, report.Status),
 		EventType: eventType,

@@ -87,7 +87,7 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	contextProvider := p.Context
 	if contextProvider == nil {
 		contextProvider = registryContextProvider{
-			agents: resolveAgentContextSource(p.AgentSource, p.Orchestration),
+			agents: p.AgentSource,
 		}
 	}
 	eventSink := p.Events
@@ -100,11 +100,11 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	}
 	runtimeReports := p.RuntimeReports
 	if runtimeReports == nil {
-		runtimeReports = defaultRuntimeReportHandler{orchestration: p.Orchestration}
+		runtimeReports = defaultRuntimeReportHandler{updates: p.RuntimeUpdates}
 	}
 	completionReports := p.CompletionReports
 	if completionReports == nil {
-		completionReports = defaultCompletionReportHandler{orchestration: p.Orchestration}
+		completionReports = defaultCompletionReportHandler{events: p.ReportEvents}
 	}
 
 	return rpc.HandlerMapResult{Handlers: handler.Map{
@@ -250,18 +250,6 @@ func (p registryContextProvider) lookupAgentSnapshot(agentID string) (*contract.
 		return nil, errInvalidParams("agent not found")
 	}
 	return snapshot, nil
-}
-
-// resolveAgentContextSource 优先使用显式来源，否则从 orchestration 服务适配 AgentContextSource。
-func resolveAgentContextSource(explicit AgentContextSource, orchestration contract.OrchestrationService) AgentContextSource {
-	if explicit != nil {
-		return explicit
-	}
-	if orchestration == nil {
-		return nil
-	}
-	source, _ := orchestration.(AgentContextSource)
-	return source
 }
 
 // defaultEventSink 将 MCP event 写入事件总线并输出控制面日志。
