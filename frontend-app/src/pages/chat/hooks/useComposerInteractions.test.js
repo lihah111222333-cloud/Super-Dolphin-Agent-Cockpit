@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import {
   CONVERSATION_DROP_TARGET_ID,
   clipboardPathsFromText,
@@ -11,8 +11,6 @@ import {
 vi.mock('../services/chatCodeService.js', () => ({
   onFilesDropped: vi.fn(() => () => {}),
 }));
-
-describe('useComposerInteractions file transfer helpers', () => {
   it('normalizes clipboard paths from file URIs and quoted local paths', () => {
     const windowsPath = 'C:\\repo\\notes\\brief.md';
     const paths = clipboardPathsFromText([
@@ -55,11 +53,12 @@ describe('useComposerInteractions file transfer helpers', () => {
   });
 
   it('unwraps native drop payloads and rejects clearly unrelated targets', () => {
+    const dropTargetDetails = { attributes: { 'data-file-drop-target': '' } };
     expect(nativeDropFiles({
       data: {
         payload: {
           files: ['/tmp/native.txt'],
-          details: { attributes: { 'data-file-drop-target': '' } },
+          details: dropTargetDetails,
         },
       },
     })).toEqual(['/tmp/native.txt']);
@@ -102,4 +101,3 @@ describe('useComposerInteractions file transfer helpers', () => {
 
     expect(fileDropSubscriptionCleanup(null)).toBeUndefined();
   });
-});

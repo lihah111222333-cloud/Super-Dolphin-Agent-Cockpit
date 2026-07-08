@@ -62,14 +62,14 @@ export function normalizeThreadMessagesPageMeta(res, page) {
   };
 }
 
+function threadMessagesPaginationEntry(current, patch) { return { ...(current || { hasMore: false, nextBefore: '', loading: false }), ...patch }; }
+
 export function threadMessagesPaginationPatch(state, id, patch = {}) {
+  const currentByThread = state.threadMessagePaginationByThread;
   return {
     threadMessagePaginationByThread: {
-      ...state.threadMessagePaginationByThread,
-      [id]: {
-        ...(state.threadMessagePaginationByThread[id] || { hasMore: false, nextBefore: '', loading: false }),
-        ...patch,
-      },
+      ...currentByThread,
+      [id]: threadMessagesPaginationEntry(currentByThread[id], patch),
     },
   };
 }

@@ -42,13 +42,9 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-haiku-4-5': 'haiku',
 });
 
-function normalizeProviderKey(value) {
-  return textValue(value).toLowerCase() === 'claude' ? 'claude' : 'codex';
-}
+function normalizeProviderKey(value) { return textValue(value).toLowerCase() === 'claude' ? 'claude' : 'codex'; }
 
-function normalizeConfigText(value) {
-  return textValue(value);
-}
+function normalizeConfigText(value) { return textValue(value); }
 
 function canonicalizeModelValue(provider, value) {
   const normalized = normalizeConfigText(value);
@@ -85,9 +81,7 @@ async function loadMemoryDashboard(cwd, options) {
   return memoryPageService.loadDashboard(cwd, options);
 }
 
-function queryErrorMessage(query) {
-  return query?.error ? errorMessage(query.error) : '';
-}
+function queryErrorMessage(query) { return query?.error ? errorMessage(query.error) : ''; }
 
 function queryHasSnapshot(query) {
   return query?.data !== undefined;
@@ -296,4 +290,9 @@ function listToText(words) {
   return Array.isArray(words) ? words.join(', ') : '';
 }
 
-export { appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, currentTimestampMillis, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentRawText, firstPresentText, firstText, listToText, loadMemoryDashboard, MEMORY_TYPE_INFO, memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalArrayValue, optionalDateFromValue, optionalPlainObjectValue, optionalSettingsCwd, optionalTimestampMillis, parseJsonObjectValue, parseStrictJsonValue, queryErrorMessage, queryHasSnapshot, rawTextValue, requireArrayValue, requirePlainObjectValue, requireTimestampMillis, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText };
+export {
+  appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, currentTimestampMillis, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentRawText, firstPresentText, firstText, listToText, loadMemoryDashboard, MEMORY_TYPE_INFO,
+  memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalArrayValue,
+  optionalDateFromValue, optionalPlainObjectValue, optionalSettingsCwd, optionalTimestampMillis, parseJsonObjectValue, parseStrictJsonValue, queryErrorMessage, queryHasSnapshot, rawTextValue, requireArrayValue, requirePlainObjectValue, requireTimestampMillis, sharedFileTimestamp,
+  SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText,
+};

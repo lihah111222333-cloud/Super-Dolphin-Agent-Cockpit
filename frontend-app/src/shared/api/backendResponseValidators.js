@@ -312,7 +312,7 @@ function validateMCPServerControlResponse(method, response, controlSpecs) {
 /**
  * @param {string} method
  * @param {any} response
- * @param {(response: any) => any} parser
+ * @param {(response: unknown) => unknown} parser
  */
 function validateSchemaResponse(method, response, parser) {
   try {
@@ -323,15 +323,15 @@ function validateSchemaResponse(method, response, parser) {
   }
 }
 
-/** @type {(method: string, response: any) => any} */
+/** @type {(method: string, response: unknown) => unknown} */
 const validateObservabilityResultResponse = (method, response) => validateSchemaResponse(method, response, parseObservabilityResultResponse);
-/** @type {(method: string, response: any) => any} */
+/** @type {(method: string, response: unknown) => unknown} */
 const validateMemorySnapshotResponse = (method, response) => validateSchemaResponse(method, response, parseMemorySnapshotResponse);
-/** @type {(method: string, response: any) => any} */
+/** @type {(method: string, response: unknown) => unknown} */
 const validateSharedFilesDashboardResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFilesDashboardResponse);
-/** @type {(method: string, response: any) => any} */
+/** @type {(method: string, response: unknown) => unknown} */
 const validateSharedFileDetailResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFileDetailResponse);
-/** @type {(method: string, response: any) => any} */
+/** @type {(method: string, response: unknown) => unknown} */
 const validateModelProviderRegistryResponse = (method, response) => validateSchemaResponse(method, response, parseModelProviderRegistryResponse);
 
 /** @param {Record<string, string>} methods */
@@ -342,7 +342,7 @@ export function createBackendResponseValidators(methods) {
     [methods.MCP_SERVER_PLAYWRIGHT_START]: { serverName: 'playwright', enabled: true },
     [methods.MCP_SERVER_PLAYWRIGHT_STOP]: { serverName: 'playwright', enabled: false },
   });
-  /** @type {(method: string, response: any) => any} */
+  /** @type {(method: string, response: unknown) => unknown} */
   const validateControlResponse = (method, response) => validateMCPServerControlResponse(method, response, controlSpecs);
 
   return Object.freeze({

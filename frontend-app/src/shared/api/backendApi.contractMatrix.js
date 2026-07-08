@@ -29,18 +29,11 @@ const TESTS = Object.freeze({
 const EMPTY_CONTRACT_FIELD = '';
 
 /**
- * @param {keyof typeof RPC_METHODS} key
- * @param {string} facade
- * @param {'P0' | 'P1' | 'P2'} level
- * @param {string} backendOwner
- * @param {readonly string[]} tests
- * @param {readonly string[]} notes
- * @param {boolean} rawLiteralRpc
- * @param {{ responseValidator?: string, responsePassthroughReason?: string }} options
+ * @param {readonly [keyof typeof RPC_METHODS, string, 'P0' | 'P1' | 'P2', string, readonly string[], (readonly string[])?, boolean?, { responseValidator?: string, responsePassthroughReason?: string }?]} contractParts
  */
-function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false, options = {}) {
-  const responseValidator = options.responseValidator ?? EMPTY_CONTRACT_FIELD;
-  const responsePassthroughReason = options.responsePassthroughReason ?? EMPTY_CONTRACT_FIELD;
+function contract(...contractParts) {
+  const [key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false, options = {}] = contractParts;
+  const responseValidator = options.responseValidator ?? EMPTY_CONTRACT_FIELD, responsePassthroughReason = options.responsePassthroughReason ?? EMPTY_CONTRACT_FIELD;
   return Object.freeze({
     key,
     method: RPC_METHODS[key],

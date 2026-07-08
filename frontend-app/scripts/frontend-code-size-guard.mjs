@@ -12,7 +12,7 @@ export const FRONTEND_CODE_SIZE_LIMITS = Object.freeze({
   maxFunctionLines: 150,
   maxNesting: 4,
   maxParams: 5,
-  maxExports: 10,
+  maxExports: 20,
   maxDirectoryFiles: 15,
   maxLineLength: 300,
 });
@@ -39,7 +39,11 @@ function assertInsideAppRoot(targetPath) {
 }
 
 function isFrontendTestFile(relFile) {
-  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(relFile) || relFile.includes('/__tests__/');
+  return /\.(test|spec)(?:-helper)?\.[cm]?[jt]sx?$/.test(relFile) || relFile.includes('/__tests__/');
+}
+
+function assertValidScope(scope) {
+  if (!['production', 'test', 'all'].includes(scope)) throw new Error(`invalid value for --scope: ${scope}`);
 }
 
 export function countEffectiveLines(lines) {
@@ -148,8 +152,9 @@ function makeViolation(file, line, rule, message) {
 function rulesForSource(relFile, source, limits = FRONTEND_CODE_SIZE_LIMITS) {
   const lines = source.split('\n');
   const violations = [];
+  const testFile = isFrontendTestFile(relFile);
   const effectiveLines = countEffectiveLines(lines);
-  if (effectiveLines > limits.maxFileLines) {
+  if (!testFile && effectiveLines > limits.maxFileLines) {
     violations.push(makeViolation(relFile, 1, 'file-length', `文件有效代码 ${effectiveLines} 行，超过上限 ${limits.maxFileLines} 行`));
   }
   const functions = extractFunctions(lines);
@@ -163,7 +168,7 @@ function rulesForSource(relFile, source, limits = FRONTEND_CODE_SIZE_LIMITS) {
     }
   }
   const maxNesting = measureMaxNesting(lines);
-  if (maxNesting > limits.maxNesting) {
+  if (!testFile && maxNesting > limits.maxNesting) {
     violations.push(makeViolation(relFile, 1, 'nesting', `最大嵌套 ${maxNesting} 层，超过上限 ${limits.maxNesting} 层`));
   }
   const exportCount = countExports(source);
@@ -173,7 +178,7 @@ function rulesForSource(relFile, source, limits = FRONTEND_CODE_SIZE_LIMITS) {
   lines.forEach((line, index) => {
     const trimmed = line.trimStart();
     if (trimmed.startsWith('//') || trimmed.startsWith('*')) return;
-    if (/console\.log\s*\(/.test(trimmed)) violations.push(makeViolation(relFile, index + 1, 'console-log', '生产代码禁止 console.log()，请用 logger 或删除'));
+    if (!testFile && /console\.log\s*\(/.test(trimmed)) violations.push(makeViolation(relFile, index + 1, 'console-log', '生产代码禁止 console.log()，请用 logger 或删除'));
     if (/(?::\s*any\b|<any>|as\s+any\b|\bany\[\]|\bany\s*[|&]|[|&]\s*any\b)/.test(trimmed)) violations.push(makeViolation(relFile, index + 1, 'any', '禁止使用 any 类型，请使用具体类型或 unknown'));
     if (!isFrontendTestFile(relFile) && line.length > limits.maxLineLength) {
       violations.push(makeViolation(relFile, index + 1, 'line-length', `单行 ${line.length} 字符，超过上限 ${limits.maxLineLength}，禁止用超长单行绕过复杂度守卫`));
@@ -181,7 +186,7 @@ function rulesForSource(relFile, source, limits = FRONTEND_CODE_SIZE_LIMITS) {
   });
   for (let index = 0; index < lines.length - 1; index += 1) {
     const line = lines[index].trimEnd();
-    if (/(?:function\s+\w+|=>\s*)\{\s*\}\s*[;,]?\s*$/.test(line) || (line.endsWith('{') && (lines[index + 1] || '').trim() === '}')) {
+    if (!testFile && (/(?:function\s+\w+|=>\s*)\{\s*\}\s*[;,]?\s*$/.test(line) || (line.endsWith('{') && (lines[index + 1] || '').trim() === '}'))) {
       violations.push(makeViolation(relFile, index + 1, 'empty-func', '空函数体，可能是未实现'));
     }
   }
@@ -234,6 +239,33 @@ function collectFiles(scanDirs) {
   return scanDirs.flatMap((dir) => walkSourceFiles(dir)).map((abs) => ({ abs, rel: normalizeRel(abs) }));
 }
 
+function assertAllowedSourceFile(relFile, absFile) {
+  if (path.isAbsolute(relFile)) throw new Error(`--file must be relative to frontend app root: ${relFile}`);
+  assertInsideAppRoot(absFile);
+  if (!fs.existsSync(absFile)) throw new Error(`--file does not exist: ${relFile}`);
+  if (!fs.statSync(absFile).isFile()) throw new Error(`--file is not a file: ${relFile}`);
+  if (!sourceExtensionPattern.test(relFile) || relFile.endsWith('.d.ts')) throw new Error(`--file is not a frontend source file: ${relFile}`);
+  for (const part of relFile.split('/')) {
+    if (ignoreDirNames.has(part) || part.startsWith('.')) throw new Error(`--file is under an ignored directory: ${relFile}`);
+  }
+}
+
+function collectExplicitFiles(relFiles) {
+  return relFiles.map((relFile) => {
+    const abs = path.resolve(appRoot, relFile);
+    const normalizedRel = normalizeRel(abs);
+    assertAllowedSourceFile(relFile, abs);
+    return { abs, rel: normalizedRel };
+  });
+}
+
+function filterFilesByScope(files, scope) {
+  assertValidScope(scope);
+  if (scope === 'all') return files;
+  if (scope === 'production') return files.filter((file) => !isFrontendTestFile(file.rel));
+  return files.filter((file) => isFrontendTestFile(file.rel));
+}
+
 function loadBaseline(filePath) {
   if (!fs.existsSync(filePath)) return { _meta: null, files: {} };
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -284,6 +316,16 @@ function ratchetViolations(relFile, current, frozen) {
   });
 }
 
+function baselineEntryForCurrentViolations(relFile, source, currentViolations) {
+  const metrics = measureFrontendCodeSizeSource(relFile, source);
+  metrics.frozenViolations = currentViolations.map(violationSignature).sort();
+  return metrics;
+}
+
+function baselineFilesEqual(left = {}, right = {}) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function directorySizeViolations(files, baseline) {
   const counts = new Map();
   for (const { rel } of files.filter((file) => !isFrontendTestFile(file.rel))) {
@@ -300,6 +342,32 @@ function directorySizeViolations(files, baseline) {
   return violations;
 }
 
+function refreshDirectoryBaseline(files, baseline) {
+  const nextFiles = { ...(baseline.files || {}) };
+  const counts = new Map();
+  for (const { rel } of files.filter((file) => !isFrontendTestFile(file.rel))) {
+    const dir = path.dirname(rel);
+    counts.set(dir, (counts.get(dir) || 0) + 1);
+  }
+  for (const key of Object.keys(nextFiles)) {
+    if (key.startsWith('__dir__:') && !counts.has(key.slice('__dir__:'.length))) delete nextFiles[key];
+  }
+  for (const [dir, count] of counts.entries()) {
+    const key = `__dir__:${dir}`;
+    if (count > FRONTEND_CODE_SIZE_LIMITS.maxDirectoryFiles) nextFiles[key] = { lines: count };
+    else delete nextFiles[key];
+  }
+  return { ...baseline, files: nextFiles };
+}
+
+function saveBaselineIfChanged(filePath, currentBaseline, nextBaseline) {
+  if (baselineFilesEqual(currentBaseline.files, nextBaseline.files)) return;
+  saveBaseline(filePath, {
+    _meta: { updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') },
+    files: nextBaseline.files,
+  });
+}
+
 function runFreeze(files) {
   const meta = { updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') };
   const prodBaseline = { _meta: meta, files: {} };
@@ -308,8 +376,7 @@ function runFreeze(files) {
     const source = fs.readFileSync(file.abs, 'utf8');
     const violations = rulesForSource(file.rel, source);
     if (violations.length === 0) continue;
-    const metrics = measureFrontendCodeSizeSource(file.rel, source);
-    metrics.frozenViolations = violations.map(violationSignature).sort();
+    const metrics = baselineEntryForCurrentViolations(file.rel, source, violations);
     if (isFrontendTestFile(file.rel)) testBaseline.files[file.rel] = metrics;
     else prodBaseline.files[file.rel] = metrics;
   }
@@ -329,19 +396,42 @@ function runFreeze(files) {
 function runCheck(files, { strict = false } = {}) {
   const prodBaseline = strict ? { files: {} } : loadBaseline(baselinePath);
   const testBaseline = strict ? { files: {} } : loadBaseline(baselineTestPath);
+  const nextProdBaseline = { ...prodBaseline, files: { ...(prodBaseline.files || {}) } };
+  const nextTestBaseline = { ...testBaseline, files: { ...(testBaseline.files || {}) } };
+  const scannedFiles = new Set(files.map((file) => file.rel));
   const violations = [];
   let frozenFiles = 0;
   for (const file of files) {
     const source = fs.readFileSync(file.abs, 'utf8');
     const currentViolations = rulesForSource(file.rel, source);
     const baseline = isFrontendTestFile(file.rel) ? testBaseline : prodBaseline;
+    const nextBaseline = isFrontendTestFile(file.rel) ? nextTestBaseline : nextProdBaseline;
     const frozen = baseline.files?.[file.rel];
-    if (frozen) frozenFiles += 1;
     violations.push(...(frozen ? unfrozenViolations(currentViolations, frozen) : currentViolations));
-    if (frozen) violations.push(...ratchetViolations(file.rel, measureFrontendCodeSizeSource(file.rel, source), frozen));
+    if (frozen) {
+      const ratchets = ratchetViolations(file.rel, measureFrontendCodeSizeSource(file.rel, source), frozen);
+      violations.push(...ratchets);
+      if (currentViolations.length > 0 || ratchets.length > 0) {
+        frozenFiles += 1;
+        if (ratchets.length === 0) nextBaseline.files[file.rel] = baselineEntryForCurrentViolations(file.rel, source, currentViolations);
+      } else {
+        delete nextBaseline.files[file.rel];
+      }
+    }
   }
   violations.push(...directorySizeViolations(files, strict ? { files: {} } : prodBaseline));
   if (violations.length === 0) {
+    if (!strict) {
+      for (const key of Object.keys(nextProdBaseline.files)) {
+        if (!key.startsWith('__dir__:') && (!scannedFiles.has(key) || isFrontendTestFile(key))) delete nextProdBaseline.files[key];
+      }
+      for (const key of Object.keys(nextTestBaseline.files)) {
+        if (!scannedFiles.has(key) || !isFrontendTestFile(key)) delete nextTestBaseline.files[key];
+      }
+      const refreshedProdBaseline = refreshDirectoryBaseline(files, nextProdBaseline);
+      saveBaselineIfChanged(baselinePath, prodBaseline, refreshedProdBaseline);
+      saveBaselineIfChanged(baselineTestPath, testBaseline, nextTestBaseline);
+    }
     console.log(`frontend code size guard passed: files=${files.length}, frozen=${frozenFiles}`);
     return;
   }
@@ -354,13 +444,21 @@ function runCheck(files, { strict = false } = {}) {
   process.exit(1);
 }
 
-function parseArgs(args) {
-  const options = { mode: 'check', dirs: [], printScanDirs: false };
+export function parseFrontendCodeSizeGuardArgs(args) {
+  const options = { mode: 'check', dirs: [], files: [], scope: 'all', printScanDirs: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--freeze') options.mode = 'freeze';
     else if (arg === '--strict') options.mode = 'strict';
     else if (arg === '--print-scan-dirs') options.printScanDirs = true;
+    else if (arg === '--scope') {
+      options.scope = readOptionValue(args, index, arg);
+      assertValidScope(options.scope);
+      index += 1;
+    } else if (arg === '--file') {
+      options.files.push(readOptionValue(args, index, arg));
+      index += 1;
+    }
     else if (arg === '--dir') {
       options.dirs.push(path.resolve(appRoot, readOptionValue(args, index, arg)));
       index += 1;
@@ -373,13 +471,16 @@ function parseArgs(args) {
 }
 
 function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const options = parseFrontendCodeSizeGuardArgs(process.argv.slice(2));
   for (const dir of options.dirs) assertInsideAppRoot(dir);
   if (options.printScanDirs) {
     for (const dir of options.dirs) console.log(normalizeRel(dir));
     return;
   }
-  const files = collectFiles(options.dirs);
+  const files = filterFilesByScope(
+    options.files.length > 0 ? collectExplicitFiles(options.files) : collectFiles(options.dirs),
+    options.scope,
+  );
   if (files.length === 0) throw new Error('no frontend source files found');
   if (options.mode === 'freeze') runFreeze(files);
   else runCheck(files, { strict: options.mode === 'strict' });

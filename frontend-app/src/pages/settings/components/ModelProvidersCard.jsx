@@ -1,20 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Panel } from '../../shared/pageComponents.jsx';
-import { applyModelProvider, listModelProviders, saveModelProviders } from '../services/settingsPageService.js';
+import { settingsPageService } from '../services/settingsPageService.js';
 import {
   EMPTY_REGISTRY,
-  envStatusLabel,
   normalizeRegistry,
   plainObject,
   registrySavePayload,
   selectVendorId,
   textValue,
   updateSelectedVendor,
-  vendorStatusLabel,
 } from './ModelProvidersCardModel.js';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
+import { ModelProviderActions, ModelProviderDetail, ModelProviderList } from './ModelProvidersCardParts.jsx';
 import './SettingsPageComponents.css';
+
+const { applyModelProvider, listModelProviders, saveModelProviders } = settingsPageService;
 
 function modelProvidersQueryKey(cwd) {
   return ['settings', 'modelProviders', textValue(cwd)];
@@ -51,52 +52,8 @@ function ModelProvidersCard({ copy, cwd }) {
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const saveMutation = useMutation({
-    mutationFn: async ({ registry, requestCwd }) => {
-      await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registry) });
-      return { registry, requestCwd };
-    },
-    onSuccess: ({ registry, requestCwd }) => {
-      if (currentCwdRef.current !== requestCwd) return;
-      queryClient.setQueryData(modelProvidersQueryKey(requestCwd), registry);
-      setDirty(false);
-      setNotice({ level: 'info', message: modelCopy.saved });
-    },
-    onError: (error, variables) => {
-      if (currentCwdRef.current === variables?.requestCwd) {
-        setNotice({ level: 'error', message: modelCopy.saveFailed + (error?.message || error) });
-      }
-    },
-    retry: false,
-  });
-  const applyMutation = useMutation({
-    mutationFn: async ({ registry, requestCwd, vendor }) => {
-      let phase = 'save';
-      try {
-        await saveModelProviders({ cwd: requestCwd, registry: registrySavePayload(registry) });
-        phase = 'apply';
-        const payload = await applyModelProvider({ cwd: requestCwd, vendorId: vendor.id });
-        return { payload, requestCwd, vendor };
-      } catch (error) {
-        if (error && typeof error === 'object') error.phase = phase;
-        throw error;
-      }
-    },
-    onSuccess: ({ payload, requestCwd, vendor }) => {
-      if (currentCwdRef.current !== requestCwd) return;
-      queryClient.setQueryData(modelProvidersQueryKey(requestCwd), payload);
-      applyRegistryState(payload, vendor.id, requestCwd);
-      setDirty(false);
-      setNotice({ level: 'info', message: modelCopy.applied.replace('{label}', vendor.label || vendor.id) });
-    },
-    onError: (error, variables) => {
-      if (currentCwdRef.current === variables?.requestCwd) {
-        const prefix = error?.phase === 'save' ? modelCopy.saveFailed : modelCopy.applyFailed;
-        setNotice({ level: 'error', message: prefix + (error?.message || error) });
-      }
-    },
-    retry: false,
-  });
+  const saveMutation = useModelProviderSaveMutation({ currentCwdRef, modelCopy, queryClient, setDirty, setNotice });
+  const applyMutation = useModelProviderApplyMutation({ applyRegistryState, currentCwdRef, modelCopy, queryClient, setDirty, setNotice });
   const loading = registryQuery.isFetching;
   const saving = saveMutation.isPending;
   const applying = applyMutation.isPending;
@@ -149,7 +106,7 @@ function ModelProvidersCard({ copy, cwd }) {
       setDirty(true);
       return {
         ...current,
-        registry: updateSelectedVendor(current.registry, selectedVendorId, (vendor) => ({ ...vendor, [field]: value })),
+        registry: updateSelectedVendor(current.registry, selectedVendorId, (vendor) => vendorWithValue(field, value, vendor)),
       };
     });
   }, [currentCwd, selectedVendorId]);
@@ -160,10 +117,11 @@ function ModelProvidersCard({ copy, cwd }) {
       setDirty(true);
       return {
         ...current,
-        registry: updateSelectedVendor(current.registry, selectedVendorId, (vendor) => ({
-          ...vendor,
-          [group]: { ...(plainObject(vendor[group]) ? vendor[group] : {}), [field]: value },
-        })),
+        registry: updateSelectedVendor(
+          current.registry,
+          selectedVendorId,
+          (vendor) => vendorWithNestedValue(field, group, value, vendor),
+        ),
       };
     });
   }, [currentCwd, selectedVendorId]);
@@ -181,19 +139,13 @@ function ModelProvidersCard({ copy, cwd }) {
   return (
     <div className="settings-model-providers" data-testid={hasCurrentRegistry ? 'settings-model-providers-card' : undefined}>
       <Panel title={modelCopy.title}>
-        <div className="settings-model-provider-list" aria-label={modelCopy.vendorList}>
-          {currentRegistry.vendors.map((vendor) => (
-            <button
-              type="button"
-              key={vendor.id}
-              className={vendor.id === selectedVendor?.id ? 'is-selected' : ''}
-              onClick={() => setSelectedVendorId(vendor.id)}
-            >
-              <strong>{vendor.label || vendor.id}</strong>
-              <span>{vendorStatusLabel(vendor, currentRegistry.activeVendorId, modelCopy)}</span>
-            </button>
-          ))}
-        </div>
+        <ModelProviderList
+          activeVendorId={currentRegistry.activeVendorId}
+          modelCopy={modelCopy}
+          onSelect={setSelectedVendorId}
+          selectedVendor={selectedVendor}
+          vendors={currentRegistry.vendors}
+        />
         <ModelProviderDetail
           disabled={loading || saving || applying || !hasCurrentRegistry}
           modelCopy={modelCopy}
@@ -203,47 +155,99 @@ function ModelProvidersCard({ copy, cwd }) {
           vendors={currentRegistry.vendors}
         />
         {notice.message ? <SettingsPromptNotice notice={notice} testId="settings-model-providers-notice" /> : null}
-        <div className="settings-action-row settings-action-inline settings-provider-actions">
-          <button type="button" className="btn btn-secondary btn-toolbar-sm" onClick={load} disabled={loading || saving || applying}>{loading ? modelCopy.loading : modelCopy.refresh}</button>
-          <button type="button" className="btn btn-primary btn-toolbar-sm" onClick={save} disabled={loading || saving || applying || !hasCurrentRegistry}>{saving ? modelCopy.saving : modelCopy.save}</button>
-          <button type="button" className="btn btn-primary btn-toolbar-sm" onClick={apply} disabled={loading || saving || applying || !hasCurrentRegistry || !selectedVendor?.enabled || !selectedVendor?.configured}>{applying ? modelCopy.applying : modelCopy.apply}</button>
-        </div>
+        <ModelProviderActions
+          applying={applying}
+          canApply={hasCurrentRegistry && selectedVendor?.enabled && selectedVendor?.configured}
+          canSave={hasCurrentRegistry}
+          loading={loading}
+          modelCopy={modelCopy}
+          onApply={apply}
+          onLoad={load}
+          onSave={save}
+          saving={saving}
+        />
       </Panel>
     </div>
   );
 }
 
-function ModelProviderDetail({ disabled, modelCopy, onChange, onNestedChange, vendor, vendors }) {
-  if (!vendor) return <div className="settings-log-empty">{modelCopy.empty}</div>;
-  return (
-    <div className="settings-model-provider-detail">
-      <div className="data-row-vue">
-        <strong>{vendor.label || vendor.id}</strong>
-        <span>{envStatusLabel(vendor, modelCopy)}</span>
-      </div>
-      <div className="data-row-vue">
-        <strong>{modelCopy.envKey}</strong>
-        <span>{vendor.envKey || modelCopy.none}</span>
-      </div>
-      <p className="settings-provider-note">{modelCopy.envOnly}</p>
-      <div className="form-grid">
-        <label className="checkbox-line"><input type="checkbox" checked={Boolean(vendor.enabled)} onChange={(event) => onChange('enabled', event.target.checked)} disabled={disabled} /> {modelCopy.enabled}</label>
-        <label>{modelCopy.baseURL}<input value={vendor.baseURL} onChange={(event) => onChange('baseURL', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.envKey}<input value={vendor.envKey} onChange={(event) => onChange('envKey', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.codexModelProvider}<input value={vendor.codexModelProvider} onChange={(event) => onChange('codexModelProvider', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.defaultModel}<input aria-label={modelCopy.defaultModel} value={vendor.defaultModel} onChange={(event) => onChange('defaultModel', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.codexHome}<input value={vendor.codexHome} onChange={(event) => onChange('codexHome', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.codexInstanceKey}<input value={vendor.codexInstanceKey} onChange={(event) => onChange('codexInstanceKey', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.dailyBudget}<input type="number" value={vendor.budget.dailyUsd} onChange={(event) => onNestedChange('budget', 'dailyUsd', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.monthlyBudget}<input type="number" value={vendor.budget.monthlyUsd} onChange={(event) => onNestedChange('budget', 'monthlyUsd', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.tokenPriority}<input type="number" value={vendor.tokenPool.priority} onChange={(event) => onNestedChange('tokenPool', 'priority', event.target.value)} disabled={disabled} /></label>
-        <label>{modelCopy.fallbackVendor}<select value={vendor.tokenPool.fallbackVendorId} onChange={(event) => onNestedChange('tokenPool', 'fallbackVendorId', event.target.value)} disabled={disabled}>
-          <option value="">{modelCopy.none}</option>
-          {vendors.map((item) => (item.id === vendor.id ? null : <option key={item.id} value={item.id}>{item.label || item.id}</option>))}
-        </select></label>
-      </div>
-    </div>
-  );
+function useModelProviderSaveMutation({ currentCwdRef, modelCopy, queryClient, setDirty, setNotice }) {
+  return useMutation({
+    mutationFn: async ({ registry, requestCwd }) => {
+      await saveModelProviderRegistry(requestCwd, registry);
+      return { registry, requestCwd };
+    },
+    onSuccess: ({ registry, requestCwd }) => {
+      if (currentCwdRef.current !== requestCwd) return;
+      queryClient.setQueryData(modelProvidersQueryKey(requestCwd), registry);
+      setDirty(false);
+      setNotice({ level: 'info', message: modelCopy.saved });
+    },
+    onError: (error, variables) => {
+      if (currentCwdRef.current !== variables?.requestCwd) return;
+      setMutationErrorNotice({ error, prefix: modelCopy.saveFailed, setNotice });
+    },
+    retry: false,
+  });
+}
+
+function useModelProviderApplyMutation(state) {
+  const { applyRegistryState, currentCwdRef, modelCopy, queryClient, setDirty, setNotice } = state;
+  return useMutation({
+    mutationFn: async ({ registry, requestCwd, vendor }) => {
+      let phase = 'save';
+      try {
+        await saveModelProviderRegistry(requestCwd, registry);
+        phase = 'apply';
+        const payload = await applyModelProviderVendor(requestCwd, vendor.id);
+        return modelProviderApplyResult(payload, requestCwd, vendor);
+      } catch (error) {
+        if (error && typeof error === 'object') error.phase = phase;
+        throw error;
+      }
+    },
+    onSuccess: ({ payload, requestCwd, vendor }) => {
+      if (currentCwdRef.current !== requestCwd) return;
+      queryClient.setQueryData(modelProvidersQueryKey(requestCwd), payload);
+      applyRegistryState(payload, vendor.id, requestCwd);
+      setDirty(false);
+      setNotice({ level: 'info', message: modelCopy.applied.replace('{label}', vendor.label || vendor.id) });
+    },
+    onError: (error, variables) => {
+      if (currentCwdRef.current !== variables?.requestCwd) return;
+      const prefix = error?.phase === 'save' ? modelCopy.saveFailed : modelCopy.applyFailed;
+      setMutationErrorNotice({ error, prefix, setNotice });
+    },
+    retry: false,
+  });
+}
+
+function setMutationErrorNotice({ error, prefix, setNotice }) {
+  setNotice({ level: 'error', message: prefix + (error?.message || error) });
+}
+
+function saveModelProviderRegistry(cwd, registry) {
+  return saveModelProviders({ cwd, registry: registrySavePayload(registry) });
+}
+
+function applyModelProviderVendor(cwd, vendorId) {
+  return applyModelProvider({ cwd, vendorId });
+}
+
+function modelProviderApplyResult(payload, requestCwd, vendor) {
+  return { payload, requestCwd, vendor };
+}
+
+function vendorWithValue(field, value, vendor) {
+  return { ...vendor, [field]: value };
+}
+
+function vendorWithNestedValue(field, group, value, vendor) {
+  const currentGroup = plainObject(vendor[group]) ? vendor[group] : {};
+  return {
+    ...vendor,
+    [group]: { ...currentGroup, [field]: value },
+  };
 }
 
 export { ModelProvidersCard };

@@ -7,7 +7,7 @@ import {
   normalizeTokenUsage,
   normalizeTurnSummary,
   shouldFloatThreadPatch,
-  threadActivityTimestamp } from './threadActivityMetrics.js';
+  threadActivityTimestamp } from './helpers/threadActivityMetrics.js';
 
 describe('threadActivityMetrics', () => {
   it('normalizes active turn summaries from backend field variants', () => {

@@ -4,8 +4,8 @@ import { CheckCircle2, CircleStop, Copy, GitBranch, MoreHorizontal, PanelRight, 
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { activeThreadForStore, displayThreadName } from '../adapters/threadStateAdapter.js';
 import { ProjectSelector } from './ProjectSelector.jsx';
-import { runUIAction } from './chatUiActions.js';
-import { chatHeaderFeedbackForStore } from './chatHeaderModel.js';
+import { runUIAction } from '../model/chatUiActions.js';
+import { chatHeaderFeedbackForStore } from '../model/chatHeaderModel.js';
 
 function restoreTriggerFocus(ref) {
   const focus = () => ref.current?.focus?.();

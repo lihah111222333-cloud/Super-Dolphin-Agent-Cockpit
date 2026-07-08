@@ -6,7 +6,7 @@ function optionalUiArray() {
 // @ts-check
 
 import {
-  normalizeThreadId } from './threadIdentity.js';
+  normalizeThreadId } from './helpers/threadIdentity.js';
 
 const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 

@@ -3539,7 +3539,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('updates active thinking elapsed time in place every second', async () => {
-    vi.useFakeTimers();
+    await import('./pages/chat/ChatPage.jsx').then(() => vi.useFakeTimers());
     try {
       vi.setSystemTime(new Date('2026-05-30T00:00:00Z'));
       resetClientStoreForTests({

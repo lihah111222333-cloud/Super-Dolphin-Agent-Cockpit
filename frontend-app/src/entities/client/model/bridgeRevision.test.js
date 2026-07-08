@@ -3,7 +3,7 @@ import {
   ACTIVE_PROMPT_PREF_KEY,
   bridgeRevisionKey,
   isDagNodeStatusBridgeEvent,
-  requireDagNodeStatusPayload } from './bridgeRevision.js';
+  requireDagNodeStatusPayload } from './helpers/bridgeRevision.js';
 
 describe('bridge revision helpers', () => {
   it('routes bridge events to their store revision counters', () => {

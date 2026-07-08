@@ -49,6 +49,23 @@ function formatInlinePreviewText(text) {
   return { formatted: text, isJson: false };
 }
 
+function previewUrlFromResponse(response) {
+  const url = normalizedText(response?.url).trim();
+  if (!url) throw new Error('preview URL is empty');
+  if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
+  return {
+    contentType: normalizedText(response?.contentType),
+    url,
+  };
+}
+
+async function loadWorkflowMediaPreview(outputPath, previewFile) {
+  if (typeof previewFile !== 'function') {
+    throw new Error('后端预览接口不可用。');
+  }
+  return previewUrlFromResponse(await previewFile({ path: outputPath }));
+}
+
 function WorkflowInlinePreviewText({ text }) {
   const fallback = '当前运行尚未标记最终结果。';
   if (!text) return <span className="workflow-inline-preview-empty">{fallback}</span>;
@@ -76,21 +93,10 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
 
   const loadMediaPreview = async () => {
     if (!outputPath || !isMedia) return;
-    if (typeof previewFile !== 'function') {
-      setPreviewError('无法生成最终结果预览：后端预览接口不可用。');
-      return;
-    }
     setPreviewing(true);
     setPreviewError('');
     try {
-      const response = await previewFile({ path: outputPath });
-      const url = normalizedText(response?.url).trim();
-      if (!url) throw new Error('preview URL is empty');
-      if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
-      setMediaPreview({
-        url,
-        contentType: normalizedText(response?.contentType),
-      });
+      setMediaPreview(await loadWorkflowMediaPreview(outputPath, previewFile));
     } catch (err) {
       setMediaPreview(null);
       setPreviewError(`无法生成最终结果预览：${err?.message || String(err)}`);
@@ -105,21 +111,11 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
       setMediaPreview(null);
       setPreviewError('');
       if (!outputPath || !isMedia) return;
-      if (typeof previewFile !== 'function') {
-        setPreviewError('无法生成最终结果预览：后端预览接口不可用。');
-        return;
-      }
       setPreviewing(true);
       try {
-        const response = await previewFile({ path: outputPath });
+        const preview = await loadWorkflowMediaPreview(outputPath, previewFile);
         if (!active) return;
-        const url = normalizedText(response?.url).trim();
-        if (!url) throw new Error('preview URL is empty');
-        if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
-        setMediaPreview({
-          url,
-          contentType: normalizedText(response?.contentType),
-        });
+        setMediaPreview(preview);
       } catch (err) {
         if (!active) return;
         setPreviewError(`无法生成最终结果预览：${err?.message || String(err)}`);
@@ -259,7 +255,8 @@ function workflowPreviewButtonLabel({ fileContent, isImage, isMedia, isVideo, re
   return '读取最终结果';
 }
 
-function workflowPreviewBlock({ fileContent, formattedContent, isImage, isMedia, isVideo, mediaPreview, previewing }) {
+function workflowPreviewBlock(props) {
+  const { fileContent, formattedContent, isImage, isMedia, isVideo, mediaPreview, previewing } = props;
   if (isMedia) {
     if (mediaPreview?.url && isImage) {
       return <img className="workflow-final-media" src={mediaPreview.url} alt="" />;

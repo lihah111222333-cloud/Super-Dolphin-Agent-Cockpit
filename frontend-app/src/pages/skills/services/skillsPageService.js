@@ -32,106 +32,31 @@ import {
  * SkillsPage keeps UI state, query invalidation, and error wording locally.
  */
 
-export function applySkillResolution(payload) {
-  return applySkillResolutionBackend(payload);
-}
-
-export function createSkill(payload) {
-  return createSkillBackend(payload);
-}
-
-export function deleteDatasourceDocument(payload) {
-  return deleteDatasourceDocumentBackend(payload);
-}
-
-export function deleteSkill(payload) {
-  return deleteSkillBackend(payload);
-}
-
-export function getDashboardPage(payload) {
-  return getDashboardPageBackend(payload);
-}
-
-export function getDatasourceDocument(payload) {
-  return getDatasourceDocumentBackend(payload);
-}
-
-export function importDatasourceLocalFile(payload) {
-  return importDatasourceLocalFileBackend(payload);
-}
-
-export function importSkillDirectories(payload) {
-  return importSkillDirectoriesBackend(payload);
-}
-
-export function listDatasourceDocuments(payload) {
-  return listDatasourceDocumentsBackend(payload);
-}
-
-export function listDatasourceChunks(payload) {
-  return listDatasourceChunksBackend(payload);
-}
-
-export function listMCPServers(payload) {
-  return listMCPServersBackend(payload);
-}
-
-export function listSkillFiles(payload) {
-  return listSkillFilesBackend(payload);
-}
-
-export function listSkillResolutions(payload) {
-  return listSkillResolutionsBackend(payload);
-}
-
-export function listSkillTools(payload) {
-  return listSkillToolsBackend(payload);
-}
-
-export function previewSkillResolution(payload) {
-  return previewSkillResolutionBackend(payload);
-}
-
-export function readSkill(payload) {
-  return readSkillBackend(payload);
-}
-
-export function selectFiles(payload) {
-  return selectFilesBackend(payload);
-}
-
-export function selectDatasourceImportFile(payload) {
-  return selectDatasourceImportFileBackend(payload);
-}
-
-export function selectProjectDirs(payload) {
-  return selectProjectDirsBackend(payload);
-}
-
-export function startPlaywrightMCPServer(payload) {
-  return startPlaywrightMCPServerBackend(payload);
-}
-
-export function startSQLiteMCPServer(payload) {
-  return startSQLiteMCPServerBackend(payload);
-}
-
-export function stopPlaywrightMCPServer(payload) {
-  return stopPlaywrightMCPServerBackend(payload);
-}
-
-export function stopSQLiteMCPServer(payload) {
-  return stopSQLiteMCPServerBackend(payload);
-}
-
-export function suggestSkillSummary(payload) {
-  return suggestSkillSummaryBackend(payload);
-}
-
-export function updateDatasourceDocument(payload) {
-  return updateDatasourceDocumentBackend(payload);
-}
-
-export function writeSkill(payload) {
-  return writeSkillBackend(payload);
-}
+export const skillsPageService = Object.freeze({
+  applySkillResolution: (payload) => applySkillResolutionBackend(payload),
+  createSkill: (payload) => createSkillBackend(payload),
+  deleteDatasourceDocument: (payload) => deleteDatasourceDocumentBackend(payload),
+  deleteSkill: (payload) => deleteSkillBackend(payload),
+  getDashboardPage: (payload) => getDashboardPageBackend(payload),
+  getDatasourceDocument: (payload) => getDatasourceDocumentBackend(payload),
+  importDatasourceLocalFile: (payload) => importDatasourceLocalFileBackend(payload),
+  importSkillDirectories: (payload) => importSkillDirectoriesBackend(payload),
+  listDatasourceChunks: (payload) => listDatasourceChunksBackend(payload),
+  listDatasourceDocuments: (payload) => listDatasourceDocumentsBackend(payload),
+  listMCPServers: (payload) => listMCPServersBackend(payload),
+  listSkillFiles: (payload) => listSkillFilesBackend(payload),
+  listSkillResolutions: (payload) => listSkillResolutionsBackend(payload),
+  listSkillTools: (payload) => listSkillToolsBackend(payload),
+  previewSkillResolution: (payload) => previewSkillResolutionBackend(payload),
+  readSkill: (payload) => readSkillBackend(payload),
+  selectDatasourceImportFile: (payload) => selectDatasourceImportFileBackend(payload),
+  selectFiles: (payload) => selectFilesBackend(payload),
+  selectProjectDirs: (payload) => selectProjectDirsBackend(payload),
+  startPlaywrightMCPServer: (payload) => startPlaywrightMCPServerBackend(payload),
+  startSQLiteMCPServer: (payload) => startSQLiteMCPServerBackend(payload),
+  stopPlaywrightMCPServer: (payload) => stopPlaywrightMCPServerBackend(payload),
+  stopSQLiteMCPServer: (payload) => stopSQLiteMCPServerBackend(payload),
+  suggestSkillSummary: (payload) => suggestSkillSummaryBackend(payload),
+  updateDatasourceDocument: (payload) => updateDatasourceDocumentBackend(payload),
+  writeSkill: (payload) => writeSkillBackend(payload),
+});
