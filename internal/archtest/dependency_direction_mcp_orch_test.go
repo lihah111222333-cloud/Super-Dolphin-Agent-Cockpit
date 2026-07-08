@@ -20,25 +20,16 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 		t.Skip("directory not yet created")
 	}
 	t.Run("allowed_internal_boundary", func(t *testing.T) {
-		allowed := []string{
-			internalPrefix("internal/contract"), internalPrefix("internal/dto"), internalPrefix("internal/platform/config"),
-			internalPrefix("internal/platform/db"), internalPrefix("internal/platform/bus"), internalPrefix("internal/platform/discovery"), internalPrefix("internal/platform/notify"), internalPrefix("internal/platform/runner"),
-			internalPrefix("internal/platform/rpc"), internalPrefix("internal/platform/runtimesafe"), internalPrefix("internal/platform/securefs"), internalPrefix("internal/platform/shared"), internalPrefix("internal/platform/statemachine"), internalPrefix("internal/platform/eventsurface"), internalPrefix("internal/platform/metrics"),
-			internalPrefix("internal/platform/rlimit"), internalPrefix("internal/platform/runtimeenv"), internalPrefix("internal/platform/sharedfilefs"), internalPrefix("internal/platform/sharedfilegitignore"), internalPrefix("internal/platform/sharedfilepath"),
-			internalPrefix("internal/mcpserver/common"),
-			internalPrefix("internal/util"),
-		}
-		forbidden := []string{
-			internalPrefix("internal/app"), modulePath + "/cmd/agent-terminal", modulePath + "/cmd/mcp-lsp", modulePath + "/cmd/mcp-ida",
-			internalPrefix("internal/platform/rpc/server"), internalPrefix("internal/platform/rpc/push"), internalPrefix("internal/platform/rpc/notification"),
-		}
+		rule := mustBoundaryRule(t, boundaryRuleMCPOrchAllowed)
+		allowed := boundaryImportPrefixes(rule.AllowedImportPrefixes)
+		forbidden := boundaryImportPrefixes(rule.DisallowedImportPrefixes)
 		var violations []string
 		for _, dep := range goListDeps(t, root, mcpOrchPkg) {
 			if (!strings.HasPrefix(dep, modulePath+"/internal/") && !strings.HasPrefix(dep, modulePath+"/cmd/")) || strings.HasPrefix(dep, modulePath+"/"+mcpOrchPkg) {
 				continue
 			}
 			if hasAllowedPrefix(dep, forbidden) || !hasAllowedPrefix(dep, allowed) {
-				violations = append(violations, fmt.Sprintf("%s depends on %s outside allowed boundary", mcpOrchPkg, dep))
+				violations = append(violations, fmt.Sprintf("%s depends on %s outside allowed boundary (rule=%s owner=%s)", mcpOrchPkg, dep, rule.ID, rule.Owner))
 			}
 		}
 		failIfViolations(t, violations)

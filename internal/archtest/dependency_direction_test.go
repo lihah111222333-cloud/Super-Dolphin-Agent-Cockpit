@@ -36,8 +36,6 @@ var moduleDBImportAllowlist = map[string]string{
 	"internal/module/skill/toolstore/store.go": "toolstore 是 skill_tools 表的既有持久化子包",
 }
 
-var platformStoreImportAllowlist = map[string]string{}
-
 type parsedFile struct {
 	AbsPath string
 	RelPath string
@@ -117,28 +115,15 @@ func assertModuleImplsNoFX(t *testing.T, root string) {
 func assertProviderCannotImportStore(t *testing.T, root string) {
 	t.Helper()
 
-	dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
-	if len(dirs) == 0 {
-		t.Skip("directory not yet created")
-	}
-	assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/store")})
+	rule := mustBoundaryRule(t, boundaryRuleProviderNoStore)
+	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
 }
 
 func assertProviderCannotImportPlatformDB(t *testing.T, root string) {
 	t.Helper()
 
-	dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
-	if len(dirs) == 0 {
-		t.Skip("directory not yet created")
-	}
-	var files []parsedFile
-	for _, file := range parseImportFiles(t, root, dirs...) {
-		if strings.HasSuffix(file.RelPath, "_test.go") {
-			continue
-		}
-		files = append(files, file)
-	}
-	assertNoImportPrefixes(t, files, []string{internalPrefix("internal/platform/db")})
+	rule := mustBoundaryRule(t, boundaryRuleProviderNoPlatformDB)
+	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
 }
 
 func assertProviderExternalWhitelist(t *testing.T, root string) {
@@ -174,29 +159,15 @@ func providerExternalWhitelistViolations(file parsedFile) []string {
 func assertPlatformCannotImportModule(t *testing.T, root string) {
 	t.Helper()
 
-	if !dirExists(root, "internal/platform") || !dirExists(root, "internal/module") {
-		t.Skip("directory not yet created")
-	}
-	assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module")})
+	rule := mustBoundaryRule(t, boundaryRulePlatformNoModule)
+	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
 }
 
 func assertPlatformCannotImportStore(t *testing.T, root string) {
 	t.Helper()
 
-	if !dirExists(root, "internal/platform") || !dirExists(root, "internal/store") {
-		t.Skip("directory not yet created")
-	}
-	var violations []string
-	for _, file := range parseImportFiles(t, root, "internal/platform") {
-		if strings.HasSuffix(file.RelPath, "_test.go") {
-			continue
-		}
-		if _, ok := platformStoreImportAllowlist[file.RelPath]; ok {
-			continue
-		}
-		violations = append(violations, importPrefixViolations(file, []string{internalPrefix("internal/store")})...)
-	}
-	failIfViolations(t, violations)
+	rule := mustBoundaryRule(t, boundaryRulePlatformNoStore)
+	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
 }
 
 func assertModuleSiblingDependencyRules(t *testing.T, root string) {

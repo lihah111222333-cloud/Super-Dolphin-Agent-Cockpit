@@ -36,12 +36,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"wait_report": BooleanSchema("Optional. When true, send a follow-up only to an idle agent, then wait for a new report_seq after the pre-submit report. It does not interrupt or queue work."),
 			"timeout_ms":  IntegerSchema("Optional maximum wait in milliseconds when wait_report=true. Defaults to the RPC request timeout."),
 		}, "message"), HandleSendMessage(svc)),
-		defineTool("stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
-			"pos":        StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
-			"agent_id":   StringSchema("Target orchestration agent ID."),
-			"wait":       BooleanSchema("Optional. When true, wait for stop state settlement after requesting stop/archive."),
-			"timeout_ms": IntegerSchema("Optional maximum wait in milliseconds when wait=true. Defaults to the RPC request timeout."),
-		}), HandleStopAgent(svc)),
+		stopAgentToolDefinition(svc),
 		defineTool("recover_agent", "Recover a stopped or failed orchestration agent and return its latest snapshot.", ObjectSchema(map[string]Schema{
 			"pos":      StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -75,4 +70,13 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"after_report_seq_by_agent": RawObjectSchema("Optional object mapping agent_id to the last seen report_seq. When wait=true, old reports at or below that seq do not complete that agent."),
 		}, "agent_ids"), HandleGetAgentReports(svc)),
 	)
+}
+
+func stopAgentToolDefinition(svc contract.AgentLifecyclePort) ToolDefinition {
+	return defineTool("stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
+		"pos":        StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
+		"agent_id":   StringSchema("Target orchestration agent ID."),
+		"wait":       BooleanSchema("Optional. When true, wait for stop state settlement after requesting stop/archive."),
+		"timeout_ms": IntegerSchema("Optional maximum wait in milliseconds when wait=true. Defaults to the RPC request timeout."),
+	}), HandleStopAgent(svc))
 }

@@ -114,6 +114,25 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	failIfViolations(t, violations)
 }
 
+func TestDashboardPromptStoreUsesOwnerLocalInterface(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	const relPath = "internal/module/dashboard/module.go"
+	var violations []string
+	if actual, ok := structFieldType(t, root, relPath, "serviceParams", "Prompts"); !ok {
+		violations = append(violations, relPath+": serviceParams.Prompts not found")
+	} else if actual != "PromptTemplateReader" {
+		violations = append(violations, fmt.Sprintf("%s: serviceParams.Prompts must depend on dashboard PromptTemplateReader, got %s; keep promptstore.Reader behind adaptPromptTemplateReader", relPath, actual))
+	}
+	if actual, ok := functionParamType(t, root, relPath, "adaptPromptTemplateReader", "reader"); !ok {
+		violations = append(violations, relPath+": adaptPromptTemplateReader.reader not found")
+	} else if actual != "promptstore.Reader" {
+		violations = append(violations, fmt.Sprintf("%s: adaptPromptTemplateReader.reader must be the only promptstore.Reader adapter input, got %s", relPath, actual))
+	}
+	failIfViolations(t, violations)
+}
+
 func interfaceShape(t *testing.T, root, relPath, name string) (methods int, embedded int, ok bool) {
 	t.Helper()
 	file := parseGoFileForInterfaceGuard(t, root, relPath)
