@@ -30,7 +30,7 @@ type serviceParams struct {
 	AILogs        ailogstore.Store
 	DBQueries     dbquerystore.Store
 	CommandCards  commandcardstore.Reader
-	Prompts       promptstore.Reader
+	Prompts       PromptTemplateReader
 	SharedFiles   sharedfilestore.Reader
 	Skills        contract.SkillLister
 }
@@ -544,6 +544,7 @@ func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.Han
 
 // Module 组装 dashboard service、handler 和可选 insights RPC。
 var Module = fx.Module("dashboard",
+	fx.Provide(adaptPromptTemplateReader),
 	fx.Provide(func(p serviceParams) Service {
 		return newServiceWithDAGRuntime(
 			p.Orchestration,
@@ -555,7 +556,7 @@ var Module = fx.Module("dashboard",
 			adaptAILogReader(p.AILogs),
 			p.DBQueries,
 			adaptCommandCardReader(p.CommandCards),
-			adaptPromptTemplateReader(p.Prompts),
+			p.Prompts,
 			adaptSharedFileReader(p.SharedFiles),
 			p.Skills,
 		)
