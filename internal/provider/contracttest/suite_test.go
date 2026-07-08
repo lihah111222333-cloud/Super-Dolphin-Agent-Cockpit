@@ -3,6 +3,7 @@ package contracttest
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -198,23 +199,17 @@ func TestLoadExpectedPromptSnapshotRejectsUntrackedSnapshot(t *testing.T) {
 }
 
 func TestLoadExpectedPromptSnapshotRejectsDirtyTrackedSnapshot(t *testing.T) {
-	path := filepath.Join("testdata", "prompt_snapshots", "valid.json")
-	original, err := os.ReadFile(path)
+	path := dirtyTrackedSnapshotRepo(t, filepath.Join("testdata", "prompt_snapshots", "valid.json"), []byte(`{"baseInstructions":"base"}`), []byte("{\"baseInstructions\":\"base\"}\n "))
+	raw, repoPath, err := readTrackedSnapshot("prompt", path)
 	if err != nil {
 		t.Fatalf("read tracked snapshot: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := os.WriteFile(path, original, 0o600); err != nil {
-			t.Errorf("restore tracked snapshot: %v", err)
-		}
-	})
-	if err := os.WriteFile(path, append([]byte(nil), append(original, []byte("\n ")...)...), 0o600); err != nil {
-		t.Fatalf("dirty tracked snapshot: %v", err)
+	if repoPath != path {
+		t.Fatalf("tracked snapshot repo path = %q, want %q", repoPath, path)
 	}
-
-	_, err = loadExpectedPromptSnapshotFields("valid")
+	err = validateSnapshotIndex("prompt", path, repoPath, raw)
 	if err == nil || !strings.Contains(err.Error(), "unstaged working-tree changes") {
-		t.Fatalf("loadExpectedPromptSnapshotFields() error = %v, want dirty tracked snapshot", err)
+		t.Fatalf("validateSnapshotIndex() error = %v, want dirty tracked snapshot", err)
 	}
 }
 
@@ -289,23 +284,58 @@ func TestLoadExpectedEventSnapshotExposesNoDecoderCallback(t *testing.T) {
 }
 
 func TestLoadExpectedEventSnapshotRejectsDirtyTrackedSnapshot(t *testing.T) {
-	path := filepath.Join("testdata", "event_snapshots", "valid.json")
-	original, err := os.ReadFile(path)
+	path := dirtyTrackedSnapshotRepo(t, filepath.Join("testdata", "event_snapshots", "valid.json"), []byte(`{"event":"original"}`), []byte("{\"event\":\"original\"}\n "))
+	raw, repoPath, err := readTrackedSnapshot("event", path)
 	if err != nil {
 		t.Fatalf("read tracked event snapshot: %v", err)
 	}
+	if repoPath != path {
+		t.Fatalf("tracked event snapshot repo path = %q, want %q", repoPath, path)
+	}
+	err = validateSnapshotIndex("event", path, repoPath, raw)
+	if err == nil || !strings.Contains(err.Error(), "unstaged working-tree changes") {
+		t.Fatalf("validateSnapshotIndex() error = %v, want dirty tracked snapshot", err)
+	}
+}
+
+func dirtyTrackedSnapshotRepo(t *testing.T, relPath string, tracked, dirty []byte) string {
+	t.Helper()
+	repoRoot := t.TempDir()
+	fullPath := filepath.Join(repoRoot, relPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatalf("create tracked snapshot dir: %v", err)
+	}
+	if err := os.WriteFile(fullPath, tracked, 0o600); err != nil {
+		t.Fatalf("write tracked snapshot: %v", err)
+	}
+	runGitCommand(t, repoRoot, "init", "-q")
+	runGitCommand(t, repoRoot, "add", relPath)
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir dirty snapshot repo: %v", err)
+	}
 	t.Cleanup(func() {
-		if err := os.WriteFile(path, original, 0o600); err != nil {
-			t.Errorf("restore tracked event snapshot: %v", err)
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
 		}
 	})
-	if err := os.WriteFile(path, append([]byte(nil), append(original, []byte("\n ")...)...), 0o600); err != nil {
-		t.Fatalf("dirty tracked event snapshot: %v", err)
+	t.Setenv("GIT_DIR", filepath.Join(repoRoot, ".git"))
+	t.Setenv("GIT_WORK_TREE", repoRoot)
+	if err := os.WriteFile(fullPath, dirty, 0o600); err != nil {
+		t.Fatalf("dirty tracked snapshot: %v", err)
 	}
+	return relPath
+}
 
-	_, err = loadExpectedEventSnapshot("valid")
-	if err == nil || !strings.Contains(err.Error(), "unstaged working-tree changes") {
-		t.Fatalf("loadExpectedEventSnapshot() error = %v, want dirty tracked snapshot", err)
+func runGitCommand(t *testing.T, workDir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = workDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, strings.TrimSpace(string(out)))
 	}
 }
 

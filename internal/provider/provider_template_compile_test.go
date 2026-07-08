@@ -262,7 +262,6 @@ func TestRenderedTemplateProductionOmissions(t *testing.T) {
 			omitModule: omitRenderedTemplateRuntimeReporter,
 			wantDirect: "provider.template.runtime_reporter",
 			wantFx:     "contract.RuntimeReporter",
-			wantTyped:  "provider.template.runtime_reporter",
 		},
 		{
 			name: "toolbridge proxy",
@@ -272,7 +271,6 @@ func TestRenderedTemplateProductionOmissions(t *testing.T) {
 			omitModule: omitRenderedTemplateToolbridgeProxy,
 			wantDirect: "provider.template.toolbridge_proxy",
 			wantFx:     "TemplateToolbridgeProxy",
-			wantTyped:  "provider.template.toolbridge_proxy",
 		},
 		{
 			name: "provider mirror",
@@ -282,7 +280,6 @@ func TestRenderedTemplateProductionOmissions(t *testing.T) {
 			omitModule: omitRenderedTemplateMirror,
 			wantDirect: "provider.template.mirror",
 			wantFx:     "TemplateProviderMirror",
-			wantTyped:  "provider.template.mirror",
 		},
 		{
 			name: "session recovery",
@@ -292,7 +289,6 @@ func TestRenderedTemplateProductionOmissions(t *testing.T) {
 			omitModule: omitRenderedTemplateRecovery,
 			wantDirect: "provider.template.session_recovery",
 			wantFx:     "TemplateSessionRecovery",
-			wantTyped:  "provider.template.session_recovery",
 		},
 		{
 			name: "dependency profile",
@@ -435,6 +431,9 @@ func assertRenderedTemplateError(t *testing.T, label string, err error, want, wa
 		t.Fatalf("%s error = %v, want %q", label, err, want)
 	}
 	if wantTypedDep == "" {
+		if contract.IsDependencyModeError(err, want, contract.DependencyProfileProduction, contract.ErrUnsupportedDependencyMode) {
+			t.Fatalf("%s error = %v, want ordinary hard error, not typed dependency-mode error", label, err)
+		}
 		return
 	}
 	if !contract.IsDependencyModeError(err, wantTypedDep, contract.DependencyProfileProduction, contract.ErrUnsupportedDependencyMode) {

@@ -1,9 +1,11 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -152,6 +154,20 @@ func (c optionalDependencyClassification) auditViolation(occurrence optionalDepe
 }
 
 func registeredOptionalDependencyClassifications() map[string]optionalDependencyClassification {
+	classifications := make(map[string]optionalDependencyClassification)
+	mergeOptionalDependencyClassifications(classifications, registeredOptionalDependencyAppClassifications())
+	mergeOptionalDependencyClassifications(classifications, registeredOptionalDependencyThreadClassifications())
+	mergeOptionalDependencyClassifications(classifications, registeredOptionalDependencyToolbridgeClassifications())
+	mergeOptionalDependencyClassifications(classifications, registeredOptionalDependencyProviderClassifications())
+	mergeOptionalDependencyClassifications(classifications, registeredOptionalDependencyTemplateClassifications())
+	return classifications
+}
+
+func mergeOptionalDependencyClassifications(dst, src map[string]optionalDependencyClassification) {
+	maps.Copy(dst, src)
+}
+
+func registeredOptionalDependencyAppClassifications() map[string]optionalDependencyClassification {
 	classify := func(category optionalDependencyCategory, owner, evidence string) optionalDependencyClassification {
 		return optionalDependencyClassification{category: category, owner: owner, evidence: evidence}
 	}
@@ -164,11 +180,64 @@ func registeredOptionalDependencyClassifications() map[string]optionalDependency
 	appDependency := func(path, name string, profile contract.DependencyProfile, evidence string) optionalDependencyClassification {
 		return dependency(name, profile, "internal/app", path+": "+evidence)
 	}
+	return map[string]optionalDependencyClassification{
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Service":                                 appDependency("internal/app/runtime_reporter_adapter.go", "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost, "newRuntimeReporter gates absent orchestration service through dependency policy before desktopExternalRuntimeReporter"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Logger":                                  appAdjunct("internal/app/runtime_reporter_adapter.go", "desktopExternalRuntimeReporter uses logger only for debug diagnostics"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Dependency":                              appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the mode-aware policy from Dependency or Config"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Config":                                  appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the fallback dependency profile from Config"),
+		"internal/app/runner.go:optional_tag:RootCtx":                                                   appAdjunct("internal/app/runner.go", "BindRuntime validates runtime pre-drain ownership before accepting nil-adjacent root context behavior"),
+		"internal/app/runner.go:optional_tag:Lifecycle":                                                 appAdjunct("internal/app/runner.go", "reportRuntimeExit treats Wails lifecycle as notification-only adjunct"),
+		"internal/app/runner.go:optional_tag:ExtractionDrainer":                                         appAdjunct("internal/app/runner.go", "registerRuntimePreDrain fail-fast requires the drainer before production runtime stop hooks run"),
+		"internal/app/thread_orchestration_adapter.go:typed_unsupported:thread.bind_session_generation": appDependency("internal/app/thread_orchestration_adapter.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration returns MissingDependencyModeError under desktop-host facade mode"),
+		"internal/app/thread_orchestration_adapter.go:noop_success:LaunchAgent":                         appAdjunct("internal/app/thread_orchestration_adapter.go", "LaunchAgent is a documented no-op because thread Start/SpawnIfNeeded owns local provider session launch"),
+	}
+}
+
+func registeredOptionalDependencyThreadClassifications() map[string]optionalDependencyClassification {
+	classify := func(category optionalDependencyCategory, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: category, owner: owner, evidence: evidence}
+	}
+	dependency := func(name string, profile contract.DependencyProfile, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: optionalDependencyAbsence, dependency: name, profile: profile, owner: owner, evidence: evidence}
+	}
 	threadAdjunct := func(path, evidence string) optionalDependencyClassification {
 		return classify(optionalAdjunct, "internal/module/thread", path+": "+evidence)
 	}
 	threadDependency := func(path, name string, profile contract.DependencyProfile, evidence string) optionalDependencyClassification {
 		return dependency(name, profile, "internal/module/thread", path+": "+evidence)
+	}
+	return map[string]optionalDependencyClassification{
+		"internal/module/thread/lifecycle.go:typed_unsupported:thread.bind_session_generation":     threadDependency("internal/module/thread/lifecycle.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration propagates MissingDependencyModeError for profiles without session-generation binding"),
+		"internal/module/thread/module.go:optional_tag:NewServiceWithPromptAssemblyAndSharedFiles": threadAdjunct("internal/module/thread/module.go", "fx.Annotate(NewServiceWithPromptAssemblyAndSharedFiles, fx.ParamTags(... optional:\"true\" ...)) inventories optional constructor adjuncts"),
+		"internal/module/thread/module.go:optional_tag:NewThreadHandlers":                          threadAdjunct("internal/module/thread/module.go", "fx.Annotate(NewThreadHandlers, fx.ParamTags(... optional:\"true\" ...)) inventories optional constructor adjuncts"),
+		"internal/module/thread/module.go:optional_tag:Store":                                      threadAdjunct("internal/module/thread/module.go", "store port adapters preserve Fx closure while service methods fail-fast when missing"),
+		"internal/module/thread/module.go:optional_tag:Catalog":                                    threadAdjunct("internal/module/thread/module.go", "catalog injection is a prompt assembly adjunct covered by runtime catalog construction"),
+		"internal/module/thread/module.go:optional_tag:Registrar":                                  threadAdjunct("internal/module/thread/module.go", "thread prompt registration tolerates nil registrar as no-op registration boundary"),
+		"internal/module/thread/module.go:optional_tag:PromptStore":                                threadAdjunct("internal/module/thread/module.go", "runtime prompt catalog can be built with nil store for test and desktop fallback surfaces"),
+		"internal/module/thread/module.go:optional_tag:Builtin":                                    threadAdjunct("internal/module/thread/module.go", "runtime prompt catalog treats builtin prompt registry as adjunct input"),
+		"internal/module/thread/module.go:optional_tag:PromptCatalog":                              threadAdjunct("internal/module/thread/module.go", "registerThreadPromptProviders synthesizes catalog from PromptStore/Builtin when omitted"),
+	}
+}
+
+func registeredOptionalDependencyTemplateClassifications() map[string]optionalDependencyClassification {
+	classify := func(category optionalDependencyCategory, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: category, owner: owner, evidence: evidence}
+	}
+	templateAdjunct := func(path, evidence string) optionalDependencyClassification {
+		return classify(optionalTestOrTemplate, "internal/provider/_template", path+": "+evidence)
+	}
+	return map[string]optionalDependencyClassification{
+		"internal/provider/_template/module.go.txt:optional_tag:Approvals": templateAdjunct("internal/provider/_template/module.go.txt", "Approvals is an optional template anchor carried into rendered module.go"),
+		"internal/provider/_template/module.go.txt:optional_tag:Tracer":    templateAdjunct("internal/provider/_template/module.go.txt", "Tracer is an optional template anchor carried into rendered module.go"),
+	}
+}
+
+func registeredOptionalDependencyToolbridgeClassifications() map[string]optionalDependencyClassification {
+	classify := func(category optionalDependencyCategory, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: category, owner: owner, evidence: evidence}
+	}
+	dependency := func(name string, profile contract.DependencyProfile, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: optionalDependencyAbsence, dependency: name, profile: profile, owner: owner, evidence: evidence}
 	}
 	toolbridgeAdjunct := func(path, evidence string) optionalDependencyClassification {
 		return classify(optionalAdjunct, "internal/platform/toolbridge", path+": "+evidence)
@@ -176,29 +245,7 @@ func registeredOptionalDependencyClassifications() map[string]optionalDependency
 	toolbridgeDependency := func(path, name string, profile contract.DependencyProfile, evidence string) optionalDependencyClassification {
 		return dependency(name, profile, "internal/platform/toolbridge", path+": "+evidence)
 	}
-	providerAdjunct := func(path, owner, evidence string) optionalDependencyClassification {
-		return classify(optionalAdjunct, owner, path+": "+evidence)
-	}
 	return map[string]optionalDependencyClassification{
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Service":    appDependency("internal/app/runtime_reporter_adapter.go", "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost, "newRuntimeReporter gates absent orchestration service through dependency policy before desktopExternalRuntimeReporter"),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Logger":     appAdjunct("internal/app/runtime_reporter_adapter.go", "desktopExternalRuntimeReporter uses logger only for debug diagnostics"),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Dependency": appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the mode-aware policy from Dependency or Config"),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Config":     appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the fallback dependency profile from Config"),
-		"internal/app/runner.go:optional_tag:RootCtx":                      appAdjunct("internal/app/runner.go", "BindRuntime validates runtime pre-drain ownership before accepting nil-adjacent root context behavior"),
-		"internal/app/runner.go:optional_tag:Lifecycle":                    appAdjunct("internal/app/runner.go", "reportRuntimeExit treats Wails lifecycle as notification-only adjunct"),
-		"internal/app/runner.go:optional_tag:ExtractionDrainer":            appAdjunct("internal/app/runner.go", "registerRuntimePreDrain fail-fast requires the drainer before production runtime stop hooks run"),
-
-		"internal/app/thread_orchestration_adapter.go:typed_unsupported:thread.bind_session_generation": appDependency("internal/app/thread_orchestration_adapter.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration returns MissingDependencyModeError under desktop-host facade mode"),
-		"internal/app/thread_orchestration_adapter.go:noop_success:LaunchAgent":                         appAdjunct("internal/app/thread_orchestration_adapter.go", "LaunchAgent is a documented no-op because thread Start/SpawnIfNeeded owns local provider session launch"),
-
-		"internal/module/thread/lifecycle.go:typed_unsupported:thread.bind_session_generation": threadDependency("internal/module/thread/lifecycle.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration propagates MissingDependencyModeError for profiles without session-generation binding"),
-		"internal/module/thread/module.go:optional_tag:Store":                                  threadAdjunct("internal/module/thread/module.go", "store port adapters preserve Fx closure while service methods fail-fast when missing"),
-		"internal/module/thread/module.go:optional_tag:Catalog":                                threadAdjunct("internal/module/thread/module.go", "catalog injection is a prompt assembly adjunct covered by runtime catalog construction"),
-		"internal/module/thread/module.go:optional_tag:Registrar":                              threadAdjunct("internal/module/thread/module.go", "thread prompt registration tolerates nil registrar as no-op registration boundary"),
-		"internal/module/thread/module.go:optional_tag:PromptStore":                            threadAdjunct("internal/module/thread/module.go", "runtime prompt catalog can be built with nil store for test and desktop fallback surfaces"),
-		"internal/module/thread/module.go:optional_tag:Builtin":                                threadAdjunct("internal/module/thread/module.go", "runtime prompt catalog treats builtin prompt registry as adjunct input"),
-		"internal/module/thread/module.go:optional_tag:PromptCatalog":                          threadAdjunct("internal/module/thread/module.go", "registerThreadPromptProviders synthesizes catalog from PromptStore/Builtin when omitted"),
-
 		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.agent_thread_lookup":          toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost, "validateToolbridgeDependencies maps missing BindingStore to typed dependency policy outside production"),
 		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.thread_config_override_store": toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.thread_config_override_store", contract.DependencyProfileDesktopHost, "validateToolbridgeDependencies maps missing ThreadStore to typed dependency policy outside production"),
 		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.lifecycle_backfiller":         toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.lifecycle_backfiller", contract.DependencyProfileTest, "validateToolbridgeDependencies maps missing lifecycle backfiller to test-only typed policy"),
@@ -218,18 +265,26 @@ func registeredOptionalDependencyClassifications() map[string]optionalDependency
 		"internal/platform/toolbridge/module.go:optional_tag:Writer":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips memory write registry when capability is absent"),
 		"internal/platform/toolbridge/module.go:optional_tag:History":                                       toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips history registry when status port is absent"),
 		"internal/platform/toolbridge/module.go:optional_tag:Templates":                                     toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips workflow template registry when template registry is absent"),
+	}
+}
 
-		"internal/provider/claudecli/module.go:optional_tag:Dependency": providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "newModeAwareRuntimeReporter requires an explicit dependency profile from Dependency or Config"),
-		"internal/provider/claudecli/module.go:optional_tag:Config":     providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "dependencyProfileFromFactoryParams uses Config only to resolve profile"),
-		"internal/provider/claudecli/module.go:optional_tag:Recovery":   providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "Recovery is passed to driver as an optional replay reporter"),
-		"internal/provider/claudecli/module.go:optional_tag:Tracer":     providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "Tracer is observability-only and firstClaudeTracer handles nil"),
-
-		"internal/provider/codexapp/module.go:optional_tag:Dependency":  providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "newModeAwareRuntimeReporter requires an explicit dependency profile from Dependency or Config"),
-		"internal/provider/codexapp/module.go:optional_tag:Config":      providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "dependencyProfileFromFactoryParams uses Config only to resolve profile"),
-		"internal/provider/codexapp/module.go:optional_tag:Recovery":    providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "Recovery is optional session recovery reporting for transport reconnects"),
-		"internal/provider/codexapp/module.go:optional_tag:Logger":      providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "logger is diagnostic-only for driver factory and server manager"),
-		"internal/provider/codexapp/module.go:optional_tag:PIDRegistry": providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "server manager and transport spawner tolerate nil pid registry without masking pool errors"),
-
+func registeredOptionalDependencyProviderClassifications() map[string]optionalDependencyClassification {
+	classify := func(category optionalDependencyCategory, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: category, owner: owner, evidence: evidence}
+	}
+	providerAdjunct := func(path, owner, evidence string) optionalDependencyClassification {
+		return classify(optionalAdjunct, owner, path+": "+evidence)
+	}
+	return map[string]optionalDependencyClassification{
+		"internal/provider/claudecli/module.go:optional_tag:Dependency":  providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "newModeAwareRuntimeReporter requires an explicit dependency profile from Dependency or Config"),
+		"internal/provider/claudecli/module.go:optional_tag:Config":      providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "dependencyProfileFromFactoryParams uses Config only to resolve profile"),
+		"internal/provider/claudecli/module.go:optional_tag:Recovery":    providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "Recovery is passed to driver as an optional replay reporter"),
+		"internal/provider/claudecli/module.go:optional_tag:Tracer":      providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "Tracer is observability-only and firstClaudeTracer handles nil"),
+		"internal/provider/codexapp/module.go:optional_tag:Dependency":   providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "newModeAwareRuntimeReporter requires an explicit dependency profile from Dependency or Config"),
+		"internal/provider/codexapp/module.go:optional_tag:Config":       providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "dependencyProfileFromFactoryParams uses Config only to resolve profile"),
+		"internal/provider/codexapp/module.go:optional_tag:Recovery":     providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "Recovery is optional session recovery reporting for transport reconnects"),
+		"internal/provider/codexapp/module.go:optional_tag:Logger":       providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "logger is diagnostic-only for driver factory and server manager"),
+		"internal/provider/codexapp/module.go:optional_tag:PIDRegistry":  providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "server manager and transport spawner tolerate nil pid registry without masking pool errors"),
 		"internal/provider/unified/module.go:optional_tag:Logger":        providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "logger is diagnostic-only for client and dream executor"),
 		"internal/provider/unified/module.go:optional_tag:Tracer":        providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "tracer is observability-only for unified client"),
 		"internal/provider/unified/module.go:optional_tag:ThreadStore":   providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "session resolver treats thread lookup as optional cross-module recovery surface"),
@@ -241,30 +296,71 @@ func registeredOptionalDependencyClassifications() map[string]optionalDependency
 func scanOptionalDependencyOccurrences(t *testing.T, root string) []optionalDependencyOccurrence {
 	t.Helper()
 	var out []optionalDependencyOccurrence
-	for _, dir := range []string{"internal/app", "internal/module/thread", "internal/platform/toolbridge", "internal/provider"} {
-		base := filepath.Join(root, filepath.FromSlash(dir))
-		err := filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-				return nil
-			}
-			rel, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			rel = filepath.ToSlash(rel)
-			fileOccurrences, err := scanOptionalDependencyFile(path, rel)
-			if err != nil {
-				return err
-			}
-			out = append(out, fileOccurrences...)
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("scan %s: %v", dir, err)
+	for _, dir := range optionalDependencyGoDirs() {
+		out = append(out, scanOptionalDependencyGoDir(t, root, dir)...)
+	}
+	out = append(out, scanOptionalDependencyTemplateDir(t, root)...)
+	return out
+}
+
+func optionalDependencyGoDirs() []string {
+	return []string{"internal/app", "internal/module/thread", "internal/platform/toolbridge", "internal/provider"}
+}
+
+func scanOptionalDependencyGoDir(t *testing.T, root, dir string) []optionalDependencyOccurrence {
+	t.Helper()
+	base := filepath.Join(root, filepath.FromSlash(dir))
+	var out []optionalDependencyOccurrence
+	err := filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		fileOccurrences, err := scanOptionalDependencyFile(path, rel)
+		if err != nil {
+			return err
+		}
+		out = append(out, fileOccurrences...)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan %s: %v", dir, err)
+	}
+	return out
+}
+
+func scanOptionalDependencyTemplateDir(t *testing.T, root string) []optionalDependencyOccurrence {
+	t.Helper()
+	templateDir := filepath.Join(root, "internal", "provider", "_template")
+	var out []optionalDependencyOccurrence
+	err := filepath.WalkDir(templateDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		fileOccurrences, err := scanOptionalDependencyTemplateFile(path, rel)
+		if err != nil {
+			return err
+		}
+		out = append(out, fileOccurrences...)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan internal/provider/_template: %v", err)
 	}
 	return out
 }
@@ -288,24 +384,7 @@ func scanOptionalDependencyFile(path, rel string) ([]optionalDependencyOccurrenc
 				})
 			}
 		case *ast.CallExpr:
-			if isFxOptionalCall(n) {
-				out = append(out, optionalDependencyOccurrence{
-					RelPath: rel,
-					Line:    fset.Position(n.Pos()).Line,
-					Kind:    "fx_optional",
-					Value:   "fx.Optional",
-				})
-			}
-			if isNewDependencyModeErrorCall(n) {
-				if dependencyName, ok := stringLiteralArg(n, 1); ok {
-					out = append(out, optionalDependencyOccurrence{
-						RelPath: rel,
-						Line:    fset.Position(n.Pos()).Line,
-						Kind:    "typed_unsupported",
-						Value:   dependencyName,
-					})
-				}
-			}
+			out = append(out, optionalDependencyCallOccurrences(fset, n, rel)...)
 		case *ast.FuncDecl:
 			if isNoopSuccessFunction(n) {
 				out = append(out, optionalDependencyOccurrence{
@@ -321,17 +400,154 @@ func scanOptionalDependencyFile(path, rel string) ([]optionalDependencyOccurrenc
 	return out, nil
 }
 
+func optionalDependencyCallOccurrences(fset *token.FileSet, call *ast.CallExpr, rel string) []optionalDependencyOccurrence {
+	line := fset.Position(call.Pos()).Line
+	out := make([]optionalDependencyOccurrence, 0, 3)
+	if isFxOptionalCall(call) {
+		out = append(out, optionalDependencyOccurrence{RelPath: rel, Line: line, Kind: "fx_optional", Value: "fx.Optional"})
+	}
+	if value, ok := optionalAnnotateValue(call); ok {
+		out = append(out, optionalDependencyOccurrence{RelPath: rel, Line: line, Kind: "optional_tag", Value: value})
+	}
+	if dependencyName, ok := newDependencyModeErrorName(call); ok {
+		out = append(out, optionalDependencyOccurrence{RelPath: rel, Line: line, Kind: "typed_unsupported", Value: dependencyName})
+	}
+	return out
+}
+
+func newDependencyModeErrorName(call *ast.CallExpr) (string, bool) {
+	if !isNewDependencyModeErrorCall(call) {
+		return "", false
+	}
+	return stringLiteralArg(call, 1)
+}
+
+func scanOptionalDependencyTemplateFile(path, rel string) ([]optionalDependencyOccurrence, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []optionalDependencyOccurrence
+	for i, line := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(line, `optional:"true"`) {
+			continue
+		}
+		value, ok := templateOptionalFieldName(line)
+		if !ok {
+			return nil, fmt.Errorf("%s line %d optional anchor is missing a field name", rel, i+1)
+		}
+		out = append(out, optionalDependencyOccurrence{
+			RelPath: rel,
+			Line:    i + 1,
+			Kind:    "optional_tag",
+			Value:   value,
+		})
+	}
+	return out, nil
+}
+
+func templateOptionalFieldName(line string) (string, bool) {
+	before, _, ok := strings.Cut(line, "`optional:\"true\"`")
+	if !ok {
+		return "", false
+	}
+	fields := strings.Fields(before)
+	if len(fields) == 0 {
+		return "", false
+	}
+	return fields[0], true
+}
+
 func hasOptionalTag(tag *ast.BasicLit) bool {
 	return tag != nil && strings.Contains(tag.Value, `optional:"true"`)
 }
 
 func isFxOptionalCall(call *ast.CallExpr) bool {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || selector.Sel.Name != "Optional" {
+	return ok && isFxOptionalSelector(selector)
+}
+
+func isFxOptionalSelector(selector *ast.SelectorExpr) bool {
+	if selector == nil || selector.Sel.Name != "Optional" {
 		return false
 	}
 	ident, ok := selector.X.(*ast.Ident)
 	return ok && ident.Name == "fx"
+}
+
+func optionalAnnotateValue(call *ast.CallExpr) (string, bool) {
+	if !isFxAnnotateCall(call) || len(call.Args) < 2 {
+		return "", false
+	}
+	target := annotateTargetName(call.Args[0])
+	if target == "" {
+		return "", false
+	}
+	if !callContainsOptionalDependency(call.Args[1:]) {
+		return "", false
+	}
+	return target, true
+}
+
+func isFxAnnotateCall(call *ast.CallExpr) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && selector.Sel.Name == "Annotate"
+}
+
+func annotateTargetName(expr ast.Expr) string {
+	switch target := expr.(type) {
+	case *ast.Ident:
+		return target.Name
+	case *ast.SelectorExpr:
+		return target.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func callContainsOptionalDependency(exprs []ast.Expr) bool {
+	return slices.ContainsFunc(exprs, exprContainsOptionalDependency)
+}
+
+func exprContainsOptionalDependency(expr ast.Expr) bool {
+	found := false
+	ast.Inspect(expr, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := node.(type) {
+		case *ast.CallExpr:
+			if isFxParamTagsCall(n) && callHasOptionalTag(n) {
+				found = true
+				return false
+			}
+		case *ast.SelectorExpr:
+			if isFxOptionalSelector(n) {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func isFxParamTagsCall(call *ast.CallExpr) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && selector.Sel.Name == "ParamTags"
+}
+
+func callHasOptionalTag(call *ast.CallExpr) bool {
+	for _, arg := range call.Args {
+		lit, ok := arg.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			continue
+		}
+		if strings.Contains(lit.Value, `optional:"true"`) {
+			return true
+		}
+	}
+	return false
 }
 
 func fieldName(field *ast.Field) string {
