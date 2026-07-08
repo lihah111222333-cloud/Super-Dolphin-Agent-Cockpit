@@ -125,6 +125,11 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		field string
 		want  string
 	}{
+		{field: "AgentStatuses", want: "AgentStatusReader"},
+		{field: "SystemLogs", want: "SystemLogReader"},
+		{field: "AuditLogs", want: "AuditLogReader"},
+		{field: "BusLogs", want: "BusLogReader"},
+		{field: "AILogs", want: "AILogReader"},
 		{field: "DBQueries", want: "DBQueryExecutor"},
 		{field: "CommandCards", want: "CommandCardReader"},
 		{field: "Prompts", want: "PromptTemplateReader"},
@@ -146,6 +151,11 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		paramName string
 		want      string
 	}{
+		{funcName: "adaptAgentStatusReader", paramName: "store", want: "agentstatusstore.Store"},
+		{funcName: "adaptSystemLogReader", paramName: "store", want: "systemlogstore.Store"},
+		{funcName: "adaptAuditLogReader", paramName: "store", want: "auditlogstore.Store"},
+		{funcName: "adaptBusLogReader", paramName: "store", want: "buslogstore.Store"},
+		{funcName: "adaptAILogReader", paramName: "store", want: "ailogstore.Store"},
 		{funcName: "adaptDBQueryExecutor", paramName: "store", want: "dbquerystore.Store"},
 		{funcName: "adaptCommandCardReader", paramName: "reader", want: "commandcardstore.Reader"},
 		{funcName: "adaptPromptTemplateReader", paramName: "reader", want: "promptstore.Reader"},
