@@ -8,7 +8,7 @@
   "files": 4198,
   "domains": {
     "docs-agent": 856,
-    "other": 482,
+    "other": 483,
     "app-ui": 424,
     "platform-provider": 1007,
     "orchestration": 406,
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 482,
-        "size_kb": 91.3,
+        "file_count": 483,
+        "size_kb": 91.5,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]

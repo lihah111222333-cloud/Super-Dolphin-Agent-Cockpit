@@ -29,7 +29,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1007 | 185.6 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 306 | 45.5 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 856 | 152.2 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 482 | 91.3 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 483 | 91.5 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -114,7 +114,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/app` | 31 | root Fx 装配、runtime bridge、toolbridge adapters 与 graph closure tests |
+| `internal/app` | 32 | root Fx 装配、runtime bridge、toolbridge adapters 与 graph closure tests |
 
 ### internal/module
 
