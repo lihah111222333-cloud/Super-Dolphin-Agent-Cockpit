@@ -30,7 +30,7 @@ var (
 // service 聚合 dashboard 需要的 orchestration、store 和只读模块依赖。
 // 日志 reader 缺失会在对应读取入口 fail-fast，避免装配漂移被空列表掩盖。
 type service struct {
-	orchestration  contract.OrchestrationService
+	orchestration  OrchestrationReader
 	dagRuntime     contract.DAGRuntime
 	agentStatuses  AgentStatusReader
 	systemLogs     SystemLogReader
@@ -54,7 +54,7 @@ var _ Service = (*service)(nil)
 // NewService 创建 dashboard 服务。
 // 构造阶段只保存依赖，不访问 store；具体读取入口按能力要求校验依赖是否存在。
 func NewService(
-	orchestrationSvc contract.OrchestrationService,
+	orchestrationReader OrchestrationReader,
 	agentStatuses AgentStatusReader,
 	systemLogs SystemLogReader,
 	auditLogs AuditLogReader,
@@ -67,8 +67,7 @@ func NewService(
 	skills contract.SkillLister,
 ) Service {
 	return &service{
-		orchestration:  orchestrationSvc,
-		dagRuntime:     orchestrationSvc,
+		orchestration:  orchestrationReader,
 		agentStatuses:  agentStatuses,
 		systemLogs:     systemLogs,
 		auditLogs:      auditLogs,
@@ -85,9 +84,9 @@ func NewService(
 }
 
 // newServiceWithDAGRuntime 创建带独立 DAG runtime 的 dashboard 服务。
-// 当 runtime 为 nil 时保留 orchestration 作为默认 DAGRuntime，便于旧 wiring 兼容。
+// 当 runtime 为 nil 时 DAG 入口 fail-fast，避免读侧编排端口重新膨胀为完整 runtime。
 func newServiceWithDAGRuntime(
-	orchestrationSvc contract.OrchestrationService,
+	orchestrationReader OrchestrationReader,
 	dagRuntime contract.DAGRuntime,
 	agentStatuses AgentStatusReader,
 	systemLogs SystemLogReader,
@@ -101,7 +100,7 @@ func newServiceWithDAGRuntime(
 	skills contract.SkillLister,
 ) Service {
 	svc := NewService(
-		orchestrationSvc,
+		orchestrationReader,
 		agentStatuses,
 		systemLogs,
 		auditLogs,

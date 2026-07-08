@@ -13,6 +13,13 @@ type WorkflowMaterialWriteRequest struct {
 	Content string
 }
 
+// OrchestrationReader 是 dashboard 读取 agent 列表、快照和报告所需的最小编排读端口。
+type OrchestrationReader interface {
+	ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error)
+	Snapshot(ctx context.Context, agentID string) (contract.AgentSnapshot, error)
+	GetReport(ctx context.Context, agentID string) (contract.AgentReportResult, error)
+}
+
 // Service 定义 dashboard 模块对 RPC 层暴露的查询和操作接口。
 // 读接口允许可选 store 返回空切片；写接口必须通过 runtime/store 显式能力检查。
 type Service interface {
