@@ -136,7 +136,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 
 // workflowDiagnosticsToolDefinition 注册只读工作台诊断工具。
 // 它只读取运行快照和节点摘要，定位符缺失时由 handler 拒绝无界扫描。
-func workflowDiagnosticsToolDefinition(svc contract.OrchestrationService) ToolDefinition {
+func workflowDiagnosticsToolDefinition(svc workflowDiagnosticsPort) ToolDefinition {
 	return defineTaskReadTool("task_workflow_diagnostics", "Lookup compact workflow diagnostics by trace_id, run_key, run_id, node_key, or child_thread_id. Returns derived run summaries and matching runtime nodes only.", ObjectSchema(map[string]Schema{
 		"pos":             StringSchema("Optional flattened run locator, e.g. dag:<dag_key>/run:<run_key>."),
 		"trace_id":        StringSchema("Trace id to find in run events/metadata or node config/result."),
@@ -150,7 +150,7 @@ func workflowDiagnosticsToolDefinition(svc contract.OrchestrationService) ToolDe
 
 // workflowRecoveryActionToolDefinition 注册受控恢复工具。
 // cancel_with_cleanup 会落到终止运行；retry_failed_node 先保留 schema 和阻断语义。
-func workflowRecoveryActionToolDefinition(svc contract.OrchestrationService) ToolDefinition {
+func workflowRecoveryActionToolDefinition(svc workflowRecoveryPort) ToolDefinition {
 	return defineTaskWriteTool("task_workflow_recovery_action", "Run a controlled workflow recovery action. cancel_with_cleanup is wired to task_terminate_dag; retry_failed_node is validated but blocked until the runtime reset/retry contract exists.", ObjectSchema(map[string]Schema{
 		"pos":      StringSchema("Optional flattened run locator, e.g. dag:<dag_key>/run:<run_key>."),
 		"action":   EnumStringSchema("Recovery action.", recoveryActionEnum...),

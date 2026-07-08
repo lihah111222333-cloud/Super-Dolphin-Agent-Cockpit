@@ -16,7 +16,7 @@ var applyOpsActionEnum = []string{"update_dag", "add_node", "update_node", "remo
 
 // HandleApplyOps 处理 DAG 模板 ops 写入工具调用。
 // 输入会先统一转成 ApplyOpsRequest，raw ops 与扁平 action 混用时立即报错。
-func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
+func HandleApplyOps(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ApplyOpsInput) (any, error) {
 		req, err := applyOpsRequestFromInput(in)
 		if err != nil {

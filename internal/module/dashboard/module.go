@@ -23,11 +23,11 @@ type serviceParams struct {
 
 	Orchestration contract.OrchestrationService `optional:"true"`
 	DAGRuntime    contract.DAGRuntime           `optional:"true"`
-	AgentStatuses agentstatusstore.Store
-	SystemLogs    systemlogstore.Store
-	AuditLogs     auditlogstore.Store
-	BusLogs       buslogstore.Store
-	AILogs        ailogstore.Store
+	AgentStatuses AgentStatusReader
+	SystemLogs    SystemLogReader
+	AuditLogs     AuditLogReader
+	BusLogs       BusLogReader
+	AILogs        AILogReader
 	DBQueries     DBQueryExecutor
 	CommandCards  CommandCardReader
 	Prompts       PromptTemplateReader
@@ -554,6 +554,11 @@ func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.Han
 var Module = fx.Module("dashboard",
 	fx.Provide(
 		adaptDBQueryExecutor,
+		adaptAgentStatusReader,
+		adaptSystemLogReader,
+		adaptAuditLogReader,
+		adaptBusLogReader,
+		adaptAILogReader,
 		adaptCommandCardReader,
 		adaptPromptTemplateReader,
 		adaptSharedFileReader,
@@ -562,11 +567,11 @@ var Module = fx.Module("dashboard",
 		return newServiceWithDAGRuntime(
 			p.Orchestration,
 			p.DAGRuntime,
-			adaptAgentStatusReader(p.AgentStatuses),
-			adaptSystemLogReader(p.SystemLogs),
-			adaptAuditLogReader(p.AuditLogs),
-			adaptBusLogReader(p.BusLogs),
-			adaptAILogReader(p.AILogs),
+			p.AgentStatuses,
+			p.SystemLogs,
+			p.AuditLogs,
+			p.BusLogs,
+			p.AILogs,
 			p.DBQueries,
 			p.CommandCards,
 			p.Prompts,

@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-06-30",
+  "generated_at": "2026-07-09",
   "roots": [
     "cmd/mcp-orch/orchestration",
     "cmd/mcp-orch/tools",
@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 143,
-    "total_interface_methods": 297,
+    "total_interfaces": 156,
+    "total_interface_methods": 316,
     "total_exported": 1215,
-    "total_unexported": 2793,
+    "total_unexported": 2806,
     "total_structs": 575
   },
   "packages": [
@@ -20895,7 +20895,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -20934,7 +20934,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGCreateRuntime"
             }
           ],
           "returns": [
@@ -20947,7 +20947,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGDeleteRuntime"
             }
           ],
           "returns": [
@@ -20960,7 +20960,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             }
           ],
           "returns": [
@@ -20973,7 +20973,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "taskNodeDispatcher"
             }
           ],
           "returns": [
@@ -20985,8 +20985,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             }
           ],
           "returns": [
@@ -20998,8 +20998,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             }
           ],
           "returns": [
@@ -21012,7 +21012,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21025,7 +21025,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21051,7 +21051,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             }
           ],
           "returns": [
@@ -21064,7 +21064,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentListPort"
             }
           ],
           "returns": [
@@ -21077,7 +21077,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21103,7 +21103,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21176,7 +21176,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "sendMessagePort"
             }
           ],
           "returns": [
@@ -21228,7 +21228,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21254,7 +21254,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21267,7 +21267,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "taskNodeStatusUpdater"
             }
           ],
           "returns": [
@@ -21280,7 +21280,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             }
           ],
           "returns": [
@@ -21293,7 +21293,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowRecoveryPort"
             }
           ],
           "returns": [
@@ -22461,7 +22461,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "in",
@@ -22604,7 +22604,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "gaps",
@@ -22668,7 +22668,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             }
           ],
           "returns": [
@@ -23020,7 +23020,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "exeFn",
@@ -23163,7 +23163,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentListPort"
             },
             {
               "name": "agents",
@@ -23403,7 +23403,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "in",
@@ -23481,7 +23481,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "agentSnapshotLister"
             }
           ],
           "returns": [
@@ -23650,7 +23650,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "dags",
@@ -23672,7 +23672,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "in",
@@ -23860,7 +23860,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "agentID",
@@ -24623,8 +24623,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "agentID",
@@ -24653,8 +24653,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "req",
@@ -24688,8 +24688,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "sendMessageReportWaiter"
             },
             {
               "name": "agentID",
@@ -24992,8 +24992,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "req",
@@ -25088,7 +25088,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "dagKey",
@@ -25144,7 +25144,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             }
           ],
           "returns": [
@@ -25369,7 +25369,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "requested",
@@ -25735,7 +25735,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowRecoveryPort"
             },
             {
               "name": "in",
@@ -26142,8 +26142,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "snapshots",
+              "type": "sendMessageSnapshotReader"
             },
             {
               "name": "in",
@@ -26164,8 +26164,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "snapshots",
+              "type": "sendMessageSnapshotReader"
             },
             {
               "name": "agentID",
@@ -26186,7 +26186,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "sendMessagePort"
             },
             {
               "name": "in",
@@ -26207,8 +26207,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "submitter",
+              "type": "sendMessageTurnSubmitter"
             },
             {
               "name": "submission",
@@ -26950,8 +26950,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "req",
@@ -26971,8 +26971,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "in",
@@ -27001,8 +27001,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "sendMessageReportWaiter"
             },
             {
               "name": "waitInput",
@@ -27130,7 +27130,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "query",
@@ -27152,7 +27152,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "runKey",
@@ -27174,7 +27174,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "query",
@@ -27206,7 +27206,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             }
           ],
           "returns": [
@@ -27223,7 +27223,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "query",
@@ -27305,7 +27305,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowRecoveryPort"
             }
           ],
           "returns": [
@@ -27555,6 +27555,68 @@
           ]
         },
         {
+          "name": "agentLaunchPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "LaunchAgent",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "contract.LaunchRequest"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "agentSnapshotLister"
+          ]
+        },
+        {
+          "name": "agentListPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentReportResult",
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "agentSnapshotLister"
+          ]
+        },
+        {
           "name": "agentRecoverPort",
           "exported": false,
           "methods": [
@@ -27588,6 +27650,121 @@
               ],
               "returns": [
                 "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "agentReportPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentReportResult",
+                "error"
+              ]
+            },
+            {
+              "name": "RememberReportRequest",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.RememberReportRequest"
+                }
+              ],
+              "returns": [
+                "contract.RememberReportRequestResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "agentSnapshotLister",
+          "exported": false,
+          "methods": [
+            {
+              "name": "ListAgents",
+              "params": [
+                {
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "[]contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "dagPromptIdentityDiagnosticsPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetDAG",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "dagKey",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.DAGDetail",
+                "error"
+              ]
+            },
+            {
+              "name": "ListDAGs",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "filter",
+                  "type": "contract.ListDAGsFilter"
+                }
+              ],
+              "returns": [
+                "[]contract.DAGSummary",
+                "error"
+              ]
+            },
+            {
+              "name": "ListRuns",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.ListRunsRequest"
+                }
+              ],
+              "returns": [
+                "contract.ListRunsResponse",
                 "error"
               ]
             }
@@ -27636,6 +27813,225 @@
               ],
               "returns": [
                 "string",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sendMessagePort",
+          "exported": false,
+          "embeds": [
+            "sendMessageReportWaiter",
+            "sendMessageSnapshotReader",
+            "sendMessageTurnSubmitter"
+          ]
+        },
+        {
+          "name": "sendMessageReportWaiter",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentReportResult",
+                "error"
+              ]
+            },
+            {
+              "name": "RememberReportRequest",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.RememberReportRequest"
+                }
+              ],
+              "returns": [
+                "contract.RememberReportRequestResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sendMessageSnapshotReader",
+          "exported": false,
+          "methods": [
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sendMessageTurnSubmitter",
+          "exported": false,
+          "methods": [
+            {
+              "name": "SubmitTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.TurnSubmission"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "taskNodeDispatcher",
+          "exported": false,
+          "methods": [
+            {
+              "name": "DispatchNode",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.DispatchNodeRequest"
+                }
+              ],
+              "returns": [
+                "contract.DispatchNodeResponse",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "taskNodeStatusUpdater",
+          "exported": false,
+          "methods": [
+            {
+              "name": "UpdateNodeStatus",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.UpdateNodeStatusRequest"
+                }
+              ],
+              "returns": [
+                "contract.DAGNode",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "workflowDiagnosticsPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetRun",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.GetRunRequest"
+                }
+              ],
+              "returns": [
+                "contract.GetRunResponse",
+                "error"
+              ]
+            },
+            {
+              "name": "ListDAGs",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "filter",
+                  "type": "contract.ListDAGsFilter"
+                }
+              ],
+              "returns": [
+                "[]contract.DAGSummary",
+                "error"
+              ]
+            },
+            {
+              "name": "ListRuns",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.ListRunsRequest"
+                }
+              ],
+              "returns": [
+                "contract.ListRunsResponse",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "workflowRecoveryPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "TerminateDAG",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.TerminateDAGRequest"
+                }
+              ],
+              "returns": [
                 "error"
               ]
             }

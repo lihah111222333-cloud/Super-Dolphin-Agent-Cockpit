@@ -11,7 +11,7 @@ import (
 
 // HandleGetRun 读取单次 DAG 运行快照。
 // run_key 可以来自 pos；找不到 run 时会转成双语错误，方便终端和聊天层直接展示。
-func HandleGetRun(svc contract.OrchestrationService) ToolHandler {
+func HandleGetRun(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetRunInput) (any, error) {
 		runKey, err := resolveRunKeyInput(in.RunKey, in.Pos)
 		if err != nil {

@@ -537,7 +537,11 @@ func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 	for _, tc := range handlers {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := tc.handler(context.Background(), json.RawMessage(tc.input))
-			if err == nil || err.Error() != "orchestration service is not configured" {
+			wantErr := "orchestration service is not configured"
+			if tc.name == "report" {
+				wantErr = "agent report port is not configured"
+			}
+			if err == nil || err.Error() != wantErr {
 				t.Fatalf("handler error = %v", err)
 			}
 		})
