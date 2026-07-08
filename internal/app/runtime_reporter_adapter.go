@@ -12,24 +12,42 @@ import (
 type runtimeReporterParams struct {
 	fx.In
 
-	Service    contract.OrchestrationService `optional:"true"`
-	Logger     *slog.Logger                  `optional:"true"`
-	Dependency contract.DependencyConfig     `optional:"true"`
-	Config     *contract.Config              `optional:"true"`
+	Updater    runtimeUpdater
+	Logger     *slog.Logger              `optional:"true"`
+	Dependency contract.DependencyConfig `optional:"true"`
+	Config     *contract.Config          `optional:"true"`
+}
+
+type runtimeUpdater interface {
+	UpdateRuntime(ctx context.Context, report contract.RuntimeReport) error
+}
+
+type runtimeUpdaterParams struct {
+	fx.In
+
+	Service contract.OrchestrationService `optional:"true"`
+}
+
+// provideRuntimeUpdater 集中暂存 full service 到 runtime 更新端口的兼容接线。
+func provideRuntimeUpdater(p runtimeUpdaterParams) runtimeUpdater {
+	if p.Service == nil {
+		return nil
+	}
+	return p.Service
 }
 
 // newRuntimeReporter 为桌面进程提供 runtime report 写入入口。
 // orchestration service 可用时写入 UpdateRuntime；未接线时按 dependency profile 决定 fail-fast 或 deferred。
 func newRuntimeReporter(p runtimeReporterParams) (contract.RuntimeReporter, error) {
-	if p.Service != nil {
-		return orchestrationRuntimeReporter{svc: p.Service}, nil
+	if p.Updater != nil {
+		return orchestrationRuntimeReporter{updater: p.Updater}, nil
 	}
 	profile, err := appDependencyProfile(p.Dependency, p.Config)
 	if err != nil {
 		return nil, err
 	}
 	policy := newDependencyContract(profile)
-	if err := policy.Require("runtime_reporter.orchestration_service", p.Service); err != nil {
+	if err := policy.Require("runtime_reporter.orchestration_service", p.Updater); err != nil {
 		return nil, err
 	}
 	return desktopExternalRuntimeReporter{logger: p.Logger, profile: profile}, nil
@@ -37,12 +55,12 @@ func newRuntimeReporter(p runtimeReporterParams) (contract.RuntimeReporter, erro
 
 // orchestrationRuntimeReporter 将 runtime report 转发到 orchestration service。
 type orchestrationRuntimeReporter struct {
-	svc contract.OrchestrationService
+	updater runtimeUpdater
 }
 
 // ReportRuntime 写入 orchestration runtime report。
 func (r orchestrationRuntimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
-	return r.svc.UpdateRuntime(ctx, report)
+	return r.updater.UpdateRuntime(ctx, report)
 }
 
 // desktopExternalRuntimeReporter 明确表示 runtime report 由外部 orchestration 承接。

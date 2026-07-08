@@ -57,7 +57,10 @@ const promptIntentE2EFixtureHarnessEnv = "PROMPT_INTENT_E2E_FIXTURE_HARNESS"
 var Module = fx.Options(
 	fx.Provide(NewLogger),
 	fx.Provide(pidregistry.New),
-	fx.Provide(newDashboardOrchestrationReader),
+	fx.Provide(
+		provideDashboardOrchestrationReaderPort,
+		newDashboardOrchestrationReader,
+	),
 	config.Module,
 	db.Module,
 	bus.Module,
@@ -108,6 +111,7 @@ var Module = fx.Options(
 		newToolbridgeHandlerRef,
 		fx.Annotate(newMCPOrchDAGRuntime, fx.As(new(contract.DAGRuntime))),
 		fx.Annotate(newMCPOrchOrchestrationFacade, fx.As(new(thread.OrchestrationFacade))),
+		provideRuntimeUpdater,
 		newRuntimeReporter,
 		thread.NewSessionLifecyclePort,
 		thread.NewSessionStatusPort,
