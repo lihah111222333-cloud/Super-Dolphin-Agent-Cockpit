@@ -25,7 +25,7 @@
 - `runtime.go`
   - `newLogger(cfg *platformconfig.Config)`：默认写 `/tmp/mcp-orch-<pid>.log`。
   - `newQueries(db *sql.DB)`：使用主进程提供的 SQLite `*sql.DB` 初始化 sqlc 查询器；不从 PostgreSQL DSN 创建连接池。
-  - `newRegistry(orchestration, ws, prompt, command, sharedFile)`：构造运行时 `tools.Registry`；`tools.NewRegistry()` 汇总 orchestration / task / workspace / prompt / command / shared_file，当前 registry 不含 memory tools。
+  - `newRegistry(p newRegistryParams)`：构造运行时 `tools.Registry`；`toolPortsFromRegistryParams()` 先拆出各 tool 需要的窄端口，再交给 `tools.NewRegistry()` 汇总 orchestration / task / workspace / prompt / command / shared_file，当前 registry 不含 memory tools。
   - `registryToolProvider`：把 `tools.Registry` 适配为 `common.ToolProvider`；stdio MCP、HTTP MCP、bootstrap `OnToolsList` / `OnToolsCall` 都复用这层 `ListTools` / `CallTool` 出口。
   - `newStdioRunner()`：基于 `common.NewServer("mcp-orch", "dev", transport, provider)` 启动 stdio MCP。
   - `newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client)` / `bootstrapRunner.Run(ctx)`：runner 总是被加入 runner group，但只有在 `GO_AGENT_PEER_MODE=1` 且 `GO_AGENT_CTL_RPC_ADDR` 非空时才真正向控制面注册；否则只是阻塞等待 ctx 结束。
@@ -475,7 +475,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition` | 构造 prompt / command 这类 list/get 资源型工具。 |
 | `func promptToolDefinitions(store promptstore.Store) []ToolDefinition` | 通过 `resourceToolDefinitions()` 暴露 `prompt_list` / `prompt_get` 两个出口。 |
 | `memory_tools.go` | 当前不定义 memory tool；`tools.NewRegistry()` 不挂入 `memory_read` / `memory_write`。 |
-| `func HandleLaunchAgent(port AgentLaunchPort) ToolHandler` | `launch_agent` 实现；只依赖 launch 所需窄端口，异步 launch。 |
+| `func HandleLaunchAgent(svc agentLaunchPort) ToolHandler` | `launch_agent` 实现；只依赖 launch 所需窄端口，异步 launch。 |
 | `func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error)` | 把 tool 输入转成 service contract；可信 ToolScope `_agentId` 优先供 creator，公开 `agent_id` 只能匹配可信值。 |
 | `func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error)` | `workspace_create_run` 工具实现。 |
 | `func workspaceRunDTOFromRun(ctx context.Context, svc workspace.Service, run *workspace.Run) (*workspaceRunDTO, error)` | 把 workspace service 输出补齐兼容字段与文件列表。 |
