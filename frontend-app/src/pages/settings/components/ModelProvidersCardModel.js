@@ -22,7 +22,7 @@ function normalizeVendor(vendor) {
   return {
     ...vendor,
     id: textValue(vendor?.id),
-    label: textValue(vendor?.label || vendor?.id),
+    label: firstPresentText(vendor?.label, vendor?.id),
     enabled: Boolean(vendor?.enabled),
     baseURL: textValue(vendor?.baseURL),
     envKey: textValue(vendor?.envKey),
@@ -50,11 +50,12 @@ function selectVendorId(registry, preferredVendorId) {
   const preferred = textValue(preferredVendorId);
   if (preferred && registry.vendors.some((vendor) => vendor.id === preferred)) return preferred;
   if (registry.activeVendorId && registry.vendors.some((vendor) => vendor.id === registry.activeVendorId)) return registry.activeVendorId;
-  return registry.vendors[0]?.id || '';
+  const firstVendorId = registry.vendors[0]?.id;
+  return firstVendorId === undefined || firstVendorId === null ? '' : firstVendorId;
 }
 
 function updateSelectedVendor(registry, selectedVendorId, update) {
-  const targetId = selectedVendorId || registry.vendors[0]?.id || '';
+  const targetId = firstPresentText(selectedVendorId, registry.vendors[0]?.id);
   return {
     ...registry,
     vendors: registry.vendors.map((vendor) => (vendor.id === targetId ? normalizeVendor(update(vendor)) : vendor)),
@@ -109,7 +110,15 @@ function inputNumberValue(value) {
 }
 
 function textValue(value) {
-  return (value || '').toString();
+  return value === null || value === undefined ? '' : value.toString();
+}
+
+function firstPresentText(...values) {
+  for (const value of values) {
+    const text = textValue(value);
+    if (text) return text;
+  }
+  return '';
 }
 
 function plainObject(value) {

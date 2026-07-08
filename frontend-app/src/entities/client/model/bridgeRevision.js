@@ -1,3 +1,4 @@
+import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField } from './contractStoreModel.js';
 export const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 
 const PROMPT_REVISION_EVENTS = new Set(['prompts/changed', 'prompt-assets/changed', 'ui/prompts/changed']);
@@ -9,7 +10,7 @@ const BRIDGE_REVISION_EVENTS = Object.freeze([
 ]);
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function requiredDagStatusPayloadString(payload, field, message) {
@@ -38,9 +39,9 @@ export function bridgeRevisionKey(eventName, payload = {}) {
   }
   if (eventName === 'task/node/statuschanged') requireDagNodeStatusPayload(payload);
   const match = BRIDGE_REVISION_EVENTS.find((entry) => entry.events.has(eventName));
-  return match?.key || '';
+  return match?.key || optionalTextField();
 }
 
 export function isDagNodeStatusBridgeEvent(evt) {
-  return normalizeString(evt?.method || evt?.type).toLowerCase() === 'task/node/statuschanged';
+  return normalizeString(firstOptionalPresent(evt?.method, evt?.type)).toLowerCase() === 'task/node/statuschanged';
 }

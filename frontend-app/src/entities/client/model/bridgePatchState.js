@@ -1,26 +1,33 @@
+import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 import {
   isVisibleTimelineItem,
   mergeTimelineItems,
-  normalizeTimelineItem,
-} from './timelineRuntime.js';
+  normalizeTimelineItem } from './timelineRuntime.js';
 import {
   activeTurnPayload,
   isInterruptibleTurnSummary,
   normalizeActivityStats,
   normalizeTokenUsage,
   normalizeTurnSummary,
-  threadActivityTimestamp as defaultThreadActivityTimestamp,
-} from './threadActivityMetrics.js';
+  threadActivityTimestamp as defaultThreadActivityTimestamp } from './threadActivityMetrics.js';
 import { firstThreadCopyText } from './threadCopyPayload.js';
+
+function optionalUiArray() {
+  return [];
+}
+
+function optionalUiObject() {
+  return {};
+}
 
 const MAX_BRIDGE_PATCH_WARNING_ENTRIES = 300;
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function positiveApprovalRequestId(item) {
-  const parsed = Number(item?.requestId ?? item?.request_id);
+  const parsed = Number(firstOptionalPresent(item?.requestId, item?.request_id));
   return Math.max(0, Number.isFinite(parsed) ? parsed : 0);
 }
 
@@ -31,7 +38,7 @@ function cleanObject(payload) {
 }
 
 function bridgePatchRuntime(payload) {
-  return payload.agentRuntime || payload.agent_runtime || {};
+  return payload.agentRuntime || payload.agent_runtime || optionalUiObject();
 }
 
 function bridgePatchRawThread(payload) {
@@ -80,7 +87,7 @@ function bridgePatchData(method, payload, threadId, deps = {}) {
     threadId,
     timelineItems,
     alerts: Array.isArray(alerts) ? alerts : [],
-    runtimeResultEntries: deps.runtimeResultEntriesFromTimelineItems?.(timelineItems, threadId) || [],
+    runtimeResultEntries: deps.runtimeResultEntriesFromTimelineItems?.(timelineItems, threadId) || optionalUiArray(),
     tokenUsage: normalizeTokenUsage(payload.tokenUsage || payload.token_usage),
     activityStats: normalizeActivityStats(payload.activityStats || payload.activity_stats),
     diffText: typeof payload.diffText === 'string' ? payload.diffText : payload.diff_text,
@@ -96,7 +103,7 @@ function bridgePatchTimeline(state, patch) {
   if (Array.isArray(patch.timelineItems)) {
     const visibleItems = patch.timelineItems.map(normalizeTimelineItem).filter(isVisibleTimelineItem);
     timelinesByThread[patch.threadId] = mergeTimelineItems(
-      timelinesByThread[patch.threadId] || [],
+      timelinesByThread[patch.threadId] || optionalUiArray(),
       visibleItems,
       { preserveExistingVisible: true },
     );
@@ -175,8 +182,8 @@ function bridgePatchAlertEvent(alert, patch) {
 
 function bridgePatchAlertEntries(patch, deps = {}) {
   if (!Array.isArray(patch.alerts) || patch.alerts.length === 0) return [];
-  const nowISO = deps.nowISO || (() => new Date().toISOString());
-  const nowMillis = deps.nowMillis || (() => Date.now());
+  const nowISO = deps.nowISO || (() => currentIsoTimestamp());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
   return patch.alerts
     .filter((alert) => alert && typeof alert === 'object')
     .map((alert) => {
@@ -204,8 +211,8 @@ function bridgePatchAlertEntries(patch, deps = {}) {
 }
 
 function bridgePatchApprovalWarningEntries(state, patch, deps = {}) {
-  const nowISO = deps.nowISO || (() => new Date().toISOString());
-  const nowMillis = deps.nowMillis || (() => Date.now());
+  const nowISO = deps.nowISO || (() => currentIsoTimestamp());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
   const approvalEntries = Array.isArray(patch.timelineItems) ? patch.timelineItems
     .map(normalizeTimelineItem)
     .filter(pendingApprovalCannotRender)
@@ -262,7 +269,7 @@ function shouldPromoteBridgePatchThread(existingThread, patch) {
 
 function bridgePatchThreads(state, patch, deps = {}) {
   const threadMatchesIdentifier = deps.threadMatchesIdentifier || (() => false);
-  const nowMillis = deps.nowMillis || (() => Date.now());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
   const existingThread = state.threads.find((thread) => threadMatchesIdentifier(thread, patch.threadId));
   if (!patch.patchedThread.id) return state.threads;
   let archived = Boolean(existingThread?.archived || patch.patchedThread.archived);
@@ -281,11 +288,11 @@ function bridgePatchThreads(state, patch, deps = {}) {
     archived = recentOverride.archived;
   }
   const mergedThread = {
-    ...(existingThread || {}),
+    ...(existingThread || optionalUiObject()),
     ...patch.patchedThread,
     name: bridgePatchThreadName(existingThread, patch.patchedThread),
     provider: patch.patchProvider || existingThread?.provider || patch.patchedThread.provider,
-    cwd: patch.patchedThread.cwd || existingThread?.cwd || '',
+    cwd: patch.patchedThread.cwd || existingThread?.cwd || optionalTextField(),
     status: patch.statusText || patch.patchedThread.status || existingThread?.status || '等待指示',
     pinned: Boolean(existingThread?.pinned || patch.patchedThread.pinned),
     pinnedAt: existingThread?.pinnedAt || patch.patchedThread.pinnedAt || 0,
@@ -321,7 +328,7 @@ function bridgePatchSidebarThread(thread, mergedThread) {
 
 function bridgePatchSidebarThreadsByProject(state, patch, deps = {}, nextThreads = []) {
   const current = state.sidebarThreadsByProject;
-  if (!current || typeof current !== 'object' || Array.isArray(current)) return current || {};
+  if (!current || typeof current !== 'object' || Array.isArray(current)) return current || optionalUiObject();
   const threadMatchesIdentifier = deps.threadMatchesIdentifier || (() => false);
   const mergedThread = nextThreads.find((thread) => bridgePatchMatchesThread(thread, patch, patch.patchedThread, threadMatchesIdentifier));
   if (!mergedThread) return current;
@@ -366,8 +373,8 @@ function bridgePatchStatuses(state, patch) {
 }
 
 function bridgePatchActivityEntries(state, patch, deps = {}) {
-  const nowMillis = deps.nowMillis || (() => Date.now());
-  const nowISO = deps.nowISO || (() => new Date().toISOString());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
+  const nowISO = deps.nowISO || (() => currentIsoTimestamp());
   return [{
     id: `${patch.method}-${nowMillis()}`,
     method: patch.method,

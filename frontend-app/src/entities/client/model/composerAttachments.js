@@ -1,8 +1,12 @@
+import { optionalTextField, normalizeOptionalTextField, systemClockMillis } from './contractStoreModel.js';
+function optionalUiArray() {
+  return [];
+}
+
 // @ts-check
 
 import {
-  normalizeThreadId,
-} from './threadIdentity.js';
+  normalizeThreadId } from './threadIdentity.js';
 
 const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
@@ -22,7 +26,7 @@ const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
  * @returns {string}
  */
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 /**
@@ -135,7 +139,7 @@ export function cloneComposerAttachments(attachments) {
  */
 export function normalizeComposerDraftSnapshot(value = {}) {
   return {
-    draft: (value.draft || '').toString(),
+    draft: optionalTextField(value.draft),
     attachments: cloneComposerAttachments(value.attachments),
   };
 }
@@ -187,7 +191,7 @@ export function attachmentKey(value) {
 export function appendUniqueAttachments(current, incoming) {
   const next = [...current];
   const seen = new Set(next.map(attachmentKey).filter(Boolean));
-  for (const item of incoming || []) {
+  for (const item of incoming || optionalUiArray()) {
     const attachment = normalizeAttachment(item);
     const key = attachmentKey(attachment);
     if (!attachment || !key || seen.has(key)) continue;
@@ -202,7 +206,7 @@ export function appendUniqueAttachments(current, incoming) {
  * @returns {File[]}
  */
 export function fileListOf(value) {
-  return Array.from(value || []).filter(Boolean);
+  return Array.from(value || optionalUiArray()).filter(Boolean);
 }
 
 /**
@@ -226,11 +230,11 @@ export function fileLooksImage(file) {
  * @param {{ saveClipboardImage?: (base64: string) => Promise<string> | string, nowMillis?: () => number }} [options]
  * @returns {(file: Blob & { name?: string }, index: number, fallbackPrefix: string) => Promise<ComposerAttachment>}
  */
-export function createImageFileAttachment({ saveClipboardImage, nowMillis = () => Date.now() } = {}) {
+export function createImageFileAttachment({ saveClipboardImage, nowMillis = () => systemClockMillis() } = {}) {
   if (typeof saveClipboardImage !== 'function') throw new Error('saveClipboardImage is required');
   return async function imageFileAttachment(file, index, fallbackPrefix) {
     const dataUrl = await blobToDataURL(file);
-    const base64 = dataUrl.split(',')[1] || '';
+    const base64 = dataUrl.split(',')[1] || optionalTextField();
     if (!base64) throw new Error('image attachment data is empty');
     const path = normalizeString(await saveClipboardImage(base64));
     if (!path) throw new Error('clipboard image save returned empty path');
@@ -272,7 +276,7 @@ export function buildTurnInput(text, attachments) {
   const items = /** @type {TurnInputItem[]} */ ([]);
   const message = normalizeString(text);
   if (message) items.push({ type: 'text', text: message });
-  for (const attachment of attachments || []) {
+  for (const attachment of attachments || optionalUiArray()) {
     const item = attachmentToInputItem(attachment);
     if (item) items.push(item);
   }

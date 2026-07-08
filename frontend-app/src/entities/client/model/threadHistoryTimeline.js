@@ -1,16 +1,16 @@
+import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, currentIsoTimestamp, parseRequiredJsonObject } from './contractStoreModel.js';
 // @ts-check
 
 import {
   isVisibleTimelineItem,
   normalizeTimelineItem,
-  sortTimelineChronologically,
-} from './timelineRuntime.js';
+  sortTimelineChronologically } from './timelineRuntime.js';
 
 const IMAGE_PLACEHOLDER_RE = /<image\s[^>]*><\/image>/gi;
 const CLIPBOARD_IMAGE_NAME_RE = /^(?:codex-)?clipboard-.+\.png$/i;
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function objectRecord(value) {
@@ -62,7 +62,7 @@ export function extractHistoryMetadata(message) {
   const meta = message.metadata || message.meta;
   if (!meta || typeof meta !== 'object') return null;
   try {
-    return typeof meta === 'string' ? JSON.parse(meta) : meta;
+    return typeof meta === 'string' ? parseRequiredJsonObject(meta) : meta;
   }
   catch {
     return null;
@@ -84,7 +84,7 @@ export function buildHistoryMessageAttachments(message) {
     if (!rawPath) continue;
     let previewUrl = clipboardPreviewUrlForPath(rawPath) || rawPath;
     if (rawPath.startsWith('/') && !rawPath.startsWith('/clipboard/')) {
-      const base = rawPath.split('/').pop() || '';
+      const base = rawPath.split('/').pop() || optionalTextField();
       if (/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(base)) {
         previewUrl = `/clipboard/${base}`;
       }
@@ -138,7 +138,7 @@ function dagNodeFallbackText(value) {
 }
 
 function dagNodeFallbackPrompt(node) {
-  const config = objectRecord(node?.config || node?.raw?.config);
+  const config = objectRecord(firstOptionalPresent(node?.config, node?.raw?.config));
   const exec = objectRecord(config.exec);
   const verifier = objectRecord(exec.verifier);
   const prompt = firstValueFromSources([
@@ -162,7 +162,7 @@ export function dagNodeHistoryFallbackItems(threadId, dagNode) {
   if (Object.keys(node).length === 0) return [];
   const nodeKey = normalizeString(node.nodeKey || node.node_key || node.id || threadId) || 'dag-node';
   const title = normalizeString(node.title || node.name || nodeKey);
-  const startedAt = normalizeString(node.startedAt || node.started_at || node.createdAt || node.created_at) || new Date().toISOString();
+  const startedAt = normalizeString(node.startedAt || node.started_at || node.createdAt || node.created_at) || currentIsoTimestamp();
   const finishedAt = normalizeString(node.finishedAt || node.finished_at) || startedAt;
   const prompt = dagNodeFallbackPrompt(node);
   const result = dagNodeFallbackResult(node);

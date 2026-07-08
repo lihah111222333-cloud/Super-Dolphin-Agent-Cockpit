@@ -543,7 +543,7 @@ describe('ObservabilityPage module', () => {
     ]);
   });
 
-  it('keeps invalid recent timestamps visible as backend text', async () => {
+  it('shows an explicit error for invalid recent timestamps', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
       source: 'memory',
       truncated: false,
@@ -559,11 +559,46 @@ describe('ObservabilityPage module', () => {
 
     renderObservabilityPage();
     fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
-    const table = await screen.findByTestId('observability-recent-logs');
-    const timestamp = table.querySelector('.observability-log-table-entry time');
+    const alert = await screen.findByTestId('observability-recent-logs-error');
 
-    expect(timestamp).toHaveAttribute('dateTime', 'not-a-date');
-    expect(timestamp).toHaveTextContent('not-a-date');
+    expect(alert).toHaveTextContent('observability event timestamp 时间戳无效：not-a-date');
+  });
+
+  it('keeps same-timestamp recent rows in deterministic backend order', async () => {
+    const baseEvent = recentResult.events[0];
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        { ...baseEvent, traceId: 'trace-first', spanId: 'span-first', ts: '2026-06-02T09:01:22.459Z' },
+        { ...baseEvent, traceId: 'trace-second', spanId: 'span-second', ts: '2026-06-02T09:01:22.459Z' },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const entries = Array.from(table.querySelectorAll('.observability-log-table-entry'));
+
+    expect(entries.map((entry) => entry.textContent)).toEqual([
+      expect.stringContaining('trace-first'),
+      expect.stringContaining('trace-second'),
+    ]);
+  });
+
+  it('shows an explicit error for invalid trace event shapes', async () => {
+    getObservabilityTrace.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      totalDurationMs: 0,
+      events: { invalid: true },
+    });
+    const table = await queryRecentLogs();
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+    const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+    await waitFor(() => expect(inlineTrace).toHaveTextContent('Trace 数据无效：observability trace events 必须是数组'));
   });
 
 });

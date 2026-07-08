@@ -48,7 +48,8 @@ describe('wails bridge runtime loading', () => {
     const source = readFileSync(join(cwd(), 'src/shared/api/wailsBridge.js'), 'utf8');
 
     expect(source).toContain('nativeImportModule(WAILS_RUNTIME_MODULE)');
-    expect(source).toContain("return import(modulePath)");
+    expect(source).toContain('return import(/* @vite-ignore */ modulePath)');
+    expect(source).not.toContain("Function('modulePath'");
     expect(source).not.toContain('import(/* @vite-ignore */ WAILS_RUNTIME_MODULE)');
   });
 });
@@ -821,6 +822,17 @@ describe('wails bridge file picker helpers', () => {
       .rejects.toThrow('ui/readDroppedTextFiles response file sizeBytes must be a non-negative number');
   });
 
+  it('rejects missing clipboard image paths instead of defaulting to an empty payload', async () => {
+    const byID = vi.fn().mockResolvedValue(undefined);
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { saveClipboardImage } = await import('./wailsBridge.js');
+
+    await expect(saveClipboardImage('base64-image')).rejects.toThrow('ui/saveClipboardImage response path must be a string');
+  });
+
   it('rejects malformed selectFiles native responses without falling back to the RPC path', async () => {
     const byID = vi.fn().mockResolvedValue({});
     vi.doMock(runtimeModule, () => ({
@@ -1509,7 +1521,7 @@ describe('wails bridge frontend trace defaults', () => {
 
   it('marks slow successful RPC done traces as slow when remote flushing', async () => {
     let now = 0;
-    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
     const byID = vi.fn((_methodID, method, payload) => {
       if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
       now = 1000;
@@ -1536,6 +1548,21 @@ describe('wails bridge frontend trace defaults', () => {
         status: 'slow',
       }),
     ]);
+  });
+
+  it('rejects invalid bridge clock timestamps before emitting fake durations', async () => {
+    vi.spyOn(performance, 'now').mockReturnValue(Number.NaN);
+    const byID = vi.fn().mockResolvedValue({ ok: true });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('observability/recent/list', {})).rejects.toMatchObject({
+      name: 'BridgeClockUnavailableError',
+    });
+    expect(byID).not.toHaveBeenCalled();
   });
 });
 

@@ -44,11 +44,11 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
 });
 
 function normalizeProviderKey(value) {
-  return (value || '').toString().trim().toLowerCase() === 'claude' ? 'claude' : 'codex';
+  return textValue(value).toLowerCase() === 'claude' ? 'claude' : 'codex';
 }
 
 function normalizeConfigText(value) {
-  return (value || '').toString().trim();
+  return textValue(value);
 }
 
 function canonicalizeModelValue(provider, value) {
@@ -74,7 +74,7 @@ function appendCurrentModelOption(provider, value) {
 }
 
 function optionalSettingsCwd(value) {
-  const cwd = (value || '').toString().trim();
+  const cwd = textValue(value);
   return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : '';
 }
 
@@ -146,11 +146,11 @@ function useDashboardFocusInvalidation(cwd, surface) {
 }
 
 function cleanScalar(value) {
-  return (value || '').toString().trim().replace(/^['"]|['"]$/g, '').trim();
+  return textValue(value).replace(/^['"]|['"]$/g, '').trim();
 }
 
 function wordListFromText(value) {
-  const text = Array.isArray(value) ? value.join(',') : (value || '').toString();
+  const text = Array.isArray(value) ? value.join(',') : textValue(value);
   return (
     text
     .replace(/[，、；;\n]/g, ',')
@@ -163,6 +163,99 @@ function wordListFromText(value) {
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
+}
+
+function rawTextValue(value) {
+  return value === null || value === undefined ? '' : value.toString();
+}
+
+function firstPresentText(...values) {
+  for (const value of values) {
+    const text = textValue(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function firstPresentRawText(...values) {
+  for (const value of values) {
+    const text = rawTextValue(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function parseStrictJsonValue(text, label = 'JSON') {
+  try {
+    return globalThis.JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${label} 不是合法 JSON：${errorMessage(error)}`, { cause: error });
+  }
+}
+
+function parseJsonObjectValue(text, label, { allowNull = false } = {}) {
+  const value = parseStrictJsonValue(text, label);
+  if (value === null && allowNull) return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+  return value;
+}
+
+function systemClockNowMillis() {
+  const performanceClock = globalThis.performance;
+  if (performanceClock && Number.isFinite(performanceClock.timeOrigin) && typeof performanceClock.now === 'function') {
+    return Math.floor(performanceClock.timeOrigin + performanceClock.now());
+  }
+  return new globalThis.Date().getTime();
+}
+
+function currentTimestampMillis(label = '当前时间', clock = systemClockNowMillis) {
+  const value = typeof clock === 'function' ? clock() : clock?.now?.();
+  const time = Number(value);
+  if (!Number.isFinite(time) || time <= 0) throw new Error(`${label} clock returned invalid timestamp`);
+  return time;
+}
+
+function requireTimestampMillis(value, label) {
+  const text = textValue(value);
+  if (!text) throw new Error(`${label} 缺少时间戳`);
+  const date = new globalThis.Date(text);
+  const time = date.getTime();
+  if (!Number.isFinite(time)) throw new Error(`${label} 时间戳无效：${text}`);
+  return time;
+}
+
+function optionalTimestampMillis(value, label = '可选时间戳') {
+  const text = textValue(value);
+  if (!text) return 0;
+  return requireTimestampMillis(text, label);
+}
+
+function optionalDateFromValue(value, label = '可选时间戳') {
+  const text = textValue(value);
+  if (!text) return null;
+  return new globalThis.Date(requireTimestampMillis(text, label));
+}
+
+function requireArrayValue(value, label) {
+  if (!Array.isArray(value)) throw new Error(`${label} 必须是数组`);
+  return value;
+}
+
+function optionalArrayValue(value, label) {
+  if (value === null || value === undefined) return [];
+  return requireArrayValue(value, label);
+}
+
+function requirePlainObjectValue(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} 必须是对象`);
+  return value;
+}
+
+function optionalPlainObjectValue(value, label) {
+  if (value === null || value === undefined) return {};
+  return requirePlainObjectValue(value, label);
 }
 
 function firstText(...values) {
@@ -186,8 +279,8 @@ function objectValue(value) {
 function sharedFileTimestamp(value) {
   const text = textValue(value);
   if (!text) return '-';
-  const date = new Date(text);
-  if (!Number.isFinite(date.getTime())) return '-';
+  const date = optionalDateFromValue(text, 'shared file timestamp');
+  if (!date) return '-';
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
@@ -197,11 +290,11 @@ function memoryNoticeText(value) {
 }
 
 function errorMessage(error) {
-  return memoryNoticeText(error?.message || String(error || ''));
+  return memoryNoticeText(firstPresentRawText(error?.message, error));
 }
 
 function listToText(words) {
   return Array.isArray(words) ? words.join(', ') : '';
 }
 
-export { appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, loadMemoryDashboard, MEMORY_TYPE_INFO, memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalSettingsCwd, queryErrorMessage, queryHasSnapshot, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText };
+export { appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, currentTimestampMillis, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentRawText, firstPresentText, firstText, listToText, loadMemoryDashboard, MEMORY_TYPE_INFO, memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalArrayValue, optionalDateFromValue, optionalPlainObjectValue, optionalSettingsCwd, optionalTimestampMillis, parseJsonObjectValue, parseStrictJsonValue, queryErrorMessage, queryHasSnapshot, rawTextValue, requireArrayValue, requirePlainObjectValue, requireTimestampMillis, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText };

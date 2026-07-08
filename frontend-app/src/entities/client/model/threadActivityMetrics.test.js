@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   activeTurnPayload,
   isInterruptibleTurnSummary,
@@ -7,8 +7,7 @@ import {
   normalizeTokenUsage,
   normalizeTurnSummary,
   shouldFloatThreadPatch,
-  threadActivityTimestamp,
-} from './threadActivityMetrics.js';
+  threadActivityTimestamp } from './threadActivityMetrics.js';
 
 describe('threadActivityMetrics', () => {
   it('normalizes active turn summaries from backend field variants', () => {
@@ -96,9 +95,6 @@ describe('threadActivityMetrics', () => {
   });
 
   it('uses current time for local thread activity timestamps', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-15T01:00:00Z'));
-    expect(threadActivityTimestamp()).toBe(new Date('2026-06-15T01:00:00Z').getTime());
-    vi.useRealTimers();
+    expect(threadActivityTimestamp(() => 1781485200000)).toBe(1781485200000);
   });
 });

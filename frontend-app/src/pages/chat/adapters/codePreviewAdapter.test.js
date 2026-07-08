@@ -52,6 +52,41 @@ describe('codePreviewStateAfterSave', () => {
 });
 
 describe('codePreviewStateFromOpenResult image previews', () => {
+  it('rejects invalid open result shapes', () => {
+    expect(() => codePreviewStateFromOpenResult(null, 'docs/plan.md')).toThrow('must be an object');
+    expect(() => codePreviewStateFromOpenResult([], 'docs/plan.md')).toThrow('must be an object');
+  });
+
+  it('rejects open results missing a required file path', () => {
+    expect(() => codePreviewStateFromOpenResult({ snippet: 'hello' }, '')).toThrow('requires filePath');
+  });
+
+  it('normalizes a canonical text preview DTO', () => {
+    const next = codePreviewStateFromOpenResult({
+      filePath: '/repo/docs/plan.md',
+      relative: 'docs/plan.md',
+      snippet: 'hello\nworld',
+      language: 'markdown',
+      previewKind: 'markdown',
+      previewMode: 'full',
+      startLine: 1,
+      endLine: 2,
+      totalLines: 2,
+      contentVersion: 'v1',
+    }, '/repo/docs/plan.md');
+
+    expect(next).toEqual(expect.objectContaining({
+      open: true,
+      filePath: '/repo/docs/plan.md',
+      relative: 'docs/plan.md',
+      content: 'hello\nworld',
+      language: 'markdown',
+      previewKind: 'markdown',
+      contentVersion: 'v1',
+      editable: true,
+    }));
+  });
+
   it('does not mint file URLs from local image paths', () => {
     const next = codePreviewStateFromOpenResult(
       {

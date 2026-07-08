@@ -1,18 +1,18 @@
+import { optionalTextField, normalizeOptionalTextField } from './contractStoreModel.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   attachWarningRuntime,
   mergeWarningEntries,
   safeWarningFields,
   warningTraceComponent,
-  warningTraceStatus,
-} from './warningRuntime.js';
+  warningTraceStatus } from './warningRuntime.js';
 
 const cleanObject = (payload) => Object.fromEntries(
   Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
 );
-const normalizeString = (value) => (value || '').toString().trim();
+const normalizeString = (value) => normalizeOptionalTextField(value);
 const normalizeThreadId = normalizeString;
-const runtimeThreadIdentifier = (fields = {}) => fields.threadId || fields.thread_id || '';
+const runtimeThreadIdentifier = (fields = {}) => fields.threadId || fields.thread_id || optionalTextField();
 
 describe('warning runtime helpers', () => {
   it('coalesces repeated warnings while keeping newest entry first', () => {

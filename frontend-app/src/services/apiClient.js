@@ -1,4 +1,5 @@
 const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
+const EMPTY_API_ERROR_FIELD = '';
 
 /*
  * services 层把 backendApi/Wails 错误统一变成 ApiError。
@@ -9,20 +10,22 @@ class ApiError extends Error {
   constructor(message, options = {}) {
     super(message);
     this.name = 'ApiError';
-    this.code = options.code || '';
-    this.requestId = options.requestId || options.reqId || '';
-    this.traceId = options.traceId || options.trace_id || '';
+    this.code = options.code ?? EMPTY_API_ERROR_FIELD;
+    this.requestId = options.requestId ?? options.reqId ?? EMPTY_API_ERROR_FIELD;
+    this.traceId = options.traceId ?? options.trace_id ?? EMPTY_API_ERROR_FIELD;
     this.cause = options.cause;
   }
 }
 
 function toApiError(error, fallbackMessage = '请求失败') {
   if (error instanceof ApiError) return error;
-  const message = error?.message || String(error || fallbackMessage);
+  const message = error?.message ? error.message : String(error ?? fallbackMessage);
   return new ApiError(message || fallbackMessage, {
     code: error?.code,
-    requestId: error?.requestId || error?.reqId,
-    traceId: error?.traceId || error?.trace_id,
+    requestId: error?.requestId,
+    reqId: error?.reqId,
+    traceId: error?.traceId,
+    trace_id: error?.trace_id,
     cause: error,
   });
 }

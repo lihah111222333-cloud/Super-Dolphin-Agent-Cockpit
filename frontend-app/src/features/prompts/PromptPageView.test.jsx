@@ -118,11 +118,25 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete window.__SUPER_DOLPHIN_PROMPT_DEBUG__;
+  vi.restoreAllMocks();
 });
 
 describe('PromptPageView module', () => {
   it('exports the prompt page view component', () => {
     expect(PromptPageView).toBeTypeOf('function');
+  });
+
+  it('keeps advanced debug disabled when browser storage is unavailable', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+
+    expect(await screen.findByRole('dialog', { name: '编辑提示词' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('match_when JSON')).not.toBeInTheDocument();
   });
 
   it('loads and saves personalization profile', async () => {

@@ -1,5 +1,5 @@
 import { textValue } from '../../shared/pageShared.js';
-import { basenameFromPath, imagePreviewSource, trustedImagePreviewSource } from './markdownMessageModel.js';
+import { basenameFromPath, firstText, imagePreviewSource, trustedImagePreviewSource } from './markdownMessageModel.js';
 
 const CLIPBOARD_IMAGE_NAME_RE = /^(?:codex-)?clipboard-.+\.png$/i;
 
@@ -18,7 +18,7 @@ function resolveImagePreviewValue(rawValue) {
 }
 
 function resolveAttachmentImageSrc(att) {
-  const preview = resolveImagePreviewValue(att?.previewUrl || att?.url || att?.src);
+  const preview = resolveImagePreviewValue(firstText(att?.previewUrl, att?.url, att?.src));
   if (preview) return preview;
   return resolveImagePreviewValue(att?.path);
 }

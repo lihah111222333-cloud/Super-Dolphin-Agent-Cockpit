@@ -160,7 +160,8 @@ export function namedImportsFrom(source, matchesSpecifier) {
     if (node.type !== 'ImportDeclaration') return;
     const sourceValue = literalString(node.source);
     if (!matchesSpecifier(sourceValue)) return;
-    for (const specifier of node.specifiers ?? []) {
+    const specifiers = Array.isArray(node.specifiers) ? node.specifiers : [];
+    for (const specifier of specifiers) {
       if (specifier.type !== 'ImportSpecifier') continue;
       const imported = specifier.imported;
       if (imported?.type === 'Identifier') importedNames.push(imported.name);

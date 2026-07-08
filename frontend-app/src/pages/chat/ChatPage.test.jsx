@@ -250,6 +250,32 @@ describe('ChatPage module', () => {
     expect(screen.queryByRole('heading', { name: '新对话' })).not.toBeInTheDocument();
   });
 
+  it('renders an active thread with an empty message array without falling back to intro mode', () => {
+    const store = createActiveThreadStore([], {
+      threads: [{ id: 'thread-1', name: '空消息线程', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '空消息线程' })).toBeInTheDocument();
+    expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
+  });
+
+  it('shows invalid message timestamps as an explicit placeholder', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-invalid-time', role: 'user', text: '坏时间戳应该可见', time: 'not-a-valid-timestamp' },
+    ], {
+      threads: [{ id: 'thread-1', name: '时间戳校验', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByText('坏时间戳应该可见')).toBeInTheDocument();
+    expect(screen.getByText('--:--')).toBeInTheDocument();
+  });
+
   it('disables project actions when the backend is not ready or no project cwd is selected', () => {
     const store = createFakeStore({
       activeProject: '',

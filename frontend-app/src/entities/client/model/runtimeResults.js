@@ -1,3 +1,4 @@
+import { firstOptionalPresent, normalizeOptionalTextField, systemClockMillis, currentIsoTimestamp, parseOptionalTimestamp, parseRequiredJsonObject } from './contractStoreModel.js';
 import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
 
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
@@ -15,7 +16,7 @@ export const RUNTIME_TOOL_TERMINAL_STATUSES = new Set([
   'error',
 ]);
 
-const defaultNormalizeString = (value) => (value || '').toString().trim();
+const defaultNormalizeString = (value) => normalizeOptionalTextField(value);
 
 function defaultNormalizeTimestamp(value) {
   if (typeof value === 'boolean' || value === null || value === undefined) return 0;
@@ -25,7 +26,7 @@ function defaultNormalizeTimestamp(value) {
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
-  const parsed = Date.parse(sanitized);
+  const parsed = parseOptionalTimestamp(sanitized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
@@ -34,8 +35,8 @@ export function createRuntimeResultHelpers(deps = {}) {
   const normalizeTimestamp = deps.normalizeTimestamp || defaultNormalizeTimestamp;
   const normalizeThreadId = deps.normalizeThreadId || normalizeString;
   const runtimeThreadIdentifier = deps.runtimeThreadIdentifier || (() => '');
-  const nowISO = deps.nowISO || (() => new Date().toISOString());
-  const nowMillis = deps.nowMillis || (() => Date.now());
+  const nowISO = deps.nowISO || (() => currentIsoTimestamp());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
   const randomHex = deps.randomHex || (() => Math.random().toString(16).slice(2));
 
   const compactRuntimeResultText = (value) => {
@@ -62,7 +63,7 @@ export function createRuntimeResultHelpers(deps = {}) {
   const safeRuntimeToolResultFieldObject = (preview) => {
     if (!preview) return {};
     try {
-      const parsed = JSON.parse(preview);
+      const parsed = parseRequiredJsonObject(preview);
       if (parsed && typeof parsed === 'object') return parsed;
     } catch {
       // Keep a structured container for the runtime popover without exposing raw text.
@@ -132,7 +133,7 @@ export function createRuntimeResultHelpers(deps = {}) {
   };
 
   const runtimeToolResultEntry = (item, threadId, index = 0) => {
-    const kind = normalizeString(item?.kind || item?.type).toLowerCase();
+    const kind = normalizeString(firstOptionalPresent(item?.kind, item?.type)).toLowerCase();
     if (kind !== 'tool') return null;
     const toolName = normalizeRuntimeToolName(item.tool || item.toolName || item.name) || 'tool';
     const status = normalizeString(item.status).toLowerCase();
@@ -186,7 +187,7 @@ export function createRuntimeResultHelpers(deps = {}) {
   const mergeRuntimeResultEntries = (existingEntries = [], incomingEntries = []) => {
     const nextById = new Map();
     for (const entry of [...incomingEntries, ...existingEntries]) {
-      const key = entry?.signature || entry?.id;
+      const key = firstOptionalPresent(entry?.signature, entry?.id);
       if (!key) continue;
       const existing = nextById.get(key);
       if (existing) {

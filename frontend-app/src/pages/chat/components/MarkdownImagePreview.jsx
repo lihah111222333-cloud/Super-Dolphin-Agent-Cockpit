@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import { firstTrimmedText } from './markdownMessageModel.js';
 
 const DEFAULT_IMAGE_LABEL = '\u56fe\u7247\u9884\u89c8';
 const EXPAND_IMAGE_PREFIX = '\u653e\u5927\u56fe\u7247';
@@ -9,7 +10,7 @@ const IMAGE_LOAD_FAILED_TEXT = '\u56fe\u7247\u65e0\u6cd5\u52a0\u8f7d';
 function MarkdownImagePreview({ src, label }) {
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const displayLabel = (label || '').toString().trim() || DEFAULT_IMAGE_LABEL;
+  const displayLabel = firstTrimmedText(label, DEFAULT_IMAGE_LABEL);
   useEffect(() => {
     if (!expanded) return undefined;
     const onKeyDown = (event) => {

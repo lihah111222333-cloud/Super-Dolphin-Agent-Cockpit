@@ -13,6 +13,26 @@ const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
 const GO_RUN_TOOL_NAMES = Object.freeze(['go_run']);
 const PLAYWRIGHT_TOOL_PREFIXES = Object.freeze(['mcp__playwright__', 'playwright_', 'browser_']);
 
+function activityTextValue(value) {
+  if (value === null || value === undefined) return '';
+  return value.toString();
+}
+
+function activityObjectEntries(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value);
+}
+
+function activityArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function activityToolCalls(stats) {
+  return stats?.toolCalls && typeof stats.toolCalls === 'object' && !Array.isArray(stats.toolCalls)
+    ? stats.toolCalls
+    : null;
+}
+
 function canonicalLspToolName(name) {
   return ({
     lsp_file: 'file',
@@ -27,7 +47,7 @@ function canonicalLspToolName(name) {
 }
 
 function normalizeActivityToolName(name) {
-  const raw = (name || '').toString().trim().toLowerCase();
+  const raw = activityTextValue(name).trim().toLowerCase();
   const mcpParts = raw.startsWith('mcp__') ? raw.split('__') : [];
   const withoutMCPServer = mcpParts.length >= 3 ? mcpParts.slice(2).join('__') : raw;
   const normalized = withoutMCPServer
@@ -43,17 +63,18 @@ function normalizeActivityToolName(name) {
 
 function sumToolCallsByMatcher(toolMap, matcher) {
   let sum = 0;
-  for (const [rawName, value] of Object.entries(toolMap || {})) {
+  for (const [rawName, value] of activityObjectEntries(toolMap)) {
     const name = normalizeActivityToolName(rawName);
-    if (!name || !matcher(name, (rawName || '').toString().trim().toLowerCase())) continue;
-    sum += Number(value) || 0;
+    if (!name || !matcher(name, activityTextValue(rawName).trim().toLowerCase())) continue;
+    const count = Number(value);
+    sum += Number.isFinite(count) ? count : 0;
   }
   return sum;
 }
 
 function sumToolCallsByNames(toolMap, names) {
   const expected = new Set();
-  for (const rawName of names || []) {
+  for (const rawName of activityArray(names)) {
     const name = normalizeActivityToolName(rawName);
     if (name) expected.add(name);
   }
@@ -63,11 +84,13 @@ function sumToolCallsByNames(toolMap, names) {
 
 function filteredActivityToolEntries(stats = {}, matcher) {
   const merged = {};
-  for (const [rawName, value] of Object.entries(stats?.toolCalls || {})) {
-    const raw = (rawName || '').toString().trim().toLowerCase();
+  for (const [rawName, value] of activityObjectEntries(activityToolCalls(stats))) {
+    const raw = activityTextValue(rawName).trim().toLowerCase();
     const name = normalizeActivityToolName(rawName) || rawName;
     if (!matcher(name, raw)) continue;
-    merged[name] = (merged[name] || 0) + (Number(value) || 0);
+    const previous = Number(merged[name]);
+    const current = Number(value);
+    merged[name] = (Number.isFinite(previous) ? previous : 0) + (Number.isFinite(current) ? current : 0);
   }
   const entries = [];
   for (const [name, count] of Object.entries(merged)) {
@@ -81,10 +104,13 @@ function activityToolEntries(stats = {}) {
 }
 
 function activityStatItems(stats = {}) {
-  const toolCalls = stats?.toolCalls || {};
-  const totalTools = Object.values(toolCalls).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const toolCalls = activityToolCalls(stats);
+  const totalTools = Object.values(toolCalls ? toolCalls : Object.create(null)).reduce((sum, value) => {
+    const count = Number(value);
+    return sum + (Number.isFinite(count) ? count : 0);
+  }, 0);
   return [
-    { key: 'lsp', label: 'LSP (8 tools)', className: 'stat-lsp', value: sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES) || Number(stats?.lspCalls) || 0 },
+    { key: 'lsp', label: 'LSP (8 tools)', className: 'stat-lsp', value: sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES) || (Number.isFinite(Number(stats?.lspCalls)) ? Number(stats.lspCalls) : 0) },
     { key: 'jsonRender', label: 'JSON-Render', className: 'stat-json-render', value: sumToolCallsByNames(toolCalls, JSON_RENDER_TOOL_NAMES) },
     {
       key: 'playwright',
@@ -93,8 +119,8 @@ function activityStatItems(stats = {}) {
       value: sumToolCallsByMatcher(toolCalls, (name, rawName) => PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))),
     },
     { key: 'goRun', label: 'go-run', className: 'stat-go-run', value: sumToolCallsByNames(toolCalls, GO_RUN_TOOL_NAMES) },
-    { key: 'command', label: '命令', className: 'stat-cmd', value: Number(stats?.commands) || 0 },
-    { key: 'file', label: '文件', className: 'stat-file', value: Number(stats?.fileEdits) || 0 },
+    { key: 'command', label: '命令', className: 'stat-cmd', value: Number.isFinite(Number(stats?.commands)) ? Number(stats.commands) : 0 },
+    { key: 'file', label: '文件', className: 'stat-file', value: Number.isFinite(Number(stats?.fileEdits)) ? Number(stats.fileEdits) : 0 },
     { key: 'tool', label: '工具', className: 'stat-tool', value: totalTools },
   ];
 }

@@ -1,3 +1,4 @@
+import { optionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 import { safeDiagnosticPreviewValue } from '../../../shared/api/safeDiagnosticPreview.js';
 
 const MAX_WARNING_ENTRIES = 300;
@@ -136,8 +137,8 @@ export function attachWarningRuntime(runtime, deps) {
     const safeFields = safeWarningFields(fields);
     const signature = warningSignature(level, event, threadId, safeFields);
     const entry = {
-      id: `${event}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      timestamp: new Date().toISOString(),
+      id: `${event}-${systemClockMillis()}-${Math.random().toString(16).slice(2)}`,
+      timestamp: currentIsoTimestamp(),
       level,
       event,
       threadId,
@@ -155,11 +156,11 @@ export function attachWarningRuntime(runtime, deps) {
 }
 
 export function warningTraceComponent(event) {
-  return String(event || '').trim().split(/[./]/).filter(Boolean)[0] || '';
+  return optionalTextField(event).trim().split(/[./]/).filter(Boolean)[0] || optionalTextField();
 }
 
 export function warningTraceStatus(level, event) {
-  const method = String(event || '').trim().toLowerCase();
+  const method = optionalTextField(event).trim().toLowerCase();
   if (level === 'error' || method.endsWith('.failed') || method.endsWith('/failed')) return 'error';
   return 'ok';
 }

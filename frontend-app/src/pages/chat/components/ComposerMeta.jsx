@@ -3,12 +3,13 @@ import { ArrowUp, CircleStop, Folder, Plus } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
 import { runUIAction } from './chatUiActions.js';
+import { firstText, trimmedText } from './markdownMessageModel.js';
 
 function composerProjectName(projectPath) {
-  const value = (projectPath || '').toString().trim();
+  const value = trimmedText(projectPath);
   if (!value) return '';
   const normalized = value.replace(/\\/g, '/').replace(/\/+$/g, '');
-  return normalized.split('/').filter(Boolean).pop() || value;
+  return firstText(normalized.split('/').filter(Boolean).pop(), value);
 }
 
 function ComposerMeta({

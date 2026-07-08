@@ -1,5 +1,5 @@
 function normalizeRuntimeProjectPath(path) {
-  const value = (path || '').toString().trim();
+  const value = path === null || path === undefined ? '' : path.toString().trim();
   if (!value) return '';
   if (value !== '/' && !/^[a-zA-Z]:[\\/]?$/.test(value)) {
     return value.replace(/[\\/]+$/, '');
@@ -35,14 +35,15 @@ function runtimeCodeScopeKey(projectPath, projects) {
 }
 
 function codeActionError(error, fallback) {
-  return (error?.message || fallback).toString();
+  const message = error?.message;
+  return (message === null || message === undefined || message === '' ? fallback : message).toString();
 }
 
 function normalizeCodeLocateOptions(result) {
   const options = [];
   const seen = new Set();
   const add = (value) => {
-    const text = (value || '').toString().trim();
+    const text = value === null || value === undefined ? '' : value.toString().trim();
     if (!text || seen.has(text)) return;
     seen.add(text);
     options.push(text);
@@ -54,10 +55,18 @@ function normalizeCodeLocateOptions(result) {
         add(match);
         return;
       }
-      add(match?.path || match?.filePath || match?.relative);
+      add(firstCodeLocateMatchPath(match));
     });
   }
   return options;
+}
+
+function firstCodeLocateMatchPath(match) {
+  for (const value of [match?.path, match?.filePath, match?.relative]) {
+    const text = value === null || value === undefined ? '' : value.toString().trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 function emptyPathChoiceState() {

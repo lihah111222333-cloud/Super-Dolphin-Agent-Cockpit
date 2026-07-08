@@ -77,6 +77,7 @@ beforeEach(() => {
       name: 'backend',
       display_name: '后端',
       dir: '/repo/app/.agent/skills/backend',
+      skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
       description: '当你需要 Go 后端开发时使用。',
       trigger_words: ['go', 'service'],
       scope: 'project',
@@ -413,6 +414,27 @@ describe('SkillsPage backend migration', () => {
     expect(within(getOverviewMetric(overview, '项目共享')).getByText('1')).toBeInTheDocument();
     expect(within(getOverviewMetric(overview, '私人使用')).getByText('0')).toBeInTheDocument();
     expect(within(getOverviewMetric(overview, '待处理冲突')).getByText('0')).toBeInTheDocument();
+  });
+
+  it('fails fast when the skills dashboard omits required skill_file', async () => {
+    backend.getDashboardPage.mockResolvedValueOnce({
+      skills: [{
+        name: 'backend',
+        display_name: '后端',
+        dir: '/repo/app/.agent/skills/backend',
+        description: '当你需要 Go 后端开发时使用。',
+        trigger_words: ['go'],
+        scope: 'project',
+      }],
+    });
+
+    renderSkillsPage();
+    openSkillTools();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'skills dashboard response item 0 is missing skill_file',
+    );
+    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
   });
 
   it('does not report zero conflicts when conflict sync has not succeeded', async () => {

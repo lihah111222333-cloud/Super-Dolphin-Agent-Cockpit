@@ -4,7 +4,7 @@ import { Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLef
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './shared/api/backendApi.js';
-import { dashboardQueryKey, errorMessage, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
+import { currentTimestampMillis, dashboardQueryKey, errorMessage, firstPresentText, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, optionalTimestampMillis, requireArrayValue, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
@@ -70,12 +70,12 @@ function hasExplicitAppPageRoute() {
 }
 
 function useColorTheme() {
-  const [theme, setTheme] = useState(() => normalizeColorTheme(window.localStorage.getItem(THEME_STORAGE_KEY)));
+  const [theme, setTheme] = useState(() => normalizeColorTheme(requiredAppStoragePort('theme storage').get(THEME_STORAGE_KEY)));
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => {
       const next = current === COLOR_THEMES.dark ? COLOR_THEMES.light : COLOR_THEMES.dark;
-      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      requiredAppStoragePort('theme storage').set(THEME_STORAGE_KEY, next);
       return next;
     });
   }, []);
@@ -89,7 +89,7 @@ function useAppLanguage() {
   const toggleLocale = useCallback(() => {
     setLocale((current) => {
       const next = current === 'zh' ? 'en' : 'zh';
-      window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, next);
+      requiredAppStoragePort('language storage').set(APP_LANGUAGE_STORAGE_KEY, next);
       return next;
     });
   }, []);
@@ -108,6 +108,22 @@ function createDashboardQueryClient() {
       },
     },
   });
+}
+
+function requiredAppStoragePort(label = 'app storage') {
+  if (typeof globalThis === 'undefined') throw new Error(`${label} global object is unavailable`);
+  const storage = globalThis.window?.['localStorage'];
+  if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
+    throw new Error(`${label} is unavailable`);
+  }
+  return {
+    get(key) {
+      return storage.getItem(key);
+    },
+    set(key, value) {
+      storage.setItem(key, value);
+    },
+  };
 }
 
 function memorySimilarGroupCount(response) {
@@ -335,7 +351,7 @@ function useAppBootstrap(bootstrap, skipBootstrap) {
 }
 
 function updateVersionFromResult(result) {
-  return (result?.version || result?.artifact?.version || '').toString().trim();
+  return firstPresentText(result?.version, result?.artifact?.version);
 }
 
 function updateDismissedKey(version) {
@@ -354,7 +370,7 @@ function useAppUpdateBanner(skipBootstrap) {
         .then((result) => {
           if (cancelled || !result?.enabled || !result?.available) return;
           const version = updateVersionFromResult(result);
-          if (version && window.localStorage.getItem(updateDismissedKey(version)) === '1') return;
+          if (version && requiredAppStoragePort('update banner storage').get(updateDismissedKey(version)) === '1') return;
           setState({ status: 'available', update: { ...result, version }, message: '' });
         })
         .catch((error) => {
@@ -375,7 +391,7 @@ function useAppUpdateBanner(skipBootstrap) {
   const dismiss = useCallback(() => {
     setState((current) => {
       const version = updateVersionFromResult(current.update);
-      if (version) window.localStorage.setItem(updateDismissedKey(version), '1');
+      if (version) requiredAppStoragePort('update banner storage').set(updateDismissedKey(version), '1');
       return { status: 'dismissed', update: null, message: '' };
     });
   }, []);
@@ -634,7 +650,7 @@ function sidebarActiveProjectPath(activeProject, projectPath) {
 }
 
 function projectThreadSourceId(thread) {
-  return textValue(thread?.id || thread?.threadId || thread?.thread_id || thread?.agentId || thread?.agent_id);
+  return firstPresentText(thread?.id, thread?.threadId, thread?.thread_id, thread?.agentId, thread?.agent_id);
 }
 
 function mergeProjectThreadSources(...sources) {
@@ -680,12 +696,16 @@ function threadFieldValue(thread = {}, keys = []) {
 }
 
 function projectThreadArchiveMap(snapshot = {}) {
-  return snapshot?.['threadArchives.chat'] ||
-    snapshot?.threadArchivesChat ||
-    snapshot?.archivedThreadAtById ||
-    snapshot?.threadArchives?.chat ||
-    snapshot?.thread_archives?.chat ||
-    {};
+  for (const candidate of [
+    snapshot?.['threadArchives.chat'],
+    snapshot?.threadArchivesChat,
+    snapshot?.archivedThreadAtById,
+    snapshot?.threadArchives?.chat,
+    snapshot?.thread_archives?.chat,
+  ]) {
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+  }
+  return {};
 }
 
 function archiveTimestamp(value) {
@@ -708,12 +728,14 @@ function projectThreadStatusArchived(thread = {}) {
 }
 
 function isProjectThreadArchived(thread = {}) {
-  return Boolean(thread?.archived || thread?.isArchived || thread?.archivedAt || projectThreadStatusArchived(thread));
+  return Boolean(thread?.archived) || Boolean(thread?.isArchived) || Boolean(thread?.archivedAt) || projectThreadStatusArchived(thread);
 }
 
 function projectThreadRuntimeMap(snapshot = {}) {
-  const runtime = snapshot?.agentRuntimeById || snapshot?.agent_runtime_by_id || {};
-  return runtime && typeof runtime === 'object' && !Array.isArray(runtime) ? runtime : {};
+  for (const runtime of [snapshot?.agentRuntimeById, snapshot?.agent_runtime_by_id]) {
+    if (runtime && typeof runtime === 'object' && !Array.isArray(runtime)) return runtime;
+  }
+  return {};
 }
 
 function projectThreadRuntimeCwd(thread = {}, runtimeById = {}) {
@@ -721,7 +743,7 @@ function projectThreadRuntimeCwd(thread = {}, runtimeById = {}) {
     const id = textValue(thread[key]);
     const runtime = id ? runtimeById[id] : null;
     if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) continue;
-    const cwd = textValue(runtime.cwd || runtime.CWD || runtime.workdir || runtime.workDir || runtime.work_dir);
+    const cwd = firstPresentText(runtime.cwd, runtime.CWD, runtime.workdir, runtime.workDir, runtime.work_dir);
     if (cwd) return cwd;
   }
   return '';
@@ -779,18 +801,19 @@ function isAutomationThread(thread = {}) {
   ].map((value) => value.toLowerCase()).filter(Boolean);
   if (metadata.some((value) => AUTOMATION_THREAD_MARKERS.some((marker) => value.includes(marker)))) return true;
 
-  const label = textValue(thread.name || thread.title);
+  const label = firstPresentText(thread.name, thread.title);
   return label === 'AI 设计流程' ||
     /^\[AI\s*流程设计师\]/.test(label) ||
     /^\[AI\s*Workflow Designer\]/i.test(label);
 }
 
 function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '', options = {}) {
+  const sourceThreads = requireArrayValue(threads, 'project thread list');
   const targetProjectKey = projectTreeKey(projectPath);
   const activeProjectKey = projectTreeKey(activeProjectPath);
   const allowMissingCwdFallback = options.allowMissingCwdFallback !== false;
   if (!targetProjectKey) return [];
-  return (threads || []).filter((thread) => {
+  return sourceThreads.filter((thread) => {
     if (!thread || isProjectThreadArchived(thread)) return false;
     if (isAutomationThread(thread)) return false;
     const threadProjectKey = projectTreeKey(threadProjectPath(thread));
@@ -801,19 +824,20 @@ function projectThreadItems(threads = [], projectPath = '', activeProjectPath = 
 }
 
 function taskThreadItems(threads = []) {
-  return (threads || []).filter((thread) => thread && !thread.archived && !thread.archivedAt && isAutomationThread(thread));
+  const sourceThreads = requireArrayValue(threads, 'task thread list');
+  return sourceThreads.filter((thread) => thread && !thread.archived && !thread.archivedAt && isAutomationThread(thread));
 }
 
 function projectThreadLabel(thread = {}) {
   const id = textValue(thread.id);
-  const label = textValue(thread.name || thread.title);
+  const label = firstPresentText(thread.name, thread.title);
   if (!label || (id && label === id)) return '新对话';
   return label;
 }
 
 function SidebarNavList({ copy, items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
   return (
-    <nav className={`app-sidebar-nav ${className || ''}`} data-testid={testId}>
+    <nav className={`app-sidebar-nav ${textValue(className)}`} data-testid={testId}>
       {items.map((item) => {
         const Icon = item.icon;
         const label = copy.nav[item.labelKey];
@@ -840,10 +864,9 @@ function SidebarNavList({ copy, items, activePage, setActivePage, memoryBadgeCou
 
 function formatRelativeTime(dateString, copy = APP_COPY.zh.workbench.relativeTime) {
   if (!dateString) return '';
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return '';
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  const dateTime = optionalTimestampMillis(dateString, 'relative time timestamp');
+  if (!dateTime) return '';
+  const diffMs = currentTimestampMillis('relative time clock') - dateTime;
   if (diffMs < 0) return copy.now;
 
   const diffSecs = Math.floor(diffMs / 1000);
@@ -1123,7 +1146,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
     const key = projectTreeKey(path);
     if (!key) return;
     const current = projectThreadCacheRef.current[key];
-    if (!options.force && current && !current.error && Date.now() - current.loadedAt < PROJECT_THREAD_CACHE_TTL_MS) return;
+    if (!options.force && current && !current.error && currentTimestampMillis('project thread cache clock') - current.loadedAt < PROJECT_THREAD_CACHE_TTL_MS) return;
     updateProjectThreadCache(path, (previous) => ({
       threads: Array.isArray(previous.threads) ? previous.threads : [],
       loading: true,
@@ -1133,7 +1156,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       .then((snapshot) => {
         updateProjectThreadCache(path, {
           threads: sidebarSnapshotThreads(snapshot),
-          loadedAt: Date.now(),
+          loadedAt: currentTimestampMillis('project thread cache loadedAt'),
           loading: false,
           error: '',
         });
@@ -1153,7 +1176,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
     const loadingKey = projectTreeKey(store?.chatSurfaceLoadingCwd);
     if (loadingKey && loadingKey === activeKey) return;
     // 只在全局 bootstrap 完成后同步可信来源，避免刷新初期把临时 activeProject 的空列表写成新鲜缓存。
-    const sidebarThreadCache = store?.sidebarThreadsByProject || {};
+    const sidebarThreadCache = store?.sidebarThreadsByProject && typeof store.sidebarThreadsByProject === 'object' ? store.sidebarThreadsByProject : {};
     const hasSidebarThreads = Object.prototype.hasOwnProperty.call(sidebarThreadCache, activeKey);
     const sidebarThreads = hasSidebarThreads ? sidebarThreadCache[activeKey] : null;
     const hasStoreThreads = Array.isArray(store?.threads) && store.threads.length > 0;
@@ -1161,7 +1184,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
     const sourceThreads = hasSidebarThreads ? sidebarThreads : store?.threads;
     updateProjectThreadCache(activeProjectPath, {
       threads: Array.isArray(sourceThreads) ? sourceThreads : [],
-      loadedAt: Date.now(),
+      loadedAt: currentTimestampMillis('project thread cache loadedAt'),
       loading: false,
       error: '',
     });

@@ -20,6 +20,10 @@ function diffLineEntry({ index, type, oldNo = '', newNo = '', prefix = '', conte
   return { key: `${index}:${type}`, type, oldNo, newNo, prefix, content };
 }
 
+function lineNumberValue(value) {
+  return value === null || value === undefined ? '' : value;
+}
+
 function parseHunkLineEntry(state, line, index) {
   const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
   state.oldLine = match ? Number(match[1]) : null;
@@ -29,12 +33,12 @@ function parseHunkLineEntry(state, line, index) {
 
 function parseChangedDiffLineEntry(state, line, index) {
   if (line.startsWith('+') && !line.startsWith('+++')) {
-    const entry = diffLineEntry({ index, type: 'add', newNo: state.newLine ?? '', prefix: '+', content: line.slice(1) });
+    const entry = diffLineEntry({ index, type: 'add', newNo: lineNumberValue(state.newLine), prefix: '+', content: line.slice(1) });
     if (state.newLine !== null) state.newLine += 1;
     return entry;
   }
   if (line.startsWith('-') && !line.startsWith('---')) {
-    const entry = diffLineEntry({ index, type: 'del', oldNo: state.oldLine ?? '', prefix: '-', content: line.slice(1) });
+    const entry = diffLineEntry({ index, type: 'del', oldNo: lineNumberValue(state.oldLine), prefix: '-', content: line.slice(1) });
     if (state.oldLine !== null) state.oldLine += 1;
     return entry;
   }
@@ -45,8 +49,8 @@ function parseContextDiffLineEntry(state, line, index) {
   const entry = diffLineEntry({
     index,
     type: 'context',
-    oldNo: state.oldLine ?? '',
-    newNo: state.newLine ?? '',
+    oldNo: lineNumberValue(state.oldLine),
+    newNo: lineNumberValue(state.newLine),
     content: line.slice(1),
   });
   if (state.oldLine !== null) state.oldLine += 1;
@@ -65,7 +69,8 @@ function parseUnifiedDiffLineEntry(state, line, index) {
 
 function parseUnifiedDiffLineEntries(fileText) {
   const state = { oldLine: null, newLine: null };
-  return String(fileText || '').split('\n').flatMap((line, index) => parseUnifiedDiffLineEntry(state, line, index));
+  const text = fileText === null || fileText === undefined ? '' : String(fileText);
+  return text.split('\n').flatMap((line, index) => parseUnifiedDiffLineEntry(state, line, index));
 }
 
 export { parseUnifiedDiffLineEntries };

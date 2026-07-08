@@ -29,6 +29,7 @@ import { PathChoiceDialog } from './components/PathChoiceDialog.jsx';
 import { RuntimePanelSlot } from './components/RuntimePanelSlot.jsx';
 import { TimelineLoadingPlaceholder, TimelineMessage } from './components/TimelineMessage.jsx';
 import { ThreadRail } from './components/ThreadRail.jsx';
+import { firstText, firstTrimmedText, textValue, timeLabelFromTimestamp, trimmedText } from './components/markdownMessageModel.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from './components/chatUiActions.js';
 import {
@@ -92,7 +93,7 @@ function useCodePreviewController({ projectPath, projects }) {
   const openCodePreviewForPath = useCallback(async (filePath, fallbackRelative = '', position = null) => {
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
-    const displayPath = (fallbackRelative || filePath || '').toString();
+    const displayPath = firstText(fallbackRelative, filePath);
     setCodePreview({
       ...emptyCodePreviewState(),
       open: true,
@@ -119,7 +120,7 @@ function useCodePreviewController({ projectPath, projects }) {
   }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
   const openFileRef = useCallback(async (payload = {}) => {
-    const filePath = (payload.path || payload.filePath || '').toString().trim();
+    const filePath = firstTrimmedText(payload.path, payload.filePath);
     if (!filePath) return;
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
@@ -153,7 +154,7 @@ function useCodePreviewController({ projectPath, projects }) {
   }, [isCurrentPreviewRequest, nextPreviewRequestSeq, openCodePreviewForPath, previewScopeKey, projectPath, projects]);
 
   const openLocalPath = useCallback(async (payload = {}) => {
-    const filePath = (payload.path || payload.filePath || '').toString().trim();
+    const filePath = firstTrimmedText(payload.path, payload.filePath);
     if (!filePath) return;
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
@@ -175,8 +176,8 @@ function useCodePreviewController({ projectPath, projects }) {
   }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
   const openChosenPath = useCallback(async (filePath) => {
-    const fallback = pathChoice.file?.filename || filePath;
-    const position = pathChoice.file?.position || null;
+    const fallback = firstText(pathChoice.file?.filename, filePath);
+    const position = pathChoice.file?.position ?? null;
     setPathChoice(emptyPathChoiceState());
     await openCodePreviewForPath(filePath, fallback, position);
   }, [openCodePreviewForPath, pathChoice.file]);
@@ -269,28 +270,28 @@ function hasOpenLocalEscapeSurface() {
 }
 
 function timelineItemTextValue(item = {}) {
-  return (item.text || item.content || item.message || item.output || item.result || item.error || '').toString().trim();
+  return firstTrimmedText(item.text, item.content, item.message, item.output, item.result, item.error);
 }
 
 function hasAssistantReplyAfterLastUser(messages = []) {
   let lastUserIndex = -1;
   for (let index = 0; index < messages.length; index += 1) {
-    if ((messages[index]?.role || '').toString().trim().toLowerCase() === 'user') {
+    if (trimmedText(messages[index]?.role).toLowerCase() === 'user') {
       lastUserIndex = index;
     }
   }
   return messages.some((message, index) => (
     index > lastUserIndex &&
-    (message?.role || '').toString().trim().toLowerCase() === 'assistant' &&
+    trimmedText(message?.role).toLowerCase() === 'assistant' &&
     !isReasoningMessage(message) &&
-    Boolean((message?.text || '').toString().trim())
+    Boolean(trimmedText(message?.text))
   ));
 }
 
 function hasReasoningMessageAfterLastUser(messages = []) {
   let lastUserIndex = -1;
   for (let index = 0; index < messages.length; index += 1) {
-    if ((messages[index]?.role || '').toString().trim().toLowerCase() === 'user') {
+    if (trimmedText(messages[index]?.role).toLowerCase() === 'user') {
       lastUserIndex = index;
     }
   }
@@ -304,9 +305,9 @@ function timelineMessageAutoScrollKey(message) {
   if (!message) return '';
   const done = Object.prototype.hasOwnProperty.call(message, 'done') ? String(message.done) : '';
   return [
-    message.id || '',
-    message.role || message.kind || '',
-    message.status || '',
+    textValue(message.id),
+    firstText(message.role, message.kind),
+    textValue(message.status),
     done,
     timelineItemTextValue(message),
   ].map((value) => value.toString()).join('\u0001');
@@ -314,16 +315,16 @@ function timelineMessageAutoScrollKey(message) {
 
 function shouldAutoScrollForTimelineMessage(message) {
   if (!message) return false;
-  const role = (message.role || '').toString().trim().toLowerCase();
+  const role = trimmedText(message.role).toLowerCase();
   return role === 'assistant' || isReasoningMessage(message) || isApprovalMessage(message);
 }
 
 function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingReasoning, timelineContentBlocked }) {
   if (introMode || timelineContentBlocked) return '';
-  const lastMessage = messages[messages.length - 1] || null;
+  const lastMessage = messages[messages.length - 1] ?? null;
   if (!shouldAutoScrollForTimelineMessage(lastMessage) && !shouldAutoScrollForTimelineMessage(pendingReasoning)) return '';
   return [
-    activeThreadId || '',
+    textValue(activeThreadId),
     shouldAutoScrollForTimelineMessage(lastMessage) ? timelineMessageAutoScrollKey(lastMessage) : '',
     timelineMessageAutoScrollKey(pendingReasoning),
   ].join('\u0002');
@@ -351,22 +352,22 @@ function composerConfigThreadId(store, activeThreadId) {
 }
 
 function composerTextFromCitation(payload = {}) {
-  const kind = (payload.kind || '').toString().trim();
-  const raw = (payload.raw || '').toString().trim();
-  if (kind === 'task') return (payload.prompt || payload.title || raw || '').toString().trim();
+  const kind = trimmedText(payload.kind);
+  const raw = trimmedText(payload.raw);
+  if (kind === 'task') return firstTrimmedText(payload.prompt, payload.title, raw);
   if (kind === 'automation-update') {
-    const title = (payload.title || '').toString().trim();
-    const prompt = (payload.prompt || '').toString().trim();
-    const message = (payload.message || raw || '').toString().trim();
+    const title = trimmedText(payload.title);
+    const prompt = trimmedText(payload.prompt);
+    const message = firstTrimmedText(payload.message, raw);
     if (title && prompt) return `Automation update (${title}):\n${prompt}`;
     if (prompt) return `Automation update:\n${prompt}`;
     if (message) return `Automation update:\n${message}`;
     return title ? `Automation update (${title})` : '';
   }
   if (kind === 'code-comment') {
-    const title = (payload.title || '').toString().trim();
-    const message = (payload.message || raw || '').toString().trim();
-    const path = (payload.path || '').toString().trim();
+    const title = trimmedText(payload.title);
+    const message = firstTrimmedText(payload.message, raw);
+    const path = trimmedText(payload.path);
     const header = title || path ? `Code comment${path ? ` (${path})` : ''}${title ? `: ${title}` : ''}` : 'Code comment';
     return message ? `${header}\n${message}` : (header === 'Code comment' ? '' : header);
   }
@@ -376,33 +377,34 @@ function composerTextFromCitation(payload = {}) {
 function appendComposerCitation(store, payload) {
   const nextText = composerTextFromCitation(payload);
   if (!nextText || typeof store?.setDraft !== 'function') return false;
-  const current = (store.draft || '').toString().trim();
+  const current = trimmedText(store.draft);
   store.setDraft(current ? `${current}\n\n${nextText}` : nextText);
   return true;
 }
 
 function handleTimelineCitationAction(payload, { store, openFileRef }) {
-  const kind = (payload?.kind || '').toString().trim();
+  const kind = trimmedText(payload?.kind);
   if (!kind) return;
   if (kind === 'conversation') {
-    const nextThreadId = (payload?.conversationId || '').toString().trim();
+    const nextThreadId = trimmedText(payload?.conversationId);
     if (nextThreadId) store?.selectThread?.(nextThreadId);
     return;
   }
   if (kind === 'skill') {
-    const path = (payload?.path || '').toString().trim();
-    if (path) void openFileRef({ path, line: 1, column: 0, raw: payload.raw || path });
+    const path = trimmedText(payload?.path);
+    if (path) void openFileRef({ path, line: 1, column: 0, raw: firstText(payload.raw, path) });
     return;
   }
   if (kind === 'image') {
-    const path = (payload?.path || '').toString().trim();
-    if (path) void openFileRef({ path, line: 1, column: 0, raw: payload.raw || path });
+    const path = trimmedText(payload?.path);
+    if (path) void openFileRef({ path, line: 1, column: 0, raw: firstText(payload.raw, path) });
     return;
   }
   if (kind === 'code-comment') {
     appendComposerCitation(store, payload);
-    const path = (payload?.path || '').toString().trim();
-    if (path) void openFileRef({ path, line: Number(payload.lineStart) || 1, column: 0, raw: payload.raw || path });
+    const path = trimmedText(payload?.path);
+    const line = Number(payload.lineStart);
+    if (path) void openFileRef({ path, line: Number.isFinite(line) && line > 0 ? line : 1, column: 0, raw: firstText(payload.raw, path) });
     return;
   }
   appendComposerCitation(store, payload);
@@ -663,7 +665,7 @@ function Conversation(props) {
   const isBusy = threadStatus.busy;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
-  const lastUserMessage = [...messages].reverse().find((msg) => (msg.role || '').toLowerCase() === 'user');
+  const lastUserMessage = [...messages].reverse().find((msg) => trimmedText(msg.role).toLowerCase() === 'user');
   const fallbackStartTime = lastUserMessage?.time;
   const pendingReasoning = !introMode && !timelineBlocked && !hasProcessingAfterLastUser && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending: sending || justSent, isBusy, fallbackStartTime })
@@ -1030,12 +1032,7 @@ function IntroChatStage({ copy = APP_COPY.zh.chat, composer, projectPath: _proje
 
 function formatTime(value) {
   if (!value) return '--:--';
-  const text = value.toString().trim();
-  // 截断高精度时间戳中的多余小数秒，以兼容 JS new Date() 的 3 位毫秒限制
-  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
-  const date = new Date(sanitized);
-  if (!Number.isFinite(date.getTime())) return '--:--';
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return firstText(timeLabelFromTimestamp(value), '--:--');
 }
 
 export { ChatPage };

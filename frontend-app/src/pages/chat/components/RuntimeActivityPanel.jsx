@@ -3,7 +3,11 @@ import { activityStatDetailEntries, activityStatItems } from '../adapters/runtim
 import { runtimeLogEntries } from '../adapters/runtimeLogAdapter.js';
 import { RuntimeLogLines, RuntimeWarningPopover } from './RuntimeActivityLog.jsx';
 import { RuntimeStatList, RuntimeStatTooltip } from './RuntimeActivityStats.jsx';
+import { requiredMarkdownArray, requiredMarkdownObject } from './markdownMessageModel.js';
 import { elementViewportRect } from './runtimeActivityGeometry.js';
+
+const NO_ACTIVE_STAT_DETAILS = Object.freeze([]);
+const NO_ACTIVITY_STATS = Object.freeze({});
 
 function RuntimeActivityPanel({
   activityStats,
@@ -25,7 +29,7 @@ function RuntimeActivityPanel({
   const [activeWarning, setActiveWarning] = useState(null);
   const panelRef = useRef(null);
   const runtimePopupOpenRef = useRef(false);
-  const stats = useMemo(() => activityStats || {}, [activityStats]);
+  const stats = useMemo(() => (activityStats ? requiredMarkdownObject(activityStats, 'activityStats') : NO_ACTIVITY_STATS), [activityStats]);
   const statItems = useMemo(() => activityStatItems(stats), [stats]);
   const detailEntriesByStat = useMemo(() => Object.fromEntries(
     statItems.map((item) => [item.key, activityStatDetailEntries(stats, item.key)]),
@@ -41,7 +45,9 @@ function RuntimeActivityPanel({
     () => statItems.find((item) => item.key === activeStat?.key) || null,
     [activeStat, statItems],
   );
-  const activeStatDetailEntries = activeStat ? detailEntriesByStat[activeStat.key] || [] : [];
+  const activeStatDetailEntries = activeStat
+    ? requiredMarkdownArray(detailEntriesByStat[activeStat.key], 'activeStat.detailEntries')
+    : NO_ACTIVE_STAT_DETAILS;
   const hideStatTooltip = useCallback(() => setActiveStat(null), []);
   const hideWarningPopover = useCallback(() => setActiveWarning(null), []);
   const toggleStatTooltip = (key, element) => {

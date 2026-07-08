@@ -3,8 +3,7 @@ import {
   messagePageParams,
   normalizeThreadMessagesPageMeta,
   threadMessagesPaginationPatch,
-  THREAD_MESSAGES_PAGE_SIZE,
-} from './threadMessagesPagination.js';
+  THREAD_MESSAGES_PAGE_SIZE } from './threadMessagesPagination.js';
 
 describe('threadMessagesPagination', () => {
   it('builds thread message page request params with the fixed page size', () => {
@@ -57,12 +56,12 @@ describe('threadMessagesPagination', () => {
 
   it('treats a full page as having more history and falls back to oldest timestamp cursor', () => {
     const page = Array.from({ length: THREAD_MESSAGES_PAGE_SIZE }, (_, index) => ({
-      created_at: `2026-06-15T01:${String(index).padStart(2, '0')}:00Z`,
+      created_at: `2026-06-15T${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}:00Z`,
     }));
 
     expect(normalizeThreadMessagesPageMeta({}, page)).toEqual({
       hasMore: true,
-      nextBefore: '2026-06-15T01:00:00Z',
+      nextBefore: '2026-06-15T00:00:00Z',
     });
   });
 

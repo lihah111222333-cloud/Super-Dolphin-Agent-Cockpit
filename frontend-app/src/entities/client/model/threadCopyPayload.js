@@ -1,5 +1,12 @@
+import {
+  currentIsoTimestamp,
+  normalizeOptionalTextField,
+  optionalTextField,
+  parseRequiredTimestamp,
+  utcPartsFromEpochMillis,
+} from './contractStoreModel.js';
 function normalizeCopyPath(value) {
-  const path = (value || '').toString().trim();
+  const path = normalizeOptionalTextField(value);
   if (!path) return '';
   if (path !== '/' && !/^[a-zA-Z]:[\\/]?$/.test(path)) {
     return path.replace(/[\\/]+$/, '');
@@ -35,21 +42,30 @@ function normalizeLogScopeCwd(value) {
 function buildCwdLogPath(cwd) {
   const normalized = normalizeLogScopeCwd(cwd);
   if (!normalized || /^[A-Za-z]:$/.test(normalized) || /^[\\/]+$/.test(normalized)) return null;
-  const projectName = normalized.split(/[\\/]/).filter(Boolean).pop() || '';
+  const projectName = normalized.split(/[\\/]/).filter(Boolean).pop() || optionalTextField();
   if (!projectName || projectName === '.' || projectName === '/') return null;
   return `~/.multi-agent/log/${projectName}/`;
 }
 
-function formatUTC8HumanReadable(value = new Date()) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const utc8 = new Date(date.getTime() + (8 * 60 * 60 * 1000));
-  const year = utc8.getUTCFullYear();
-  const month = String(utc8.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(utc8.getUTCDate()).padStart(2, '0');
-  const hours = String(utc8.getUTCHours()).padStart(2, '0');
-  const minutes = String(utc8.getUTCMinutes()).padStart(2, '0');
-  const seconds = String(utc8.getUTCSeconds()).padStart(2, '0');
+function copiedAtEpochMillis(value) {
+  if (value && typeof value.getTime === 'function') return value.getTime();
+  return parseRequiredTimestamp(value, 'thread copy copiedAt');
+}
+
+function formatUTC8HumanReadable(value = currentIsoTimestamp('thread copy copiedAt')) {
+  let epochMillis;
+  try {
+    epochMillis = copiedAtEpochMillis(value);
+  } catch {
+    return optionalTextField();
+  }
+  const utc8 = utcPartsFromEpochMillis(epochMillis + (8 * 60 * 60 * 1000), 'thread copy copiedAt utc8');
+  const year = utc8.year;
+  const month = String(utc8.month).padStart(2, '0');
+  const day = String(utc8.day).padStart(2, '0');
+  const hours = String(utc8.hour).padStart(2, '0');
+  const minutes = String(utc8.minute).padStart(2, '0');
+  const seconds = String(utc8.second).padStart(2, '0');
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC+8`;
 }
 
@@ -60,7 +76,7 @@ function buildThreadCopyPayload({
   identity = {},
   threadConfig = null,
   defaultProvider = 'codex',
-  copiedAt = new Date(),
+  copiedAt = currentIsoTimestamp('thread copy copiedAt'),
 }) {
   const providerThreadId = firstThreadCopyText(
     identity.providerThreadId,

@@ -54,7 +54,8 @@ export const modelProviderRegistrySchema = z.object({
 }).passthrough();
 
 function issuePath(issue) {
-  return issue?.path?.map((part) => part.toString()).join('.') || '';
+  const path = Array.isArray(issue?.path) ? issue.path : [];
+  return path.map((part) => part.toString()).join('.');
 }
 
 function formatIssue(label, issue) {
@@ -74,7 +75,7 @@ function formatIssue(label, issue) {
     return 'model provider registry response must be an object';
   }
   if (!path && label.endsWith('response')) return `${label} must be an object`;
-  return `${label} ${issue?.message || 'response is invalid'}`;
+  return `${label} ${issue?.message ?? 'response is invalid'}`;
 }
 
 function parseSchema(label, schema, response) {

@@ -6,8 +6,7 @@ import {
   forkSourceTitle,
   initialForkSharedFilePaths,
   mergeForkSharedFilesWithSelected,
-  normalizeForkSharedFiles,
-} from './threadForkState.js';
+  normalizeForkSharedFiles } from './threadForkState.js';
 
 describe('threadForkState', () => {
   it('formats source titles from names, ids, and fallback text', () => {

@@ -1,11 +1,12 @@
+import { optionalTextField, normalizeOptionalTextField, parseRequiredTimestamp } from './contractStoreModel.js';
 import { describe, expect, it } from 'vitest';
 import { createRuntimeResultHelpers } from './runtimeResults.js';
 
 const helpers = createRuntimeResultHelpers({
-  normalizeString: (value) => (value || '').toString().trim(),
-  normalizeTimestamp: (value) => Date.parse(value) || 0,
-  normalizeThreadId: (value) => (value || '').toString().trim(),
-  runtimeThreadIdentifier: (fields) => fields.threadId || fields.thread_id || '',
+  normalizeString: (value) => normalizeOptionalTextField(value),
+  normalizeTimestamp: (value) => parseRequiredTimestamp(value) || 0,
+  normalizeThreadId: (value) => normalizeOptionalTextField(value),
+  runtimeThreadIdentifier: (fields) => fields.threadId || fields.thread_id || optionalTextField(),
   nowISO: () => '2026-06-15T10:00:00.000Z',
   nowMillis: () => 1781517600000,
   randomHex: () => 'abc123',

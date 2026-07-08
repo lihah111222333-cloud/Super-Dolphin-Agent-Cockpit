@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { optionalTextField } from './contractStoreModel.js';
 import { bridgePatchData, bridgePatchState } from './bridgePatchState.js';
 
 const normalizeThread = (raw) => ({
   id: raw.threadId,
-  agentId: raw.agentId || '',
-  providerThreadId: raw.providerThreadId || '',
+  agentId: raw.agentId || optionalTextField(),
+  providerThreadId: raw.providerThreadId || optionalTextField(),
   name: raw.name || '新对话',
-  provider: raw.provider || '',
-  status: raw.status || '',
+  provider: raw.provider || optionalTextField(),
+  status: raw.status || optionalTextField(),
 });
 
 const threadMatchesIdentifier = (thread, id) => thread.id === id || thread.agentId === id || thread.providerThreadId === id;

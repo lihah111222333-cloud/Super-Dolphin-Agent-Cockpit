@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finalOutputKind, finalOutputPath, workflowConfigDiagnostics } from './workflowDisplayAdapter.js';
+import { finalOutputKind, finalOutputPath, workflowConfigDiagnostics, workflowSharedFileRows } from './workflowDisplayAdapter.js';
 
 describe('workflowDisplayAdapter', () => {
   it('reads artifact final output paths', () => {
@@ -22,5 +22,28 @@ describe('workflowDisplayAdapter', () => {
         message: expect.stringContaining('config'),
       }),
     ]);
+  });
+
+  it('reports non-object JSON configs instead of normalizing them to empty objects', () => {
+    expect(workflowConfigDiagnostics([
+      { nodeKey: 'array-config', title: 'Array Config', config: '[]' },
+      { nodeKey: 'text-config', title: 'Text Config', config: '"hello"' },
+    ])).toEqual([
+      expect.objectContaining({ nodeKey: 'array-config', message: expect.stringContaining('config JSON object parse failed') }),
+      expect.objectContaining({ nodeKey: 'text-config', message: expect.stringContaining('config JSON object parse failed') }),
+    ]);
+  });
+
+  it('fails fast for malformed nested shared-file config shapes', () => {
+    expect(() => workflowSharedFileRows([
+      {
+        nodeKey: 'bad-nested',
+        title: 'Bad Nested',
+        config: {
+          inputs: '[]',
+          outputs: '{"to_sharedfile":[]}',
+        },
+      },
+    ])).toThrow(/config JSON object parse failed/);
   });
 });

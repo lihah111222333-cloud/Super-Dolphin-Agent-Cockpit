@@ -4,8 +4,7 @@ import {
   applyThreadMessageItemsPatch,
   createThreadMessagePageFetcher,
   markThreadMessagesReadyPatch,
-  threadHistoryInitialPageTracePayload,
-} from './threadMessagesRuntime.js';
+  threadHistoryInitialPageTracePayload } from './threadMessagesRuntime.js';
 
 describe('threadMessagesRuntime', () => {
   it('marks a thread timeline ready while preserving active visible items', () => {

@@ -6,7 +6,17 @@ import { MarkdownImagePreview } from './MarkdownImagePreview.jsx';
 import { MermaidDiagram } from './MermaidDiagram.jsx';
 import { CODEX_DIRECTIVE_RE, citationMarkdownLinkChipModel, directiveChipModel } from './markdownDirectiveModel.js';
 import { isMermaidLanguage, isMermaidSource } from './markdownMermaidModel.js';
-import { basenameFromPath, imagePreviewSource, normalizeMessageText } from './markdownMessageModel.js';
+import {
+  basenameFromPath,
+  firstText,
+  firstTrimmedText,
+  imagePreviewSource,
+  normalizeMessageText,
+  parseMarkdownJsonSnippet,
+  requiredMarkdownObject,
+  textValue,
+  trimmedText,
+} from './markdownMessageModel.js';
 
 const EMPTY_MARKDOWN_ACTIONS = Object.freeze({});
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
@@ -70,7 +80,7 @@ function CodePreviewMarkdown({ content }) {
 
 function parsedMarkdownUrl(value) {
   try {
-    return new URL(value, window.location?.origin || 'http://localhost');
+    return new URL(value, firstText(window.location?.origin, 'http://localhost'));
   }
   catch {
     return null;
@@ -104,7 +114,7 @@ function fileUrlToLocalPath(value) {
   try {
     const parsed = new URL(value);
     if (parsed.protocol.toLowerCase() !== 'file:') return '';
-    const path = decodeURIComponent(parsed.pathname || '');
+    const path = decodeURIComponent(textValue(parsed.pathname));
     if (/^\/[A-Za-z]:[\\/]/.test(path)) return path.slice(1);
     return path;
   }
@@ -123,7 +133,7 @@ function decodeMarkdownFilePath(value) {
 }
 
 function markdownFileLinkRef(rawUrl) {
-  const value = (rawUrl || '').toString().trim();
+  const value = trimmedText(rawUrl);
   if (!isLikelyLocalMarkdownPath(value)) return null;
   const lineMatch = value.match(/#L(\d+)/i);
   const cleanValue = value.split(/[?#]/, 1)[0];
@@ -137,7 +147,7 @@ function markdownFileLinkRef(rawUrl) {
 }
 
 function safeMarkdownUrl(rawUrl, options = {}) {
-  const value = (rawUrl || '').toString().trim();
+  const value = trimmedText(rawUrl);
   if (!value) return '';
   const localSrc = options.image ? imagePreviewSource(value) : '';
   if (localSrc) return localSrc;
@@ -149,7 +159,7 @@ function safeMarkdownUrl(rawUrl, options = {}) {
 }
 
 function productMarkdownUrl(rawUrl, options = {}) {
-  const value = (rawUrl || '').toString().trim();
+  const value = trimmedText(rawUrl);
   if (!value) return '';
   if (options.image) return safeMarkdownUrl(value, { image: true });
   if (value.startsWith(DIRECTIVE_HREF_PREFIX)) return value;
@@ -161,12 +171,12 @@ function productMarkdownUrl(rawUrl, options = {}) {
 function renderImagePreview(rawSource, altText, key) {
   const src = imagePreviewSource(rawSource);
   if (!src) return null;
-  const label = (altText || '').toString().trim() || basenameFromPath(rawSource) || '\u56fe\u7247\u9884\u89c8';
+  const label = firstTrimmedText(altText, basenameFromPath(rawSource), '\u56fe\u7247\u9884\u89c8');
   return <MarkdownImagePreview key={key} src={src} label={label} />;
 }
 
 function trimTrailingImagePathPunctuation(value) {
-  let path = (value || '').toString();
+  let path = textValue(value);
   let suffix = '';
   while (/[.,;:!?\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001]$/.test(path)) {
     suffix = `${path.at(-1)}${suffix}`;
@@ -176,7 +186,7 @@ function trimTrailingImagePathPunctuation(value) {
 }
 
 function renderPlainTextWithImagePreviews(text, keyPrefix) {
-  const source = (text || '').toString();
+  const source = textValue(text);
   const parts = [];
   let lastIndex = 0;
   let matchIndex = 0;
@@ -235,7 +245,7 @@ function fenceMarkerMatch(line) {
 }
 
 function normalizeFenceLanguageToken(token) {
-  const value = (token || '').toString().trim().toLowerCase();
+  const value = trimmedText(token).toLowerCase();
   if (!value) return '';
   const classMatch = value.match(/^\{\.?([a-z][\w+-]*)/);
   if (classMatch) return classMatch[1].replace(/^language-/, '');
@@ -243,7 +253,7 @@ function normalizeFenceLanguageToken(token) {
 }
 
 function fenceInfoRestIsMetadata(rest) {
-  const value = (rest || '').toString().trim();
+  const value = trimmedText(rest);
   if (!value) return false;
   return (
     /^[{[(]/.test(value) ||
@@ -253,12 +263,12 @@ function fenceInfoRestIsMetadata(rest) {
 }
 
 function parseFenceInfo(rawInfo) {
-  const info = (rawInfo || '').toString().trim();
+  const info = trimmedText(rawInfo);
   if (!info) return { language: '', firstCodeLine: '' };
 
   const tokenMatch = info.match(/^([A-Za-z][\w+-]*)(?:\s+(.+))?$/);
   if (tokenMatch) {
-    const rest = tokenMatch[2] || '';
+    const rest = textValue(tokenMatch[2]);
     return {
       language: normalizeFenceLanguageToken(tokenMatch[1]),
       firstCodeLine: fenceInfoRestIsMetadata(rest) ? '' : rest,
@@ -297,7 +307,7 @@ function splitMarkdownFenceLine(line) {
 }
 
 function markdownClosingFence(line, openingFence) {
-  const value = (line || '').toString();
+  const value = textValue(line);
   const indentMatch = value.match(/^ {0,3}/);
   const markerStart = indentMatch?.[0].length || 0;
   const rest = value.slice(markerStart);
@@ -309,21 +319,21 @@ function markdownClosingFence(line, openingFence) {
 }
 
 function isIndentedMarkdownCodeLine(line) {
-  return /^(?: {4}|\t)/.test(line || '');
+  return /^(?: {4}|\t)/.test(textValue(line));
 }
 
 function isIndentedMarkdownListItem(line) {
-  return /^\s{4,}(?:[-*+]|\d+[.)])\s+/.test(line || '');
+  return /^\s{4,}(?:[-*+]|\d+[.)])\s+/.test(textValue(line));
 }
 
 function indentedMarkdownCodeText(line) {
-  const value = (line || '').toString();
+  const value = textValue(line);
   if (value.startsWith('\t')) return value.slice(1);
   return value.replace(/^ {4}/, '');
 }
 
 function isTerminalPromptLine(line) {
-  return /^\s{0,3}(?:(?:[$\u276f\u279c\u03bb])|(?:PS [^>]*>)|(?:[A-Za-z]:[\\/][^>]*>)|(?:[\w.-]+@[\w.-]+:[^\s$#>]*[$#]))\s+\S/.test(line || '');
+  return /^\s{0,3}(?:(?:[$\u276f\u279c\u03bb])|(?:PS [^>]*>)|(?:[A-Za-z]:[\\/][^>]*>)|(?:[\w.-]+@[\w.-]+:[^\s$#>]*[$#]))\s+\S/.test(textValue(line));
 }
 
 function isInsideInlineCode(source, offset) {
@@ -343,7 +353,7 @@ function unorderedMarkdownListItemText(line) {
   const standard = trimmed.match(/^[-*]\s+(.+)$/);
   if (standard) return standard[1];
   const compact = trimmed.match(/^[-*]((?:[A-Z][A-Za-z0-9_-]{1,40}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,20})[:\uFF1A].+)$/);
-  return compact?.[1] || '';
+  return textValue(compact?.[1]);
 }
 
 function startsSoftMarkdownHeading(source, index) {
@@ -376,7 +386,7 @@ function startsSoftMarkdownList(source, index, segmentStart) {
 }
 
 function splitMarkdownSoftBlocks(line) {
-  const source = (line || '').toString();
+  const source = textValue(line);
   if (!source || fenceMarkerMatch(source)) return [source];
   const boundaries = [];
   let segmentStart = 0;
@@ -527,12 +537,10 @@ function parseJsonOutput(text) {
   if (payload.language && !['json', 'jsonc'].includes(payload.language)) return null;
   const trimmed = payload.body.trim();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
-  try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
-  }
-  catch {
-    return null;
-  }
+  const parsed = parseMarkdownJsonSnippet(trimmed);
+  if (parsed.ok) return { kind: 'json', text: parsed.text };
+  if (!payload.language) return null;
+  return { kind: 'json-error', text: `Invalid JSON: ${parsed.message}\n\n${trimmed}` };
 }
 
 function isDiffOutput(text) {
@@ -579,7 +587,7 @@ function isConfigOutput(text) {
 
 function detectMessageOutput(text) {
   const json = parseJsonOutput(text);
-  if (json) return { kind: 'json', text: json };
+  if (json) return json;
   const payload = candidatePayload(text);
   const body = payload.body.trimEnd();
   if (isDiffOutput(text)) return { kind: 'diff', text: body };
@@ -627,7 +635,7 @@ function reactChildrenText(children) {
 }
 
 function directiveTokenFromHref(href) {
-  const value = (href || '').toString();
+  const value = textValue(href);
   if (!value.startsWith(DIRECTIVE_HREF_PREFIX)) return '';
   try {
     return decodeURIComponent(value.slice(DIRECTIVE_HREF_PREFIX.length));
@@ -638,7 +646,7 @@ function directiveTokenFromHref(href) {
 }
 
 function markdownLinkToken(label, href) {
-  return `[${(label || '').toString()}](${(href || '').toString()})`;
+  return `[${textValue(label)}](${textValue(href)})`;
 }
 
 function MarkdownLink({ href = '', children, actions = EMPTY_MARKDOWN_ACTIONS }) {
@@ -652,11 +660,13 @@ function MarkdownLink({ href = '', children, actions = EMPTY_MARKDOWN_ACTIONS })
   if (citation) return <MarkdownCitationLinkChip chip={citation} actions={actions} />;
 
   const fileRef = markdownFileLinkRef(href);
-  const openFile = actions?.onOpenPath || actions?.onFileRef;
-  if (fileRef && openFile) {
+  const openFile = actions?.onOpenPath;
+  const legacyOpenFile = actions?.onFileRef;
+  const fileOpener = typeof openFile === 'function' ? openFile : legacyOpenFile;
+  if (fileRef && fileOpener) {
     const handleFileClick = (event) => {
       event.preventDefault();
-      openFile({ ...fileRef, raw: label });
+      fileOpener({ ...fileRef, raw: label });
     };
     return (
       <button
@@ -687,13 +697,13 @@ function MarkdownLink({ href = '', children, actions = EMPTY_MARKDOWN_ACTIONS })
 
 function MarkdownImage({ src = '', alt = '' }) {
   const safeSrc = safeMarkdownUrl(src, { image: true });
-  if (!safeSrc) return alt || basenameFromPath(src) || '';
-  return <MarkdownImagePreview src={safeSrc} label={alt || basenameFromPath(src)} />;
+  if (!safeSrc) return firstText(alt, basenameFromPath(src));
+  return <MarkdownImagePreview src={safeSrc} label={firstText(alt, basenameFromPath(src))} />;
 }
 
 function languageFromClassName(className = '') {
   const match = className.match(/(?:^|\s)language-([^\s]+)/);
-  return normalizeFenceLanguageToken(match?.[1] || '');
+  return normalizeFenceLanguageToken(textValue(match?.[1]));
 }
 
 function codeBlockFromPreChildren(children) {
@@ -702,7 +712,7 @@ function codeBlockFromPreChildren(children) {
   ));
   if (!child) return null;
   return {
-    language: languageFromClassName(child.props.className || ''),
+    language: languageFromClassName(textValue(child.props.className)),
     code: reactChildrenText(child.props.children).replace(/\n$/, ''),
   };
 }
@@ -771,7 +781,7 @@ function markdownComponents(actions) {
 }
 
 function markdownUrlTransform(url, key, node) {
-  const value = (url || '').toString().trim();
+  const value = trimmedText(url);
   if (!value) return '';
   const productUrl = productMarkdownUrl(value, { image: key === 'src' || node?.tagName === 'img' });
   if (productUrl) return productUrl;
@@ -803,6 +813,7 @@ function MarkdownMessage({ text, actions }) {
 }
 
 function MessageContent({ text, actions }) {
+  requiredMarkdownObject({ text }, 'MessageContent payload');
   const output = detectMessageOutput(text);
   if (output.kind === 'markdown') return <MarkdownMessage text={output.text} actions={actions} />;
   return <StructuredMessage kind={output.kind} text={output.text} />;

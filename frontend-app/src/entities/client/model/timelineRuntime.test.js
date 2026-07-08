@@ -4,8 +4,7 @@ import {
   isVisibleTimelineItem,
   mergeTimelineItems,
   normalizeTimelineItem,
-  sortTimelineChronologically,
-} from './timelineRuntime.js';
+  sortTimelineChronologically } from './timelineRuntime.js';
 
 describe('timelineRuntime', () => {
   it('normalizes user and assistant timeline payloads from backend-shaped fields', () => {
@@ -159,8 +158,14 @@ describe('timelineRuntime', () => {
     expect(sortTimelineChronologically([
       { id: 'late', time: '2026-06-15T01:00:02Z' },
       { id: 'early', time: '2026-06-15T01:00:01Z' },
-      { id: 'same-a', time: 'not-a-date' },
-      { id: 'same-b', time: 'not-a-date' },
+      { id: 'same-a' },
+      { id: 'same-b' },
     ]).map((item) => item.id)).toEqual(['same-a', 'same-b', 'early', 'late']);
+  });
+
+  it('fails fast for invalid timeline timestamps', () => {
+    expect(() => sortTimelineChronologically([
+      { id: 'bad-time', time: 'not-a-date' },
+    ])).toThrow(/ISO-8601 UTC timestamp/);
   });
 });

@@ -3,7 +3,7 @@ import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Workflow, ArrowLeft, Clock, Bell, BarChart3, ClipboardList, FileText, Presentation, ShieldCheck, Video } from 'lucide-react';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
+import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, parseStrictJsonValue, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
@@ -20,7 +20,6 @@ const IDEMPOTENCY_RANDOM_RADIX = 16;
 const EMPTY_STATE_ICON_SIZE = 34;
 const DAG_SCHEDULE_TIMEZONE = 'Asia/Shanghai';
 const DAG_SCHEDULE_CRON_TZ_PREFIX = `CRON_TZ=${DAG_SCHEDULE_TIMEZONE}`;
-const ENTERPRISE_OUTPUT_FORMATS = Object.freeze(['markdown', 'json', 'pdf', 'docx', 'pptx', 'xlsx', 'video']);
 const WORKFLOW_MATERIAL_UPLOAD_PREFIX = 'reports/workflows/uploads';
 const TEXT_MATERIAL_EXTENSIONS = new Set(['.csv', '.json', '.log', '.md', '.text', '.txt', '.xml', '.yaml', '.yml']);
 const BINARY_MATERIAL_EXTENSIONS = new Set(['.doc', '.docx', '.pdf', '.ppt', '.pptx', '.xls', '.xlsx', '.zip']);
@@ -75,23 +74,102 @@ const ENTERPRISE_REQUIRED_TEMPLATE_FIELDS = Object.freeze([
   'config.ui',
 ]);
 
+function firstPresent(...values) {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
+function selectCompatField(label, ...values) {
+  const value = firstPresent(...values);
+  if (value === undefined) throw new Error(`${label} is required`);
+  return value;
+}
+
+function optionalArrayField(value, label) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value;
+}
+
+function requireArrayField(value, label) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value;
+}
+
+function requireObjectField(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+
+function parseJsonObject(value, label) {
+  try {
+    const parsed = parseStrictJsonValue(value, label);
+    return requireObjectField(parsed, label);
+  } catch (error) {
+    throw new Error(`${label} JSON object parse failed: ${errorMessage(error)}`, { cause: error });
+  }
+}
+
+function enterpriseNodeDependencies(node) {
+  return optionalArrayField(firstPresent(node?.depends_on, node?.dependsOn), 'workflow node depends_on');
+}
+
+function uniqueWorkflowActionKey(prefix) {
+  if (typeof crypto?.randomUUID === 'function') return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2)}`;
+}
+
+function workflowMonotonicTimestamp() {
+  return Math.trunc(performance.timeOrigin + performance.now());
+}
+
+function uniqueWorkflowMaterialStamp() {
+  return Math.trunc(performance.timeOrigin + performance.now()).toString(IDEMPOTENCY_RANDOM_RADIX);
+}
+
+function enterpriseTemplateCompat(template) {
+  return {
+    id: selectCompatField('workflow template id', template?.id, template?.key, template?.template_id, template?.templateId),
+    businessFlow: firstPresent(template?.business_flow, template?.businessFlow),
+    outputTypes: firstPresent(template?.output_types, template?.outputTypes, template?.outputFormats),
+    uiSchema: firstPresent(template?.ui_schema, template?.uiSchema),
+    dagTemplate: firstPresent(template?.dag_template, template?.dagTemplate),
+    finalOutput: firstPresent(template?.final_output, template?.finalOutput),
+    finalNodeKey: firstPresent(template?.final_node_key, template?.finalNodeKey),
+    supportsSchedule: firstPresent(template?.supports_schedule, template?.supportsSchedule),
+    requiresReview: firstPresent(template?.requires_review, template?.requiresReview),
+    availableVersions: firstPresent(template?.available_versions, template?.availableVersions),
+    estimatedNodes: firstPresent(template?.estimated_nodes, template?.estimatedNodes),
+  };
+}
+
+function enterpriseDagTemplateCompat(dagTemplate) {
+  return {
+    dagKeyTemplate: firstPresent(dagTemplate?.dag_key_template, dagTemplate?.dagKeyTemplate),
+    titleTemplate: firstPresent(dagTemplate?.title_template, dagTemplate?.titleTemplate),
+    descriptionTemplate: firstPresent(dagTemplate?.description_template, dagTemplate?.descriptionTemplate),
+    finalNodeKey: firstPresent(dagTemplate?.final_node_key, dagTemplate?.finalNodeKey),
+  };
+}
+
 // 生成给 DAG 设计器的首轮模板需求，约束它按模板库参数先发现资源再创建可运行 DAG。
 function buildEnterpriseWorkflowTemplateBrief(template) {
   const values = objectValue(template.templateValues);
   const templateId = enterpriseTemplateId(template);
-  const outputFormat = textValue(values.output_format || template.selectedOutputFormat || firstEnterpriseOutputType(template)) || 'markdown';
-  const outputPath = textValue(values.output_path) || enterpriseTemplateDefaultOutputPath(templateId);
+  const compat = enterpriseTemplateCompat(template);
+  const outputFormat = firstText(values.output_format, template.selectedOutputFormat, firstEnterpriseOutputType(template), 'markdown');
+  const outputPath = firstText(values.output_path, enterpriseTemplateDefaultOutputPath(templateId));
   const outputTypes = enterpriseOutputTypes(template);
-  const dagTemplate = objectValue(template.dag_template || template.dagTemplate);
-  const nodes = Array.isArray(dagTemplate.nodes) ? dagTemplate.nodes : [];
-  const finalNodeKey = textValue(dagTemplate.final_node_key || dagTemplate.finalNodeKey || template.finalNodeKey);
+  const dagTemplate = requireObjectField(compat.dagTemplate, 'workflow template dag_template');
+  const dagCompat = enterpriseDagTemplateCompat(dagTemplate);
+  const nodes = requireArrayField(dagTemplate.nodes, 'workflow template dag_template.nodes');
+  const finalNodeKey = firstText(dagCompat.finalNodeKey, compat.finalNodeKey);
   const reviewNode = nodes.find((node) => enterpriseNodeKey(node).includes('review')) || nodes.find((node) => enterpriseNodeTitle(node).includes('复核')) || null;
   const draftPreview = template.draftPreview || renderEnterpriseTemplatePreview(template, values);
   return [
     `请基于政企工作流模板库中的“${enterpriseTemplateTitle(template)}”创建可运行 DAG。`,
     `template_id: ${templateId}`,
     `template_version: ${enterpriseTemplateVersion(template)}`,
-    `business_flow: ${textValue(template.business_flow || template.businessFlow)}`,
+    `business_flow: ${textValue(compat.businessFlow)}`,
     `场景说明: ${enterpriseTemplateDescription(template)}`,
     `目标输出格式: ${outputFormat}`,
     `可选输出格式: ${outputTypes.join(', ')}`,
@@ -100,7 +178,7 @@ function buildEnterpriseWorkflowTemplateBrief(template) {
     `final_node_key: ${finalNodeKey}`,
     `review_node: ${reviewNode ? enterpriseNodeKey(reviewNode) : '必须从模板节点中识别复核节点'}`,
     `用户参数: ${JSON.stringify(values, null, 2)}`,
-    `ui_schema: ${JSON.stringify(template.ui_schema || template.uiSchema || [], null, 2)}`,
+    `ui_schema: ${JSON.stringify(enterpriseTemplateFields(template), null, 2)}`,
     `dag_template: ${JSON.stringify(dagTemplate, null, 2)}`,
     `dag_preview: ${JSON.stringify(draftPreview, null, 2)}`,
     'workflow_template tools: first call workflow_template_list/get/render_dag for the same built-in template library; workflow_template_render_dag only renders a DAG draft and must not persist or start a DAG.',
@@ -126,7 +204,7 @@ function buildEnterpriseWorkflowTemplateBrief(template) {
 }
 
 function enterpriseTemplateId(template) {
-  return textValue(template?.id || template?.key || template?.template_id || template?.templateId);
+  return textValue(enterpriseTemplateCompat(template).id);
 }
 
 function enterpriseTemplateVersion(template) {
@@ -140,8 +218,7 @@ function enterpriseTemplateVersionNumber(template) {
 }
 
 function enterpriseAvailableVersions(template) {
-  const raw = template?.available_versions || template?.availableVersions || [];
-  if (!Array.isArray(raw)) return [];
+  const raw = optionalArrayField(enterpriseTemplateCompat(template).availableVersions, 'workflow template available_versions');
   const versions = new Set();
   for (const item of raw) {
     const version = Number(item);
@@ -155,20 +232,19 @@ function enterpriseAvailableVersions(template) {
 function enterpriseRollbackVersion(template) {
   const current = enterpriseTemplateVersionNumber(template);
   const versions = enterpriseAvailableVersions(template).filter((version) => version < current);
-  return versions.at(-1) || 0;
+  return versions.at(-1) ?? 0;
 }
 
 function enterpriseTemplateTrustLevel(template) {
-  return textValue(template?.trust?.level || template?.trustLevel);
+  return firstText(template?.trust?.level, template?.trustLevel);
 }
 
 function enterpriseTemplateCompatibilityRuntime(template) {
-  return textValue(template?.compatibility?.runtime || template?.runtime);
+  return firstText(template?.compatibility?.runtime, template?.runtime);
 }
 
 function enterpriseTemplateNodeTypes(template) {
-  const nodeTypes = template?.compatibility?.node_types || template?.compatibility?.nodeTypes || [];
-  if (!Array.isArray(nodeTypes)) return '';
+  const nodeTypes = optionalArrayField(firstPresent(template?.compatibility?.node_types, template?.compatibility?.nodeTypes), 'workflow template compatibility.node_types');
   return nodeTypes.flatMap((item) => {
     const nodeType = textValue(item);
     return nodeType ? [nodeType] : [];
@@ -181,7 +257,7 @@ function enterpriseTemplateSearchText(template) {
     enterpriseTemplateId(template),
     enterpriseTemplateTitle(template),
     enterpriseTemplateDescription(template),
-    textValue(template?.business_flow || template?.businessFlow),
+    firstText(template?.business_flow, template?.businessFlow),
     ...(Array.isArray(template?.tags) ? template.tags : []),
   ]) {
     const term = textValue(item).toLowerCase();
@@ -202,44 +278,44 @@ function enterpriseTemplateDefaultOutputPath(templateId) {
 function enterpriseTemplateTitle(template) {
   const title = template?.title;
   if (typeof title === 'string') return textValue(title);
-  return textValue(title?.zh || title?.en || template?.name || enterpriseTemplateId(template));
+  return firstText(title?.zh, title?.en, template?.name, enterpriseTemplateId(template));
 }
 
 function enterpriseTemplateDescription(template) {
   const description = template?.description;
   if (typeof description === 'string') return textValue(description);
-  return textValue(description?.zh || description?.en || template?.summary);
+  return firstText(description?.zh, description?.en, template?.summary);
 }
 
 function enterpriseOutputTypes(template) {
-  const raw = template?.output_types || template?.outputTypes || template?.outputFormats;
-  if (!Array.isArray(raw) || raw.length === 0) return ENTERPRISE_OUTPUT_FORMATS;
+  const raw = requireArrayField(enterpriseTemplateCompat(template).outputTypes, 'workflow template output_types');
+  if (raw.length === 0) throw new Error('workflow template output_types must not be empty');
   const outputTypes = raw.flatMap((item) => {
     const value = textValue(item);
     return value ? [value] : [];
   });
-  return outputTypes.length > 0 ? outputTypes : ENTERPRISE_OUTPUT_FORMATS;
+  if (outputTypes.length === 0) throw new Error('workflow template output_types has no usable values');
+  return outputTypes;
 }
 
 function firstEnterpriseOutputType(template) {
-  return enterpriseOutputTypes(template)[0] || 'markdown';
+  return enterpriseOutputTypes(template).at(0) ?? 'markdown';
 }
 
 function enterpriseNodeKey(node) {
-  return textValue(node?.node_key || node?.nodeKey || node?.key);
+  return firstText(node?.node_key, node?.nodeKey, node?.key);
 }
 
 function enterpriseNodeTitle(node) {
-  return textValue(node?.title || node?.name || enterpriseNodeKey(node));
+  return firstText(node?.title, node?.name, enterpriseNodeKey(node));
 }
 
 function enterpriseTemplateIcon(template) {
-  return ENTERPRISE_TEMPLATE_ICON_BY_ID[enterpriseTemplateId(template)] || ClipboardList;
+  return ENTERPRISE_TEMPLATE_ICON_BY_ID[enterpriseTemplateId(template)] ?? ClipboardList;
 }
 
 function enterpriseTemplateFields(template) {
-  const fields = template?.ui_schema || template?.uiSchema;
-  return Array.isArray(fields) ? fields : [];
+  return requireArrayField(enterpriseTemplateCompat(template).uiSchema, 'workflow template ui_schema');
 }
 
 function enterpriseTemplateDefaultValues(template) {
@@ -262,7 +338,7 @@ function enterpriseTemplateDefaultValues(template) {
 
 function enterpriseFieldLabel(field) {
   if (typeof field?.label === 'string') return textValue(field.label);
-  return textValue(field?.label?.zh || field?.key);
+  return firstText(field?.label?.zh, field?.key);
 }
 
 function enterpriseFieldHelp(field) {
@@ -276,32 +352,34 @@ function enterpriseFieldPlaceholder(field) {
 }
 
 function enterpriseFieldOptions(field) {
-  return Array.isArray(field?.options) ? field.options : [];
+  return optionalArrayField(field?.options, `workflow template field ${textValue(field?.key)} options`);
 }
 
 function enterpriseOptionLabel(option) {
   if (typeof option?.label === 'string') return textValue(option.label);
-  return textValue(option?.label?.zh || option?.value);
+  return firstText(option?.label?.zh, option?.value);
 }
 
 function renderEnterpriseTemplatePreview(template, values = {}) {
-  const dagTemplate = objectValue(template?.dag_template || template?.dagTemplate);
-  const finalOutput = objectValue(template?.final_output || template?.finalOutput);
-  const nodes = Array.isArray(dagTemplate.nodes) ? dagTemplate.nodes : [];
+  const compat = enterpriseTemplateCompat(template);
+  const dagTemplate = requireObjectField(compat.dagTemplate, 'workflow template dag_template');
+  const dagCompat = enterpriseDagTemplateCompat(dagTemplate);
+  const finalOutput = requireObjectField(compat.finalOutput, 'workflow template final_output');
+  const nodes = requireArrayField(dagTemplate.nodes, 'workflow template dag_template.nodes');
   return {
-    dag_key: renderEnterprisePlaceholders(dagTemplate.dag_key_template || dagTemplate.dagKeyTemplate || enterpriseTemplateId(template), values),
-    title: renderEnterprisePlaceholders(dagTemplate.title_template || dagTemplate.titleTemplate || enterpriseTemplateTitle(template), values),
-    description: renderEnterprisePlaceholders(dagTemplate.description_template || dagTemplate.descriptionTemplate || enterpriseTemplateDescription(template), values),
+    dag_key: renderEnterprisePlaceholders(firstText(dagCompat.dagKeyTemplate, enterpriseTemplateId(template)), values),
+    title: renderEnterprisePlaceholders(firstText(dagCompat.titleTemplate, enterpriseTemplateTitle(template)), values),
+    description: renderEnterprisePlaceholders(firstText(dagCompat.descriptionTemplate, enterpriseTemplateDescription(template)), values),
     trigger: textValue(dagTemplate.trigger || 'manual'),
-    final_node_key: textValue(dagTemplate.final_node_key || dagTemplate.finalNodeKey),
+    final_node_key: textValue(dagCompat.finalNodeKey),
     final_output: renderEnterpriseValue(finalOutput, values),
     nodes: nodes.map((node) => ({
       node_key: enterpriseNodeKey(node),
       title: renderEnterprisePlaceholders(enterpriseNodeTitle(node), values),
       node_type: textValue(node.node_type || node.nodeType),
       assigned_to: textValue(node.assigned_to || node.assignedTo),
-      depends_on: Array.isArray(node.depends_on || node.dependsOn) ? (node.depends_on || node.dependsOn) : [],
-      config: renderEnterpriseValue(node.config || {}, values),
+      depends_on: enterpriseNodeDependencies(node),
+      config: renderEnterpriseValue(objectValue(node.config), values),
     })),
   };
 }
@@ -335,7 +413,7 @@ function enterpriseCreateAndStartDAGPayload(draft) {
     finalNodeKey: textValue(normalized.final_node_key || normalized.finalNodeKey),
     metadata: objectValue(normalized.metadata),
     nodes: enterpriseCreateDAGNodes(normalized.nodes),
-    idempotencyKey: 'ui-template-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2),
+    idempotencyKey: uniqueWorkflowActionKey('ui-template'),
   };
 }
 
@@ -363,7 +441,7 @@ function renderEnterpriseValue(value, values) {
 
 function renderEnterprisePlaceholders(value, values) {
   let output = textValue(value);
-  for (const [key, raw] of Object.entries(values || {})) {
+  for (const [key, raw] of Object.entries(objectValue(values))) {
     output = output.replaceAll(`{{${key}}}`, textValue(raw));
   }
   return output;
@@ -453,7 +531,7 @@ function nodeKeyOf(raw) {
 }
 
 function dagVersionOf(item) {
-  return numberOrNull(item?.version ?? item?.dag_version ?? item?.dagVersion ?? item?.raw?.version);
+  return numberOrNull(firstPresent(item?.version, item?.dag_version, item?.dagVersion, item?.raw?.version));
 }
 
 function normalizeDagRun(raw = {}, index = 0) {
@@ -477,7 +555,7 @@ function normalizeDagRun(raw = {}, index = 0) {
 function normalizedDagNodeDependencies(raw = {}) {
   if (Array.isArray(raw.depends_on)) return raw.depends_on;
   if (Array.isArray(raw.dependsOn)) return raw.dependsOn;
-  return wordListFromText(raw.depends_on || raw.dependsOn || '');
+  return wordListFromText(firstText(raw.depends_on, raw.dependsOn));
 }
 
 function normalizeDagNode(raw = {}, index = 0) {
@@ -498,7 +576,7 @@ function normalizeDagNode(raw = {}, index = 0) {
     threadId: firstText(raw.spawning_thread_id, raw.spawningThreadId, raw.threadId, raw.thread_id),
     activeWakeupId: numberOrNull(raw.active_wakeup_id ?? raw.activeWakeupId),
     config,
-    result: parsedDagConfig(raw.result),
+    result: raw.result,
     raw,
   };
 }
@@ -641,18 +719,23 @@ function formatDagRunStartedAt(value) {
     const [, year, month, day, hour, minute, second] = matched;
     return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
   }
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return text;
-  return [
-    parsed.getFullYear().toString().padStart(4, '0'),
-    twoDigits(parsed.getMonth() + 1),
-    twoDigits(parsed.getDate()),
-  ].join('-') + ` ${twoDigits(parsed.getHours())}:${twoDigits(parsed.getMinutes())}:${twoDigits(parsed.getSeconds())}`;
+  return text;
 }
 
-function dagRunStartedAtMillis(run) {
-  const parsed = Date.parse(textValue(run?.startedAt));
+function dagRunStartedAtSortText(run) {
+  const text = textValue(run?.startedAt);
+  const parsed = isoTimestampSortValue(text);
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function isoTimestampSortValue(value) {
+  const match = textValue(value).match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):?(\d{2}))?/);
+  if (!match) return Number.POSITIVE_INFINITY;
+  const [, year, month, day, hour, minute, second, offsetSign, offsetHour = '00', offsetMinute = '00'] = match;
+  const localMillis = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  if (!offsetSign) return localMillis;
+  const offsetMillis = ((Number(offsetHour) * 60) + Number(offsetMinute)) * 60 * 1000;
+  return offsetSign === '+' ? localMillis - offsetMillis : localMillis + offsetMillis;
 }
 
 function chronologicalWorkflowRuns(runs) {
@@ -660,8 +743,8 @@ function chronologicalWorkflowRuns(runs) {
   return source
     .map((run, index) => ({ index, run }))
     .sort((left, right) => {
-      const leftTime = dagRunStartedAtMillis(left.run);
-      const rightTime = dagRunStartedAtMillis(right.run);
+      const leftTime = dagRunStartedAtSortText(left.run);
+      const rightTime = dagRunStartedAtSortText(right.run);
       if (leftTime !== rightTime) return leftTime - rightTime;
       return left.index - right.index;
     })
@@ -697,11 +780,11 @@ function cronSchedulePartsWithTimezone(cronExpr) {
   const text = textValue(cronExpr);
   if (!text) return { cronText: '', timezone: DAG_SCHEDULE_TIMEZONE };
   const parts = text.split(/\s+/);
-  const first = parts[0] || '';
+  const first = textValue(parts.at(0));
   if (first.startsWith('CRON_TZ=')) {
     return {
       cronText: parts.slice(1).join(' '),
-      timezone: first.slice('CRON_TZ='.length) || DAG_SCHEDULE_TIMEZONE,
+      timezone: firstText(first.slice('CRON_TZ='.length), DAG_SCHEDULE_TIMEZONE),
     };
   }
   return { cronText: text, timezone: DAG_SCHEDULE_TIMEZONE };
@@ -741,7 +824,7 @@ const DAG_CRON_SCHEDULE_RULES = Object.freeze([
 ]);
 
 function scheduleStateForCronRule(rule, parsed) {
-  return dagScheduleState('', { preset: rule.preset, time: parsed.time, ...(rule.patch?.(parsed) || {}) });
+  return dagScheduleState('', { preset: rule.preset, time: parsed.time, ...objectValue(rule.patch?.(parsed)) });
 }
 
 function scheduleStateFromCron(cronExpr) {
@@ -826,7 +909,7 @@ function dagHasActiveRun(item) {
 
 function isScheduledDag(item) {
   const trigger = textValue(item?.trigger).toLowerCase();
-  return ['scheduled', 'schedule', 'cron'].includes(trigger) || Boolean(item?.cronExpr || item?.nextRunAt);
+  return ['scheduled', 'schedule', 'cron'].includes(trigger) || Boolean(firstText(item?.cronExpr, item?.nextRunAt));
 }
 
 function dagCategoryOf(item) {
@@ -880,7 +963,7 @@ function firstAvailableCategory(items) {
 }
 
 function finalOutputDescriptor(raw) {
-  const source = raw?.run || raw || {};
+  const source = objectValue(firstPresent(raw?.run, raw));
   const metadata = objectValue(source.metadata);
   return source.final_output || source.finalOutput || metadata.final_output || metadata.finalOutput || null;
 }
@@ -888,22 +971,16 @@ function finalOutputDescriptor(raw) {
 function finalOutputPreviewText(value) {
   if (typeof value === 'string') return value.trim();
   if (value && typeof value === 'object') {
-    return firstText(value.text, value.content, value.message, value.output, value.summary) || JSON.stringify(value);
+    return firstText(value.text, value.content, value.message, value.output, value.summary, JSON.stringify(value));
   }
   return '';
 }
 
-function parsedDagConfig(value) {
-  if (!value) return {};
+function parsedDagConfig(value, label = 'workflow dag config') {
+  if (value === undefined || value === null || value === '') return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value;
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  }
-  catch {
-    return {};
-  }
+  if (typeof value !== 'string') throw new Error(`${label} must be a JSON object`);
+  return parseJsonObject(value, label);
 }
 
 function validThreadIdText(value) {
@@ -955,7 +1032,7 @@ function dagNodeFormFromNode(node) {
     execCwd: firstText(agentExec.cwd, agentExec.CWD, config.cwd),
     automationKind: firstText(automationExec.kind, 'command_card'),
     commandRef: firstText(automationExec.command_ref, automationExec.commandRef, node?.commandRef),
-    dependsOn: listToText(node?.dependsOn || []),
+    dependsOn: listToText(optionalArrayField(node?.dependsOn, 'workflow normalized node dependsOn')),
     firstTurn: firstText(config.first_turn, config.firstTurn, config.prompt),
     outputSharedfilePath: firstText(toSharedfile.path, config.output_file, config.outputFile),
     outputSharedfileLockMode: firstText(toSharedfile.lock_mode, toSharedfile.lockMode, 'exclusive'),
@@ -1134,7 +1211,7 @@ function workflowNodeDiagnostics(nodes = []) {
 }
 
 function workflowNodeFailureText(node) {
-  const result = parsedDagConfig(node?.result || node?.raw?.result);
+  const result = parsedDagConfig(firstPresent(node?.result, node?.raw?.result));
   return firstText(
     result.error_summary,
     result.errorSummary,
@@ -1255,7 +1332,7 @@ function useWorkflowListQuery(workflowCwd) {
       } catch (err) {
         reportSyncFailure(err);
       }
-      return queryClient.getQueryData(key) || [];
+      return requireArrayField(queryClient.getQueryData(key), 'workflow query dags cache');
     })();
     refreshPromiseRef.current = { promise: refreshPromise, workflowCwd };
     refreshPromise.finally(() => {
@@ -1298,7 +1375,7 @@ function useWorkflowSelection(items) {
   const visibleItems = useMemo(() => items.filter((item) => dagCategoryOf(item) === effectiveActiveCategory), [effectiveActiveCategory, items]);
   const effectiveSelectedDagKey = visibleItems.some((item) => item.dagKey === selectedDagKey)
     ? selectedDagKey
-    : visibleItems[0]?.dagKey || '';
+    : firstText(visibleItems[0]?.dagKey);
   if (effectiveSelectedDagKey !== selectedDagKey) {
     setSelectedDagKey(effectiveSelectedDagKey);
   }
@@ -1342,15 +1419,16 @@ async function fetchWorkflowDagDetail(selectedDagKey, items) {
 }
 
 function workflowNodesFromResponse(response) {
-  return Array.isArray(response?.nodes) ? response.nodes.map((node, index) => normalizeDagNode(node, index)) : [];
+  return requireArrayField(response?.nodes, 'workflow dag detail nodes').map((node, index) => normalizeDagNode(node, index));
 }
 
 function workflowRunsFromResponse(response) {
-  return Array.isArray(response?.runs) ? response.runs.map((run, index) => normalizeDagRun(run, index)) : [];
+  return requireArrayField(response?.runs, 'workflow dag runs').map((run, index) => normalizeDagRun(run, index));
 }
 
 function workflowActiveRunFromResponse(response) {
-  return Array.isArray(response?.runs) && response.runs.length > 0 ? normalizeDagRun(response.runs[0]) : null;
+  const runs = requireArrayField(response?.runs, 'workflow active runs');
+  return runs.length > 0 ? normalizeDagRun(runs[0]) : null;
 }
 
 function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCwd }) {
@@ -1369,7 +1447,7 @@ function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCw
   });
   const dagDetailQuery = { data: dagDetailData, error: dagDetailError, isPending: dagDetailPending };
   const hasSnapshot = queryHasSnapshot(dagDetailQuery);
-  const detailData = dagDetailData || {};
+  const detailData = objectValue(dagDetailData);
   const nodes = useMemo(() => (Array.isArray(detailData.nodes) ? detailData.nodes : []), [detailData.nodes]);
   const runs = useMemo(() => (Array.isArray(detailData.runs) ? detailData.runs : []), [detailData.runs]);
   return {
@@ -1390,7 +1468,7 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
    */
   const queryClient = useQueryClient();
   const [selectedRunKey, setSelectedRunKey] = useState('');
-  const fallbackRunKey = activeRun?.runKey || runs[0]?.runKey || '';
+  const fallbackRunKey = firstText(activeRun?.runKey, runs[0]?.runKey);
   const effectiveSelectedRunKey = selectedRunKey && runs.some((run) => run.runKey === selectedRunKey)
     ? selectedRunKey
     : fallbackRunKey;
@@ -1512,8 +1590,8 @@ function useWorkflowDerivedState({ detail, list, run, selection }) {
    */
   const missingRootAssigneeWarning = useMemo(() => rootAssigneeWarning(detail.nodes), [detail.nodes]);
   const activeDetailDag = detail.activeDetailDag;
-  const activeRunKey = detail.activeRun?.runKey || '';
-  const dagKey = activeDetailDag?.dagKey || selection.selectedDag?.dagKey || '';
+  const activeRunKey = firstText(detail.activeRun?.runKey);
+  const dagKey = firstText(activeDetailDag?.dagKey, selection.selectedDag?.dagKey);
   const startDisabledReason = useMemo(() => workflowStartDisabledReason({ activeDetailDag, activeRunKey, dagKey, detail, list, missingRootAssigneeWarning }), [activeDetailDag, activeRunKey, dagKey, detail, list, missingRootAssigneeWarning]);
   return workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail, list, missingRootAssigneeWarning, run, selection, startDisabledReason });
 }
@@ -1524,7 +1602,7 @@ function workflowStartDisabledReason({ activeDetailDag, activeRunKey, dagKey, de
   if (activeRunKey) return '已有运行正在进行';
   if (!STARTABLE_DAG_STATUSES.has(textValue(activeDetailDag?.status).toLowerCase())) return '当前流程状态不可运行';
   if (!STARTABLE_DAG_TRIGGERS.has(textValue(activeDetailDag?.trigger).toLowerCase())) return '当前触发方式不可运行';
-  return missingRootAssigneeWarning || '';
+  return textValue(missingRootAssigneeWarning);
 }
 
 function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail, list, missingRootAssigneeWarning, run, selection, startDisabledReason }) {
@@ -1532,10 +1610,10 @@ function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail
   const baseVersion = dagVersionOf(activeDetailDag);
   const finalOutput = finalOutputDescriptor(run.selectedRun?.run) || finalOutputDescriptor(detail.activeRun) || finalOutputDescriptor(selection.selectedDag?.latestRun);
   const finalText = finalOutputPreviewText(finalOutput);
-  const recentRunPanelLabel = dagStatusLabel(detail.activeRun?.status || detail.runs[0]?.status || activeDetailDag?.latestRun?.status);
+  const recentRunPanelLabel = dagStatusLabel(firstText(detail.activeRun?.status, detail.runs[0]?.status, activeDetailDag?.latestRun?.status));
   const diagnosticNodes = workflowDiagnosticNodes(detail, run);
   const diagnostics = workflowNodeDiagnostics(diagnosticNodes);
-  const runId = numberOrNull(run.selectedRun?.run?.runId ?? run.selectedRun?.run?.raw?.id ?? detail.activeRun?.runId ?? detail.activeRun?.raw?.id);
+  const runId = numberOrNull(firstPresent(run.selectedRun?.run?.runId, run.selectedRun?.run?.raw?.id, detail.activeRun?.runId, detail.activeRun?.raw?.id));
   return {
     activeDetailDag,
     activeRunKey,
@@ -1594,7 +1672,7 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
     actionState.setError('');
     notices.clearNotice();
     try {
-      const result = await withWorkflowActionTimeout(startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2) }));
+      const result = await withWorkflowActionTimeout(startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: uniqueWorkflowActionKey('ui') }));
       const runKey = runKeyOf(result);
       const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey });
       const warning = textValue(result?.warning);
@@ -1657,7 +1735,7 @@ function useDeleteDagAction({ actionState, derived, list, notices, selection }) 
 }
 
 function nextWorkflowSelectionKey(items, activeCategory) {
-  return items.find((item) => dagCategoryOf(item) === activeCategory)?.dagKey || items[0]?.dagKey || '';
+  return firstText(items.find((item) => dagCategoryOf(item) === activeCategory)?.dagKey, items[0]?.dagKey);
 }
 
 function useSaveScheduleAction({ actionState, derived, list, notices, refresh }) {
@@ -1778,7 +1856,7 @@ function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, 
       const draft = rendered?.draft;
       if (!draft) throw new Error('workflowTemplates/renderDag 未返回 DAG 草案');
       const result = await withWorkflowActionTimeout(createAndStartDag(enterpriseCreateAndStartDAGPayload(draft)));
-      const dagKey = textValue(result?.dagKey || result?.dag_key || draft.dag_key || draft.dagKey);
+      const dagKey = firstText(result?.dagKey, result?.dag_key, draft.dag_key, draft.dagKey);
       const runKey = runKeyOf(result);
       const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey: dagKey });
       const warning = textValue(result?.warning);
@@ -1816,7 +1894,8 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
     try {
       if (typeof store?.resolveLaunchPreferences !== 'function') throw new Error('自动化启动配置不可用');
       const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
-      const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
+      const { config: launchConfigRaw, ...launchPayload } = objectValue(launchPreferences);
+      const launchConfig = objectValue(launchConfigRaw);
       const response = await withWorkflowActionTimeout(startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload)));
       const threadId = threadIdFromStartResponse(response);
       if (template) {
@@ -1888,7 +1967,7 @@ function enterpriseDesignSessionSnapshot(template, patch = {}) {
     phase: 'starting',
     threadId: '',
     message: '',
-    startedAt: Date.now(),
+    startedAt: workflowMonotonicTimestamp(),
     ...patch,
   };
 }
@@ -1902,7 +1981,7 @@ function freeDesignSessionSnapshot(patch = {}) {
     phase: 'starting',
     threadId: '',
     message: '',
-    startedAt: Date.now(),
+    startedAt: workflowMonotonicTimestamp(),
     ...patch,
   };
 }
@@ -2132,6 +2211,8 @@ function EnterpriseTemplateWorkbench({ onAdjustTemplate, onStartTemplate, select
   if (isPending) return <section className="enterprise-template-workbench"><p>正在加载模板详情。</p></section>;
   if (error) return <p className="danger-text" role="alert">加载模板详情失败：{errorMessage(error)}</p>;
   if (!template) return null;
+  const contractError = enterpriseTemplateContractError(template);
+  if (contractError) return <p className="danger-text" role="alert">模板契约错误：{contractError}</p>;
 
   const refreshTemplateQueries = async (templateId) => {
     await Promise.all([
@@ -2151,6 +2232,21 @@ function EnterpriseTemplateWorkbench({ onAdjustTemplate, onStartTemplate, select
       workflowCwd={workflowCwd}
     />
   );
+}
+
+function enterpriseTemplateContractError(template) {
+  try {
+    enterpriseTemplateId(template);
+    enterpriseOutputTypes(template);
+    enterpriseTemplateFields(template);
+    const compat = enterpriseTemplateCompat(template);
+    const dagTemplate = requireObjectField(compat.dagTemplate, 'workflow template dag_template');
+    requireArrayField(dagTemplate.nodes, 'workflow template dag_template.nodes');
+    requireObjectField(compat.finalOutput, 'workflow template final_output');
+    return '';
+  } catch (error) {
+    return errorMessage(error);
+  }
 }
 
 function EnterpriseTemplateForm({ onAdjustTemplate, onStartTemplate, onTemplateChanged, starting, template, workflowCwd }) {
@@ -2196,7 +2292,7 @@ function EnterpriseTemplateForm({ onAdjustTemplate, onStartTemplate, onTemplateC
     });
   };
   const readFieldFiles = async (field, files) => {
-    const items = Array.from(files || []).filter(Boolean);
+    const items = files ? Array.from(files).filter(Boolean) : [];
     if (items.length === 0) return;
     setUploadingFieldKey(field.key);
     setUploadStatus('');
@@ -2293,7 +2389,7 @@ function EnterpriseTemplateField({ field, onChange, onFileSelect, outputTypes, u
   const commonProps = {
     'aria-label': label,
     id: `enterprise-template-field-${field.key}`,
-    value: value ?? '',
+    value: textValue(value),
     onChange: (event) => onChange(event.target.value),
   };
   return (
@@ -2375,7 +2471,7 @@ function EnterpriseTemplateInput({ commonProps, field, onChange, onFileSelect, o
 
 async function uploadEnterpriseTemplateTextFiles({ field, files, template }) {
   const paths = await Promise.all(files.map(async (file, index) => {
-    const name = textValue(file?.name || file?.path) || `material-${index + 1}.txt`;
+    const name = firstText(file?.name, file?.path, `material-${index + 1}.txt`);
     const content = await readEnterpriseTemplateTextFile(file, name);
     const path = enterpriseMaterialUploadPath(template, field, name, index);
     const saved = await writeWorkflowMaterial({
@@ -2416,7 +2512,7 @@ function isReadableTextMaterial(file, name) {
 function enterpriseMaterialUploadPath(template, field, name, index) {
   const templateSlug = sanitizeSharedFileSegment(enterpriseTemplateId(template).replace(/\//g, '-')) || 'template';
   const fieldSlug = sanitizeSharedFileSegment(field?.key) || 'materials';
-  const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14) || String(Date.now());
+  const stamp = uniqueWorkflowMaterialStamp();
   const safeName = sanitizeSharedFileSegment(name) || `material-${index + 1}.txt`;
   return `${WORKFLOW_MATERIAL_UPLOAD_PREFIX}/${templateSlug}/${fieldSlug}/${stamp}-${index + 1}-${safeName}.md`;
 }
@@ -2445,7 +2541,7 @@ function materialFileExtension(name) {
 
 function EnterpriseTemplatePreview({ draft, template }) {
   const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
-  const finalOutput = objectValue(draft.final_output || draft.finalOutput || template?.final_output || template?.finalOutput);
+  const finalOutput = objectValue(firstPresent(draft.final_output, draft.finalOutput, template?.final_output, template?.finalOutput));
   return (
     <div className="enterprise-template-preview">
       <div className="enterprise-template-preview-head">
@@ -2458,11 +2554,11 @@ function EnterpriseTemplatePreview({ draft, template }) {
       <dl className="enterprise-template-preview-meta">
         <div>
           <dt>触发</dt>
-          <dd>{draft.trigger || 'manual'}</dd>
+          <dd>{firstText(draft.trigger, 'manual')}</dd>
         </div>
         <div>
           <dt>最终输出</dt>
-          <dd>{textValue(finalOutput.path_template || finalOutput.pathTemplate)}</dd>
+          <dd>{firstText(finalOutput.path_template, finalOutput.pathTemplate)}</dd>
         </div>
       </dl>
       <ol className="enterprise-template-preview-nodes">
@@ -2476,7 +2572,7 @@ function EnterpriseTemplatePreview({ draft, template }) {
                 <strong>{enterpriseNodeTitle(node)}</strong>
                 <span>{textValue(node.node_type || node.nodeType)} · {textValue(node.assigned_to || node.assignedTo)}</span>
               </div>
-              <em>{(node.depends_on || node.dependsOn || []).length ? `依赖 ${(node.depends_on || node.dependsOn).join('、')}` : '起始节点'}</em>
+              <em>{enterpriseNodeDependencies(node).length ? `依赖 ${enterpriseNodeDependencies(node).join('、')}` : '起始节点'}</em>
               {isReview ? <b>复核</b> : null}
               {isFinal ? <b>最终</b> : null}
             </li>
@@ -2942,11 +3038,11 @@ function workflowStageNodeView(node, depth) {
   const ui = objectValue(config.ui);
   const outputs = workflowStageOutputPaths(ui, config);
   const skills = listFromMaybe(ui.skills);
-  const inputSources = listFromMaybe(ui.input_sources || ui.inputSources);
-  const executionMode = textValue(ui.execution_mode || ui.executionMode).toLowerCase();
+  const inputSources = listFromMaybe(firstPresent(ui.input_sources, ui.inputSources));
+  const executionMode = firstText(ui.execution_mode, ui.executionMode).toLowerCase();
   return {
-    nodeKey: textValue(node?.nodeKey) || `stage-node:${depth}`,
-    title: textValue(node?.title || ui.stage_title || ui.stageTitle || node?.nodeKey) || `阶段 ${depth + 1}`,
+    nodeKey: firstText(node?.nodeKey, `stage-node:${depth}`),
+    title: firstText(node?.title, ui.stage_title, ui.stageTitle, node?.nodeKey, `阶段 ${depth + 1}`),
     status: textValue(node?.status),
     statusKind: workflowStageStatusKind(node?.status),
     stageTitle: firstText(ui.stage_title, ui.stageTitle, node?.title, node?.nodeKey, `阶段 ${depth + 1}`),
@@ -2988,7 +3084,7 @@ function workflowStageOutputPaths(ui, config) {
   const sharedfilePath = textValue(toSharedfile.path);
   if (sharedfilePath) paths.push(sharedfilePath);
   const toArtifact = objectValue(outputs.to_artifact);
-  const artifactPath = textValue(toArtifact.path_template || toArtifact.pathTemplate || toArtifact.path);
+  const artifactPath = firstText(toArtifact.path_template, toArtifact.pathTemplate, toArtifact.path);
   if (artifactPath) paths.push(artifactPath);
   return [...new Set(paths)];
 }
@@ -2999,7 +3095,7 @@ function workflowStageFallbackOperation(node, config) {
   const outputPath = textValue(toSharedfile.path);
   if (outputPath) return `该节点按配置生成材料并写入 ${outputPath}。`;
   const toArtifact = objectValue(outputs.to_artifact);
-  const artifactPath = textValue(toArtifact.path_template || toArtifact.pathTemplate || toArtifact.path);
+  const artifactPath = firstText(toArtifact.path_template, toArtifact.pathTemplate, toArtifact.path);
   if (artifactPath) return `该节点按配置生成最终产物并写入 ${artifactPath}。`;
   return '该节点尚未声明悬停说明，前端根据节点标题和状态展示保守说明。';
 }
@@ -3010,7 +3106,7 @@ function workflowStageFallbackModelAction(node, config) {
   const commandRef = firstText(exec.command_ref, exec.commandRef, exec.automation?.command_ref, exec.automation?.commandRef);
   if (promptKey) return `使用已发现的 prompt ${promptKey} 处理该阶段输入。`;
   if (commandRef) return `调用已发现的 command_card ${commandRef} 执行该阶段自动化。`;
-  return `处理 ${node?.title || node?.nodeKey || '当前阶段'} 的输入并产出阶段结果。`;
+  return `处理 ${firstText(node?.title, node?.nodeKey, '当前阶段')} 的输入并产出阶段结果。`;
 }
 
 function workflowStageDependencyText(node) {
@@ -3152,10 +3248,10 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
 }
 
 function useDagNodeEditorState(nodes) {
-  const [activeNodeKey, setActiveNodeKeyState] = useState(nodes[0]?.nodeKey || '');
+  const [activeNodeKey, setActiveNodeKeyState] = useState(firstText(nodes[0]?.nodeKey));
   const effectiveActiveNodeKey = nodes.some((node) => node.nodeKey === activeNodeKey)
     ? activeNodeKey
-    : nodes[0]?.nodeKey || '';
+    : firstText(nodes[0]?.nodeKey);
   const activeNode = useMemo(
     () => nodes.find((node) => node.nodeKey === effectiveActiveNodeKey) || nodes[0] || null,
     [effectiveActiveNodeKey, nodes],
@@ -3172,7 +3268,7 @@ function useDagNodeEditorState(nodes) {
   }, []);
   const setActiveNodeKey = useCallback((nodeKey) => {
     const nextNode = nodes.find((node) => node.nodeKey === nodeKey) || nodes[0] || null;
-    setActiveNodeKeyState(nextNode?.nodeKey || '');
+    setActiveNodeKeyState(firstText(nextNode?.nodeKey));
     setForm(dagNodeFormFromNode(nextNode));
   }, [nodes]);
   const modelOptions = form.execProvider ? appendCurrentModelOption(form.execProvider, form.execModel) : [];
@@ -3298,7 +3394,7 @@ function dagScheduleFields(schedule) {
     time: schedule.time,
     weekday: schedule.weekday,
     monthDay: schedule.monthDay,
-    inputError: schedule.warning || '',
+    inputError: textValue(schedule.warning),
   };
 }
 

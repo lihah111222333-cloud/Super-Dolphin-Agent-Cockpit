@@ -1,9 +1,10 @@
+import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, parseOptionalTimestamp } from './contractStoreModel.js';
 // @ts-check
 
 export const THREAD_MESSAGES_PAGE_SIZE = 300;
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function hasOwn(value, key) {
@@ -37,11 +38,11 @@ function oldestThreadMessageCursor(messages) {
   if (ids.length > 0) return String(Math.min(...ids));
 
   const timestamps = messages
-    .map((message) => normalizeString(message?.createdAt || message?.created_at))
-    .map((raw) => ({ raw, timestamp: Date.parse(raw) }))
+    .map((message) => normalizeString(firstOptionalPresent(message?.createdAt, message?.created_at)))
+    .map((raw) => ({ raw, timestamp: parseOptionalTimestamp(raw) }))
     .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
     .sort((left, right) => left.timestamp - right.timestamp);
-  return timestamps[0]?.raw || '';
+  return timestamps[0]?.raw || optionalTextField();
 }
 
 export function messagePageParams(id, before) {
@@ -54,7 +55,7 @@ export function normalizeThreadMessagesPageMeta(res, page) {
   const hasMore = backendHasMore
     ? normalizeThreadMessagesBoolean(res.hasMore ?? res.has_more)
     : (normalizeThreadMessagesTotal(res?.total) ?? page.length) > page.length || page.length >= THREAD_MESSAGES_PAGE_SIZE;
-  const nextBefore = normalizeString(res?.nextBefore || res?.next_before);
+  const nextBefore = normalizeString(firstOptionalPresent(res?.nextBefore, res?.next_before));
   return {
     hasMore,
     nextBefore: hasMore ? nextBefore || (backendHasMore ? '' : oldestThreadMessageCursor(page)) : '',

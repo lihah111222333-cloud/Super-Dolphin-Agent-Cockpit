@@ -1,9 +1,13 @@
+import { firstOptionalPresent } from './contractStoreModel.js';
 import {
   buildSeedInstructionsFromSummary,
   extractTimelineSummary,
-  FORK_KICKOFF_PROMPT,
-} from './threadFork.js';
+  FORK_KICKOFF_PROMPT } from './threadFork.js';
 import { markForkKickoffFailedState } from './threadForkState.js';
+
+function optionalUiArray() {
+  return [];
+}
 
 /*
  * fork slice 从当前对话创建继承会话。
@@ -40,7 +44,7 @@ export function createForkSlice(runtime, deps) {
         runtime.notifyAction('当前没有可继承的后端会话', 'warning');
         return false;
       }
-      const seedSharedFilePath = normalizeString(options?.sharedFilePath || options?.seedSharedFilePath);
+      const seedSharedFilePath = normalizeString(firstOptionalPresent(options?.sharedFilePath, options?.seedSharedFilePath));
       const thread = forkSourceThread(state, sourceThreadId);
       const sourceTitle = forkSourceTitle(thread, sourceThreadId);
       const cachedFiles = cachedForkSharedFiles(state);
@@ -63,7 +67,7 @@ export function createForkSlice(runtime, deps) {
         const availableSharedFiles = normalizeForkSharedFiles(response);
         runtime.set((latest) => {
           if (latest.forkDraft.sourceThreadId !== sourceThreadId) return {};
-          const selectedPaths = latest.forkDraft.sharedFilePaths || [];
+          const selectedPaths = latest.forkDraft.sharedFilePaths || optionalUiArray();
           const selected = new Set(selectedPaths);
           const mergedSharedFiles = mergeForkSharedFilesWithSelected(availableSharedFiles, selectedPaths);
           return {
@@ -105,7 +109,7 @@ export function createForkSlice(runtime, deps) {
       const target = normalizeString(path);
       if (!target) return false;
       runtime.set((state) => {
-        const selected = new Set(state.forkDraft.sharedFilePaths || []);
+        const selected = new Set(state.forkDraft.sharedFilePaths || optionalUiArray());
         if (selected.has(target)) selected.delete(target);
         else selected.add(target);
         return {
@@ -139,7 +143,7 @@ export function createForkSlice(runtime, deps) {
         const latest = runtime.get();
         const sourceThread = forkSourceThread(latest, sourceThreadId);
         const sourceTitle = draft.sourceTitle || forkSourceTitle(sourceThread, sourceThreadId);
-        const summary = extractTimelineSummary(latest.timelinesByThread?.[sourceThreadId] || []);
+        const summary = extractTimelineSummary(latest.timelinesByThread?.[sourceThreadId] || optionalUiArray());
         const sharedFiles = await loadForkSharedFiles(latest.forkDraft.sharedFilePaths);
         if (!summary && sharedFiles.length === 0) {
           throw new Error('当前会话没有可用上下文，且未选择共享文件，无法创建继承对话。');

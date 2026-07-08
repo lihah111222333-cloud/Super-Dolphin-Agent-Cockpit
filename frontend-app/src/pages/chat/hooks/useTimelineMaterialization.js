@@ -4,7 +4,8 @@ const TIMELINE_INITIAL_MATERIALIZED_MESSAGES = 80;
 const TIMELINE_MATERIALIZATION_INCREMENT = 80;
 
 function timelineMaterializationKey({ activeThreadId, introMode, timelineContentBlocked }) {
-  return `${activeThreadId || ''}:${introMode ? 'intro' : 'thread'}:${timelineContentBlocked ? 'blocked' : 'ready'}`;
+  const threadId = activeThreadId === null || activeThreadId === undefined ? '' : activeThreadId;
+  return `${threadId}:${introMode ? 'intro' : 'thread'}:${timelineContentBlocked ? 'blocked' : 'ready'}`;
 }
 
 function useTimelineMaterialization({ activeThreadId, introMode, messages, timelineContentBlocked }) {

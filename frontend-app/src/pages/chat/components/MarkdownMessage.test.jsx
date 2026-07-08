@@ -59,6 +59,32 @@ describe('MarkdownMessage', () => {
     }));
   });
 
+  it('keeps malformed directive citations visible without opening missing files', () => {
+    const onFileRef = vi.fn();
+
+    render(
+      <MessageContent
+        text={'Broken citation: :codex-file-citation[]{line_range_start="7"}'}
+        actions={{ onFileRef }}
+      />,
+    );
+
+    expect(screen.getByText(/Broken citation:/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /line 7/ })).not.toBeInTheDocument();
+    expect(onFileRef).not.toHaveBeenCalled();
+  });
+
+  it('renders invalid fenced JSON snippets as visible parse errors', () => {
+    const { container } = render(
+      <MessageContent text={'```json\n{"ok": true,\n```'} />,
+    );
+
+    const output = container.querySelector('[data-output-kind="json-error"]');
+    expect(output).not.toBeNull();
+    expect(output).toHaveTextContent('Invalid JSON:');
+    expect(output).toHaveTextContent('{"ok": true,');
+  });
+
   it('renders code preview markdown without the message wrapper', () => {
     const { container } = render(
       <div className="message-markdown">

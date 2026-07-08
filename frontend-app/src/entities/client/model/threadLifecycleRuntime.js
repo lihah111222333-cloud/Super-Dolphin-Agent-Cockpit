@@ -1,3 +1,4 @@
+import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField } from './contractStoreModel.js';
 export function attachActiveThreadRpcRuntime(runtime, deps) {
   const {
     activeThreadInterruptTarget,
@@ -9,7 +10,7 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
   // 中断接口明确返回 ok:false 时必须带诊断，否则按桥接异常处理。
   const interruptFailureMessage = (result) => {
     for (const value of [result?.error, result?.message, result?.reason, result?.status, result?.mode]) {
-      const message = (value || '').toString().trim();
+      const message = normalizeOptionalTextField(value);
       if (message) return message;
     }
     throw new Error('thread.interrupt ok:false response message is required');
@@ -51,7 +52,7 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
         return false;
       }
       if (action === 'thread.force_complete' && (result?.ok === false || result?.forceCompleted === false)) {
-        const message = (result?.error || result?.message || result?.errorCode || 'force complete target not found').toString().trim();
+        const message = optionalTextField(firstOptionalPresent(result?.error, result?.message, result?.errorCode, 'force complete target not found')).trim();
         if (!message) throw new Error('thread.force_complete ok:false response message is required');
         notifyAction(`${actionLabels[action]}失败：${message}`, 'warning', { threadId, error: message });
         addWarning('warn', `${action}.failed`, { threadId, error: message });

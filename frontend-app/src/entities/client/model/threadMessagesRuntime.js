@@ -1,18 +1,24 @@
+import { optionalTextField, normalizeOptionalTextField, systemClockMillis } from './contractStoreModel.js';
+function optionalUiArray() {
+  return [];
+}
+
+function optionalUiObject() {
+  return {};
+}
+
 // @ts-check
 
 import {
   isVisibleTimelineItem,
-  mergeTimelineItems,
-} from './timelineRuntime.js';
+  mergeTimelineItems } from './timelineRuntime.js';
 import {
-  normalizeThreadMessageItems,
-} from './threadHistoryTimeline.js';
+  normalizeThreadMessageItems } from './threadHistoryTimeline.js';
 import {
   messagePageParams,
   normalizeThreadMessagesPageMeta,
   threadMessagesPaginationPatch,
-  THREAD_MESSAGES_PAGE_SIZE,
-} from './threadMessagesPagination.js';
+  THREAD_MESSAGES_PAGE_SIZE } from './threadMessagesPagination.js';
 
 /**
  * @typedef {{
@@ -27,7 +33,7 @@ import {
  */
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function cleanObject(payload) {
@@ -38,13 +44,13 @@ function cleanObject(payload) {
 
 export function markThreadMessagesReadyPatch(state, id) {
   const timelineWasReady = Boolean(state.threadTimelineReadyByThread?.[id]);
-  const currentItems = state.timelinesByThread[id] || [];
+  const currentItems = state.timelinesByThread[id] || optionalUiArray();
   const hasActiveItems = currentItems.some((item) => item.done === false || item.optimistic);
   const preserve = timelineWasReady || hasActiveItems;
   return {
     timelinesByThread: {
       ...state.timelinesByThread,
-      [id]: mergeTimelineItems(state.timelinesByThread[id] || [], [], { preserveExistingVisible: preserve }),
+      [id]: mergeTimelineItems(state.timelinesByThread[id] || optionalUiArray(), [], { preserveExistingVisible: preserve }),
     },
     threadTimelineReadyByThread: {
       ...state.threadTimelineReadyByThread,
@@ -56,7 +62,7 @@ export function markThreadMessagesReadyPatch(state, id) {
 export function applyThreadHistoryFallbackPatch(state, id, fallbackItems) {
   const items = Array.isArray(fallbackItems) ? fallbackItems.filter(isVisibleTimelineItem) : [];
   if (items.length === 0) return null;
-  const existing = state.timelinesByThread[id] || [];
+  const existing = state.timelinesByThread[id] || optionalUiArray();
   const nextTimeline = existing.some(isVisibleTimelineItem)
     ? existing
     : mergeTimelineItems(existing, items, { preserveExistingVisible: true });
@@ -87,7 +93,7 @@ export function threadHistoryInitialPageTracePayload(id, page, status, error) {
     next_before: page?.meta?.nextBefore ? 'present' : '',
     duration_ms: page?.durationMs,
     status,
-    error_name: error?.name || '',
+    error_name: error?.name || optionalTextField(),
   });
 }
 
@@ -95,7 +101,7 @@ export function applyThreadMessageItemsPatch(state, id, pageItems, pageMeta = {}
   return {
     timelinesByThread: {
       ...state.timelinesByThread,
-      [id]: mergeTimelineItems(state.timelinesByThread[id] || [], pageItems, { preserveExistingVisible: true }),
+      [id]: mergeTimelineItems(state.timelinesByThread[id] || optionalUiArray(), pageItems, { preserveExistingVisible: true }),
     },
     threadTimelineReadyByThread: {
       ...state.threadTimelineReadyByThread,
@@ -112,7 +118,7 @@ export function applyThreadMessageItemsPatch(state, id, pageItems, pageMeta = {}
 /**
  * @param {ThreadMessageFetcherDeps} [deps]
  */
-export function createThreadMessagePageFetcher({ getThreadMessages, nowMillis = () => Date.now() } = {}) {
+export function createThreadMessagePageFetcher({ getThreadMessages, nowMillis = () => systemClockMillis() } = {}) {
   if (typeof getThreadMessages !== 'function') throw new Error('getThreadMessages is required');
   return async function fetchThreadMessagePage(id, before = '') {
     const startedAt = nowMillis();
@@ -228,7 +234,7 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
     const loadOptions = options && typeof options === 'object' ? options : {};
     const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
     if (!id) return false;
-    const pagination = get().threadMessagePaginationByThread?.[id] || {};
+    const pagination = get().threadMessagePaginationByThread?.[id] || optionalUiObject();
     if (pagination.loading) return false;
     if (!pagination.hasMore) return false;
     const before = normalizeString(pagination.nextBefore);

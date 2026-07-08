@@ -1,3 +1,4 @@
+import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp, parseOptionalTimestamp } from './contractStoreModel.js';
 // @ts-check
 
 import { RUNTIME_TOOL_TERMINAL_STATUSES } from './runtimeResults.js';
@@ -22,7 +23,7 @@ const MESSAGE_LIFECYCLE_ITEM_TYPES = new Set(['message', 'usermessage', 'user_me
 const GENERIC_COMMAND_TITLES = new Set(['command', 'execute command', 'running command', '执行命令', '命令', '终端命令']);
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function objectRecord(value) {
@@ -59,7 +60,7 @@ function normalizeTimestamp(value) {
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
-  const parsed = Date.parse(sanitized);
+  const parsed = parseOptionalTimestamp(sanitized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
@@ -131,7 +132,7 @@ export function normalizeTimelineItem(item) {
   const userText = normalizedRole === 'user' ? normalizeUserTimelineText(rawText) : { text: rawText, controlOnly: false };
   const status = normalizeString(item?.status);
   return {
-    id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${Date.now()}`,
+    id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${systemClockMillis()}`,
     role: normalizedRole,
     kind: normalizedKind,
     text: userText.text,
@@ -140,9 +141,9 @@ export function normalizeTimelineItem(item) {
     callId: normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
     requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
     command: normalizeString(item?.command),
-    toolName: normalizeString(item?.tool || item?.toolName || item?.tool_name),
+    toolName: normalizeString(firstOptionalPresent(item?.tool, item?.toolName, item?.tool_name)),
     status,
-    time: normalizeString(firstFieldValue(item, TIMELINE_TIME_KEYS)) || new Date().toISOString(),
+    time: normalizeString(firstFieldValue(item, TIMELINE_TIME_KEYS)) || currentIsoTimestamp(),
     completedAt: normalizeString(firstFieldValue(item, TIMELINE_COMPLETED_KEYS)),
     done: normalizeTimelineDone(item, status),
     optimistic: Boolean(item?.optimistic),
@@ -185,7 +186,7 @@ function timelineItemTextLength(item) {
 }
 
 function timelineItemSortTime(item) {
-  return normalizeTimestamp(item?.completedAt || item?.time);
+  return normalizeTimestamp(firstOptionalPresent(item?.completedAt, item?.time));
 }
 
 function preferredLifecycleTimelineItem(existingItem, incomingItem) {
@@ -230,7 +231,7 @@ function mergeLifecycleTimelineItem(existingItem, incomingItem) {
     time: earlierTimelineTime(existingItem, incomingItem),
     completedAt: normalizeString(preferred?.completedAt) || normalizeString(fallback?.completedAt),
     done: normalizeTimelineDone(preferred, status),
-    elapsedMs: preferred?.elapsedMs ?? fallback?.elapsedMs,
+    elapsedMs: firstOptionalPresent(preferred?.elapsedMs, fallback?.elapsedMs),
   };
 }
 
@@ -342,12 +343,12 @@ function isMessageLifecycleTimelineItem(item) {
 }
 
 function isToolBackedCommandTimelineItem(item) {
-  return Boolean(normalizeString(item?.tool || item?.toolName || item?.tool_name));
+  return Boolean(normalizeString(firstOptionalPresent(item?.tool, item?.toolName, item?.tool_name)));
 }
 
 function isMeaningfulCommandTimelineItem(item) {
   if (normalizeString(item?.command)) return true;
-  if (normalizeString(item?.text || item?.output || item?.error)) return true;
+  if (normalizeString(firstOptionalPresent(item?.text, item?.output, item?.error))) return true;
   const title = normalizeString(item?.title).trim();
   return Boolean(title.startsWith('$ ') && !GENERIC_COMMAND_TITLES.has(title.toLowerCase()));
 }
@@ -371,7 +372,7 @@ export function isVisibleTimelineItem(item) {
 }
 
 export function preferredAssistantTimelineItem(existingItem, incomingItem) {
-  const isRuntime = Boolean(existingItem?.runtime || incomingItem?.runtime);
+  const isRuntime = Boolean(firstOptionalPresent(existingItem?.runtime, incomingItem?.runtime));
   if (existingItem?.runtime !== incomingItem?.runtime) {
     const base = incomingItem?.runtime ? existingItem : incomingItem;
     return isRuntime ? { ...base, runtime: true } : base;
@@ -450,7 +451,7 @@ function areTimelineItemsEquivalent(left, right) {
   if (left.role !== right.role) return false;
   if (left.kind !== right.kind) return false;
 
-  const normText = (val) => (val || '').toString().trim();
+  const normText = (val) => optionalTextField(val).trim();
   if (normText(left.text) !== normText(right.text)) return false;
   if (normText(left.status) !== normText(right.status)) return false;
   if (normText(left.completedAt) !== normText(right.completedAt)) return false;

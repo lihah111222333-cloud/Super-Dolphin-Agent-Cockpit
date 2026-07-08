@@ -26,7 +26,7 @@ function WorkflowConfigDiagnosticPanel({ nodes }) {
       {rows.length === 0 ? <p>暂无配置错误</p> : (
         <div className="workflow-diagnostic-list">
           {rows.map((row) => (
-            <article className={`workflow-diagnostic-row ${row.severity || ''}`} key={row.key}>
+            <article className={workflowDiagnosticRowClass(row.severity)} key={row.key}>
               <strong>{row.title}</strong>
               <span>{row.message}</span>
             </article>
@@ -56,7 +56,7 @@ function WorkflowDiagnosticRow({ diagnostic, model }) {
   const canDispatch = diagnostic.recovery === 'dispatch' && Boolean(derived.runId);
   const dispatching = actionState.dispatchingNodeKey === diagnostic.node?.nodeKey;
   return (
-    <article className={`workflow-diagnostic-row ${diagnostic.severity || ''}`}>
+    <article className={workflowDiagnosticRowClass(diagnostic.severity)}>
       <strong>{diagnostic.title}</strong>
       <span>{diagnostic.message}</span>
       {diagnostic.recovery === 'dispatch' ? (
@@ -72,6 +72,11 @@ function WorkflowDiagnosticRow({ diagnostic, model }) {
       ) : null}
     </article>
   );
+}
+
+function workflowDiagnosticRowClass(severity) {
+  const value = textValue(severity);
+  return value ? `workflow-diagnostic-row ${value}` : 'workflow-diagnostic-row';
 }
 
 function WorkflowTopologyPanel({ nodes }) {

@@ -1,13 +1,21 @@
-import { normalizeMessageText } from './markdownMessageModel.js';
+import {
+  currentTimestampMs,
+  firstText,
+  isoTimestampFromMs,
+  normalizeMessageText,
+  parseTimestampMs,
+  textValue,
+  trimmedText,
+} from './markdownMessageModel.js';
 
 function isReasoningMessage(message) {
-  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  const kind = trimmedText(message?.kind).toLowerCase();
   return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process' || kind === 'plan';
 }
 
 function reasoningTitle(message) {
-  const kind = (message?.kind || '').toString().trim().toLowerCase();
-  const title = (message?.title || '').toString().trim();
+  const kind = trimmedText(message?.kind).toLowerCase();
+  const title = trimmedText(message?.title);
   if (title) return title;
   if (kind === 'plan') return '执行计划';
   if (kind === 'tool') return '调用工具';
@@ -16,7 +24,7 @@ function reasoningTitle(message) {
 }
 
 function reasoningKindMeta(message = {}) {
-  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  const kind = trimmedText(message?.kind).toLowerCase();
   if (kind === 'tool') return { label: '工具', tone: 'tool' };
   if (kind === 'command') return { label: '命令', tone: 'command' };
   if (kind === 'plan') return { label: '计划', tone: 'plan' };
@@ -25,7 +33,7 @@ function reasoningKindMeta(message = {}) {
 }
 
 function reasoningStepDescription(message = {}) {
-  const body = (message?.text || '').toString().trim();
+  const body = trimmedText(message?.text);
   if (body) return body;
   const meta = reasoningKindMeta(message);
   if (meta.tone === 'plan') return '正在罗列执行计划并同步进度。';
@@ -53,11 +61,11 @@ function parsePlanItems(text) {
     const line = rawLine.trim();
     const match = line.match(/^([✅☑✓✔🔄⏳○◯☐❌])?\s*(?:[-*]|\d+[.)])\s*(?:\[([ xX])\]\s*)?(.+)$/u);
     if (!match) continue;
-    const label = (match[3] || '').trim();
+    const label = textValue(match[3]).trim();
     if (!label || /^plan$/i.test(label)) continue;
     items.push({
       text: label,
-      done: match[1] ? statusMarkers[match[1]] === true : (match[2] || '').toLowerCase() === 'x',
+      done: match[1] ? statusMarkers[match[1]] === true : textValue(match[2]).toLowerCase() === 'x',
     });
   }
   return items;
@@ -73,15 +81,12 @@ function numericTextTimestampMs(text) {
   return positiveTimestampNumber(Number(text));
 }
 
-function parsedDateTimestampMs(text) {
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
 function timestampMs(value) {
   if (typeof value === 'number') return positiveTimestampNumber(value);
-  const text = (value || '').toString().trim();
-  return numericTextTimestampMs(text) || parsedDateTimestampMs(text);
+  const text = trimmedText(value);
+  const numeric = numericTextTimestampMs(text);
+  if (numeric) return numeric;
+  return parseTimestampMs(text);
 }
 
 function durationLabelFromMs(ms, options = {}) {
@@ -96,7 +101,7 @@ function durationLabelFromMs(ms, options = {}) {
 function syntheticReasoningMessage({ activeTurn, sending, isBusy, fallbackStartTime }) {
   if (!activeTurn && !sending && !isBusy) return null;
   const turnId = activeTurn?.id;
-  const defaultStartTime = fallbackStartTime || new Date().toISOString();
+  const defaultStartTime = firstText(fallbackStartTime, isoTimestampFromMs(currentTimestampMs()));
   if (!turnId) {
     return {
       id: 'thinking-sending',
@@ -116,7 +121,7 @@ function syntheticReasoningMessage({ activeTurn, sending, isBusy, fallbackStartT
     kind: 'thinking',
     title: '正在处理请求',
     text: '',
-    time: activeTurn?.startedAt || defaultStartTime,
+    time: firstText(activeTurn?.startedAt, defaultStartTime),
     done: false,
   };
 }
