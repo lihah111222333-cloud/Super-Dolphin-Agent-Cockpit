@@ -141,9 +141,17 @@ type DispatchNodeInput struct {
 	AssignedTo string `json:"assigned_to"`
 }
 
+type taskNodeStatusUpdater interface {
+	UpdateNodeStatus(ctx context.Context, req contract.UpdateNodeStatusRequest) (contract.DAGNode, error)
+}
+
+type taskNodeDispatcher interface {
+	DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
+}
+
 // HandleCreateDAG 将工具入参归一化后创建 DAG 模板。
 // agent_id 以调用作用域为准，拒绝让外部 JSON 伪造创建者身份。
-func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
+func HandleCreateDAG(svc contract.DAGCreateRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
 		req, err := createDAGRequestFromInput(in, trustedAgentID(ctx))
 		if err != nil {
@@ -180,7 +188,7 @@ func trustedAgentID(ctx context.Context) string {
 
 // HandleGetDAG 解析兼容定位符并读取 DAG 模板。
 // 解析失败会停在工具层，避免空 dag_key 落到服务层产生模糊错误。
-func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
+func HandleGetDAG(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DAGKeyInput) (any, error) {
 		dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 		if err != nil {
@@ -192,7 +200,7 @@ func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 
 // HandleListDAGs 校验列表过滤条件并返回兼容分页对象。
 // status 不允许静默透传未知值，防止工具描述和运行时结果分叉。
-func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
+func HandleListDAGs(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
 		filter, err := listDAGsFilterFromInput(in)
 		if err != nil {
@@ -208,7 +216,7 @@ func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
 
 // HandleUpdateNode 更新某次运行中的节点状态。
 // run_id 是运行时边界，done/failed 会触发后续调度或失败级联，不能当作模板状态更新。
-func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
+func HandleUpdateNode(svc taskNodeStatusUpdater) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in UpdateNodeInput) (any, error) {
 		req, err := updateNodeRequestFromInput(in)
 		if err != nil {
@@ -220,7 +228,7 @@ func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 
 // HandleDispatchNode 是单节点派发入口：补 assigned_to 后入队 wakeup。
 // 它只推进 pending/ready 的运行时节点，不启动整张 DAG；store 未接线或节点不可派发时会返回中英双语阻断错误。
-func HandleDispatchNode(svc contract.OrchestrationService) ToolHandler {
+func HandleDispatchNode(svc taskNodeDispatcher) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DispatchNodeInput) (any, error) {
 		req, err := dispatchNodeRequestFromInput(in)
 		if err != nil {
@@ -322,7 +330,7 @@ type ApplyOpsInput struct {
 
 // HandleListRuns 返回运行列表的包装对象。
 // list 路径没有业务哨兵错误，DAG 未命中时保持空 slice；其他错误由通用工具错误转换处理。
-func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
+func HandleListRuns(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListRunsInput) (any, error) {
 		req, err := listRunsRequestFromInput(in)
 		if err != nil {
@@ -409,7 +417,7 @@ func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error
 //     方便 AI agent 决策是否换 idempotency_key 重试。
 //   - ErrDAGAlreadyRunning → 中英双语提示。
 //   - ErrDAGNotFound → 中英双语提示 + 提示先调 task_create_dag。
-func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
+func HandleStartDAG(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
 		req, err := startDAGRequestFromInput(in)
 		if err != nil {
@@ -425,7 +433,7 @@ func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 
 // HandleTerminateDAG 终止指定 DAG run。
 // 终止错误会在工具层翻译成可操作提示，避免调用方把状态冲突误当作瞬时失败重试。
-func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
+func HandleTerminateDAG(svc contract.DAGRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in TerminateDAGInput) (any, error) {
 		req, err := terminateDAGRequestFromInput(in)
 		if err != nil {
@@ -440,7 +448,7 @@ func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
 
 // HandleDeleteDAG 删除 DAG 模板。
 // 删除前只解析定位符，运行状态和引用约束由服务层统一判定。
-func HandleDeleteDAG(svc contract.OrchestrationService) ToolHandler {
+func HandleDeleteDAG(svc contract.DAGDeleteRuntime) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DeleteDAGInput) (any, error) {
 		dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 		if err != nil {
