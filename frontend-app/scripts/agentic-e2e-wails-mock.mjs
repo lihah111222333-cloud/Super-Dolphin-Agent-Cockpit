@@ -23,6 +23,15 @@ export async function installAgenticE2EMockWails(page, options = {}) {
         ts: '2026-07-04T00:00:00Z',
       }],
     };
+    const allowedProviderPreferenceKeys = new Set([
+      'settings.provider.codex.personality',
+      'settings.provider.codex.sandbox',
+      'settings.provider.codex.model',
+      'settings.provider.codex.effort',
+      'settings.provider.codex.codexHome',
+      'settings.provider.codex.codexInstanceKey',
+    ]);
+    const allowedPreferencePayloadFields = new Set(['cwd', 'key', 'value']);
     window.__AGENTIC_E2E_MOCK_WAILS__ = state;
 
     class StrictMockWebSocket {
@@ -117,6 +126,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (method === 'ui/windowBootstrap/get') return { snapshot: null };
       if (method === 'ui/preferences/get') return preferenceFor(params);
       if (method === 'ui/preferences/getAll') return { preferences: {} };
+      if (method === 'ui/preferences/set') return savePreference(params, method);
       if (method === 'ui/projects/get') return projectList();
       if (method === 'ui/selectProjectDir') return selectProjectDir(params);
       if (method === 'ui/selectFiles') return { paths: [sandboxConfig.uploadFile] };
@@ -194,6 +204,72 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     function startTurn(params = {}, method) {
       assertSandboxPath(method, params.cwd);
       return { turn_id: 'turn-agentic-e2e' };
+    }
+
+    function savePreference(params = {}, method) {
+      assertPreferencePayloadShape(params, method);
+      const cwd = String(params.cwd || '');
+      const key = String(params.key || '');
+      if (!cwd) throw new Error(`${method} cwd is required`);
+      assertSandboxPath(method, cwd);
+      if (!allowedProviderPreferenceKeys.has(key)) throw new Error(`${method} unsupported settings preference key: ${key}`);
+      if (!Object.prototype.hasOwnProperty.call(params, 'value')) throw new Error(`${method} value is required`);
+      const summary = sanitizedPreferenceWrite(method, key, params.value);
+      state.settingsWrites.push({
+        method,
+        key,
+        cwd: 'sandbox',
+        ...summary,
+      });
+      return { ok: true };
+    }
+
+    function assertPreferencePayloadShape(params, method) {
+      for (const field of Object.keys(params || {})) {
+        if (!allowedPreferencePayloadFields.has(field)) {
+          throw new Error(`${method} unsupported preference payload field: ${field}`);
+        }
+      }
+    }
+
+    function sanitizedPreferenceWrite(method, key, value) {
+      if (key === 'settings.provider.codex.codexHome') {
+        assertSandboxPath(method, value);
+        return { valueType: 'path', path: 'sandbox' };
+      }
+      if (key === 'settings.provider.codex.sandbox') return sanitizedSandboxPreference(method, value);
+      if (key === 'settings.provider.codex.codexInstanceKey') return { valueType: 'string', value: sanitizedScalar(value) };
+      if (key === 'settings.provider.codex.personality') return { valueType: 'string', value: sanitizedScalar(value) };
+      if (key === 'settings.provider.codex.model') return { valueType: 'string', value: sanitizedScalar(value) };
+      if (key === 'settings.provider.codex.effort') return { valueType: 'string', value: sanitizedScalar(value) };
+      throw new Error(`${method} unsupported settings preference key: ${key}`);
+    }
+
+    function sanitizedSandboxPreference(method, value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${method} sandbox preference must be an object`);
+      }
+      const type = String(value.type || '');
+      if (!['workspaceWrite', 'readOnly', 'dangerFullAccess'].includes(type)) {
+        throw new Error(`${method} unsupported sandbox policy: ${type}`);
+      }
+      const writableRoots = Array.isArray(value.writableRoots) ? value.writableRoots : [];
+      const readableRoots = Array.isArray(value.readableRoots) ? value.readableRoots : [];
+      for (const root of [...writableRoots, ...readableRoots]) assertSandboxPath(method, root);
+      return {
+        valueType: 'object',
+        sandboxPolicy: type,
+        writableRoots: writableRoots.map(() => 'sandbox'),
+        readableRoots: readableRoots.map(() => 'sandbox'),
+        networkAccess: Boolean(value.networkAccess),
+        readOnlyMode: String(value.readOnlyMode || ''),
+      };
+    }
+
+    function sanitizedScalar(value) {
+      const text = String(value || '').trim();
+      if (/sk-[a-z0-9_-]{8,}/iu.test(text)) throw new Error('secret-like preference value must not be recorded');
+      return text;
     }
 
     function saveVideoApiKey(params = {}, method) {

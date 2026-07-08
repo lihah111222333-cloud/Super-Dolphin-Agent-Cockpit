@@ -919,6 +919,91 @@ describe('agentic e2e strict Wails mock', () => {
       await browser.close();
     }
   });
+
+  it('records sandbox-scoped provider preference writes without leaking raw paths', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const sandbox = sandboxFixture('/tmp/agentic-e2e-preferences');
+      await installAgenticE2EMockWails(page, { sandbox });
+      await page.goto('data:text/html,<main>mock</main>');
+
+      await expect(callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.codexHome',
+        value: `${sandbox.homeDir}/.codex`,
+      })).resolves.toEqual(expect.objectContaining({ result: { ok: true } }));
+      await expect(callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.sandbox',
+        value: { type: 'workspaceWrite', writableRoots: [sandbox.projectDir], networkAccess: false },
+      })).resolves.toEqual(expect.objectContaining({ result: { ok: true } }));
+
+      const state = await readAgenticE2EMockWailsState(page);
+      expect(state.settingsWrites).toEqual([
+        expect.objectContaining({
+          method: 'ui/preferences/set',
+          key: 'settings.provider.codex.codexHome',
+          cwd: 'sandbox',
+          valueType: 'path',
+          path: 'sandbox',
+        }),
+        expect.objectContaining({
+          method: 'ui/preferences/set',
+          key: 'settings.provider.codex.sandbox',
+          cwd: 'sandbox',
+          valueType: 'object',
+          sandboxPolicy: 'workspaceWrite',
+          writableRoots: ['sandbox'],
+          networkAccess: false,
+        }),
+      ]);
+      expect(JSON.stringify(state.settingsWrites)).not.toContain(sandbox.rootDir);
+      expect(() => assertAgenticE2EMockWailsClean(state)).not.toThrow();
+    }
+    finally {
+      await browser.close();
+    }
+  });
+
+  it('fails provider preference writes for non-whitelisted keys and out-of-sandbox paths', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-guard');
+      await installAgenticE2EMockWails(page, { sandbox });
+      await page.goto('data:text/html,<main>mock</main>');
+
+      const unsupported = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.secretKey',
+        value: 'sk-live-secret',
+      });
+      expect(unsupported.error.message).toMatch(/unsupported settings preference key/);
+
+      const escaped = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.codexHome',
+        value: '/home/l4place/.codex',
+      });
+      expect(escaped.error.message).toMatch(/outside sandbox/);
+
+      const unexpected = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.model',
+        value: 'gpt-5',
+        secret: 'sk-live-secret',
+      });
+      expect(unexpected.error.message).toMatch(/unsupported preference payload field/);
+
+      const state = await readAgenticE2EMockWailsState(page);
+      expect(state.failures.map((failure) => failure.method)).toEqual(['ui/preferences/set', 'ui/preferences/set', 'ui/preferences/set']);
+      expect(() => assertAgenticE2EMockWailsClean(state)).toThrow(/ui\/preferences\/set/);
+    }
+    finally {
+      await browser.close();
+    }
+  });
 });
 
 async function callMockWailsRPC(page, method, params) {
