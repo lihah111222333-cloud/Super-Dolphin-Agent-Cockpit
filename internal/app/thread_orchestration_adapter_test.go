@@ -66,13 +66,15 @@ func TestBindSessionGenerationFailsForProductionWithoutBindingPort(t *testing.T)
 }
 
 func TestMCPOrchOrchestrationFacadeDependencyConfig(t *testing.T) {
-	t.Run("test_profile_typed_unsupported", func(t *testing.T) {
-		facade := &mcpOrchOrchestrationFacade{
-			dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
-		}
-		if !contract.AllowsMissingDependency("thread.bind_session_generation", contract.DependencyProfileTest) {
-			t.Fatal("shared policy does not allow test bind session generation absence")
-		}
+	profiles := bindSessionGenerationPolicyProfilesForTest()
+	if len(profiles) == 0 {
+		t.Fatal("shared thread.bind_session_generation dependency absence policies are empty")
+	}
+	for _, profile := range profiles {
+		t.Run(string(profile)+"_profile_typed_unsupported", func(t *testing.T) {
+			facade := &mcpOrchOrchestrationFacade{
+				dependency: contract.DependencyConfig{Profile: profile},
+			}
 
 			err := facade.BindSessionGeneration(context.Background(), "agent-1", 7)
 			if !contract.IsDependencyModeError(
