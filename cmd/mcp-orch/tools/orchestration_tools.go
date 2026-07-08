@@ -393,7 +393,7 @@ func releaseLaunchAgentID(agentID string) func() {
 }
 
 // HandleSendMessage 向已有 agent 提交文本 turn；wait_report=true 时只允许 idle 后续消息。
-func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
+func HandleSendMessage(svc sendMessagePort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
 		if sendMessageShouldWaitReport(in) {
 			return submitMessageAndWaitForReport(ctx, svc, in)
