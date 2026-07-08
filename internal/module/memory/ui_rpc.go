@@ -595,7 +595,7 @@ func deleteUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiShare
 	if path == "" {
 		return false, publicValidationErr("path is required")
 	}
-	if err := ensureSharedFileDeleteAllowed(ctx, sharedFileDeleteGuardRuntime(deps), path); err != nil {
+	if err := ensureSharedFileDeleteAllowed(ctx, deps.DAGRuntime, path); err != nil {
 		return false, err
 	}
 	count, err := deps.SharedFilesDeleter.Delete(ctx, path)
@@ -609,14 +609,6 @@ const (
 	sharedFileDeleteGuardDAGLimit int   = 500
 	sharedFileDeleteGuardRunLimit int32 = 100
 )
-
-// sharedFileDeleteGuardRuntime 选择可用的 DAG runtime，新接口优先，旧 orchestration 作为兼容入口。
-func sharedFileDeleteGuardRuntime(deps memoryHandlerDeps) contract.DAGRuntime {
-	if deps.DAGRuntime != nil {
-		return deps.DAGRuntime
-	}
-	return deps.Orchestration
-}
 
 // ensureSharedFileDeleteAllowed 执行 shared file 删除保护，runtime 缺失时阻断而不是放行删除。
 func ensureSharedFileDeleteAllowed(ctx context.Context, dagRuntime contract.DAGRuntime, path string) error {

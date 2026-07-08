@@ -179,7 +179,7 @@ internal/module/memory/memory_behavioral_guards_test.go	internal	modules	go-test
 internal/module/memory/module_drain_test.go	internal	modules	go-test	7117	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,drain,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/module_subscribers.go	internal	modules	go-source	8027	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,subscribers,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/module_test.go	internal	modules	go-test	12236	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/module.go	internal	modules	go-source	20962	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/module.go	internal	modules	go-source	20789	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/nested_ingest_worker_test.go	internal	modules	go-test	8055	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,nested,ingest,worker,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/nested_ingest_worker.go	internal	modules	go-source	6688	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,nested,ingest,worker,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/nested/claudemd_candidates.go	internal	modules	go-source	14550	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,nested,claudemd,candidates,canonical,管理,UI,RPC,与持久化接线
@@ -270,10 +270,10 @@ internal/module/memory/testdata/golden/integration/memory_prompt_rules.golden.js
 internal/module/memory/truncate.go	internal	modules	go-source	8161	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,truncate,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_delete_failure_unix_test.go	internal	modules	go-test	382	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,delete,failure,unix,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_delete_failure_windows_test.go	internal	modules	go-test	641	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,delete,failure,windows,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc_merge_shared_shard19_test.go	internal	modules	go-test	23541	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,shared,shard19,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	28946	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_merge_shared_shard19_test.go	internal	modules	go-test	23501	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,shared,shard19,test,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	28927	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_test.go	internal	modules	go-test	30309	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc.go	internal	modules	go-source	30619	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc.go	internal	modules	go-source	30313	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
 internal/module/notify/module.go	internal	modules	go-source	3180	业务模块层	internal,module,notify,业务模块层
 internal/module/observability/module.go	internal	modules	go-source	261	业务模块层	internal,module,observability,业务模块层
 internal/module/observability/rpc_test.go	internal	modules	go-test	23558	业务模块层	internal,module,observability,rpc,test,业务模块层
