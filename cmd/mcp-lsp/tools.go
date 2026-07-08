@@ -32,11 +32,11 @@ type toolDefinition struct {
 
 // lspToolManifests 是所有 LSP 工具的清单列表，顺序与对外暴露顺序一致。
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("file", "Read files, open them into LSP, or fetch diagnostics. Example: action=read_file pos=internal/foo.go:42 limit=40.", lspFileSchema),
+	toolManifestWithSchema("file", "Read files, open them into LSP, or fetch diagnostics. Diagnostics are an action on this tool, not a separate tool. Examples: action=read_file pos=internal/foo.go:42 limit=40; action=diagnostics file_path=internal/foo.go.", lspFileSchema),
 	toolManifestWithSchema("inspect", "Hover, definition, implementation, type_definition, or signature_help at a position. Example: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
 	toolManifestWithSchema("xref", "Find references, call hierarchy, or type hierarchy. Example: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
 	toolManifestWithOutputSchema("grep", "Search codebase by text or AST pattern. Example: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),
-	toolManifestWithSchema("structure", "List document or workspace symbols. Example: action=document_symbol file_path=internal/foo.go.", lspStructureSchema),
+	toolManifestWithSchema("structure", "List document symbols, workspace symbols, folding ranges, or semantic tokens. Examples: action=document_symbol file_path=internal/foo.go; action=workspace_symbol query=Handler language=go.", lspStructureSchema),
 	toolManifestWithSchema("edit", "Apply patch edits, LSP rename, code actions, or format. Pure insertion: context (' ') + add ('+') lines only. Example: action=replace_range file_path=internal/foo.go patch=\" import (\\n+\\t\\\"fmt\\\"\\n )\".", lspEditSchema),
 	toolManifestWithSchema("completion", "Context-aware code completions at a cursor position. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
 }

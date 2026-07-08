@@ -62,13 +62,13 @@ func NewObjectSchema(props map[string]schema, required ...string) schema {
 // 各工具 schema 按 MCP 暴露的 action 分组，字段说明就是模型可见的调用约束。
 
 var lspFileSchema = NewObjectSchema(map[string]schema{
-	"action":      enumProp("Action", "open_file", "read_file", "diagnostics"),
+	"action":      enumProp("Action. Use action=diagnostics on this file tool to fetch LSP diagnostics; there is no separate diagnostics tool.", "open_file", "read_file", "diagnostics"),
 	"pos":         stringProp("Position: 'file_path' (full file) or 'file_path:line' (function at line). Example: internal/foo.go:42 reads the function containing line 42 with its doc comments."),
 	"scope":       enumProp("Read mode override (default: function at line). Pass scope=lines to force a line-window read instead of function extraction.", "lines"),
-	"file_path":   stringProp("File path for open_file/diagnostics when pos is not used."),
-	"file_paths":  arrayOfStringsProp("Multiple file paths for batch read or diagnostics"),
+	"file_path":   stringProp("File path for open_file or diagnostics. Example diagnostics call: action=diagnostics file_path=internal/foo.go."),
+	"file_paths":  arrayOfStringsProp("Multiple file paths for batch read or diagnostics. Example diagnostics batch: action=diagnostics file_paths=[\"internal/foo.go\"]."),
 	"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-	"limit":       integerProp("Max lines to return (default 300 for function mode, 250 for line-window; cap 2000). Single-file read_file output is budgeted by final text at 50 KiB and may be truncated with a continuation hint."),
+	"limit":       integerProp("Max lines to return for read_file (default 300 for function mode, 250 for line-window; cap 2000). Single-file read_file output is budgeted by final text at 50 KiB and may be truncated with a continuation hint."),
 	"work_dir":    lspWorkDirProp(),
 }, "action")
 
@@ -92,8 +92,8 @@ var lspXrefSchema = NewObjectSchema(map[string]schema{
 var lspGrepSchema = NewObjectSchema(map[string]schema{
 	"action":         enumProp("Action", "text_search", "ast_search"),
 	"query":          stringProp("Search query"),
-	"path":           stringOrArrayOfStringsProp("Search root; pass whitespace- or comma-separated paths to search multiple roots. Compatibility accepts an array of paths."),
-	"paths":          arrayOfStringsProp("Compatibility alias for path as multiple search roots; prefer path."),
+	"path":           stringOrArrayOfStringsProp("Search root for text_search or ast_search. Use a single path string here; for multiple roots prefer paths=[\"dir one\", \"dir two\"] to avoid ambiguous spaces."),
+	"paths":          arrayOfStringsProp("Multiple search roots for text_search or ast_search. Prefer this over path when passing more than one root or paths containing spaces."),
 	"file_paths":     arrayOfStringsProp("Compatibility alias for callers that reuse read_file batch arguments; prefer path."),
 	"glob":           stringProp("Glob filter (text_search only)"),
 	"language":       stringProp("Language for AST"),
@@ -120,9 +120,9 @@ var lspGrepOutputSchema = schema{
 
 var lspStructureSchema = NewObjectSchema(map[string]schema{
 	"action":      enumProp("Action", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
-	"file_path":   stringProp("File path (absolute or relative, auto-resolved). Path-only; no :line:column suffix."),
-	"query":       stringProp("Symbol query (workspace_symbol only)"),
-	"language":    stringProp("Language filter (workspace_symbol only)"),
+	"file_path":   stringProp("File path (absolute or relative, auto-resolved). Required for document_symbol, folding_range, and semantic_tokens. For workspace_symbol, pass exactly one of file_path or language. Path-only; no :line:column suffix."),
+	"query":       stringProp("Symbol query. Required for workspace_symbol; ignored by document_symbol, folding_range, and semantic_tokens."),
+	"language":    stringProp("Language selector for workspace_symbol when file_path is not provided. Pass exactly one of language or file_path."),
 	"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
 	"max_results": integerProp("Max results (default 20, cap 50)"),
 	"work_dir":    lspWorkDirProp(),
