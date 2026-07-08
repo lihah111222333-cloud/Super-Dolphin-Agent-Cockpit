@@ -9,12 +9,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2227,
+    "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 137,
-    "total_interface_methods": 280,
-    "total_exported": 1211,
-    "total_unexported": 2790,
+    "total_interfaces": 141,
+    "total_interface_methods": 294,
+    "total_exported": 1215,
+    "total_unexported": 2791,
     "total_structs": 575
   },
   "packages": [
@@ -21241,7 +21241,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.AgentLifecyclePort"
             }
           ],
           "returns": [
@@ -23481,7 +23481,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.AgentLifecyclePort"
             }
           ],
           "returns": [
@@ -25990,7 +25990,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.AgentLifecyclePort"
             },
             {
               "name": "agentID",
@@ -26033,7 +26033,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.AgentLifecyclePort"
             },
             {
               "name": "agentID",
@@ -26061,6 +26061,19 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "stopAgentToolDefinition",
+          "exported": false,
+          "params": [
+            {
+              "name": "svc",
+              "type": "contract.AgentLifecyclePort"
+            }
+          ],
+          "returns": [
+            "ToolDefinition"
           ]
         },
         {
@@ -27023,7 +27036,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.AgentLifecyclePort"
             },
             {
               "name": "agentID",
@@ -30375,6 +30388,128 @@
       ],
       "interfaces": [
         {
+          "name": "AgentLifecyclePort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "GetState",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentStateResult",
+                "error"
+              ]
+            },
+            {
+              "name": "InterruptAgent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "source",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentStateResult",
+                "error"
+              ]
+            },
+            {
+              "name": "LaunchAgent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "LaunchRequest"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "ListAgents",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "[]AgentSnapshot",
+                "error"
+              ]
+            },
+            {
+              "name": "Recover",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentSnapshot",
+                "error"
+              ]
+            },
+            {
+              "name": "StopAgent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
           "name": "AgentMemoryReader",
           "exported": true,
           "methods": [
@@ -30439,6 +30574,105 @@
               ],
               "returns": [
                 "AgentMemoryWriteResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "AgentReportPort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentReportResult",
+                "error"
+              ]
+            },
+            {
+              "name": "HandleReportEvent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "event",
+                  "type": "ReportEvent"
+                }
+              ],
+              "returns": [
+                "ReportEventResult",
+                "error"
+              ]
+            },
+            {
+              "name": "RememberReportRequest",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "RememberReportRequest"
+                }
+              ],
+              "returns": [
+                "RememberReportRequestResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "AgentRuntimePort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "BindSessionGeneration",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "generation",
+                  "type": "uint64"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "UpdateRuntime",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "report",
+                  "type": "RuntimeReport"
+                }
+              ],
+              "returns": [
                 "error"
               ]
             }
@@ -34080,6 +34314,56 @@
               "name": "ProviderID",
               "returns": [
                 "string"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "TurnSubmissionPort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "CompleteTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "success",
+                  "type": "bool"
+                },
+                {
+                  "name": "errMsg",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "SubmitTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "TurnSubmission"
+                }
+              ],
+              "returns": [
+                "error"
               ]
             }
           ]

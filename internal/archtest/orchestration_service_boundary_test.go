@@ -48,7 +48,7 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 		return orchestrationServiceAllowance{max: max, reason: reason}
 	}
 	return map[string]orchestrationServiceAllowance{
-		"cmd/mcp-orch/orchestration/service.go":                compat(1, "production implementation facade exposes the full service"),
+		"cmd/mcp-orch/orchestration/service.go":                compat(4, "production implementation facade re-exports and exposes the full service"),
 		"cmd/mcp-orch/runtime.go":                              compat(1, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
 		"cmd/mcp-orch/tools/registry.go":                       compat(1, "tool registry compatibility adapter keeps legacy dependency shape"),
 		"cmd/mcp-orch/tools/orchestration_tool_definitions.go": compat(1, "orchestration tool definition fanout adapter"),
@@ -119,17 +119,99 @@ func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[s
 	if len(contractAliases) == 0 {
 		return 0
 	}
+	localAliases := orchestrationServiceLocalAliases(file, contractAliases)
 	count := 0
 	ast.Inspect(file, func(n ast.Node) bool {
 		selector, ok := n.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != "OrchestrationService" {
+		if ok {
+			if selector.Sel.Name != "OrchestrationService" {
+				return true
+			}
+			base, ok := selector.X.(*ast.Ident)
+			if ok && contractAliases[base.Name] {
+				count++
+			}
 			return true
 		}
-		base, ok := selector.X.(*ast.Ident)
-		if ok && contractAliases[base.Name] {
+
+		ident, ok := n.(*ast.Ident)
+		if ok && localAliases[ident.Name] && !isTypeSpecName(file, ident) {
 			count++
 		}
 		return true
 	})
 	return count
+}
+
+func TestCountOrchestrationServiceSelectorUsesCountsLocalAliases(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type OS = contract.OrchestrationService
+type wrapper struct {
+	service OS
+}
+
+func use(svc OS) OS {
+	return svc
+}
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	contractAliases := contractImportAliases(t, "fixture.go", file)
+	got := countOrchestrationServiceSelectorUses(file, contractAliases)
+	const want = 4
+	if got != want {
+		t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d; local alias use must consume the boundary budget", got, want)
+	}
+}
+
+func orchestrationServiceLocalAliases(file *ast.File, contractAliases map[string]bool) map[string]bool {
+	aliases := map[string]bool{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			if isOrchestrationServiceSelector(typeSpec.Type, contractAliases) {
+				aliases[typeSpec.Name.Name] = true
+			}
+		}
+	}
+	return aliases
+}
+
+func isOrchestrationServiceSelector(expr ast.Expr, contractAliases map[string]bool) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "OrchestrationService" {
+		return false
+	}
+	base, ok := selector.X.(*ast.Ident)
+	return ok && contractAliases[base.Name]
+}
+
+func isTypeSpecName(file *ast.File, ident *ast.Ident) bool {
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if ok && typeSpec.Name == ident {
+				return true
+			}
+		}
+	}
+	return false
 }
