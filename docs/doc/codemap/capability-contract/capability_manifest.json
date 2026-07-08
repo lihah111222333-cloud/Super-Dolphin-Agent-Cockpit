@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 143,
-    "total_interface_methods": 297,
+    "total_interfaces": 146,
+    "total_interface_methods": 301,
     "total_exported": 1215,
-    "total_unexported": 2793,
+    "total_unexported": 2796,
     "total_structs": 575
   },
   "packages": [
@@ -21051,7 +21051,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             }
           ],
           "returns": [
@@ -21064,7 +21064,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentListPort"
             }
           ],
           "returns": [
@@ -22668,7 +22668,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             }
           ],
           "returns": [
@@ -23020,7 +23020,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "exeFn",
@@ -23163,7 +23163,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentListPort"
             },
             {
               "name": "agents",
@@ -23403,7 +23403,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "in",
@@ -23481,7 +23481,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "agentSnapshotLister"
             }
           ],
           "returns": [
@@ -23860,7 +23860,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "agentID",
@@ -25144,7 +25144,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             }
           ],
           "returns": [
@@ -25369,7 +25369,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentLaunchPort"
             },
             {
               "name": "requested",
@@ -27555,6 +27555,68 @@
           ]
         },
         {
+          "name": "agentLaunchPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "LaunchAgent",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "contract.LaunchRequest"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "agentSnapshotLister"
+          ]
+        },
+        {
+          "name": "agentListPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentReportResult",
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "agentSnapshotLister"
+          ]
+        },
+        {
           "name": "agentRecoverPort",
           "exported": false,
           "methods": [
@@ -27588,6 +27650,24 @@
               ],
               "returns": [
                 "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "agentSnapshotLister",
+          "exported": false,
+          "methods": [
+            {
+              "name": "ListAgents",
+              "params": [
+                {
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "[]contract.AgentSnapshot",
                 "error"
               ]
             }
