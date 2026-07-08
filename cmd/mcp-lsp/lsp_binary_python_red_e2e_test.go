@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -16,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -98,7 +98,7 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 	start := make(chan struct{})
 	outcomes := make(chan completionOutcome, 2)
 	goroutines := newTestGoroutineGroup(t)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		index := i
 		goroutines.Go(func() {
 			<-start
@@ -116,7 +116,7 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 	}
 	close(start)
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		outcome := <-outcomes
 		if outcome.err != nil {
 			t.Fatalf("concurrent completion %d HTTP call failed: %v; stderr=%s", outcome.index, outcome.err, client.stderrString())
@@ -292,6 +292,7 @@ func startMcpLSPBinaryForTestWithEnv(t *testing.T, ctx context.Context, binary, 
 		"PATH="+fakePyrightBinDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+repoRoot,
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	stdin, err := cmd.StdinPipe()
@@ -342,6 +343,7 @@ func startMcpLSPPeerBinaryForTest(t *testing.T, parent context.Context, binary, 
 		"PATH="+fakePyrightBinDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+repoRoot,
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	stdin, err := cmd.StdinPipe()
@@ -507,12 +509,7 @@ func (c *mcpLSPPeerBinaryClient) stderrString() string {
 }
 
 func stringSliceContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 type diagnosticsPayload struct {

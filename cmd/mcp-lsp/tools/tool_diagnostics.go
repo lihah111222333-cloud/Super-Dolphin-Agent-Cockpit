@@ -51,9 +51,19 @@ type diagnosticsWaitResult struct {
 	message                    string
 }
 
+type diagnosticTarget struct {
+	URI         string
+	AbsPath     string
+	DisplayPath string
+}
+
 // fetchDiagnosticsWithRetry 获取诊断并在启动未就绪时执行一次恢复流程。
 // app-managed 且位于 workspace roots 外的目标不会触发 LSP bootstrap，只返回带说明的空诊断。
-func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, input fileToolInput, targets []diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+	if shouldUseSingleFileLanguageOverrideDiagnostics(input, targets) {
+		return h.fetchSingleFileLanguageOverrideDiagnostics(ctx, input, targets[0])
+	}
+	uris := diagnosticTargetURIs(targets)
 	existingURIs := existingDiagnosticURIs(uris)
 	source, err := h.bootstrapDiagnostics(ctx, existingURIs)
 	if err != nil {
@@ -81,6 +91,66 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	message := waitResult.message
 	message = diagnosticsMessageAfterFetch(message, uris, items)
 	return items, source, message, nil
+}
+
+func shouldUseSingleFileLanguageOverrideDiagnostics(input fileToolInput, targets []diagnosticTarget) bool {
+	return normalizeLanguageIDOverride(input.LanguageID) != "" && strings.TrimSpace(input.FilePath) != "" && len(input.FilePaths) == 0 && len(targets) == 1
+}
+
+// fetchSingleFileLanguageOverrideDiagnostics 为 .txt 模板等扩展名不可信的单文件诊断走显式语言。
+// 它先按 override 打开文档，确保底层语言服务器收到正确 languageId，再从同一个 manager 拉取诊断。
+func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Context, input fileToolInput, target diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+	if _, err := h.openFile(ctx, target.AbsPath, input.LanguageID); err != nil {
+		return nil, "", "", err
+	}
+	manager, err := managerForFile(ctx, h.registry, target.AbsPath, input.LanguageID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
+		if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+			return nil, "", "", err
+		}
+		if retryErr := h.waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx, manager); retryErr != nil {
+			return nil, "", "", retryErr
+		}
+	}
+	items, err := manager.Diagnostics(ctx, nil)
+	if err != nil {
+		return nil, "", "", err
+	}
+	filtered := diagnosticsForTargetURI(target.URI, items)
+	message := diagnosticsMessageAfterFetch("", []string{target.URI}, filtered)
+	return filtered, "language_override", message, nil
+}
+
+func diagnosticsForTargetURI(uri string, items []protocol.PublishDiagnosticsParams) []protocol.PublishDiagnosticsParams {
+	for _, item := range items {
+		if item.URI == uri {
+			return []protocol.PublishDiagnosticsParams{item}
+		}
+	}
+	return []protocol.PublishDiagnosticsParams{{URI: uri}}
+}
+
+// waitSingleFileOverrideDiagnosticsStableWithStartupRetries 只服务显式语言单文件诊断的启动等待。
+// 它复用有限退避策略，但固定等待已经解析出的 manager，避免重新按 .txt 扩展名分组。
+func (h handlerBase) waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx context.Context, manager lspmanager.Manager) error {
+	var lastErr error
+	for retry := 1; retry <= diagnosticsStartupRetryCount; retry++ {
+		if err := sleepDiagnosticsRetryBackoff(ctx, retry); err != nil {
+			return err
+		}
+		if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
+			if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+				return err
+			}
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
 }
 
 // bootstrapDiagnostics 为已有文件触发诊断前置 bootstrap。
@@ -243,12 +313,13 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	if h.registry == nil {
 		return nil, errManagerUnavailable
 	}
-	uris, displayPaths, err := h.collectDiagnosticURIs(ctx, input)
+	targets, displayPaths, err := h.collectDiagnosticTargets(ctx, input)
 	if err != nil {
 		return nil, err
 	}
+	uris := diagnosticTargetURIs(targets)
 
-	items, _, message, err := h.fetchDiagnosticsWithRetry(ctx, uris)
+	items, _, message, err := h.fetchDiagnosticsWithRetry(ctx, input, targets)
 	if err != nil {
 		return nil, rustDetachedWorkspaceError(uris, "diagnostics", err)
 	}
@@ -278,11 +349,11 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}, nil
 }
 
-// collectDiagnosticURIs 将 file_path/file_paths 解析为可诊断的 file URI。
+// collectDiagnosticTargets 将 file_path/file_paths 解析为可诊断的 file URI。
 // 每个目标必须通过 workspace containment 和普通文件校验，显示路径保留调用方传入的可读形式。
-func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, map[string]string, error) {
-	targets := collectDiagnosticTargets(input)
-	if len(targets) == 0 {
+func (h handlerBase) collectDiagnosticTargets(ctx context.Context, input fileToolInput) ([]diagnosticTarget, map[string]string, error) {
+	rawTargets := collectDiagnosticTargetPaths(input)
+	if len(rawTargets) == 0 {
 		return nil, nil, nil
 	}
 
@@ -290,10 +361,10 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 	if err != nil {
 		return nil, nil, err
 	}
-	uris := make([]string, 0, len(targets))
-	displayPaths := make(map[string]string, len(targets))
-	seen := make(map[string]struct{}, len(targets))
-	for _, target := range targets {
+	targets := make([]diagnosticTarget, 0, len(rawTargets))
+	displayPaths := make(map[string]string, len(rawTargets))
+	seen := make(map[string]struct{}, len(rawTargets))
+	for _, target := range rawTargets {
 		normalizedTarget, err := normalizeFilePathTarget(target)
 		if err != nil {
 			return nil, nil, err
@@ -311,12 +382,16 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		}
 		seen[uri] = struct{}{}
 		displayPaths[uri] = diagnosticDisplayPath(normalizedTarget, pathInfo.DisplayPath)
-		uris = append(uris, uri)
+		targets = append(targets, diagnosticTarget{
+			URI:         uri,
+			AbsPath:     pathInfo.AbsPath,
+			DisplayPath: displayPaths[uri],
+		})
 	}
-	return uris, displayPaths, nil
+	return targets, displayPaths, nil
 }
 
-func collectDiagnosticTargets(input fileToolInput) []string {
+func collectDiagnosticTargetPaths(input fileToolInput) []string {
 	targets := make([]string, 0, len(input.FilePaths)+1)
 	if value := strings.TrimSpace(input.FilePath); value != "" {
 		targets = append(targets, value)
@@ -327,6 +402,14 @@ func collectDiagnosticTargets(input fileToolInput) []string {
 		}
 	}
 	return targets
+}
+
+func diagnosticTargetURIs(targets []diagnosticTarget) []string {
+	uris := make([]string, 0, len(targets))
+	for _, target := range targets {
+		uris = append(uris, target.URI)
+	}
+	return uris
 }
 
 // existingDiagnosticURIs 过滤出当前磁盘上仍存在的普通文件 URI。

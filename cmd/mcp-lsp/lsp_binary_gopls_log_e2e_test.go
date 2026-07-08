@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -20,6 +19,7 @@ const fakeGoplsOrphanedFilesWarning = "warning: while diagnosing orphaned files:
 const fakeGoplsPullDiagnosticsOnlyEnv = "MCP_LSP_FAKE_GOPLS_PULL_DIAGNOSTICS_ONLY"
 const fakeGoplsSuppressDiagnosticProviderEnv = "MCP_LSP_FAKE_GOPLS_SUPPRESS_DIAGNOSTIC_PROVIDER"
 const fakeGoplsRequireE2EBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_E2E_BUILDFLAG"
+const fakeGoplsRequireTxtTemplateGoLanguageEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_TXT_TEMPLATE_GO_LANGUAGE"
 
 func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testing.T) {
 	if testing.Short() {
@@ -159,6 +159,33 @@ func TestMcpLSPBinaryGoplsDiagnosticsUsesBuildTagsForE2EFile_E2E(t *testing.T) {
 	requireMCPToolSuccess(t, client, diagnostics, "go e2e build-tag diagnostics")
 }
 
+func TestMcpLSPBinaryGoplsDiagnosticsUsesLanguageOverrideForTxtTemplate_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsProviderTemplateTxtFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsPullDiagnosticsOnlyEnv + "=1",
+		fakeGoplsRequireTxtTemplateGoLanguageEnv + "=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   target,
+		"language_id": "go",
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "go txt template diagnostics")
+}
+
 func TestFakeGoplsShutdownWarningHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_GOPLS_SHUTDOWN_WARNING") != "1" {
 		return
@@ -175,6 +202,31 @@ func writeFakeGoplsGoFixture(t *testing.T, root string) string {
 	target := filepath.Join(root, "main.go")
 	if err := os.WriteFile(target, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
 		t.Fatalf("write Go fixture: %v", err)
+	}
+	return target
+}
+
+func writeFakeGoplsProviderTemplateTxtFixture(t *testing.T, root string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/gopls-template\n\ngo 1.25.0\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod fixture: %v", err)
+	}
+	target := filepath.Join(root, "internal", "provider", "_template", "provider_contract_test.go.txt")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("mkdir provider template fixture: %v", err)
+	}
+	content := strings.Join([]string{
+		"package template",
+		"",
+		"import \"testing\"",
+		"",
+		"func TestTemplateProviderContract(t *testing.T) {",
+		"\tt.Helper()",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write provider template fixture: %v", err)
 	}
 	return target
 }
@@ -281,7 +333,7 @@ func fakeGoplsInitializeHasBuildTag(raw json.RawMessage, tag string) bool {
 
 func buildFlagsContainTag(flags []string, tag string) bool {
 	for _, flag := range flags {
-		for _, part := range strings.Split(flag, "=") {
+		for part := range strings.SplitSeq(flag, "=") {
 			if part == tag || strings.Contains(part, tag+",") || strings.Contains(part, ","+tag) {
 				return true
 			}
@@ -302,7 +354,11 @@ func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 	if uri == "" {
 		return true
 	}
+	if fakeGoplsRejectsTxtTemplateLanguage(writer, params) {
+		return true
+	}
 	if os.Getenv(fakeGoplsPullDiagnosticsOnlyEnv) == "1" {
+		fakeGoplsPublishTxtTemplateDiagnostics(writer, uri)
 		return true
 	}
 	writer.goAsync(func() {
@@ -316,6 +372,31 @@ func fakeGoplsHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 		})
 	})
 	return true
+}
+
+func fakeGoplsRejectsTxtTemplateLanguage(writer *fakeLSPWriter, params fakeLSPDidOpenParams) bool {
+	if os.Getenv(fakeGoplsRequireTxtTemplateGoLanguageEnv) != "1" || !strings.HasSuffix(params.TextDocument.URI, "provider_contract_test.go.txt") || params.TextDocument.LanguageID == "go" {
+		return false
+	}
+	writer.goAsync(func() {
+		_ = writer.writeNotification("window/logMessage", map[string]any{
+			"type":    1,
+			"message": "txt template didOpen languageId = " + params.TextDocument.LanguageID + ", want go",
+		})
+	})
+	return true
+}
+
+func fakeGoplsPublishTxtTemplateDiagnostics(writer *fakeLSPWriter, uri string) {
+	if os.Getenv(fakeGoplsRequireTxtTemplateGoLanguageEnv) != "1" || !strings.HasSuffix(uri, "provider_contract_test.go.txt") {
+		return
+	}
+	writer.goAsync(func() {
+		_ = writer.writeNotification("textDocument/publishDiagnostics", map[string]any{
+			"uri":         uri,
+			"diagnostics": []any{},
+		})
+	})
 }
 
 func fakeGoplsResult(req fakeLSPRequest) any {

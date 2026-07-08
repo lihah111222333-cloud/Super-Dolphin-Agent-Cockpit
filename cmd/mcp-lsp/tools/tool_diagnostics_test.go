@@ -167,11 +167,11 @@ func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := handlerBase{}
-			uris, _, err := handler.collectDiagnosticURIs(ctx, fileToolInput{Action: "diagnostics", FilePath: tt.target})
+			targets, _, err := handler.collectDiagnosticTargets(ctx, fileToolInput{Action: "diagnostics", FilePath: tt.target})
 			if err != nil {
 				t.Fatalf("diagnostics returned error: %v", err)
 			}
-			assertDiagnosticURIs(t, uris, []string{canonicalFileURI(t, appFile)})
+			assertDiagnosticURIs(t, diagnosticTargetURIs(targets), []string{canonicalFileURI(t, appFile)})
 		})
 	}
 }
@@ -193,7 +193,7 @@ func TestDiagnosticsRejectsAppManagedRootWithoutCapability(t *testing.T) {
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
 	handler := handlerBase{}
 
-	_, _, err := handler.collectDiagnosticURIs(ctx, fileToolInput{Action: "diagnostics", FilePath: fileURI(appFile)})
+	_, _, err := handler.collectDiagnosticTargets(ctx, fileToolInput{Action: "diagnostics", FilePath: fileURI(appFile)})
 	if err == nil {
 		t.Fatal("diagnostics returned nil error, want app-managed path rejected without read capability")
 	}

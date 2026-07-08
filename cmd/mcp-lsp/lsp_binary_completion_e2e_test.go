@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -14,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,10 +48,8 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletion_E2E(t *testing.T) {
 			completion.Result.ContentText(), completion.Result.StructuredContent, client.stderrString())
 	}
 	labels := completionLabelsFromStructuredContent(t, completion.Result.StructuredContent)
-	for _, label := range labels {
-		if label == "REG_CN" {
-			return
-		}
+	if slices.Contains(labels, "REG_CN") {
+		return
 	}
 	t.Fatalf("completion at Python constant identifier %s:10:7 returned labels %v, want REG_CN; structured=%s text=%q stderr=%s",
 		target, labels, completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
@@ -336,7 +334,8 @@ type fakeLSPRequest struct {
 
 type fakeLSPDidOpenParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI        string `json:"uri"`
+		LanguageID string `json:"languageId"`
 	} `json:"textDocument"`
 }
 
