@@ -223,12 +223,17 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       const key = String(payload.key || '');
       const summary = {
         cwd: sandboxPathSummary(payload.cwd),
-        key,
+        ...sanitizedPreferenceKeySummary(key),
         ...sanitizedPreferenceValueSummary(key, payload.value, Object.prototype.hasOwnProperty.call(payload, 'value')),
       };
       const unexpectedFields = Object.keys(payload).filter((field) => !allowedPreferencePayloadFields.has(field));
-      if (unexpectedFields.length > 0) summary.unexpectedFields = unexpectedFields;
+      if (unexpectedFields.length > 0) summary.unexpectedFields = unexpectedFields.map(sanitizedFieldName);
       return summary;
+    }
+
+    function sanitizedPreferenceKeySummary(key) {
+      if (allowedProviderPreferenceKeys.has(key)) return { key };
+      return { keyType: key ? 'unsupported' : 'missing' };
     }
 
     function sanitizedPreferenceValueSummary(key, value, hasValue) {
@@ -292,7 +297,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       const key = String(params.key || '');
       if (!cwd) throw new Error(`${method} cwd is required`);
       assertSandboxPath(method, cwd);
-      if (!allowedProviderPreferenceKeys.has(key)) throw new Error(`${method} unsupported settings preference key: ${key}`);
+      if (!allowedProviderPreferenceKeys.has(key)) throw new Error(`${method} unsupported settings preference key`);
       if (!Object.prototype.hasOwnProperty.call(params, 'value')) throw new Error(`${method} value is required`);
       const summary = sanitizedPreferenceWrite(method, key, params.value);
       state.settingsWrites.push({
@@ -307,7 +312,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     function assertPreferencePayloadShape(params, method) {
       for (const field of Object.keys(params || {})) {
         if (!allowedPreferencePayloadFields.has(field)) {
-          throw new Error(`${method} unsupported preference payload field: ${field}`);
+          throw new Error(`${method} unsupported preference payload field: ${sanitizedFieldName(field)}`);
         }
       }
     }
@@ -318,11 +323,11 @@ export async function installAgenticE2EMockWails(page, options = {}) {
         return { valueType: 'path', path: 'sandbox' };
       }
       if (key === 'settings.provider.codex.sandbox') return sanitizedSandboxPreference(method, value);
-      if (key === 'settings.provider.codex.codexInstanceKey') return { valueType: 'string', value: sanitizedScalar(value) };
-      if (key === 'settings.provider.codex.personality') return { valueType: 'string', value: sanitizedScalar(value) };
-      if (key === 'settings.provider.codex.model') return { valueType: 'string', value: sanitizedScalar(value) };
-      if (key === 'settings.provider.codex.effort') return { valueType: 'string', value: sanitizedScalar(value) };
-      throw new Error(`${method} unsupported settings preference key: ${key}`);
+      if (key === 'settings.provider.codex.codexInstanceKey') return { valueType: 'string', value: sanitizedScalar(method, value) };
+      if (key === 'settings.provider.codex.personality') return { valueType: 'string', value: sanitizedScalar(method, value) };
+      if (key === 'settings.provider.codex.model') return { valueType: 'string', value: sanitizedScalar(method, value) };
+      if (key === 'settings.provider.codex.effort') return { valueType: 'string', value: sanitizedScalar(method, value) };
+      throw new Error(`${method} unsupported settings preference key`);
     }
 
     function sanitizedSandboxPreference(method, value) {
@@ -360,7 +365,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       }
       for (const field of Object.keys(value)) {
         if (!allowedSandboxAccessFields.has(field)) {
-          throw new Error(`${method} unsupported sandbox access field: ${field}`);
+          throw new Error(`${method} unsupported sandbox access field: ${sanitizedFieldName(field)}`);
         }
       }
       return value;
@@ -375,10 +380,22 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       return value[field];
     }
 
-    function sanitizedScalar(value) {
+    function sanitizedScalar(method, value) {
       const text = String(value || '').trim();
-      if (/sk-[a-z0-9_-]{8,}/iu.test(text)) throw new Error('secret-like preference value must not be recorded');
+      if (isSensitivePreferenceScalar(text)) {
+        throw new Error(`${method} sensitive preference value must not be recorded`);
+      }
       return text;
+    }
+
+    function sanitizedFieldName(field) {
+      const text = String(field || '');
+      if (/^[a-z][a-z0-9_]*$/iu.test(text)) return text;
+      return 'unsupported';
+    }
+
+    function isSensitivePreferenceScalar(text) {
+      return /sk-[a-z0-9_-]{8,}/iu.test(text) || looksPathLike(text);
     }
 
     function saveVideoApiKey(params = {}, method) {

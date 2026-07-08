@@ -1063,6 +1063,27 @@ describe('agentic e2e strict Wails mock', () => {
       });
       expect(unknownNested.error.message).toMatch(/unsupported sandbox access field/);
 
+      const pathKey = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: '/home/l4place',
+        value: 'gpt-5',
+      });
+      expect(pathKey.error.message).toBe('ui/preferences/set unsupported settings preference key');
+
+      const secretKey = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'sk-live-secret',
+        value: 'gpt-5',
+      });
+      expect(secretKey.error.message).toBe('ui/preferences/set unsupported settings preference key');
+
+      const scalarPath = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.model',
+        value: '/home/l4place',
+      });
+      expect(scalarPath.error.message).toBe('ui/preferences/set sensitive preference value must not be recorded');
+
       const state = await readAgenticE2EMockWailsState(page);
       expect(state.failures.map((failure) => failure.method)).toEqual([
         'ui/preferences/set',
@@ -1071,6 +1092,20 @@ describe('agentic e2e strict Wails mock', () => {
         'ui/preferences/set',
         'ui/preferences/set',
         'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
+      ]);
+      expect(state.calls.filter((call) => call.method === 'ui/preferences/set').slice(-3)).toEqual([
+        expect.objectContaining({
+          params: expect.objectContaining({ keyType: 'unsupported', valueType: 'string' }),
+        }),
+        expect.objectContaining({
+          params: expect.objectContaining({ keyType: 'unsupported', valueType: 'string' }),
+        }),
+        expect.objectContaining({
+          params: expect.objectContaining({ key: 'settings.provider.codex.model', valueType: 'string' }),
+        }),
       ]);
       const serializedState = JSON.stringify(state);
       expect(serializedState).not.toContain(sandbox.rootDir);
