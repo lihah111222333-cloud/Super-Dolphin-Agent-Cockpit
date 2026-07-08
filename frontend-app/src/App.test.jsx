@@ -1765,7 +1765,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
     const projectSelector = screen.getByRole('button', { name: '选择项目' });
     expect(projectSelector).toHaveTextContent(/^app$/);
-    expect(projectSelector).toHaveAttribute('title', '/repo/app');
+    expect(projectSelector).toHaveClass('project-select');
     expect(container.querySelector('.work-status')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: '折叠 file' })).toBeInTheDocument();
@@ -3688,7 +3688,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await screen.findByText('阶段结论：先迁移 fork draft 链路');
     fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
-    fireEvent.click(await screen.findByRole('button', { name: '继承当前对话' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '继承当前对话' }));
 
     const card = await screen.findByTestId('fork-draft-card');
     expect(card).toHaveTextContent('继承自会话：后端线程');
@@ -4899,8 +4899,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    expect(screen.getByRole('menu', { name: '项目列表' })).toHaveTextContent('repo/app');
-    expect(screen.getByRole('menu', { name: '项目列表' })).toHaveTextContent('repo/other');
+    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('repo/app');
+    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('repo/other');
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
     await waitFor(() => {
@@ -4949,8 +4949,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    expect(screen.getByRole('menu', { name: '项目列表' })).toHaveTextContent('当前目录 (.)');
-    expect(screen.getByRole('menu', { name: '项目列表' })).toHaveTextContent('repo/app');
+    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('当前目录 (.)');
+    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('repo/app');
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/app' }));
 

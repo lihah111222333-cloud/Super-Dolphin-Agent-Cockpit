@@ -1,5 +1,6 @@
 import React from 'react';
-import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, createEvent, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
@@ -22,6 +23,31 @@ vi.mock('mermaid', () => ({
     })),
   },
 }));
+
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+}
+
+function render(ui, options) {
+  const queryClient = createTestQueryClient();
+  const view = rtlRender(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+    options,
+  );
+  return {
+    ...view,
+    rerender(nextUi) {
+      return view.rerender(
+        <QueryClientProvider client={queryClient}>{nextUi}</QueryClientProvider>,
+      );
+    },
+  };
+}
 
 function createFakeStore(overrides = {}) {
   const store = {
@@ -387,31 +413,31 @@ describe('ChatPage module', () => {
 
     expect(within(menu).getByRole('button', { name: '选择项目' })).toBeInTheDocument();
 
-    fireEvent.click(within(menu).getByRole('button', { name: '新窗口（独立进程）' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '新窗口（独立进程）' }));
     expect(store.openNewWindow).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
-    fireEvent.click(within(menu).getByRole('button', { name: '复制当前线程' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '复制当前线程' }));
     expect(store.copyActiveThreadInfo).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
-    fireEvent.click(within(menu).getByRole('button', { name: '继承当前对话' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '继承当前对话' }));
     expect(store.openForkDraft).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
-    fireEvent.click(within(menu).getByRole('button', { name: '停止' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '停止' }));
     expect(store.interruptActiveThread).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
-    fireEvent.click(within(menu).getByRole('button', { name: '强制完成' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '强制完成' }));
     expect(store.forceCompleteActiveThread).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
-    fireEvent.click(within(menu).getByRole('button', { name: '进程恢复' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '进程恢复' }));
     expect(store.recoverActiveThread).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
-    fireEvent.click(within(menu).getByRole('button', { name: '显示侧边栏' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '显示侧边栏' }));
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
   });
 
@@ -429,7 +455,7 @@ describe('ChatPage module', () => {
     expect(screen.getByRole('button', { name: '强制完成（不可用）' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
     const menu = screen.getByTestId('chat-actions-menu');
-    expect(within(menu).getByRole('button', { name: '强制完成（不可用）' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', { name: '强制完成（不可用）' })).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('turns the composer primary button into an interrupt action while the active thread is running', () => {
