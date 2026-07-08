@@ -62,6 +62,8 @@ func TestDependencyAbsencePolicyAllowsOnlyNamedTestDependencies(t *testing.T) {
 		"toolbridge.lifecycle_backfiller",
 		"toolbridge.skill_tools",
 		"thread.bind_session_generation",
+		"dynamic_tools",
+		"approval_or_tool_diff",
 	} {
 		if !AllowsMissingDependency(dependency, DependencyProfileTest) {
 			t.Fatalf("AllowsMissingDependency(%q, test) = false, want true", dependency)

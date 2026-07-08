@@ -377,9 +377,6 @@ func assertNoForbiddenSelector(t *testing.T, n ast.Node) {
 		t.Fatalf("provider contract test uses %s", sel.Sel.Name)
 	}
 	if sel.Sel.Name == "NewDependencyModeError" {
-		if identName(sel.X, "contract") {
-			return
-		}
 		t.Fatalf("provider contract test uses forbidden shortcut %s", sel.Sel.Name)
 	}
 	if sel.Sel.Name == "DependencyModeError" {

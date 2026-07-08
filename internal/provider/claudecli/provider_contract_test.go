@@ -165,7 +165,7 @@ func claudeEventMatrixContractCase() contracttest.Case {
 			"approval_or_tool_diff",
 			contract.DependencyProfileTest,
 			func() error {
-				return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, "approval_or_tool_diff", contract.DependencyProfileTest)
+				return contract.MissingDependencyModeError("approval_or_tool_diff", contract.DependencyProfileTest)
 			},
 		)
 		e.RecordEventMatrix(t, contracttest.EventMatrixEvidence{

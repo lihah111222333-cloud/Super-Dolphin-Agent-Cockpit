@@ -177,6 +177,13 @@ var registeredDependencyAbsencePolicies = []DependencyAbsencePolicy{
 		Owner:   "provider contract",
 		Error:   ErrUnsupportedDependencyMode,
 	},
+	{
+		Name:    "approval_or_tool_diff",
+		Profile: DependencyProfileTest,
+		Reason:  DependencyAbsenceTestHarness,
+		Owner:   "provider contract",
+		Error:   ErrUnsupportedDependencyMode,
+	},
 }
 
 // RegisteredDependencyAbsencePolicies 返回当前注册的依赖缺席策略副本，防止调用方改写全局策略。
