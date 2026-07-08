@@ -19,6 +19,7 @@ func TestValidateAcceptanceSpecRejectsMissingCriterion(t *testing.T) {
 		{name: "force complete", omit: []AcceptanceCriterion{AcceptanceForceComplete}, want: string(AcceptanceForceComplete)},
 		{name: "resume", omit: []AcceptanceCriterion{AcceptanceResume}, want: string(AcceptanceResume)},
 		{name: "toolbridge", omit: []AcceptanceCriterion{AcceptanceToolbridge}, want: string(AcceptanceToolbridge)},
+		{name: "dynamic tool responder", omit: []AcceptanceCriterion{AcceptanceDynamicToolResponder}, want: string(AcceptanceDynamicToolResponder)},
 		{name: "runtime report", omit: []AcceptanceCriterion{AcceptanceRuntimeReport}, want: string(AcceptanceRuntimeReport)},
 	}
 
@@ -63,6 +64,7 @@ func TestRequiredAcceptanceCriteriaProjectsDeclaredRequiredCases(t *testing.T) {
 		AcceptanceForceComplete,
 		AcceptanceResume,
 		AcceptanceToolbridge,
+		AcceptanceDynamicToolResponder,
 		AcceptanceRuntimeReport,
 		AcceptancePromptSnapshotParity,
 	}

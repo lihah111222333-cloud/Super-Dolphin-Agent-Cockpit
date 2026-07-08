@@ -22,6 +22,7 @@ const (
 	AcceptanceForceComplete             AcceptanceCriterion = CaseForceComplete
 	AcceptanceResume                    AcceptanceCriterion = CaseResume
 	AcceptanceToolbridge                AcceptanceCriterion = CaseToolbridge
+	AcceptanceDynamicToolResponder      AcceptanceCriterion = CaseDynamicToolResponder
 	AcceptanceRuntimeReport             AcceptanceCriterion = CaseRuntimeReport
 )
 

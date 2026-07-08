@@ -42,6 +42,8 @@ const (
 	CaseResume CaseKey = "resume"
 	// CaseToolbridge 校验 toolbridge 行为或 typed unsupported 结果。
 	CaseToolbridge CaseKey = "toolbridge"
+	// CaseDynamicToolResponder 校验 provider 能响应动态工具调用或给出 typed unsupported 结果。
+	CaseDynamicToolResponder CaseKey = "dynamic_tool_responder"
 	// CaseRuntimeReport 校验 runtime report 行为证据。
 	CaseRuntimeReport CaseKey = "runtime_report"
 )
@@ -82,6 +84,8 @@ const (
 	EvidenceResumeIdentity EvidenceKey = "resume.identity"
 	// EvidenceToolbridgeDependency 由 RecordOutcome 写入。
 	EvidenceToolbridgeDependency EvidenceKey = "toolbridge.dependency"
+	// EvidenceDynamicToolResponder 由 RecordDynamicToolResponder 写入。
+	EvidenceDynamicToolResponder EvidenceKey = "dynamic_tool.responder"
 	// EvidenceRuntimeReportPayload 由 RecordRuntimeReport 写入。
 	EvidenceRuntimeReportPayload EvidenceKey = "runtime_report.payload"
 )
@@ -105,6 +109,9 @@ var requiredEvidenceByCase = map[CaseKey][]EvidenceKey{
 	CaseForceComplete: {EvidenceForceCompleteOutcome},
 	CaseResume:        {EvidenceResumeIdentity},
 	CaseToolbridge:    {EvidenceToolbridgeDependency},
+	CaseDynamicToolResponder: {
+		EvidenceDynamicToolResponder,
+	},
 	CaseRuntimeReport: {EvidenceRuntimeReportPayload},
 }
 
@@ -115,6 +122,7 @@ var requiredCaseOrder = []CaseKey{
 	CaseForceComplete,
 	CaseResume,
 	CaseToolbridge,
+	CaseDynamicToolResponder,
 	CaseRuntimeReport,
 }
 
@@ -137,6 +145,7 @@ var reservedEvidenceKeys = map[EvidenceKey]bool{
 	EvidenceForceCompleteOutcome:        true,
 	EvidenceResumeIdentity:              true,
 	EvidenceToolbridgeDependency:        true,
+	EvidenceDynamicToolResponder:        true,
 	EvidenceRuntimeReportPayload:        true,
 }
 

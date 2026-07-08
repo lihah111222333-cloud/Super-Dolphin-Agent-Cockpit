@@ -254,29 +254,21 @@ func providerAcceptanceRequiredSelectors(t *testing.T) (map[string]bool, map[str
 
 func acceptanceCriterionSelector(t *testing.T, criterion contracttest.AcceptanceCriterion) string {
 	t.Helper()
-	switch criterion {
-	case contracttest.AcceptanceEventTranslation:
-		return "CaseEventMatrix"
-	case contracttest.AcceptancePromptSnapshotParity:
-		return "CasePromptParity"
-	case contracttest.AcceptancePromptMaterializedCarrier:
-		return "CasePromptMaterializedCarrier"
-	case contracttest.AcceptanceApproval:
-		return "CaseApproval"
-	case contracttest.AcceptanceInterrupt:
-		return "CaseInterrupt"
-	case contracttest.AcceptanceForceComplete:
-		return "CaseForceComplete"
-	case contracttest.AcceptanceResume:
-		return "CaseResume"
-	case contracttest.AcceptanceToolbridge:
-		return "CaseToolbridge"
-	case contracttest.AcceptanceRuntimeReport:
-		return "CaseRuntimeReport"
-	default:
+	name := strings.TrimSpace(string(criterion))
+	if name == "" {
 		t.Fatalf("unknown acceptance criterion %q", criterion)
-		return ""
 	}
+	parts := strings.Split(name, "_")
+	var builder strings.Builder
+	builder.WriteString("Case")
+	for _, part := range parts {
+		if part == "" {
+			t.Fatalf("unknown acceptance criterion %q", criterion)
+		}
+		builder.WriteString(strings.ToUpper(part[:1]))
+		builder.WriteString(part[1:])
+	}
+	return builder.String()
 }
 
 func anyProviderContractCaseFound(cases map[string]bool) bool {
