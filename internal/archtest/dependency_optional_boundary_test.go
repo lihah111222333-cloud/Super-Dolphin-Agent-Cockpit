@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,6 +56,48 @@ func TestOptionalDependencyBoundary(t *testing.T) {
 		sort.Strings(missingAudit)
 		t.Fatalf("optional dependency classifications missing audit evidence:\n%s", strings.Join(missingAudit, "\n"))
 	}
+}
+
+func TestScanOptionalDependencyFileDetectsFxOptionalCall(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "module.go")
+	source := []byte(`package optionalfixture
+
+import "go.uber.org/fx"
+
+var Module = fx.Options(
+	fx.Provide(
+		fx.Annotate(
+			newService,
+			fx.Optional(),
+		),
+	),
+)
+
+func newService() any {
+	return nil
+}
+`)
+	if err := os.WriteFile(path, source, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	occurrences, err := scanOptionalDependencyFile(path, "internal/app/module.go")
+	if err != nil {
+		t.Fatalf("scan fixture: %v", err)
+	}
+
+	want := optionalDependencyOccurrence{
+		RelPath: "internal/app/module.go",
+		Line:    9,
+		Kind:    "fx_optional",
+		Value:   "fx.Optional",
+	}
+	if slices.Contains(occurrences, want) {
+		return
+	}
+	t.Fatalf("scanOptionalDependencyFile() occurrences = %#v, want %#v", occurrences, want)
 }
 
 type optionalDependencyOccurrence struct {
@@ -245,6 +288,14 @@ func scanOptionalDependencyFile(path, rel string) ([]optionalDependencyOccurrenc
 				})
 			}
 		case *ast.CallExpr:
+			if isFxOptionalCall(n) {
+				out = append(out, optionalDependencyOccurrence{
+					RelPath: rel,
+					Line:    fset.Position(n.Pos()).Line,
+					Kind:    "fx_optional",
+					Value:   "fx.Optional",
+				})
+			}
 			if isNewDependencyModeErrorCall(n) {
 				if dependencyName, ok := stringLiteralArg(n, 1); ok {
 					out = append(out, optionalDependencyOccurrence{
@@ -272,6 +323,15 @@ func scanOptionalDependencyFile(path, rel string) ([]optionalDependencyOccurrenc
 
 func hasOptionalTag(tag *ast.BasicLit) bool {
 	return tag != nil && strings.Contains(tag.Value, `optional:"true"`)
+}
+
+func isFxOptionalCall(call *ast.CallExpr) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "Optional" {
+		return false
+	}
+	ident, ok := selector.X.(*ast.Ident)
+	return ok && ident.Name == "fx"
 }
 
 func fieldName(field *ast.Field) string {

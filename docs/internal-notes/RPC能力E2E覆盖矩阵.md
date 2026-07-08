@@ -15,6 +15,8 @@ go run scripts/extract_jsonrpc_methods.go
 | `blocked` | method 已发现，但当前缺少稳定 fixture、外部依赖隔离或安全执行边界 | 记录 blocker owner 和 exit condition，经主 agent 审查后再补 E2E |
 | `desktop-only` | method 属于 Wails desktop-only RPC，不在 headless runtime 覆盖面 | 如需 headless 覆盖，先新增非 Wails runtime RPC contract |
 
+> `blocked` 行默认 owner 为主控；`Fixture/dependency` 与 `Side-effect scope` 列记录 exit condition。主控分派到具体 agent 后，再更新对应行的 owner/exit condition 并推进状态。
+
 ## Coverage Matrix
 
 | Capability family | Discovered RPC methods | Status | Black-box E2E target | Fixture/dependency | Side-effect scope |
