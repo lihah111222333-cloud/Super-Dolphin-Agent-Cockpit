@@ -21,8 +21,8 @@ import (
 type serviceParams struct {
 	fx.In
 
-	Orchestration contract.OrchestrationService `optional:"true"`
-	DAGRuntime    contract.DAGRuntime           `optional:"true"`
+	Orchestration OrchestrationReader `optional:"true"`
+	DAGRuntime    contract.DAGRuntime `optional:"true"`
 	AgentStatuses AgentStatusReader
 	SystemLogs    SystemLogReader
 	AuditLogs     AuditLogReader

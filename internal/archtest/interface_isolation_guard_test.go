@@ -118,7 +118,7 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	const relPath = "internal/module/dashboard/module.go"
+	const moduleRelPath = "internal/module/dashboard/module.go"
 	var violations []string
 
 	fieldChecks := []struct {
@@ -136,13 +136,13 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		{field: "SharedFiles", want: "SharedFileReader"},
 	}
 	for _, check := range fieldChecks {
-		actual, ok := structFieldType(t, root, relPath, "serviceParams", check.field)
+		actual, ok := structFieldType(t, root, moduleRelPath, "serviceParams", check.field)
 		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s not found", relPath, check.field))
+			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s not found", moduleRelPath, check.field))
 			continue
 		}
 		if actual != check.want {
-			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s must depend on dashboard %s, got %s; keep store readers behind dashboard adapters", relPath, check.field, check.want, actual))
+			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s must depend on dashboard %s, got %s; keep store readers behind dashboard adapters", moduleRelPath, check.field, check.want, actual))
 		}
 	}
 
@@ -162,13 +162,13 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		{funcName: "adaptSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
 	}
 	for _, check := range adapterChecks {
-		actual, ok := functionParamType(t, root, relPath, check.funcName, check.paramName)
+		actual, ok := functionParamType(t, root, moduleRelPath, check.funcName, check.paramName)
 		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", relPath, check.funcName, check.paramName))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", moduleRelPath, check.funcName, check.paramName))
 			continue
 		}
 		if actual != check.want {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s must be the only %s adapter input, got %s", relPath, check.funcName, check.paramName, check.want, actual))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s must be the only %s adapter input, got %s", moduleRelPath, check.funcName, check.paramName, check.want, actual))
 		}
 	}
 	failIfViolations(t, violations)

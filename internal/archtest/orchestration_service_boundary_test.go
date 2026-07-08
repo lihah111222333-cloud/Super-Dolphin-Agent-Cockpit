@@ -50,9 +50,8 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 	return map[string]orchestrationServiceAllowance{
 		"cmd/mcp-orch/orchestration/service.go":           compat(2, "production facade may only re-export Service and provide the interface"),
 		"cmd/mcp-orch/runtime.go":                         compat(2, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
+		"internal/app/dashboard_adapter.go":               compat(2, "explicit app adapter narrows full service to dashboard OrchestrationReader"),
 		"internal/app/runtime_reporter_adapter.go":        compat(2, "explicit app adapter narrows full service to RuntimeReporter"),
-		"internal/module/dashboard/module.go":             compat(1, "legacy optional dashboard input pending read-model port split"),
-		"internal/module/dashboard/service.go":            compat(3, "legacy dashboard read-model adapter pending narrow port split"),
 		"internal/module/memory/module.go":                compat(2, "legacy memory runtime bridge pending narrow state port split"),
 		"internal/module/uistate/module.go":               compat(1, "legacy optional uistate input pending read-model port split"),
 		"internal/module/uistate/service.go":              compat(3, "legacy uistate read-model adapter pending narrow port split"),

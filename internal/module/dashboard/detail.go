@@ -40,7 +40,8 @@ func turnHistoryFromSnapshot(snapshot AgentSnapshot) []TurnRef {
 	}}
 }
 
-// effectiveDAGRuntime 返回优先使用 dagRuntime，回退到 orchestration 的 DAG 运行时。
+// effectiveDAGRuntime 返回 dashboard 显式注入的 DAG runtime。
+// 测试直构旧 stub 时允许从 reader 的额外实现取 runtime；生产 app adapter 只暴露 reader 方法。
 func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 	if s == nil {
 		return nil
@@ -48,7 +49,8 @@ func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 	if s.dagRuntime != nil {
 		return s.dagRuntime
 	}
-	return s.orchestration
+	runtime, _ := s.orchestration.(contract.DAGRuntime)
+	return runtime
 }
 
 // ListDAGs 列出 dashboard 可见的 DAG 摘要。
