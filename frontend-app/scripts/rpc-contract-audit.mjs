@@ -7,6 +7,7 @@ const DEFAULT_FRONTEND_ROOT = resolve(SCRIPT_DIR, '..')
 const DEFAULT_REPO_ROOT = resolve(DEFAULT_FRONTEND_ROOT, '..')
 
 const RPC_METHODS_PATH = 'frontend-app/src/shared/api/backendApi.js'
+const RPC_RESPONSE_VALIDATORS_PATH = 'frontend-app/src/shared/api/backendResponseValidators.js'
 const RPC_MATRIX_PATH = 'frontend-app/src/shared/api/backendApi.contractMatrix.js'
 const GO_RPC_CONSTANTS_PATH = 'internal/contract/rpc_handler.go'
 const GO_HANDLER_ROOTS = ['internal', 'cmd']
@@ -94,7 +95,11 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
-  const frontendResponseValidatorKeys = collectFrontendResponseValidatorKeys(frontendSource)
+  const responseValidatorSource = await readFile(join(repoRoot, RPC_RESPONSE_VALIDATORS_PATH), 'utf8')
+  const frontendResponseValidatorKeys = collectFrontendResponseValidatorKeys([
+    frontendSource,
+    responseValidatorSource,
+  ])
 
   const missingRegistryKeys = rpcMethods
     .filter((entry) => !registryByKey.has(entry.key))
@@ -211,18 +216,32 @@ function parseObjectStringProperty(source, property) {
   return source.match(pattern)?.[1] ?? ''
 }
 
-function collectFrontendResponseValidatorKeys(frontendSource) {
-  const match = frontendSource.match(/const\s+BACKEND_RESPONSE_VALIDATORS\s*=\s*Object\.freeze\(\{([\s\S]*?)\n\}\)/)
-  if (!match) {
-    return new Set()
-  }
+function collectFrontendResponseValidatorKeys(frontendSources) {
   const keys = new Set()
-  const keyPattern = /\[RPC_METHODS\.([A-Z0-9_]+)\]\s*:/g
-  let keyMatch
-  while ((keyMatch = keyPattern.exec(match[1])) !== null) {
-    keys.add(keyMatch[1])
+  for (const source of frontendSources) {
+    for (const body of extractFrontendResponseValidatorBodies(source)) {
+      const keyPattern = /\[(?:RPC_METHODS|methods)\.([A-Z0-9_]+)\]\s*:/g
+      let keyMatch
+      while ((keyMatch = keyPattern.exec(body)) !== null) {
+        keys.add(keyMatch[1])
+      }
+    }
   }
   return keys
+}
+
+function extractFrontendResponseValidatorBodies(source) {
+  const bodies = []
+  const literalMatch = source.match(/const\s+BACKEND_RESPONSE_VALIDATORS\s*=\s*Object\.freeze\(\{([\s\S]*?)\n\}\)/)
+  if (literalMatch) {
+    bodies.push(literalMatch[1])
+  }
+  const factoryPattern = /return\s+Object\.freeze\(\{([\s\S]*?)\n\s*\}\)/g
+  let factoryMatch
+  while ((factoryMatch = factoryPattern.exec(source)) !== null) {
+    bodies.push(factoryMatch[1])
+  }
+  return bodies
 }
 
 async function collectGoPayloadKeys(repoRoot) {
