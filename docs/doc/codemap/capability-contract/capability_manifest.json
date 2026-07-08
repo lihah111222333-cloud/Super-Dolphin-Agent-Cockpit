@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 141,
-    "total_interface_methods": 294,
+    "total_interfaces": 143,
+    "total_interface_methods": 297,
     "total_exported": 1215,
-    "total_unexported": 2791,
+    "total_unexported": 2793,
     "total_structs": 575
   },
   "packages": [
@@ -21038,7 +21038,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentInterruptPort"
             }
           ],
           "returns": [
@@ -21163,7 +21163,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "agentRecoverPort"
             }
           ],
           "returns": [
@@ -27522,6 +27522,72 @@
               ],
               "returns": [
                 "orch.ArchiveOutcome",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "agentInterruptPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "InterruptAgent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "source",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentStateResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "agentRecoverPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "Recover",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentSnapshot",
                 "error"
               ]
             }
