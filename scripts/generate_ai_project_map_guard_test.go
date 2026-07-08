@@ -52,14 +52,20 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 		"| MCP orchestration peer | `cmd/mcp-orch/main.go` |",
 		"| MCP LSP peer | `cmd/mcp-lsp/main.go` |",
 		"| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |",
-		"## 6. 重点子系统地图",
+		"## 5. Root Fx 装配阅读顺序",
+		"`internal/app/modules.go` 是根装配清单，不是严格的业务执行时序",
+		"| 7 | Graph guards | `internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go` |",
+		"理解 root Fx 装配顺序",
+		"## 7. 重点子系统地图",
+		"### internal/app root assembly",
+		"`internal/app`",
 		"`internal/module/thread`",
 		"`internal/provider/codexapp`",
 	)
 	assertOutputContainsAll(t, generated,
-		"## 7. 文档与知识地图",
+		"## 8. 文档与知识地图",
 		"`.agents/skills/*/SKILL.md` 是 repo-local skill 指令入口",
-		"## 8. 索引字段说明",
+		"## 9. 索引字段说明",
 		"| `search_keys` | 建议检索关键词 |",
 	)
 

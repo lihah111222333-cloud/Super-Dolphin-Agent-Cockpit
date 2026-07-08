@@ -134,6 +134,12 @@
       "keywords": "claude codex provider session manifest toolbridge"
     },
     {
+      "goal": "理解 root Fx 装配顺序",
+      "primary": "internal/app/modules.go",
+      "secondary": "internal/app/modules_graph_test.go",
+      "keywords": "app module fx graph modules runtime order toolbridge provider"
+    },
+    {
       "goal": "修改控制面/bootstrap",
       "primary": "internal/platform/mcpcontrol/",
       "secondary": "internal/mcpserver/common/bootstrap/",
