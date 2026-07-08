@@ -65,6 +65,21 @@ func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 	assertStringSetContains(t, plan.AffectedGoPackages, "./scripts/ai_maintenance")
 }
 
+func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
+	plan := buildGatePlan([]string{
+		"internal/store/thread/store.go",
+		"internal/module/memory/service.go",
+		"internal/contract/provider.go",
+	})
+
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "repo:guard")
+	assertStringSetContains(t, plan.AffectedGoPackages,
+		"./internal/store/thread",
+		"./internal/module/memory",
+		"./internal/contract",
+	)
+}
+
 func TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands(t *testing.T) {
 	plan := buildGatePlan([]string{"frontend-app/src/App.jsx"})
 	path := writeEvidence(t, `

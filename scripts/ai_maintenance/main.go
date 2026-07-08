@@ -17,6 +17,23 @@ import (
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+var coreBackendGatePackages = []string{
+	"./cmd/mcp-lsp",
+	"./cmd/mcp-orch",
+	"./internal/app",
+	"./internal/module/thread",
+	"./internal/platform/config",
+	"./internal/platform/toolbridge",
+	"./internal/provider/contracttest",
+	"./internal/provider/unified",
+	"./internal/provider/codexapp",
+	"./internal/provider/claudecli",
+	"./internal/provider",
+	"./internal/archtest",
+	"./scripts",
+	"./scripts/ai_maintenance",
+}
+
 type gatePlan struct {
 	ChangedFiles        []string `json:"changed_files"`
 	RequiredGates       []string `json:"required_gates"`
@@ -179,22 +196,7 @@ func buildGatePlan(files []string) gatePlan {
 	plan.GeneratedFiles = sortedKeys(generated)
 	plan.RequiresEvidenceDoc = len(plan.RequiredEvidence) > 0
 	if backendChanged {
-		plan.AffectedGoPackages = []string{
-			"./cmd/mcp-lsp",
-			"./cmd/mcp-orch",
-			"./internal/app",
-			"./internal/module/thread",
-			"./internal/platform/config",
-			"./internal/platform/toolbridge",
-			"./internal/provider/contracttest",
-			"./internal/provider/unified",
-			"./internal/provider/codexapp",
-			"./internal/provider/claudecli",
-			"./internal/provider",
-			"./internal/archtest",
-			"./scripts",
-			"./scripts/ai_maintenance",
-		}
+		plan.AffectedGoPackages = affectedGoPackages(normalized)
 	}
 	return plan
 }
@@ -244,6 +246,39 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		return true
 	}
 	return false
+}
+
+// affectedGoPackages combines stable backend regression packages with concrete Go packages touched by the diff.
+func affectedGoPackages(files []string) []string {
+	packages := map[string]bool{}
+	for _, pkg := range coreBackendGatePackages {
+		packages[pkg] = true
+	}
+	for _, file := range files {
+		if pkg, ok := changedGoPackage(file); ok {
+			packages[pkg] = true
+		}
+	}
+	return sortedKeys(packages)
+}
+
+func changedGoPackage(file string) (string, bool) {
+	if !strings.HasSuffix(file, ".go") {
+		return "", false
+	}
+	switch {
+	case strings.HasPrefix(file, "cmd/"),
+		strings.HasPrefix(file, "internal/"),
+		strings.HasPrefix(file, "pkg/"),
+		strings.HasPrefix(file, "scripts/"):
+		dir := filepath.ToSlash(filepath.Dir(file))
+		if dir == "." || dir == "" {
+			return "", false
+		}
+		return "./" + dir, true
+	default:
+		return "", false
+	}
 }
 
 func requireLSPEvidence(file string, evidence map[string]bool) {
