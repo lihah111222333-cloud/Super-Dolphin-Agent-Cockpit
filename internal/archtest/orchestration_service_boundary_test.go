@@ -54,8 +54,6 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 		"cmd/mcp-orch/tools/orchestration_tool_definitions.go": compat(1, "orchestration tool definition fanout adapter"),
 		"cmd/mcp-orch/tools/task_tool_definitions.go":          compat(3, "task tool definition fanout adapter"),
 		"cmd/mcp-orch/tools/orchestration_tools.go":            compat(10, "legacy launch/send/list helpers pending narrow-port migration"),
-		"cmd/mcp-orch/tools/orchestration_recover_agent.go":    compat(1, "legacy lifecycle handler pending AgentLifecyclePort migration"),
-		"cmd/mcp-orch/tools/orchestration_interrupt_agent.go":  compat(1, "legacy lifecycle handler pending AgentLifecyclePort migration"),
 		"cmd/mcp-orch/tools/orchestration_report_tool.go":      compat(7, "legacy report handler pending AgentReportPort migration"),
 		"cmd/mcp-orch/tools/orchestration_send_message.go":     compat(6, "send_message spans report, turn submission, and lifecycle lookup until split"),
 		"cmd/mcp-orch/tools/task_apply_ops.go":                 compat(1, "DAG ops handler pending DAG runtime split"),
