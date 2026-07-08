@@ -104,7 +104,7 @@ func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
 		},
 		{
 			name:    "project map generator changes run codemap checks",
-			path:    "scripts/generate_ai_project_map.js",
+			path:    "scripts/generate_ai_project_map.mjs",
 			content: "#!/usr/bin/env node\n",
 			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
 			wantLog: []string{"make codemap-check", "make project-map-check"},

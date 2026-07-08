@@ -1,10 +1,13 @@
 {
   "version": "1.0",
-  "generator": "node:scripts/generate_ai_project_map.js",
+  "generator": "node:scripts/generate_ai_project_map.mjs",
   "generated_at": "2026-07-08",
-  "files": 4071,
+  "rules_sources": [
+    ".ai-project-map.overrides.json"
+  ],
+  "files": 4072,
   "domains": {
-    "docs-agent": 849,
+    "docs-agent": 850,
     "other": 477,
     "app-ui": 310,
     "platform-provider": 1006,
@@ -12,9 +15,222 @@
     "modules": 717,
     "store-sql": 306
   },
+  "index_files": {
+    "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
+    "drift_report": "docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md",
+    "shards": [
+      {
+        "key": "app-ui",
+        "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
+        "file_count": 310,
+        "size_kb": 61.6,
+        "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
+      },
+      {
+        "key": "orchestration",
+        "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
+        "file_count": 406,
+        "size_kb": 90.8,
+        "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
+      },
+      {
+        "key": "modules",
+        "file": "docs/doc/codemap/project-map/index/modules.tsv",
+        "file_count": 717,
+        "size_kb": 139.5,
+        "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
+      },
+      {
+        "key": "platform-provider",
+        "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
+        "file_count": 1006,
+        "size_kb": 185.4,
+        "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
+      },
+      {
+        "key": "store-sql",
+        "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
+        "file_count": 306,
+        "size_kb": 45.5,
+        "desc": "持久化层：store、sqlc、SQL queries、migrations"
+      },
+      {
+        "key": "docs-agent",
+        "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
+        "file_count": 850,
+        "size_kb": 151.1,
+        "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
+      },
+      {
+        "key": "other",
+        "file": "docs/doc/codemap/project-map/index/other.tsv",
+        "file_count": 477,
+        "size_kb": 90.2,
+        "desc": "公共库、脚本、测试、配置与其他根级资源"
+      }
+    ]
+  },
+  "module_counts": {
+    "(root)": 7,
+    "cmd": 643,
+    "docs": 847,
+    "frontend-app": 308,
+    "internal": 1975,
+    "migrations": 111,
+    "pkg": 25,
+    "scripts": 107,
+    "sql": 30,
+    "test": 9,
+    "tests": 1,
+    "third_party": 9
+  },
+  "quick_routes": [
+    {
+      "goal": "修改桌面 Go/Wails host",
+      "primary": "cmd/agent-terminal/",
+      "secondary": "internal/ui/wails/",
+      "keywords": "wails binding rpc app host"
+    },
+    {
+      "goal": "修改 React 聊天 UI",
+      "primary": "frontend-app/src/pages/chat/",
+      "secondary": "frontend-app/src/entities/client/model/",
+      "keywords": "ChatPage composer timeline store sendDraft"
+    },
+    {
+      "goal": "修改 DAG 编排执行",
+      "primary": "cmd/mcp-orch/orchestration/",
+      "secondary": "cmd/mcp-orch/store/taskdag/",
+      "keywords": "dag wakeup nodeexec dispatcher retry"
+    },
+    {
+      "goal": "修改 MCP orchestration tools",
+      "primary": "cmd/mcp-orch/tools/",
+      "secondary": "cmd/mcp-orch/orchestration/rpc.go",
+      "keywords": "task_dag agent_launch schema registry"
+    },
+    {
+      "goal": "修改 LSP 工具",
+      "primary": "cmd/mcp-lsp/tools/",
+      "secondary": "cmd/mcp-lsp/multilsp/",
+      "keywords": "lsp tool grep file search diagnostics"
+    },
+    {
+      "goal": "修改 thread/turn 生命周期",
+      "primary": "internal/module/thread/",
+      "secondary": "internal/module/turn/",
+      "keywords": "thread start resume fork turn provider"
+    },
+    {
+      "goal": "修改 memory/prompt/skill",
+      "primary": "internal/module/memory/",
+      "secondary": "internal/module/prompt/",
+      "keywords": "memory prompt skill canonical mirror"
+    },
+    {
+      "goal": "修改 provider 接入",
+      "primary": "internal/provider/",
+      "secondary": "internal/platform/toolbridge/",
+      "keywords": "claude codex provider session manifest toolbridge"
+    },
+    {
+      "goal": "修改控制面/bootstrap",
+      "primary": "internal/platform/mcpcontrol/",
+      "secondary": "internal/mcpserver/common/bootstrap/",
+      "keywords": "peer register bootstrap hooks"
+    },
+    {
+      "goal": "修改持久化/SQL",
+      "primary": "internal/store/",
+      "secondary": "sql/queries/",
+      "keywords": "store sqlc migration queries"
+    },
+    {
+      "goal": "修改代码地图",
+      "primary": "docs/doc/codemap/",
+      "secondary": "scripts/codemap_index.go",
+      "keywords": "codemap ai-index make codemap-refresh"
+    },
+    {
+      "goal": "修改架构守卫",
+      "primary": "internal/archtest/",
+      "secondary": "internal/archtest/baseline.json",
+      "keywords": "guard baseline ratchet freeze"
+    },
+    {
+      "goal": "查 AI maintenance gates",
+      "primary": "scripts/ai_maintenance/",
+      "secondary": ".github/workflows/ai-maintenance-gates.yml",
+      "keywords": "ai maintenance gates validation generated files"
+    },
+    {
+      "goal": "查 runtime skill 行为",
+      "primary": "internal/module/skill/",
+      "secondary": "internal/provider/shared/provider_home.go",
+      "keywords": "skill canonical mirror provider home personal hub"
+    },
+    {
+      "goal": "查 LSP 工作流规则",
+      "primary": "docs/internal-notes/LSP系统提示词.md",
+      "secondary": "cmd/mcp-lsp/tools/",
+      "keywords": "lsp diagnostics grep inspect xref"
+    },
+    {
+      "goal": "查 provider bridge",
+      "primary": "internal/provider/",
+      "secondary": "internal/platform/toolbridge/",
+      "keywords": "provider manifest session toolbridge codex claude"
+    }
+  ],
+  "runtime_entries": [
+    {
+      "unit": "Desktop host",
+      "entry": "cmd/agent-terminal/main.go",
+      "endpoint": "local desktop host",
+      "desc": "Wails desktop host, HTTP/RPC bridge, frontend embed host"
+    },
+    {
+      "unit": "MCP orchestration peer",
+      "entry": "cmd/mcp-orch/main.go",
+      "endpoint": "stdio / managed peer",
+      "desc": "Agent lifecycle, DAG, wakeup, workspace and shared file tools"
+    },
+    {
+      "unit": "MCP LSP peer",
+      "entry": "cmd/mcp-lsp/main.go",
+      "endpoint": "stdio / managed peer",
+      "desc": "Generic multi-language LSP peer and code intelligence tools"
+    },
+    {
+      "unit": "React UI",
+      "entry": "frontend-app/src/main.jsx",
+      "endpoint": "5175 dev server",
+      "desc": "Current React/Vite frontend entry"
+    },
+    {
+      "unit": "macOS dev runner",
+      "entry": "run-new-ui-desktop.sh",
+      "endpoint": "5175 dev UI + local desktop host",
+      "desc": "Desktop host plus Vite dev flow"
+    },
+    {
+      "unit": "Windows dev runner",
+      "entry": "run-new-ui-desktop.ps1",
+      "endpoint": "5175 dev UI + local desktop host",
+      "desc": "PowerShell desktop host plus Vite dev flow"
+    }
+  ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.014,
-    "unknown_files": 57
+    "unknown_ratio": 0.0007,
+    "unknown_files": 3,
+    "thresholds": {
+      "max_unknown_ratio": 0.05
+    },
+    "warnings": [],
+    "top_unknown_modules": {
+      "internal": 2,
+      "sql": 1
+    }
   }
 }

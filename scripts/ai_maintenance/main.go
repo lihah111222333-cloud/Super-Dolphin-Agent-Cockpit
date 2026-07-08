@@ -708,7 +708,7 @@ func codemapRelevant(file string) bool {
 		strings.HasPrefix(file, "pkg/") ||
 		strings.HasPrefix(file, "frontend-app/src/") ||
 		strings.HasPrefix(file, "docs/doc/codemap/") ||
-		file == "scripts/generate_ai_project_map.js" ||
+		file == "scripts/generate_ai_project_map.mjs" ||
 		file == "scripts/codemap_index.go"
 }
 

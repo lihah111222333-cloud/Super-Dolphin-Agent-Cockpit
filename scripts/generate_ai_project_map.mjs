@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const childProcess = require('child_process');
+import childProcess from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const ROOT = findRepoRoot(process.cwd());
 const OUTPUT_DIR = path.join(ROOT, 'docs', 'doc', 'codemap', 'project-map');
@@ -38,18 +40,27 @@ const INDEXED_ROOT_FILES = new Set([
   'run-new-ui-desktop.sh',
 ]);
 
-const VALID_ARGS = new Set(['--check', '--strict-drift', '--filesystem-scan']);
-for (const arg of process.argv.slice(2)) {
-  if (!VALID_ARGS.has(arg)) {
-    console.error(`project-map: unknown argument ${arg}`);
-    process.exit(2);
+function parseArgs(argv) {
+  const options = { check: false, strictDrift: false, filesystemScan: false, rulesPath: '' };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--check') options.check = true;
+    else if (arg === '--strict-drift') options.strictDrift = true;
+    else if (arg === '--filesystem-scan') options.filesystemScan = true;
+    else if (arg === '--rules' && i + 1 < argv.length) options.rulesPath = argv[++i];
+    else {
+      console.error(`project-map: unknown argument ${arg}`);
+      process.exit(2);
+    }
   }
+  return options;
 }
 
-const CHECK = process.argv.includes('--check');
-const STRICT_DRIFT = process.argv.includes('--strict-drift');
-const FILESYSTEM_SCAN = process.argv.includes('--filesystem-scan');
-const GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
+const OPTIONS = parseArgs(process.argv.slice(2));
+const CHECK = OPTIONS.check;
+const STRICT_DRIFT = OPTIONS.strictDrift;
+const FILESYSTEM_SCAN = OPTIONS.filesystemScan;
+let GIT_BLOB_SIZES = null;
 
 const EXCLUDES = [
   '.git/**',
@@ -99,6 +110,23 @@ const DOMAIN_DESCRIPTIONS = {
   'store-sql': '持久化层：store、sqlc、SQL queries、migrations',
   'docs-agent': '代码地图、ADR/决策、计划与 docs 项目知识',
   other: '公共库、脚本、测试、配置与其他根级资源',
+};
+
+const RULES_CANDIDATES = [
+  '.ai-project-map.overrides.json',
+];
+
+const MODULE_DESCRIPTIONS = {
+  cmd: '可执行入口与 MCP peer',
+  internal: '应用内部模块、平台、provider、store 与守卫',
+  docs: '代码地图、ADR、计划、迁移和内部说明',
+  pkg: '可复用公共库',
+  scripts: '工程自动化脚本',
+  sql: 'SQL query 源文件',
+  migrations: '数据库 migration',
+  test: '测试夹具和辅助资源',
+  tests: '跨包测试资源',
+  '(root)': '仓库根级配置和说明',
 };
 
 const PURPOSE_RULES = [
@@ -196,12 +224,71 @@ const QUICK_ROUTES = [
   ['修改架构守卫', 'internal/archtest/', 'internal/archtest/baseline.json', 'guard baseline ratchet freeze'],
 ];
 
+const runtime = {
+  purposeRules: PURPOSE_RULES.slice(),
+  quickRoutes: QUICK_ROUTES.slice(),
+  topModuleDesc: { ...MODULE_DESCRIPTIONS },
+  subsystemDesc: {},
+  archivePrefixes: ['docs/archive/'],
+  driftThresholds: {
+    max_unknown_ratio: 0.18,
+  },
+  rulesSources: [],
+};
+
+const RUNTIME_ENTRY_ROWS = [
+  ['Desktop host', 'cmd/agent-terminal/main.go', 'local desktop host', 'Wails desktop host, HTTP/RPC bridge, frontend embed host'],
+  ['MCP orchestration peer', 'cmd/mcp-orch/main.go', 'stdio / managed peer', 'Agent lifecycle, DAG, wakeup, workspace and shared file tools'],
+  ['MCP LSP peer', 'cmd/mcp-lsp/main.go', 'stdio / managed peer', 'Generic multi-language LSP peer and code intelligence tools'],
+  ['React UI', 'frontend-app/src/main.jsx', '5175 dev server', 'Current React/Vite frontend entry'],
+  ['macOS dev runner', 'run-new-ui-desktop.sh', '5175 dev UI + local desktop host', 'Desktop host plus Vite dev flow'],
+  ['Windows dev runner', 'run-new-ui-desktop.ps1', '5175 dev UI + local desktop host', 'PowerShell desktop host plus Vite dev flow'],
+];
+
+const SUBSYSTEM_PREFIX_GROUPS = [
+  ['internal/module', [
+    ['internal/module/thread', 'thread start/resume/fork/stop 生命周期与绑定真相源'],
+    ['internal/module/turn', 'turn 启动、执行、审批与 provider 调度'],
+    ['internal/module/prompt', 'prompt 模板、启用条件与 system prompt 组装'],
+    ['internal/module/memory', 'memory canonical 管理、检索与持久化接线'],
+    ['internal/module/skill', 'skill canonical 管理与 provider-native mirror'],
+    ['internal/module/uistate', 'UI 事件投影与 timeline/sidebar 状态'],
+  ]],
+  ['internal/platform', [
+    ['internal/platform/rpc', 'JSON-RPC transport、dispatch、push 与审批框架'],
+    ['internal/platform/mcpcontrol', 'MCP 控制平面与 peer 注册'],
+    ['internal/platform/toolbridge', 'provider 与 MCP tools 桥接'],
+    ['internal/platform/hooks', 'hook 配置、执行与三阶段拦截'],
+    ['internal/platform/config', '运行配置、env、provider 与超时策略'],
+  ]],
+  ['internal/provider', [
+    ['internal/provider/codexapp', 'Codex app/server provider 集成'],
+    ['internal/provider/claudecli', 'Claude CLI provider 集成'],
+    ['internal/provider/shared', 'provider home、配置和共享 helpers'],
+    ['internal/provider/unified', '统一 provider 会话解析与 manifest'],
+  ]],
+  ['cmd peers', [
+    ['cmd/mcp-orch/tools', 'mcp-orch MCP tool schema、registry 与 handler'],
+    ['cmd/mcp-orch/orchestration', 'agent 生命周期、DAG、wakeup、report 与 hook 消费'],
+    ['cmd/mcp-lsp/tools', 'LSP MCP tools 实现'],
+    ['cmd/mcp-lsp/multilsp', '多语言 LSP manager、transport 与缓存'],
+  ]],
+];
+
 function main() {
+  loadRuleOverrides(OPTIONS);
+  GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
   const files = scanFiles();
   const entries = files.map(buildEntry);
   const grouped = groupByDomain(entries);
   const drift = buildDrift(entries);
   const outputs = renderAll(entries, grouped, drift);
+
+  if (STRICT_DRIFT && drift.status !== 'OK') {
+    console.error(`project-map-check: drift status ${drift.status}`);
+    for (const warning of drift.warnings) console.error(`project-map-check: ${warning}`);
+    process.exit(1);
+  }
 
   if (CHECK) {
     checkOutputs(outputs, drift);
@@ -222,6 +309,47 @@ function main() {
 function scanFiles() {
   if (!FILESYSTEM_SCAN) return scanGitTrackedFiles();
   return scanFilesystemFiles();
+}
+
+function loadRuleOverrides(options) {
+  const candidates = [];
+  if (options.rulesPath) candidates.push(path.resolve(ROOT, options.rulesPath));
+  for (const rel of RULES_CANDIDATES) candidates.push(path.join(ROOT, rel));
+  const seen = new Set();
+
+  for (const absPath of candidates) {
+    if (seen.has(absPath)) continue;
+    seen.add(absPath);
+    if (!fs.existsSync(absPath)) continue;
+    const raw = fs.readFileSync(absPath, 'utf8');
+    const patch = JSON.parse(raw);
+    applyRulesPatch(patch, absPath);
+  }
+}
+
+function applyRulesPatch(patch, absPath) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error(`project-map: rules file must contain a JSON object: ${path.relative(ROOT, absPath)}`);
+  }
+  if (Array.isArray(patch.purpose_rules_append)) {
+    runtime.purposeRules = runtime.purposeRules.concat(patch.purpose_rules_append);
+  }
+  if (Array.isArray(patch.quick_routes_append)) {
+    runtime.quickRoutes = runtime.quickRoutes.concat(patch.quick_routes_append);
+  }
+  if (patch.top_module_desc_patch && typeof patch.top_module_desc_patch === 'object' && !Array.isArray(patch.top_module_desc_patch)) {
+    Object.assign(runtime.topModuleDesc, patch.top_module_desc_patch);
+  }
+  if (patch.subsystem_desc_patch && typeof patch.subsystem_desc_patch === 'object' && !Array.isArray(patch.subsystem_desc_patch)) {
+    Object.assign(runtime.subsystemDesc, patch.subsystem_desc_patch);
+  }
+  if (Array.isArray(patch.archive_prefixes)) {
+    runtime.archivePrefixes = patch.archive_prefixes.map((value) => String(value || '').trim()).filter(Boolean);
+  }
+  if (patch.drift_thresholds_patch && typeof patch.drift_thresholds_patch === 'object' && !Array.isArray(patch.drift_thresholds_patch)) {
+    Object.assign(runtime.driftThresholds, patch.drift_thresholds_patch);
+  }
+  runtime.rulesSources.push(path.relative(ROOT, absPath));
 }
 
 function scanGitTrackedFiles() {
@@ -322,7 +450,7 @@ function shouldSkipDir(rel) {
     '.agents/shared',
     '.agnet/report',
     '.agnet/shared',
-    'docs/archive',
+    ...runtime.archivePrefixes.map((prefix) => prefix.replace(/\/+$/, '')),
     'docs/doc/codemap/project-map',
     'reports',
   ].some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));
@@ -419,7 +547,7 @@ function normalizedContentSize(data) {
 }
 
 function purposeFor(file) {
-  const rule = PURPOSE_RULES.find(([prefix]) => file.startsWith(prefix));
+  const rule = runtime.purposeRules.find(([prefix]) => file.startsWith(prefix));
   if (rule) return rule[1];
   if (!file.includes('/')) return '仓库根级配置、入口或说明文件';
   return '未细分职责：请结合路径、文件名和相邻代码判断';
@@ -444,41 +572,119 @@ function buildDrift(entries) {
   const unknown = entries.filter((entry) => entry.purpose.startsWith('未细分职责'));
   const topUnknown = countBy(unknown.map((entry) => entry.module));
   const unknownRatio = entries.length ? unknown.length / entries.length : 0;
-  const status = unknownRatio > 0.18 ? 'WARN' : 'OK';
-  return { status, unknown, topUnknown, unknownRatio };
+  const maxUnknownRatio = Number(runtime.driftThresholds.max_unknown_ratio);
+  if (!Number.isFinite(maxUnknownRatio)) {
+    throw new Error('project-map: drift_thresholds.max_unknown_ratio must be a number');
+  }
+  const status = unknownRatio > maxUnknownRatio ? 'WARN' : 'OK';
+  const warnings = status === 'WARN'
+    ? [`unknown_ratio ${(unknownRatio * 100).toFixed(2)}% exceeds max_unknown_ratio ${(maxUnknownRatio * 100).toFixed(2)}%`]
+    : [];
+  return { status, unknown, topUnknown, unknownRatio, warnings, thresholds: { max_unknown_ratio: maxUnknownRatio } };
 }
 
 function renderAll(entries, grouped, drift) {
   const outputs = {};
-  outputs[MAP_MD] = renderMap(entries, grouped, drift);
+  const stats = shardStats(grouped);
+  outputs[MAP_MD] = renderMap(entries, drift, stats);
   outputs[DRIFT_MD] = renderDrift(entries, drift);
-  outputs[MANIFEST_JSON] = `${JSON.stringify({
-    version: '1.0',
-    generator: 'node:scripts/generate_ai_project_map.js',
-    generated_at: today(),
-    files: entries.length,
-    domains: Object.fromEntries(Object.entries(grouped).map(([domain, items]) => [domain, items.length])),
-    drift: { status: drift.status, unknown_ratio: Number(drift.unknownRatio.toFixed(4)), unknown_files: drift.unknown.length },
-  }, null, 2)}\n`;
+  outputs[MANIFEST_JSON] = `${JSON.stringify(renderManifest(entries, grouped, drift, stats), null, 2)}\n`;
   for (const [domain, items] of Object.entries(grouped)) {
     outputs[path.join(INDEX_DIR, DOMAIN_FILES[domain])] = renderTSV(items);
   }
   return outputs;
 }
 
-function renderMap(entries, grouped, drift) {
-  const topCounts = countBy(entries.map((entry) => entry.module));
-  const domainRows = Object.entries(DOMAIN_FILES)
+function renderManifest(entries, grouped, drift, stats) {
+  return {
+    version: '1.0',
+    generator: 'node:scripts/generate_ai_project_map.mjs',
+    generated_at: today(),
+    rules_sources: runtime.rulesSources,
+    files: entries.length,
+    domains: Object.fromEntries(Object.entries(grouped).map(([domain, items]) => [domain, items.length])),
+    index_files: {
+      map_markdown: 'docs/doc/codemap/project-map/AI_PROJECT_MAP.md',
+      drift_report: 'docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md',
+      shards: stats.map((item) => ({
+        key: item.domain,
+        file: item.file,
+        file_count: item.count,
+        size_kb: item.size_kb,
+        desc: item.description,
+      })),
+    },
+    module_counts: countBy(entries.map((entry) => entry.module)),
+    quick_routes: runtime.quickRoutes.map(([goal, primary, secondary, keywords]) => ({ goal, primary, secondary, keywords })),
+    runtime_entries: RUNTIME_ENTRY_ROWS.map(([unit, entry, endpoint, desc]) => ({ unit, entry, endpoint, desc })),
+    drift: {
+      status: drift.status,
+      unknown_ratio: Number(drift.unknownRatio.toFixed(4)),
+      unknown_files: drift.unknown.length,
+      thresholds: drift.thresholds,
+      warnings: drift.warnings,
+      top_unknown_modules: drift.topUnknown,
+    },
+  };
+}
+
+function scanPolicySummary() {
+  return `allowlisted project files; excludes: ${EXCLUDES.join(', ')}`;
+}
+
+function sizeKB(content) {
+  return (Buffer.byteLength(content, 'utf8') / 1024).toFixed(1);
+}
+
+function shardStats(grouped) {
+  return Object.entries(DOMAIN_FILES)
     .filter(([domain]) => grouped[domain])
-    .map(([domain, file]) => `| \`${path.posix.join('docs/doc/codemap/project-map/index', file)}\` | ${grouped[domain].length} | ${DOMAIN_DESCRIPTIONS[domain]} |`)
+    .map(([domain, file]) => {
+      const tsv = renderTSV(grouped[domain]);
+      return {
+        domain,
+        file: path.posix.join('docs/doc/codemap/project-map/index', file),
+        count: grouped[domain].length,
+        size_kb: Number(sizeKB(tsv)),
+        description: DOMAIN_DESCRIPTIONS[domain],
+      };
+    });
+}
+
+function countByPrefix(entries, prefixes) {
+  return prefixes.map(([prefix, description]) => ({
+    prefix,
+    description: runtime.subsystemDesc[prefix] || description,
+    count: entries.filter((entry) => entry.path === prefix || entry.path.startsWith(`${prefix}/`)).length,
+  })).filter((row) => row.count > 0);
+}
+
+function renderSubsystemSections(entries) {
+  return SUBSYSTEM_PREFIX_GROUPS.map(([title, prefixes]) => {
+    const rows = countByPrefix(entries, prefixes)
+      .map((row) => `| \`${row.prefix}\` | ${row.count} | ${row.description} |`)
+      .join('\n');
+    if (!rows) return '';
+    return `### ${title}\n\n| 子系统 | 文件数 | 职责 |\n|---|---:|---|\n${rows}`;
+  }).filter(Boolean).join('\n\n') || '无匹配子系统。';
+}
+
+function renderMap(entries, drift, stats) {
+  const topCounts = countBy(entries.map((entry) => entry.module));
+  const domainRows = stats
+    .map((item) => `| \`${item.file}\` | ${item.count} | ${item.size_kb.toFixed(1)} KB | ${item.description} |`)
     .join('\n');
   const topRows = Object.entries(topCounts)
     .sort((a, b) => b[1] - a[1])
     .map(([module, count]) => `| \`${module}\` | ${count} | ${moduleDescription(module)} |`)
     .join('\n');
-  const routeRows = QUICK_ROUTES.map(([target, first, second, keys]) => `| ${target} | \`${first}\` | \`${second}\` | \`${keys}\` |`).join('\n');
+  const routeRows = runtime.quickRoutes.map(([target, first, second, keys]) => `| ${target} | \`${first}\` | \`${second}\` | \`${keys}\` |`).join('\n');
+  const runtimeEntryRows = RUNTIME_ENTRY_ROWS
+    .map(([unit, entry, endpoint, desc]) => `| ${unit} | \`${entry}\` | ${endpoint} | ${desc} |`)
+    .join('\n');
+  const subsystemSections = renderSubsystemSections(entries);
 
-  return `# AI 项目地图（Super-Dolphin）\n\n> 生成时间：${today()}\n>\n> 已索引文件：**${entries.length}**\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥，\`frontend-app\` 提供 React/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 覆盖范围 |\n|---|---:|---|\n${domainRows}\n\n每个 TSV 字段为：\`path\`、\`module\`、\`domain\`、\`type\`、\`size_bytes\`、\`purpose\`、\`search_keys\`。\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 5. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.js\nnode scripts/generate_ai_project_map.js --check\nnode scripts/generate_ai_project_map.js --strict-drift\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
+  return `# AI 项目地图（Super-Dolphin）\n\n> 生成时间：${today()}\n>\n> 已索引文件：**${entries.length}**\n>\n> 扫描规则：${scanPolicySummary()}\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥，\`frontend-app\` 提供 React/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 大小 | 覆盖范围 |\n|---|---:|---:|---|\n${domainRows}\n\n**检索示例：**\n\n\`\`\`bash\n# 1) 先读此 MAP.md 确定目标域\n# 2) 搜索对应 TSV 分片\nrg "thread.*resume|fork" docs/doc/codemap/project-map/index/modules.tsv\nrg "provider.*manifest|toolbridge" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "lsp.*diagnostics|grep" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "ChatPage|composer|timeline" docs/doc/codemap/project-map/index/app-ui.tsv\n# 3) 打开目标源码和同包测试\nrg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'\n\`\`\`\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 运行入口地图\n\n| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |\n|---|---|---|---|\n${runtimeEntryRows}\n\n## 5. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 6. 重点子系统地图\n\n${subsystemSections}\n\n## 7. 文档与知识地图\n\n- 主线文档（L1）：\`README.md\`、\`docs/doc/codemap/README.md\`、\`docs/adr/*\`、\`docs/decisions/*\`\n- 工作文档（L2）：\`docs/plans/*\`、\`docs/internal-notes/*\`\n- 历史归档（L3）：\`${runtime.archivePrefixes.join('`、`')}\`（默认不递归索引）\n- Agent 体系：\`.agents/skills/*/SKILL.md\` 是 repo-local skill 指令入口；不要把 \`.agents\` 当作普通项目源码递归扫描。\n\n## 8. 索引字段说明\n\n| 字段 | 含义 |\n|---|---|\n| \`path\` | 相对路径 |\n| \`module\` | 顶层模块 |\n| \`domain\` | project-map 分片域 |\n| \`type\` | 文件类型 |\n| \`size_bytes\` | 文件大小（字节） |\n| \`purpose\` | 文件职责说明 |\n| \`search_keys\` | 建议检索关键词 |\n\n## 9. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --check\nnode scripts/generate_ai_project_map.mjs --strict-drift\nnode scripts/generate_ai_project_map.mjs --rules path/to/overrides.json\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
 }
 
 function renderDrift(entries, drift) {
@@ -488,7 +694,8 @@ function renderDrift(entries, drift) {
     .map(([module, count]) => `| \`${module}\` | ${count} |`)
     .join('\n') || '| - | 0 |';
   const sample = drift.unknown.slice(0, 50).map((entry) => `- \`${entry.path}\``).join('\n') || '- 无';
-  return `# AI 项目地图漂移报告\n\n> 状态：**${drift.status}**\n>\n> 已索引文件：${entries.length}\n>\n> 未细分职责文件：${drift.unknown.length}\n\n## 1. 漂移指标\n\n| 指标 | 当前值 |\n|---|---:|\n| 未细分职责文件数 | ${drift.unknown.length} |\n| 未细分职责占比 | ${(drift.unknownRatio * 100).toFixed(2)}% |\n\n## 2. 未细分职责分布\n\n| 模块 | 文件数 |\n|---|---:|\n${topUnknownRows}\n\n## 3. 样例文件\n\n${sample}\n\n## 4. 修复方式\n\n优先在 \`scripts/generate_ai_project_map.js\` 的 \`PURPOSE_RULES\` 中补充路径前缀和职责说明，然后重新运行：\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.js\n\`\`\`\n`;
+  const warnings = drift.warnings.map((warning) => `- ${warning}`).join('\n') || '- 无';
+  return `# AI 项目地图漂移报告\n\n> 状态：**${drift.status}**\n>\n> 已索引文件：${entries.length}\n>\n> 未细分职责文件：${drift.unknown.length}\n\n## 1. 漂移指标\n\n| 指标 | 当前值 |\n|---|---:|\n| 未细分职责文件数 | ${drift.unknown.length} |\n| 未细分职责占比 | ${(drift.unknownRatio * 100).toFixed(2)}% |\n| 最大未细分职责占比阈值 | ${(drift.thresholds.max_unknown_ratio * 100).toFixed(2)}% |\n\n## 2. 漂移告警\n\n${warnings}\n\n## 3. 未细分职责分布\n\n| 模块 | 文件数 |\n|---|---:|\n${topUnknownRows}\n\n## 4. 样例文件\n\n${sample}\n\n## 5. 修复方式\n\n优先在 \`.ai-project-map.overrides.json\` 中补充 \`purpose_rules_append\`，或用 \`--rules\` 传入显式规则文件，然后重新运行：\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\n\`\`\`\n`;
 }
 
 function renderTSV(items) {
@@ -537,7 +744,7 @@ function findRepoRoot(start) {
     if (parent === dir) break;
     dir = parent;
   }
-  return path.resolve(__dirname, '..');
+  return path.resolve(SCRIPT_DIR, '..');
 }
 
 function existingGeneratedFiles() {
@@ -560,18 +767,7 @@ function countBy(values) {
 }
 
 function moduleDescription(module) {
-  return {
-    cmd: '可执行入口与 MCP peer',
-    internal: '应用内部模块、平台、provider、store 与守卫',
-    docs: '代码地图、ADR、计划、迁移和内部说明',
-    pkg: '可复用公共库',
-    scripts: '工程自动化脚本',
-    sql: 'SQL query 源文件',
-    migrations: '数据库 migration',
-    test: '测试夹具和辅助资源',
-    tests: '跨包测试资源',
-    '(root)': '仓库根级配置和说明',
-  }[module] || '其他项目资源';
+  return runtime.topModuleDesc[module] || '其他项目资源';
 }
 
 function tsvCell(value) {

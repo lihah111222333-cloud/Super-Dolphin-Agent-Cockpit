@@ -2,7 +2,9 @@
 
 > 生成时间：2026-07-08
 >
-> 已索引文件：**4071**
+> 已索引文件：**4072**
+>
+> 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
 > 漂移状态：**OK**（详见 `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`）
 
@@ -19,36 +21,58 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 ## 2. 索引路由表
 
-| 索引文件 | 文件数 | 覆盖范围 |
-|---|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 310 | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
-| `docs/doc/codemap/project-map/index/orchestration.tsv` | 406 | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 717 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1006 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
-| `docs/doc/codemap/project-map/index/store-sql.tsv` | 306 | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 849 | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 477 | 公共库、脚本、测试、配置与其他根级资源 |
+| 索引文件 | 文件数 | 大小 | 覆盖范围 |
+|---|---:|---:|---|
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 310 | 61.6 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/orchestration.tsv` | 406 | 90.8 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 717 | 139.5 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1006 | 185.4 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/store-sql.tsv` | 306 | 45.5 KB | 持久化层：store、sqlc、SQL queries、migrations |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 850 | 151.1 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 477 | 90.2 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
-每个 TSV 字段为：`path`、`module`、`domain`、`type`、`size_bytes`、`purpose`、`search_keys`。
+**检索示例：**
+
+```bash
+# 1) 先读此 MAP.md 确定目标域
+# 2) 搜索对应 TSV 分片
+rg "thread.*resume|fork" docs/doc/codemap/project-map/index/modules.tsv
+rg "provider.*manifest|toolbridge" docs/doc/codemap/project-map/index/platform-provider.tsv
+rg "lsp.*diagnostics|grep" docs/doc/codemap/project-map/index/platform-provider.tsv
+rg "ChatPage|composer|timeline" docs/doc/codemap/project-map/index/app-ui.tsv
+# 3) 打开目标源码和同包测试
+rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
+```
 
 ## 3. 顶层结构
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
 | `internal` | 1975 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 846 | 代码地图、ADR、计划、迁移和内部说明 |
+| `docs` | 847 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 643 | 可执行入口与 MCP peer |
-| `frontend-app` | 308 | 其他项目资源 |
+| `frontend-app` | 308 | 当前 React/Vite 新 UI |
 | `migrations` | 111 | 数据库 migration |
 | `scripts` | 107 | 工程自动化脚本 |
 | `sql` | 30 | SQL query 源文件 |
 | `pkg` | 25 | 可复用公共库 |
 | `test` | 9 | 测试夹具和辅助资源 |
-| `third_party` | 9 | 其他项目资源 |
+| `third_party` | 9 | 第三方参考材料 |
 | `(root)` | 7 | 仓库根级配置和说明 |
-| `tests` | 1 | 跨包测试资源 |
+| `tests` | 1 | 跨包和脚本级测试资源 |
 
-## 4. 快速定位路由
+## 4. 运行入口地图
+
+| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |
+|---|---|---|---|
+| Desktop host | `cmd/agent-terminal/main.go` | local desktop host | Wails desktop host, HTTP/RPC bridge, frontend embed host |
+| MCP orchestration peer | `cmd/mcp-orch/main.go` | stdio / managed peer | Agent lifecycle, DAG, wakeup, workspace and shared file tools |
+| MCP LSP peer | `cmd/mcp-lsp/main.go` | stdio / managed peer | Generic multi-language LSP peer and code intelligence tools |
+| React UI | `frontend-app/src/main.jsx` | 5175 dev server | Current React/Vite frontend entry |
+| macOS dev runner | `run-new-ui-desktop.sh` | 5175 dev UI + local desktop host | Desktop host plus Vite dev flow |
+| Windows dev runner | `run-new-ui-desktop.ps1` | 5175 dev UI + local desktop host | PowerShell desktop host plus Vite dev flow |
+
+## 5. 快速定位路由
 
 | 目标 | 首选路径 | 次选路径 | 检索关键词 |
 |---|---|---|---|
@@ -64,13 +88,78 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | 修改持久化/SQL | `internal/store/` | `sql/queries/` | `store sqlc migration queries` |
 | 修改代码地图 | `docs/doc/codemap/` | `scripts/codemap_index.go` | `codemap ai-index make codemap-refresh` |
 | 修改架构守卫 | `internal/archtest/` | `internal/archtest/baseline.json` | `guard baseline ratchet freeze` |
+| 查 AI maintenance gates | `scripts/ai_maintenance/` | `.github/workflows/ai-maintenance-gates.yml` | `ai maintenance gates validation generated files` |
+| 查 runtime skill 行为 | `internal/module/skill/` | `internal/provider/shared/provider_home.go` | `skill canonical mirror provider home personal hub` |
+| 查 LSP 工作流规则 | `docs/internal-notes/LSP系统提示词.md` | `cmd/mcp-lsp/tools/` | `lsp diagnostics grep inspect xref` |
+| 查 provider bridge | `internal/provider/` | `internal/platform/toolbridge/` | `provider manifest session toolbridge codex claude` |
 
-## 5. 维护命令
+## 6. 重点子系统地图
+
+### internal/module
+
+| 子系统 | 文件数 | 职责 |
+|---|---:|---|
+| `internal/module/thread` | 105 | thread start/resume/fork/stop 生命周期与绑定真相源 |
+| `internal/module/turn` | 67 | turn 启动、执行、审批与 provider 调度 |
+| `internal/module/prompt` | 89 | prompt 模板、启用条件与 system prompt 组装 |
+| `internal/module/memory` | 149 | memory canonical 管理、检索与持久化接线 |
+| `internal/module/skill` | 97 | skill canonical 管理与 provider-native mirror |
+| `internal/module/uistate` | 50 | UI 事件投影与 timeline/sidebar 状态 |
+
+### internal/platform
+
+| 子系统 | 文件数 | 职责 |
+|---|---:|---|
+| `internal/platform/rpc` | 43 | JSON-RPC transport、dispatch、push 与审批框架 |
+| `internal/platform/mcpcontrol` | 34 | MCP 控制平面与 peer 注册 |
+| `internal/platform/toolbridge` | 78 | provider 与 MCP tools 桥接 |
+| `internal/platform/hooks` | 33 | hook 配置、执行与三阶段拦截 |
+| `internal/platform/config` | 8 | 运行配置、env、provider 与超时策略 |
+
+### internal/provider
+
+| 子系统 | 文件数 | 职责 |
+|---|---:|---|
+| `internal/provider/codexapp` | 120 | Codex app/server provider 集成 |
+| `internal/provider/claudecli` | 84 | Claude CLI provider 集成 |
+| `internal/provider/shared` | 15 | provider home、配置和共享 helpers |
+| `internal/provider/unified` | 29 | 统一 provider 会话解析与 manifest |
+
+### cmd peers
+
+| 子系统 | 文件数 | 职责 |
+|---|---:|---|
+| `cmd/mcp-orch/tools` | 74 | mcp-orch MCP tool schema、registry 与 handler |
+| `cmd/mcp-orch/orchestration` | 168 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
+| `cmd/mcp-lsp/tools` | 58 | LSP MCP tools 实现 |
+| `cmd/mcp-lsp/multilsp` | 71 | 多语言 LSP manager、transport 与缓存 |
+
+## 7. 文档与知识地图
+
+- 主线文档（L1）：`README.md`、`docs/doc/codemap/README.md`、`docs/adr/*`、`docs/decisions/*`
+- 工作文档（L2）：`docs/plans/*`、`docs/internal-notes/*`
+- 历史归档（L3）：`docs/archive/`（默认不递归索引）
+- Agent 体系：`.agents/skills/*/SKILL.md` 是 repo-local skill 指令入口；不要把 `.agents` 当作普通项目源码递归扫描。
+
+## 8. 索引字段说明
+
+| 字段 | 含义 |
+|---|---|
+| `path` | 相对路径 |
+| `module` | 顶层模块 |
+| `domain` | project-map 分片域 |
+| `type` | 文件类型 |
+| `size_bytes` | 文件大小（字节） |
+| `purpose` | 文件职责说明 |
+| `search_keys` | 建议检索关键词 |
+
+## 9. 维护命令
 
 ```bash
-node scripts/generate_ai_project_map.js
-node scripts/generate_ai_project_map.js --check
-node scripts/generate_ai_project_map.js --strict-drift
+node scripts/generate_ai_project_map.mjs
+node scripts/generate_ai_project_map.mjs --check
+node scripts/generate_ai_project_map.mjs --strict-drift
+node scripts/generate_ai_project_map.mjs --rules path/to/overrides.json
 ```
 
 现有手写代码地图仍以 `docs/doc/codemap/README.md` 和 `make codemap-check` / `make codemap-refresh` 为准；本目录提供低 token 的全仓文件级索引补充。

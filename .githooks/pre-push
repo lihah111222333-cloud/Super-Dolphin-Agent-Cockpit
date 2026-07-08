@@ -157,7 +157,7 @@ add_sqlc_path() {
 
 add_codemap_path() {
   case "$1" in
-    docs/doc/codemap/*|scripts/codemap_index.go|scripts/generate_ai_project_map.js)
+    docs/doc/codemap/*|scripts/codemap_index.go|scripts/generate_ai_project_map.mjs)
       HAS_CODEMAP_CHANGES=1
       ;;
   esac

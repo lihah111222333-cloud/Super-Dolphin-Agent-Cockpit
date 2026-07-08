@@ -1,13 +1,13 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-cmd/agent-runtime/main_test.go	cmd	other	go-test	3587	未细分职责：请结合路径、文件名和相邻代码判断	cmd,agent,runtime,main,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/agent-runtime/main.go	cmd	other	go-source	1143	未细分职责：请结合路径、文件名和相邻代码判断	cmd,agent,runtime,main,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6944	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9997	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,darwin,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,default,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	13919	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,install,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-updater/install.go	cmd	other	go-source	23830	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,install,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-updater/main.go	cmd	other	go-source	8714	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/agent-runtime/main_test.go	cmd	other	go-test	3587	Agent runtime command entry and tests	cmd,agent,runtime,main,test,Agent,command,entry,and,tests
+cmd/agent-runtime/main.go	cmd	other	go-source	1143	Agent runtime command entry and tests	cmd,agent,runtime,main,Agent,command,entry,and,tests
+cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6944	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
+cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9997	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
+cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
+cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,default,Super-Dolphin,install,and,command
+cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	13919	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/install.go	cmd	other	go-source	23830	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/main.go	cmd	other	go-source	8714	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
 go.mod	(root)	other	mod	3844	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app_test.go	internal	other	go-test	4257	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/app.go	internal	other	go-source	12858	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
@@ -255,12 +255,12 @@ internal/dto/ui/event.go	internal	other	go-source	7831	provider/shared DTO 与�
 internal/dto/ui/patch_types.go	internal	other	go-source	1405	provider/shared DTO 与事件协议	internal,dto,ui,patch,types,provider,shared,DTO,与事件协议
 internal/e2e/rpc_runtime/doc_test.go	internal	other	go-test	25	未细分职责：请结合路径、文件名和相邻代码判断	internal,e2e,rpc,runtime,doc,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/e2e/rpc_runtime/runtime_e2e_test.go	internal	other	go-test	9527	未细分职责：请结合路径、文件名和相邻代码判断	internal,e2e,rpc,runtime,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/guards/code_size_guard_test.go	internal	other	go-test	1945	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,code,size,guard,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/guards/guard_manifest.json	internal	other	json	345	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,guard,manifest,未细分职责：请结合路径,文件名和相邻代码判断
-internal/guards/refactor_baseline.json	internal	other	json	2096	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,refactor,baseline,未细分职责：请结合路径,文件名和相邻代码判断
-internal/guards/rollback_skip_guard_test.go	internal	other	go-test	2033	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,rollback,skip,guard,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/testutil/golden/golden.go	internal	other	go-source	4206	未细分职责：请结合路径、文件名和相邻代码判断	internal,testutil,golden,未细分职责：请结合路径,文件名和相邻代码判断
-internal/testutil/golden/orchestration_stub.go	internal	other	go-source	12821	未细分职责：请结合路径、文件名和相邻代码判断	internal,testutil,golden,orchestration,stub,未细分职责：请结合路径,文件名和相邻代码判断
+internal/guards/code_size_guard_test.go	internal	other	go-test	1945	Internal guard baselines and guard tests	internal,guards,code,size,guard,test,Internal,baselines,and,tests
+internal/guards/guard_manifest.json	internal	other	json	345	Internal guard baselines and guard tests	internal,guards,guard,manifest,Internal,baselines,and,tests
+internal/guards/refactor_baseline.json	internal	other	json	2096	Internal guard baselines and guard tests	internal,guards,refactor,baseline,Internal,guard,baselines,and,tests
+internal/guards/rollback_skip_guard_test.go	internal	other	go-test	2033	Internal guard baselines and guard tests	internal,guards,rollback,skip,guard,test,Internal,baselines,and,tests
+internal/testutil/golden/golden.go	internal	other	go-source	4206	Internal test helpers and golden fixtures	internal,testutil,golden,Internal,test,helpers,and,fixtures
+internal/testutil/golden/orchestration_stub.go	internal	other	go-source	12821	Internal test helpers and golden fixtures	internal,testutil,golden,orchestration,stub,Internal,test,helpers,and,fixtures
 internal/ui/wails/assets_test.go	internal	other	go-test	2951	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/assets.go	internal	other	go-source	4872	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/binding_id_test.go	internal	other	go-test	14925	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,id,test,Wails,与,UI,RPC,桥接
@@ -302,27 +302,27 @@ internal/ui/wails/sharedfile_open.go	internal	other	go-source	17100	Wails bindin
 internal/ui/wails/window_state.go	internal	other	go-source	4310	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,state,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window_test.go	internal	other	go-test	5353	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window.go	internal	other	go-source	6580	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,Wails,binding,与,UI,RPC,桥接
-internal/util/clone/clone.go	internal	other	go-source	2811	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,clone,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/configutil/configutil.go	internal	other	go-source	4643	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,configutil,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/ctxutil/ctxutil.go	internal	other	go-source	3150	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,ctxutil,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/historyjsonl/history_test.go	internal	other	go-test	8910	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,history,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/historyjsonl/history.go	internal	other	go-source	12079	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,history,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/historyjsonl/page.go	internal	other	go-source	9138	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,page,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/idempotency/registry_test.go	internal	other	go-test	3061	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idempotency,registry,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/idempotency/registry.go	internal	other	go-source	6407	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idempotency,registry,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/identifier/uuid_test.go	internal	other	go-test	2051	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,identifier,uuid,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/identifier/uuid.go	internal	other	go-source	1354	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,identifier,uuid,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/idgen/idgen.go	internal	other	go-source	1288	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idgen,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/jsoninput/jsoninput.go	internal	other	go-source	770	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,jsoninput,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/pathutil/pathutil_test.go	internal	other	go-test	1693	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,pathutil,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/pathutil/pathutil.go	internal	other	go-source	10852	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,pathutil,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/repofingerprint/fingerprint_test.go	internal	other	go-test	1245	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,repofingerprint,fingerprint,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/repofingerprint/fingerprint.go	internal	other	go-source	1126	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,repofingerprint,fingerprint,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/safego/safego.go	internal	other	go-source	710	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,safego,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/toolresults/path_test.go	internal	other	go-test	706	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,test,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/toolresults/path.go	internal	other	go-source	716	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,未细分职责：请结合路径,文件名和相邻代码判断
-internal/util/util.go	internal	other	go-source	1698	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,未细分职责：请结合路径,文件名和相邻代码判断
-Makefile	(root)	other	file	14941	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+internal/util/clone/clone.go	internal	other	go-source	2811	Internal shared utility packages	internal,util,clone,Internal,shared,utility,packages
+internal/util/configutil/configutil.go	internal	other	go-source	4643	Internal shared utility packages	internal,util,configutil,Internal,shared,utility,packages
+internal/util/ctxutil/ctxutil.go	internal	other	go-source	3150	Internal shared utility packages	internal,util,ctxutil,Internal,shared,utility,packages
+internal/util/historyjsonl/history_test.go	internal	other	go-test	8910	Internal shared utility packages	internal,util,historyjsonl,history,test,Internal,shared,utility,packages
+internal/util/historyjsonl/history.go	internal	other	go-source	12079	Internal shared utility packages	internal,util,historyjsonl,history,Internal,shared,utility,packages
+internal/util/historyjsonl/page.go	internal	other	go-source	9138	Internal shared utility packages	internal,util,historyjsonl,page,Internal,shared,utility,packages
+internal/util/idempotency/registry_test.go	internal	other	go-test	3061	Internal shared utility packages	internal,util,idempotency,registry,test,Internal,shared,utility,packages
+internal/util/idempotency/registry.go	internal	other	go-source	6407	Internal shared utility packages	internal,util,idempotency,registry,Internal,shared,utility,packages
+internal/util/identifier/uuid_test.go	internal	other	go-test	2051	Internal shared utility packages	internal,util,identifier,uuid,test,Internal,shared,utility,packages
+internal/util/identifier/uuid.go	internal	other	go-source	1354	Internal shared utility packages	internal,util,identifier,uuid,Internal,shared,utility,packages
+internal/util/idgen/idgen.go	internal	other	go-source	1288	Internal shared utility packages	internal,util,idgen,Internal,shared,utility,packages
+internal/util/jsoninput/jsoninput.go	internal	other	go-source	770	Internal shared utility packages	internal,util,jsoninput,Internal,shared,utility,packages
+internal/util/pathutil/pathutil_test.go	internal	other	go-test	1693	Internal shared utility packages	internal,util,pathutil,test,Internal,shared,utility,packages
+internal/util/pathutil/pathutil.go	internal	other	go-source	10852	Internal shared utility packages	internal,util,pathutil,Internal,shared,utility,packages
+internal/util/repofingerprint/fingerprint_test.go	internal	other	go-test	1245	Internal shared utility packages	internal,util,repofingerprint,fingerprint,test,Internal,shared,utility,packages
+internal/util/repofingerprint/fingerprint.go	internal	other	go-source	1126	Internal shared utility packages	internal,util,repofingerprint,fingerprint,Internal,shared,utility,packages
+internal/util/safego/safego.go	internal	other	go-source	710	Internal shared utility packages	internal,util,safego,Internal,shared,utility,packages
+internal/util/toolresults/path_test.go	internal	other	go-test	706	Internal shared utility packages	internal,util,toolresults,path,test,Internal,shared,utility,packages
+internal/util/toolresults/path.go	internal	other	go-source	716	Internal shared utility packages	internal,util,toolresults,path,Internal,shared,utility,packages
+internal/util/util.go	internal	other	go-source	1698	Internal shared utility packages	internal,util,Internal,shared,utility,packages
+Makefile	(root)	other	file	14943	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	5884	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3359	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
@@ -354,7 +354,7 @@ scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试
 scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	1752	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance_gates.sh	scripts	other	script	175	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/main_test.go	scripts	other	go-test	6133	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/main.go	scripts	other	go-source	24773	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/main.go	scripts	other	go-source	24774	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/bash_test_helpers_test.go	scripts	other	go-test	8708	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract.go	scripts	other	go-source	579	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract/main_test.go	scripts	other	go-test	2455	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -379,10 +379,10 @@ scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化
 scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3001	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
 scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_build_guard_test.go	scripts	other	go-test	1989	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	13400	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	13401	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify.sh	scripts	other	script	2368	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,工程自动化,测试守卫,代码地图与开发脚本
-scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	5043	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/generate_ai_project_map.js	scripts	other	js-source	25908	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	11704	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map.mjs	scripts	other	js-source	36153	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
 scripts/github_release_updater_guard_test.go	scripts	other	go-test	26455	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,updater,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go	scripts	other	file	1043	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
@@ -457,22 +457,22 @@ scripts/verify_packaged_app_linux.sh	scripts	other	script	16336	工程自动化�
 scripts/verify_packaged_app_macos.sh	scripts	other	script	24337	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,macos,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_windows.ps1	scripts	other	script	22969	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/windows_test_helpers_test.go	scripts	other	go-test	317	工程自动化、测试守卫、代码地图与开发脚本	scripts,windows,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
-test/fixtures/p21/cron/README.md	test	other	doc	789	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,cron,README,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/prompt-injection/samples.txt	test	other	txt	798	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,prompt,injection,samples,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/README.md	test	other	doc	1752	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,README,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/repos/.gitkeep	test	other	file	98	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,repos,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/repos/bootstrap.sh	test	other	script	709	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,repos,bootstrap,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/secrets/check_redaction.go	test	other	go-source	2616	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,secrets,check,redaction,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/secrets/sample.txt	test	other	txt	1516	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,secrets,sample,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/webhooks/README.md	test	other	doc	1128	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,README,未细分职责：请结合路径,文件名和相邻代码判断
-test/fixtures/p21/webhooks/replay.py	test	other	py	744	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,replay,未细分职责：请结合路径,文件名和相邻代码判断
-tests/scripts/guard_env_test.sh	tests	other	script	138	未细分职责：请结合路径、文件名和相邻代码判断	tests,scripts,guard,env,test,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/default_test.go	third_party	other	go-test	3478	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,test,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/default.go	third_party	other	go-source	1060	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/event_test.go	third_party	other	go-test	7976	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,test,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/event.go	third_party	other	go-source	7795	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/example/main.go	third_party	other	go-source	1086	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,example,main,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/go.mod	third_party	other	mod	233	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/go.sum	third_party	other	sum	881	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/LICENSE	third_party	other	file	1073	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,LICENSE,未细分职责：请结合路径,文件名和相邻代码判断
-third_party/kelindar-event/README.md	third_party	other	doc	4621	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/cron/README.md	test	other	doc	789	Repository test fixtures	test,fixtures,p21,cron,README,Repository
+test/fixtures/p21/prompt-injection/samples.txt	test	other	txt	798	Repository test fixtures	test,fixtures,p21,prompt,injection,samples,Repository
+test/fixtures/p21/README.md	test	other	doc	1752	Repository test fixtures	test,fixtures,p21,README,Repository
+test/fixtures/p21/repos/.gitkeep	test	other	file	98	Repository test fixtures	test,fixtures,p21,repos,Repository
+test/fixtures/p21/repos/bootstrap.sh	test	other	script	709	Repository test fixtures	test,fixtures,p21,repos,bootstrap,Repository
+test/fixtures/p21/secrets/check_redaction.go	test	other	go-source	2616	Repository test fixtures	test,fixtures,p21,secrets,check,redaction,Repository
+test/fixtures/p21/secrets/sample.txt	test	other	txt	1516	Repository test fixtures	test,fixtures,p21,secrets,sample,Repository
+test/fixtures/p21/webhooks/README.md	test	other	doc	1128	Repository test fixtures	test,fixtures,p21,webhooks,README,Repository
+test/fixtures/p21/webhooks/replay.py	test	other	py	744	Repository test fixtures	test,fixtures,p21,webhooks,replay,Repository
+tests/scripts/guard_env_test.sh	tests	other	script	138	Shell-level regression tests	tests,scripts,guard,env,test,Shell-level,regression
+third_party/kelindar-event/default_test.go	third_party	other	go-test	3478	Vendored or mirrored third-party reference material	third,party,kelindar,event,default,test,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/default.go	third_party	other	go-source	1060	Vendored or mirrored third-party reference material	third,party,kelindar,event,default,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/event_test.go	third_party	other	go-test	7976	Vendored or mirrored third-party reference material	third,party,kelindar,event,test,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/event.go	third_party	other	go-source	7795	Vendored or mirrored third-party reference material	third,party,kelindar,event,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/example/main.go	third_party	other	go-source	1086	Vendored or mirrored third-party reference material	third,party,kelindar,event,example,main,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/go.mod	third_party	other	mod	233	Vendored or mirrored third-party reference material	third,party,kelindar,event,go,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/go.sum	third_party	other	sum	881	Vendored or mirrored third-party reference material	third,party,kelindar,event,go,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/LICENSE	third_party	other	file	1073	Vendored or mirrored third-party reference material	third,party,kelindar,event,LICENSE,Vendored,or,mirrored,third-party,reference,material
+third_party/kelindar-event/README.md	third_party	other	doc	4621	Vendored or mirrored third-party reference material	third,party,kelindar,event,README,Vendored,or,mirrored,third-party,reference,material

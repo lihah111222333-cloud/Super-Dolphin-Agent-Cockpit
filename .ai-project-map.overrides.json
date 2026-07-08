@@ -1,0 +1,35 @@
+{
+  "purpose_rules_append": [
+    ["cmd/agent-runtime/", "Agent runtime command entry and tests"],
+    ["cmd/super-dolphin-updater/", "Super-Dolphin updater install and detach command"],
+    ["cmd/super-dolphin-release-manifest/", "Release manifest generation command"],
+    ["internal/testutil/", "Internal test helpers and golden fixtures"],
+    ["internal/util/", "Internal shared utility packages"],
+    ["internal/guards/", "Internal guard baselines and guard tests"],
+    ["test/fixtures/", "Repository test fixtures"],
+    ["tests/scripts/", "Shell-level regression tests"],
+    ["third_party/", "Vendored or mirrored third-party reference material"]
+  ],
+  "quick_routes_append": [
+    ["查 AI maintenance gates", "scripts/ai_maintenance/", ".github/workflows/ai-maintenance-gates.yml", "ai maintenance gates validation generated files"],
+    ["查 runtime skill 行为", "internal/module/skill/", "internal/provider/shared/provider_home.go", "skill canonical mirror provider home personal hub"],
+    ["查 LSP 工作流规则", "docs/internal-notes/LSP系统提示词.md", "cmd/mcp-lsp/tools/", "lsp diagnostics grep inspect xref"],
+    ["查 provider bridge", "internal/provider/", "internal/platform/toolbridge/", "provider manifest session toolbridge codex claude"]
+  ],
+  "top_module_desc_patch": {
+    "frontend-app": "当前 React/Vite 新 UI",
+    "test": "测试夹具和辅助资源",
+    "third_party": "第三方参考材料",
+    "tests": "跨包和脚本级测试资源"
+  },
+  "subsystem_desc_patch": {
+    "internal/util": "Internal shared utility packages",
+    "internal/guards": "Internal guard baselines and guard tests"
+  },
+  "archive_prefixes": [
+    "docs/archive/"
+  ],
+  "drift_thresholds_patch": {
+    "max_unknown_ratio": 0.05
+  }
+}
