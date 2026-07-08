@@ -53,7 +53,7 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 		"cmd/mcp-orch/tools/registry.go":                       compat(1, "tool registry compatibility adapter keeps legacy dependency shape"),
 		"cmd/mcp-orch/tools/orchestration_tool_definitions.go": compat(1, "orchestration tool definition fanout adapter"),
 		"cmd/mcp-orch/tools/task_tool_definitions.go":          compat(3, "task tool definition fanout adapter"),
-		"cmd/mcp-orch/tools/orchestration_tools.go":            compat(10, "legacy launch/send/list helpers pending narrow-port migration"),
+		"cmd/mcp-orch/tools/orchestration_tools.go":            compat(1, "send_message remains on full orchestration service pending narrow-port migration"),
 		"cmd/mcp-orch/tools/orchestration_send_message.go":     compat(6, "send_message spans report, turn submission, and lifecycle lookup until split"),
 		"cmd/mcp-orch/tools/task_apply_ops.go":                 compat(1, "DAG ops handler pending DAG runtime split"),
 		"cmd/mcp-orch/tools/task_diagnostics.go":               compat(6, "workflow diagnostics spans DAG runtime and run lookup until split"),

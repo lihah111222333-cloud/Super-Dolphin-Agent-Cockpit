@@ -92,6 +92,21 @@ type ListAgentsOutput struct {
 	Hint      string                   `json:"hint,omitempty"`
 }
 
+type agentSnapshotLister interface {
+	ListAgents(context.Context) ([]contract.AgentSnapshot, error)
+}
+
+type agentLaunchPort interface {
+	agentSnapshotLister
+	LaunchAgent(context.Context, contract.LaunchRequest) error
+	Snapshot(context.Context, string) (contract.AgentSnapshot, error)
+}
+
+type agentListPort interface {
+	agentSnapshotLister
+	GetReport(context.Context, string) (contract.AgentReportResult, error)
+}
+
 // launchAgentSnapshotter 是支持快照式启动的 orchestration service 可选接口。
 type launchAgentSnapshotter interface {
 	LaunchAgentSnapshot(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
@@ -124,13 +139,13 @@ var (
 )
 
 // HandleLaunchAgent 注册 launch_agent 工具处理器，默认使用当前可执行文件重启子进程。
-func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
+func HandleLaunchAgent(svc agentLaunchPort) ToolHandler {
 	return handleLaunchAgentWithExeFn(svc, os.Executable)
 }
 
 // handleLaunchAgentWithExeFn 构造启动请求并处理同步快照启动或异步后台启动。
 // agent_id 预留必须覆盖整个启动窗口，防止并发请求同时启动同一逻辑 agent。
-func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() (string, error)) ToolHandler {
+func handleLaunchAgentWithExeFn(svc agentLaunchPort, exeFn func() (string, error)) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestForHandler(ctx, svc, in, exeFn)
 		if err != nil {
@@ -187,7 +202,7 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 
 // launchRequestForHandler 先做调用者深度校验，再把 handler 输入转成启动请求。
 // 深度校验必须在 reserve/launch 前发生，避免子 agent 通过旧名或短名进入后续流程。
-func launchRequestForHandler(ctx context.Context, svc contract.OrchestrationService, in LaunchAgentInput, exeFn func() (string, error)) (contract.LaunchRequest, error) {
+func launchRequestForHandler(ctx context.Context, svc agentLaunchPort, in LaunchAgentInput, exeFn func() (string, error)) (contract.LaunchRequest, error) {
 	if err := rejectChildAgentDelegation(ctx, svc); err != nil {
 		return contract.LaunchRequest{}, err
 	}
@@ -200,7 +215,7 @@ func launchRequestForHandler(ctx context.Context, svc contract.OrchestrationServ
 
 // rejectChildAgentDelegation 用可信工具作用域判断调用者深度。
 // 第一版只允许根 agent 派生直接子 agent；已有 parent_id 的子 agent 再委派会被工具层阻断。
-func rejectChildAgentDelegation(ctx context.Context, svc contract.OrchestrationService) error {
+func rejectChildAgentDelegation(ctx context.Context, svc agentLaunchPort) error {
 	scope, ok := mcpcommon.ToolScopeFromContext(ctx)
 	if !ok || strings.TrimSpace(scope.AgentID) == "" {
 		return nil
@@ -219,7 +234,7 @@ func rejectChildAgentDelegation(ctx context.Context, svc contract.OrchestrationS
 
 // matchingAgentID 在已有快照里查找同一逻辑 agent id。
 // 活跃 agent 直接复用，stopping/archived 状态则 fail-fast，避免同名重启覆盖未收尾状态。
-func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, agentID string) (contract.AgentSnapshot, bool, error) {
+func matchingAgentID(ctx context.Context, svc agentLaunchPort, agentID string) (contract.AgentSnapshot, bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return contract.AgentSnapshot{}, false, nil
@@ -290,7 +305,7 @@ func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID strin
 
 // reserveLaunchAgentID 在进程内登记启动中的 agent id，并返回释放函数。
 // 这个锁只覆盖本进程并发；已有运行态 ID 仍以 orchestration service 快照为准。
-func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func(), bool, error) {
+func reserveLaunchAgentID(ctx context.Context, svc agentLaunchPort, requested string) (string, func(), bool, error) {
 	existing, activeExisting, err := existingLaunchAgentIDs(ctx, svc)
 	if err != nil {
 		return "", nil, false, err
@@ -325,7 +340,7 @@ func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService
 
 // existingLaunchAgentIDs 汇总 runtime id、agent_id 和 launch_id，供新启动避开冲突。
 // activeExisting 只记录会阻塞复用的状态，历史 stopped/archived 仍由上层给出明确错误。
-func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationService) (map[string]struct{}, map[string]struct{}, error) {
+func existingLaunchAgentIDs(ctx context.Context, svc agentLaunchPort) (map[string]struct{}, map[string]struct{}, error) {
 	existing := make(map[string]struct{})
 	activeExisting := make(map[string]struct{})
 	if svc == nil {
@@ -431,7 +446,7 @@ func HandleStopAgent(svc contract.AgentLifecyclePort) ToolHandler {
 }
 
 // HandleListAgents 列出 agent 快照，默认只返回活跃项且不携带报告正文。
-func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
+func HandleListAgents(svc agentListPort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
 		cwdFilter, err := listAgentsCWDFilter(ctx, in.CWD)
 		if err != nil {
@@ -485,14 +500,14 @@ func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsO
 }
 
 // listAgentSnapshots 带超时保护地获取所有 agent 快照列表。
-func listAgentSnapshots(ctx context.Context, svc contract.AgentLifecyclePort) ([]contract.AgentSnapshot, error) {
+func listAgentSnapshots(ctx context.Context, svc agentSnapshotLister) ([]contract.AgentSnapshot, error) {
 	listCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 	return svc.ListAgents(listCtx)
 }
 
 // hydrateListAgentReports 为缺少 LastReport 的快照补取报告；找不到 agent 只跳过，其他错误立即返回。
-func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationService, agents []contract.AgentSnapshot) error {
+func hydrateListAgentReports(ctx context.Context, svc agentListPort, agents []contract.AgentSnapshot) error {
 	reportCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 	for i := range agents {

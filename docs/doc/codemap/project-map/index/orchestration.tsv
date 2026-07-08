@@ -350,7 +350,7 @@ cmd/mcp-orch/tools/orchestration_tool_definitions.go	cmd	orchestration	go-source
 cmd/mcp-orch/tools/orchestration_tools_forked_test.go	cmd	orchestration	go-test	2589	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,forked,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/orchestration_tools_launch_handler_test.go	cmd	orchestration	go-test	13250	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,launch,handler,test,mcp-orch,MCP,tool,schema,registry,与
 cmd/mcp-orch/tools/orchestration_tools_test.go	cmd	orchestration	go-test	28239	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,test,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/orchestration_tools.go	cmd	orchestration	go-source	27480	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/orchestration_tools.go	cmd	orchestration	go-source	27756	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/parity_v2_test.go	cmd	orchestration	go-test	24127	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,parity,v2,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/pos_test.go	cmd	orchestration	go-test	18659	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,pos,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/pos.go	cmd	orchestration	go-source	11019	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,pos,mcp-orch,MCP,tool,schema,registry,与,handler
