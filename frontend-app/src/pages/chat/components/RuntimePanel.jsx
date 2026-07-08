@@ -24,6 +24,7 @@ import { PathChoiceDialog } from './PathChoiceDialog.jsx';
 import { RuntimeActivityPanel } from './RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './RuntimeToolbar.jsx';
+import { firstText } from './markdownMessageModel.js';
 import './RuntimePanel.css';
 
 function RuntimePanel({
@@ -94,7 +95,7 @@ function RuntimePanel({
   const openCodePreviewForPath = async (filePath, fallbackRelative = '') => {
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
-    const displayPath = (fallbackRelative || filePath || '').toString();
+    const displayPath = firstText(fallbackRelative, filePath);
     setCodePreview({
       ...emptyCodePreviewState(),
       open: true,
@@ -117,7 +118,7 @@ function RuntimePanel({
   };
 
   const openChosenPath = async (filePath) => {
-    const fallback = pathChoice.file?.filename || filePath;
+    const fallback = firstText(pathChoice.file?.filename, filePath);
     setPathChoice(emptyPathChoiceState());
     await openCodePreviewForPath(filePath, fallback);
   };

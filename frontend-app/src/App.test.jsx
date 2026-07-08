@@ -709,6 +709,18 @@ async function showAllTraceDashboardEvents() {
     expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '374px' });
   });
 
+  it('fails fast when required browser storage is unavailable', () => {
+    const originalStorage = window.localStorage;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: {} });
+    try {
+      expect(() => render(<App />)).toThrow(/theme storage is unavailable/);
+    } finally {
+      Object.defineProperty(window, 'localStorage', { configurable: true, value: originalStorage });
+      consoleError.mockRestore();
+    }
+  });
+
   it('keeps settings reachable from the collapsible workbench control', async () => {
     render(<App />);
 

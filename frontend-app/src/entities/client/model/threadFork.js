@@ -1,3 +1,4 @@
+import { normalizeOptionalTextField } from './contractStoreModel.js';
 export const FORK_KICKOFF_PROMPT = '请基于上文摘要，简要总结上次进展并提出下一步建议。';
 
 const DEFAULT_SUMMARY_LIMIT = 4000;
@@ -10,7 +11,7 @@ const LONG_FIELD_LIMIT = 600;
  */
 
 function textValue(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function clipField(value, limit = PER_ITEM_FIELD_LIMIT) {

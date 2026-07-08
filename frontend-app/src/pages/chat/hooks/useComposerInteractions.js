@@ -28,11 +28,16 @@ const NATIVE_FILE_DROP_TARGET_CLASSES = new Set([
   'timeline-shell',
 ]);
 
+function transferList(value) {
+  if (!value) return [];
+  return Array.from(value);
+}
+
 export function hasFilesTransfer(event) {
   const transfer = event?.dataTransfer;
   if (!transfer) return false;
   if (transfer.files && transfer.files.length > 0) return true;
-  const types = Array.from(transfer.types || []).map((type) => textValue(type));
+  const types = transferList(transfer.types).map((type) => textValue(type));
   if (types.includes('Files')) return true;
   return types.some((type) => DROP_FILE_PATH_TYPES.has(type));
 }
@@ -40,10 +45,10 @@ export function hasFilesTransfer(event) {
 export function collectTransferFiles(event) {
   const transfer = event?.dataTransfer;
   if (!transfer) return [];
-  const files = Array.from(transfer.files || []).filter(Boolean);
+  const files = transferList(transfer.files).filter(Boolean);
   if (files.length > 0) return files;
   const collected = [];
-  for (const item of Array.from(transfer.items || [])) {
+  for (const item of transferList(transfer.items)) {
     if (item?.kind !== 'file') continue;
     const file = item.getAsFile?.();
     if (file) collected.push(file);
@@ -58,7 +63,7 @@ function decodeClipboardFileUri(value) {
     const url = new URL(raw);
     if (url.protocol !== 'file:') return '';
     const hostname = textValue(url.hostname);
-    let pathname = decodeURIComponent(url.pathname || '');
+    let pathname = decodeURIComponent(url.pathname ? url.pathname : '');
     if (/^\/[a-zA-Z]:[\\/]/.test(pathname)) pathname = pathname.slice(1);
     if (hostname && hostname !== 'localhost') return `//${hostname}${pathname}`;
     return pathname;
@@ -102,7 +107,7 @@ export function clipboardPathsFromText(text) {
 
 export function extractFilePathsFromTransferData(transferData) {
   if (!transferData || typeof transferData.getData !== 'function') return [];
-  const types = new Set(Array.from(transferData.types || []).map((type) => textValue(type)));
+  const types = new Set(transferList(transferData.types).map((type) => textValue(type)));
   const paths = [];
   const seen = new Set();
   for (const type of CLIPBOARD_FILE_PATH_TYPES) {
@@ -141,8 +146,8 @@ function extractClipboardFiles(event) {
     seen.add(file);
     files.push(file);
   };
-  Array.from(clipboard.files || []).forEach(add);
-  Array.from(clipboard.items || []).forEach((item) => {
+  transferList(clipboard.files).forEach(add);
+  transferList(clipboard.items).forEach((item) => {
     if (item?.kind !== 'file') return;
     add(item.getAsFile?.());
   });

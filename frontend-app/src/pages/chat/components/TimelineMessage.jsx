@@ -6,7 +6,7 @@ import { AssistantMessageActions, ReasoningTrace } from './ChatReasoningTrace.js
 import { MarkdownImagePreview, MessageContent } from './MarkdownMessage.jsx';
 import { isApprovalMessage } from './chatApprovalModel.js';
 import { isReasoningMessage } from './chatReasoningModel.js';
-import { basenameFromPath } from './markdownMessageModel.js';
+import { basenameFromPath, firstText, trimmedText } from './markdownMessageModel.js';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 
 const IMAGE_ATTACHMENT_LABEL = '\u56fe\u7247\u9644\u4ef6';
@@ -14,18 +14,20 @@ const SYNC_HISTORY_LABEL = '\u6b63\u5728\u540c\u6b65\u4f1a\u8bdd\u5386\u53f2';
 const ASSISTANT_THINKING_LABEL = '\u601d\u8003\u4e2d';
 
 function attachmentFilePath(att) {
-  return (att?.path || att?.url || att?.previewUrl || '').toString().trim();
+  return firstText(att?.path, att?.url, att?.previewUrl).trim();
 }
 
 function attachmentFileLabel(att) {
   const path = attachmentFilePath(att);
-  return att?.name || basenameFromPath(path) || path;
+  return firstText(att?.name, basenameFromPath(path), path);
 }
 
 function UserAttachmentFilePill({ att, index, actions }) {
   const path = attachmentFilePath(att);
   const label = attachmentFileLabel(att);
-  const openFile = actions?.onOpenPath || actions?.onFileRef;
+  const openPath = actions?.onOpenPath;
+  const fileRef = actions?.onFileRef;
+  const openFile = typeof openPath === 'function' ? openPath : fileRef;
   const content = (
     <>
       <File size={12} />
@@ -33,11 +35,11 @@ function UserAttachmentFilePill({ att, index, actions }) {
     </>
   );
   if (!path || !openFile) {
-    return <span key={att?.path || att?.name || index} className="user-attachment-file-pill">{content}</span>;
+    return <span key={firstText(att?.path, att?.name, index)} className="user-attachment-file-pill">{content}</span>;
   }
   return (
     <button
-      key={att?.path || att?.name || index}
+      key={firstText(att?.path, att?.name, index)}
       type="button"
       className="user-attachment-file-pill"
       title={path}
@@ -69,9 +71,9 @@ function UserMessageAttachments({ attachments, actions }) {
         <div className="user-attachment-gallery">
           {images.map((att, idx) => (
             <MarkdownImagePreview
-              key={att.path || att.previewUrl || att.url || idx}
+              key={firstText(att.path, att.previewUrl, att.url, idx)}
               src={att._resolvedSrc}
-              label={att.name || basenameFromPath(att.path || att.previewUrl || att.url || '') || IMAGE_ATTACHMENT_LABEL}
+              label={firstText(att.name, basenameFromPath(firstText(att.path, att.previewUrl, att.url)), IMAGE_ATTACHMENT_LABEL)}
             />
           ))}
         </div>
@@ -79,7 +81,7 @@ function UserMessageAttachments({ attachments, actions }) {
       {files.length > 0 ? (
         <div className="user-attachment-file-list">
           {files.map((att, idx) => (
-            <UserAttachmentFilePill key={att.path || att.name || idx} att={att} index={idx} actions={actions} />
+            <UserAttachmentFilePill key={firstText(att.path, att.name, idx)} att={att} index={idx} actions={actions} />
           ))}
         </div>
       ) : null}
@@ -96,7 +98,7 @@ const TimelineMessage = memo(function TimelineMessage({
   onScrollIfSticky,
   formatTime,
 }) {
-  const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
+  const streamKey = `${trimmedText(activeThreadId)}:${trimmedText(message.id)}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
   const displayText = useSmoothStreamingText(message.text, {
     enabled: streamingAssistant && smoothStreaming,

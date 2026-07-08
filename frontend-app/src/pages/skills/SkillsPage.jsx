@@ -12,11 +12,60 @@ import './SkillsPage.css';
 const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
 
 function normalizeSettingsCwd(value) {
-  const cwd = (value || '').toString().trim();
+  const cwd = trimmedText(value);
   if (!cwd || cwd === '.' || cwd === '未选择项目') {
     throw new Error('settings: cwd is required');
   }
   return cwd;
+}
+
+function textFromValue(value) {
+  if (value === null || value === undefined) return '';
+  return value.toString();
+}
+
+function trimmedText(value) {
+  return textFromValue(value).trim();
+}
+
+function lowerTrimmedText(value) {
+  return trimmedText(value).toLowerCase();
+}
+
+function requiredText(value, field, source) {
+  const text = trimmedText(value);
+  if (!text) throw new Error(`${source} is missing ${field}`);
+  return text;
+}
+
+function optionalArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function optionalObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function firstTextField(raw, fields, source, required = false) {
+  for (const field of fields) {
+    const text = trimmedText(raw?.[field]);
+    if (text) return text;
+  }
+  if (required) throw new Error(`${source} is missing ${fields[0]}`);
+  return '';
+}
+
+function firstArrayField(raw, fields, source, required = false) {
+  for (const field of fields) {
+    const value = raw?.[field];
+    if (Array.isArray(value)) return value;
+  }
+  if (required) throw new Error(`${source} is missing ${fields[0]}`);
+  return [];
+}
+
+function hasOwnField(raw, field) {
+  return Boolean(raw && typeof raw === 'object' && Object.prototype.hasOwnProperty.call(raw, field));
 }
 
 async function fetchSkillsDashboard(cwd) {
@@ -38,10 +87,10 @@ async function fetchSkillResolutionsDashboard(cwd) {
 }
 
 function scopeForSkill(raw) {
-  const scope = (raw?.scope || '').toString().trim().toLowerCase();
+  const scope = lowerTrimmedText(raw?.scope);
   if (scope === 'project' || scope === 'personal') return scope;
 
-  const trust = (raw?.trust || '').toString().trim().toLowerCase();
+  const trust = lowerTrimmedText(raw?.trust);
   if (trust === 'user' || trust === 'signed' || trust === 'system' || trust === 'personal') {
     return 'personal';
   }
@@ -53,7 +102,7 @@ function scopeLabel(scope) {
 }
 
 function isInternalSkillReferenceWord(word) {
-  const text = (word || '').toString().trim();
+  const text = trimmedText(word);
   return text.startsWith('@') || /^\[skill:[^\]]+\]$/i.test(text);
 }
 
@@ -61,7 +110,7 @@ function normalizeWordList(...groups) {
   const seen = new Set();
   const words = [];
   groups.flat().forEach((word) => {
-    const text = (word || '').toString().trim();
+    const text = trimmedText(word);
     const key = text.toLowerCase();
     if (!text || seen.has(key) || isInternalSkillReferenceWord(text)) return;
     seen.add(key);
@@ -70,43 +119,31 @@ function normalizeWordList(...groups) {
   return words;
 }
 
-function skillText(raw, keys) {
-  for (const key of keys) {
-    const text = textValue(raw?.[key]);
-    if (text) return text;
-  }
-  return '';
-}
-
-function skillWordGroup(raw, snakeKey, camelKey) {
-  const snakeValue = raw?.[snakeKey];
-  if (Array.isArray(snakeValue)) return snakeValue;
-  return raw?.[camelKey] || [];
-}
-
 function normalizeSkill(raw, index) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error(`skills dashboard response item ${index} must be an object`);
   }
-  const name = skillText(raw, ['name', 'key']);
-  const displayName = skillText(raw, ['display_name', 'displayName', 'title']);
+  const source = `skills dashboard response item ${index}`;
+  const name = firstTextField(raw, ['name'], source, true);
+  const displayName = firstTextField(raw, ['display_name'], source);
   const scope = scopeForSkill(raw);
-  const dir = skillText(raw, ['dir', 'path']);
-  const skillFile = skillText(raw, ['skill_file', 'skillFile']) || (dir ? `${dir.replace(/[\\/]+$/g, '')}/SKILL.md` : '');
-  const description = skillText(raw, ['description', 'summary']);
-  const summary = skillText(raw, ['summary', 'description']);
-  const title = displayName || name;
+  const dir = firstTextField(raw, ['dir'], source, true);
+  const skillFile = firstTextField(raw, ['skill_file'], source, true);
+  const description = firstTextField(raw, ['description'], source);
+  const summary = firstTextField(raw, ['summary'], source);
+  const title = displayName ? displayName : name;
+  const personalType = firstTextField(raw, ['personal_type'], source);
   return {
-    id: [scope, skillText(raw, ['personal_type', 'personalType']), name, dir, index].join(':'),
+    id: [scope, personalType, name, dir, index].join(':'),
     name,
-    title: title || '未命名技能',
+    title: title ? title : '未命名技能',
     dir,
     skillFile,
     description,
     summary,
     scope,
-    personalType: skillText(raw, ['personal_type', 'personalType']),
-    tags: normalizeWordList(skillWordGroup(raw, 'trigger_words', 'triggerWords'), skillWordGroup(raw, 'force_words', 'forceWords')),
+    personalType,
+    tags: normalizeWordList(firstArrayField(raw, ['trigger_words'], source), firstArrayField(raw, ['force_words'], source)),
   };
 }
 
@@ -129,13 +166,13 @@ function normalizeSummarySuggestion(value) {
 
 function parseWordsValue(value) {
   if (Array.isArray(value)) return wordListFromText(value);
-  const raw = (value || '').toString().trim();
+  const raw = trimmedText(value);
   if (!raw) return [];
   return wordListFromText(raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw);
 }
 
 function parseSkillMarkdown(content, fallbackName = '') {
-  const text = (content || '').replace(/\r\n/g, '\n');
+  const text = textFromValue(content).replace(/\r\n/g, '\n');
   if (!text.startsWith('---\n')) {
     return {
       name: fallbackName,
@@ -167,11 +204,11 @@ function parseSkillMarkdown(content, fallbackName = '') {
 }
 
 function quoteYAML(value) {
-  return `"${(value || '').toString().replace(/"/g, '\\"')}"`;
+  return `"${textFromValue(value).replace(/"/g, '\\"')}"`;
 }
 
 function skillNameFromDisplayName(value) {
-  const text = (value || '').toString().trim();
+  const text = trimmedText(value);
   let slug = '';
   let lastDash = false;
   for (const char of Array.from(text)) {
@@ -187,22 +224,22 @@ function skillNameFromDisplayName(value) {
 }
 
 function buildSkillMarkdown(form) {
-  const name = (form.name || '').trim();
-  const displayName = (form.displayName || '').trim();
-  const description = (form.description || '').trim();
+  const name = trimmedText(form.name);
+  const displayName = trimmedText(form.displayName);
+  const description = trimmedText(form.description);
   const words = wordListFromText(form.keywords);
-  const body = (form.body || '').trim();
+  const body = trimmedText(form.body);
   const lines = ['---', `name: ${quoteYAML(name)}`];
   if (displayName) lines.push(`display_name: ${quoteYAML(displayName)}`);
   if (description) lines.push(`description: ${quoteYAML(description)}`);
   if (words.length > 0) lines.push(`trigger_words: [${words.map(quoteYAML).join(', ')}]`);
-  lines.push('---', '', body || '## 说明\n\n请补充技能规则。');
+  lines.push('---', '', body ? body : '## 说明\n\n请补充技能规则。');
   return lines.join('\n');
 }
 
 function skillPreviewUrlProtocol(value) {
   if (/^[A-Za-z]:[\\/]/.test(value)) return '';
-  const text = (value || '').toString().trim();
+  const text = trimmedText(value);
   const colon = text.indexOf(':');
   if (colon <= 0) return '';
   const beforeSpecial = text.search(/[/?#]/);
@@ -212,7 +249,7 @@ function skillPreviewUrlProtocol(value) {
 }
 
 function safeSkillPreviewButtonTarget(target, label = '') {
-  const value = (target || '').toString().trim();
+  const value = trimmedText(target);
   if (!value) return '';
   if (skillCitationFromLink(value, label)) return value;
   if (/^[A-Za-z]:[\\/]/.test(value)) return value;
@@ -221,7 +258,7 @@ function safeSkillPreviewButtonTarget(target, label = '') {
 }
 
 function safeSkillPreviewExternalHref(target) {
-  const value = (target || '').toString().trim();
+  const value = trimmedText(target);
   if (!value) return '';
   const transformed = defaultUrlTransform(value);
   if (!transformed) return '';
@@ -230,7 +267,7 @@ function safeSkillPreviewExternalHref(target) {
 }
 
 function SkillMarkdownInline({ text, onOpenPath, keyPrefix }) {
-  const source = (text || '').toString();
+  const source = textFromValue(text);
   const parts = [];
   const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
   let lastIndex = 0;
@@ -287,7 +324,7 @@ function skillPreviewLinkClass(target) {
 }
 
 function SkillMarkdownPreview({ content, onOpenPath }) {
-  const text = (content || '').toString().trim();
+  const text = trimmedText(content);
   if (!text) return <p>暂无内容，点击“编辑正文”开始编写。</p>;
   const blocks = [];
   let paragraph = [];
@@ -359,21 +396,21 @@ function SkillMarkdownPreview({ content, onOpenPath }) {
 }
 
 function normalizeSkillPreviewPathKey(path) {
-  return (path || '').toString().trim().replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase();
+  return trimmedText(path).replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase();
 }
 
 function skillPreviewDir(path) {
-  const clean = (path || '').toString().trim().replace(/\\/g, '/').replace(/\/+$/g, '');
+  const clean = trimmedText(path).replace(/\\/g, '/').replace(/\/+$/g, '');
   const index = clean.lastIndexOf('/');
   return index > 0 ? clean.slice(0, index) : '';
 }
 
 function stripLinkHash(path) {
-  return (path || '').toString().trim().replace(/[#?].*$/, '');
+  return trimmedText(path).replace(/[#?].*$/, '');
 }
 
 function skillCitationFromLink(target, label = '') {
-  const rawTarget = (target || '').toString().trim();
+  const rawTarget = trimmedText(target);
   if (!rawTarget) return null;
   const appMatch = /^app:\/\/([^/?#]+)$/i.exec(rawTarget);
   if (appMatch) return { kind: 'skill', skillId: appMatch[1], skillName: label, path: '', raw: label || rawTarget };
@@ -387,7 +424,7 @@ function skillCitationFromLink(target, label = '') {
 }
 
 function resolveSkillPreviewFile(path, files, activeSkillPath) {
-  const target = (path || '').toString().trim();
+  const target = trimmedText(path);
   if (!target) return null;
   const candidates = new Set([normalizeSkillPreviewPathKey(target), normalizeSkillPreviewPathKey(target.replace(/^\.\//, ''))]);
   if (!target.startsWith('/')) {
@@ -396,7 +433,7 @@ function resolveSkillPreviewFile(path, files, activeSkillPath) {
       candidates.add(normalizeSkillPreviewPathKey(`${activeDir}/${target.replace(/^\.\//, '')}`));
     }
   }
-  return (Array.isArray(files) ? files : []).find((file) => candidates.has(normalizeSkillPreviewPathKey(file?.path))) || null;
+  return optionalArray(files).find((file) => candidates.has(normalizeSkillPreviewPathKey(file?.path))) || null;
 }
 
 function normalizeSkillCitationPath(path) {
@@ -404,15 +441,15 @@ function normalizeSkillCitationPath(path) {
 }
 
 function compactSkillLookupText(value) {
-  return Array.from((value || '').toString().trim().toLowerCase())
+  return Array.from(lowerTrimmedText(value))
     .filter((char) => /[\p{L}\p{N}]/u.test(char))
     .join('');
 }
 
 function skillFileForItem(skill) {
-  const explicit = (skill?.skillFile || skill?.skill_file || '').toString().trim();
+  const explicit = trimmedText(skill?.skillFile);
   if (explicit) return explicit;
-  const dir = (skill?.dir || '').toString().trim().replace(/[\\/]+$/g, '');
+  const dir = trimmedText(skill?.dir).replace(/[\\/]+$/g, '');
   return dir ? `${dir}/SKILL.md` : '';
 }
 
@@ -420,7 +457,7 @@ function skillMatchesCitationPath(skill, path) {
   const citationPath = normalizeSkillCitationPath(path);
   if (!citationPath) return false;
   const skillFile = normalizeSkillCitationPath(skillFileForItem(skill));
-  const skillDir = normalizeSkillCitationPath(skill?.dir || '');
+  const skillDir = normalizeSkillCitationPath(skill?.dir);
   return citationPath === skillFile || (skillDir && citationPath === `${skillDir}/skill.md`);
 }
 
@@ -453,21 +490,23 @@ function emptySkillForm() {
 }
 
 function normalizeSkillFileList(response) {
-  if (!response || typeof response !== 'object' || !Array.isArray(response.files)) return [];
+  if (!response || typeof response !== 'object' || !Array.isArray(response.files)) {
+    throw new Error('skills/local/files response.files must be an array');
+  }
   const files = [];
   for (const file of response.files) {
     const normalized = {
-      name: (file?.name || '').toString().trim(),
-      path: (file?.path || '').toString().trim(),
-      isMain: Boolean(file?.is_main || file?.isMain),
+      name: requiredText(file?.name, 'name', 'skills/local/files item'),
+      path: requiredText(file?.path, 'path', 'skills/local/files item'),
+      isMain: Boolean(file?.is_main),
     };
-    if (normalized.name && normalized.path) files.push(normalized);
+    files.push(normalized);
   }
   return files;
 }
 
 function isMainSkillFile(path) {
-  return /(^|[\\/])SKILL\.md$/i.test((path || '').toString().trim());
+  return /(^|[\\/])SKILL\.md$/i.test(trimmedText(path));
 }
 
 function normalizeResolutionResponse(response) {
@@ -489,7 +528,7 @@ function resolutionKindLabel(kind) {
     same_name_scope_conflict: '同名技能',
     canonical_deleted_with_drift: '旧版本需要处理',
     external_personal_project_same_name: '私人和项目同名',
-  }[(kind || '').toString().trim().toLowerCase()] || '需要处理');
+  }[lowerTrimmedText(kind)] || '需要处理');
 }
 
 function resolutionActionLabel(action) {
@@ -511,11 +550,11 @@ function resolutionActionLabel(action) {
     replace_provider_root_symlink: '接管外部技能目录',
     rename_personal: '改名保存',
     keep_selected: '用选中的版本，删除其他版本',
-  }[(action || '').toString().trim()] || '处理');
+  }[trimmedText(action)] || '处理');
 }
 
 function resolutionActionHelp(action) {
-  return ({
+  const help = {
     view_diff: '只查看两个版本分别在哪里，不会修改文件。',
     view_unmanaged: '查看外部技能位置，不写入文件。',
     sync_back_to_canonical: '把外部修改同步回当前管理的技能。',
@@ -533,11 +572,12 @@ function resolutionActionHelp(action) {
     replace_provider_root_symlink: '用当前技能根目录接管外部技能目录。',
     rename_personal: '把选中的版本改名保存，两个版本都会保留。',
     keep_selected: '保留选中的版本，删除其他同名版本。',
-  }[(action || '').toString().trim()] || '');
+  }[trimmedText(action)];
+  return textFromValue(help);
 }
 
 function resolutionConflictGuide(conflict) {
-  const kind = (conflict?.kind || '').toString().trim().toLowerCase();
+  const kind = lowerTrimmedText(conflict?.kind);
   if (sameNameResolutionConflict(conflict)) {
     if (!sameNameHasProjectSource(conflict) && sameNamePersonalSources(conflict).length > 1) {
       return '发现多个同名的私人技能。请选择保留哪一版，其他同名版本会被删除；也可以改名保存。';
@@ -551,7 +591,7 @@ function resolutionConflictGuide(conflict) {
     return '外部应用里有一个还没纳入管理的技能。可以导入后统一管理，或只保留在外部应用里。';
   }
   if (kind === 'canonical_deleted_with_drift') {
-    if ((conflict?.scope || '').toString().trim().toLowerCase() === 'personal') {
+    if (lowerTrimmedText(conflict?.scope) === 'personal') {
       return '私人使用里的同名技能已经删除或改成项目共享，但 Claude/Codex 里还保留旧私人版本。请选择继续私人使用、另存为新私人技能，或删除旧私人版本。';
     }
     return '本项目里的技能已不存在，但外部应用里还有改过的版本。请选择恢复、另存或删除外部版本。';
@@ -563,7 +603,7 @@ function resolutionConflictGuide(conflict) {
 }
 
 function resolutionPreviewIntro(preview) {
-  const action = (preview?.action || '').toString().trim();
+  const action = trimmedText(preview?.action);
   if (isResolutionViewAction(action)) return '下面只说明两个版本分别在哪里，不会修改文件。';
   return '请先确认将要写入的位置，确认应用后才会修改文件。';
 }
@@ -585,7 +625,7 @@ function resolutionRequiresApply(action) {
 }
 
 function defaultResolutionNewName(conflict, action) {
-  const base = (conflict?.name || conflict?.skill_name || 'skill').toString().trim() || 'skill';
+  const base = firstTextField(conflict, ['name', 'skill_name'], 'skill resolution conflict') || 'skill';
   return `${base}${action === 'save_as_new_personal_skill' ? '-private' : '-copy'}`;
 }
 
@@ -610,51 +650,51 @@ const actionableResolutionActions = new Set([
 ]);
 
 function resolutionActionUnsupported(action) {
-  return !actionableResolutionActions.has((action || '').toString().trim());
+  return !actionableResolutionActions.has(trimmedText(action));
 }
 
 function resolutionSourceID(source) {
-  return (source?.canonical_id || source?.canonicalID || source?.source_id || source?.sourceID || '').toString().trim();
+  return firstTextField(source, ['canonical_id', 'source_id'], 'skill resolution source');
 }
 
 function resolutionSourceScope(source) {
-  return (source?.scope || '').toString().trim().toLowerCase();
+  return lowerTrimmedText(source?.scope);
 }
 
 function resolutionSourcePersonalType(source) {
-  return (source?.personal_type || source?.personalType || '').toString().trim().toLowerCase();
+  return lowerTrimmedText(source?.personal_type);
 }
 
 function resolutionSourcePathLeaf(source) {
-  const path = (source?.path || source?.skill_file || source?.skillFile || '').toString().trim().replace(/\\/g, '/');
+  const path = firstTextField(source, ['path', 'skill_file'], 'skill resolution source').replace(/\\/g, '/');
   if (!path) return '';
   const parts = path.split('/').filter(Boolean);
-  const leaf = parts[parts.length - 1] || '';
-  return leaf === 'SKILL.md' && parts.length > 1 ? parts[parts.length - 2] || '' : leaf;
+  const leaf = parts[parts.length - 1];
+  return leaf === 'SKILL.md' && parts.length > 1 ? textFromValue(parts[parts.length - 2]) : textFromValue(leaf);
 }
 
 function sameNameResolutionConflict(conflict) {
-  const kind = (conflict?.kind || '').toString().trim().toLowerCase();
+  const kind = lowerTrimmedText(conflict?.kind);
   return kind === 'same_name' || kind === 'same_name_scope_conflict';
 }
 
 function sameNameProjectSources(conflict) {
-  const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
+  const sources = optionalArray(conflict?.sources);
   return sources.filter((source) => resolutionSourceScope(source) === 'project');
 }
 
 function sameNamePersonalSources(conflict) {
-  const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
+  const sources = optionalArray(conflict?.sources);
   return sources.filter((source) => resolutionSourceScope(source) === 'personal');
 }
 
 function sameNameHasProjectSource(conflict) {
-  const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
+  const sources = optionalArray(conflict?.sources);
   return sources.some((source) => resolutionSourceScope(source) === 'project');
 }
 
 function firstResolutionSourceID(conflict) {
-  const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
+  const sources = optionalArray(conflict?.sources);
   return resolutionSourceID(sources[0]);
 }
 
@@ -700,47 +740,48 @@ function sameNameRenameEntry(source, includeSourceLeaf = false) {
 
 function personalDeletedDriftResolutionConflict(conflict) {
   return (
-    (conflict?.kind || '').toString().trim().toLowerCase() === 'canonical_deleted_with_drift'
-    && (conflict?.scope || '').toString().trim().toLowerCase() === 'personal'
+    lowerTrimmedText(conflict?.kind) === 'canonical_deleted_with_drift'
+    && lowerTrimmedText(conflict?.scope) === 'personal'
   );
 }
 
 function externalPersonalProjectResolutionConflict(conflict) {
-  return (conflict?.kind || '').toString().trim().toLowerCase() === 'external_personal_project_same_name';
+  return lowerTrimmedText(conflict?.kind) === 'external_personal_project_same_name';
 }
 
 function resolutionProviderLabel(provider) {
   return ({
     codex: 'Codex',
     claude: 'Claude',
-  }[(provider || '').toString().trim().toLowerCase()] || (provider || '').toString().trim());
+  }[lowerTrimmedText(provider)] || trimmedText(provider));
 }
 
 function resolutionProviderEntryLabel(entry) {
-  const label = (entry?.display_label || '').toString().trim();
+  const label = trimmedText(entry?.display_label);
   if (label) return label;
   const group = [];
-  for (const provider of Array.isArray(entry?.provider_group) ? entry.provider_group : []) {
+  for (const provider of optionalArray(entry?.provider_group)) {
     const providerLabel = resolutionProviderLabel(provider);
     if (providerLabel) group.push(providerLabel);
   }
   if (group.length > 0) return group.join('、');
-  return resolutionProviderLabel(entry?.provider || entry?.source_provider) || '外部版本';
+  const provider = firstTextField(entry, ['provider', 'source_provider'], 'skill resolution provider entry');
+  return resolutionProviderLabel(provider) || '外部版本';
 }
 
 function resolutionProviderEntries(conflict) {
-  const entries = Array.isArray(conflict?.provider_entries) ? conflict.provider_entries : [];
+  const entries = optionalArray(conflict?.provider_entries);
   if (entries.length > 0) return entries;
-  const provider = (conflict?.provider || conflict?.source_provider || '').toString().trim();
+  const provider = firstTextField(conflict, ['provider', 'source_provider'], 'skill resolution conflict');
   if (!provider) return [{}];
   return [{
     provider,
-    source_path_id: conflict?.source_path_id || conflict?.sourcePathId || '',
+    source_path_id: trimmedText(conflict?.source_path_id),
   }];
 }
 
 function resolutionActionEntries(conflict) {
-  const actions = (Array.isArray(conflict?.available_actions) ? conflict.available_actions : [])
+  const actions = optionalArray(conflict?.available_actions)
     .filter((action) => !resolutionActionUnsupported(action));
   if (personalDeletedDriftResolutionConflict(conflict)) {
     return actions.map((action) => ({
@@ -820,7 +861,7 @@ function resolutionSameNamePayloadFields(conflict, action, entry = null) {
   switch (action) {
     case 'rename_personal':
     case 'keep_selected': {
-      const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
+      const sources = optionalArray(conflict?.sources);
       const selected = entry?.source
         || sources.find((source) => resolutionSourceScope(source) === 'personal')
         || sources.find((source) => resolutionSourceScope(source) === 'project');
@@ -828,7 +869,7 @@ function resolutionSameNamePayloadFields(conflict, action, entry = null) {
       return keepSourceID ? { keep_source_id: keepSourceID } : {};
     }
     case 'merge_manually': {
-      const mergeContentHash = (conflict?.merge_content_hash || conflict?.mergeContentHash || '').toString().trim();
+      const mergeContentHash = trimmedText(conflict?.merge_content_hash);
       return {
         keep_source_id: firstResolutionSourceID(conflict),
         merge_content_hash: mergeContentHash,
@@ -857,19 +898,12 @@ function resolutionActionAutoAppliesForConflict(action, conflict) {
 }
 
 function resolutionApplyKey(conflict, action, entry = null) {
-  const source = (
-    entry?.source_path_id
-    || entry?.sourcePathId
-    || entry?.provider
-    || entry?.sourceID
-    || resolutionSourceID(entry?.source)
-    || ''
-  ).toString().trim();
-  return `${conflict?.conflict_id || conflict?.conflictId || ''}:${source}:${action || ''}`;
+  const source = firstTextField(entry, ['source_path_id', 'provider', 'sourceID'], 'skill resolution entry') || resolutionSourceID(entry?.source);
+  return `${trimmedText(conflict?.conflict_id)}:${trimmedText(source)}:${trimmedText(action)}`;
 }
 
 function previewItemPaths(item, action = '') {
-  const normalizedAction = (action || item?.action || '').toString().trim();
+  const normalizedAction = trimmedText(action || item?.action);
   const overwrite = normalizedAction === 'canonical_overwrite_mirror' || normalizedAction === 'personal_overwrite_mirror';
   const importAction = normalizedAction === 'import_to_personal_imported' || normalizedAction === 'import_to_project' || normalizedAction === 'takeover_provider_skill';
   const useProjectShared = normalizedAction === 'use_project_shared_skill';
@@ -880,19 +914,19 @@ function previewItemPaths(item, action = '') {
   if (useProjectShared) targetLabel = '外部版本';
   if (useExternal) targetLabel = '项目共享版本';
   return [
-    [sourceLabel, item?.source_path || item?.sourcePath],
-    [targetLabel, item?.target_path || item?.targetPath],
-  ].map(([label, value]) => ({ label, value: (value || '').toString().trim() }))
+    [sourceLabel, item?.source_path],
+    [targetLabel, item?.target_path],
+  ].map(([label, value]) => ({ label, value: trimmedText(value) }))
     .filter((itemPath) => itemPath.value);
 }
 
 function resolutionShortHash(value) {
-  return (value || '').toString().trim().slice(0, 8);
+  return trimmedText(value).slice(0, 8);
 }
 
 function resolutionManualSteps(conflict) {
-  const kind = (conflict?.kind || '').toString().trim().toLowerCase();
-  const actions = Array.isArray(conflict?.available_actions) ? conflict.available_actions : [];
+  const kind = lowerTrimmedText(conflict?.kind);
+  const actions = optionalArray(conflict?.available_actions);
   if ((kind === 'same_name' || kind === 'same_name_scope_conflict') && !actions.includes('keep_selected') && !actions.includes('rename_personal')) {
     return [
       '要保留项目共享：编辑或删除同名私人技能。',
@@ -904,11 +938,11 @@ function resolutionManualSteps(conflict) {
 }
 
 function importedSkillFilePath(item) {
-  return (item?.skill_file || item?.skillFile || item?.path || '').toString().trim();
+  return firstTextField(item, ['skill_file', 'path'], 'imported skill item');
 }
 
 function isImportedSkillSameNameConflictError(error) {
-  const message = (error?.message || error || '').toString().toLowerCase();
+  const message = textFromValue(error?.message || error).toLowerCase();
   return message.includes('skill same-name conflict')
     || message.includes('err_skill_same_name_conflict')
     || message.includes('skill path is not in effective skill set');
@@ -921,15 +955,15 @@ function importedSkillSameNameConflictMessage(draft) {
 }
 
 function skillFileBaseName(path) {
-  const clean = (path || '').toString().trim().replace(/[\\/]+SKILL\.md$/i, '').replace(/\\/g, '/');
+  const clean = trimmedText(path).replace(/[\\/]+SKILL\.md$/i, '').replace(/\\/g, '/');
   const parts = clean.split('/').filter(Boolean);
-  return parts[parts.length - 1] || '';
+  return textFromValue(parts[parts.length - 1]);
 }
 
 function fileNameFromPath(path) {
-  const clean = (path || '').toString().trim().replace(/[\\/]+$/g, '').replace(/\\/g, '/');
+  const clean = trimmedText(path).replace(/[\\/]+$/g, '').replace(/\\/g, '/');
   const parts = clean.split('/').filter(Boolean);
-  return parts[parts.length - 1] || '';
+  return textFromValue(parts[parts.length - 1]);
 }
 
 function normalizeImportSummaryDraftScope(scope) {
@@ -972,21 +1006,21 @@ function importSummaryDraftMessage(drafts) {
 }
 
 function duplicateImportFailureMessage(message) {
-  const raw = (message || '').toString().trim();
+  const raw = trimmedText(message);
   const existsMatch = raw.match(/^skill already exists:\s*(.+)$/i);
-  if (existsMatch) return `${(existsMatch[1] || '').toString().trim() || '该技能'} 已存在，未重复导入。`;
+  if (existsMatch) return `${trimmedText(existsMatch[1]) || '该技能'} 已存在，未重复导入。`;
   if (/^source is inside skills root:/i.test(raw)) return '这个目录已经在技能管理中，未重复导入。';
   return '';
 }
 
 function normalizeImportFailure(item) {
-  const source = (item?.source || '').toString().trim();
-  const rawMessage = (item?.error || '未知错误').toString().trim();
+  const source = trimmedText(item?.source);
+  const rawMessage = trimmedText(item?.error) || '未知错误';
   const duplicateMessage = duplicateImportFailureMessage(rawMessage);
   return {
     duplicate: Boolean(duplicateMessage),
-    duplicateName: rawMessage.match(/^skill already exists:\s*(.+)$/i)?.[1]?.toString().trim() || '',
-    message: duplicateMessage || rawMessage || '未知错误',
+    duplicateName: trimmedText(rawMessage.match(/^skill already exists:\s*(.+)$/i)?.[1]),
+    message: duplicateMessage || rawMessage,
     source,
   };
 }
@@ -1286,7 +1320,7 @@ function normalizeDatasourceDetail(response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) {
     throw new Error('datasourceV2/get response must be an object');
   }
-  const document = normalizeDatasourceDocument(response.document || {}, 0);
+  const document = normalizeDatasourceDocument(response.document, 0);
   return {
     document,
     ...normalizeDatasourceChunkPage(response, document, 'datasourceV2/get'),
@@ -1300,18 +1334,25 @@ function normalizeDatasourceChunkPage(response, document, source) {
   if (!Array.isArray(response.chunks)) {
     throw new Error(`${source} response.chunks must be an array`);
   }
-  const chunks = response.chunks.map((raw, index) => ({
-    id: Number(raw?.id ?? index + 1),
-    documentId: Number(raw?.documentId ?? raw?.document_id ?? document.documentId),
-    chunkIndex: Number(raw?.chunkIndex ?? raw?.chunk_index ?? index),
-    content: (raw?.content || '').toString(),
-    charCount: Number(raw?.charCount ?? raw?.char_count ?? 0),
-    byteCount: Number(raw?.byteCount ?? raw?.byte_count ?? 0),
-  }));
+  const chunks = response.chunks.map((raw, index) => normalizeDatasourceChunk(raw, document, index));
   return {
     chunks,
     hasMore: Boolean(response.hasMore ?? response.has_more),
     nextCursor: Number(response.nextCursor ?? response.next_cursor ?? -1),
+  };
+}
+
+function normalizeDatasourceChunk(raw, document, index) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`datasource chunk ${index} must be an object`);
+  }
+  return {
+    id: Number(raw.id),
+    documentId: Number(hasOwnField(raw, 'documentId') ? raw.documentId : document.documentId),
+    chunkIndex: Number(hasOwnField(raw, 'chunkIndex') ? raw.chunkIndex : index),
+    content: textFromValue(raw.content),
+    charCount: Number(raw.charCount),
+    byteCount: Number(raw.byteCount),
   };
 }
 
@@ -1741,9 +1782,13 @@ const MCP_TOOL_DEFINITIONS = [
 ];
 
 function mcpServerMap(response) {
-  if (!response || typeof response !== 'object' || Array.isArray(response)) return {};
-  const servers = response.mcpServers || response.mcp_servers || {};
-  return servers && typeof servers === 'object' && !Array.isArray(servers) ? servers : {};
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('mcp/list response must be an object');
+  }
+  if (!response.mcpServers || typeof response.mcpServers !== 'object' || Array.isArray(response.mcpServers)) {
+    throw new Error('mcp/list response.mcpServers must be an object');
+  }
+  return response.mcpServers;
 }
 
 function mcpServerConfig(response, serverName) {
@@ -1764,9 +1809,10 @@ function mcpServerStatus(projectReady, query, serverName) {
 }
 
 function mergeMCPServerEnabled(response, result, serverName, enabled) {
-  const current = response && typeof response === 'object' && !Array.isArray(response) ? response : {};
+  const current = optionalObject(response);
+  if (!current) throw new Error('mcp/list cached response must be an object');
   const servers = mcpServerMap(current);
-  const resultName = (result?.serverName || result?.server_name || serverName || '').toString().trim();
+  const resultName = trimmedText(result?.serverName || serverName);
   if (!resultName) return current;
   const existingConfig = servers[resultName];
   const existing = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : {};
@@ -1837,9 +1883,9 @@ function PluginsSquareView({ copy, projectPath }) {
       <div className="mcp-tool-panel">
         {MCP_TOOL_DEFINITIONS.map((tool) => {
           const status = mcpServerStatus(projectReady, mcpStatusQuery, tool.id);
-          const action = mcpActions[tool.id] || '';
-          const notice = mcpNotices[tool.id] || '';
-          const error = mcpErrors[tool.id] || '';
+          const action = textFromValue(mcpActions[tool.id]);
+          const notice = textFromValue(mcpNotices[tool.id]);
+          const error = textFromValue(mcpErrors[tool.id]);
           const isEnabled = status.tone === 'enabled';
           const nextAction = isEnabled ? 'stop' : 'start';
           const actionLabel = nextAction === 'start' ? '开启' : '关闭';
@@ -2100,18 +2146,30 @@ async function openEditSkill(ctx, skill) {
 }
 
 function skillFormFromRaw(rawSkill, skill) {
-  const content = (rawSkill?.skill?.content || '').toString();
+  const raw = optionalObject(rawSkill?.skill);
+  if (!raw) throw new Error('skills/local/read response.skill must be an object');
+  const content = textFromValue(raw.content);
   const parsed = parseSkillMarkdown(content, skill.name);
-  return { name: parsed.name || skill.name, displayName: parsed.displayName || skill.title || '', description: parsed.description || skill.description || '', keywords: listToText(parsed.triggerWords.length > 0 ? parsed.triggerWords : skill.tags), body: parsed.body, scope: skill.scope, personalType: skill.personalType };
+  return {
+    name: parsed.name ? parsed.name : skill.name,
+    displayName: parsed.displayName ? parsed.displayName : textFromValue(skill.title),
+    description: parsed.description ? parsed.description : textFromValue(skill.description),
+    keywords: listToText(parsed.triggerWords.length > 0 ? parsed.triggerWords : skill.tags),
+    body: parsed.body,
+    scope: skill.scope,
+    personalType: skill.personalType,
+  };
 }
 
 async function openSkillFile(ctx, file) {
-  const path = (file?.path || '').toString().trim();
+  const path = trimmedText(file?.path);
   if (!path) return;
   ctx.setError('');
   try {
     const raw = await readSkill({ cwd: normalizeSettingsCwd(ctx.projectPath), path });
-    const content = (raw?.skill?.content || '').toString();
+    const skill = optionalObject(raw?.skill);
+    if (!skill) throw new Error('skills/local/read response.skill must be an object');
+    const content = textFromValue(skill.content);
     ctx.setForm((form) => skillFormForOpenedFile(path, content, form));
     ctx.setPatch({ activeSkillPath: path });
   } catch (err) {
@@ -2158,7 +2216,17 @@ async function suggestSkillSummaryForEditor(ctx) {
 }
 
 function skillSummaryRequest(cwd, form, launchPreferences) {
-  return { cwd, name: form.displayName || form.name, description: form.description, content: form.body, scenario_words: wordListFromText(form.keywords), scope: form.scope, provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider), model: textValue(launchPreferences?.model), codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider) };
+  return {
+    cwd,
+    name: form.displayName || form.name,
+    description: form.description,
+    content: form.body,
+    scenario_words: wordListFromText(form.keywords),
+    scope: form.scope,
+    provider: firstTextField(launchPreferences, ['modelProvider', 'provider'], 'launch preferences'),
+    model: textValue(launchPreferences?.model),
+    codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+  };
 }
 
 async function saveSkillEditor(ctx) {
@@ -2204,7 +2272,7 @@ function skillSavePayload(cwd, state) {
 
 async function confirmDeleteSkill(ctx) {
   const skill = ctx.state.deleteTarget;
-  const skillName = (skill?.name || '').toString().trim();
+  const skillName = trimmedText(skill?.name);
   if (!skillName) { ctx.setError('skills/local/delete: name is required'); return; }
   ctx.setPatch({ deleting: true }); ctx.setError(''); ctx.setNotice('');
   try {
@@ -2256,7 +2324,7 @@ async function createImportSummaryDrafts(ctx, importedSkills, scope, personalTyp
 async function createImportSummaryDraft(ctx, cwd, item, scope, personalType, index) {
   const skillFile = importedSkillFilePath(item);
   if (!skillFile) return null;
-  const fallbackName = (item?.name || '').toString().trim() || skillFileBaseName(skillFile);
+  const fallbackName = trimmedText(item?.name) || skillFileBaseName(skillFile);
   const baseDraft = {
     id: `${index}:${skillFile || fallbackName}`,
     name: fallbackName,
@@ -2269,8 +2337,10 @@ async function createImportSummaryDraft(ctx, cwd, item, scope, personalType, ind
   };
   try {
     const raw = await readSkill({ cwd, path: skillFile });
-    const parsed = parseSkillMarkdown((raw?.skill?.content || '').toString(), fallbackName);
-    const currentDescription = (parsed.description || '').toString().trim();
+    const skill = optionalObject(raw?.skill);
+    if (!skill) throw new Error('skills/local/read response.skill must be an object');
+    const parsed = parseSkillMarkdown(textFromValue(skill.content), fallbackName);
+    const currentDescription = trimmedText(parsed.description);
     if (currentDescription) return null;
     const suggestion = await suggestSkillSummary({
       cwd,
@@ -2316,7 +2386,7 @@ async function openImportSummaryDraft(ctx, draft) {
 
 async function applyImportSummaryDraft(ctx, draft) {
   if (!draft || draft.status !== 'ready') return;
-  const suggestion = (draft.suggestion || '').toString().trim();
+  const suggestion = trimmedText(draft.suggestion);
   if (!suggestion) return;
   const opened = await openImportSummaryDraft(ctx, draft);
   if (!opened) return;
@@ -2368,20 +2438,34 @@ async function runResolutionPipeline(ctx) {
 }
 
 function resolutionRequestFromAction({ actionOrEntry, conflict, entry, newName, projectPath }) {
-  const conflictID = (conflict?.conflict_id || conflict?.conflictId || '').toString().trim();
-  const actionEntry = typeof actionOrEntry === 'string' ? { action: actionOrEntry } : actionOrEntry || {};
-  const action = (actionEntry.action || '').toString().trim();
+  const conflictID = trimmedText(conflict?.conflict_id);
+  const actionEntry = typeof actionOrEntry === 'string' ? { action: actionOrEntry } : actionOrEntry;
+  if (!actionEntry || typeof actionEntry !== 'object' || Array.isArray(actionEntry)) return { ok: false, value: false };
+  const action = trimmedText(actionEntry.action);
   if (!conflictID || !action) return { ok: false, value: false };
   if (resolutionActionUnsupported(action)) return { ok: false, value: false, unsupported: action };
-  const providerEntry = resolutionActionEntryTarget(actionEntry, entry || resolutionProviderEntries(conflict)[0] || {});
+  const providerEntry = resolutionActionEntryTarget(actionEntry, entry || resolutionProviderEntries(conflict)[0]);
   const applyKey = resolutionApplyKey(conflict, action, providerEntry);
-  const trimmedNewName = (newName || '').toString().trim();
+  const trimmedNewName = trimmedText(newName);
   if (requiresResolutionNewName(action) && !trimmedNewName) return { ok: true, prompt: { action, applyKey, conflict, entry: providerEntry } };
   return { ok: true, action, applyKey, conflict, payload: resolutionPayload({ action, actionEntry, conflict, conflictID, projectPath, providerEntry, trimmedNewName }) };
 }
 
 function resolutionPayload({ action, actionEntry, conflict, conflictID, projectPath, providerEntry, trimmedNewName }) {
-  const payload = { cwd: normalizeSettingsCwd(projectPath), conflict_id: conflictID, action, name: conflict?.name || conflict?.skill_name || '', scope: conflict?.scope || '', personal_type: conflict?.personal_type || conflict?.personalType || '', provider: providerEntry?.provider || conflict?.provider || '', source_provider: providerEntry?.provider || conflict?.source_provider || conflict?.provider || '', source_path_id: providerEntry?.source_path_id || providerEntry?.sourcePathId || conflict?.source_path_id || '', ...resolutionSameNamePayloadFields(conflict, action, actionEntry) };
+  const provider = trimmedText(providerEntry?.provider);
+  const fallbackProvider = trimmedText(conflict?.provider);
+  const payload = {
+    cwd: normalizeSettingsCwd(projectPath),
+    conflict_id: conflictID,
+    action,
+    name: firstTextField(conflict, ['name', 'skill_name'], 'skill resolution conflict'),
+    scope: trimmedText(conflict?.scope),
+    personal_type: trimmedText(conflict?.personal_type),
+    provider: provider || fallbackProvider,
+    source_provider: provider || trimmedText(conflict?.source_provider) || fallbackProvider,
+    source_path_id: trimmedText(providerEntry?.source_path_id) || trimmedText(conflict?.source_path_id),
+    ...resolutionSameNamePayloadFields(conflict, action, actionEntry),
+  };
   if (trimmedNewName) payload.new_name = trimmedNewName;
   return payload;
 }
@@ -2433,11 +2517,11 @@ function resolutionApplyPayload(payload, proof) {
 }
 
 function resolutionApplyPartialFailure(report) {
-  return Boolean(report?.partialFailure ?? report?.partial_failure ?? report?.PartialFailure);
+  return Boolean(report?.partialFailure);
 }
 
 function resolutionApplyFollowUpAction(report) {
-  return (report?.followUpAction ?? report?.follow_up_action ?? report?.FollowUpAction ?? '').toString().trim();
+  return trimmedText(report?.followUpAction);
 }
 
 function resolutionApplyReportMessage(report) {
@@ -2597,20 +2681,20 @@ function SkillResolutionPanel({ model }) {
   return (
     <section className="skills-resolution-panel">
       <strong>发现 {conflicts.length} 个技能冲突，需要处理后再使用。</strong>
-      {conflicts.map((conflict, index) => <SkillResolutionConflict conflict={conflict} index={index} key={(conflict.conflict_id || conflict.conflictId || index).toString()} resolution={model.resolution} />)}
+      {conflicts.map((conflict, index) => <SkillResolutionConflict conflict={conflict} index={index} key={textFromValue(conflict.conflict_id) || String(index)} resolution={model.resolution} />)}
       {model.resolution.preview ? <SkillResolutionPreview resolution={model.resolution} /> : null}
     </section>
   );
 }
 
 function SkillResolutionConflict({ conflict, index, resolution }) {
-  const conflictID = (conflict.conflict_id || conflict.conflictId || index).toString();
-  const promptConflictID = (resolution.namePrompt?.conflict?.conflict_id || resolution.namePrompt?.conflict?.conflictId || '').toString();
-  const promptApplies = resolution.namePrompt && promptConflictID === (conflict.conflict_id || conflict.conflictId || '').toString();
+  const conflictID = textFromValue(conflict.conflict_id) || String(index);
+  const promptConflictID = textFromValue(resolution.namePrompt?.conflict?.conflict_id);
+  const promptApplies = resolution.namePrompt && promptConflictID === textFromValue(conflict.conflict_id);
   const manualSteps = resolutionManualSteps(conflict);
   return (
     <article className="skills-resolution-item">
-      <header><h3>{conflict.name || conflict.skill_name || '未命名技能'} · {resolutionKindLabel(conflict.kind)}</h3><span>{scopeLabel(scopeForSkill(conflict))}</span></header>
+      <header><h3>{firstTextField(conflict, ['name', 'skill_name'], 'skill resolution conflict') || '未命名技能'} · {resolutionKindLabel(conflict.kind)}</h3><span>{scopeLabel(scopeForSkill(conflict))}</span></header>
       <p className="skills-resolution-guide">{resolutionConflictGuide(conflict)}</p>
       {resolutionProviderEntries(conflict).map((entry, sourceIndex) => <SkillResolutionActionRow conflict={conflict} conflictID={conflictID} providerEntry={entry} resolution={resolution} sourceIndex={sourceIndex} key={conflictID + ':' + sourceIndex + ':' + resolutionProviderEntryLabel(entry)} />)}
       {manualSteps.length > 0 ? <ul className="skills-resolution-manual-steps">{manualSteps.map((step) => <li key={step}>{step}</li>)}</ul> : null}
@@ -2660,7 +2744,7 @@ function SkillResolutionPreview({ resolution }) {
     <article className="skills-resolution-preview">
       <header><h3>{resolutionActionLabel(resolution.preview.action)}</h3>{resolution.preview.requiresApply ? <button type="button" onClick={() => { void resolution.confirmPreview(); }} disabled={resolution.actioning === 'confirm'}>{resolution.actioning === 'confirm' ? '应用中...' : '确认应用'}</button> : null}<button type="button" className="ghost" onClick={() => resolution.setPreview(null)}>取消</button></header>
       <p className="skills-resolution-guide">{resolutionPreviewIntro(resolution.preview)}</p>
-      {(resolution.preview.items || []).map((item, index) => <SkillResolutionPreviewItem action={resolution.preview.action} item={item} key={item.preview_id || index} />)}
+      {optionalArray(resolution.preview.items).map((item, index) => <SkillResolutionPreviewItem action={resolution.preview.action} item={item} key={textFromValue(item.preview_id) || String(index)} />)}
     </article>
   );
 }
@@ -2668,7 +2752,7 @@ function SkillResolutionPreview({ resolution }) {
 function SkillResolutionPreviewItem({ action, item }) {
   const sourceHash = resolutionShortHash(item.source_hash || item.sourceHash);
   const targetHash = resolutionShortHash(item.target_hash || item.targetHash);
-  const diff = (item.diff || '').toString();
+  const diff = textFromValue(item.diff);
   return (
     <div className="skills-resolution-preview-item">
       {previewItemPaths(item, action).map((pathItem) => <p key={pathItem.label + ':' + pathItem.value}><span>{pathItem.label}</span><code>{pathItem.value}</code></p>)}
@@ -2742,8 +2826,8 @@ function SkillEditorDialog({ editor }) {
 function SkillCard({ copy, skill, onEdit, onDelete }) {
   const tags = skill.tags.slice(0, 4);
   const extraTagCount = skill.tags.length - tags.length;
-  const descriptionText = (skill.description || '').toString().trim();
-  const summaryText = (skill.summary || '').toString().trim();
+  const descriptionText = trimmedText(skill.description);
+  const summaryText = trimmedText(skill.summary);
   const description = descriptionText || summaryText || copy.noDescription;
   const shouldShowSummary = Boolean(summaryText && summaryText !== description);
 

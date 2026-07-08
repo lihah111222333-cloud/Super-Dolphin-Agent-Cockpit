@@ -1,6 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAdapter.js';
 import { Panel } from '../../shared/pageComponents.jsx';
+import { parseStrictJsonValue } from '../../shared/pageShared.js';
+
+function normalizedText(value) {
+  return value == null ? '' : String(value);
+}
+
+function parseJsonForDisplay(value, label) {
+  try {
+    return parseStrictJsonValue(value, label);
+  } catch (error) {
+    throw new Error(`${label} JSON parse failed: ${error?.message || String(error)}`, { cause: error });
+  }
+}
 
 function formatWorkflowFileContent(content) {
   if (!content) return '';
@@ -13,7 +26,7 @@ function formatWorkflowFileContent(content) {
   }
   if (isJson || trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed = parseJsonForDisplay(trimmed, 'workflow final output file content');
       return JSON.stringify(parsed, null, 2);
     } catch {
       // Keep the raw content when a result only looks like JSON.
@@ -27,7 +40,7 @@ function formatInlinePreviewText(text) {
   const trimmed = text.trim();
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed = parseJsonForDisplay(trimmed, 'workflow final output preview text');
       return { formatted: JSON.stringify(parsed, null, 2), isJson: true };
     } catch {
       // Keep the original text when it is not valid JSON.
@@ -54,10 +67,10 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
   const [previewing, setPreviewing] = useState(false);
   const [reading, setReading] = useState(false);
   const outputPath = finalOutputPath(finalOutput);
-  const isImage = useMemo(() => /\.(png|jpe?g|webp|gif)$/i.test(outputPath || ''), [outputPath]);
-  const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
+  const isImage = useMemo(() => /\.(png|jpe?g|webp|gif)$/i.test(outputPath), [outputPath]);
+  const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath), [outputPath]);
   const isMedia = isImage || isVideo;
-  const isSystemOpenOnly = useMemo(() => !isMedia && /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath || ''), [isMedia, outputPath]);
+  const isSystemOpenOnly = useMemo(() => !isMedia && /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath), [isMedia, outputPath]);
   const mediaKindLabel = isVideo ? '视频' : '图片';
   const formattedContent = useMemo(() => formatWorkflowFileContent(fileContent), [fileContent]);
 
@@ -71,12 +84,12 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
     setPreviewError('');
     try {
       const response = await previewFile({ path: outputPath });
-      const url = (response?.url || '').toString().trim();
+      const url = normalizedText(response?.url).trim();
       if (!url) throw new Error('preview URL is empty');
       if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
       setMediaPreview({
         url,
-        contentType: (response?.contentType || '').toString(),
+        contentType: normalizedText(response?.contentType),
       });
     } catch (err) {
       setMediaPreview(null);
@@ -100,12 +113,12 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
       try {
         const response = await previewFile({ path: outputPath });
         if (!active) return;
-        const url = (response?.url || '').toString().trim();
+        const url = normalizedText(response?.url).trim();
         if (!url) throw new Error('preview URL is empty');
         if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
         setMediaPreview({
           url,
-          contentType: (response?.contentType || '').toString(),
+          contentType: normalizedText(response?.contentType),
         });
       } catch (err) {
         if (!active) return;
@@ -131,7 +144,7 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
     setFileError('');
     try {
       const response = await readFile({ path: outputPath });
-      setFileContent((response?.content || '').toString());
+      setFileContent(normalizedText(response?.content));
     } catch {
       setFileError('无法读取最终结果文件，请稍后重试。');
     } finally {

@@ -1,10 +1,10 @@
+import { normalizeOptionalTextField } from './contractStoreModel.js';
 // @ts-check
 
 import {
   normalizeKnownProviderName,
   normalizeRuntimeProviderName,
-  RUNTIME_PROVIDER,
-} from './providerPreferences.js';
+  RUNTIME_PROVIDER } from './providerPreferences.js';
 
 export const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 
@@ -14,7 +14,7 @@ const PROVIDER_DISPLAY_DEFAULT_CONFIGS = Object.freeze({
 });
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 export function normalizeProviderConfigValue(value) {

@@ -1,7 +1,12 @@
+import { firstOptionalPresent, normalizeOptionalTextField } from './contractStoreModel.js';
+function optionalUiObject() {
+  return {};
+}
+
 // @ts-check
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 export function normalizeThreadId(value) {
@@ -39,7 +44,7 @@ export function firstRuntimeAgentId(...values) {
 }
 
 export function normalizeThreadIdentity(raw = {}) {
-  const thread = raw?.thread || {};
+  const thread = raw?.thread || optionalUiObject();
   const id = firstBackendThreadId(
     raw?.threadId,
     raw?.threadID,
@@ -59,16 +64,18 @@ export function normalizeThreadIdentity(raw = {}) {
     thread?.agent_id,
   );
   const agentId = normalizeThreadId(
-    raw?.agentId ||
-    raw?.agent_id ||
-    thread?.agentId ||
-    thread?.agent_id ||
-    firstRuntimeAgentId(raw?.id, thread?.id),
+    firstOptionalPresent(
+      raw?.agentId,
+      raw?.agent_id,
+      thread?.agentId,
+      thread?.agent_id,
+      firstRuntimeAgentId(raw?.id, thread?.id),
+    ),
   );
   return {
     threadId: id,
     agentId,
-    providerThreadId: normalizeThreadId(raw?.providerThreadId || raw?.provider_thread_id || thread?.providerThreadId || thread?.provider_thread_id),
-    sessionId: normalizeThreadId(raw?.sessionId || raw?.session_id || thread?.sessionId || thread?.session_id),
+    providerThreadId: normalizeThreadId(firstOptionalPresent(raw?.providerThreadId, raw?.provider_thread_id, thread?.providerThreadId, thread?.provider_thread_id)),
+    sessionId: normalizeThreadId(firstOptionalPresent(raw?.sessionId, raw?.session_id, thread?.sessionId, thread?.session_id)),
   };
 }

@@ -1,8 +1,16 @@
+import { normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
+function optionalUiArray() {
+  return [];
+}
+
+function optionalUiObject() {
+  return {};
+}
+
 // @ts-check
 
 import {
-  normalizeThreadId,
-} from './threadIdentity.js';
+  normalizeThreadId } from './threadIdentity.js';
 
 /**
  * @typedef {{
@@ -11,7 +19,7 @@ import {
  */
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function normalizePath(value) {
@@ -46,7 +54,7 @@ export function normalizeForkSharedFiles(response) {
 export function cachedForkSharedFiles(state) {
   const cwd = normalizePath(state.activeProject || state.cwd);
   const cache = cwd ? state.sharedFilesPageCacheByCwd?.[cwd] : null;
-  return normalizeForkSharedFiles(cache || {});
+  return normalizeForkSharedFiles(cache || optionalUiObject());
 }
 
 export function initialForkSharedFilePaths(state, availableSharedFiles = [], seedPath = '') {
@@ -58,7 +66,7 @@ export function initialForkSharedFilePaths(state, availableSharedFiles = [], see
     if (requireAvailable && !available.has(value)) return;
     selected.push(value);
   };
-  (state.attachments || []).forEach((item) => add(item?.path, true));
+  (state.attachments || optionalUiArray()).forEach((item) => add(item?.path, true));
   add(seedPath, false);
   return selected;
 }
@@ -96,7 +104,7 @@ export function createLoadForkSharedFiles({ readSharedFile } = {}) {
       }
       return {
         path: normalizeString(detail.path) || path,
-        content: (detail.content || '').toString(),
+        content: optionalTextField(detail.content),
       };
     }));
   };
@@ -107,9 +115,9 @@ export function buildForkThreadState(state, threadId, identity, launchPreference
     actionNotice,
     defaultProvider = '',
     emptyForkDraft,
-    nowISO = () => new Date().toISOString(),
-    nowMillis = () => Date.now(),
-    threadActivityTimestamp = () => Date.now(),
+    nowISO = () => currentIsoTimestamp(),
+    nowMillis = () => systemClockMillis(),
+    threadActivityTimestamp = () => systemClockMillis(),
     threadMatchesIdentifier = (thread, id) => normalizeThreadId(thread?.id) === normalizeThreadId(id),
   } = deps;
   const provider = launchPreferences.modelProvider || launchPreferences.provider || state.provider || defaultProvider;

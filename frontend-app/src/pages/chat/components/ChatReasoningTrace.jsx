@@ -3,6 +3,7 @@ import { CheckCircle2, Copy } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { copyTextToClipboard } from '../services/chatCodeService.js';
 import { MessageContent } from './MarkdownMessage.jsx';
+import { currentTimestampMs, trimmedText } from './markdownMessageModel.js';
 import {
   durationLabelFromMs,
   parsePlanItems,
@@ -44,7 +45,7 @@ function AssistantMessageActions({ copy = APP_COPY.zh.chat, text }) {
   useEffect(() => () => {
     if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
   }, []);
-  const copyableText = (text || '').toString();
+  const copyableText = text === null || text === undefined ? '' : text.toString();
   const canCopy = copyableText.trim().length > 0;
   const scheduleReset = (delay) => {
     if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
@@ -91,11 +92,11 @@ function AssistantMessageActions({ copy = APP_COPY.zh.chat, text }) {
 }
 
 function useElapsedLabel(startValue, endValue, active) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => currentTimestampMs());
 
   useEffect(() => {
     if (!active) return undefined;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const timer = window.setInterval(() => setNow(currentTimestampMs()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
 
@@ -119,10 +120,10 @@ function ReasoningTrace({ message, active = false }) {
       : hookElapsed);
   const title = reasoningTitle(message);
   const elapsedSuffix = elapsed ? ` ${elapsed}` : '';
-  const explicitStatusLabel = (message?.statusLabel || '').toString().trim();
-  const statusLabel = explicitStatusLabel || (done
+  const explicitStatusLabel = trimmedText(message?.statusLabel);
+  const statusLabel = explicitStatusLabel ? explicitStatusLabel : (done
     ? `已处理 ${title}${elapsedSuffix}`
-    : ((message?.kind || '').toString().trim().toLowerCase() === 'thinking'
+    : (trimmedText(message?.kind).toLowerCase() === 'thinking'
       ? `正在思考${elapsedSuffix}`
       : `正在运行 ${title}${elapsedSuffix}`));
   const meta = reasoningKindMeta(message);

@@ -21,8 +21,10 @@ function createDiffSummaryState() {
 }
 
 function startDiffSummaryFile(state, filename) {
+  const fallbackFilename = `file-${state.files.length + 1}`;
+  const normalizedFilename = filename ? filename : fallbackFilename;
   state.current = {
-    filename: filename || `file-${state.files.length + 1}`,
+    filename: normalizedFilename,
     additions: 0,
     deletions: 0,
     lines: [],
@@ -49,8 +51,15 @@ function diffPatchFilePrefix(line) {
 function handleDiffGitHeader(state, line) {
   const match = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
   state.pendingFileHeader = null;
-  startDiffSummaryFile(state, match?.[2] || match?.[1] || `file-${state.files.length + 1}`);
+  startDiffSummaryFile(state, diffGitHeaderFilename(match, state));
   state.current.lines.push(line);
+}
+
+function diffGitHeaderFilename(match, state) {
+  for (const value of [match?.[2], match?.[1]]) {
+    if (value) return value;
+  }
+  return `file-${state.files.length + 1}`;
 }
 
 function handlePatchFileHeader(state, line, prefix) {

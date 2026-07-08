@@ -4,7 +4,7 @@ import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from './services/filesPageService.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { dashboardQueryErrorState, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
+import { dashboardQueryErrorState, optionalSettingsCwd, parseStrictJsonValue, queryHasSnapshot, rawTextValue, sharedFileTimestamp, textValue, optionalTimestampMillis, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './FilesPage.css';
 
@@ -72,7 +72,7 @@ function formatBytes(size) {
 }
 
 function sharedFileContent(file) {
-  return (file?.content || '').toString();
+  return rawTextValue(file?.content);
 }
 
 function sharedFileExtension(path) {
@@ -150,9 +150,11 @@ function jsonLikeFirstLabel(value) {
 function jsonLikeSummary(value) {
   const arrayMatch = value.match(/"([A-Za-z0-9_-]+)"\s*:\s*\[/);
   if (arrayMatch) {
-    const titleCount = (value.match(/"title"\s*:/g) || []).length;
-    const objectCount = Math.max(0, (value.match(/\{\s*"[^"]+"\s*:/g) || []).length - 1);
-    const count = titleCount || objectCount;
+    const titleMatches = value.match(/"title"\s*:/g);
+    const objectMatches = value.match(/\{\s*"[^"]+"\s*:/g);
+    const titleCount = titleMatches ? titleMatches.length : 0;
+    const objectCount = Math.max(0, (objectMatches ? objectMatches.length : 0) - 1);
+    const count = titleCount ? titleCount : objectCount;
     const label = jsonLikeFirstLabel(value);
     return `类 JSON · ${arrayMatch[1]}${count ? `: ${count} 项` : ''}${label ? ` · ${label}` : ''}`;
   }
@@ -177,7 +179,7 @@ function jsonDisplayFromText(text, strict) {
   const value = text.trim();
   if (!value || (!strict && !value.startsWith('{') && !value.startsWith('['))) return null;
   try {
-    const parsed = JSON.parse(value);
+    const parsed = parseStrictJsonValue(value, 'shared file preview');
     return {
       loose: false,
       summary: jsonValueSummary(parsed),
@@ -200,7 +202,7 @@ function sharedFileDisplay(file) {
   const fence = markdownFenceFromWholeText(raw);
   const body = fence ? fence.body : raw;
   const extension = sharedFileExtension(file?.path);
-  const language = fence?.language || '';
+  const language = textValue(fence?.language);
   const strictJson = language === 'json' || extension === 'json';
   const jsonDisplay = jsonDisplayFromText(body, strictJson);
   if (jsonDisplay) {
@@ -248,8 +250,7 @@ function sortSharedFiles(files, sortMode) {
     return list.sort((left, right) => left.path.localeCompare(right.path));
   }
   const updatedTime = (file) => {
-    const parsed = new Date(file.updatedAt || 0).getTime();
-    return Number.isFinite(parsed) ? parsed : 0;
+    return optionalTimestampMillis(file.updatedAt, 'shared file updatedAt');
   };
   return list.sort((left, right) => (
     sortMode === 'updated-asc'
@@ -387,7 +388,7 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
     if (typeof store?.continueWithSharedFile === 'function') store.continueWithSharedFile(file.path);
   }, [store]);
   const copySelectedContent = useCallback(async () => {
-    const text = selectedFile?.content || '';
+    const text = rawTextValue(selectedFile?.content);
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);

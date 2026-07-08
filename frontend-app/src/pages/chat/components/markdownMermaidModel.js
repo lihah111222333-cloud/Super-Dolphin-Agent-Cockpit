@@ -1,14 +1,14 @@
-import { normalizeMessageText } from './markdownMessageModel.js';
+import { normalizeMessageText, textValue, trimmedText } from './markdownMessageModel.js';
 
 function svgDataUrl(svg) {
-  const value = (svg || '').toString();
+  const value = textValue(svg);
   if (!value) return '';
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`;
 }
 
 function normalizeSvgAttributeValue(value) {
   return (
-    Array.from((value || '').toString().trim())
+    Array.from(trimmedText(value))
     .filter((char) => {
       const charCode = char.charCodeAt(0);
       return charCode > 0x1f && charCode !== 0x7f && !/\s/.test(char);
@@ -29,7 +29,7 @@ function isDangerousSvgAttributeValue(value) {
     return true;
   }
   for (const match of normalized.matchAll(/url\(([^)]*)\)/g)) {
-    const target = (match[1] || '').replace(/^['"]|['"]$/g, '');
+    const target = textValue(match[1]).replace(/^['"]|['"]$/g, '');
     if (!target.startsWith('#')) return true;
   }
   return (
@@ -38,7 +38,7 @@ function isDangerousSvgAttributeValue(value) {
 }
 
 function parseSvgViewBoxSize(viewBox) {
-  const parts = (viewBox || '').toString().trim().split(/[\s,]+/);
+  const parts = trimmedText(viewBox).split(/[\s,]+/);
   if (parts.length !== 4) return null;
   const width = Number(parts[2]);
   const height = Number(parts[3]);
@@ -49,7 +49,7 @@ function parseSvgViewBoxSize(viewBox) {
 }
 
 function isPercentageSvgDimension(value) {
-  return /%$/.test((value || '').toString().trim());
+  return /%$/.test(trimmedText(value));
 }
 
 function ensureSvgImageDimensions(svgElement) {
@@ -68,7 +68,7 @@ function ensureSvgImageDimensions(svgElement) {
 }
 
 function sanitizeMermaidSvg(svg) {
-  const value = (svg || '').toString();
+  const value = textValue(svg);
   if (!value) return '';
   if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
     throw new Error('\u5f53\u524d\u73af\u5883\u4e0d\u652f\u6301 SVG \u6e05\u7406');
@@ -101,12 +101,12 @@ function sanitizeMermaidSvg(svg) {
 }
 
 function isMermaidLanguage(language) {
-  const value = (language || '').toString().trim().toLowerCase();
+  const value = trimmedText(language).toLowerCase();
   return value === 'mermaid' || value === 'mmd';
 }
 
 function isMermaidSource(source) {
-  const firstLine = normalizeMessageText(source).trim().split('\n')[0]?.trim().toLowerCase() || '';
+  const firstLine = textValue(normalizeMessageText(source).trim().split('\n')[0]).trim().toLowerCase();
   return /^(flowchart|graph|sequencediagram|classdiagram|statediagram|statediagram-v2|erdiagram|journey|gantt|pie|mindmap|timeline|gitgraph|quadrantchart|requirementdiagram)\b/.test(firstLine);
 }
 

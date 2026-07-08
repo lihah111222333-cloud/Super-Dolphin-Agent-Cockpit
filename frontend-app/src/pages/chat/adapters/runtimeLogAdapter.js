@@ -1,7 +1,29 @@
 import { safeWarningFields } from '../../../entities/client/model/warningRuntime.js';
 import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
+import { parseStrictJsonValue, requireTimestampMillis } from '../../shared/pageShared.js';
 
 const RUNTIME_LOG_DETAIL_LIMIT = 1600;
+
+function runtimeLogTextValue(value) {
+  if (value === null || value === undefined) return '';
+  return value.toString();
+}
+
+function firstRuntimeLogText(values) {
+  for (const value of values) {
+    const text = runtimeLogTextValue(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function runtimeLogTimestampCandidates(entry) {
+  return [entry?.timestamp, entry?.time, entry?.ts];
+}
+
+function runtimeLogLabelCandidates(entry) {
+  return [entry?.message, entry?.event, entry?.method];
+}
 
 function safeRuntimeLogDetail(value) {
   return compactSafeDiagnosticPreview(value, RUNTIME_LOG_DETAIL_LIMIT, { parseJsonStrings: true });
@@ -12,7 +34,7 @@ function parseRuntimeLogJSONText(value) {
   const text = value.trim();
   if (!text) return value;
   try {
-    return JSON.parse(text);
+    return parseStrictJsonValue(text, 'runtime log detail');
   } catch {
     return value;
   }
@@ -43,25 +65,28 @@ function warningDetailText(entry) {
   if (entry?.detail !== undefined && entry?.detail !== null && entry.detail !== '') {
     return safeRuntimeWarningDetail(entry.detail);
   }
-  return safeRuntimeWarningDetail(entry?.fields ?? {});
+  return safeRuntimeWarningDetail(entry?.fields);
 }
 
 function runtimeLogTimestamp(entry) {
-  return entry?.timestamp || entry?.time || entry?.ts || '';
+  return firstRuntimeLogText(runtimeLogTimestampCandidates(entry));
 }
 
 function runtimeLogLabel(entry) {
-  return entry?.message || entry?.event || entry?.method || '';
+  return firstRuntimeLogText(runtimeLogLabelCandidates(entry));
 }
 
 function parseSafeLogTimestamp(entry) {
   const ts = runtimeLogTimestamp(entry);
   if (!ts) return 0;
-  const text = ts.toString().trim();
+  const text = runtimeLogTextValue(ts).trim();
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
-  const parsed = Date.parse(text.replace(/(\.\d{3})\d+/g, '$1'));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  try {
+    return requireTimestampMillis(text.replace(/(\.\d{3})\d+/g, '$1'), 'runtime log timestamp');
+  } catch {
+    return 0;
+  }
 }
 
 function runtimeLogInlineLabel(entry) {
@@ -70,10 +95,14 @@ function runtimeLogInlineLabel(entry) {
   return label;
 }
 
+function runtimeLogArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function runtimeLogEntries(warnings = [], results = []) {
   return [
-    ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
-    ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
+    ...runtimeLogArray(warnings).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
+    ...runtimeLogArray(results).map((entry) => ({ ...entry, runtimeKind: 'result' })),
   ].sort((left, right) => parseSafeLogTimestamp(right) - parseSafeLogTimestamp(left));
 }
 

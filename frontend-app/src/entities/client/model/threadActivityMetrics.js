@@ -1,9 +1,13 @@
+import { normalizeOptionalTextField, systemClockMillis } from './contractStoreModel.js';
+function optionalUiObject() {
+  return {};
+}
+
 // @ts-check
 
 import {
   normalizeBackendThreadId,
-  normalizeThreadId,
-} from './threadIdentity.js';
+  normalizeThreadId } from './threadIdentity.js';
 
 const ACTIVITY_COUNT_FIELDS = Object.freeze({
   lspCalls: Object.freeze(['lspCalls', 'lsp_calls']),
@@ -41,7 +45,7 @@ const TERMINAL_ACTIVE_TURN_STATUSES = new Set([
 ]);
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function objectRecord(value) {
@@ -137,8 +141,8 @@ export function shouldFloatThreadPatch(payload = {}) {
   return !status || ['idle', 'completed', 'success', 'succeeded'].includes(status);
 }
 
-export function threadActivityTimestamp() {
-  return Date.now();
+export function threadActivityTimestamp(clockMillis = systemClockMillis) {
+  return clockMillis();
 }
 
 export function normalizeTokenUsage(value) {
@@ -190,7 +194,7 @@ export function normalizeTokenUsage(value) {
 
 export function normalizeActivityStats(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const rawToolCalls = value.toolCalls || value.tool_calls || {};
+  const rawToolCalls = value.toolCalls || value.tool_calls || optionalUiObject();
   const toolCalls = {};
   for (const [name, count] of Object.entries(objectRecord(rawToolCalls))) {
     const key = normalizeString(name);

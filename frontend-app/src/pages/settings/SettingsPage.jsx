@@ -13,6 +13,7 @@ import { UILogCard } from './components/UILogCard.jsx';
 import { VideoSettingsCard } from './components/VideoSettingsCard.jsx';
 import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint } from './services/settingsPageService.js';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
+import { firstPresentText, parseJsonObjectValue, rawTextValue } from '../shared/pageShared.js';
 import './SettingsPage.css';
 
 const PROVIDER_LABELS = Object.freeze({
@@ -115,7 +116,7 @@ function providerConfigValue(value) {
     }
     return '';
   }
-  return (value || '').toString().trim();
+  return textValue(value).trim();
 }
 
 function isPreferenceTombstone(value) {
@@ -127,7 +128,7 @@ function isPreferenceAbsent(value) {
 }
 
 async function readScopedPreference(cwd, key) {
-  const scope = (cwd || '').toString().trim();
+  const scope = textValue(cwd).trim();
   if (scope) {
     const scoped = await getPreference({ cwd: scope, key });
     if (isPreferenceTombstone(scoped)) return '';
@@ -206,13 +207,13 @@ function normalizeContextThresholds(value) {
 }
 
 function requireSettingsCwd(cwd, copy = APP_COPY.zh.settings) {
-  const value = (cwd || '').toString().trim();
-  if (!value) throw new Error(copy.projectCwdRequired || SETTINGS_PROJECT_CWD_REQUIRED);
+  const value = textValue(cwd).trim();
+  if (!value) throw new Error(firstPresentText(copy.projectCwdRequired, SETTINGS_PROJECT_CWD_REQUIRED));
   return value;
 }
 
 function normalizeSandboxMode(value) {
-  const mode = (value || '').toString().trim();
+  const mode = textValue(value).trim();
   if (!mode) return SETTINGS_DEFAULTS.sandboxPolicy;
   if (mode === 'workspace-write') return 'workspaceWrite';
   if (mode === 'read-only') return 'readOnly';
@@ -228,11 +229,7 @@ function sandboxPreferenceFromRaw(value) {
     if (!text) return null;
     if (text.startsWith('{')) {
       try {
-        const parsed = JSON.parse(text);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          throw new Error('sandbox preference JSON must be an object');
-        }
-        return parsed;
+        return parseJsonObjectValue(text, 'sandbox preference');
       } catch (error) {
         throw new Error('加载 Sandbox 失败：' + (error?.message || error), { cause: error });
       }
@@ -269,7 +266,7 @@ function readableRootsFromPreference(value) {
 }
 
 function pathsFromTextarea(value) {
-  return (value || '')
+  return rawTextValue(value)
     .toString()
     .split(/\r?\n/)
     .flatMap((item) => {
@@ -286,7 +283,7 @@ function absolutePathsError(value, copy = APP_COPY.zh.settings) {
 }
 
 function isAbsoluteRootPath(value) {
-  const root = (value || '').toString().trim();
+  const root = textValue(value).trim();
   return root.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(root) || /^\\\\[^\\]+\\[^\\]+/.test(root);
 }
 
@@ -368,7 +365,7 @@ function defaultSettingsForm() {
 }
 
 function normalizeSettingsCwd(value) {
-  const text = (value || '').toString().trim();
+  const text = textValue(value).trim();
   if (!text || text === '.' || text === '未选择项目') return '';
   return text;
 }
@@ -482,29 +479,29 @@ function applyCheckedAppUpdateInfo({ copy, info, setUpdateInfo, setUpdateNotice 
 
 function appUpdateVersionLabel(info, copy = APP_COPY.zh.settings) {
   const version = appUpdateConcreteVersionLabel(info) || copy.update.availableUpdate;
-  const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
+  const platform = firstPresentText(info?.platform, info?.artifact?.platform);
   return platform ? `${version} (${platform})` : version;
 }
 
 function appUpdateInstallingMessage(info, copy = APP_COPY.zh.settings) {
   const version = appUpdateConcreteVersionLabel(info);
   if (!version) return copy.update.installing;
-  const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
+  const platform = firstPresentText(info?.platform, info?.artifact?.platform);
   return copy.update.installing + ' ' + (platform ? `${version} (${platform})` : version);
 }
 
 function appUpdateConcreteVersionLabel(info) {
-  return (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim();
+  return firstPresentText(info?.version, info?.latestVersion, info?.latest_version);
 }
 
 function appUpdateCurrentVersionLabel(buildInfo) {
-  const packagedVersion = (buildInfo?.appVersion || buildInfo?.app_version || buildInfo?.updateVersion || buildInfo?.update_version || '').toString().trim();
+  const packagedVersion = firstPresentText(buildInfo?.appVersion, buildInfo?.app_version, buildInfo?.updateVersion, buildInfo?.update_version);
   if (packagedVersion) return appUpdateDisplayVersion(packagedVersion);
-  return (buildInfo?.version || 'unknown').toString().trim();
+  return firstPresentText(buildInfo?.version, 'unknown');
 }
 
 function appUpdateDisplayVersion(version) {
-  const value = (version || '').toString().trim();
+  const value = textValue(version).trim();
   if (!value) return '';
   if (/^[0-9]+(?:\.[0-9]+){1,2}(?:[-+].*)?$/.test(value)) return `v${value}`;
   return value;
@@ -699,7 +696,7 @@ async function writeProviderRuntimePreferences(cwd, provider, form) {
 }
 
 function codexIdentityPreferenceValue(value) {
-  const text = (value || '').toString().trim();
+  const text = textValue(value).trim();
   return text ? text : { cleared: true };
 }
 
@@ -795,7 +792,8 @@ function usePromptSettings(cwd, copy) {
 }
 
 function promptDisplayHint(effectiveHint, defaultHint, copy = APP_COPY.zh.settings) {
-  return (effectiveHint || defaultHint || '').trim() || copy.promptCard.empty;
+  const promptText = firstPresentText(effectiveHint, defaultHint);
+  return promptText ? promptText.trim() : copy.promptCard.empty;
 }
 
 function promptModeLabel(loading, usingDefault, copy = APP_COPY.zh.settings) {
@@ -842,7 +840,7 @@ async function loadLspPromptState(state) {
 async function loadPromptScope(setCurrentScopeCwd) {
   try {
     const cfg = await readConfig();
-    setCurrentScopeCwd((cfg?.cwd || '').toString().trim());
+    setCurrentScopeCwd(textValue(cfg?.cwd).trim());
   } catch {
     setCurrentScopeCwd('');
   }
@@ -969,7 +967,7 @@ function normalizeBuiltinTool(item) {
 }
 
 function textValue(value) {
-  return (value || '').toString();
+  return value === null || value === undefined ? '' : value.toString();
 }
 
 function optionalTextValue(value) {
@@ -1034,7 +1032,7 @@ function builtinUnfilteredGroup(tools, copy) {
 }
 
 function builtinToolEnforcement(tool) {
-  const enforcement = (tool.enforcement || '').toString().trim();
+  const enforcement = textValue(tool.enforcement).trim();
   if (enforcement) return enforcement;
   return tool.filterMode === 'hard' ? 'native-hard' : 'soft-audit';
 }
@@ -1050,9 +1048,9 @@ function toolStatusLabel(tool, copy) {
 
 function toolMetaText(tool, copy) {
   const parts = [];
-  const description = (tool.description || '').trim();
+  const description = textValue(tool.description).trim();
   if (description) parts.push(description);
-  const provider = PROVIDER_LABELS[tool.provider] || tool.provider || '';
+  const provider = firstPresentText(PROVIDER_LABELS[tool.provider], tool.provider);
   if (provider) parts.push(provider);
   parts.push(toolStatusLabel(tool, copy));
   return parts.join(' · ');
@@ -1064,8 +1062,9 @@ function groupSummary(group, copy) {
 }
 
 function mobileAccountName(cwd, fallback = '本地用户') {
-  const parts = (cwd || '').toString().split(/[\\/]/).filter(Boolean);
-  return parts.at(-1) || fallback;
+  const parts = textValue(cwd).split(/[\\/]/).filter(Boolean);
+  const last = parts.at(-1);
+  return last ? last : fallback;
 }
 
 function MobileAccountPanel({ copy = APP_COPY.zh.settings, cwd, runtime }) {

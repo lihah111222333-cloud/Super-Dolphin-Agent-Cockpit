@@ -26,6 +26,7 @@ const TESTS = Object.freeze({
   OBSERVABILITY_PAGE_SERVICE: 'src/pages/observability/services/observabilityPageService.test.js',
   WAILS_BRIDGE: 'src/shared/api/wailsBridge.test.js',
 });
+const EMPTY_CONTRACT_FIELD = '';
 
 /**
  * @param {keyof typeof RPC_METHODS} key
@@ -38,6 +39,8 @@ const TESTS = Object.freeze({
  * @param {{ responseValidator?: string, responsePassthroughReason?: string }} options
  */
 function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false, options = {}) {
+  const responseValidator = options.responseValidator ?? EMPTY_CONTRACT_FIELD;
+  const responsePassthroughReason = options.responsePassthroughReason ?? EMPTY_CONTRACT_FIELD;
   return Object.freeze({
     key,
     method: RPC_METHODS[key],
@@ -46,8 +49,8 @@ function contract(key, facade, level, backendOwner, tests, notes = [], rawLitera
     backendOwner,
     tests: Object.freeze(tests),
     rawLiteralRpc,
-    responseValidator: options.responseValidator || '',
-    responsePassthroughReason: options.responsePassthroughReason || '',
+    responseValidator,
+    responsePassthroughReason,
     notes: Object.freeze(notes),
   });
 }

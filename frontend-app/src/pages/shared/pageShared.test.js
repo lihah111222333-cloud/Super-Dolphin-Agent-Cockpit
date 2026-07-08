@@ -2,7 +2,7 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { optionalSettingsCwd, textValue, useDashboardQueryFocusInvalidation, wordListFromText } from './pageShared.js';
+import { currentTimestampMillis, optionalArrayValue, optionalSettingsCwd, optionalTimestampMillis, parseJsonObjectValue, parseStrictJsonValue, requireArrayValue, requireTimestampMillis, textValue, useDashboardQueryFocusInvalidation, wordListFromText } from './pageShared.js';
 
 function FocusInvalidationHarness({ queryKey }) {
   useDashboardQueryFocusInvalidation(queryKey);
@@ -41,6 +41,25 @@ describe('pageShared utilities', () => {
     expect(textValue(' value ')).toBe('value');
     expect(optionalSettingsCwd('selected-project')).toBe('selected-project');
     expect(wordListFromText('alpha, beta gamma')).toEqual(['alpha', 'beta gamma']);
+  });
+
+  it('adds labels to invalid JSON and timestamp failures', () => {
+    expect(() => parseStrictJsonValue('{bad json', 'prompt tags')).toThrow(/prompt tags 不是合法 JSON/);
+    expect(() => parseJsonObjectValue('[]', 'sandbox preference')).toThrow(/sandbox preference 必须是 JSON 对象/);
+    expect(() => requireTimestampMillis('not-a-date', 'trace timestamp')).toThrow(/trace timestamp 时间戳无效/);
+    expect(requireTimestampMillis('2026-06-04T07:34:55.054Z', 'trace timestamp')).toBeGreaterThan(0);
+  });
+
+  it('separates optional missing shapes from required invalid shapes', () => {
+    expect(optionalTimestampMillis(undefined, 'optional timestamp')).toBe(0);
+    expect(optionalArrayValue(undefined, 'optional events')).toEqual([]);
+    expect(() => optionalArrayValue({ invalid: true }, 'optional events')).toThrow(/optional events 必须是数组/);
+    expect(() => requireArrayValue(undefined, 'project thread list')).toThrow(/project thread list 必须是数组/);
+  });
+
+  it('validates injected clocks before using current time', () => {
+    expect(currentTimestampMillis('cache clock', () => 1234)).toBe(1234);
+    expect(() => currentTimestampMillis('cache clock', () => Number.NaN)).toThrow(/cache clock clock returned invalid timestamp/);
   });
 });
 

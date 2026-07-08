@@ -5,6 +5,7 @@ import {
   threadScopedBooleanValue,
   threadScopedMapValue,
 } from '../adapters/threadStateAdapter.js';
+import { requireTimestampMillis } from '../../shared/pageShared.js';
 
 const GENERIC_TIMELINE_COMMAND_TITLES = new Set([
   'command',
@@ -14,6 +15,78 @@ const GENERIC_TIMELINE_COMMAND_TITLES = new Set([
   '命令',
   '终端命令',
 ]);
+
+function threadDataTextValue(value) {
+  if (value === null || value === undefined) return '';
+  return value.toString();
+}
+
+function firstThreadDataText(values) {
+  for (const value of values) {
+    const text = threadDataTextValue(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function requiredThreadMap(value, name) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`chat thread data requires ${name} object`);
+  }
+  return value;
+}
+
+function optionalThreadArray(value, name) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`chat thread data requires ${name} array`);
+  return value;
+}
+
+function timelineItemKindCandidates(item) {
+  return [item?.kind, item?.type, item?.eventType, item?.event_type];
+}
+
+function timelineItemTextCandidates(item) {
+  return [item?.text, item?.content, item?.message, item?.output, item?.result, item?.error];
+}
+
+function timelineItemToolCandidates(item) {
+  return [item?.tool, item?.toolName, item?.tool_name];
+}
+
+function timelineItemOrderCandidates(item) {
+  return [item?.time, item?.ts, item?.createdAt, item?.created_at, item?.completedAt, item?.completed_at];
+}
+
+function activityEntryFields(entry) {
+  return entry?.fields && typeof entry.fields === 'object' && !Array.isArray(entry.fields)
+    ? entry.fields
+    : null;
+}
+
+function activityEntryThreadPatch(fields) {
+  const patch = fields?._threadPatch === undefined ? fields?._thread_patch : fields._threadPatch;
+  return patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : null;
+}
+
+function activityEntryThreadIdCandidates(entry) {
+  const fields = activityEntryFields(entry);
+  const patch = activityEntryThreadPatch(fields);
+  return [
+    entry?.threadId,
+    entry?.thread_id,
+    entry?.agentId,
+    entry?.agent_id,
+    fields?.threadId,
+    fields?.thread_id,
+    fields?.agentId,
+    fields?.agent_id,
+    patch?.threadId,
+    patch?.thread_id,
+    patch?.agentId,
+    patch?.agent_id,
+  ];
+}
 
 function positiveTimestampNumber(value) {
   if (!Number.isFinite(value) || value <= 0) return 0;
@@ -26,39 +99,42 @@ function numericTextTimestampMs(text) {
 }
 
 function parsedDateTimestampMs(text) {
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  try {
+    return requireTimestampMillis(text, 'thread data timestamp');
+  } catch {
+    return 0;
+  }
 }
 
 function timestampMs(value) {
   if (typeof value === 'number') return positiveTimestampNumber(value);
-  const text = (value || '').toString().trim();
+  const text = threadDataTextValue(value).trim();
   return numericTextTimestampMs(text) || parsedDateTimestampMs(text);
 }
 
 function timelineItemKind(item = {}) {
-  return (item.kind || item.type || item.eventType || item.event_type || '').toString().trim().toLowerCase();
+  return firstThreadDataText(timelineItemKindCandidates(item)).toLowerCase();
 }
 
 function timelineItemTextValue(item = {}) {
-  return (item.text || item.content || item.message || item.output || item.result || item.error || '').toString().trim();
+  return firstThreadDataText(timelineItemTextCandidates(item));
 }
 
 function hasRenderableTimelineCommand(item = {}) {
-  if ((item.command || '').toString().trim()) return true;
+  if (threadDataTextValue(item.command).trim()) return true;
   if (timelineItemTextValue(item)) return true;
-  const title = (item.title || '').toString().trim();
+  const title = threadDataTextValue(item.title).trim();
   return Boolean(title.startsWith('$ ') && !GENERIC_TIMELINE_COMMAND_TITLES.has(title.toLowerCase()));
 }
 
 function isRenderableThreadScopedTimelineItem(item = {}) {
   if (timelineItemKind(item) !== 'command') return true;
-  if ((item.tool || item.toolName || item.tool_name || '').toString().trim()) return false;
+  if (firstThreadDataText(timelineItemToolCandidates(item))) return false;
   return hasRenderableTimelineCommand(item);
 }
 
 function timelineItemOrderTime(item = {}) {
-  return timestampMs(item.time || item.ts || item.createdAt || item.created_at || item.completedAt || item.completed_at);
+  return timestampMs(firstThreadDataText(timelineItemOrderCandidates(item)));
 }
 
 export function mergeThreadScopedTimelineItems(items = []) {
@@ -66,7 +142,7 @@ export function mergeThreadScopedTimelineItems(items = []) {
   const indexById = new Map();
 
   for (const item of items) {
-    const id = (item?.id || '').toString().trim();
+    const id = threadDataTextValue(item?.id).trim();
     if (!id) {
       merged.push(item);
       continue;
@@ -101,7 +177,8 @@ export function threadScopedTimelineValue(map = {}, activeThreadId, activeThread
   const ids = activeThreadIdentifiers(activeThreadId, activeThread);
   const items = [];
   for (const id of ids) {
-    if (!Object.prototype.hasOwnProperty.call(map || {}, id)) continue;
+    if (!map || typeof map !== 'object' || Array.isArray(map)) continue;
+    if (!Object.prototype.hasOwnProperty.call(map, id)) continue;
     const value = map[id];
     if (Array.isArray(value)) items.push(...value.filter(isRenderableThreadScopedTimelineItem));
   }
@@ -117,28 +194,13 @@ function firstNormalizedIdentity(values = []) {
 }
 
 export function activityEntryThreadIdentifier(entry = {}) {
-  const fields = entry.fields || {};
-  const patch = fields._threadPatch || fields._thread_patch || {};
-  return firstNormalizedIdentity([
-    entry.threadId,
-    entry.thread_id,
-    entry.agentId,
-    entry.agent_id,
-    fields.threadId,
-    fields.thread_id,
-    fields.agentId,
-    fields.agent_id,
-    patch.threadId,
-    patch.thread_id,
-    patch.agentId,
-    patch.agent_id,
-  ]);
+  return firstNormalizedIdentity(activityEntryThreadIdCandidates(entry));
 }
 
 export function scopedActivityEntries(entries = [], activeThreadId, activeThread, options = {}) {
   const ids = activeThreadIdentifiers(activeThreadId, activeThread);
   if (ids.size === 0) return [];
-  return (entries || []).filter((entry) => {
+  return optionalThreadArray(entries, 'activity entries').filter((entry) => {
     const entryThreadId = activityEntryThreadIdentifier(entry);
     if (!entryThreadId) return Boolean(options.includeUnscoped);
     return ids.has(entryThreadId);
@@ -151,9 +213,9 @@ export function useChatThreadData(store, activeThreadId) {
    * timeline、diff、token、活动日志都按当前线程名字集合读取。
    */
   const activeThread = activeThreadForStore(store);
-  const timelineBlocked = Boolean(activeThreadId && threadScopedBooleanValue(store.threadStateLoadingByThread, activeThreadId, activeThread, false));
-  const cachedTimeline = threadScopedTimelineValue(store.timelinesByThread, activeThreadId, activeThread, []);
-  const timelineReadyFlag = threadScopedBooleanValue(store.threadTimelineReadyByThread, activeThreadId, activeThread, false);
+  const timelineBlocked = Boolean(activeThreadId && threadScopedBooleanValue(requiredThreadMap(store.threadStateLoadingByThread, 'threadStateLoadingByThread'), activeThreadId, activeThread, false));
+  const cachedTimeline = threadScopedTimelineValue(requiredThreadMap(store.timelinesByThread, 'timelinesByThread'), activeThreadId, activeThread, []);
+  const timelineReadyFlag = threadScopedBooleanValue(requiredThreadMap(store.threadTimelineReadyByThread, 'threadTimelineReadyByThread'), activeThreadId, activeThread, false);
   const timelineReady = Boolean(
     activeThreadId &&
     timelineReadyFlag &&
@@ -162,16 +224,16 @@ export function useChatThreadData(store, activeThreadId) {
   const timelineContentBlocked = timelineBlocked && !timelineReady;
   return {
     activeThread,
-    activeTurn: threadScopedMapValue(store.activeTurnByThread, activeThreadId, activeThread, null),
-    activityStats: threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null),
-    diffText: threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '',
-    messagePagination: threadScopedMapValue(store.threadMessagePaginationByThread, activeThreadId, activeThread, null),
+    activeTurn: threadScopedMapValue(requiredThreadMap(store.activeTurnByThread, 'activeTurnByThread'), activeThreadId, activeThread, null),
+    activityStats: threadScopedMapValue(requiredThreadMap(store.activityStatsByThread, 'activityStatsByThread'), activeThreadId, activeThread, null),
+    diffText: threadDataTextValue(threadScopedMapValue(requiredThreadMap(store.diffTextByThread, 'diffTextByThread'), activeThreadId, activeThread, '')),
+    messagePagination: threadScopedMapValue(requiredThreadMap(store.threadMessagePaginationByThread, 'threadMessagePaginationByThread'), activeThreadId, activeThread, null),
     messages: timelineContentBlocked ? [] : cachedTimeline,
-    runtimeResults: scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true }),
-    statusEntry: activeThreadId ? store.statuses?.[activeThreadId] : null,
+    runtimeResults: scopedActivityEntries(optionalThreadArray(store.runtimeResultEntries, 'runtimeResultEntries'), activeThreadId, activeThread, { includeUnscoped: true }),
+    statusEntry: activeThreadId ? requiredThreadMap(store.statuses, 'statuses')[activeThreadId] : null,
     timelineBlocked,
     timelineContentBlocked,
-    tokenUsage: threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null),
-    warnings: scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true }),
+    tokenUsage: threadScopedMapValue(requiredThreadMap(store.tokenUsageByThread, 'tokenUsageByThread'), activeThreadId, activeThread, null),
+    warnings: scopedActivityEntries(optionalThreadArray(store.warningEntries, 'warningEntries'), activeThreadId, activeThread, { includeUnscoped: true }),
   };
 }

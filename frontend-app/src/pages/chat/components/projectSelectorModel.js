@@ -3,14 +3,16 @@
  * 注册项目、保存 activeProject、刷新聊天列表都在 project slice。
  */
 
+import { firstText, requiredMarkdownArray, trimmedText } from './markdownMessageModel.js';
+
 export function projectDisplayName(path) {
-  const value = (path || '').toString().trim();
+  const value = trimmedText(path);
   if (!value || value === '未选择项目') return '未选择项目';
-  return value.split(/[\\/]/).filter(Boolean).pop() || value;
+  return firstText(value.split(/[\\/]/).filter(Boolean).pop(), value);
 }
 
 export function normalizeProjectPath(path) {
-  const value = (path || '').toString().trim();
+  const value = trimmedText(path);
   if (!value) return '';
   if (value !== '/' && !/^[a-zA-Z]:[\\/]?$/.test(value)) {
     return value.replace(/[\\/]+$/, '');
@@ -41,13 +43,13 @@ function disambiguateProjectLabels(items) {
   while (changed) {
     changed = false;
     const countByLabel = items.reduce((acc, item) => {
-      acc[item.label] = (acc[item.label] || 0) + 1;
+      acc[item.label] = Number(acc[item.label] ?? 0) + 1;
       return acc;
     }, {});
     for (const item of items) {
       if (countByLabel[item.label] <= 1 || item.label === item.full) continue;
       const nextDepth = Math.min(item.depth + 1, item.segments.length);
-      const nextLabel = item.segments.slice(-nextDepth).join('/') || item.full;
+      const nextLabel = firstText(item.segments.slice(-nextDepth).join('/'), item.full);
       if (nextLabel === item.label) continue;
       item.depth = nextDepth;
       item.label = nextLabel;
@@ -65,7 +67,7 @@ export function projectOptionsFor(projects = [], activeProject = '', fallbackPro
   };
   addValue(activeProject);
   addValue(fallbackProject);
-  for (const project of projects || []) addValue(project);
+  for (const project of requiredMarkdownArray(projects, 'projects')) addValue(project);
 
   const items = [];
   for (const value of values) {
@@ -74,7 +76,7 @@ export function projectOptionsFor(projects = [], activeProject = '', fallbackPro
     const depth = Math.min(2, segments.length);
     items.push({
       value,
-      label: segments.slice(-depth).join('/') || value,
+      label: firstText(segments.slice(-depth).join('/'), value),
       full: value,
       segments,
       depth,

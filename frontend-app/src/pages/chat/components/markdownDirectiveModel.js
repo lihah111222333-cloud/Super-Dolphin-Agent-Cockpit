@@ -1,4 +1,10 @@
-import { basenameFromPath } from './markdownMessageModel.js';
+import {
+  basenameFromPath,
+  firstText,
+  firstTrimmedText,
+  textValue,
+  trimmedText,
+} from './markdownMessageModel.js';
 
 const CODEX_DIRECTIVE_RE = /:(codex-file-citation|codex-terminal-citation|codex-image-citation|task-stub|automation-update|code-comment)(?:\[([^\]\n]*)])?(?:\{([^{}\n]*)})?/g;
 
@@ -7,25 +13,25 @@ const CODEX_DIRECTIVE_TOKEN_RE = /^:(codex-file-citation|codex-terminal-citation
 const DIRECTIVE_ATTR_RE = /([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'{}]+))/g;
 
 function skillNameFromPath(path) {
-  const value = (path || '').toString().trim().split(/[?#]/, 1)[0].replace(/\\/g, '/');
+  const value = trimmedText(path).split(/[?#]/, 1)[0].replace(/\\/g, '/');
   const segments = value.split('/').filter(Boolean);
-  if (segments.length >= 2 && /^SKILL\.md$/i.test(segments[segments.length - 1])) return segments[segments.length - 2] || '';
+  if (segments.length >= 2 && /^SKILL\.md$/i.test(segments[segments.length - 1])) return textValue(segments[segments.length - 2]);
   return basenameFromPath(value).replace(/\.md$/i, '');
 }
 
 function parseDirectiveAttrs(rawAttrs) {
   const attrs = {};
-  const source = (rawAttrs || '').toString();
+  const source = textValue(rawAttrs);
   for (const match of source.matchAll(DIRECTIVE_ATTR_RE)) {
-    const key = (match[1] || '').toString().trim();
+    const key = trimmedText(match[1]);
     if (!key) continue;
-    attrs[key] = (match[2] ?? match[3] ?? match[4] ?? '').toString();
+    attrs[key] = textValue(match[2] ?? match[3] ?? match[4]);
   }
   return attrs;
 }
 
 function positiveInt(value, fallback = 0) {
-  const parsed = Number.parseInt((value || '').toString(), 10);
+  const parsed = Number.parseInt(textValue(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
@@ -39,10 +45,10 @@ function lineRangeLabel(startLine, endLine) {
 }
 
 function fileCitationChip({ path, line, endLine, raw }) {
-  const filePath = (path || '').toString().trim();
-  if (!filePath) return { type: 'text', text: raw || '' };
+  const filePath = trimmedText(path);
+  if (!filePath) return { type: 'text', text: textValue(raw) };
   const location = lineRangeLabel(line, endLine);
-  const display = (raw || '').toString().trim() || `${basenameFromPath(filePath)}${location ? ` (${location})` : ''}`;
+  const display = firstTrimmedText(raw, `${basenameFromPath(filePath)}${location ? ` (${location})` : ''}`);
   return {
     type: 'file',
     display,
@@ -53,7 +59,7 @@ function fileCitationChip({ path, line, endLine, raw }) {
 }
 
 function citationChip({ className = '', icon = '', label, payload, title = '' }) {
-  const displayLabel = (label || payload?.raw || payload?.title || payload?.kind || '\u5f15\u7528').toString().trim();
+  const displayLabel = firstTrimmedText(label, payload?.raw, payload?.title, payload?.kind, '\u5f15\u7528');
   return {
     type: 'citation',
     className,
@@ -69,10 +75,10 @@ function directiveChipModel(token) {
   if (!match) return null;
   const [, name, labelValue = '', rawAttrs = ''] = match;
   const attrs = parseDirectiveAttrs(rawAttrs);
-  const label = (labelValue || '').toString().trim();
+  const label = trimmedText(labelValue);
   if (name === 'codex-file-citation') {
     return fileCitationChip({
-      path: attrs.path || label,
+      path: firstText(attrs.path, label),
       line: attrs.line_range_start,
       endLine: attrs.line_range_end,
       raw: label,
@@ -84,22 +90,22 @@ function directiveChipModel(token) {
     return citationChip({
       className: 'chat-md-terminal-citation',
       icon: '\u2318',
-      label: label || 'Terminal output',
-      title: attrs.terminal_chunk_id || label,
-      payload: { kind: 'terminal', chunkId: attrs.terminal_chunk_id || '', lineStart, lineEnd, raw: label || 'Terminal output' },
+      label: firstText(label, 'Terminal output'),
+      title: firstText(attrs.terminal_chunk_id, label),
+      payload: { kind: 'terminal', chunkId: textValue(attrs.terminal_chunk_id), lineStart, lineEnd, raw: firstText(label, 'Terminal output') },
     });
   }
   if (name === 'codex-image-citation') {
     return citationChip({
       className: 'chat-md-image-citation',
       icon: 'IMG',
-      label: label || 'Image citation',
-      title: attrs.asset_pointer || label,
-      payload: { kind: 'image', assetPointer: attrs.asset_pointer || '', imageSrc: attrs.image_src || '', path: attrs.path || '', raw: label || 'Image citation' },
+      label: firstText(label, 'Image citation'),
+      title: firstText(attrs.asset_pointer, label),
+      payload: { kind: 'image', assetPointer: textValue(attrs.asset_pointer), imageSrc: textValue(attrs.image_src), path: textValue(attrs.path), raw: firstText(label, 'Image citation') },
     });
   }
   if (name === 'task-stub') {
-    const title = (attrs.title || label || 'Task').toString().trim();
+    const title = firstTrimmedText(attrs.title, label, 'Task');
     return citationChip({
       className: 'chat-md-task-stub',
       icon: '\u2726',
@@ -108,8 +114,8 @@ function directiveChipModel(token) {
     });
   }
   if (name === 'automation-update') {
-    const title = (attrs.name || label || 'Automation').toString().trim();
-    const prompt = (attrs.prompt || label || '').toString().trim();
+    const title = firstTrimmedText(attrs.name, label, 'Automation');
+    const prompt = firstTrimmedText(attrs.prompt, label);
     return citationChip({
       className: 'chat-md-automation-update',
       icon: '\u2699',
@@ -118,10 +124,10 @@ function directiveChipModel(token) {
     });
   }
   if (name === 'code-comment') {
-    const path = (attrs.path || '').toString().trim();
+    const path = trimmedText(attrs.path);
     const startLine = positiveInt(attrs.line_range_start, 0);
     const endLine = positiveInt(attrs.line_range_end, startLine);
-    const title = (attrs.title || 'Code comment').toString().trim();
+    const title = firstTrimmedText(attrs.title, 'Code comment');
     const location = path ? lineRangeLabel(startLine, endLine) : '';
     const display = path ? `${title} \u00b7 ${basenameFromPath(path)}${location ? ` (${location})` : ''}` : title;
     return citationChip({
@@ -136,17 +142,17 @@ function directiveChipModel(token) {
 }
 
 function citationLinkPayload(label, rawHref) {
-  const href = (rawHref || '').toString().trim();
+  const href = trimmedText(rawHref);
   if (!href) return null;
   const skillMatch = href.match(/^app:\/\/([^/?#]+)/i);
   if (skillMatch) {
     return {
       kind: 'skill',
-      skillId: (skillMatch[1] || '').toString(),
-      skillName: (label || skillMatch[1] || '').toString().trim(),
+      skillId: textValue(skillMatch[1]),
+      skillName: firstTrimmedText(label, skillMatch[1]),
       path: '',
       conversationId: '',
-      raw: (label || '').toString(),
+      raw: textValue(label),
     };
   }
   const conversationMatch = href.match(/^agent:\/\/([^/?#]+)/i);
@@ -156,8 +162,8 @@ function citationLinkPayload(label, rawHref) {
       skillId: '',
       skillName: '',
       path: '',
-      conversationId: (conversationMatch[1] || '').toString(),
-      raw: (label || '').toString(),
+      conversationId: textValue(conversationMatch[1]),
+      raw: textValue(label),
     };
   }
   if (/(^|[/\\])SKILL\.md(?:[?#].*)?$/i.test(href)) {
@@ -167,7 +173,7 @@ function citationLinkPayload(label, rawHref) {
       skillName: skillNameFromPath(href),
       path: href,
       conversationId: '',
-      raw: (label || '').toString(),
+      raw: textValue(label),
     };
   }
   return null;

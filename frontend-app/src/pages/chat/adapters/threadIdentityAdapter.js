@@ -1,7 +1,10 @@
+import { currentTimestampMillis, requireTimestampMillis } from '../../shared/pageShared.js';
+
 const STALE_ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function normalizedThreadIdentity(value) {
-  return (value || '').toString().trim();
+  if (value === null || value === undefined) return '';
+  return value.toString().trim();
 }
 
 function isInternalThreadIdentifier(value) {
@@ -12,12 +15,15 @@ function isInternalThreadIdentifier(value) {
 
 function threadSortTimestamp(value) {
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
-  const text = (value || '').toString().trim();
+  const text = normalizedThreadIdentity(value);
   if (!text) return 0;
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  try {
+    return requireTimestampMillis(text, 'thread sort timestamp');
+  } catch {
+    return 0;
+  }
 }
 
 function threadMatchesActiveId(thread, activeThreadId) {
@@ -34,19 +40,22 @@ function threadMatchesActiveId(thread, activeThreadId) {
   ].some((value) => normalizedThreadIdentity(value) === id);
 }
 
-function activeThreadIdentifiers(activeThreadId, activeThread) {
-  const ids = [
-    activeThreadId,
-    activeThread?.id,
-    activeThread?.threadId,
-    activeThread?.thread_id,
-    activeThread?.agentId,
-    activeThread?.agent_id,
-    activeThread?.providerThreadId,
-    activeThread?.provider_thread_id,
-    activeThread?.sessionId,
-    activeThread?.session_id,
+function threadIdentityList(thread) {
+  return [
+    thread?.id,
+    thread?.threadId,
+    thread?.thread_id,
+    thread?.agentId,
+    thread?.agent_id,
+    thread?.providerThreadId,
+    thread?.provider_thread_id,
+    thread?.sessionId,
+    thread?.session_id,
   ];
+}
+
+function activeThreadIdentifiers(activeThreadId, activeThread) {
+  const ids = [activeThreadId, ...threadIdentityList(activeThread)];
   const result = new Set();
   for (const id of ids) {
     const normalized = normalizedThreadIdentity(id);
@@ -55,10 +64,15 @@ function activeThreadIdentifiers(activeThreadId, activeThread) {
   return result;
 }
 
+function hasThreadScopedMapValue(map, id) {
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return false;
+  return Object.prototype.hasOwnProperty.call(map, id);
+}
+
 function threadScopedMapValue(map = {}, activeThreadId, activeThread, fallback = null) {
   const ids = activeThreadIdentifiers(activeThreadId, activeThread);
   for (const id of ids) {
-    if (Object.prototype.hasOwnProperty.call(map || {}, id)) return map[id];
+    if (hasThreadScopedMapValue(map, id)) return map[id];
   }
   return fallback;
 }
@@ -67,7 +81,7 @@ function threadScopedBooleanValue(map = {}, activeThreadId, activeThread, fallba
   const ids = activeThreadIdentifiers(activeThreadId, activeThread);
   let found = false;
   for (const id of ids) {
-    if (!Object.prototype.hasOwnProperty.call(map || {}, id)) continue;
+    if (!hasThreadScopedMapValue(map, id)) continue;
     found = true;
     if (map[id]) return true;
   }
@@ -77,7 +91,8 @@ function threadScopedBooleanValue(map = {}, activeThreadId, activeThread, fallba
 function activeThreadForStore(store) {
   const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
   if (!activeThreadId) return null;
-  return (store?.threads || []).find((thread) => threadMatchesActiveId(thread, activeThreadId)) || null;
+  const threads = Array.isArray(store?.threads) ? store.threads : [];
+  return threads.find((thread) => threadMatchesActiveId(thread, activeThreadId)) ?? null;
 }
 
 function displayThreadName(thread, fallback = '新对话') {
@@ -93,11 +108,11 @@ function displayThreadName(thread, fallback = '新对话') {
 
 function archivedStaleReason(thread) {
   if (!thread?.archived) return '';
-  const archivedAt = Number(thread.archivedAt || 0);
-  if (Number.isFinite(archivedAt) && archivedAt > STALE_ARCHIVE_MS && Date.now() - archivedAt > STALE_ARCHIVE_MS) {
+  const archivedAt = Number(thread.archivedAt);
+  if (Number.isFinite(archivedAt) && archivedAt > STALE_ARCHIVE_MS && currentTimestampMillis('thread archive stale now') - archivedAt > STALE_ARCHIVE_MS) {
     return 'expired';
   }
-  if ((thread.name || '').toString().trim() === (thread.id || '').toString().trim()) {
+  if (normalizedThreadIdentity(thread.name) === normalizedThreadIdentity(thread.id)) {
     return 'empty';
   }
   return '';

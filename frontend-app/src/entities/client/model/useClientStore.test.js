@@ -1,4 +1,9 @@
+import { systemClockMillis, parseRequiredJsonObject } from './contractStoreModel.js';
 import { beforeEach, expect, it, vi } from 'vitest';
+
+function optionalUiArray() {
+  return [];
+}
 
 let bridgeCallback;
 let bridgeOptions;
@@ -82,7 +87,7 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
   sendFrontendLogBatch: vi.fn(),
 }));
 
-import { resetClientStoreForTests, useClientStore } from './useClientStore.js';
+import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
 
 function registerBridgeEventHandlersForTest() {
   return useClientStore.getState().initializeEvents();
@@ -1383,7 +1388,7 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().copyActiveThreadInfo()).resolves.toBe(true);
 
     expect(backend.resolveThreadIdentity).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
-    const payload = JSON.parse(backend.copyTextToClipboard.mock.calls[0][0]);
+    const payload = parseRequiredJsonObject(backend.copyTextToClipboard.mock.calls[0][0]);
     expect(payload).toEqual(expect.objectContaining({
       agentId: 'agent-1',
       providerThreadId: 'provider-thread-1',
@@ -1432,7 +1437,7 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.beginTextClipboardWrite).toHaveBeenCalledTimes(1);
     expect(preparedClipboardWrite.commit).toHaveBeenCalledTimes(1);
     expect(backend.copyTextToClipboard).not.toHaveBeenCalled();
-    expect(JSON.parse(preparedClipboardWrite.commit.mock.calls[0][0])).toEqual(expect.objectContaining({
+    expect(parseRequiredJsonObject(preparedClipboardWrite.commit.mock.calls[0][0])).toEqual(expect.objectContaining({
       agentId: 'agent-1',
       providerThreadId: 'provider-thread-1',
     }));
@@ -2987,10 +2992,11 @@ function registerBridgeEventHandlersForTest() {
     resetClientStoreForTests({
       threads: [{ id: 'thread-new', name: 'Trace me', provider: 'codex', status: 'running' }],
     });
-    const nowSpy = vi.spyOn(Date, 'now')
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(10)
-      .mockReturnValueOnce(75);
+    let clockCalls = 0;
+    setClientStoreClockMillisForTests(() => {
+      clockCalls += 1;
+      return clockCalls === 1 ? 0 : 75;
+    });
     registerBridgeEventHandlersForTest();
 
     bridgeCallback({
@@ -3015,7 +3021,7 @@ function registerBridgeEventHandlersForTest() {
       status: 'ok',
     }));
     expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls[0][0])).not.toContain('prompt');
-    nowSpy.mockRestore();
+    setClientStoreClockMillisForTests(null);
   });
 
   it('maps explicit activeTurn patch payload without inventing one when omitted', () => {
@@ -3169,7 +3175,7 @@ function registerBridgeEventHandlersForTest() {
     });
 
     await vi.waitFor(() => {
-      const timeline = useClientStore.getState().timelinesByThread['agent-douyin'] || [];
+      const timeline = useClientStore.getState().timelinesByThread['agent-douyin'] || optionalUiArray();
       const msg = timeline.find(m => m.id === 'assistant-stream-turn1');
       expect(msg).toBeDefined();
       expect(msg.done).toBe(true);
@@ -3451,7 +3457,7 @@ function registerBridgeEventHandlersForTest() {
     expect(state.draft).toBe('Clean up provisional thread');
     expect(state.activeThreadId).not.toBe('thread-provisional');
     expect(state.threads.some((thread) => thread.id === 'thread-provisional')).toBe(false);
-    expect((state.sidebarThreadsByProject['/repo/app'] || []).some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect((state.sidebarThreadsByProject['/repo/app'] || optionalUiArray()).some((thread) => thread.id === 'thread-provisional')).toBe(false);
     expect(state.timelinesByThread['thread-provisional']).toBeUndefined();
     expect(state.threadTimelineReadyByThread['thread-provisional']).toBeUndefined();
     expect(state.activityThreadAtById['thread-provisional']).toBeUndefined();
@@ -3533,7 +3539,7 @@ function registerBridgeEventHandlersForTest() {
     expect(state.draft).toBe('New active draft');
     expect(state.attachments).toEqual(nextAttachments);
     expect(state.threads.some((thread) => thread.id === 'thread-provisional')).toBe(false);
-    expect((state.sidebarThreadsByProject['/repo/app'] || []).some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect((state.sidebarThreadsByProject['/repo/app'] || optionalUiArray()).some((thread) => thread.id === 'thread-provisional')).toBe(false);
     expect(state.timelinesByThread['thread-provisional']).toBeUndefined();
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
   });
@@ -3720,7 +3726,7 @@ function registerBridgeEventHandlersForTest() {
       forkKickoffStatus: 'failed',
       forkKickoffError: 'turn/start failed',
     }));
-    expect(state.timelinesByThread['thread-fork'] || []).not.toEqual(expect.arrayContaining([
+    expect(state.timelinesByThread['thread-fork'] || optionalUiArray()).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: expect.stringMatching(/^fork-kickoff-/),
         optimistic: true,
@@ -6031,8 +6037,8 @@ function registerBridgeEventHandlersForTest() {
       activeProject: '/repo/app',
       activeThreadId: 'thread-stale',
       threads: [
-        { id: 'thread-stale', name: '旧归档线程', provider: 'codex', status: 'archived', archived: true, archivedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 },
-        { id: 'thread-fresh', name: '近期归档线程', provider: 'codex', status: 'archived', archived: true, archivedAt: Date.now() },
+        { id: 'thread-stale', name: '旧归档线程', provider: 'codex', status: 'archived', archived: true, archivedAt: systemClockMillis() - 8 * 24 * 60 * 60 * 1000 },
+        { id: 'thread-fresh', name: '近期归档线程', provider: 'codex', status: 'archived', archived: true, archivedAt: systemClockMillis() },
       ],
     });
 

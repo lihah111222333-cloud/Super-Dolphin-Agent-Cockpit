@@ -45,8 +45,8 @@ const SENSITIVE_PREVIEW_KEYS = new Set([
 ]);
 
 function normalizePreviewKey(key) {
-  return (key || '')
-    .toString()
+  if (key === undefined || key === null) return '';
+  return String(key)
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[\s.-]+/g, '_')
     .toLowerCase();
@@ -64,15 +64,37 @@ function isSensitivePreviewKey(key) {
   return normalized.split('_').some((part) => SENSITIVE_PREVIEW_KEY_TOKENS.has(part));
 }
 
+function assertDiagnosticPreviewJSONShape(value) {
+  if (
+    value === null
+    || Array.isArray(value)
+    || isPlainPreviewObject(value)
+  ) {
+    return value;
+  }
+  const error = new TypeError('safe diagnostic preview JSON must decode to an object, array, or null');
+  error.name = 'SafeDiagnosticPreviewJSONShapeError';
+  throw error;
+}
+
+function parseStrictDiagnosticPreviewJSON(value, label) {
+  try {
+    return assertDiagnosticPreviewJSONShape(JSON.parse(value));
+  } catch (error) {
+    if (error?.name === 'SafeDiagnosticPreviewJSONShapeError') throw error;
+    const parseError = new Error(`${label} JSON parse failed`);
+    parseError.name = 'SafeDiagnosticPreviewJSONParseError';
+    parseError.cause = error;
+    throw parseError;
+  }
+}
+
 function parsePreviewJSONText(value) {
   if (typeof value !== 'string') return value;
   const text = value.trim();
   if (!text) return value;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return value;
-  }
+  if (!text.startsWith('{') && !text.startsWith('[') && text !== 'null') return value;
+  return parseStrictDiagnosticPreviewJSON(text, 'safe diagnostic preview');
 }
 
 export function safeDiagnosticPreviewValue(value, seen = new WeakSet()) {

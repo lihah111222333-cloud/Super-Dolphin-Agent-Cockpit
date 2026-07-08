@@ -232,7 +232,24 @@ function takePayloadFields(payload, keys) {
 }
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+function normalizeRequiredString(method, value, key) {
+  const normalized = normalizeString(value);
+  if (!normalized) throw new Error(`${method}: ${key} is required`);
+  return normalized;
+}
+
+function normalizeOptionalString(value) {
+  if (value === undefined || value === null) return '';
+  return String(value);
+}
+
+function optionalPayloadObject(value) {
+  if (value === undefined || value === null) return {};
+  return value;
 }
 
 function normalizeProviderConfigValue(value) {
@@ -301,7 +318,7 @@ function requireSkillScope(method, params) {
 function requireContent(method, params) {
   const payload = assertPlainObject(method, params);
   if (!hasOwn(payload, 'content')) throw new Error(`${method}: content is required`);
-  return { ...payload, content: (payload.content || '').toString() };
+  return { ...payload, content: normalizeOptionalString(payload.content) };
 }
 
 function requirePaths(method, params) {
@@ -402,7 +419,7 @@ function memoryEntryUpsertPayload(method, params) {
     name: normalizeString(payload.name),
     description: normalizeString(payload.description),
     type: normalizeString(payload.type),
-    content: (payload.content || '').toString().trim(),
+    content: normalizeRequiredString(method, payload.content, 'content'),
     title: normalizeString(payload.title),
   });
 }
@@ -546,7 +563,7 @@ function dashboardDagCreateAndStartPayload(params) {
     title: payload.title,
     description: normalizeString(payload.description),
     finalNodeKey: normalizeString(payload.finalNodeKey || payload.final_node_key),
-    metadata: payload.metadata || {},
+    metadata: optionalPayloadObject(payload.metadata),
     nodes: payload.nodes,
     idempotencyKey: normalizeString(payload.idempotencyKey),
   });
@@ -786,7 +803,7 @@ function promptWritePayload(params) {
     agentType: normalizeString(payload.agentType || payload.agent_key || payload.agentKey) || 'main',
     priority,
     when_to_use: normalizeString(payload.when_to_use ?? payload.whenToUse),
-    content: hasOwn(payload, 'content') ? (payload.content || '').toString() : undefined,
+    content: hasOwn(payload, 'content') ? normalizeOptionalString(payload.content) : undefined,
     tags: Array.isArray(payload.tags) ? payload.tags : [],
     enabled: hasOwn(payload, 'enabled') ? Boolean(payload.enabled) : undefined,
     scope: normalizeString(payload.scope) || 'project',
@@ -917,7 +934,7 @@ function promptSectionPayload(method, params) {
 function lspPromptHintWritePayload(params) {
   const payload = requireCwd(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, params);
   if (!hasOwn(payload, 'hint')) throw new Error(`${RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE}: hint is required`);
-  return { cwd: payload.cwd, hint: (payload.hint ?? '').toString() };
+  return { cwd: payload.cwd, hint: normalizeOptionalString(payload.hint) };
 }
 
 function videoApiKeyPayload(params) {
@@ -1350,7 +1367,8 @@ function datasourceCreatePayload(method, params) {
 function datasourceImportLocalFilePayload(params) {
   const method = RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE;
   const payload = datasourceCreatePayload(method, params);
-  const pickerToken = normalizeString(params?.pickerToken || params?.picker_token);
+  const pickerTokenValue = params.pickerToken !== undefined ? params.pickerToken : params.picker_token;
+  const pickerToken = normalizeString(pickerTokenValue);
   return cleanObject({ ...payload, pickerToken });
 }
 
@@ -1594,7 +1612,7 @@ function workflowTemplateRenderPayload(params) {
   return {
     templateId: payload.templateId,
     version: payload.version,
-    values: payload.values || {},
+    values: optionalPayloadObject(payload.values),
     user_inputs: payload.user_inputs,
     runtime_context: payload.runtime_context,
     locale: payload.locale,
@@ -1781,7 +1799,7 @@ async function suggestSkillSummaryPayload(callBackend, params) {
     cwd: payload.cwd,
     name: normalizeString(payload.name),
     description: normalizeString(payload.description),
-    content: (payload.content || '').toString(),
+    content: normalizeOptionalString(payload.content),
     scenario_words: Array.isArray(payload.scenario_words) ? payload.scenario_words : [],
     scope: normalizeString(payload.scope),
   };
@@ -1823,7 +1841,7 @@ function deleteSkillPayload(callBackend, params) {
   }));
 }
 
-function emptyStrictPayload(method, params = {}) {
+function rejectUnsupportedParamsPayload(method, params = {}) {
   const payload = assertPlainObject(method, params);
   if (Object.keys(payload).length > 0) throw new Error(`${method}: params are not supported`);
   return {};
@@ -1897,23 +1915,23 @@ function createMCPServerApi(callBackend) {
   return {
     listMCPServers: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_LIST,
-      emptyStrictPayload(RPC_METHODS.MCP_SERVER_LIST, params),
+      rejectUnsupportedParamsPayload(RPC_METHODS.MCP_SERVER_LIST, params),
     ),
     startSQLiteMCPServer: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_SQLITE_START,
-      emptyStrictPayload(RPC_METHODS.MCP_SERVER_SQLITE_START, params),
+      rejectUnsupportedParamsPayload(RPC_METHODS.MCP_SERVER_SQLITE_START, params),
     ),
     stopSQLiteMCPServer: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_SQLITE_STOP,
-      emptyStrictPayload(RPC_METHODS.MCP_SERVER_SQLITE_STOP, params),
+      rejectUnsupportedParamsPayload(RPC_METHODS.MCP_SERVER_SQLITE_STOP, params),
     ),
     startPlaywrightMCPServer: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START,
-      emptyStrictPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START, params),
+      rejectUnsupportedParamsPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START, params),
     ),
     stopPlaywrightMCPServer: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP,
-      emptyStrictPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP, params),
+      rejectUnsupportedParamsPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP, params),
     ),
     setMCPToolLifecycle: (params) => callBackend(
       RPC_METHODS.MCP_TOOL_LIFECYCLE_SET,

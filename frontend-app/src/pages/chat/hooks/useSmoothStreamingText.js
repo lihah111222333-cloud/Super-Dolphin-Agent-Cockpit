@@ -47,7 +47,7 @@ function useReducedMotionPreference(enabled) {
 }
 
 export function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) {
-  const targetText = (text || '').toString();
+  const targetText = text === null || text === undefined ? '' : text.toString();
   const [state, setState] = useState(() => ({ streamKey, visibleText: targetText }));
   const frameRef = useRef(0);
   const targetTextRef = useRef(targetText);

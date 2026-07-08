@@ -35,7 +35,7 @@ const LEGACY_TURN_STATE_ALIASES = Object.freeze({
 });
 
 function knownProviderKey(value) {
-  const normalized = (value || '').toString().trim().toLowerCase();
+  const normalized = normalizedThreadIdentity(value).toLowerCase();
   return normalized === 'claude' || normalized === 'codex' ? normalized : '';
 }
 
@@ -51,7 +51,7 @@ function normalizeTurnState(value) {
 }
 
 function threadCardStatusLabel(thread, running) {
-  const status = (thread?.status || '').toString().trim();
+  const status = normalizedThreadIdentity(thread?.status);
   const normalized = status.toLowerCase();
   const normalizedState = normalizeTurnState(status);
   const mapped = TURN_STATE_INFO[normalizedState];
@@ -64,7 +64,7 @@ function threadCardStatusLabel(thread, running) {
 function threadStatusBusy(status) {
   const mapped = TURN_STATE_INFO[normalizeTurnState(status)];
   if (mapped) return mapped.busy;
-  const normalized = (status || '').toString().trim().toLowerCase();
+  const normalized = normalizedThreadIdentity(status).toLowerCase();
   return normalized === '工作中';
 }
 

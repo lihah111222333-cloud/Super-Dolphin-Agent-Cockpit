@@ -125,13 +125,15 @@ export function normalizeColorTheme(value) {
 }
 
 export function normalizeAppPathname(value) {
-  const raw = (value || '').toString().trim().toLowerCase();
+  const raw = value === null || value === undefined ? '' : value.toString().trim().toLowerCase();
   if (!raw || raw === '/') return '/';
-  return raw.replace(/\/+$/g, '') || '/';
+  const normalized = raw.replace(/\/+$/g, '');
+  return normalized ? normalized : '/';
 }
 
 export function appPageFromPathname(pathname) {
-  return PAGE_ID_BY_ROUTE[normalizeAppPathname(pathname)] || '';
+  const page = PAGE_ID_BY_ROUTE[normalizeAppPathname(pathname)];
+  return page === undefined ? '' : page;
 }
 
 export function appRouteForPage(page) {
@@ -139,7 +141,7 @@ export function appRouteForPage(page) {
 }
 
 export function threadStatusBusy(status) {
-  const raw = (status || '').toString().trim();
+  const raw = status === null || status === undefined ? '' : status.toString().trim();
   if (!raw) return false;
   const alias = THREAD_STATUS_ALIASES[raw] || raw;
   return THREAD_STATUS_BUSY_STATES.has(alias.toLowerCase().replace(/-/g, '_'));

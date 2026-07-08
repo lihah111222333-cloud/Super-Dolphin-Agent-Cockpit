@@ -1,12 +1,28 @@
-import { firstText, textValue } from '../../shared/pageShared.js';
+import { firstText, parseStrictJsonValue, textValue } from '../../shared/pageShared.js';
 
 /*
  * workflow display adapter 只把 DAG 节点变成展示用行。
  * 它不改节点，也不调用后端。
  */
 
-function parsedWorkflowConfig(value) {
-  return parseWorkflowConfig(value).value;
+function firstPresent(...values) {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
+function parseJsonObject(value, label) {
+  try {
+    const parsed = parseStrictJsonValue(value, label);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    throw new Error(`${label} must be a JSON object`);
+  } catch (error) {
+    throw new Error(`${label} JSON object parse failed: ${error.message || String(error)}`, { cause: error });
+  }
+}
+
+function parsedWorkflowConfig(value, label = 'workflow node config') {
+  const parsed = parseWorkflowConfig(value, label);
+  if (parsed.error) throw new Error(parsed.error);
+  return parsed.value;
 }
 
 function parseWorkflowConfig(value) {
@@ -14,11 +30,9 @@ function parseWorkflowConfig(value) {
   if (typeof value === 'object' && !Array.isArray(value)) return { value, error: '' };
   if (typeof value !== 'string') return { value: {}, error: 'config must be a JSON object' };
   try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { value: parsed, error: '' };
-    return { value: {}, error: 'config must be a JSON object' };
+    return { value: parseJsonObject(value, 'config'), error: '' };
   } catch (error) {
-    return { value: {}, error: `config JSON parse failed: ${error.message || String(error)}` };
+    return { value: {}, error: error.message || String(error) };
   }
 }
 
@@ -26,12 +40,12 @@ function workflowConfigDiagnostics(nodes = []) {
   return (Array.isArray(nodes) ? nodes : []).flatMap((node, index) => {
     const parsed = parseWorkflowConfig(node?.config);
     if (!parsed.error) return [];
-    const nodeKey = node?.nodeKey || `node:${index}`;
+    const nodeKey = firstText(node?.nodeKey, `node:${index}`);
     return [{
       key: `config:${nodeKey}`,
       nodeKey,
       severity: 'error',
-      title: node?.title || nodeKey,
+      title: firstText(node?.title, nodeKey),
       message: parsed.error,
     }];
   });
@@ -84,7 +98,7 @@ function workflowSharedFileRows(nodes = []) {
         nodeKey,
         stepLabel,
         path: outputPath,
-        access: `写入 · ${workflowLockModeLabel(target.lock_mode || target.lockMode)}`,
+        access: `写入 · ${workflowLockModeLabel(firstPresent(target.lock_mode, target.lockMode))}`,
       });
     }
   });

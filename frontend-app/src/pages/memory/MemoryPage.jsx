@@ -5,7 +5,7 @@ import { AlertTriangle, MemoryStick, Plus, Search } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { deleteMemoryEntry, fetchMemoryDashboard, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from './services/memoryPageService.js';
-import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue } from '../shared/pageShared.js';
+import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentText, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx';
 import './MemoryPage.css';
 
@@ -117,11 +117,9 @@ function memoryMatches(entry, query) {
 
 function sortMemoryEntries(entries) {
   return [...entries].sort((left, right) => {
-    const leftTime = new Date(left.updatedAt || 0).getTime();
-    const rightTime = new Date(right.updatedAt || 0).getTime();
-    const safeLeft = Number.isFinite(leftTime) ? leftTime : 0;
-    const safeRight = Number.isFinite(rightTime) ? rightTime : 0;
-    return safeRight - safeLeft || left.title.localeCompare(right.title);
+    const leftTime = optionalTimestampMillis(left.updatedAt, 'memory entry updatedAt');
+    const rightTime = optionalTimestampMillis(right.updatedAt, 'memory entry updatedAt');
+    return rightTime - leftTime || left.title.localeCompare(right.title);
   });
 }
 
@@ -182,7 +180,8 @@ function memoryHealthHasSimilarGroups(health) {
 }
 
 function memoryScanDiagnostic(snapshot) {
-  const overview = plainMemoryObject(snapshot?.overview) || {};
+  const overview = plainMemoryObject(snapshot?.overview);
+  if (!overview) return null;
   const scan = plainMemoryObject(overview.scan);
   switch (textValue(scan?.reason)) {
     case 'memory_scan_truncated':
@@ -209,7 +208,8 @@ function memorySnapshotWithClearedSimilarGroups(snapshot, overview, health) {
 
 function clearMemorySimilarGroups(snapshot) {
   const validSnapshot = plainMemoryObject(snapshot);
-  const overview = plainMemoryObject(validSnapshot?.overview) || {};
+  const overview = plainMemoryObject(validSnapshot?.overview);
+  if (!overview) return snapshot;
   const health = plainMemoryObject(overview.health);
   if (!validSnapshot || !memoryHealthHasSimilarGroups(health)) return snapshot;
   return memorySnapshotWithClearedSimilarGroups(validSnapshot, overview, health);
@@ -286,10 +286,10 @@ function useMemoryDerivedState(snapshot, activeCategory, searchText, onSimilarCo
     project: projectEntries.length,
   }), [preferenceEntries.length, projectEntries.length, snapshot.entries.length]);
   const visibleEntries = useMemo(() => (
-    sortMemoryEntries((entriesByCategory[activeCategory] || []).filter((entry) => memoryMatches(entry, searchText)))
+    sortMemoryEntries((Array.isArray(entriesByCategory[activeCategory]) ? entriesByCategory[activeCategory] : []).filter((entry) => memoryMatches(entry, searchText)))
   ), [activeCategory, entriesByCategory, searchText]);
   const health = useMemo(() => memoryHealth(snapshot.overview, categoryCounts), [snapshot.overview, categoryCounts]);
-  const similarGroups = health?.similarGroups || [];
+  const similarGroups = Array.isArray(health?.similarGroups) ? health.similarGroups : [];
   useEffect(() => {
     if (typeof onSimilarCountChange === 'function') onSimilarCountChange(similarGroups.length);
   }, [onSimilarCountChange, similarGroups.length]);
@@ -599,9 +599,9 @@ function useMemoryMergeAllGroups({ applyConsolidationResult, consolidationJob, d
 function memoryConsolidationStartPayload(cwd, launchPreferences) {
   return {
     cwd,
-    provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+    provider: firstPresentText(launchPreferences?.modelProvider, launchPreferences?.provider),
     model: textValue(launchPreferences?.model),
-    codexModelProvider: textValue(launchPreferences?.codexModelProvider || launchPreferences?.config?.codexModelProvider),
+    codexModelProvider: firstPresentText(launchPreferences?.codexModelProvider, launchPreferences?.config?.codexModelProvider),
   };
 }
 
@@ -616,7 +616,7 @@ function useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidat
   }, [jobKey]);
 
   const pollQuery = useQuery({
-    queryKey: ['memory', 'consolidation-job', job?.cwd || '', job?.jobId || ''],
+    queryKey: ['memory', 'consolidation-job', textValue(job?.cwd), textValue(job?.jobId)],
     enabled: Boolean(jobKey),
     retry: false,
     refetchInterval: (query) => {

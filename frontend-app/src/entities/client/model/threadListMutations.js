@@ -1,5 +1,10 @@
+import { normalizeOptionalTextField } from './contractStoreModel.js';
+function optionalUiArray() {
+  return [];
+}
+
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function normalizeThreadId(value) {
@@ -61,7 +66,7 @@ export function archiveThreadFailureState(state, {
 }) {
   const nextMutated = { ...state.lastArchivedStatesByThread };
   delete nextMutated[id];
-  const originalThread = (originalThreads || []).find((thread) => threadMatchesIdentifier(thread, id));
+  const originalThread = (originalThreads || optionalUiArray()).find((thread) => threadMatchesIdentifier(thread, id));
   return {
     activeThreadId: state.activeThreadId === '' ? originalActiveThreadId : state.activeThreadId,
     threads: state.threads.map((thread) => (threadMatchesIdentifier(thread, id) && originalThread ? {

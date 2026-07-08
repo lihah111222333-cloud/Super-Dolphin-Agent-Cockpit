@@ -4,6 +4,7 @@ import { archivedStaleReason, displayThreadName, threadSortTimestamp } from '../
 import { ThreadCard } from './ThreadCard.jsx';
 import { ThreadRailTools } from './ThreadRailTools.jsx';
 import { runUIAction } from './chatUiActions.js';
+import { firstText, textValue, trimmedText } from './markdownMessageModel.js';
 import './ThreadRail.css';
 
 function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
@@ -115,7 +116,7 @@ function useThreadRenameController(store) {
   const submitRename = async (thread) => {
     const nextName = editingName.trim();
     if (!nextName || renamingThreadId) return;
-    if (nextName === (thread.name || '').toString().trim()) {
+    if (nextName === trimmedText(thread.name)) {
       cancelRename();
       return;
     }
@@ -132,7 +133,7 @@ function useThreadRenameController(store) {
     }
   };
   const handleRenameBlur = (event, thread) => {
-    const saveFor = event.relatedTarget?.dataset?.renameSaveButtonFor || '';
+    const saveFor = textValue(event.relatedTarget?.dataset?.renameSaveButtonFor);
     if (saveFor === thread.id) return;
     cancelRename();
   };
@@ -146,8 +147,8 @@ function visibleThreadRows(threads, store) {
       ...thread,
       staleReason: archivedStaleReason(thread),
       listIndex: index,
-      pinnedAt: Number(store.pinnedThreadAtById?.[thread.id] || thread.pinnedAt || 0),
-      activityAt: threadSortTimestamp(store.activityThreadAtById?.[thread.id] || thread.updatedAt),
+      pinnedAt: Number(firstText(store.pinnedThreadAtById?.[thread.id], thread.pinnedAt, 0)),
+      activityAt: threadSortTimestamp(firstText(store.activityThreadAtById?.[thread.id], thread.updatedAt)),
     }))
     .sort(sortThreadRows);
   return rows;

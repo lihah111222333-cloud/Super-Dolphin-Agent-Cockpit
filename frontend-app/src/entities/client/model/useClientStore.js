@@ -1,3 +1,4 @@
+import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, currentIsoTimestamp, parseRequiredTimestamp } from './contractStoreModel.js';
 import { create } from 'zustand';
 import {
   addProject as addProjectRPC,
@@ -34,19 +35,16 @@ import {
   setPreference,
   setThreadConfig,
   removeProject as removeProjectRPC,
-  unarchiveThread as unarchiveThreadRPC,
-} from '../../../shared/api/backendApi.js';
+  unarchiveThread as unarchiveThreadRPC } from '../../../shared/api/backendApi.js';
 import { positiveApprovalRequestIdFromFields } from '../../../shared/api/approvalRequestId.js';
 import { sessionApi } from '../../../shared/api/sessionApi.js';
 import {
-  createComposerSlice,
-} from './composerSlice.js';
+  createComposerSlice } from './composerSlice.js';
 import { createForkSlice } from './forkSlice.js';
 import {
   normalizeKnownProviderName,
   providerPreferenceKey,
-  RUNTIME_PROVIDER,
-} from './providerPreferences.js';
+  RUNTIME_PROVIDER } from './providerPreferences.js';
 import {
   PROVIDER_ACTIVE_PREF_KEY,
   codexLaunchConfigFromPreferences,
@@ -59,41 +57,34 @@ import {
   normalizeProviderRuntimeConfig,
   providerDisplayDefaultConfig,
   requireActiveProviderPreference,
-  requireProviderPreferenceValue,
-} from './providerRuntimeConfig.js';
+  requireProviderPreferenceValue } from './providerRuntimeConfig.js';
 import {
   bridgePatchData,
-  bridgePatchState,
-} from './bridgePatchState.js';
+  bridgePatchState } from './bridgePatchState.js';
 import {
   ACTIVE_PROMPT_PREF_KEY,
   bridgeRevisionKey,
-  isDagNodeStatusBridgeEvent,
-} from './bridgeRevision.js';
+  isDagNodeStatusBridgeEvent } from './bridgeRevision.js';
 import { createProjectSlice } from './projectSlice.js';
 import {
-  createRuntimeResultHelpers,
-} from './runtimeResults.js';
+  createRuntimeResultHelpers } from './runtimeResults.js';
 import { createRuntimeSlice } from './runtimeSlice.js';
 import {
   isVisibleTimelineItem,
   mergeTimelineItems,
-  normalizeTimelineItem,
-} from './timelineRuntime.js';
+  normalizeTimelineItem } from './timelineRuntime.js';
 import {
   appendAssistantDeltaText,
   assistantDeltaBufferKey,
   isAssistantMessageDeltaEvent,
   mergeRuntimeAssistantCompletion,
   runtimeAssistantCompletion,
-  runtimeAssistantFallbackId,
-} from './runtimeAssistantTimeline.js';
+  runtimeAssistantFallbackId } from './runtimeAssistantTimeline.js';
 import {
   isAgentRuntimeId,
   normalizeBackendThreadId,
   normalizeThreadId,
-  normalizeThreadIdentity,
-} from './threadIdentity.js';
+  normalizeThreadIdentity } from './threadIdentity.js';
 import {
   appendUniqueAttachments,
   attachmentKey,
@@ -108,8 +99,7 @@ import {
   isEmptyComposerDraftSnapshot,
   normalizeAttachment,
   normalizeComposerDraftSnapshot,
-  normalizeFileAttachment,
-} from './composerAttachments.js';
+  normalizeFileAttachment } from './composerAttachments.js';
 import {
   activeTurnPayload,
   isInterruptibleTurnSummary,
@@ -118,25 +108,20 @@ import {
   normalizeTokenUsage,
   normalizeTurnSummary,
   shouldFloatThreadPatch,
-  threadActivityTimestamp,
-} from './threadActivityMetrics.js';
+  threadActivityTimestamp } from './threadActivityMetrics.js';
 import {
   buildThreadCopyPayload,
-  firstThreadCopyText,
-} from './threadCopyPayload.js';
+  firstThreadCopyText } from './threadCopyPayload.js';
 import {
   applyThreadRename,
   archiveThreadFailureState,
   archiveThreadOptimisticState,
-  isArchivedStatus,
-} from './threadListMutations.js';
+  isArchivedStatus } from './threadListMutations.js';
 import { attachActiveThreadRpcRuntime } from './threadLifecycleRuntime.js';
 import {
-  threadOpenHistoryFallbackItems,
-} from './threadHistoryTimeline.js';
+  threadOpenHistoryFallbackItems } from './threadHistoryTimeline.js';
 import {
-  attachThreadMessagesRuntime,
-} from './threadMessagesRuntime.js';
+  attachThreadMessagesRuntime } from './threadMessagesRuntime.js';
 import {
   buildForkThreadState,
   cachedForkSharedFiles,
@@ -144,9 +129,16 @@ import {
   forkSourceTitle,
   initialForkSharedFilePaths,
   mergeForkSharedFilesWithSelected,
-  normalizeForkSharedFiles,
-} from './threadForkState.js';
+  normalizeForkSharedFiles } from './threadForkState.js';
 import { attachWarningRuntime } from './warningRuntime.js';
+
+function optionalUiArray() {
+  return [];
+}
+
+function optionalUiObject() {
+  return {};
+}
 
 const DEFAULT_PROVIDER = RUNTIME_PROVIDER;
 const ASSISTANT_DELTA_FLUSH_MS = 50;
@@ -162,6 +154,7 @@ const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory'
 const ROOT_THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id']);
 const THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id', 'id']);
 const AGENT_IDENTITY_KEYS = Object.freeze(['agentId', 'agent_id']);
+let clientStoreClockMillisForTests = null;
 /*
  * 这个 store 把后端快照、历史消息和实时事件整理成 UI 状态。
  * 草稿、分页标记、delta 缓冲只是前端本地状态，不能当成后端真实状态。
@@ -183,7 +176,20 @@ function emptyForkDraft() {
 }
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
+}
+
+function clockNowMillis() {
+  if (clientStoreClockMillisForTests) return clientStoreClockMillisForTests();
+  return performance.timeOrigin + performance.now();
+}
+
+function clockNowISO() {
+  return currentIsoTimestamp();
+}
+
+function parseTimestampMillis(value) {
+  return parseRequiredTimestamp(value);
 }
 
 function objectRecord(value) {
@@ -228,16 +234,16 @@ function sidebarProjectKey(value) {
 
 function sidebarThreadsByProjectWith(state, projectPath, threads) {
   const key = sidebarProjectKey(projectPath);
-  if (!key) return state.sidebarThreadsByProject || {};
+  if (!key) return state.sidebarThreadsByProject || optionalUiObject();
   return {
-    ...(state.sidebarThreadsByProject || {}),
+    ...(state.sidebarThreadsByProject || optionalUiObject()),
     [key]: Array.isArray(threads) ? threads : [],
   };
 }
 
 function sidebarThreadsByProjectUpsert(state, projectPath, thread) {
   const key = sidebarProjectKey(projectPath);
-  if (!key || !thread?.id) return state.sidebarThreadsByProject || {};
+  if (!key || !thread?.id) return state.sidebarThreadsByProject || optionalUiObject();
   const current = objectRecord(state.sidebarThreadsByProject);
   const threads = Array.isArray(current[key]) ? current[key] : [];
   return {
@@ -271,7 +277,7 @@ function normalizeTimestamp(value) {
   if (Number.isFinite(asNumber)) return asNumber > 0 ? asNumber : 0;
   // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
-  const parsed = Date.parse(sanitized);
+  const parsed = parseTimestampMillis(sanitized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
@@ -430,13 +436,13 @@ function hasOwn(value, key) {
 
 function archiveMapFromPayload(payload = {}) {
   const direct = payload['threadArchives.chat'] || payload.threadArchivesChat || payload.archivedThreadAtById;
-  const nested = payload.threadArchives?.chat || payload.thread_archives?.chat;
-  return normalizeTimestampMap(direct || nested || {});
+  const nested = firstOptionalPresent(payload.threadArchives?.chat, payload.thread_archives?.chat);
+  return normalizeTimestampMap(direct || nested || optionalUiObject());
 }
 
 function archiveMapFromThreads(threads = []) {
   const entries = [];
-  for (const thread of threads || []) {
+  for (const thread of threads || optionalUiArray()) {
     const id = normalizeThreadId(thread?.id);
     if (!id) continue;
     const archivedAt = normalizeTimestamp(thread?.archivedAt);
@@ -457,15 +463,15 @@ function hasArchiveMapPayload(payload = {}) {
     Object.prototype.hasOwnProperty.call(payload, 'threadArchives.chat') ||
     Object.prototype.hasOwnProperty.call(payload, 'threadArchivesChat') ||
     Object.prototype.hasOwnProperty.call(payload, 'archivedThreadAtById') ||
-    Object.prototype.hasOwnProperty.call(payload.threadArchives || {}, 'chat') ||
-    Object.prototype.hasOwnProperty.call(payload.thread_archives || {}, 'chat')
+    Object.prototype.hasOwnProperty.call(payload.threadArchives || optionalUiObject(), 'chat') ||
+    Object.prototype.hasOwnProperty.call(payload.thread_archives || optionalUiObject(), 'chat')
   ));
 }
 
 function pinMapFromPayload(payload = {}) {
   const direct = payload['threadPins.chat'] || payload.threadPinsChat || payload.pinnedThreadAtById;
-  const nested = payload.threadPins?.chat || payload.thread_pins?.chat;
-  return normalizeTimestampMap(direct || nested || {});
+  const nested = firstOptionalPresent(payload.threadPins?.chat, payload.thread_pins?.chat);
+  return normalizeTimestampMap(direct || nested || optionalUiObject());
 }
 
 function hasPinMapPayload(payload = {}) {
@@ -473,8 +479,8 @@ function hasPinMapPayload(payload = {}) {
     Object.prototype.hasOwnProperty.call(payload, 'threadPins.chat') ||
     Object.prototype.hasOwnProperty.call(payload, 'threadPinsChat') ||
     Object.prototype.hasOwnProperty.call(payload, 'pinnedThreadAtById') ||
-    Object.prototype.hasOwnProperty.call(payload.threadPins || {}, 'chat') ||
-    Object.prototype.hasOwnProperty.call(payload.thread_pins || {}, 'chat')
+    Object.prototype.hasOwnProperty.call(payload.threadPins || optionalUiObject(), 'chat') ||
+    Object.prototype.hasOwnProperty.call(payload.thread_pins || optionalUiObject(), 'chat')
   ));
 }
 
@@ -573,7 +579,7 @@ function normalizeThreadLifecycleStatus(raw) {
 }
 
 function isThreadArchived(raw, status, lifecycleStatus, archivedAt) {
-  return Boolean(raw?.archived || raw?.isArchived || archivedAt > 0 || isArchivedStatus(status) || isArchivedStatus(lifecycleStatus));
+  return Boolean(firstOptionalPresent(raw?.archived, raw?.isArchived, archivedAt > 0, isArchivedStatus(status), isArchivedStatus(lifecycleStatus)));
 }
 
 function normalizeThread(raw, options = {}) {
@@ -595,7 +601,7 @@ function normalizeThread(raw, options = {}) {
   );
   if (isLoading && recentOverride) {
     archived = recentOverride.archived;
-  } else if (recentOverride && Date.now() - recentOverride.timestamp < 8000) {
+  } else if (recentOverride && clockNowMillis() - recentOverride.timestamp < 8000) {
     archived = recentOverride.archived;
   }
   return {
@@ -604,18 +610,18 @@ function normalizeThread(raw, options = {}) {
     providerThreadId: identity.providerThreadId,
     sessionId: identity.sessionId,
     cwd,
-    name: normalizeString(raw?.name || raw?.title || raw?.displayName || raw?.summary) || '新对话',
+    name: normalizeString(firstOptionalPresent(raw?.name, raw?.title, raw?.displayName, raw?.summary)) || '新对话',
     provider,
     status,
-    agentKey: normalizeString(raw?.agentKey || raw?.agent_key || sourceThread?.agentKey || sourceThread?.agent_key),
-    dagKey: normalizeString(raw?.dagKey || raw?.dag_key || sourceThread?.dagKey || sourceThread?.dag_key),
-    workflowKey: normalizeString(raw?.workflowKey || raw?.workflow_key || sourceThread?.workflowKey || sourceThread?.workflow_key),
-    runKey: normalizeString(raw?.runKey || raw?.run_key || sourceThread?.runKey || sourceThread?.run_key),
-    taskId: normalizeString(raw?.taskId || raw?.task_id || sourceThread?.taskId || sourceThread?.task_id),
-    source: normalizeString(raw?.source || raw?.origin || sourceThread?.source || sourceThread?.origin),
-    lastMessage: normalizeString(raw?.lastMessage || raw?.last_message || raw?.preview),
-    updatedAt: normalizeString(raw?.updatedAt || raw?.updated_at || raw?.createdAt || raw?.created_at),
-    pinned: Boolean(raw?.pinned || raw?.isPinned || pinnedAt > 0),
+    agentKey: normalizeString(firstOptionalPresent(raw?.agentKey, raw?.agent_key, sourceThread?.agentKey, sourceThread?.agent_key)),
+    dagKey: normalizeString(firstOptionalPresent(raw?.dagKey, raw?.dag_key, sourceThread?.dagKey, sourceThread?.dag_key)),
+    workflowKey: normalizeString(firstOptionalPresent(raw?.workflowKey, raw?.workflow_key, sourceThread?.workflowKey, sourceThread?.workflow_key)),
+    runKey: normalizeString(firstOptionalPresent(raw?.runKey, raw?.run_key, sourceThread?.runKey, sourceThread?.run_key)),
+    taskId: normalizeString(firstOptionalPresent(raw?.taskId, raw?.task_id, sourceThread?.taskId, sourceThread?.task_id)),
+    source: normalizeString(firstOptionalPresent(raw?.source, raw?.origin, sourceThread?.source, sourceThread?.origin)),
+    lastMessage: normalizeString(firstOptionalPresent(raw?.lastMessage, raw?.last_message, raw?.preview)),
+    updatedAt: normalizeString(firstOptionalPresent(raw?.updatedAt, raw?.updated_at, raw?.createdAt, raw?.created_at)),
+    pinned: Boolean(firstOptionalPresent(raw?.pinned, raw?.isPinned, pinnedAt > 0)),
     pinnedAt,
     archived,
     archivedAt,
@@ -623,7 +629,7 @@ function normalizeThread(raw, options = {}) {
 }
 
 function runtimeMapFromPayload(payload = {}) {
-  const value = payload.agentRuntimeById || payload.agent_runtime_by_id || {};
+  const value = payload.agentRuntimeById || payload.agent_runtime_by_id || optionalUiObject();
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value;
 }
@@ -702,18 +708,20 @@ function snapshotThreadProjectPath(rawThread = {}) {
 function snapshotThreadCwd(rawThread, runtimeById = {}) {
   const sourceThread = rawThread?.thread && typeof rawThread.thread === 'object' ? rawThread.thread : {};
   return normalizePath(
-    rawThread?.cwd ||
-    rawThread?.CWD ||
-    rawThread?.workdir ||
-    rawThread?.workDir ||
-    rawThread?.work_dir ||
-    sourceThread?.cwd ||
-    sourceThread?.CWD ||
-    sourceThread?.workdir ||
-    sourceThread?.workDir ||
-    sourceThread?.work_dir ||
-    snapshotThreadProjectPath(rawThread) ||
-    runtimeCwdForThread(rawThread, runtimeById),
+    firstOptionalPresent(
+      rawThread?.cwd,
+      rawThread?.CWD,
+      rawThread?.workdir,
+      rawThread?.workDir,
+      rawThread?.work_dir,
+      sourceThread?.cwd,
+      sourceThread?.CWD,
+      sourceThread?.workdir,
+      sourceThread?.workDir,
+      sourceThread?.work_dir,
+      snapshotThreadProjectPath(rawThread),
+      runtimeCwdForThread(rawThread, runtimeById),
+    ),
   );
 }
 
@@ -782,7 +790,7 @@ function pickThreadScopedEntry(map = {}, threadId = '') {
 function providerForStateThread(state, value) {
   const id = normalizeThreadId(value);
   const matchedThread = id ? state.threads.find((thread) => threadMatchesIdentifier(thread, id)) : null;
-  return normalizeProviderName(matchedThread?.provider || state?.provider);
+  return normalizeProviderName(firstOptionalPresent(matchedThread?.provider, state?.provider));
 }
 
 function shouldAutoLoadThreadConfig(state, value) {
@@ -832,7 +840,7 @@ function cwdForExistingThreadSend(state, threadId, fallbackCwd) {
 function activeProviderLockedThreadId(state) {
   const id = normalizeThreadId(state?.activeThreadId);
   if (!id) return '';
-  const matchedThread = (state?.threads || []).find((thread) => threadMatchesIdentifier(thread, id));
+  const matchedThread = (state?.threads || optionalUiArray()).find((thread) => threadMatchesIdentifier(thread, id));
   return normalizeBackendThreadId(matchedThread?.id || id);
 }
 
@@ -855,7 +863,7 @@ function statusEntryForInterruptTarget(state, threadId, activeId = '') {
     const id = normalizeThreadId(value);
     if (id && !candidates.includes(id)) candidates.push(id);
   };
-  const matchedThread = (state?.threads || []).find((thread) => (
+  const matchedThread = (state?.threads || optionalUiArray()).find((thread) => (
     threadMatchesIdentifier(thread, threadId) || threadMatchesIdentifier(thread, activeId)
   ));
   pushCandidate(threadId);
@@ -876,7 +884,7 @@ function statusEntryForInterruptTarget(state, threadId, activeId = '') {
 function threadStatusBlocksInterrupt(state, threadId, activeId = '') {
   const { entry, thread } = statusEntryForInterruptTarget(state, threadId, activeId);
   if (entry?.interruptible === false) return true;
-  return isTerminalActiveTurnStatus(entry?.status || thread?.status);
+  return isTerminalActiveTurnStatus(firstOptionalPresent(entry?.status, thread?.status));
 }
 
 function activeThreadInterruptTarget(state) {
@@ -909,7 +917,7 @@ function canonicalizeThreadKey(key, threads = []) {
 
 function canonicalizeActiveTurnByThread(activeTurnByThread = {}, threads = []) {
   const next = {};
-  for (const [threadId, turn] of Object.entries(activeTurnByThread || {})) {
+  for (const [threadId, turn] of Object.entries(activeTurnByThread || optionalUiArray())) {
     const normalized = normalizeTurnSummary(turn);
     if (!isInterruptibleTurnSummary(normalized)) continue;
     const canonicalThreadId = canonicalizeThreadKey(normalized.threadId || threadId, threads);
@@ -975,7 +983,7 @@ function snapshotThreadFallbackProvider(thread, state, runtimeById) {
 }
 
 function shouldPreserveSnapshotThread(state, thread, nextThreads) {
-  const hasTimeline = (state.timelinesByThread[thread.id] || []).length > 0;
+  const hasTimeline = (state.timelinesByThread[thread.id] || optionalUiArray()).length > 0;
   const alreadyIncluded = nextThreads.some((nextThread) => threadMatchesIdentifier(nextThread, thread.id));
   return !alreadyIncluded && (thread.id === state.activeThreadId || hasTimeline);
 }
@@ -1025,7 +1033,7 @@ function liveStatusEntryForSnapshotThread(state, ids) {
 }
 
 function liveActiveTurnForSnapshotThread(state, ids) {
-  for (const [threadId, turn] of Object.entries(state.activeTurnByThread || {})) {
+  for (const [threadId, turn] of Object.entries(state.activeTurnByThread || optionalUiArray())) {
     const normalized = normalizeTurnSummary(turn);
     if (!isInterruptibleTurnSummary(normalized)) continue;
     const turnThreadId = normalizeThreadId(normalized.threadId || threadId);
@@ -1081,7 +1089,7 @@ function snapshotActiveThreadId(state, payload, nextThreads, options) {
   const explicitActiveThreadId = backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions);
   if (!autoSelectThread) return explicitActiveThreadId;
   const snapshotActive = normalizeThreadId(payload.activeThreadId || payload.active_thread_id);
-  const selectableThreadId = nextThreads.find((thread) => !thread.archived)?.id || '';
+  const selectableThreadId = nextThreads.find((thread) => !thread.archived)?.id || optionalTextField();
   return (
     explicitActiveThreadId ||
     backendThreadIdFromThreads(snapshotActive, nextThreads, activeLookupOptions) ||
@@ -1092,7 +1100,7 @@ function snapshotActiveThreadId(state, payload, nextThreads, options) {
 
 function canonicalizeThreadValues(source = {}, nextThreads = [], normalizer = (value) => value) {
   const output = {};
-  for (const [threadId, value] of Object.entries(source || {})) {
+  for (const [threadId, value] of Object.entries(source || optionalUiArray())) {
     output[canonicalizeThreadKey(threadId, nextThreads)] = normalizer(value);
   }
   return output;
@@ -1102,12 +1110,12 @@ function snapshotTimelineBase(state, nextThreads) {
   return {
     timelinesByThread: canonicalizeThreadValues(state.timelinesByThread, nextThreads),
     threadTimelineReadyByThread: canonicalizeThreadValues(
-      state.threadTimelineReadyByThread || {},
+      state.threadTimelineReadyByThread || optionalUiObject(),
       nextThreads,
       Boolean,
     ),
     threadMessagePaginationByThread: canonicalizeThreadValues(
-      state.threadMessagePaginationByThread || {},
+      state.threadMessagePaginationByThread || optionalUiObject(),
       nextThreads,
     ),
   };
@@ -1133,7 +1141,7 @@ function snapshotTimelines(state, payload, nextThreads) {
     const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
     runtimeResultEntries.push(...runtimeResultEntriesFromTimelineItems(items, canonicalId));
     next.timelinesByThread[canonicalId] = mergeSnapshotTimelineItems(
-      next.timelinesByThread[canonicalId] || [],
+      next.timelinesByThread[canonicalId] || optionalUiArray(),
       next.threadTimelineReadyByThread[canonicalId],
       items,
     );
@@ -1181,7 +1189,7 @@ function snapshotThreadMetrics(state, payload, nextThreads, activeThreadId) {
 
 function snapshotDiffText(state, payload, nextThreads, activeThreadId) {
   const diffTextByThread = canonicalizeThreadValues(state.diffTextByThread, nextThreads);
-  const threadDiffReadyByThread = canonicalizeThreadValues(state.threadDiffReadyByThread || {}, nextThreads, Boolean);
+  const threadDiffReadyByThread = canonicalizeThreadValues(state.threadDiffReadyByThread || optionalUiObject(), nextThreads, Boolean);
   for (const [threadId, text] of Object.entries(objectRecord(payload.diffTextByThread || payload.diff_text_by_thread))) {
     const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
     diffTextByThread[canonicalId] = text;
@@ -1232,7 +1240,7 @@ function buildSnapshotState(state, payload = {}, options = {}) {
     threadMessagePaginationByThread: timelineState.threadMessagePaginationByThread,
     runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, timelineState.runtimeResultEntries),
     activeTurnByThread: snapshotActiveTurnByThread(state, payload, nextThreads),
-    statuses: { ...state.statuses, ...(payload.statuses || {}) },
+    statuses: { ...state.statuses, ...(payload.statuses || optionalUiObject()) },
     ...metrics,
     ...diffState,
   };
@@ -1291,7 +1299,7 @@ function actionNotice(message, tone = 'info') {
   return {
     message: normalized,
     tone,
-    timestamp: new Date().toISOString(),
+    timestamp: clockNowISO(),
   };
 }
 
@@ -1356,7 +1364,7 @@ const composerActionDeps = {
 };
 
 function createLaunchIntentId() {
-  const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id = globalThis.crypto?.randomUUID?.() || `${clockNowMillis()}-${Math.random().toString(16).slice(2)}`;
   return `launch_${id}`;
 }
 
@@ -1390,7 +1398,7 @@ function createSendDraftRequest(state, cwd) {
       role: 'user',
       text,
       attachments,
-      time: new Date().toISOString(),
+      time: clockNowISO(),
       done: true,
       optimistic: true,
     },
@@ -1412,7 +1420,7 @@ function freshThreadRetryRequest(request) {
 }
 
 function dashboardCommandTemplate(card) {
-  return normalizeString(card?.command_template || card?.commandTemplate);
+  return normalizeString(firstOptionalPresent(card?.command_template, card?.commandTemplate));
 }
 
 function dashboardCommandPrompt(card) {
@@ -1512,7 +1520,7 @@ function optimisticSendDraftState(state, request) {
     timelinesByThread: {
       ...state.timelinesByThread,
       [request.provisionalThreadId]: [
-        ...(state.timelinesByThread[request.provisionalThreadId] || []),
+        ...(state.timelinesByThread[request.provisionalThreadId] || optionalUiArray()),
         request.optimisticItem,
       ],
     },
@@ -1536,7 +1544,7 @@ async function startNewDraftThread(request, resolveLaunchPreferences) {
 function promotedDraftThreadState(state, request, started) {
   const timelinesByThread = { ...state.timelinesByThread };
   const activityThreadAtById = { ...state.activityThreadAtById };
-  const provisionalTimeline = timelinesByThread[request.provisionalThreadId] || [];
+  const provisionalTimeline = timelinesByThread[request.provisionalThreadId] || optionalUiArray();
   delete timelinesByThread[request.provisionalThreadId];
   timelinesByThread[started.threadId] = provisionalTimeline;
   if (activityThreadAtById[request.provisionalThreadId]) {
@@ -1579,7 +1587,7 @@ function rollbackSendDraftState(state, request, error, options = {}) {
     : [];
   const timelinesByThread = { ...state.timelinesByThread };
   const timelineTargetId = request.previousThreadId || createdThreadId || request.provisionalThreadId;
-  const requestTimeline = timelinesByThread[timelineTargetId] || [];
+  const requestTimeline = timelinesByThread[timelineTargetId] || optionalUiArray();
   timelinesByThread[timelineTargetId] = requestTimeline.filter((item) => item.id !== request.optimisticItem.id);
   for (const threadId of localDeleteIds) delete timelinesByThread[threadId];
   const threadTimelineReadyByThread = { ...state.threadTimelineReadyByThread };
@@ -1658,12 +1666,12 @@ async function deleteProvisionalThreadAfterSendFailure(threadId, addWarning) {
 }
 
 function isStoppedThreadTurnStartError(error) {
-  const message = normalizeString(error?.message || error?.cause?.message || String(error || '')).toLowerCase();
+  const message = normalizeString(firstOptionalPresent(error?.message, error?.cause?.message, optionalTextField(error))).toLowerCase();
   return message.includes('resolve session: thread') && message.includes(' is stopped');
 }
 
 function isCodexIdentityAutoResumeError(error) {
-  const message = normalizeString(error?.message || error?.cause?.message || String(error || '')).toLowerCase();
+  const message = normalizeString(firstOptionalPresent(error?.message, error?.cause?.message, optionalTextField(error))).toLowerCase();
   return message.includes('resolve session: auto-resume failed') &&
     message.includes('codex identity required for resume');
 }
@@ -1938,13 +1946,13 @@ function attachLogRuntime(runtime) {
   const { set, addWarning } = runtime;
 
   const addLog = (level, event, fields = {}) => {
-    const parts = (event || '').split('.');
+    const parts = (event || optionalTextField()).split('.');
     const scope = parts.length > 1 ? parts[0] : 'terminal';
     const eventName = parts.length > 1 ? parts.slice(1).join('.') : event;
 
     const entry = {
-      id: `${event}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      ts: new Date().toISOString(),
+      id: `${event}-${clockNowMillis()}-${Math.random().toString(16).slice(2)}`,
+      ts: clockNowISO(),
       level,
       scope,
       event: eventName,
@@ -2055,7 +2063,7 @@ function attachScopeRuntime(runtime) {
     const projects = Array.isArray(payload?.projects)
       ? payload.projects.map(normalizePath).filter(Boolean)
       : [];
-    const active = normalizePath(payload?.active || payload?.activeProject || fallbackCwd);
+    const active = normalizePath(firstOptionalPresent(payload?.active, payload?.activeProject, fallbackCwd));
     set({
       projects,
       activeProject: active || normalizePath(fallbackCwd),
@@ -2218,7 +2226,7 @@ function attachNotificationRuntime(runtime) {
     set((state) => ({
       actionNotice: notice,
       activityEntries: [{
-        id: `action-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        id: `action-${clockNowMillis()}-${Math.random().toString(16).slice(2)}`,
         method: 'ui/action',
         threadId: normalizeThreadId(fields.threadId),
         message: notice.message,
@@ -2290,7 +2298,7 @@ function relatedThreadTimelineKeys(state, threadId) {
     if (key) keys.add(key);
   };
   addKey(threadId);
-  const matchedThread = (state.threads || []).find((thread) => threadMatchesIdentifier(thread, threadId));
+  const matchedThread = (state.threads || optionalUiArray()).find((thread) => threadMatchesIdentifier(thread, threadId));
   if (matchedThread) {
     addKey(matchedThread.id);
     addKey(matchedThread.agentId);
@@ -2320,13 +2328,13 @@ function attachAssistantEventRuntime(runtime) {
 
     const entries = Array.from(assistantDeltaBuffers.values());
     assistantDeltaBuffers.clear();
-    const flushTime = new Date().toISOString();
-    const flushId = Date.now();
+    const flushTime = clockNowISO();
+    const flushId = clockNowMillis();
 
     set((state) => {
       const timelinesByThread = { ...state.timelinesByThread };
       for (const entry of entries) {
-        const timeline = timelinesByThread[entry.threadId] || [];
+        const timeline = timelinesByThread[entry.threadId] || optionalUiArray();
         let found = false;
         const nextTimeline = timeline.map((item) => {
           if (item.id !== entry.itemId) return item;
@@ -2402,7 +2410,7 @@ function attachAssistantEventRuntime(runtime) {
       itemId,
       method: existing?.method || method,
       delta: appendAssistantDeltaText(existing?.delta, delta),
-      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || clockNowISO(),
     });
     scheduleAssistantDeltaFlush();
     return true;
@@ -2423,7 +2431,7 @@ function attachAssistantEventRuntime(runtime) {
       itemId,
       method: existing?.method || method,
       delta: appendAssistantDeltaText(existing?.delta, delta),
-      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || clockNowISO(),
       kind: 'thinking',
       turnId,
     });
@@ -2436,7 +2444,7 @@ function attachAssistantEventRuntime(runtime) {
     const delta = extractDeltaText(payload.delta ?? payload.text ?? payload.content);
     if (!threadId || delta === '') return false;
 
-    const timeline = get().timelinesByThread[threadId] || [];
+    const timeline = get().timelinesByThread[threadId] || optionalUiArray();
     let itemId = '';
     for (let i = timeline.length - 1; i >= 0; i--) {
       if (timeline[i].kind === 'command' && timeline[i].done !== true) {
@@ -2461,7 +2469,7 @@ function attachAssistantEventRuntime(runtime) {
       itemId,
       method: existing?.method || method,
       delta: appendAssistantDeltaText(existing?.delta, delta),
-      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || clockNowISO(),
       kind: 'command',
     });
     scheduleAssistantDeltaFlush();
@@ -2476,7 +2484,7 @@ function attachAssistantEventRuntime(runtime) {
       for (const key of relatedThreadTimelineKeys(state, threadId)) {
         if (!hasOwn(state.timelinesByThread, key)) continue;
         let keyMutated = false;
-        const timeline = state.timelinesByThread[key] || [];
+        const timeline = state.timelinesByThread[key] || optionalUiArray();
         const nextTimeline = timeline.map((item) => {
           if ((item.role === 'assistant' || item.kind === 'assistant' || item.kind === 'thinking' || item.kind === 'command') && item.done === false) {
             keyMutated = true;
@@ -2506,16 +2514,16 @@ function attachAssistantEventRuntime(runtime) {
       const targetKeys = relatedThreadTimelineKeys(state, threadId)
         .filter((key) => key === threadId || hasOwn(state.timelinesByThread, key));
       for (const key of targetKeys) {
-        timelinesByThread[key] = mergeRuntimeAssistantCompletion(state.timelinesByThread[key] || [], completion);
+        timelinesByThread[key] = mergeRuntimeAssistantCompletion(state.timelinesByThread[key] || optionalUiArray(), completion);
       }
       return {
         timelinesByThread,
         actionNotice: actionNotice('已收到回复', 'success'),
         activityEntries: [{
-          id: `${method}-${Date.now()}`,
+          id: `${method}-${clockNowMillis()}`,
           method,
           threadId,
-          timestamp: new Date().toISOString(),
+          timestamp: clockNowISO(),
         }, ...state.activityEntries].slice(0, 120),
       };
     });
@@ -2548,7 +2556,7 @@ function attachBridgePatchRuntime(runtime) {
 
     const generation = normalizeString(payload.generation || payload.epoch);
     if (generation) {
-      const previousGeneration = patchGenerationsByThread.get(threadId) || '';
+      const previousGeneration = patchGenerationsByThread.get(threadId) || optionalTextField();
       if (previousGeneration && compareSequence(generation, previousGeneration) < 0) {
         return;
       }
@@ -2559,7 +2567,7 @@ function attachBridgePatchRuntime(runtime) {
 
     const sequence = normalizeString(payload.sequence);
     const sequenceKey = generation ? `${threadId}::${generation}` : threadId;
-    const previousSequence = sequencesByThread.get(sequenceKey) || '';
+    const previousSequence = sequencesByThread.get(sequenceKey) || optionalTextField();
     if (sequence) {
       if (previousSequence && compareSequence(sequence, previousSequence) <= 0) {
         return;
@@ -2567,7 +2575,7 @@ function attachBridgePatchRuntime(runtime) {
       sequencesByThread.set(sequenceKey, sequence);
     }
 
-      const patchStart = Date.now();
+      const patchStart = clockNowMillis();
       try {
         const patch = {
           ...bridgePatchData(method, payload, threadId, {
@@ -2583,7 +2591,7 @@ function attachBridgePatchRuntime(runtime) {
         }));
       }
     finally {
-      const durationMs = Date.now() - patchStart;
+      const durationMs = clockNowMillis() - patchStart;
       if (durationMs >= BRIDGE_PATCH_SLOW_MS) {
         emitFrontendTraceEvent({
           phase: 'frontend.patch.apply.slow',
@@ -2629,7 +2637,7 @@ function attachBridgeEventRuntime(runtime) {
       finalizeActiveAssistantMessages(threadId);
     }
     addWarning('error', method, { ...payload, eventName });
-    const message = normalizeString(payload?.error || payload?.message || payload?.reason) || 'provider reported failure';
+    const message = normalizeString(firstOptionalPresent(payload?.error, payload?.message, payload?.reason)) || 'provider reported failure';
     notifyAction(`运行失败：${message}`, 'error', {
       ...payload,
       threadId,
@@ -2639,9 +2647,9 @@ function attachBridgeEventRuntime(runtime) {
   };
 
   const handleBridgeEvent = (evt) => {
-    const method = normalizeString(evt?.method || evt?.type);
+    const method = normalizeString(firstOptionalPresent(evt?.method, evt?.type));
     const eventName = method.toLowerCase();
-    const payload = evt?.payload || evt?.params || evt?.data || {};
+    const payload = firstOptionalPresent(evt?.payload, evt?.params, evt?.data) || optionalUiObject();
     if (!method) {
       addWarning('error', 'bridge.event.method_missing', {
         eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
@@ -2762,7 +2770,7 @@ function createPromptWorkflowCacheActions(runtime) {
             activePromptId: '',
             fallbackMode: false,
             hasLoadedPrompts: false,
-            ...(state.promptPageCacheByCwd?.[key] || {}),
+            ...(state.promptPageCacheByCwd?.[key] || optionalUiObject()),
             ...patch,
           },
         },
@@ -2779,7 +2787,7 @@ function createPromptWorkflowCacheActions(runtime) {
             selectedDagKey: '',
             detailsByDagKey: {},
             hasLoadedDags: false,
-            ...(state.workflowPageCacheByCwd?.[key] || {}),
+            ...(state.workflowPageCacheByCwd?.[key] || optionalUiObject()),
             ...patch,
           },
         },
@@ -2801,7 +2809,7 @@ function createResourcePageCacheActions(runtime) {
             items: [],
             resolutionConflicts: [],
             hasLoadedSkills: false,
-            ...(state.skillPageCacheByCwd?.[key] || {}),
+            ...(state.skillPageCacheByCwd?.[key] || optionalUiObject()),
             ...patch,
           },
         },
@@ -2818,7 +2826,7 @@ function createResourcePageCacheActions(runtime) {
             finalOutputRefs: [],
             retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
             hasLoadedFiles: false,
-            ...(state.sharedFilesPageCacheByCwd?.[key] || {}),
+            ...(state.sharedFilesPageCacheByCwd?.[key] || optionalUiObject()),
             ...patch,
           },
         },
@@ -2833,7 +2841,7 @@ function createResourcePageCacheActions(runtime) {
           [key]: {
             snapshot: { overview: {}, entries: [] },
             hasLoadedMemory: false,
-            ...(state.memoryPageCacheByCwd?.[key] || {}),
+            ...(state.memoryPageCacheByCwd?.[key] || optionalUiObject()),
             ...patch,
           },
         },
@@ -2964,7 +2972,7 @@ function createThreadSelectionActions(runtime) {
       catch (error) {
         return runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.failed', error, { threadId: requestedId, source });
       }
-      const resolvedThread = normalizeThread(resolved || {}, {
+      const resolvedThread = normalizeThread(resolved || optionalUiObject(), {
         state: runtime.get(),
         fallbackProvider: runtime.get().provider,
       });
@@ -3012,7 +3020,7 @@ function createThreadSelectionActions(runtime) {
       const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: true });
       const current = runtime.get();
       const lastListMutationTime = current.lastListMutationTime || 0;
-      if (Date.now() - lastListMutationTime < 350) {
+      if (clockNowMillis() - lastListMutationTime < 350) {
         const currentActiveId = backendThreadIdForState(current, current.activeThreadId);
         if (id !== currentActiveId) {
           return false;
@@ -3180,7 +3188,7 @@ function createActiveThreadActions(runtime) {
       if (requestId <= 0) {
         runtime.notifyAction('当前审批缺少请求编号，无法提交', 'error');
         runtime.addWarning('error', 'timeline.approval.request_id_missing', {
-          command: normalizeString(item?.command || item?.title),
+          command: normalizeString(firstOptionalPresent(item?.command, item?.title)),
         });
         return false;
       }
@@ -3196,7 +3204,7 @@ function createActiveThreadActions(runtime) {
           [requestId]: {
             approved: decision,
             inFlight: true,
-            startedAt: Date.now(),
+            startedAt: clockNowMillis(),
           },
         },
       }));
@@ -3218,7 +3226,7 @@ function createActiveThreadActions(runtime) {
       }
       finally {
         runtime.set((state) => {
-          const current = state.approvalSubmitByRequestId || {};
+          const current = state.approvalSubmitByRequestId || optionalUiObject();
           if (!current[requestId]) return {};
           const next = { ...current };
           delete next[requestId];
@@ -3241,7 +3249,7 @@ function createThreadCopyActions(runtime) {
         return false;
       }
       const preparedClipboardWrite = beginTextClipboardWrite();
-      const thread = state.threads.find((item) => item.id === threadId) || {};
+      const thread = state.threads.find((item) => item.id === threadId) || optionalUiObject();
       const cwd = runtime.requireCwd('thread.copy');
       let identity;
       try {
@@ -3328,7 +3336,7 @@ function createThreadRenamePinActions(runtime) {
       if (pinned) {
         delete nextMap[id];
       } else {
-        nextMap[id] = Date.now();
+        nextMap[id] = clockNowMillis();
       }
       try {
         await setPreference({
@@ -3371,14 +3379,14 @@ function createThreadArchiveActions(runtime) {
 
       const originalThreads = runtime.get().threads;
       const originalActiveThreadId = runtime.get().activeThreadId;
-      const archivedAt = archived ? Date.now() : 0;
+      const archivedAt = archived ? clockNowMillis() : 0;
 
       // 1. Optimistic Update: Immediately apply the archived state to the UI
       runtime.set((state) => archiveThreadOptimisticState(state, {
         id,
         archived,
         archivedAt,
-        timestamp: Date.now(),
+        timestamp: clockNowMillis(),
       }));
 
       // 2. Perform the main backend archive operation
@@ -3482,7 +3490,7 @@ function createThreadDeleteActions(runtime) {
               : `已删除 ${deletedIds.length} 个无用会话`,
             failedIds.length > 0 ? 'warning' : 'success',
           ),
-          lastListMutationTime: Date.now(),
+          lastListMutationTime: clockNowMillis(),
         }));
       } else {
         runtime.set({
@@ -3539,8 +3547,13 @@ function createClientStore(set, get) {
 export const useClientStore = create(createClientStore);
 
 export function resetClientStoreForTests(patch = {}) {
+  clientStoreClockMillisForTests = null;
   useClientStore.getState().destroy();
   useClientStore.setState(stateWithPatch(patch));
+}
+
+export function setClientStoreClockMillisForTests(clock) {
+  clientStoreClockMillisForTests = clock;
 }
 
 registerBridgeLogStore({

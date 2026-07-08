@@ -1,11 +1,12 @@
 import React from 'react';
 import { FileText, X } from 'lucide-react';
 import { runUIAction } from './chatUiActions.js';
+import { requiredMarkdownArray } from './markdownMessageModel.js';
 
 function ForkDraftCard({ store }) {
   const draft = store.forkDraft;
   if (!draft?.open) return null;
-  const selected = new Set(draft.sharedFilePaths || []);
+  const selected = new Set(requiredMarkdownArray(draft.sharedFilePaths, 'forkDraft.sharedFilePaths'));
   const files = Array.isArray(draft.availableSharedFiles) ? draft.availableSharedFiles : [];
   return (
     <section className="fork-draft-card" data-testid="fork-draft-card" aria-label="继承对话草稿">

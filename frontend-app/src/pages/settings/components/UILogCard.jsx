@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { textValue } from '../../shared/pageShared.js';
+import { optionalDateFromValue, firstPresentRawText, firstPresentText } from '../../shared/pageShared.js';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
 import './UILogCard.css';
 
@@ -14,7 +14,7 @@ function UILogCard({ copy, loadLogs, store }) {
     try {
       setRemoteLogs(normalizeDashboardLogs(await loadLogs()));
     } catch (error) {
-      setLogError(logsCopy.refreshFailed + (error?.message || error));
+      setLogError(logsCopy.refreshFailed + firstPresentRawText(error?.message, error));
     } finally {
       setRefreshing(false);
     }
@@ -41,12 +41,12 @@ function normalizeDashboardLogs(payload) {
 }
 
 function normalizeDashboardLogEntry(entry, index) {
-  const scope = textValue(entry.component || entry.logger || entry.source || 'dashboard') || 'dashboard';
-  const event = textValue(entry.event_type || entry.eventType || entry.message || entry.raw || `log.${entry.id || index}`);
+  const scope = firstPresentText(entry.component, entry.logger, entry.source, 'dashboard');
+  const event = firstPresentText(entry.event_type, entry.eventType, entry.message, entry.raw, `log.${firstPresentText(entry.id, index)}`);
   return {
-    id: entry.id || `${scope}-${index}`,
-    ts: entry.timestamp || entry.ts || entry.createdAt || entry.created_at,
-    level: textValue(entry.level || 'info').toLowerCase() || 'info',
+    id: firstPresentText(entry.id, `${scope}-${index}`),
+    ts: firstPresentRawText(entry.timestamp, entry.ts, entry.createdAt, entry.created_at),
+    level: firstPresentText(entry.level, 'info').toLowerCase(),
     scope,
     event,
     fields: entry,
@@ -86,8 +86,8 @@ function UILogItem({ entry, locale }) {
 
 function formatLogTime(value, locale) {
   if (!value) return '--:--:--';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '--:--:--';
+  const date = optionalDateFromValue(value, 'settings log timestamp');
+  if (!date) return '--:--:--';
   return date.toLocaleTimeString(locale, { hour12: false });
 }
 

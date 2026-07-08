@@ -33,6 +33,37 @@ function createStore(overrides = {}) {
 }
 
 describe('useChatThreadData', () => {
+  it('rejects invalid thread store shapes', () => {
+    expect(() => useChatThreadData(createStore({ timelinesByThread: [] }), 'agent-1')).toThrow('timelinesByThread object');
+  });
+
+  it('rejects stores missing required backend thread fields', () => {
+    const store = createStore();
+    delete store.threadTimelineReadyByThread;
+    expect(() => useChatThreadData(store, 'agent-1')).toThrow('threadTimelineReadyByThread object');
+  });
+
+  it('returns canonical thread DTO data without empty-array fallback for valid backend data', () => {
+    const data = useChatThreadData(createStore({
+      activeTurnByThread: { 'agent-1': { id: 'turn-1' } },
+      activityStatsByThread: { 'agent-1': { commands: 2 } },
+      diffTextByThread: { 'agent-1': 'diff --git a/a b/a' },
+      runtimeResultEntries: [{ id: 'runtime-1', threadId: 'thread-1' }],
+      statuses: { 'agent-1': { state: 'running' } },
+      threadMessagePaginationByThread: { 'agent-1': { hasMore: true } },
+      threadTimelineReadyByThread: { 'agent-1': true },
+      timelinesByThread: { 'agent-1': [{ id: 'message-1', role: 'assistant', text: 'ok' }] },
+      tokenUsageByThread: { 'agent-1': { total: 9 } },
+      warningEntries: [{ id: 'warning-1', threadId: 'agent-1' }],
+    }), 'agent-1');
+
+    expect(data.messages).toEqual([expect.objectContaining({ id: 'message-1' })]);
+    expect(data.runtimeResults).toEqual([expect.objectContaining({ id: 'runtime-1' })]);
+    expect(data.statusEntry).toEqual({ state: 'running' });
+    expect(data.diffText).toBe('diff --git a/a b/a');
+    expect(data.tokenUsage).toEqual({ total: 9 });
+  });
+
   it('merges timeline items from all known active thread identities', () => {
     const timeline = threadScopedTimelineValue({
       'agent-1': [

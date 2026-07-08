@@ -8,8 +8,7 @@ import {
   runtimeAssistantCompletion,
   runtimeAssistantFallbackId,
   runtimeAssistantStreamId,
-  runtimeTurnId,
-} from './runtimeAssistantTimeline.js';
+  runtimeTurnId } from './runtimeAssistantTimeline.js';
 
 describe('runtimeAssistantTimeline', () => {
   it('normalizes runtime assistant ids and fallback ids', () => {

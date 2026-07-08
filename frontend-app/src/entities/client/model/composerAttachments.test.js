@@ -14,8 +14,7 @@ import {
   isEmptyComposerDraftSnapshot,
   normalizeAttachment,
   normalizeComposerDraftSnapshot,
-  normalizeFileAttachment,
-} from './composerAttachments.js';
+  normalizeFileAttachment } from './composerAttachments.js';
 
 describe('composerAttachments', () => {
   it('normalizes file and image attachments', () => {

@@ -1,3 +1,4 @@
+import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 // @ts-check
 
 import {
@@ -8,11 +9,10 @@ import {
   sameTimelineContent,
   sameTimelineContentCompact,
   sameTimelineContentPrefix,
-  sortTimelineChronologically,
-} from './timelineRuntime.js';
+  sortTimelineChronologically } from './timelineRuntime.js';
 
 function normalizeString(value) {
-  return (value || '').toString().trim();
+  return normalizeOptionalTextField(value);
 }
 
 function extractText(value) {
@@ -41,7 +41,7 @@ export function runtimeAssistantStreamId(payload = {}) {
 export function runtimeAssistantFallbackId(payload = {}, deps = {}) {
   const normalizeThreadId = deps.normalizeThreadId || normalizeString;
   const runtimeThreadIdentifier = deps.runtimeThreadIdentifier || (() => '');
-  const nowMillis = deps.nowMillis || (() => Date.now());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
   return (
     runtimeAssistantStreamId(payload) ||
     `assistant-stream-${normalizeThreadId(runtimeThreadIdentifier(payload)) || nowMillis()}`
@@ -49,7 +49,7 @@ export function runtimeAssistantFallbackId(payload = {}, deps = {}) {
 }
 
 export function isRuntimeAssistantItem(item) {
-  const type = normalizeString(item?.type || item?.kind || item?.role).toLowerCase();
+  const type = normalizeString(firstOptionalPresent(item?.type, item?.kind, item?.role)).toLowerCase();
   return (
     type.includes('agentmessage') ||
     type.includes('agent_message') ||
@@ -59,8 +59,8 @@ export function isRuntimeAssistantItem(item) {
 }
 
 export function runtimeAssistantCompletion(payload = {}, deps = {}) {
-  const nowISO = deps.nowISO || (() => new Date().toISOString());
-  const nowMillis = deps.nowMillis || (() => Date.now());
+  const nowISO = deps.nowISO || (() => currentIsoTimestamp());
+  const nowMillis = deps.nowMillis || (() => systemClockMillis());
   const item = payload.item && typeof payload.item === 'object' ? payload.item : {};
   const hasItem = Object.keys(item).length > 0;
   if (hasItem && !isRuntimeAssistantItem(item)) return null;
@@ -94,8 +94,8 @@ export function isAssistantMessageDeltaEvent(eventName, payload = {}) {
 }
 
 export function appendAssistantDeltaText(existingText, deltaText) {
-  const base = (existingText || '').toString();
-  const incoming = (deltaText || '').toString();
+  const base = optionalTextField(existingText);
+  const incoming = optionalTextField(deltaText);
   if (!incoming) return base;
   if (!base) return incoming;
   if (base.endsWith(incoming)) return base;
@@ -128,7 +128,7 @@ export function mergeRuntimeAssistantCompletion(existingItems = [], completion) 
   const turnAssistantItems = existingItems.slice(lastUserIndex + 1).filter(
     (item) => item?.role === 'assistant' && (item?.kind === 'assistant' || !item?.kind)
   );
-  const accumulatedText = turnAssistantItems.map((item) => (item.text || '').toString()).join('');
+  const accumulatedText = turnAssistantItems.map((item) => optionalTextField(item.text)).join('');
   const compactAccumulated = compactTimelineText(accumulatedText);
   const compactFinal = compactTimelineText(finalItem.text);
 

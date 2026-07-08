@@ -6,8 +6,7 @@ import {
   isLaunchIntentId,
   normalizeBackendThreadId,
   normalizeThreadId,
-  normalizeThreadIdentity,
-} from './threadIdentity.js';
+  normalizeThreadIdentity } from './threadIdentity.js';
 
 describe('threadIdentity', () => {
   it('normalizes thread ids and filters launch placeholders from backend ids', () => {

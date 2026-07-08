@@ -103,8 +103,7 @@ const FRONTEND_TRACE_SENSITIVE_TEXT_PATTERNS = [
 
 function nativeImportModule(modulePath) {
   // public 目录里的 Wails runtime 只能由浏览器原生加载，避免 Vite 注入 ?import 后拦截。
-  if (import.meta.env.MODE === 'test') return import(/* @vite-ignore */ modulePath);
-  return Function('modulePath', 'return import(modulePath)')(modulePath);
+  return import(/* @vite-ignore */ modulePath);
 }
 
 // Track active log store to pipe warnings and errors
@@ -120,7 +119,7 @@ function serializableBridgeValue(value, seen = new WeakSet()) {
   if (value instanceof Error) {
     const out = {
       name: value.name || 'Error',
-      message: value.message || '',
+      message: optionalDiagnosticString(value.message),
     };
     if ('code' in value && value.code !== undefined) out.code = value.code;
     if ('data' in value && value.data !== undefined) out.data = serializableBridgeErrorData(value.data, seen);
@@ -148,6 +147,16 @@ function isPlainBridgeObject(value) {
 
 function hasOwnBridgeProperty(value, key) {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function optionalDiagnosticString(value) {
+  if (value === undefined || value === null) return '';
+  return String(value);
+}
+
+function optionalDiagnosticFields(fields) {
+  if (fields === undefined || fields === null) return {};
+  return fields;
 }
 
 function isBridgeErrorLikeObject(value) {
@@ -180,8 +189,7 @@ function serializableBridgeErrorData(value, seen) {
 }
 
 function normalizeBridgeLogKey(key) {
-  return (key || '')
-    .toString()
+  return optionalDiagnosticString(key)
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[\s.-]+/g, '_')
     .toLowerCase();
@@ -192,7 +200,7 @@ function isForbiddenBridgeLogKey(key) {
 }
 
 function writeBridgeLog(level, event, fields) {
-  const serializableFields = serializableBridgeValue(fields || {});
+  const serializableFields = serializableBridgeValue(optionalDiagnosticFields(fields));
   if (logStoreInstance && typeof logStoreInstance[level] === 'function') {
     logStoreInstance[level](event, serializableFields);
   } else {
@@ -420,7 +428,7 @@ function isFrontendTraceDebugEnabled() {
 }
 
 function safeTraceString(value, limit = 160) {
-  const text = (value || '').toString().trim();
+  const text = optionalDiagnosticString(value).trim();
   if (!text) return '';
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
@@ -491,7 +499,7 @@ function sanitizeFrontendTraceEvent(event) {
   if (!FRONTEND_TRACE_ALLOWED_STATUSES.has(status)) return null;
   const durationMS = Number(event.duration_ms);
   const out = {
-    ts: new Date().toISOString(),
+    ts: createFrontendTraceTimestamp(),
     phase,
     status,
   };
@@ -583,10 +591,49 @@ export function emitFrontendTraceEvent(event, options = {}) {
 function runtimeTelemetryMetadata(event) {
   const metadata = {};
   for (const key of ['req_id', 'pending_count', 'attempt']) {
-    const value = event?.[key] ?? event?.metadata?.[key];
+    const value = runtimeTelemetryMetadataValue(event, key);
     if (value !== undefined && value !== null && value !== '') metadata[key] = value;
   }
   return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function runtimeTelemetryMetadataValue(event, key) {
+  if (event && Object.prototype.hasOwnProperty.call(event, key)) return event[key];
+  if (event?.metadata && Object.prototype.hasOwnProperty.call(event.metadata, key)) return event.metadata[key];
+  return undefined;
+}
+
+function currentMonotonicMS() {
+  if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
+    const error = new Error('bridge monotonic clock is unavailable');
+    error.name = 'BridgeClockUnavailableError';
+    throw error;
+  }
+  const value = performance.now();
+  if (!Number.isFinite(value)) {
+    const error = new Error('bridge clock returned an invalid timestamp');
+    error.name = 'BridgeClockUnavailableError';
+    throw error;
+  }
+  return value;
+}
+
+function elapsedMS(start) {
+  if (!Number.isFinite(start)) {
+    const error = new Error('bridge start timestamp is invalid');
+    error.name = 'BridgeClockUnavailableError';
+    throw error;
+  }
+  return Math.max(0, Math.round(currentMonotonicMS() - start));
+}
+
+function createFrontendTraceTimestamp(clock = Date) {
+  if (!clock || typeof clock !== 'function') {
+    const error = new Error('frontend trace wall clock is unavailable');
+    error.name = 'BridgeClockUnavailableError';
+    throw error;
+  }
+  return new clock().toISOString();
 }
 
 function runtimeTelemetryTraceEvent(event) {
@@ -648,7 +695,7 @@ installRuntimeTelemetryHook();
 
 async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
-  const start = Date.now();
+  const start = currentMonotonicMS();
   writeBridgeDebugLog('bridge.call.start', {
     req_id: reqId,
     method_id: methodID,
@@ -676,13 +723,13 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
       writeBridgeLog('error', 'bridge.call.failed', {
         req_id: reqId,
         method_id: methodID,
-        duration_ms: Date.now() - start,
+        duration_ms: elapsedMS(start),
         error,
       });
     }
     throw error;
   }
-  const durationMs = Date.now() - start;
+  const durationMs = elapsedMS(start);
   writeBridgeSuccessDiagnosticLog('bridge.call.done', {
     req_id: reqId,
     method_id: methodID,
@@ -777,7 +824,7 @@ function logAPIStart(reqId, method, payload, clientKind, clientRoute, trace) {
 }
 
 function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace) {
-  const durationMs = Date.now() - start;
+  const durationMs = elapsedMS(start);
   const status = durationMs >= FRONTEND_TRACE_RPC_SLOW_MS ? 'slow' : 'ok';
   writeBridgeSuccessDiagnosticLog('api.rpc.done', {
     req_id: reqId,
@@ -804,7 +851,7 @@ function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace
 }
 
 function logAPIFailed(reqId, method, start, error, clientKind, clientRoute, trace) {
-  const durationMs = Date.now() - start;
+  const durationMs = elapsedMS(start);
   writeBridgeLog('error', 'api.rpc.failed', {
     req_id: reqId,
     method,
@@ -847,7 +894,7 @@ function attachAPITraceToError(error, reqId, method, clientKind, clientRoute, tr
 
 export async function callAPI(method, params = {}) {
   const reqId = ++rpcRequestSeq;
-  const start = Date.now();
+  const start = currentMonotonicMS();
   const rpcMethod = normalizeAPIMethod(method, reqId);
   const rawPayload = normalizeAPIPayload(rpcMethod, params, reqId);
   const { clientKind, clientRoute, trace } = createAPITrace(rpcMethod, reqId);
@@ -923,7 +970,7 @@ export async function selectProjectDirs() {
   const paths = nativePathListResponse('ui/selectProjectDirs', raw);
   writeBridgeLog('info', 'ui.selectProjectDirs.done', {
     count: paths.length,
-    first: paths[0] || '',
+    first: firstDiagnosticPath(paths),
   });
   return paths;
 }
@@ -937,8 +984,8 @@ function normalizeSelectFilesOptions(options = {}) {
   if (Array.isArray(options.filters)) {
     const filters = options.filters
       .map((filter) => ({
-        displayName: (filter?.displayName || '').toString().trim(),
-        pattern: (filter?.pattern || '').toString().trim(),
+        displayName: normalizeBridgeInputString(filter?.displayName),
+        pattern: normalizeBridgeInputString(filter?.pattern),
       }))
       .filter((filter) => filter.displayName && filter.pattern);
     if (filters.length > 0) payload.filters = filters;
@@ -968,6 +1015,17 @@ function assertNativeStringArray(method, field, value) {
 function nativePathListResponse(method, raw) {
   const value = assertNativeResponseObject(method, raw);
   return assertNativeStringArray(method, 'paths', value.paths);
+}
+
+function firstDiagnosticPath(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return '';
+  if (paths[0] === undefined || paths[0] === null) return '';
+  return paths[0];
+}
+
+function normalizeBridgeInputString(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
 }
 
 function nativeSelectFilesResponse(method, raw, { allowArray = false } = {}) {
@@ -1065,13 +1123,13 @@ export async function selectFiles(options = {}) {
       const files = nativeSelectFilesResponse('ui/selectFiles', values, { allowArray: true });
       writeBridgeLog('info', 'ui.selectFiles.done', {
         count: files.length,
-        first: files[0] || '',
+        first: firstDiagnosticPath(files),
       });
       return files;
     }
     catch (error) {
-      if ((error?.message || '').startsWith('ui/selectFiles response')) throw error;
       writeBridgeLog('warn', 'ui.selectFiles.byId.failed', { error });
+      throw error;
     }
   }
 
@@ -1079,7 +1137,7 @@ export async function selectFiles(options = {}) {
   const files = nativeSelectFilesResponse('ui/selectFiles', raw);
   writeBridgeLog('info', 'ui.selectFiles.done', {
     count: files.length,
-    first: files[0] || '',
+    first: firstDiagnosticPath(files),
   });
   return files;
 }
@@ -1100,7 +1158,7 @@ export async function selectDatasourceImportFile(options = {}) {
 
 export async function readDroppedTextFiles(files, targetId = '') {
   const paths = Array.isArray(files)
-    ? files.map((item) => (item || '').toString().trim()).filter(Boolean)
+    ? files.map((item) => normalizeBridgeInputString(item)).filter(Boolean)
     : [];
   if (paths.length === 0) return [];
   writeBridgeLog('info', 'ui.readDroppedTextFiles.start', {
@@ -1115,17 +1173,18 @@ export async function readDroppedTextFiles(files, targetId = '') {
 }
 
 export async function saveClipboardImage(base64Payload) {
-  const start = Date.now();
-  const path = (await callByID(METHOD_IDS.SAVE_CLIPBOARD_IMAGE, base64Payload)) || '';
+  const start = currentMonotonicMS();
+  const path = await callByID(METHOD_IDS.SAVE_CLIPBOARD_IMAGE, base64Payload);
+  if (typeof path !== 'string') throw new TypeError('ui/saveClipboardImage response path must be a string');
   writeBridgeLog('debug', 'ui.clipboardImage.saved', {
     ok: Boolean(path),
-    duration_ms: Date.now() - start,
+    duration_ms: elapsedMS(start),
   });
   return path;
 }
 
 export async function saveTextFile({ defaultPath = '', defaultFilename = '', content = '' } = {}) {
-  const filename = (defaultFilename || '').toString().trim();
+  const filename = normalizeBridgeInputString(defaultFilename);
   if (!filename) throw new Error('saveTextFile defaultFilename is required');
   writeBridgeLog('info', 'ui.saveTextFile.start', {
     default_path: defaultPath,
@@ -1146,7 +1205,7 @@ export async function saveTextFile({ defaultPath = '', defaultFilename = '', con
 }
 
 export async function openSharedFile({ path } = {}) {
-  const filePath = (path || '').toString().trim();
+  const filePath = normalizeBridgeInputString(path);
   if (!filePath) throw new Error('openSharedFile path is required');
   writeBridgeLog('info', 'ui.openSharedFile.start', { path: filePath });
   const raw = await callAPI('ui/sharedFile/open', { path: filePath });
@@ -1155,7 +1214,7 @@ export async function openSharedFile({ path } = {}) {
 }
 
 export async function previewSharedFile({ path } = {}) {
-  const filePath = (path || '').toString().trim();
+  const filePath = normalizeBridgeInputString(path);
   if (!filePath) throw new Error('previewSharedFile path is required');
   writeBridgeLog('info', 'ui.previewSharedFile.start', { path: filePath });
   const raw = await callAPI('ui/sharedFile/open', { path: filePath, preview: true });
@@ -1164,7 +1223,7 @@ export async function previewSharedFile({ path } = {}) {
 }
 
 export async function copyTextToClipboard(text) {
-  const value = (text || '').toString().trim();
+  const value = normalizeBridgeInputString(text);
   if (!value) throw new Error('clipboard text is empty');
 
   const failures = [];
@@ -1294,7 +1353,7 @@ export function beginTextClipboardWrite() {
   return {
     async commit(text) {
       if (settled) throw new Error('prepared clipboard write is already settled');
-      const value = (text || '').toString().trim();
+      const value = normalizeBridgeInputString(text);
       if (!value) {
         settled = true;
         rejectBlob(new Error('clipboard text is empty'));
@@ -1314,7 +1373,7 @@ export function beginTextClipboardWrite() {
 }
 
 export async function resolveThreadIdentity(threadId) {
-  const id = (threadId || '').toString().trim();
+  const id = normalizeBridgeInputString(threadId);
   if (!id) return {};
   const res = await callAPI('thread/resolve', { threadId: id });
   return res && typeof res === 'object' ? res : {};

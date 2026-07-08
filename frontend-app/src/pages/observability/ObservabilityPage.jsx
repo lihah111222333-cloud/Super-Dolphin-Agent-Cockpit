@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy } from 'lucide-react';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { errorMessage, textValue } from '../shared/pageShared.js';
+import { optionalArrayValue, optionalDateFromValue, errorMessage, firstPresentRawText, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from './services/observabilityPageService.js';
 import './ObservabilityPage.css';
 
@@ -25,7 +25,7 @@ function stableBackendLogValue(value, seen = new WeakSet()) {
   }
   const record = Object.fromEntries(
     Object.keys(value)
-      .sort()
+      .sort((left, right) => left.localeCompare(right))
       .map((key) => [key, stableBackendLogValue(value[key], seen)]),
   );
   seen.delete(value);
@@ -35,8 +35,8 @@ function stableBackendLogValue(value, seen = new WeakSet()) {
 function formatObservabilityTimestamp(value) {
   const text = textValue(value);
   if (!text) return '-';
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return text;
+  const parsed = optionalDateFromValue(text, 'observability timestamp');
+  if (!parsed) return text;
   const year = String(parsed.getFullYear()).padStart(4, '0');
   const month = String(parsed.getMonth() + 1).padStart(2, '0');
   const day = String(parsed.getDate()).padStart(2, '0');
@@ -61,7 +61,8 @@ function formatMatchedEventDuration(value) {
 
 function traceEventValue(event, camelKey, snakeKey) {
   if (!event || typeof event !== 'object') return '';
-  return event[camelKey] ?? event[snakeKey] ?? '';
+  const value = event[camelKey] ?? event[snakeKey];
+  return value === undefined || value === null ? '' : value;
 }
 
 function traceEventTraceId(event) {
@@ -303,7 +304,16 @@ function ObservabilityStatusFilter({ copy, value, onChange }) {
 
 function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTraceId, expandedTraces, queryCwd, queryLimit, onTraceError }) {
   if (!result) return null;
-  const traceRows = groupObservabilityTraceRows(result.events);
+  let traceRows;
+  try {
+    traceRows = groupObservabilityTraceRows(result.events);
+  } catch (error) {
+    return (
+      <div className="settings-alert error" data-testid="observability-recent-logs-error" role="alert">
+        最近日志数据无效：{errorMessage(error)}
+      </div>
+    );
+  }
   const eventCount = traceRows.reduce((total, row) => total + row.events.length, 0);
   const tailDiagnostics = observabilityTailDiagnosticText(result);
   return (
@@ -371,7 +381,7 @@ function groupObservabilityTraceRows(events) {
       durationMS,
       timestamp: latestObservabilityTimestamp(row.events),
       eventCount: row.events.length,
-      error: row.events.find((event) => textValue(event.error))?.error || '',
+      error: firstPresentRawText(row.events.find((event) => textValue(event.error))?.error),
     };
   }).sort(compareObservabilityTraceRows);
 }
@@ -384,8 +394,7 @@ function compareObservabilityTraceRows(left, right) {
 }
 
 function observabilityTimestampMillis(value) {
-  const parsed = Date.parse(textValue(value));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return optionalTimestampMillis(value, 'observability row timestamp');
 }
 
 function observabilityEventRowKey(event, index) {
@@ -422,7 +431,8 @@ function observabilityStatusPriority(event) {
 }
 
 function worstObservabilityStatus(events) {
-  const statuses = new Set((events || []).map((event) => textValue(event.status).toLowerCase()));
+  const sourceEvents = optionalArrayValue(events, 'observability status events');
+  const statuses = new Set(sourceEvents.map((event) => textValue(event.status).toLowerCase()));
   if (statuses.has('panic')) return 'panic';
   if (statuses.has('error')) return 'error';
   if (statuses.has('slow')) return 'slow';
@@ -435,10 +445,10 @@ function worstObservabilityStatus(events) {
 function latestObservabilityTimestamp(events) {
   let latestText = '';
   let latestValue = 0;
-  for (const event of events || []) {
+  const sourceEvents = optionalArrayValue(events, 'observability timestamp events');
+  for (const event of sourceEvents) {
     const text = textValue(event.ts);
-    const parsed = Date.parse(text);
-    const value = Number.isFinite(parsed) ? parsed : 0;
+    const value = optionalTimestampMillis(text, 'observability event timestamp');
     if (!latestText || value >= latestValue) {
       latestText = text;
       latestValue = value;
@@ -448,7 +458,7 @@ function latestObservabilityTimestamp(events) {
 }
 
 function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, traceState, queryCwd, queryLimit, onTraceError }) {
-  const event = row.representative || {};
+  const event = row.representative && typeof row.representative === 'object' ? row.representative : {};
   const traceID = row.traceID;
   const summary = observabilityTraceSummary(row);
   const expanded = Boolean(traceState?.expanded);
@@ -523,7 +533,7 @@ function observabilityTraceDetailId(traceID) {
 }
 
 function observabilityTraceSummary(row) {
-  const event = row.representative || {};
+  const event = row.representative && typeof row.representative === 'object' ? row.representative : {};
   const durationText = formatMatchedEventDuration(row.durationMS);
   const parts = [
     event.kind,
@@ -550,6 +560,15 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state, queryCwd, qu
   const result = traceQuery.data;
   const traceError = traceQuery.error ? errorMessage(traceQuery.error) : '';
   const tailDiagnostics = observabilityTailDiagnosticText(result);
+  let traceEvents = [];
+  let traceShapeError = '';
+  if (result) {
+    try {
+      traceEvents = optionalArrayValue(result.events, 'observability trace events');
+    } catch (error) {
+      traceShapeError = errorMessage(error);
+    }
+  }
   useEffect(() => {
     if (traceError) onTraceError(traceError);
   }, [onTraceError, traceError]);
@@ -572,7 +591,8 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state, queryCwd, qu
       </div>
       {traceQuery.isFetching && !result ? <output className="empty-state">Trace 加载中...</output> : null}
       {traceError ? <div className="settings-alert error" role="alert">Trace 加载失败：{traceError}</div> : null}
-      {!traceQuery.isFetching && !traceError && result ? <TraceEventTable events={result.events || []} /> : null}
+      {traceShapeError ? <div className="settings-alert error" role="alert">Trace 数据无效：{traceShapeError}</div> : null}
+      {!traceQuery.isFetching && !traceError && result && !traceShapeError ? <TraceEventTable events={traceEvents} /> : null}
       {!traceQuery.isFetching && !traceError && !result ? <div className="empty-state">没有匹配的 trace events</div> : null}
     </section>
   );

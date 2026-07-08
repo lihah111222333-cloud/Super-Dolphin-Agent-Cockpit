@@ -1,9 +1,10 @@
 import { positiveApprovalRequestIdFromFields } from '../../../shared/api/approvalRequestId.js';
+import { trimmedText } from './markdownMessageModel.js';
 
 const APPROVAL_TERMINAL_STATUSES = new Set(['approved', 'rejected', 'denied', 'resolved', 'completed', 'complete', 'done', 'success', 'succeeded']);
 
 function isApprovalMessage(message) {
-  return (message?.kind || '').toString().trim().toLowerCase() === 'approval';
+  return trimmedText(message?.kind).toLowerCase() === 'approval';
 }
 
 function approvalRequestId(message) {
@@ -11,7 +12,7 @@ function approvalRequestId(message) {
 }
 
 function isApprovalTerminal(message) {
-  const status = (message?.status || '').toString().trim().toLowerCase();
+  const status = trimmedText(message?.status).toLowerCase();
   return Boolean(status && APPROVAL_TERMINAL_STATUSES.has(status));
 }
 

@@ -20,6 +20,7 @@ import {
 } from '../../pages/prompts/services/promptPageService.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js';
 import './PromptPageView.css';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
@@ -95,7 +96,7 @@ function parseTags(value) {
   const text = value.trim();
   if (!text) return [];
   try {
-    const parsed = JSON.parse(text);
+    const parsed = parseStrictJsonValue(text, 'prompt tags');
     return textValues(parsed);
   }
   catch {
@@ -112,11 +113,12 @@ function cleanPromptTags(tags) {
   ));
 }
 
-function promptAdvancedDebugEnabled() {
+function optionalPromptDebugStorageEnabled() {
   if (typeof window === 'undefined') return false;
   if (window.__SUPER_DOLPHIN_PROMPT_DEBUG__ === true) return true;
   try {
-    return window.localStorage?.getItem('super-dolphin.promptDebug') === '1';
+    const storage = window['localStorage'];
+    return storage && typeof storage.getItem === 'function' && storage.getItem('super-dolphin.promptDebug') === '1';
   }
   catch {
     return false;
@@ -124,7 +126,7 @@ function promptAdvancedDebugEnabled() {
 }
 
 function isReadonlyFallbackListError(error) {
-  const message = textValue(error?.message || error).toLowerCase();
+  const message = firstPresentText(error?.message, error).toLowerCase();
   return error?.code === -32601
     || message.includes('method not found')
     || message.includes('not registered')
@@ -148,7 +150,7 @@ function parseJsonObjectForEditor(value, label) {
   const text = textValue(value);
   if (!text) return { value: null, error: '' };
   try {
-    const parsed = JSON.parse(text);
+    const parsed = parseStrictJsonValue(text, label);
     if (parsed === null) return { value: null, error: '' };
     if (typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { value: undefined, error: `${label}必须是 JSON 对象` };
@@ -297,14 +299,14 @@ function wordListFromText(value) {
 
 function promptFormFromItem(item) {
   return {
-    id: item.id || '',
-    name: item.name || '',
-    description: item.description || '',
-    whenToUse: item.whenToUse || '',
-    content: item.content || '',
-    originalContent: item.content || '',
+    id: textValue(item.id),
+    name: textValue(item.name),
+    description: textValue(item.description),
+    whenToUse: textValue(item.whenToUse),
+    content: rawTextValue(item.content),
+    originalContent: rawTextValue(item.content),
     agentType: item.agentType || 'main',
-    tagsText: (item.tags || []).join(', '),
+    tagsText: (Array.isArray(item.tags) ? item.tags : []).join(', '),
     scope: item.scope === 'global' ? 'global' : 'project',
     enabled: item.enabled !== false,
     priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0,
@@ -387,12 +389,12 @@ function pendingDraftFromItem(item) {
       hit_examples: [],
       miss_examples: [],
     },
-    issues: item.issues || [],
+    issues: Array.isArray(item.issues) ? item.issues : [],
   }, item.assetType || 'expert');
 }
 
 function noticeText(error, prefix) {
-  const message = error?.message || String(error || '');
+  const message = firstPresentText(error?.message, error);
   const friendly = promptFriendlyErrorText(message);
   if (friendly) return friendly;
   return `${prefix}：${message}`;
@@ -644,7 +646,7 @@ async function copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice
   }
   setActioning(`copy:${item.id}`);
   try {
-    let content = item.content || '';
+    let content = rawTextValue(item.content);
     if (!fallbackMode && item.id) {
       const response = await getPrompt({ cwd, id: item.id });
       content = firstText(response?.prompt?.content, response?.prompt?.prompt_text, response?.promptText, content);
@@ -965,7 +967,7 @@ export function PromptPageView({ copy = APP_COPY.zh.prompts, projectPath, refres
     setters.setNotice('');
     try {
       const result = await savePersonalizationProfile({ cwd, profile: profileForm });
-      const savedProfile = { ...emptyPersonalizationProfile, ...(result.profile || {}) };
+      const savedProfile = { ...emptyPersonalizationProfile, ...(result.profile && typeof result.profile === 'object' ? result.profile : {}) };
       queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile });
       setProfileDraft({ cwd, profile: null });
       setters.setNotice('个人资料已保存');
@@ -1198,7 +1200,7 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
   const scopeLabel = form.scope === 'global' ? '全局可用' : '这个项目';
   const scopeHint = form.scope === 'global' ? '说明：其他项目也可以使用；当前项目同名内容优先。' : '说明：只在当前项目的对话中使用。';
   const previewText = form.content || form.whenToUse || form.description || '已保存，AI 会在相关场景中使用';
-  const advancedDebugAvailable = promptAdvancedDebugEnabled();
+  const advancedDebugAvailable = optionalPromptDebugStorageEnabled();
   return (
     <FocusTrapDialog
       ariaLabel="编辑提示词"
@@ -1261,9 +1263,9 @@ async function buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPrefe
     rawInput,
     sourceType: 'user_input',
     scope,
-    provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+    provider: firstPresentText(launchPreferences?.modelProvider, launchPreferences?.provider),
     model: textValue(launchPreferences?.model),
-    codexModelProvider: textValue(launchPreferences?.codexModelProvider || launchPreferences?.config?.codexModelProvider),
+    codexModelProvider: firstPresentText(launchPreferences?.codexModelProvider, launchPreferences?.config?.codexModelProvider),
   });
 }
 
@@ -1422,14 +1424,14 @@ async function runPromptDraftCommit({ confirmGlobal, confirmRisk, cwd, draft, on
 }
 
 function promptWizardInitialState(initialDraft) {
-  const hasDraft = Boolean(initialDraft?.draftKey || initialDraft?.id || initialDraft?.card);
+  const hasDraft = Boolean(initialDraft?.draftKey) || Boolean(initialDraft?.id) || Boolean(initialDraft?.card);
   return {
     draft: hasDraft ? initialDraft : null,
     dryRunQuestion: '',
     dryRunResult: null,
     kind: initialDraft?.kind || 'expert',
     notice: '',
-    rawInput: initialDraft?.rawInput || '',
+    rawInput: textValue(initialDraft?.rawInput),
     reviewConfirmed: false,
     scope: initialDraft?.scope || 'project',
     working: '',
