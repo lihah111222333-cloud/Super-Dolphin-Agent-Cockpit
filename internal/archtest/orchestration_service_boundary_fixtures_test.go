@@ -67,31 +67,30 @@ func TestOrchestrationServiceSemanticGuardFixtures(t *testing.T) {
 }
 
 func orchestrationServiceSemanticGuardCases() []orchestrationServiceSemanticGuardCase {
-	cases := []orchestrationServiceSemanticGuardCase{allowedServiceFacadeGuardCase()}
+	cases := []orchestrationServiceSemanticGuardCase{narrowRPCFacadeGuardCase()}
 	cases = append(cases, rejectedServiceFacadeGuardCases()...)
-	cases = append(cases, allowedRPCFacadeGuardCase())
 	return append(cases, rejectedRPCFacadeGuardCases()...)
 }
 
-func facadeServiceAliases() map[string]orchestrationServiceAliasSource {
+func fullServicePackageAliases() map[string]orchestrationServiceAliasSource {
 	return map[string]orchestrationServiceAliasSource{
-		"Service": {name: "Service", relPath: orchestrationServiceFacadeRelPath, line: 39, facade: true},
+		"Service": {name: "Service", relPath: orchestrationServiceFacadeRelPath, line: 39},
 	}
 }
 
-func allowedServiceFacadeGuardCase() orchestrationServiceSemanticGuardCase {
+func narrowRPCFacadeGuardCase() orchestrationServiceSemanticGuardCase {
 	return orchestrationServiceSemanticGuardCase{
-		name:    "service facade allows only alias and interface provider return",
-		relPath: orchestrationServiceFacadeRelPath,
+		name:    "rpc facade allows narrow local interface",
+		relPath: orchestrationRPCFacadeRelPath,
 		src: `package fixture
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type rpcFacadeService interface {
+	Snapshot(ctx any, agentID string) (any, error)
+}
 
-type Service = contract.OrchestrationService
-
-type service struct{}
-
-func ProvideServiceInterface(s *service) Service { return s }
+func ProvideRPCFacade(svc rpcFacadeService) any { return nil }
+func submissionFromParams(ctx any, svc rpcFacadeService, p any) (any, error) { return nil, nil }
+func submissionThreadID(ctx any, svc rpcFacadeService, agentID string) string { return "" }
 `,
 	}
 }
@@ -307,19 +306,6 @@ var _ = func() contract.OrchestrationService { return nil }
 	}
 }
 
-func allowedRPCFacadeGuardCase() orchestrationServiceSemanticGuardCase {
-	return orchestrationServiceSemanticGuardCase{
-		name:    "rpc facade allows service parameter only from package facade alias",
-		relPath: orchestrationRPCFacadeRelPath,
-		src: `package fixture
-func ProvideRPCFacade(svc Service) any { return nil }
-func submissionFromParams(ctx any, svc Service, p any) (any, error) { return nil, nil }
-func submissionThreadID(ctx any, svc Service, agentID string) string { return "" }
-`,
-		packageAlias: facadeServiceAliases(),
-	}
-}
-
 func rejectedRPCFacadeGuardCases() []orchestrationServiceSemanticGuardCase {
 	return []orchestrationServiceSemanticGuardCase{
 		{
@@ -333,38 +319,46 @@ func ProvideRPCFacade(svc Service) any { return nil }
 			wantContains: []string{"type alias Service uses full orchestration service", "parameter svc in ProvideRPCFacade uses full orchestration service"},
 		},
 		{
-			name:         "rpc facade rejects field even with package facade alias",
+			name:         "rpc facade rejects field even with package full service alias",
 			relPath:      orchestrationRPCFacadeRelPath,
 			src:          "package fixture\ntype holder struct { service Service }\n",
-			packageAlias: facadeServiceAliases(),
+			packageAlias: fullServicePackageAliases(),
 			wantContains: []string{"field service uses full orchestration service"},
 		},
 		{
-			name:         "rpc facade rejects unexpected parameter even with package facade alias",
-			relPath:      orchestrationRPCFacadeRelPath,
-			src:          "package fixture\nfunc helper(svc Service) {}\n",
-			packageAlias: facadeServiceAliases(),
-			wantContains: []string{"parameter svc in helper uses full orchestration service"},
+			name:    "rpc facade rejects facade parameter with package full service alias",
+			relPath: orchestrationRPCFacadeRelPath,
+			src: `package fixture
+func ProvideRPCFacade(svc Service) any { return nil }
+func submissionFromParams(ctx any, svc Service, p any) (any, error) { return nil, nil }
+func submissionThreadID(ctx any, svc Service, agentID string) string { return "" }
+`,
+			packageAlias: fullServicePackageAliases(),
+			wantContains: []string{
+				"parameter svc in ProvideRPCFacade uses full orchestration service",
+				"parameter svc in submissionFromParams uses full orchestration service",
+				"parameter svc in submissionThreadID uses full orchestration service",
+			},
 		},
 		{
-			name:         "rpc facade rejects return even with package facade alias",
+			name:         "rpc facade rejects return even with package full service alias",
 			relPath:      orchestrationRPCFacadeRelPath,
 			src:          "package fixture\nfunc helper() Service { return nil }\n",
-			packageAlias: facadeServiceAliases(),
+			packageAlias: fullServicePackageAliases(),
 			wantContains: []string{"return value (anonymous) in helper uses full orchestration service"},
 		},
 		{
 			name:         "cross-file package alias does not bypass non-rpc files",
 			relPath:      "cmd/mcp-orch/orchestration/other.go",
 			src:          "package fixture\nfunc helper(svc Service) {}\n",
-			packageAlias: facadeServiceAliases(),
+			packageAlias: fullServicePackageAliases(),
 			wantContains: []string{"cmd/mcp-orch/orchestration/other.go:2 parameter svc in helper uses full orchestration service"},
 		},
 		{
 			name:         "rpc facade rejects package alias type assertion",
 			relPath:      orchestrationRPCFacadeRelPath,
 			src:          "package fixture\nfunc helper(value any) { _, _ = value.(Service) }\n",
-			packageAlias: facadeServiceAliases(),
+			packageAlias: fullServicePackageAliases(),
 			wantContains: []string{"type assertion in helper uses full orchestration service"},
 		},
 	}

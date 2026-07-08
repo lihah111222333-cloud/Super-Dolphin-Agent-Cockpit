@@ -603,7 +603,7 @@ func (e *IdempotencyKeyExhaustedError) Unwrap() error { return ErrIdempotencyKey
 var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
 
 // StartDAGRequest 与 StartDAGResponse 是 DAG 启动 RPC 的 contract 别名。
-// 别名让 service 直接满足 contract.OrchestrationService，同时避免本包复制 wire DTO。
+// 别名避免本包复制 wire DTO，不承载完整 orchestration service facade。
 type (
 	StartDAGRequest  = contract.StartDAGRequest
 	StartDAGResponse = contract.StartDAGResponse
