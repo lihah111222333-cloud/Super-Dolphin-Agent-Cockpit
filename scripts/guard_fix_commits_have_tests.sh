@@ -36,8 +36,8 @@ is_direct_test_path() {
   local path="$1"
   case "$path" in
     *_test.go|*_test.py|test_*.py) return 0 ;;
-    *.test.js|*.test.jsx|*.test.ts|*.test.tsx) return 0 ;;
-    *.spec.js|*.spec.jsx|*.spec.ts|*.spec.tsx) return 0 ;;
+    *.test.js|*.test.jsx|*.test.mjs|*.test.cjs|*.test.ts|*.test.tsx) return 0 ;;
+    *.spec.js|*.spec.jsx|*.spec.mjs|*.spec.cjs|*.spec.ts|*.spec.tsx) return 0 ;;
     tests/*|*/tests/*) return 0 ;;
   esac
   return 1

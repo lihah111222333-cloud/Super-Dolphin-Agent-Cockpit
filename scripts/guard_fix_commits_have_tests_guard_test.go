@@ -91,6 +91,24 @@ func TestGuardFixCommitsHaveTestsCached(t *testing.T) {
 	}
 }
 
+func TestFixCommitAllowsMJSFrontendRegressionTest(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	writeFixTestGuardFile(t, root, "frontend-app/scripts/ui-test-mcp-server.mjs", "export function navigate() { return true }\n")
+	writeFixTestGuardFile(t, root, "frontend-app/scripts/ui-test-mcp-server.test.mjs", "import { test } from 'vitest';\ntest('navigate waits for harness', () => {});\n")
+	runFixTestGuardGit(t, root, "add", ".")
+
+	msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+	if err := os.WriteFile(msgFile, []byte("fix: 修复 UI MCP 导航等待\n"), 0o644); err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	out, err := runFixTestGuard(t, root, "--cached", msgFile)
+	if err != nil {
+		t.Fatalf("guard rejected mjs frontend regression test: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "fix-test guard OK")
+}
+
 func TestGuardFixCommitsHaveTestsRange(t *testing.T) {
 	t.Run("rejects pushed fix commit without test", func(t *testing.T) {
 		root := prepareFixTestGuardRepo(t)

@@ -523,7 +523,16 @@ function classifyDomain(file) {
 function classifyType(file) {
   if (file.endsWith('_test.go')) return 'go-test';
   if (file.endsWith('.go')) return 'go-source';
-  if (file.endsWith('.test.js') || file.endsWith('.spec.js') || file.endsWith('.test.ts') || file.endsWith('.spec.ts')) return 'js-test';
+  if (
+    file.endsWith('.test.js') ||
+    file.endsWith('.spec.js') ||
+    file.endsWith('.test.mjs') ||
+    file.endsWith('.spec.mjs') ||
+    file.endsWith('.test.cjs') ||
+    file.endsWith('.spec.cjs') ||
+    file.endsWith('.test.ts') ||
+    file.endsWith('.spec.ts')
+  ) return 'js-test';
   if (file.endsWith('.js') || file.endsWith('.cjs') || file.endsWith('.mjs')) return 'js-source';
   if (file.endsWith('.ts') || file.endsWith('.tsx')) return 'ts-source';
   if (file.endsWith('.vue')) return 'vue-source';
