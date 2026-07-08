@@ -94,7 +94,7 @@ frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	823
 frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	58264	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	22643	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
 frontend-app/src/main.jsx	frontend-app	app-ui	jsx	2646	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
-frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16826	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
+frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.js	frontend-app	app-ui	js-source	7112	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.test.js	frontend-app	app-ui	js-test	2777	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewMetaAdapter.js	frontend-app	app-ui	js-source	1066	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewMetaAdapter,React,页面与路由级,UI
@@ -217,7 +217,7 @@ frontend-app/src/pages/observability/ObservabilityPage.test.jsx	frontend-app	app
 frontend-app/src/pages/observability/services/observabilityPageService.js	frontend-app	app-ui	js-source	2483	React 页面与路由级 UI	frontend,app,src,pages,observability,services,observabilityPageService,React,页面与路由级,UI
 frontend-app/src/pages/observability/services/observabilityPageService.test.js	frontend-app	app-ui	js-test	3880	React 页面与路由级 UI	frontend,app,src,pages,observability,services,observabilityPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/pageSurfaceManifest.js	frontend-app	app-ui	js-source	2827	React 页面与路由级 UI	frontend,app,src,pages,pageSurfaceManifest,React,页面与路由级,UI
-frontend-app/src/pages/pageSurfaceManifest.test.js	frontend-app	app-ui	js-test	13523	React 页面与路由级 UI	frontend,app,src,pages,pageSurfaceManifest,test,React,页面与路由级,UI
+frontend-app/src/pages/pageSurfaceManifest.test.js	frontend-app	app-ui	js-test	13506	React 页面与路由级 UI	frontend,app,src,pages,pageSurfaceManifest,test,React,页面与路由级,UI
 frontend-app/src/pages/prompts/PromptPage.jsx	frontend-app	app-ui	jsx	455	React 页面与路由级 UI	frontend,app,src,pages,prompts,PromptPage,React,页面与路由级,UI
 frontend-app/src/pages/prompts/services/promptPageService.js	frontend-app	app-ui	js-source	5997	React 页面与路由级 UI	frontend,app,src,pages,prompts,services,promptPageService,React,页面与路由级,UI
 frontend-app/src/pages/prompts/services/promptPageService.test.js	frontend-app	app-ui	js-test	10153	React 页面与路由级 UI	frontend,app,src,pages,prompts,services,promptPageService,test,React,页面与路由级,UI

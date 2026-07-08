@@ -29,10 +29,15 @@ func TestOptionalDependencyBoundary(t *testing.T) {
 	occurrences := scanOptionalDependencyOccurrences(t, optionalDependencyRepoRoot(t))
 	classifications := registeredOptionalDependencyClassifications()
 	var unclassified []string
+	var missingAudit []string
 	for _, occurrence := range occurrences {
 		classification, ok := classifications[occurrence.key()]
 		if !ok {
 			unclassified = append(unclassified, occurrence.String())
+			continue
+		}
+		if violation := classification.auditViolation(occurrence); violation != "" {
+			missingAudit = append(missingAudit, violation)
 			continue
 		}
 		if classification.category != optionalDependencyAbsence {
@@ -45,6 +50,10 @@ func TestOptionalDependencyBoundary(t *testing.T) {
 	if len(unclassified) > 0 {
 		sort.Strings(unclassified)
 		t.Fatalf("unclassified optional dependency boundaries:\n%s", strings.Join(unclassified, "\n"))
+	}
+	if len(missingAudit) > 0 {
+		sort.Strings(missingAudit)
+		t.Fatalf("optional dependency classifications missing audit evidence:\n%s", strings.Join(missingAudit, "\n"))
 	}
 }
 
@@ -67,71 +76,122 @@ type optionalDependencyClassification struct {
 	category   optionalDependencyCategory
 	dependency string
 	profile    contract.DependencyProfile
+	owner      string
+	evidence   string
+}
+
+func (c optionalDependencyClassification) auditViolation(occurrence optionalDependencyOccurrence) string {
+	if strings.TrimSpace(string(c.category)) == "" {
+		return occurrence.String() + " classification category is empty"
+	}
+	if strings.TrimSpace(c.owner) == "" {
+		return occurrence.String() + " owner is empty"
+	}
+	if strings.TrimSpace(c.evidence) == "" {
+		return occurrence.String() + " evidence is empty"
+	}
+	if !strings.Contains(c.evidence, occurrence.RelPath) {
+		return occurrence.String() + " evidence must reference source path " + occurrence.RelPath
+	}
+	if c.category == optionalDependencyAbsence {
+		if strings.TrimSpace(c.dependency) == "" {
+			return occurrence.String() + " dependency_absence dependency is empty"
+		}
+		if strings.TrimSpace(string(c.profile)) == "" {
+			return occurrence.String() + " dependency_absence profile is empty"
+		}
+		return ""
+	}
+	if strings.TrimSpace(c.dependency) != "" || strings.TrimSpace(string(c.profile)) != "" {
+		return occurrence.String() + " non-policy optional classification must not carry dependency policy fields"
+	}
+	return ""
 }
 
 func registeredOptionalDependencyClassifications() map[string]optionalDependencyClassification {
-	classify := func(category optionalDependencyCategory) optionalDependencyClassification {
-		return optionalDependencyClassification{category: category}
+	classify := func(category optionalDependencyCategory, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: category, owner: owner, evidence: evidence}
 	}
-	dependency := func(name string, profile contract.DependencyProfile) optionalDependencyClassification {
-		return optionalDependencyClassification{category: optionalDependencyAbsence, dependency: name, profile: profile}
+	dependency := func(name string, profile contract.DependencyProfile, owner, evidence string) optionalDependencyClassification {
+		return optionalDependencyClassification{category: optionalDependencyAbsence, dependency: name, profile: profile, owner: owner, evidence: evidence}
+	}
+	appAdjunct := func(path, evidence string) optionalDependencyClassification {
+		return classify(optionalAdjunct, "internal/app", path+": "+evidence)
+	}
+	appDependency := func(path, name string, profile contract.DependencyProfile, evidence string) optionalDependencyClassification {
+		return dependency(name, profile, "internal/app", path+": "+evidence)
+	}
+	threadAdjunct := func(path, evidence string) optionalDependencyClassification {
+		return classify(optionalAdjunct, "internal/module/thread", path+": "+evidence)
+	}
+	threadDependency := func(path, name string, profile contract.DependencyProfile, evidence string) optionalDependencyClassification {
+		return dependency(name, profile, "internal/module/thread", path+": "+evidence)
+	}
+	toolbridgeAdjunct := func(path, evidence string) optionalDependencyClassification {
+		return classify(optionalAdjunct, "internal/platform/toolbridge", path+": "+evidence)
+	}
+	toolbridgeDependency := func(path, name string, profile contract.DependencyProfile, evidence string) optionalDependencyClassification {
+		return dependency(name, profile, "internal/platform/toolbridge", path+": "+evidence)
+	}
+	providerAdjunct := func(path, owner, evidence string) optionalDependencyClassification {
+		return classify(optionalAdjunct, owner, path+": "+evidence)
 	}
 	return map[string]optionalDependencyClassification{
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Service":    dependency("runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Logger":     classify(optionalAdjunct),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Dependency": classify(optionalAdjunct),
-		"internal/app/runtime_reporter_adapter.go:optional_tag:Config":     classify(optionalAdjunct),
-		"internal/app/runner.go:optional_tag:RootCtx":                      classify(optionalAdjunct),
-		"internal/app/runner.go:optional_tag:Lifecycle":                    classify(optionalAdjunct),
-		"internal/app/runner.go:optional_tag:ExtractionDrainer":            classify(optionalAdjunct),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Service":    appDependency("internal/app/runtime_reporter_adapter.go", "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost, "newRuntimeReporter gates absent orchestration service through dependency policy before desktopExternalRuntimeReporter"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Logger":     appAdjunct("internal/app/runtime_reporter_adapter.go", "desktopExternalRuntimeReporter uses logger only for debug diagnostics"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Dependency": appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the mode-aware policy from Dependency or Config"),
+		"internal/app/runtime_reporter_adapter.go:optional_tag:Config":     appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the fallback dependency profile from Config"),
+		"internal/app/runner.go:optional_tag:RootCtx":                      appAdjunct("internal/app/runner.go", "BindRuntime validates runtime pre-drain ownership before accepting nil-adjacent root context behavior"),
+		"internal/app/runner.go:optional_tag:Lifecycle":                    appAdjunct("internal/app/runner.go", "reportRuntimeExit treats Wails lifecycle as notification-only adjunct"),
+		"internal/app/runner.go:optional_tag:ExtractionDrainer":            appAdjunct("internal/app/runner.go", "registerRuntimePreDrain fail-fast requires the drainer before production runtime stop hooks run"),
 
-		"internal/app/thread_orchestration_adapter.go:typed_unsupported:thread.bind_session_generation": dependency("thread.bind_session_generation", contract.DependencyProfileDesktopHost),
-		"internal/app/thread_orchestration_adapter.go:noop_success:LaunchAgent":                         classify(optionalAdjunct),
+		"internal/app/thread_orchestration_adapter.go:typed_unsupported:thread.bind_session_generation": appDependency("internal/app/thread_orchestration_adapter.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration returns MissingDependencyModeError under desktop-host facade mode"),
+		"internal/app/thread_orchestration_adapter.go:noop_success:LaunchAgent":                         appAdjunct("internal/app/thread_orchestration_adapter.go", "LaunchAgent is a documented no-op because thread Start/SpawnIfNeeded owns local provider session launch"),
 
-		"internal/module/thread/lifecycle.go:typed_unsupported:thread.bind_session_generation": dependency("thread.bind_session_generation", contract.DependencyProfileDesktopHost),
-		"internal/module/thread/module.go:optional_tag:Store":                                  classify(optionalAdjunct),
-		"internal/module/thread/module.go:optional_tag:Catalog":                                classify(optionalAdjunct),
-		"internal/module/thread/module.go:optional_tag:Registrar":                              classify(optionalAdjunct),
-		"internal/module/thread/module.go:optional_tag:PromptStore":                            classify(optionalAdjunct),
-		"internal/module/thread/module.go:optional_tag:Builtin":                                classify(optionalAdjunct),
-		"internal/module/thread/module.go:optional_tag:PromptCatalog":                          classify(optionalAdjunct),
+		"internal/module/thread/lifecycle.go:typed_unsupported:thread.bind_session_generation": threadDependency("internal/module/thread/lifecycle.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration propagates MissingDependencyModeError for profiles without session-generation binding"),
+		"internal/module/thread/module.go:optional_tag:Store":                                  threadAdjunct("internal/module/thread/module.go", "store port adapters preserve Fx closure while service methods fail-fast when missing"),
+		"internal/module/thread/module.go:optional_tag:Catalog":                                threadAdjunct("internal/module/thread/module.go", "catalog injection is a prompt assembly adjunct covered by runtime catalog construction"),
+		"internal/module/thread/module.go:optional_tag:Registrar":                              threadAdjunct("internal/module/thread/module.go", "thread prompt registration tolerates nil registrar as no-op registration boundary"),
+		"internal/module/thread/module.go:optional_tag:PromptStore":                            threadAdjunct("internal/module/thread/module.go", "runtime prompt catalog can be built with nil store for test and desktop fallback surfaces"),
+		"internal/module/thread/module.go:optional_tag:Builtin":                                threadAdjunct("internal/module/thread/module.go", "runtime prompt catalog treats builtin prompt registry as adjunct input"),
+		"internal/module/thread/module.go:optional_tag:PromptCatalog":                          threadAdjunct("internal/module/thread/module.go", "registerThreadPromptProviders synthesizes catalog from PromptStore/Builtin when omitted"),
 
-		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.agent_thread_lookup":          dependency("toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost),
-		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.thread_config_override_store": dependency("toolbridge.thread_config_override_store", contract.DependencyProfileDesktopHost),
-		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.lifecycle_backfiller":         dependency("toolbridge.lifecycle_backfiller", contract.DependencyProfileTest),
-		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.skill_tools":                  dependency("toolbridge.skill_tools", contract.DependencyProfileTest),
-		"internal/platform/toolbridge/module.go:optional_tag:Resolver":                                      classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:BindingStore":                                  dependency("toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost),
-		"internal/platform/toolbridge/module.go:optional_tag:ThreadStore":                                   dependency("toolbridge.thread_config_override_store", contract.DependencyProfileDesktopHost),
-		"internal/platform/toolbridge/module.go:optional_tag:Preferences":                                   classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Config":                                        classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Logger":                                        classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Tracer":                                        classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Dispatcher":                                    classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Lifecycle":                                     dependency("toolbridge.lifecycle_backfiller", contract.DependencyProfileTest),
-		"internal/platform/toolbridge/module.go:optional_tag:HostTools":                                     classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:SkillTools":                                    dependency("toolbridge.skill_tools", contract.DependencyProfileTest),
-		"internal/platform/toolbridge/module.go:optional_tag:Reader":                                        classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Writer":                                        classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:History":                                       classify(optionalAdjunct),
-		"internal/platform/toolbridge/module.go:optional_tag:Templates":                                     classify(optionalAdjunct),
+		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.agent_thread_lookup":          toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost, "validateToolbridgeDependencies maps missing BindingStore to typed dependency policy outside production"),
+		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.thread_config_override_store": toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.thread_config_override_store", contract.DependencyProfileDesktopHost, "validateToolbridgeDependencies maps missing ThreadStore to typed dependency policy outside production"),
+		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.lifecycle_backfiller":         toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.lifecycle_backfiller", contract.DependencyProfileTest, "validateToolbridgeDependencies maps missing lifecycle backfiller to test-only typed policy"),
+		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.skill_tools":                  toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.skill_tools", contract.DependencyProfileTest, "validateToolbridgeDependencies maps missing skill tools to test-only typed policy"),
+		"internal/platform/toolbridge/module.go:optional_tag:Resolver":                                      toolbridgeAdjunct("internal/platform/toolbridge/module.go", "validateToolbridgeDependencies in handler.go requires workdir resolver in production"),
+		"internal/platform/toolbridge/module.go:optional_tag:BindingStore":                                  toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost, "handler.go validates BindingStore before Handler construction"),
+		"internal/platform/toolbridge/module.go:optional_tag:ThreadStore":                                   toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.thread_config_override_store", contract.DependencyProfileDesktopHost, "handler.go validates ThreadStore before Handler construction"),
+		"internal/platform/toolbridge/module.go:optional_tag:Preferences":                                   toolbridgeAdjunct("internal/platform/toolbridge/module.go", "validateToolbridgeDependencies in handler.go requires preferences in production"),
+		"internal/platform/toolbridge/module.go:optional_tag:Config":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideToolbridgeDependencyConfig requires config and dependency profile before Handler"),
+		"internal/platform/toolbridge/module.go:optional_tag:Logger":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "logger is diagnostic-only and NewHandler falls back to package logger"),
+		"internal/platform/toolbridge/module.go:optional_tag:Tracer":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "tracer is observability adjunct and not a tool execution dependency"),
+		"internal/platform/toolbridge/module.go:optional_tag:Dispatcher":                                    toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideDiffEmitter fails construction when dispatcher is nil"),
+		"internal/platform/toolbridge/module.go:optional_tag:Lifecycle":                                     toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.lifecycle_backfiller", contract.DependencyProfileTest, "handler.go validates lifecycle backfiller before toolbridge startup"),
+		"internal/platform/toolbridge/module.go:optional_tag:HostTools":                                     toolbridgeAdjunct("internal/platform/toolbridge/module.go", "validateToolbridgeDependencies in handler.go requires host tools in production"),
+		"internal/platform/toolbridge/module.go:optional_tag:SkillTools":                                    toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.skill_tools", contract.DependencyProfileTest, "handler.go validates skill tools before exposing toolbridge"),
+		"internal/platform/toolbridge/module.go:optional_tag:Reader":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips memory read registry when capability is absent"),
+		"internal/platform/toolbridge/module.go:optional_tag:Writer":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips memory write registry when capability is absent"),
+		"internal/platform/toolbridge/module.go:optional_tag:History":                                       toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips history registry when status port is absent"),
+		"internal/platform/toolbridge/module.go:optional_tag:Templates":                                     toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips workflow template registry when template registry is absent"),
 
-		"internal/provider/claudecli/module.go:optional_tag:Dependency": classify(optionalAdjunct),
-		"internal/provider/claudecli/module.go:optional_tag:Config":     classify(optionalAdjunct),
-		"internal/provider/claudecli/module.go:optional_tag:Recovery":   classify(optionalAdjunct),
-		"internal/provider/claudecli/module.go:optional_tag:Tracer":     classify(optionalAdjunct),
+		"internal/provider/claudecli/module.go:optional_tag:Dependency": providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "newModeAwareRuntimeReporter requires an explicit dependency profile from Dependency or Config"),
+		"internal/provider/claudecli/module.go:optional_tag:Config":     providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "dependencyProfileFromFactoryParams uses Config only to resolve profile"),
+		"internal/provider/claudecli/module.go:optional_tag:Recovery":   providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "Recovery is passed to driver as an optional replay reporter"),
+		"internal/provider/claudecli/module.go:optional_tag:Tracer":     providerAdjunct("internal/provider/claudecli/module.go", "internal/provider/claudecli", "Tracer is observability-only and firstClaudeTracer handles nil"),
 
-		"internal/provider/codexapp/module.go:optional_tag:Dependency":  classify(optionalAdjunct),
-		"internal/provider/codexapp/module.go:optional_tag:Config":      classify(optionalAdjunct),
-		"internal/provider/codexapp/module.go:optional_tag:Recovery":    classify(optionalAdjunct),
-		"internal/provider/codexapp/module.go:optional_tag:Logger":      classify(optionalAdjunct),
-		"internal/provider/codexapp/module.go:optional_tag:PIDRegistry": classify(optionalAdjunct),
+		"internal/provider/codexapp/module.go:optional_tag:Dependency":  providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "newModeAwareRuntimeReporter requires an explicit dependency profile from Dependency or Config"),
+		"internal/provider/codexapp/module.go:optional_tag:Config":      providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "dependencyProfileFromFactoryParams uses Config only to resolve profile"),
+		"internal/provider/codexapp/module.go:optional_tag:Recovery":    providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "Recovery is optional session recovery reporting for transport reconnects"),
+		"internal/provider/codexapp/module.go:optional_tag:Logger":      providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "logger is diagnostic-only for driver factory and server manager"),
+		"internal/provider/codexapp/module.go:optional_tag:PIDRegistry": providerAdjunct("internal/provider/codexapp/module.go", "internal/provider/codexapp", "server manager and transport spawner tolerate nil pid registry without masking pool errors"),
 
-		"internal/provider/unified/module.go:optional_tag:Logger":        classify(optionalAdjunct),
-		"internal/provider/unified/module.go:optional_tag:Tracer":        classify(optionalAdjunct),
-		"internal/provider/unified/module.go:optional_tag:ThreadStore":   classify(optionalAdjunct),
-		"internal/provider/unified/module.go:optional_tag:BindingStore":  classify(optionalAdjunct),
-		"internal/provider/unified/module.go:optional_tag:BindingWriter": classify(optionalAdjunct),
+		"internal/provider/unified/module.go:optional_tag:Logger":        providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "logger is diagnostic-only for client and dream executor"),
+		"internal/provider/unified/module.go:optional_tag:Tracer":        providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "tracer is observability-only for unified client"),
+		"internal/provider/unified/module.go:optional_tag:ThreadStore":   providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "session resolver treats thread lookup as optional cross-module recovery surface"),
+		"internal/provider/unified/module.go:optional_tag:BindingStore":  providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "session resolver treats binding lookup as optional cross-module recovery surface"),
+		"internal/provider/unified/module.go:optional_tag:BindingWriter": providerAdjunct("internal/provider/unified/module.go", "internal/provider/unified", "session resolver treats binding writer as optional cross-module recovery surface"),
 	}
 }
 

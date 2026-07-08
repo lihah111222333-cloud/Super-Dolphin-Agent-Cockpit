@@ -250,8 +250,8 @@ describe('page surface manifest', () => {
       if (surface.ownershipMode === 'dto-golden') {
         if (!hasDtoGoldenTest || !surface.dtoGoldenTest) {
           violations.push(`${feature} is dto-golden without dtoGoldenTest`);
-        } else if (!surface.dtoGoldenTest.startsWith(surface.servicePrefix) || !surface.dtoGoldenTest.endsWith('.test.js')) {
-          violations.push(`${feature} dtoGoldenTest must live beside its feature service`);
+        } else if (surface.dtoGoldenTest !== sharedDtoGoldenTest || !surface.dtoGoldenTest.endsWith('.test.js')) {
+          violations.push(`${feature} dtoGoldenTest must be ${sharedDtoGoldenTest}`);
         } else if (!exists(surface.dtoGoldenTest)) {
           violations.push(`${feature} dtoGoldenTest does not exist: ${surface.dtoGoldenTest}`);
         }

@@ -53,13 +53,6 @@ func resumeTemplateContractSession(_ context.Context, req dto.ResumeSessionReque
 	return newTemplateContractSession(threadID), nil
 }
 
-func templateEventMatrixContractCase() contracttest.Case {
-	return contracttest.Case{Name: "event translation matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
-		t.Helper()
-		t.Fatal("replace templateEventMatrixContractCase with provider event category snapshot matrix")
-	}}
-}
-
 func templateEventTranslationContractCase() contracttest.Case {
 	return contracttest.Case{Name: "event translation", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
@@ -80,7 +73,7 @@ func translateTemplateEvent(raw dto.RawProviderEvent, emit func(any)) {
 		panic("template event data must be map[string]any")
 	}
 	emit(map[string]any{
-		"type":      raw.EventType,
+		"type":     raw.EventType,
 		"threadId": data["threadId"],
 		"agentId":  data["agentId"],
 		"turnId":   data["turnId"],

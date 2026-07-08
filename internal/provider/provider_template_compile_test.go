@@ -21,33 +21,20 @@ func TestRenderedTemplateAcceptanceCriteriaDeclared(t *testing.T) {
 }
 
 func TestRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
-	dir := renderPreparedProviderTemplatePackage(t)
-	out := runTemplateCommandExpectFailure(t, dir, "go", "test", "./...", "-run", "^TestTemplateProviderContract$", "-count=1")
-	if !strings.Contains(out, "replace templateEventTranslationContractCase") {
-		t.Fatalf("rendered provider contract failure missing actionable placeholder message:\n%s", out)
-	}
-}
-
-func renderPreparedProviderTemplatePackage(t *testing.T) string {
-	t.Helper()
-	dir := renderProviderTemplatePackage(t)
-	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go", "template_placeholder_probe_test.go")
-	runTemplateCommand(t, dir, "go", "mod", "tidy")
-	runTemplateCommand(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplate(ProductionOmissions|ModuleGraph|AcceptanceCriteriaDeclared)$", "-count=1")
-	t.Run("rendered acceptance placeholders fail", assertRenderedTemplateAcceptancePlaceholdersFail)
-}
-
-func TestRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
 	assertRenderedTemplateAcceptancePlaceholdersFail(t)
 }
 
 func assertRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
 	t.Helper()
-	dir := renderProviderTemplatePackage(t)
-	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go", "template_placeholder_probe_test.go")
-	runTemplateCommand(t, dir, "go", "mod", "tidy")
+	dir := renderPreparedProviderTemplatePackage(t)
 
-	output := runTemplateCommandWantError(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplatePlaceholderFailures$", "-count=1")
+	contractOutput := runTemplateCommandWantError(t, dir, "go", "test", "./...", "-run", "^TestTemplateProviderContract$", "-count=1")
+	if !strings.Contains(contractOutput, "replace templateEventTranslationContractCase") ||
+		!strings.Contains(contractOutput, "provider raw-event capture and translator evidence") {
+		t.Fatalf("rendered provider contract failure missing actionable placeholder message:\n%s", contractOutput)
+	}
+
+	probeOutput := runTemplateCommandWantError(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplatePlaceholderFailures$", "-count=1")
 	for _, want := range []string{
 		"replace templateEventTranslationContractCase",
 		"provider raw-event capture and translator evidence",
@@ -68,10 +55,18 @@ func assertRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
 		"replace templateRuntimeReportContractCase",
 		"provider runtime reporter capture",
 	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("rendered provider contract output missing %q:\n%s", want, output)
+		if !strings.Contains(probeOutput, want) {
+			t.Fatalf("rendered provider contract output missing %q:\n%s", want, probeOutput)
 		}
 	}
+}
+
+func renderPreparedProviderTemplatePackage(t *testing.T) string {
+	t.Helper()
+	dir := renderProviderTemplatePackage(t)
+	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go", "template_placeholder_probe_test.go")
+	runTemplateCommand(t, dir, "go", "mod", "tidy")
+	return dir
 }
 
 func renderProviderTemplatePackage(t *testing.T) string {
@@ -159,19 +154,6 @@ func runTemplateCommandOutput(dir, name string, args ...string) (string, error) 
 	cmd.Stderr = &out
 	err := cmd.Run()
 	return out.String(), err
-}
-
-func runTemplateCommandExpectFailure(t *testing.T, dir, name string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err == nil {
-		t.Fatalf("%s %s succeeded, want failure\n%s", name, strings.Join(args, " "), out.String())
-	}
-	return out.String()
 }
 
 const renderedTemplateStubs = `package template
@@ -262,34 +244,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
 )
-
-func TestRenderedTemplateAcceptanceCriteriaDeclared(t *testing.T) {
-	spec := CompleteTemplateContractSpec()
-	if err := contracttest.ValidateAcceptanceSpec(spec); err != nil {
-		t.Fatalf("ValidateAcceptanceSpec() error = %v", err)
-	}
-	required := []contracttest.CaseKey{
-		contracttest.CaseEventMatrix,
-		contracttest.CaseApproval,
-		contracttest.CaseInterrupt,
-		contracttest.CaseForceComplete,
-		contracttest.CaseResume,
-		contracttest.CaseToolbridge,
-		contracttest.CaseRuntimeReport,
-	}
-	for _, key := range required {
-		if _, ok := spec.RequiredCases[key]; !ok {
-			t.Fatalf("template contract spec missing required case %s", key)
-		}
-	}
-	if _, ok := spec.RequiredCases[contracttest.CasePromptParity]; ok {
-		return
-	}
-	if _, ok := spec.RequiredCases[contracttest.CasePromptMaterializedCarrier]; ok {
-		return
-	}
-	t.Fatalf("template contract spec missing prompt case: want %s or %s", contracttest.CasePromptParity, contracttest.CasePromptMaterializedCarrier)
-}
 
 func TestRenderedTemplateProductionOmissions(t *testing.T) {
 	cases := []struct {

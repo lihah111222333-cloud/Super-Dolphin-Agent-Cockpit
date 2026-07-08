@@ -119,16 +119,6 @@ func allToolbridgeDependencyNamesForTest() []string {
 	}
 }
 
-func toolbridgeDependencyAbsencePolicyNamesForTest(profile contract.DependencyProfile) map[string]bool {
-	names := map[string]bool{}
-	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
-		if policy.Profile == profile && strings.HasPrefix(policy.Name, "toolbridge.") {
-			names[policy.Name] = true
-		}
-	}
-	return names
-}
-
 func mustNewToolbridgeDependencyHandler(t *testing.T) *Handler {
 	t.Helper()
 	h, err := NewHandler(toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn())

@@ -272,8 +272,8 @@ describe('backend API consumer guardrails', () => {
       import { upsertMemoryEntry } from '../memory/services/memoryPageService.js';
       import { workflowOrderedNodes } from '../workflows/adapters/workflowDisplayAdapter.js';
     `)).toEqual([
-      'pages/files/FilesPage.jsx imports memory services via ../memory/services/memoryPageService.js',
-      'pages/files/FilesPage.jsx imports workflows adapters via ../workflows/adapters/workflowDisplayAdapter.js',
+      'pages/files/FilesPage.jsx imports memory surface ../memory/services/memoryPageService.js',
+      'pages/files/FilesPage.jsx imports workflows surface ../workflows/adapters/workflowDisplayAdapter.js',
     ]);
   });
 

@@ -60,16 +60,6 @@ func TestDependencyContractTypedUnsupported(t *testing.T) {
 	}
 }
 
-func appDependencyAbsencePolicyNamesForTest(profile contract.DependencyProfile) []string {
-	var names []string
-	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
-		if policy.Profile == profile && policy.Owner == "internal/app" {
-			names = append(names, policy.Name)
-		}
-	}
-	return names
-}
-
 func TestNewRuntimeReporterFailsInProductionWithoutOrchestrationService(t *testing.T) {
 	_, err := newRuntimeReporter(runtimeReporterParams{
 		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileProduction},
