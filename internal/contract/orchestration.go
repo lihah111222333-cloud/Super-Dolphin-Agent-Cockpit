@@ -69,6 +69,16 @@ type DAGCreateRuntime interface {
 	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
 }
 
+// DAGNodeStatusRuntime 是 DAG runtime node 状态更新的最小写入边界。
+type DAGNodeStatusRuntime interface {
+	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
+}
+
+// DAGNodeDispatchRuntime 是 DAG runtime node 手动派发的最小写入边界。
+type DAGNodeDispatchRuntime interface {
+	DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
+}
+
 // AgentLifecyclePort 是 agent 生命周期工具和适配器应优先消费的窄端口。
 type AgentLifecyclePort interface {
 	LaunchAgent(ctx context.Context, req LaunchRequest) error

@@ -159,13 +159,20 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 type newRegistryParams struct {
 	fx.In
 
-	Orchestration  contract.OrchestrationService
-	WS             workspace.Service
-	Prompt         promptstore.Store
-	BuiltinPrompts contract.BuiltinPromptRegistry
-	Command        commandcardstore.Store
-	SharedFile     sharedfilestore.Store
-	ModelRegistry  modelregistry.Registry
+	AgentLifecycle  contract.AgentLifecyclePort
+	AgentReports    contract.AgentReportPort
+	TurnSubmission  contract.TurnSubmissionPort
+	DAGCreate       contract.DAGCreateRuntime
+	DAGRuntime      contract.DAGRuntime
+	DAGDelete       contract.DAGDeleteRuntime
+	DAGNodeStatus   contract.DAGNodeStatusRuntime
+	DAGNodeDispatch contract.DAGNodeDispatchRuntime
+	WS              workspace.Service
+	Prompt          promptstore.Store
+	BuiltinPrompts  contract.BuiltinPromptRegistry
+	Command         commandcardstore.Store
+	SharedFile      sharedfilestore.Store
+	ModelRegistry   modelregistry.Registry
 }
 
 // newModelRegistry 创建模型注册表，失败时报错阻断启动。
@@ -185,7 +192,7 @@ func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
 // newRegistry 汇总 orchestration、workspace、prompt 等依赖并注册 MCP tools。
 func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
-		ToolPorts:      toolPortsFromOrchestration(p.Orchestration),
+		ToolPorts:      toolPortsFromRegistryParams(p),
 		Workspace:      p.WS,
 		Prompt:         p.Prompt,
 		BuiltinPrompts: p.BuiltinPrompts,
@@ -195,23 +202,64 @@ func newRegistry(p newRegistryParams) tools.Registry {
 	})
 }
 
-func toolPortsFromOrchestration(svc contract.OrchestrationService) tools.ToolPorts {
+// agentMessengerPorts 组合 send_message 需要的生命周期、报告等待和 turn 提交端口。
+type agentMessengerPorts struct {
+	contract.AgentLifecyclePort
+	contract.AgentReportPort
+	contract.TurnSubmissionPort
+}
+
+// agentListPorts 组合 list_agents 需要的快照读取和报告读取端口。
+type agentListPorts struct {
+	contract.AgentLifecyclePort
+	contract.AgentReportPort
+}
+
+// toolPortsFromRegistryParams 把 fx 注入的 contract 窄口装配为工具 registry 的端口集合。
+func toolPortsFromRegistryParams(p newRegistryParams) tools.ToolPorts {
 	return tools.ToolPorts{
-		AgentLaunch:            svc,
-		AgentMessenger:         svc,
-		AgentLifecycle:         svc,
-		AgentRecovery:          svc,
-		AgentInterrupt:         svc,
-		AgentList:              svc,
-		AgentReports:           svc,
-		DAGCreate:              svc,
-		DAGRuntime:             svc,
-		DAGDelete:              svc,
-		NodeStatus:             svc,
-		NodeDispatch:           svc,
-		WorkflowDiagnostics:    svc,
-		WorkflowRecovery:       svc,
-		DAGIdentityDiagnostics: svc,
+		AgentLaunch:            p.AgentLifecycle,
+		AgentMessenger:         newAgentMessengerPorts(p.AgentLifecycle, p.AgentReports, p.TurnSubmission),
+		AgentLifecycle:         p.AgentLifecycle,
+		AgentRecovery:          p.AgentLifecycle,
+		AgentInterrupt:         p.AgentLifecycle,
+		AgentList:              newAgentListPorts(p.AgentLifecycle, p.AgentReports),
+		AgentReports:           p.AgentReports,
+		DAGCreate:              p.DAGCreate,
+		DAGRuntime:             p.DAGRuntime,
+		DAGDelete:              p.DAGDelete,
+		NodeStatus:             p.DAGNodeStatus,
+		NodeDispatch:           p.DAGNodeDispatch,
+		WorkflowDiagnostics:    p.DAGRuntime,
+		WorkflowRecovery:       p.DAGRuntime,
+		DAGIdentityDiagnostics: p.DAGRuntime,
+	}
+}
+
+// newAgentMessengerPorts 在依赖完整时返回 send_message 端口组合，缺失时保持 nil 以复用工具层 fail-fast。
+func newAgentMessengerPorts(
+	lifecycle contract.AgentLifecyclePort,
+	reports contract.AgentReportPort,
+	turns contract.TurnSubmissionPort,
+) *agentMessengerPorts {
+	if lifecycle == nil || reports == nil || turns == nil {
+		return nil
+	}
+	return &agentMessengerPorts{
+		AgentLifecyclePort: lifecycle,
+		AgentReportPort:    reports,
+		TurnSubmissionPort: turns,
+	}
+}
+
+// newAgentListPorts 在依赖完整时返回 list_agents 端口组合，缺失时保持 nil 以复用工具层 fail-fast。
+func newAgentListPorts(lifecycle contract.AgentLifecyclePort, reports contract.AgentReportPort) *agentListPorts {
+	if lifecycle == nil || reports == nil {
+		return nil
+	}
+	return &agentListPorts{
+		AgentLifecyclePort: lifecycle,
+		AgentReportPort:    reports,
 	}
 }
 
