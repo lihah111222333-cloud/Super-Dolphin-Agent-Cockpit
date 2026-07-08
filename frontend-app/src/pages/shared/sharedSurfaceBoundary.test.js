@@ -3,7 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseStaticImports } from '../../test-utils/importAst.js';
-import { importSpecifiers } from '../importSurfaceGuard.test-helper.js';
+import {
+  COMPUTED_VITEST_MODULE_MOCK,
+  importSpecifiers,
+  NON_LITERAL_DYNAMIC_IMPORT,
+  NON_LITERAL_REQUIRE,
+} from '../importSurfaceGuard.test-helper.js';
 import { pageSurfaceManifest } from '../pageSurfaceManifest.js';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -12,10 +17,29 @@ const appShellBackendApiAllowlist = new Set([
   'getSidebarState',
   'installLatestAppUpdate',
 ]);
-const manifestServiceEntries = new Set(Object.values(pageSurfaceManifest).map((surface) => surface.serviceEntry));
+const ownerlessFeatureSurfaceImportAllowlist = new Map([
+  ['App.jsx', new Set([
+    'pages/chat/adapters/threadStateAdapter.js',
+    'pages/memory/services/memoryPageService.js',
+  ])],
+  ['pages/shared/pageShared.js', new Set([
+    'pages/memory/services/memoryPageService.js',
+  ])],
+]);
 
 function read(relPath) {
   return fs.readFileSync(path.join(sourceRoot, relPath), 'utf8');
+}
+
+function resolveImportSpecifier(relativePath, specifier) {
+  if (!specifier.startsWith('.')) return specifier;
+  return path.normalize(path.join(path.dirname(relativePath), specifier)).split(path.sep).join('/');
+}
+
+function collectSourceFiles(dir) {
+  const files = [];
+  walk(path.join(sourceRoot, dir), files);
+  return files;
 }
 
 function walk(dir, files) {
@@ -34,65 +58,83 @@ function rel(filePath) {
   return path.relative(sourceRoot, filePath).split(path.sep).join('/');
 }
 
-function resolveImportSpecifier(relativePath, specifier) {
-  if (!specifier.startsWith('.')) return specifier;
-  return path.normalize(path.join(path.dirname(relativePath), specifier)).split(path.sep).join('/');
+function appShellBackendApiViolations() {
+  return parseStaticImports(read('App.jsx'), 'App.jsx')
+    .filter((entry) => entry.specifier.includes('shared/api/backendApi'))
+    .filter((entry) => entry.kind !== 'named' || !appShellBackendApiAllowlist.has(entry.imported))
+    .map((entry) => `App.jsx imports unowned app-shell backend API ${entry.imported}`);
 }
 
-function isBackendApiModule(resolvedSpecifier) {
-  return /shared\/api\/backendApi(?:\.js)?$/.test(resolvedSpecifier);
+function appShellFeatureServiceViolations() {
+  const manifestServiceEntries = new Set(Object.values(pageSurfaceManifest).map((surface) => surface.serviceEntry));
+  return parseStaticImports(read('App.jsx'), 'App.jsx')
+    .map((entry) => resolveImportSpecifier('App.jsx', entry.specifier))
+    .filter((specifier) => specifier.startsWith('pages/') && specifier.includes('/services/'))
+    .filter((specifier) => !manifestServiceEntries.has(specifier))
+    .map((specifier) => `App.jsx imports feature service outside manifest ${specifier}`);
 }
 
-function appPageServiceImportViolations(source = read('App.jsx')) {
-  return importSpecifiers(source)
-    .map((specifier) => resolveImportSpecifier('App.jsx', specifier))
-    .filter((resolved) => /^pages\/[^/]+\/services\/.+\.js$/.test(resolved))
-    .filter((resolved) => !manifestServiceEntries.has(resolved))
-    .map((resolved) => `App.jsx imports unmanifested page service ${resolved}`);
+function pageSharedModuleServiceViolations() {
+  return importSpecifiers(read('pages/shared/pageShared.js'))
+    .filter((specifier) => specifier.includes('services/modules/'))
+    .map((specifier) => `pages/shared/pageShared.js imports ${specifier}`);
 }
 
-function appBackendApiImportViolations(source = read('App.jsx')) {
+function sharedBackendFacadeViolations() {
   const violations = [];
-  const staticBackendSpecifiers = new Set();
-  for (const entry of parseStaticImports(source)) {
-    const resolved = resolveImportSpecifier('App.jsx', entry.specifier);
-    if (!isBackendApiModule(resolved)) continue;
-    staticBackendSpecifiers.add(resolved);
-    if (entry.kind !== 'named') {
-      violations.push(`App.jsx imports backendApi as ${entry.kind}`);
-      continue;
-    }
-    if (!appShellBackendApiAllowlist.has(entry.imported)) {
-      violations.push(`App.jsx imports app-shell backend API outside allowlist: ${entry.imported}`);
-    }
-  }
-  for (const specifier of importSpecifiers(source)) {
-    const resolved = resolveImportSpecifier('App.jsx', specifier);
-    if (!isBackendApiModule(resolved)) continue;
-    if (staticBackendSpecifiers.has(resolved)) {
-      staticBackendSpecifiers.delete(resolved);
-    } else {
-      violations.push(`App.jsx imports backendApi outside static allowlist via ${specifier}`);
+  for (const filePath of collectSourceFiles('pages/shared')) {
+    const relativePath = rel(filePath);
+    for (const entry of parseStaticImports(read(relativePath), relativePath)) {
+      if (entry.specifier.includes('shared/api/backendApi') || entry.specifier.includes('services/modules/')) {
+        violations.push(`${relativePath} imports backend facade ${entry.specifier}`);
+      }
     }
   }
   return violations;
 }
 
-function sharedPageFiles() {
-  const files = [];
-  walk(path.join(sourceRoot, 'pages/shared'), files);
-  return files;
+function ownerlessSurfaceFiles() {
+  return [
+    path.join(sourceRoot, 'App.jsx'),
+    ...collectSourceFiles('pages/shared'),
+  ];
 }
 
-function sharedPageBackendFacadeViolations() {
+function isFeatureServiceOrAdapter(resolvedSpecifier) {
+  return Object.values(pageSurfaceManifest).some((surface) => (
+    resolvedSpecifier.startsWith(surface.servicePrefix)
+    || resolvedSpecifier.startsWith(surface.adapterPrefix)
+  ));
+}
+
+function ownerlessFeatureSurfaceImportViolations(relativePath, source) {
+  const allowlist = ownerlessFeatureSurfaceImportAllowlist.get(relativePath) ?? new Set();
   const violations = [];
-  for (const filePath of sharedPageFiles()) {
-    const relativePath = rel(filePath);
-    for (const specifier of importSpecifiers(read(relativePath))) {
-      const resolved = resolveImportSpecifier(relativePath, specifier);
-      if (isBackendApiModule(resolved)) violations.push(`${relativePath} imports ${specifier}`);
-      if (resolved.includes('services/modules/')) violations.push(`${relativePath} imports ${specifier}`);
+  for (const specifier of importSpecifiers(source)) {
+    if (specifier === NON_LITERAL_DYNAMIC_IMPORT) {
+      violations.push(`${relativePath} uses non-literal dynamic import`);
+      continue;
     }
+    if (specifier === NON_LITERAL_REQUIRE) {
+      violations.push(`${relativePath} uses non-literal require`);
+      continue;
+    }
+    if (specifier === COMPUTED_VITEST_MODULE_MOCK) {
+      violations.push(`${relativePath} uses computed Vitest module mock`);
+      continue;
+    }
+    const resolved = resolveImportSpecifier(relativePath, specifier);
+    if (!isFeatureServiceOrAdapter(resolved) || allowlist.has(resolved)) continue;
+    violations.push(`${relativePath} imports ownerless feature surface ${specifier}`);
+  }
+  return violations;
+}
+
+function actualOwnerlessFeatureSurfaceImportViolations() {
+  const violations = [];
+  for (const filePath of ownerlessSurfaceFiles()) {
+    const relativePath = rel(filePath);
+    violations.push(...ownerlessFeatureSurfaceImportViolations(relativePath, read(relativePath)));
   }
   return violations;
 }
@@ -111,29 +153,34 @@ describe('shared page surface boundary', () => {
     expect(read('pages/shared/pageShared.js')).toMatch(/memory(?:Page|Badge)Service/);
   });
 
-  it('keeps App page-feature service imports listed by the page surface manifest', () => {
-    expect(appPageServiceImportViolations()).toEqual([]);
-    expect(appPageServiceImportViolations(`
-      import { memoryPageService } from './pages/memory/services/memoryPageService.js';
-      import { ghostPageService } from './pages/memory/services/ghostPageService.js';
-    `)).toEqual([
-      'App.jsx imports unmanifested page service pages/memory/services/ghostPageService.js',
-    ]);
+  it('keeps App shell backend API calls on a small explicit allowlist', () => {
+    expect(appShellBackendApiViolations()).toEqual([]);
   });
 
-  it('keeps App app-shell backend APIs on the small allowlist', () => {
-    expect(appBackendApiImportViolations()).toEqual([]);
-    expect(appBackendApiImportViolations(`
-      import { checkAppUpdate, startThread } from './shared/api/backendApi.js';
-      await import('./shared/api/backendApi.js');
-    `)).toEqual([
-      'App.jsx imports app-shell backend API outside allowlist: startThread',
-      'App.jsx imports backendApi outside static allowlist via ./shared/api/backendApi.js',
-    ]);
+  it('allows App.jsx to import only manifest-listed feature services', () => {
+    expect(appShellFeatureServiceViolations()).toEqual([]);
   });
 
-  it('keeps shared page components away from backend facades and module services', () => {
-    expect(sharedPageBackendFacadeViolations()).toEqual([]);
+  it('keeps pageShared away from shared module services', () => {
+    expect(pageSharedModuleServiceViolations()).toEqual([]);
+  });
+
+  it('keeps shared page components away from backend facades', () => {
+    expect(sharedBackendFacadeViolations()).toEqual([]);
+  });
+
+  it('keeps App and shared page files away from ownerless feature services and adapters', () => {
+    expect(actualOwnerlessFeatureSurfaceImportViolations()).toEqual([]);
+  });
+
+  it('blocks new ownerless feature service and adapter imports unless explicitly allowlisted', () => {
+    expect(ownerlessFeatureSurfaceImportViolations('pages/shared/SharedWidget.jsx', `
+      import { promptPageService } from '../prompts/services/promptPageService.js';
+      import { threadStatusBusy } from '../chat/adapters/threadStateAdapter.js';
+    `)).toEqual([
+      'pages/shared/SharedWidget.jsx imports ownerless feature surface ../prompts/services/promptPageService.js',
+      'pages/shared/SharedWidget.jsx imports ownerless feature surface ../chat/adapters/threadStateAdapter.js',
+    ]);
   });
 
   it('keeps prompt feature view behind the prompt page service', () => {

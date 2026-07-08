@@ -11,9 +11,8 @@ Required checks before integration:
 - Production profile rejects missing runtime reporter, toolbridge/proxy, mirror,
   session recovery, and dependency profile.
 - `NativeTools` are declared with explicit governance.
-- `provider_contract_test.go` calls `contracttest.Run` and covers the acceptance
-  surface: event matrix, event translation, prompt parity or materialized
-  carrier, approval or approval policy, interrupt, force-complete, resume
-  identity, toolbridge/proxy, and runtime report.
-- Placeholder contract cases must fail until replaced by provider-specific
-  capture helpers and checked-in event/prompt snapshots.
+- `provider_contract_test.go` calls `contracttest.Run`, passes
+  `contracttest.ValidateAcceptanceSpec`, and covers event translation, event
+  matrix, prompt parity or materialized prompt carrier, approval or approval
+  policy, interrupt, force-complete, resume identity, toolbridge/proxy, and
+  runtime report.

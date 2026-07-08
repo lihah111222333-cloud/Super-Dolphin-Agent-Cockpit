@@ -197,11 +197,7 @@ func toolbridgeHostToolsMissing(hostTools HostToolRegistry) bool {
 }
 
 func toolbridgeMissingDependencyError(name string, profile contract.DependencyProfile) error {
-	err := contract.MissingDependencyModeError(name, profile)
-	if contract.IsDependencyModeError(err, name, profile, contract.ErrUnsupportedDependencyMode) {
-		return err
-	}
-	return fmt.Errorf("toolbridge dependency %q is required in %s profile", name, profile)
+	return contract.MissingDependencyModeError(name, profile)
 }
 
 // HandleToolCall 是 JSON-RPC tool call 的入口。

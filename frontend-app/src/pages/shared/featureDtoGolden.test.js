@@ -4,168 +4,185 @@ import { createMemoryPageService } from '../memory/services/memoryPageService.js
 import { createObservabilityPageService } from '../observability/services/observabilityPageService.js';
 import { createPromptPageService } from '../prompts/services/promptPageService.js';
 
-function createBackendCapture(methodName, result = { ok: true }) {
+function capturedApi(methods) {
   const calls = [];
-  const api = {
-    [methodName]: vi.fn((payload) => {
-      calls.push(payload);
-      return Promise.resolve(result);
-    }),
-  };
+  const api = {};
+  for (const method of methods) {
+    api[method] = vi.fn((payload) => {
+      calls.push({ method, payload });
+      return Promise.resolve({ ok: true });
+    });
+  }
   return { api, calls };
 }
 
-async function captureOutboundDto(factory, methodName, payload) {
-  const { api, calls } = createBackendCapture(methodName);
+async function expectDtoGolden({ factory, methods, method, input, expectedPayload }) {
+  const { api, calls } = capturedApi(methods);
   const service = factory(api);
-  await service[methodName](payload);
-  expect(api[methodName]).toHaveBeenCalledTimes(1);
-  return calls[0];
+
+  expect(service[method]).toEqual(expect.any(Function));
+  await service[method](input);
+
+  expect(calls).toEqual([{ method, payload: expectedPayload }]);
 }
 
-function captureSyncErrorMessage(callback) {
+async function expectSyncDtoError({ factory, methods, method, input, message }) {
+  const { api, calls } = capturedApi(methods);
+  const service = factory(api);
+  let thrown = null;
+  let returned;
+  let asyncError = null;
+
   try {
-    callback();
+    returned = service[method](input);
   } catch (error) {
-    return error.message;
+    thrown = error;
   }
-  throw new Error('expected sync DTO validation error');
-}
-
-async function captureAsyncErrorMessage(callback) {
-  try {
-    await callback();
-  } catch (error) {
-    return error.message;
+  if (returned && typeof returned.catch === 'function') {
+    asyncError = await returned.then(
+      () => null,
+      (error) => error,
+    );
   }
-  throw new Error('expected async DTO validation error');
-}
 
-function expectSyncFailureBeforeBackendCall(factory, methodName, payload) {
-  const { api } = createBackendCapture(methodName);
-  const service = factory(api);
-  const message = captureSyncErrorMessage(() => service[methodName](payload));
-  expect(api[methodName]).not.toHaveBeenCalled();
-  return message;
-}
-
-async function expectAsyncFailureBeforeBackendCall(factory, methodName, payload) {
-  const { api } = createBackendCapture(methodName);
-  const service = factory(api);
-  const message = await captureAsyncErrorMessage(() => service[methodName](payload));
-  expect(api[methodName]).not.toHaveBeenCalled();
-  return message;
+  expect(thrown?.message).toBe(message);
+  expect(returned).toBeUndefined();
+  expect(asyncError?.message).toBeUndefined();
+  expect(calls).toEqual([]);
 }
 
 describe('feature service DTO golden harness', () => {
-  it('locks files saveTextFile DTO normalization and fail-fast shape', async () => {
-    await expect(captureOutboundDto(createFilesPageService, 'saveTextFile', {
-      defaultPath: ' /tmp/export ',
-      defaultFilename: ' notes.md ',
-      content: 'hello',
-    })).resolves.toMatchInlineSnapshot(`
-      {
-        "content": "hello",
-        "defaultFilename": "notes.md",
-        "defaultPath": " /tmp/export ",
-      }
-    `);
+  it('captures files saveTextFile normalized DTOs', async () => {
+    await expectDtoGolden({
+      factory: createFilesPageService,
+      methods: ['saveTextFile'],
+      method: 'saveTextFile',
+      input: { defaultPath: '/tmp/notes', defaultFilename: ' notes.md ', content: 'hello' },
+      expectedPayload: { defaultPath: '/tmp/notes', defaultFilename: 'notes.md', content: 'hello' },
+    });
 
-    expect(expectSyncFailureBeforeBackendCall(createFilesPageService, 'saveTextFile', {
-      defaultFilename: 'notes.md',
-    })).toMatchInlineSnapshot('"file content is required"');
+    await expectSyncDtoError({
+      factory: createFilesPageService,
+      methods: ['saveTextFile'],
+      method: 'saveTextFile',
+      input: { defaultFilename: 'notes.md' },
+      message: 'file content is required',
+    });
   });
 
-  it('locks memory upsert DTO normalization', async () => {
-    await expect(captureOutboundDto(createMemoryPageService, 'upsertMemoryEntry', {
-      cwd: ' /repo/app ',
-      target: ' private ',
-      existingPath: ' docs/memory.md ',
-      name: ' feedback-rule ',
-      description: ' write tests first ',
-      type: ' feedback ',
-      content: ' remember the boundary ',
-    })).resolves.toMatchInlineSnapshot(`
-      {
-        "content": "remember the boundary",
-        "cwd": "/repo/app",
-        "description": "write tests first",
-        "existingPath": "docs/memory.md",
-        "name": "feedback-rule",
-        "target": "private",
-        "type": "feedback",
-      }
-    `);
+  it('captures memory upsertMemoryEntry normalized DTOs', async () => {
+    await expectDtoGolden({
+      factory: createMemoryPageService,
+      methods: ['upsertMemoryEntry'],
+      method: 'upsertMemoryEntry',
+      input: {
+        cwd: ' /repo ',
+        target: ' private ',
+        existingPath: ' memory/old.md ',
+        name: ' feedback-rule ',
+        description: ' write tests first ',
+        type: ' feedback ',
+        content: ' keep DTOs owned by services ',
+        title: 'untouched title',
+      },
+      expectedPayload: {
+        cwd: '/repo',
+        target: 'private',
+        existingPath: 'memory/old.md',
+        name: 'feedback-rule',
+        description: 'write tests first',
+        type: 'feedback',
+        content: 'keep DTOs owned by services',
+        title: 'untouched title',
+      },
+    });
+
+    await expectSyncDtoError({
+      factory: createMemoryPageService,
+      methods: ['upsertMemoryEntry'],
+      method: 'upsertMemoryEntry',
+      input: {
+        cwd: ' /repo ',
+        target: ' private ',
+        existingPath: '',
+        name: ' feedback-rule ',
+        description: ' write tests first ',
+        type: ' feedback ',
+        content: ' ',
+      },
+      message: 'content is required',
+    });
   });
 
-  it('rejects identical memory merge identities before backend calls', () => {
-    expect(expectSyncFailureBeforeBackendCall(createMemoryPageService, 'mergeMemoryEntries', {
-      cwd: ' /repo/app ',
-      targetA: ' private ',
-      pathA: ' docs/memory.md ',
-      targetB: ' private ',
-      pathB: ' docs/memory.md ',
-    })).toMatchInlineSnapshot('"source and target memory identity must be different"');
+  it('captures memory mergeMemoryEntries identity validation', async () => {
+    await expectDtoGolden({
+      factory: createMemoryPageService,
+      methods: ['mergeMemoryEntries'],
+      method: 'mergeMemoryEntries',
+      input: { cwd: ' /repo ', targetA: ' private ', pathA: ' a.md ', targetB: ' team ', pathB: ' b.md ' },
+      expectedPayload: { cwd: '/repo', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' },
+    });
+
+    await expectSyncDtoError({
+      factory: createMemoryPageService,
+      methods: ['mergeMemoryEntries'],
+      method: 'mergeMemoryEntries',
+      input: { cwd: '/repo', targetA: 'private', pathA: ' a.md ', targetB: 'private', pathB: 'a.md' },
+      message: 'source and target memory identity must be different',
+    });
   });
 
-  it('locks observability recent DTO limit normalization and rejection shape', async () => {
-    await expect(captureOutboundDto(createObservabilityPageService, 'listObservabilityRecent', {
-      limit: ' 25 ',
-      status: 'error',
-      traceId: 'trace-1',
-    })).resolves.toMatchInlineSnapshot(`
-      {
-        "limit": 25,
-        "status": "error",
-        "traceId": "trace-1",
-      }
-    `);
+  it('captures observability listObservabilityRecent normalized DTOs', async () => {
+    await expectDtoGolden({
+      factory: createObservabilityPageService,
+      methods: ['listObservabilityRecent'],
+      method: 'listObservabilityRecent',
+      input: { limit: '25', status: 'error', traceId: '' },
+      expectedPayload: { limit: 25, status: 'error', traceId: '' },
+    });
 
-    await expect(expectAsyncFailureBeforeBackendCall(createObservabilityPageService, 'listObservabilityRecent', {
-      limit: 'all',
-    })).resolves.toMatchInlineSnapshot('"limit must be a positive integer"');
+    await expectSyncDtoError({
+      factory: createObservabilityPageService,
+      methods: ['listObservabilityRecent'],
+      method: 'listObservabilityRecent',
+      input: { limit: 'unsupported' },
+      message: 'limit must be a positive integer',
+    });
   });
 
-  it('requires prompt intent fields before drafting', () => {
-    expect(expectSyncFailureBeforeBackendCall(createPromptPageService, 'draftPromptIntent', {
-      cwd: '/repo/app',
-      kind: 'expert',
-      rawInput: ' ',
-    })).toMatchInlineSnapshot('"rawInput is required"');
+  it('captures prompt draftPromptIntent required DTO fields', async () => {
+    await expectDtoGolden({
+      factory: createPromptPageService,
+      methods: ['draftPromptIntent'],
+      method: 'draftPromptIntent',
+      input: { cwd: '/repo/app', kind: 'expert', rawInput: 'review', sourceType: 'user_input', scope: 'project' },
+      expectedPayload: { cwd: '/repo/app', kind: 'expert', rawInput: 'review', sourceType: 'user_input', scope: 'project' },
+    });
 
-    expect(expectSyncFailureBeforeBackendCall(createPromptPageService, 'draftPromptIntent', {
-      cwd: '/repo/app',
-      kind: ' ',
-      rawInput: 'review',
-    })).toMatchInlineSnapshot('"kind is required"');
-
-    expect(expectSyncFailureBeforeBackendCall(createPromptPageService, 'draftPromptIntent', {
-      cwd: ' ',
-      kind: 'expert',
-      rawInput: 'review',
-    })).toMatchInlineSnapshot('"cwd is required"');
+    await expectSyncDtoError({
+      factory: createPromptPageService,
+      methods: ['draftPromptIntent'],
+      method: 'draftPromptIntent',
+      input: { cwd: '/repo/app', kind: 'expert', rawInput: ' ' },
+      message: 'rawInput is required',
+    });
   });
 
-  it('allows prompt writes with id or key and rejects missing identity', async () => {
-    await expect(captureOutboundDto(createPromptPageService, 'writePrompt', {
-      cwd: '/repo/app',
-      key: 'main/reviewer',
-      name: 'Reviewer',
-      content: 'Review carefully.',
-    })).resolves.toMatchInlineSnapshot(`
-      {
-        "content": "Review carefully.",
-        "cwd": "/repo/app",
-        "key": "main/reviewer",
-        "name": "Reviewer",
-      }
-    `);
+  it('captures prompt writePrompt id or key ownership', async () => {
+    await expectDtoGolden({
+      factory: createPromptPageService,
+      methods: ['writePrompt'],
+      method: 'writePrompt',
+      input: { cwd: '/repo/app', key: 'project/reviewer', name: 'Reviewer', content: 'Check risks first' },
+      expectedPayload: { cwd: '/repo/app', key: 'project/reviewer', name: 'Reviewer', content: 'Check risks first' },
+    });
 
-    expect(expectSyncFailureBeforeBackendCall(createPromptPageService, 'writePrompt', {
-      cwd: '/repo/app',
-      id: ' ',
-      key: ' ',
-      name: 'missing identity',
-    })).toMatchInlineSnapshot('"id is required"');
+    await expectSyncDtoError({
+      factory: createPromptPageService,
+      methods: ['writePrompt'],
+      method: 'writePrompt',
+      input: { cwd: '/repo/app', name: 'Missing identity' },
+      message: 'id or key is required',
+    });
   });
 });

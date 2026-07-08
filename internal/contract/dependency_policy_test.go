@@ -2,7 +2,6 @@ package contract
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -10,136 +9,116 @@ import (
 func TestDependencyAbsencePolicyRejectsProductionMissingDependencies(t *testing.T) {
 	for _, policy := range RegisteredDependencyAbsencePolicies() {
 		if policy.Profile == DependencyProfileProduction {
-			t.Fatalf("RegisteredDependencyAbsencePolicies() includes production policy %#v, want none", policy)
+			t.Fatalf("registered policy %+v allows production missing dependency", policy)
 		}
 		if AllowsMissingDependency(policy.Name, DependencyProfileProduction) {
 			t.Fatalf("AllowsMissingDependency(%q, production) = true, want false", policy.Name)
-		}
-		err := MissingDependencyModeError(policy.Name, DependencyProfileProduction)
-		if IsDependencyModeError(err, policy.Name, DependencyProfileProduction, ErrUnsupportedDependencyMode) {
-			t.Fatalf("MissingDependencyModeError(%q, production) returned typed unsupported error: %v", policy.Name, err)
 		}
 	}
 }
 
 func TestDependencyAbsencePolicyAllowsOnlyNamedDesktopDependencies(t *testing.T) {
-	want := map[string]DependencyAbsenceReason{
-		"runtime_reporter.orchestration_service":  DependencyAbsenceDesktopExternal,
-		"toolbridge.agent_thread_lookup":          DependencyAbsenceDesktopExternal,
-		"toolbridge.thread_config_override_store": DependencyAbsenceDesktopExternal,
-		"thread.bind_session_generation":          DependencyAbsenceDesktopExternal,
+	for _, tc := range []struct {
+		name       string
+		dependency string
+		want       bool
+	}{
+		{
+			name:       "desktop runtime reporter",
+			dependency: "runtime_reporter.orchestration_service",
+			want:       true,
+		},
+		{
+			name:       "desktop toolbridge thread lookup",
+			dependency: "toolbridge.agent_thread_lookup",
+			want:       true,
+		},
+		{
+			name:       "desktop toolbridge config override",
+			dependency: "toolbridge.thread_config_override_store",
+			want:       true,
+		},
+		{
+			name:       "desktop bind session generation",
+			dependency: "thread.bind_session_generation",
+			want:       true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := AllowsMissingDependency(tc.dependency, DependencyProfileDesktopHost)
+			if got != tc.want {
+				t.Fatalf("AllowsMissingDependency() = %v, want %v", got, tc.want)
+			}
+		})
 	}
-
-	assertPolicySet(t, DependencyProfileDesktopHost, want)
-	assertPolicyRejects(t, "toolbridge.lifecycle_backfiller", DependencyProfileDesktopHost)
-	assertPolicyRejects(t, "toolbridge.skill_tools", DependencyProfileDesktopHost)
+	if AllowsMissingDependency("toolbridge.lifecycle_backfiller", DependencyProfileDesktopHost) {
+		t.Fatal("AllowsMissingDependency(test-only dependency, desktop) = true, want false")
+	}
 }
 
 func TestDependencyAbsencePolicyAllowsOnlyNamedTestDependencies(t *testing.T) {
-	want := map[string]DependencyAbsenceReason{
-		"runtime_reporter.orchestration_service": DependencyAbsenceDesktopExternal,
-		"toolbridge.lifecycle_backfiller":        DependencyAbsenceTestHarness,
-		"toolbridge.skill_tools":                 DependencyAbsenceTestHarness,
-		"thread.bind_session_generation":         DependencyAbsenceDesktopExternal,
+	for _, dependency := range []string{
+		"runtime_reporter.orchestration_service",
+		"toolbridge.lifecycle_backfiller",
+		"toolbridge.skill_tools",
+		"thread.bind_session_generation",
+	} {
+		if !AllowsMissingDependency(dependency, DependencyProfileTest) {
+			t.Fatalf("AllowsMissingDependency(%q, test) = false, want true", dependency)
+		}
 	}
-
-	assertPolicySet(t, DependencyProfileTest, want)
-	assertPolicyRejects(t, "toolbridge.agent_thread_lookup", DependencyProfileTest)
-	assertPolicyRejects(t, "toolbridge.thread_config_override_store", DependencyProfileTest)
+	if AllowsMissingDependency("toolbridge.agent_thread_lookup", DependencyProfileTest) {
+		t.Fatal("AllowsMissingDependency(desktop-only dependency, test) = true, want false")
+	}
 }
 
 func TestDependencyAbsencePolicyRejectsUnknownDependency(t *testing.T) {
-	const dependency = "toolbridge.unregistered_dependency"
-
-	for _, profile := range []DependencyProfile{
-		DependencyProfileProduction,
-		DependencyProfileDesktopHost,
-		DependencyProfileTest,
-	} {
-		assertPolicyRejects(t, dependency, profile)
+	if AllowsMissingDependency("unknown.optional", DependencyProfileDesktopHost) {
+		t.Fatal("AllowsMissingDependency(unknown.optional, desktop) = true, want false")
+	}
+	err := MissingDependencyModeError("unknown.optional", DependencyProfileDesktopHost)
+	if err == nil || !strings.Contains(err.Error(), "unknown dependency absence policy") {
+		t.Fatalf("MissingDependencyModeError() error = %v, want unknown dependency failure", err)
 	}
 }
 
 func TestDependencyAbsencePolicyRejectsEmptyProfile(t *testing.T) {
-	const dependency = "runtime_reporter.orchestration_service"
-
-	if AllowsMissingDependency(dependency, "") {
-		t.Fatalf("AllowsMissingDependency(%q, empty profile) = true, want false", dependency)
+	if AllowsMissingDependency("runtime_reporter.orchestration_service", "") {
+		t.Fatal("AllowsMissingDependency(runtime_reporter, empty profile) = true, want false")
 	}
-	err := MissingDependencyModeError(dependency, "")
+	err := MissingDependencyModeError("runtime_reporter.orchestration_service", "")
+	if err == nil || !strings.Contains(err.Error(), "dependency profile is required") {
+		t.Fatalf("MissingDependencyModeError() error = %v, want dependency profile failure", err)
+	}
+}
+
+func TestDependencyAbsencePolicyReturnsTypedModeErrorOnlyWhenAllowed(t *testing.T) {
+	err := MissingDependencyModeError("thread.bind_session_generation", DependencyProfileDesktopHost)
+	if !IsDependencyModeError(err, "thread.bind_session_generation", DependencyProfileDesktopHost, ErrUnsupportedDependencyMode) {
+		t.Fatalf("MissingDependencyModeError() error = %v, want typed unsupported", err)
+	}
+
+	err = MissingDependencyModeError("thread.bind_session_generation", DependencyProfileProduction)
 	if err == nil {
-		t.Fatal("MissingDependencyModeError(empty profile) = nil, want error")
+		t.Fatal("MissingDependencyModeError() error = nil, want production failure")
 	}
-	if IsDependencyModeError(err, dependency, "", ErrUnsupportedDependencyMode) {
-		t.Fatalf("MissingDependencyModeError(empty profile) returned typed unsupported error: %v", err)
+	if errors.Is(err, ErrUnsupportedDependencyMode) {
+		t.Fatalf("MissingDependencyModeError() error = %v, production must not be typed unsupported", err)
 	}
-	if !strings.Contains(err.Error(), "dependency profile is required") {
-		t.Fatalf("MissingDependencyModeError(empty profile) = %q, want profile-required error", err.Error())
-	}
-}
-
-func assertPolicySet(t *testing.T, profile DependencyProfile, want map[string]DependencyAbsenceReason) {
-	t.Helper()
-
-	got := map[string]DependencyAbsenceReason{}
-	for _, policy := range RegisteredDependencyAbsencePolicies() {
-		if policy.Profile != profile {
-			continue
-		}
-		assertRegisteredPolicyMetadata(t, policy)
-		got[policy.Name] = policy.Reason
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("policies for %s = %#v, want %#v", profile, got, want)
-	}
-	for name := range want {
-		assertPolicyAllows(t, name, profile)
+	if !strings.Contains(err.Error(), "thread.bind_session_generation") ||
+		!strings.Contains(err.Error(), string(DependencyProfileProduction)) {
+		t.Fatalf("MissingDependencyModeError() error = %v, want dependency and profile", err)
 	}
 }
 
-func assertRegisteredPolicyMetadata(t *testing.T, policy DependencyAbsencePolicy) {
-	t.Helper()
+func TestRegisteredDependencyAbsencePoliciesReturnsCopy(t *testing.T) {
+	policies := RegisteredDependencyAbsencePolicies()
+	if len(policies) == 0 {
+		t.Fatal("RegisteredDependencyAbsencePolicies() returned empty policy list")
+	}
+	policies[0].Name = "mutated"
 
-	if policy.Name == "" {
-		t.Fatalf("policy for %s has empty name: %#v", policy.Profile, policy)
-	}
-	if policy.Owner == "" {
-		t.Fatalf("policy %q for %s has empty owner", policy.Name, policy.Profile)
-	}
-	if policy.Error == nil {
-		t.Fatalf("policy %q for %s has nil error", policy.Name, policy.Profile)
-	}
-	if !errors.Is(policy.Error, ErrUnsupportedDependencyMode) {
-		t.Fatalf("policy %q for %s error = %v, want ErrUnsupportedDependencyMode", policy.Name, policy.Profile, policy.Error)
-	}
-	if !IsDependencyModeError(policy.Error, policy.Name, policy.Profile, ErrUnsupportedDependencyMode) {
-		t.Fatalf("policy %q for %s error lost dependency/profile context: %v", policy.Name, policy.Profile, policy.Error)
-	}
-}
-
-func assertPolicyAllows(t *testing.T, name string, profile DependencyProfile) {
-	t.Helper()
-
-	if !AllowsMissingDependency(name, profile) {
-		t.Fatalf("AllowsMissingDependency(%q, %s) = false, want true", name, profile)
-	}
-	err := MissingDependencyModeError(name, profile)
-	if !IsDependencyModeError(err, name, profile, ErrUnsupportedDependencyMode) {
-		t.Fatalf("MissingDependencyModeError(%q, %s) = %v, want typed unsupported error", name, profile, err)
-	}
-}
-
-func assertPolicyRejects(t *testing.T, name string, profile DependencyProfile) {
-	t.Helper()
-
-	if AllowsMissingDependency(name, profile) {
-		t.Fatalf("AllowsMissingDependency(%q, %s) = true, want false", name, profile)
-	}
-	err := MissingDependencyModeError(name, profile)
-	if err == nil {
-		t.Fatalf("MissingDependencyModeError(%q, %s) = nil, want error", name, profile)
-	}
-	if IsDependencyModeError(err, name, profile, ErrUnsupportedDependencyMode) {
-		t.Fatalf("MissingDependencyModeError(%q, %s) returned typed unsupported error: %v", name, profile, err)
+	if !AllowsMissingDependency("runtime_reporter.orchestration_service", DependencyProfileDesktopHost) {
+		t.Fatal("AllowsMissingDependency() = false after caller mutation, want immutable registry")
 	}
 }

@@ -12,7 +12,11 @@ import (
 )
 
 func TestThreadLifecycleSkipsOnlyTypedBindSessionGenerationUnsupported(t *testing.T) {
-	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileDesktopHost, contract.MissingDependencyModeError(
+	if !contract.AllowsMissingDependency(bindSessionGenerationDependency, contract.DependencyProfileDesktopHost) {
+		t.Fatal("shared policy does not allow desktop bind session generation absence")
+	}
+	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileDesktopHost, contract.NewDependencyModeError(
+		contract.ErrUnsupportedDependencyMode,
 		bindSessionGenerationDependency,
 		contract.DependencyProfileDesktopHost,
 	))
@@ -24,7 +28,11 @@ func TestThreadLifecycleSkipsOnlyTypedBindSessionGenerationUnsupported(t *testin
 }
 
 func TestThreadLifecycleSkipsOnlyTypedBindSessionGenerationUnsupportedOnResumePath(t *testing.T) {
-	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileTest, contract.MissingDependencyModeError(
+	if !contract.AllowsMissingDependency(bindSessionGenerationDependency, contract.DependencyProfileTest) {
+		t.Fatal("shared policy does not allow test bind session generation absence")
+	}
+	svc, logs := lifecycleBindServiceForTest(contract.DependencyProfileTest, contract.NewDependencyModeError(
+		contract.ErrUnsupportedDependencyMode,
 		bindSessionGenerationDependency,
 		contract.DependencyProfileTest,
 	))

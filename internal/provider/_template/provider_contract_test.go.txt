@@ -67,6 +67,13 @@ func templateEventTranslationContractCase() contracttest.Case {
 	}}
 }
 
+func templateEventMatrixContractCase() contracttest.Case {
+	return contracttest.Case{Name: "event matrix", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		t.Fatal("replace templateEventMatrixContractCase with provider event matrix manifest evidence")
+	}}
+}
+
 func translateTemplateEvent(raw dto.RawProviderEvent, emit func(any)) {
 	data, ok := raw.Data.(map[string]any)
 	if !ok {

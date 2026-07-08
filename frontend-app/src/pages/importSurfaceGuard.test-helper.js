@@ -1,6 +1,7 @@
 import { parse } from '@babel/parser';
 
 export const NON_LITERAL_DYNAMIC_IMPORT = '__non_literal_dynamic_import__';
+export const NON_LITERAL_REQUIRE = '__non_literal_require__';
 export const COMPUTED_VITEST_MODULE_MOCK = '__computed_vitest_module_mock__';
 
 function parseModule(source) {
@@ -112,8 +113,8 @@ function collectImportSpecifier(node, specifiers) {
         { type: 'MemberExpression', property: { type: 'Identifier', name: 'apply' } },
         [null, node.arguments?.[2]],
       );
-      if (isRequire && directArg) {
-        specifiers.push(directArg);
+      if (isRequire) {
+        specifiers.push(directArg || NON_LITERAL_REQUIRE);
       } else if (directVitest.known && directArg) {
         specifiers.push(directArg);
       } else if (callApplyVitest.known && callApplyArg && callApplyArg !== COMPUTED_VITEST_MODULE_MOCK) {

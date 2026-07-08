@@ -128,16 +128,18 @@ func sqliteReleaseGatePackageSmokeCommand(t *testing.T, stage sqliteReleaseGateU
 
 func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) []string {
 	skip := map[string]bool{
-		contract.SQLitePathEnvKey:         true,
-		contract.InternalSQLitePathEnvKey: true,
-		"PROJECT_ROOT":                    true,
-		"SUPER_DOLPHIN_PACKAGE_ROOT":      true,
-		"SUPER_DOLPHIN_RUNTIME_MODE":      true,
-		"SUPER_DOLPHIN_PACKAGED_LAUNCHER": true,
-		"DATABASE_URL":                    true,
-		"POSTGRES_CONNECTION_STRING":      true,
-		"RPC_ADDR":                        true,
-		"GO_AGENT_CTL_RPC_ADDR":           true,
+		contract.SQLitePathEnvKey:            true,
+		contract.InternalSQLitePathEnvKey:    true,
+		"PROJECT_ROOT":                       true,
+		"SUPER_DOLPHIN_PACKAGE_ROOT":         true,
+		"SUPER_DOLPHIN_RUNTIME_MODE":         true,
+		"SUPER_DOLPHIN_PACKAGED_LAUNCHER":    true,
+		"DATABASE_URL":                       true,
+		"POSTGRES_CONNECTION_STRING":         true,
+		"RPC_ADDR":                           true,
+		"GO_AGENT_CTL_RPC_ADDR":              true,
+		"SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP": true,
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE":   true,
 	}
 	env := make([]string, 0, len(os.Environ())+8)
 	for _, kv := range os.Environ() {
@@ -149,6 +151,8 @@ func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, ho
 	env = append(env,
 		"SUPER_DOLPHIN_HOME="+home,
 		"SUPER_DOLPHIN_PACKAGE_SMOKE_OLD_PG_DATA="+oldPGData,
+		"SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP=production",
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
 		"DATABASE_URL=postgres://127.0.0.1:1/super_dolphin?sslmode=disable",
 		"POSTGRES_CONNECTION_STRING=postgres://127.0.0.1:1/super_dolphin?sslmode=disable",
 	)

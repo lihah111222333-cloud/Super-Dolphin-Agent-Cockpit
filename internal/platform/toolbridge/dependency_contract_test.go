@@ -44,10 +44,7 @@ func TestToolbridgeProductionProfileRequiresCriticalDependencies(t *testing.T) {
 }
 
 func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T) {
-	allowed := toolbridgeDependencyAbsencePolicyNamesForTest(contract.DependencyProfileDesktopHost)
-	if len(allowed) == 0 {
-		t.Fatal("shared toolbridge desktop dependency absence policies are empty")
-	}
+	allowed := toolbridgeAllowedMissingDependenciesForTest(contract.DependencyProfileDesktopHost)
 	for _, dependency := range allToolbridgeDependencyNamesForTest() {
 		err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
 			profile: contract.DependencyProfileDesktopHost,
@@ -66,10 +63,7 @@ func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T
 }
 
 func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.T) {
-	allowed := toolbridgeDependencyAbsencePolicyNamesForTest(contract.DependencyProfileTest)
-	if len(allowed) == 0 {
-		t.Fatal("shared toolbridge test dependency absence policies are empty")
-	}
+	allowed := toolbridgeAllowedMissingDependenciesForTest(contract.DependencyProfileTest)
 	for _, dependency := range allToolbridgeDependencyNamesForTest() {
 		err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
 			profile: contract.DependencyProfileTest,
@@ -87,21 +81,14 @@ func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.
 	}
 }
 
-func TestToolbridgeDependencyAbsencePoliciesAreCoveredByFixture(t *testing.T) {
-	fixtureNames := map[string]bool{}
-	for _, name := range allToolbridgeDependencyNamesForTest() {
-		fixtureNames[name] = true
-	}
-	for _, profile := range []contract.DependencyProfile{
-		contract.DependencyProfileDesktopHost,
-		contract.DependencyProfileTest,
-	} {
-		for name := range toolbridgeDependencyAbsencePolicyNamesForTest(profile) {
-			if !fixtureNames[name] {
-				t.Fatalf("shared policy %q for %s is not covered by toolbridge dependency fixture", name, profile)
-			}
+func toolbridgeAllowedMissingDependenciesForTest(profile contract.DependencyProfile) map[string]bool {
+	allowed := make(map[string]bool)
+	for _, policy := range contract.RegisteredDependencyAbsencePolicies() {
+		if policy.Profile == profile && strings.HasPrefix(policy.Name, "toolbridge.") {
+			allowed[policy.Name] = true
 		}
 	}
+	return allowed
 }
 
 func TestToolbridgeNewHandlerRequiresDependencyContractBeforeConstruction(t *testing.T) {

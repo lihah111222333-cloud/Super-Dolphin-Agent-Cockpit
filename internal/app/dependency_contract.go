@@ -28,7 +28,7 @@ func (c dependencyContract) Require(name string, value any) error {
 	if contract.AllowsMissingDependency(name, c.profile) {
 		return nil
 	}
-	return fmt.Errorf("app dependency %q is required in %s profile", name, c.profile)
+	return contract.MissingDependencyModeError(name, c.profile)
 }
 
 func appDependencyProfile(dependency contract.DependencyConfig, cfg *contract.Config) (contract.DependencyProfile, error) {

@@ -31,9 +31,47 @@ func TestRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
 func renderPreparedProviderTemplatePackage(t *testing.T) string {
 	t.Helper()
 	dir := renderProviderTemplatePackage(t)
-	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go")
+	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go", "template_placeholder_probe_test.go")
 	runTemplateCommand(t, dir, "go", "mod", "tidy")
-	return dir
+	runTemplateCommand(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplate(ProductionOmissions|ModuleGraph|AcceptanceCriteriaDeclared)$", "-count=1")
+	t.Run("rendered acceptance placeholders fail", assertRenderedTemplateAcceptancePlaceholdersFail)
+}
+
+func TestRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
+	assertRenderedTemplateAcceptancePlaceholdersFail(t)
+}
+
+func assertRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
+	t.Helper()
+	dir := renderProviderTemplatePackage(t)
+	runTemplateCommand(t, dir, "gofmt", "-w", "module.go", "provider_contract_test.go", "template_stubs.go", "template_omission_test.go", "template_placeholder_probe_test.go")
+	runTemplateCommand(t, dir, "go", "mod", "tidy")
+
+	output := runTemplateCommandWantError(t, dir, "go", "test", "./...", "-run", "^TestRenderedTemplatePlaceholderFailures$", "-count=1")
+	for _, want := range []string{
+		"replace templateEventTranslationContractCase",
+		"provider raw-event capture and translator evidence",
+		"replace templateEventMatrixContractCase",
+		"provider event matrix manifest evidence",
+		"replace templatePromptParityContractCase",
+		"provider start/resume prompt capture",
+		"replace templateApprovalContractCase",
+		"provider approval bridge or policy capture",
+		"replace templateInterruptContractCase",
+		"provider interrupt capture",
+		"replace templateForceCompleteContractCase",
+		"provider force-complete capture",
+		"replace templateResumeIdentityContractCase",
+		"provider resume identity capture",
+		"replace templateToolbridgeContractCase",
+		"provider toolbridge/proxy readiness capture",
+		"replace templateRuntimeReportContractCase",
+		"provider runtime reporter capture",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("rendered provider contract output missing %q:\n%s", want, output)
+		}
+	}
 }
 
 func renderProviderTemplatePackage(t *testing.T) string {
@@ -47,6 +85,7 @@ func renderProviderTemplatePackage(t *testing.T) string {
 	copyTemplateSnippet(t, repoRoot, dir, "provider_contract_test.go.txt", "provider_contract_test.go")
 	writeTemplateFile(t, dir, "template_stubs.go", renderedTemplateStubs)
 	writeTemplateFile(t, dir, "template_omission_test.go", renderedTemplateOmissionTests)
+	writeTemplateFile(t, dir, "template_placeholder_probe_test.go", renderedTemplatePlaceholderProbeTests)
 	return dir
 }
 
@@ -97,14 +136,29 @@ replace github.com/anthropic-ai/super-agent-v3 => %s
 
 func runTemplateCommand(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
+	output, err := runTemplateCommandOutput(dir, name, args...)
+	if err != nil {
+		t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, output)
+	}
+}
+
+func runTemplateCommandWantError(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+	output, err := runTemplateCommandOutput(dir, name, args...)
+	if err == nil {
+		t.Fatalf("%s %s error = nil, want rendered template scaffold failure\n%s", name, strings.Join(args, " "), output)
+	}
+	return output
+}
+
+func runTemplateCommandOutput(dir, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, out.String())
-	}
+	err := cmd.Run()
+	return out.String(), err
 }
 
 func runTemplateCommandExpectFailure(t *testing.T, dir, name string, args ...string) string {
@@ -199,6 +253,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -338,6 +393,27 @@ func TestRenderedTemplateModuleGraph(t *testing.T) {
 	}
 }
 
+func TestRenderedTemplateAcceptanceCriteriaDeclared(t *testing.T) {
+	spec := CompleteTemplateContractSpec()
+	if err := contracttest.ValidateAcceptanceSpec(spec); err != nil {
+		t.Fatalf("ValidateAcceptanceSpec() error = %v", err)
+	}
+	got := contracttest.RequiredAcceptanceCriteria(spec)
+	want := []contracttest.AcceptanceCriterion{
+		contracttest.AcceptanceEventTranslation,
+		contracttest.AcceptanceApproval,
+		contracttest.AcceptanceInterrupt,
+		contracttest.AcceptanceForceComplete,
+		contracttest.AcceptanceResume,
+		contracttest.AcceptanceToolbridge,
+		contracttest.AcceptanceRuntimeReport,
+		contracttest.AcceptancePromptSnapshotParity,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("RequiredAcceptanceCriteria() = %v, want %v", got, want)
+	}
+}
+
 func completeRenderedTemplateParams() driverFactoryParams {
 	return driverFactoryParams{
 		Reporter:        renderedTemplateReporter{},
@@ -460,6 +536,37 @@ func TestRenderedTemplateLSPDiagnosticsEvidenceDesign(t *testing.T) {
 	}
 	if strings.Contains(evidence, "\"severity\"") {
 		t.Fatalf("rendered template LSP diagnostics are not clean: %s", evidence)
+	}
+}
+`
+
+const renderedTemplatePlaceholderProbeTests = `package template
+
+import (
+	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
+)
+
+func TestRenderedTemplatePlaceholderFailures(t *testing.T) {
+	cases := []struct {
+		name string
+		c    contracttest.Case
+	}{
+		{name: "event translation", c: templateEventTranslationContractCase()},
+		{name: "event matrix", c: templateEventMatrixContractCase()},
+		{name: "prompt", c: templatePromptParityContractCase()},
+		{name: "approval", c: templateApprovalContractCase()},
+		{name: "interrupt", c: templateInterruptContractCase()},
+		{name: "force complete", c: templateForceCompleteContractCase()},
+		{name: "resume", c: templateResumeIdentityContractCase()},
+		{name: "toolbridge", c: templateToolbridgeContractCase()},
+		{name: "runtime report", c: templateRuntimeReportContractCase()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.c.Run(t, contracttest.NewEvidence())
+		})
 	}
 }
 `

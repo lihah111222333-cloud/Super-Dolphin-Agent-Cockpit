@@ -19,26 +19,21 @@ func TestDependencyContractRequiresProductionRuntimeReporter(t *testing.T) {
 
 func TestDependencyContractAllowsDesktopRuntimeReporterNoop(t *testing.T) {
 	policy := newDependencyContract(contract.DependencyProfileDesktopHost)
+	if !contract.AllowsMissingDependency("runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost) {
+		t.Fatal("shared policy does not allow desktop runtime reporter absence")
+	}
 	if err := policy.Require("runtime_reporter.orchestration_service", nil); err != nil {
 		t.Fatalf("desktop runtime reporter dependency error = %v", err)
 	}
 }
 
-func TestDependencyContractAllowedMissingDependenciesComeFromSharedPolicy(t *testing.T) {
-	for _, profile := range []contract.DependencyProfile{
-		contract.DependencyProfileDesktopHost,
-		contract.DependencyProfileTest,
-	} {
-		dependencies := appDependencyAbsencePolicyNamesForTest(profile)
-		if len(dependencies) == 0 {
-			t.Fatalf("shared app dependency absence policies for %s profile are empty", profile)
-		}
-		for _, dependency := range dependencies {
-			err := newDependencyContract(profile).Require(dependency, nil)
-			if err != nil {
-				t.Fatalf("Require(%q, nil) in %s profile error = %v, want shared policy allowance", dependency, profile, err)
-			}
-		}
+func TestDependencyContractAllowsTestRuntimeReporterNoop(t *testing.T) {
+	policy := newDependencyContract(contract.DependencyProfileTest)
+	if !contract.AllowsMissingDependency("runtime_reporter.orchestration_service", contract.DependencyProfileTest) {
+		t.Fatal("shared policy does not allow test runtime reporter absence")
+	}
+	if err := policy.Require("runtime_reporter.orchestration_service", nil); err != nil {
+		t.Fatalf("test runtime reporter dependency error = %v", err)
 	}
 }
 

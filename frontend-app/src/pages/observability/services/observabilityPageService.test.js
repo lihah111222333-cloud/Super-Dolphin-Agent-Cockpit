@@ -28,6 +28,15 @@ describe('observabilityPageService', () => {
     expect(api.listObservabilityRecent).toHaveBeenCalledWith({ limit: 25, status: 'error', traceId: '' });
   });
 
+  it('normalizes recent observability numeric string limits before forwarding', async () => {
+    const api = createApi();
+    const service = createObservabilityPageService(api);
+
+    await service.listObservabilityRecent({ limit: '50', status: 'ok', traceId: 'trace-1' });
+
+    expect(api.listObservabilityRecent).toHaveBeenCalledWith({ limit: 50, status: 'ok', traceId: 'trace-1' });
+  });
+
   it('omits blank limits for recent event queries', async () => {
     const api = createApi();
     const service = createObservabilityPageService(api);
@@ -40,15 +49,23 @@ describe('observabilityPageService', () => {
   it('rejects invalid or non-positive limits', async () => {
     const service = createObservabilityPageService(createApi());
 
-    await expect(service.listObservabilityRecent({ limit: 'abc' })).rejects.toThrow('limit must be a positive integer');
-    await expect(service.listObservabilityRecent({ limit: 0 })).rejects.toThrow('limit must be a positive integer');
-    await expect(service.getObservabilityTrace({ traceId: 'trace-1', limit: '-1' })).rejects.toThrow('limit must be a positive integer');
+    expect(() => service.listObservabilityRecent({ limit: 'abc' })).toThrow('limit must be a positive integer');
+    expect(() => service.listObservabilityRecent({ limit: 0 })).toThrow('limit must be a positive integer');
+    expect(() => service.getObservabilityTrace({ traceId: 'trace-1', limit: '-1' })).toThrow('limit must be a positive integer');
+  });
+
+  it('throws synchronously before recent observability backend calls for unsupported limits', () => {
+    const api = createApi();
+    const service = createObservabilityPageService(api);
+
+    expect(() => service.listObservabilityRecent({ limit: 'unsupported' })).toThrow('limit must be a positive integer');
+    expect(api.listObservabilityRecent).not.toHaveBeenCalled();
   });
 
   it('requires trace ids before loading a trace', async () => {
     const service = createObservabilityPageService(createApi());
 
-    await expect(service.getObservabilityTrace({ traceId: '  ', limit: '5' })).rejects.toThrow('traceId is required');
+    expect(() => service.getObservabilityTrace({ traceId: '  ', limit: '5' })).toThrow('traceId is required');
   });
 
   it('normalizes trace ids and limits before loading trace details', async () => {
@@ -72,6 +89,6 @@ describe('observabilityPageService', () => {
   it('requires clipboard text before copying', async () => {
     const service = createObservabilityPageService(createApi());
 
-    await expect(service.copyTextToClipboard('')).rejects.toThrow('text is required');
+    expect(() => service.copyTextToClipboard('')).toThrow('text is required');
   });
 });

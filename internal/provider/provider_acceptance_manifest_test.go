@@ -4,10 +4,11 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestProviderPackagesHaveAcceptanceManifest(t *testing.T) {
+func TestProviderAcceptanceManifest(t *testing.T) {
 	providers := discoverProviderPackages(t)
 	if len(providers) == 0 {
 		t.Fatal("no provider packages with provider.<name> Module declarations found")
@@ -16,91 +17,120 @@ func TestProviderPackagesHaveAcceptanceManifest(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			file := parseProviderContractTest(t, provider)
-			testFunc, specFunc := findProviderContractEntrypoint(t, file)
-			assertProviderAcceptanceCoverage(t, file, testFunc, specFunc)
-			assertProviderSnapshotManifest(t, provider)
+			_, specFunc := findProviderContractEntrypoint(t, file)
+			assertProviderContractRequiredCases(t, file, specFunc)
+			assertProviderContractSnapshots(t, file)
+			assertProviderContractSnapshotFiles(t, provider, "event_snapshots")
+			assertProviderContractSnapshotFiles(t, provider, "prompt_snapshots")
+			assertProviderContractEventCapture(t, file)
+			assertProviderContractEventTranslatorLocal(t, provider, file)
+			assertProviderAcceptanceCovered(t, file)
 		})
 	}
 }
 
-func TestContracttestRunCoversProviderAcceptance(t *testing.T) {
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("os.Getwd() error = %v", err)
+func TestProviderLocalFunctionNamesExcludeTestFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "event_map.go"), []byte(`package provider
+
+func translateProviderEvent() {}
+`), 0o644); err != nil {
+		t.Fatalf("write production provider file: %v", err)
 	}
-	file := parseGoFile(t, filepath.Join(wd, "contracttest", "suite.go"), 0)
-	fn := findFuncDecl(file, "RunSpecForTest")
-	if fn == nil {
-		t.Fatal("RunSpecForTest is required")
+	if err := os.WriteFile(filepath.Join(dir, "event_map_test.go"), []byte(`package provider
+
+func fakeTestOnlyTranslator() {}
+`), 0o644); err != nil {
+		t.Fatalf("write test provider file: %v", err)
 	}
-	if !functionCallsIdent(fn, "ValidateAcceptanceSpec") {
-		t.Fatal("RunSpecForTest must call ValidateAcceptanceSpec before provider behavior")
+
+	funcs := providerLocalFunctionNames(t, dir)
+	if !funcs["translateProviderEvent"] {
+		t.Fatal("production provider function translateProviderEvent was not discovered")
+	}
+	if funcs["fakeTestOnlyTranslator"] {
+		t.Fatal("test-only translator fakeTestOnlyTranslator must not count as provider-local")
 	}
 }
 
-func assertProviderAcceptanceCoverage(t *testing.T, file *ast.File, testFunc, specFunc string) {
+func assertProviderContractSnapshotFiles(t *testing.T, provider, snapshotDir string) {
 	t.Helper()
-	testDecl := findFuncDecl(file, testFunc)
-	if testDecl == nil {
-		t.Fatalf("%s is required", testFunc)
-	}
-	specDecl := findFuncDecl(file, specFunc)
-	if specDecl == nil {
-		t.Fatalf("%s is required", specFunc)
-	}
-	if functionCallsSelector(testDecl, "contracttest", "Run") {
-		return
-	}
-	if functionCallsSelector(specDecl, "contracttest", "ValidateAcceptanceSpec") {
-		return
-	}
-	t.Fatalf("%s must cover acceptance through contracttest.Run or %s must call contracttest.ValidateAcceptanceSpec", testFunc, specFunc)
-}
-
-func assertProviderSnapshotManifest(t *testing.T, provider string) {
-	t.Helper()
-	assertProviderSnapshotFiles(t, provider, "event_snapshots")
-	assertProviderSnapshotFiles(t, provider, "prompt_snapshots")
-}
-
-func assertProviderSnapshotFiles(t *testing.T, provider, dir string) {
-	t.Helper()
-	wd, err := os.Getwd()
+	matches, err := filepath.Glob(filepath.Join(provider, "testdata", snapshotDir, "*.json"))
 	if err != nil {
-		t.Fatalf("os.Getwd() error = %v", err)
-	}
-	matches, err := filepath.Glob(filepath.Join(wd, provider, "testdata", dir, "*.json"))
-	if err != nil {
-		t.Fatalf("glob provider %s %s: %v", provider, dir, err)
+		t.Fatalf("glob provider %s %s snapshots: %v", provider, snapshotDir, err)
 	}
 	if len(matches) == 0 {
-		t.Fatalf("provider %s missing testdata/%s/*.json acceptance snapshots", provider, dir)
+		t.Fatalf("%s must include at least one testdata/%s/*.json golden snapshot", provider, snapshotDir)
 	}
 }
 
-func functionCallsIdent(fn *ast.FuncDecl, name string) bool {
-	found := false
-	ast.Inspect(fn, func(n ast.Node) bool {
+func assertProviderContractEventTranslatorLocal(t *testing.T, provider string, file *ast.File) {
+	t.Helper()
+	localFuncs := providerLocalFunctionNames(t, provider)
+	var translators []string
+	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok {
+		if !ok || !selectorCall(call.Fun, "contracttest", "CaptureProviderEventTranslation") {
 			return true
 		}
-		ident, ok := call.Fun.(*ast.Ident)
-		found = found || (ok && ident.Name == name)
-		return !found
+		if len(call.Args) < 4 {
+			t.Fatalf("CaptureProviderEventTranslation has %d args, want provider-local translator arg", len(call.Args))
+		}
+		translator, ok := call.Args[3].(*ast.Ident)
+		if !ok || strings.TrimSpace(translator.Name) == "" || translator.Name == "nil" {
+			t.Fatalf("CaptureProviderEventTranslation translator = %T, want provider-local function identifier", call.Args[3])
+		}
+		translators = append(translators, translator.Name)
+		return true
 	})
-	return found
+	if len(translators) == 0 {
+		t.Fatal("provider contract test must capture provider event translation")
+	}
+	for _, translator := range translators {
+		if !localFuncs[translator] {
+			t.Fatalf("CaptureProviderEventTranslation translator %s is not declared in provider package %s", translator, provider)
+		}
+	}
 }
 
-func functionCallsSelector(fn *ast.FuncDecl, pkg, name string) bool {
-	found := false
-	ast.Inspect(fn, func(n ast.Node) bool {
+func providerLocalFunctionNames(t *testing.T, provider string) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(provider)
+	if err != nil {
+		t.Fatalf("read provider package %s: %v", provider, err)
+	}
+	funcs := make(map[string]bool)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(provider, entry.Name())
+		file := parseGoFile(t, path, 0)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Recv == nil {
+				funcs[fn.Name.Name] = true
+			}
+		}
+	}
+	return funcs
+}
+
+func assertProviderAcceptanceCovered(t *testing.T, file *ast.File) {
+	t.Helper()
+	covered := false
+	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		found = found || selectorCall(call.Fun, pkg, name)
-		return !found
+		if selectorCall(call.Fun, "contracttest", "Run") || selectorCall(call.Fun, "contracttest", "ValidateAcceptanceSpec") {
+			covered = true
+			return false
+		}
+		return true
 	})
-	return found
+	if !covered {
+		t.Fatal("provider contract test must call contracttest.Run or contracttest.ValidateAcceptanceSpec to cover acceptance criteria")
+	}
 }

@@ -209,6 +209,9 @@ func Run(t *testing.T, spec Spec) {
 // RunSpecForTest 执行 provider 契约测试并返回违规，供 harness 自测断言。
 func RunSpecForTest(t *testing.T, spec Spec) error {
 	t.Helper()
+	if err := ValidateAcceptanceSpec(spec); err != nil {
+		return err
+	}
 	if err := ValidateSpec(spec); err != nil {
 		return err
 	}
