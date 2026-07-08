@@ -300,11 +300,14 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | Tool | 功能 | 备注 |
 |---|---|---|
-| `orchestration_launch_agent` | 异步启动一个受编排管理的 agent。`name` 目前直接作为 `agent_id`，因此应使用简短、面向用户的任务名（如“排查登录回调 500”），不要用路径、内部 slug 或泛化角色名。 | 仅允许 `provider=codex/claude`；底层命令固定为当前 `mcp-orch` 可执行文件。 |
-| `orchestration_send_message` | 给指定 agent 追加一条文本 turn。 | 自动把消息包装为 `[{type:"text", content: message}]`。 |
-| `orchestration_stop_agent` | 停止指定 agent。 | 远程 agent 走 `thread/stop`，本地 agent 走进程 kill + 等待退出。 |
-| `orchestration_list_agents` | 返回当前所有 agent snapshot。 | 包含 thread / runtime / report / state 等快照。 |
-| `orchestration_get_agent_report` | 读取指定 agent 的最后 report。 | 返回 `report + report_seq + updated_at + state + requester metadata`；`wait=true` 可传 `after_report_seq`，只在读到更大版本时返回，避免多轮操作读到旧 report。 |
+| `launch_agent` | 异步启动一个受编排管理的 agent。`name` 目前直接作为用户可见名称；稳定身份优先用 `agent_id`。 | 仅允许 `provider=codex/claude`；底层命令固定为当前 `mcp-orch` 可执行文件；旧 `orchestration_*` 前缀工具名不再作为 registry alias 暴露。 |
+| `send_message` | 给指定 agent 追加一条文本 turn。 | 自动把消息包装为 `[{type:"text", content: message}]`；目标优先用 `pos=agent:<agent_id>`，`agent_id` 仅作 legacy 字段。 |
+| `stop_agent` | 停止指定 agent。 | 远程 agent 走 `thread/stop`，本地 agent 走进程 kill + 等待退出。 |
+| `recover_agent` | 恢复 stopped / failed agent 并返回最新 snapshot。 | 目标优先用 `pos`，`agent_id` 仅作 legacy 字段。 |
+| `interrupt_agent` | 中断运行中 agent 的当前 turn 并等待状态稳定。 | 支持 `source` 与 `timeout_ms`。 |
+| `list_agents` | 返回当前所有 agent snapshot。 | 包含 thread / runtime / report / state 等快照；trusted ToolScope 的 `_cwd` 会覆盖用户传入 cwd。 |
+| `get_agent_report` | 读取指定 agent 的最后 report。 | 返回 `report + report_seq + updated_at + state + requester metadata`；`wait=true` 可传 `after_report_seq`，只在读到更大版本时返回，避免多轮操作读到旧 report。 |
+| `get_agent_reports` | 批量读取多个 agent report，或等待所有目标产生新 report。 | `wait=true` 只支持 all 语义，不支持 any/quorum/first_success。 |
 
 #### DAG / task 类
 
@@ -393,7 +396,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config` | 配置 bootstrap 注册、工具代理、能力声明、hook 回调；`OnToolsList` / `OnToolsCall` 直接复用 `registryToolProvider`，其中 `OnToolsCall` 会把 tool 返回值再包装成 text content。P22 P4 §278：bootstrap 的 after-hook 入口已退成 `contract.BootstrapHookAfterHandler` 函数型，不再 import `orchestration.HookConsumer`。 |
 | `func buildOrchestrationOptions(remoteAddr string) []fx.Option` | 根据是否存在 `GO_AGENT_CTL_RPC_ADDR` 选择 launch backend，并在本地模式注入 `runnerActor`。 |
 | `func buildLauncher(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher` | 选择 `localLauncher` 或 `remoteLauncher`。 |
-| `func newRegistry(orchestration contract.OrchestrationService, ws workspace.Service, prompt promptstore.Store, command commandcardstore.Store, sharedFile sharedfilestore.Store) tools.Registry` | 构造运行时 registry；只把 orchestration / workspace / prompt / command / shared_file 依赖传给 `tools.NewRegistry()`，不装配 memory tools。 |
+| `func newRegistry(p newRegistryParams) tools.Registry` | 构造运行时 registry；通过 `ToolPorts` 只把各 tool 需要的窄端口传给 `tools.NewRegistry()`，不装配 memory tools。 |
 | `func newStdioRunner(registry tools.Registry) platformrunner.Runner` | 用 stdio 启动 MCP server。 |
 | `func newHTTPRunner(registry tools.Registry) platformrunner.Runner` | peer 模式启 HTTP MCP；否则返回阻塞 runner。 |
 | `func (p registryToolProvider) ListTools(context.Context) ([]common.MCPTool, error)` | 把 registry definitions 编码成 MCP `tools/list` 响应；stdio/HTTP/bootstrap 共用。 |
@@ -472,7 +475,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition` | 构造 prompt / command 这类 list/get 资源型工具。 |
 | `func promptToolDefinitions(store promptstore.Store) []ToolDefinition` | 通过 `resourceToolDefinitions()` 暴露 `prompt_list` / `prompt_get` 两个出口。 |
 | `memory_tools.go` | 当前不定义 memory tool；`tools.NewRegistry()` 不挂入 `memory_read` / `memory_write`。 |
-| `func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler` | `orchestration_launch_agent` 实现；异步 launch。 |
+| `func HandleLaunchAgent(port AgentLaunchPort) ToolHandler` | `launch_agent` 实现；只依赖 launch 所需窄端口，异步 launch。 |
 | `func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error)` | 把 tool 输入转成 service contract；可信 ToolScope `_agentId` 优先供 creator，公开 `agent_id` 只能匹配可信值。 |
 | `func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error)` | `workspace_create_run` 工具实现。 |
 | `func workspaceRunDTOFromRun(ctx context.Context, svc workspace.Service, run *workspace.Run) (*workspaceRunDTO, error)` | 把 workspace service 输出补齐兼容字段与文件列表。 |
@@ -600,7 +603,7 @@ sequenceDiagram
     participant Core as 主控 thread/turn/session
     participant Rep as report.go
 
-    U->>T: orchestration_launch_agent(name,prompt,...)
+    U->>T: launch_agent(name,prompt,...)
     T-->>U: {agent_id,status:"launching"}
     T->>S: LaunchAgent(req)（异步 goroutine）
     S->>S: prepareLauncherLaunch()
@@ -616,11 +619,11 @@ sequenceDiagram
     S->>S: finishLauncherLaunch()
     S-->>R: state_changed + agent_launched/agent_failed
 
-    U->>T: orchestration_list_agents()
+    U->>T: list_agents()
     T->>S: ListAgents()
     S-->>U: []AgentSnapshot
 
-    U->>T: orchestration_send_message(agent_id,message)
+    U->>T: send_message(agent_id,message)
     T->>S: SubmitTurn(submission)
     alt remote agent
         S->>L: SubmitTurn()
@@ -636,7 +639,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant C as Claude
-  participant T as orchestration_send_message
+  participant T as send_message
   participant S as orchestration.Service
   participant L as AgentLauncher
   participant Q as SubmissionQueue
@@ -658,7 +661,7 @@ sequenceDiagram
   S-->>C: state + report updates
 ```
 
-1. Claude 调用 `orchestration_send_message`。
+1. Claude 调用 `send_message`。
 2. `submissionFromMessage()` 生成 `TurnSubmission`：
     - `Inputs = [{type:"text", content: message}]`
    - `ThreadID` 优先取现有 snapshot 的 `thread_id`，否则回退到 `agent_id`
@@ -694,7 +697,7 @@ sequenceDiagram
     - 若 `turn_running` 且 `updatedAt` 超过 30s 未刷新，`StallDetector` 触发 `recoverWithReason(ctx, agentID, "stall_detected")`
     - `Recover()` 会重启 agent；若 DAG store 中存在与 `activeTurnID` 精确绑定、且 wakeup 仍是 `sent` 的记录，则把原 prompt 回放回队列
 
-    U->>T: orchestration_stop_agent(agent_id)
+    U->>T: stop_agent(agent_id)
     T->>S: StopAgent()
     alt remote agent
         S->>L: Stop()
@@ -711,9 +714,9 @@ sequenceDiagram
 
 ### 3.2 生命周期要点
 
-- `orchestration_launch_agent` 是**立即返回**的异步工具；真正 launch 在后台跑，避免 MCP tool-call 超时（`cmd/mcp-orch/tools/orchestration_tools.go:36`、`cmd/mcp-orch/orchestration/service.go:273`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:53`）。
+- `launch_agent` 是**立即返回**的异步工具；真正 launch 在后台跑，避免 MCP tool-call 超时（`cmd/mcp-orch/tools/orchestration_tools.go:36`、`cmd/mcp-orch/orchestration/service.go:273`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:53`）。
 - launch 先经过 `prepareLauncherLaunch()` 归一化 `agentRuntime`，再由 `localLauncher` 执行本地进程或由 `remoteLauncher` 发 `thread/start` RPC（`cmd/mcp-orch/orchestration/launcher.go:141`）。
-- `orchestration_list_agents` 纯读 `agents` map 并返回 snapshot，不做副作用（`cmd/mcp-orch/orchestration/service.go:301`）。
+- `list_agents` 纯读 `agents` map 并返回 snapshot，不做副作用（`cmd/mcp-orch/orchestration/service.go:301`）。
 - 报告读取与报告写入分离：`GetReport()` 只读；真正写 `lastReport` 的入口是 `HandleReportEvent()`、`hookConsumer.handleTurnCompleted()` 与 final-answer item 镜像（`cmd/mcp-orch/orchestration/report.go:49`、`cmd/mcp-orch/orchestration/report.go:81`、`cmd/mcp-orch/orchestration/hook_consumer.go:53`）。
 - stop 统一收口到 `stopAgentViaLauncher()`；本地进程退出走 `handleProcessExit()`，远端线程退出主要靠 hook 镜像回灌（`cmd/mcp-orch/orchestration/service.go:277`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:180`、`cmd/mcp-orch/orchestration/process_lifecycle.go:82`）。
 - `sessionGeneration` 在 thread 启动/恢复后从 `SessionManager` 回写给 mcp-orch；退出时优先调用 generation-aware cleaner，避免误删新 session（`internal/module/thread/lifecycle.go:62`、`cmd/mcp-orch/orchestration/process_lifecycle.go:21`、`internal/provider/unified/session_adapter.go:54`）。

@@ -123,7 +123,8 @@ internal/archtest/orchestration_report_protocol_guard_test.go	internal	other	go-
 internal/archtest/orchestration_rpc_golden_test.go	internal	other	go-test	3003	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,rpc,golden,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_service_boundary_fixtures_test.go	internal	other	go-test	13968	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,boundary,fixtures,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_service_boundary_test.go	internal	other	go-test	25114	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,boundary,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_type_boundary_test.go	internal	other	go-test	25788	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_type_boundary_test.go	internal	other	go-test	13877	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_type_loader_test.go	internal	other	go-test	16048	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,loader,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_session_cleaner_guard_test.go	internal	other	go-test	2348	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,cleaner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_session_ready_guard_test.go	internal	other	go-test	2201	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,ready,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/parse_fail_closed_guard_test.go	internal	other	go-test	2539	架构守卫、baseline ratchet 与冻结规则	internal,archtest,parse,fail,closed,guard,test,架构守卫,baseline,ratchet,与冻结规则

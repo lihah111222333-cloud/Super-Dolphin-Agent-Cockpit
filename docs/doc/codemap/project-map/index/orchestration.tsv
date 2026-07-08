@@ -1,7 +1,7 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/mcp-orch/dag_cron_runner_test.go	cmd	orchestration	go-test	4200	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,dag,cron,runner,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/dag_cron_runner.go	cmd	orchestration	go-source	3769	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,dag,cron,runner,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
-cmd/mcp-orch/fx_test.go	cmd	orchestration	go-test	14167	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
+cmd/mcp-orch/fx_test.go	cmd	orchestration	go-test	15031	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/fx.go	cmd	orchestration	go-source	12350	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/fxadapter/dag_cron_store_test.go	cmd	orchestration	go-test	2627	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fxadapter,dag,cron,store,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/fxadapter/dag_cron_store.go	cmd	orchestration	go-source	6082	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fxadapter,dag,cron,store,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口

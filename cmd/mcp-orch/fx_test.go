@@ -18,6 +18,7 @@ import (
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeupreclaim"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	orchtools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -283,6 +284,24 @@ func TestHandleScopedToolsCallWithCallerUsesTrustedScope(t *testing.T) {
 	}
 	if payload, ok := result.(map[string]any); !ok || payload["structuredContent"] == nil {
 		t.Fatalf("result = %#v, want structured content", result)
+	}
+}
+
+func TestHandleScopedToolsCallRejectsLegacyAliasThroughRegistryProvider(t *testing.T) {
+	registry := orchtools.NewRegistry(orchtools.Dependencies{})
+	provider := registryToolProvider{registry: registry}
+	params := json.RawMessage(`{"name":"orchestration_list_agents","arguments":{},"_agentId":"agent-1"}`)
+
+	result, err := handleScopedToolsCall(context.Background(), provider, "orch", params)
+	if err != nil {
+		t.Fatalf("handleScopedToolsCall() error = %v, want structured unknown tool error", err)
+	}
+	envelope := decodeScopedToolEnvelope(t, result)
+	if envelope.Success {
+		t.Fatalf("Success = true, want false for legacy alias")
+	}
+	if !strings.Contains(envelope.Error, "unknown tool: orchestration_list_agents") {
+		t.Fatalf("Error = %q, want unknown legacy alias", envelope.Error)
 	}
 }
 
