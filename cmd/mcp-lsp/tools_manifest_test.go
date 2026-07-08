@@ -7,13 +7,13 @@ import (
 
 func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 	want := map[string]string{
-		"file":       "action=read_file pos=",
-		"inspect":    "pos=internal/foo.go:42:9",
-		"xref":       "pos=internal/foo.go:42:9",
-		"grep":       "action=text_search",
-		"structure":  "action=document_symbol",
-		"edit":       "action=replace_range",
-		"completion": "pos=internal/foo.go:42:9",
+		"file":           "action=read_file pos=",
+		"inspect":        "pos=internal/foo.go:42:9",
+		"xref":           "pos=internal/foo.go:42:9",
+		"grep":           "action=text_search",
+		"structure":      "action=document_symbol",
+		"lsp_edit":       "action=replace_range",
+		"lsp_completion": "pos=internal/foo.go:42:9",
 	}
 	for _, manifest := range lspToolManifests {
 		must, ok := want[manifest.Name]

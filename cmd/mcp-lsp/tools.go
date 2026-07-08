@@ -37,8 +37,10 @@ var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("xref", "Find references, call hierarchy, or type hierarchy. Example: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
 	toolManifestWithOutputSchema("grep", "Search codebase by text or AST pattern. Example: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),
 	toolManifestWithSchema("structure", "List document symbols, workspace symbols, folding ranges, or semantic tokens. Examples: action=document_symbol file_path=internal/foo.go; action=workspace_symbol query=Handler language=go.", lspStructureSchema),
-	toolManifestWithSchema("edit", "Apply patch edits, LSP rename, code actions, or format. Pure insertion: context (' ') + add ('+') lines only. Example: action=replace_range file_path=internal/foo.go patch=\" import (\\n+\\t\\\"fmt\\\"\\n )\".", lspEditSchema),
-	toolManifestWithSchema("completion", "Context-aware code completions at a cursor position. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
+	// edit/completion are Codex-reserved short names in the desktop tool surface;
+	// keep the lsp_ prefix so Codex injects both tools.
+	toolManifestWithSchema("lsp_edit", "Apply patch edits, LSP rename, code actions, or format. Pure insertion: context (' ') + add ('+') lines only. Example: action=replace_range file_path=internal/foo.go patch=\" import (\\n+\\t\\\"fmt\\\"\\n )\".", lspEditSchema),
+	toolManifestWithSchema("lsp_completion", "Context-aware code completions at a cursor position. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
 }
 
 // legacyToolAliases 旧版工具名到规范名的映射，保持向后兼容。
