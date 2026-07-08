@@ -603,9 +603,25 @@ function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
   );
 }
 
-function AppShell({ skipBootstrap = false }) {
+function UITestMCPShell() {
+  return (
+    <div className="sa-window sidebar-collapsed" data-theme="dark" data-testid="frontend-app">
+      <main className="sa-main" data-testid="ui-test-mcp-shell">
+        <section className="chat-page">
+          <textarea data-testid="composer-input" aria-label="消息输入" />
+          <button type="button" data-testid="composer-submit" aria-label="发送消息">
+            发送
+          </button>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AppShell({ skipBootstrap = false, uiTestMCPMode = false }) {
   const store = useClientStore(useShallow(selectAppShellStore));
-  const shell = useAppShellState(store, skipBootstrap);
+  const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
+  if (uiTestMCPMode) return <UITestMCPShell />;
   return <AppWindow {...shell} store={store} />;
 }
 

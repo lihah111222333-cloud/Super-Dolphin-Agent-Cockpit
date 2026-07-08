@@ -419,6 +419,10 @@ let frontendTraceQueue = [];
 let frontendTraceFlushScheduled = false;
 let frontendTraceFlushInFlight = false;
 
+function isUITestMCPTraceSuppressed() {
+  return !import.meta.env.PROD && import.meta.env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
+}
+
 function isFrontendTraceDebugEnabled() {
   if (typeof window === 'undefined') return false;
   if (window.__AO_FRONTEND_TRACE_DEBUG__ === true) return true;
@@ -533,6 +537,7 @@ function sanitizeFrontendTraceEvent(event) {
 
 function shouldRemoteFlushFrontendTrace(event) {
   if (!event) return false;
+  if (isUITestMCPTraceSuppressed()) return false;
   if (event.status === 'error') return true;
   if (event.status === 'slow') return true;
   if (FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES.has(event.phase)) return true;

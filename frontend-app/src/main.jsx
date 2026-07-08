@@ -65,6 +65,7 @@ if (shouldLoadUITestHarness) {
  * @param {number} actualDuration
  */
 function emitSlowRenderTrace(id, phase, actualDuration) {
+  if (isUITestMCPRun) return;
   const durationMs = Number(actualDuration);
   if (!Number.isFinite(durationMs) || durationMs < REACT_RENDER_SLOW_MS) return;
   emitFrontendTraceEvent({
@@ -85,7 +86,7 @@ createRoot(document.getElementById('root')).render(
     createElement(
       Profiler,
       { id: APP_PROFILER_ID, onRender: emitSlowRenderTrace },
-      createElement(App, isUITestMCPRun ? { skipBootstrap: true } : null),
+      createElement(App, isUITestMCPRun ? { skipBootstrap: true, uiTestMCPMode: true } : null),
     ),
   ),
 );
