@@ -29,6 +29,32 @@ const PAGE_ID_BY_ROUTE = Object.freeze({
   '/settings': 'settings',
 });
 
+const THREAD_STATUS_BUSY_STATES = new Set([
+  'starting',
+  'preparing',
+  'thinking',
+  'running',
+  'editing',
+  'waiting',
+  'syncing',
+  'responding',
+  'force_completing',
+  'interrupting',
+]);
+
+const THREAD_STATUS_ALIASES = Object.freeze({
+  工作中: 'running',
+  发送中: 'preparing',
+  pending: 'starting',
+  recovering: 'syncing',
+  create: 'idle',
+  created: 'idle',
+  错误: 'error',
+  失败: 'failed',
+  空闲: 'idle',
+  等待指示: 'idle',
+});
+
 export const APP_SHELL_STORE_KEYS = Object.freeze([
   'actionNotice',
   'activePage',
@@ -110,6 +136,13 @@ export function appPageFromPathname(pathname) {
 
 export function appRouteForPage(page) {
   return PAGE_ROUTE_BY_ID[page] || PAGE_ROUTE_BY_ID.chat;
+}
+
+export function threadStatusBusy(status) {
+  const raw = (status || '').toString().trim();
+  if (!raw) return false;
+  const alias = THREAD_STATUS_ALIASES[raw] || raw;
+  return THREAD_STATUS_BUSY_STATES.has(alias.toLowerCase().replace(/-/g, '_'));
 }
 
 export function selectAppShellStore(state) {

@@ -19,7 +19,6 @@ const appShellBackendApiAllowlist = new Set([
 ]);
 const ownerlessFeatureSurfaceImportAllowlist = new Map([
   ['App.jsx', new Set([
-    'pages/chat/adapters/threadStateAdapter.js',
     'pages/memory/services/memoryPageService.js',
   ])],
   ['pages/shared/pageShared.js', new Set([
@@ -159,6 +158,17 @@ describe('shared page surface boundary', () => {
 
   it('allows App.jsx to import only manifest-listed feature services', () => {
     expect(appShellFeatureServiceViolations()).toEqual([]);
+  });
+
+  it('blocks App.jsx feature adapter imports while allowing manifest-listed services', () => {
+    expect(ownerlessFeatureSurfaceImportViolations('App.jsx', `
+      import { threadStatusBusy } from './pages/chat/adapters/threadStateAdapter.js';
+    `)).toEqual([
+      'App.jsx imports ownerless feature surface ./pages/chat/adapters/threadStateAdapter.js',
+    ]);
+    expect(ownerlessFeatureSurfaceImportViolations('App.jsx', `
+      import { memoryPageService } from './pages/memory/services/memoryPageService.js';
+    `)).toEqual([]);
   });
 
   it('keeps pageShared away from shared module services', () => {

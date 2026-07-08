@@ -7,7 +7,6 @@ import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './share
 import { dashboardQueryKey, errorMessage, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
-import { threadStatusBusy } from './pages/chat/adapters/threadStateAdapter.js';
 import { runUIAction } from './shared/ui/runUIAction.js';
 import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
@@ -20,6 +19,7 @@ import {
   normalizeAppPathname,
   normalizeColorTheme,
   selectAppShellStore,
+  threadStatusBusy,
 } from './app/appShellModel.js';
 
 function lazyNamedPage(loader, exportName) {
