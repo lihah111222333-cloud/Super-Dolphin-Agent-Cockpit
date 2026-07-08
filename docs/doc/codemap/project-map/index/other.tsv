@@ -252,6 +252,7 @@ internal/dto/turn/progress.go	internal	other	go-source	2524	provider/shared DTO 
 internal/dto/ui/event_test.go	internal	other	go-test	642	provider/shared DTO 与事件协议	internal,dto,ui,event,test,provider,shared,DTO,与事件协议
 internal/dto/ui/event.go	internal	other	go-source	7831	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议
 internal/dto/ui/patch_types.go	internal	other	go-source	1405	provider/shared DTO 与事件协议	internal,dto,ui,patch,types,provider,shared,DTO,与事件协议
+internal/e2e/rpc_runtime/doc_test.go	internal	other	go-test	25	未细分职责：请结合路径、文件名和相邻代码判断	internal,e2e,rpc,runtime,doc,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/e2e/rpc_runtime/runtime_e2e_test.go	internal	other	go-test	9527	未细分职责：请结合路径、文件名和相邻代码判断	internal,e2e,rpc,runtime,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/guards/code_size_guard_test.go	internal	other	go-test	1945	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,code,size,guard,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/guards/guard_manifest.json	internal	other	json	345	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,guard,manifest,未细分职责：请结合路径,文件名和相邻代码判断

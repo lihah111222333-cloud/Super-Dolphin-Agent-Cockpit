@@ -316,7 +316,7 @@ func newFxHarness(t *testing.T) *fxHarness {
 	}}
 	app := fx.New(
 		fx.NopLogger,
-		fx.Supply(&contract.Config{ProjectRoot: h.projectRoot}),
+		fx.Supply(testHarnessConfig(h.projectRoot)),
 		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
 		fx.Supply(fx.Annotate(datasourceStore, fx.As(new(datasource.DatasourceDocumentStore)))),
 		fx.Provide(
@@ -360,6 +360,13 @@ func newFxHarness(t *testing.T) *fxHarness {
 		}
 	})
 	return h
+}
+
+func testHarnessConfig(projectRoot string) *contract.Config {
+	return &contract.Config{
+		ProjectRoot: projectRoot,
+		Dependency:  contract.DependencyConfig{Profile: contract.DependencyProfileTest},
+	}
 }
 
 func newGitProjectRoot(t *testing.T) string {

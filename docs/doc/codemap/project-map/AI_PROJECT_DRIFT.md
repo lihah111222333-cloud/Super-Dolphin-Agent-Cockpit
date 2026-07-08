@@ -2,22 +2,22 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4062
+> 已索引文件：4063
 >
-> 未细分职责文件：56
+> 未细分职责文件：57
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 56 |
-| 未细分职责占比 | 1.38% |
+| 未细分职责文件数 | 57 |
+| 未细分职责占比 | 1.40% |
 
 ## 2. 未细分职责分布
 
 | 模块 | 文件数 |
 |---|---:|
-| `internal` | 27 |
+| `internal` | 28 |
 | `cmd` | 9 |
 | `test` | 9 |
 | `third_party` | 9 |
@@ -35,6 +35,7 @@
 - `cmd/super-dolphin-updater/install.go`
 - `cmd/super-dolphin-updater/install_test.go`
 - `cmd/super-dolphin-updater/main.go`
+- `internal/e2e/rpc_runtime/doc_test.go`
 - `internal/e2e/rpc_runtime/runtime_e2e_test.go`
 - `internal/guards/code_size_guard_test.go`
 - `internal/guards/guard_manifest.json`
@@ -75,7 +76,6 @@
 - `tests/scripts/guard_env_test.sh`
 - `third_party/kelindar-event/LICENSE`
 - `third_party/kelindar-event/README.md`
-- `third_party/kelindar-event/default.go`
 
 ## 4. 修复方式
 

@@ -90,7 +90,7 @@ type promptWriteParams struct {
 	AgentType   string                   `json:"agentType,omitempty"`
 	WhenToUse   *string                  `json:"when_to_use,omitempty"`
 	Cwd         string                   `json:"cwd,omitempty"`
-	MatchWhen   promptOptionalRawMessage `json:"match_when,omitempty"`
+	MatchWhen   promptOptionalRawMessage `json:"match_when"`
 	Priority    int                      `json:"priority,omitempty"`
 	Enabled     *bool                    `json:"enabled,omitempty"`
 	Scope       *string                  `json:"scope,omitempty"`
@@ -468,11 +468,6 @@ func promptSectionItemFromStore(section promptTemplateSection, promptKey string)
 		CreatedAt:   section.CreatedAt,
 		UpdatedAt:   section.UpdatedAt,
 	}
-}
-
-// promptItemsFromTemplates 将模板列表转换为 RPC items，不附加 section preview。
-func promptItemsFromTemplates(templates []promptTemplate) []promptRPCItem {
-	return promptItemsFromTemplatesWithSections(templates, nil)
 }
 
 // promptItemsFromTemplatesWithSections 将模板转换为 RPC items，并优先用 section preview 展示内容。

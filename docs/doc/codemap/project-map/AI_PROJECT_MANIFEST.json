@@ -2,10 +2,10 @@
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.js",
   "generated_at": "2026-07-08",
-  "files": 4062,
+  "files": 4063,
   "domains": {
     "docs-agent": 848,
-    "other": 471,
+    "other": 472,
     "app-ui": 308,
     "platform-provider": 1006,
     "orchestration": 406,
@@ -14,7 +14,7 @@
   },
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0138,
-    "unknown_files": 56
+    "unknown_ratio": 0.014,
+    "unknown_files": 57
   }
 }

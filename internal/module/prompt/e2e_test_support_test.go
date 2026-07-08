@@ -71,6 +71,7 @@ type mockSession struct {
 func (s *mockSession) ThreadID() string              { return s.threadID }
 func (s *mockSession) RolloutPath() string           { return s.rolloutPath }
 func (*mockSession) Capabilities() dto.CapabilitySet { return nil }
+func (*mockSession) Close(context.Context) error     { return nil }
 
 type capturingThreadStore struct {
 	threadstore.Store
