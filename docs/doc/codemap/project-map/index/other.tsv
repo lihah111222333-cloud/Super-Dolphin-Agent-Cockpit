@@ -67,7 +67,7 @@ internal/archtest/dependency_direction_mcp_orch_test.go	internal	other	go-test	4
 internal/archtest/dependency_direction_module_store_test.go	internal	other	go-test	5286	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,module,store,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_test.go	internal	other	go-test	21056	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_wave3_test.go	internal	other	go-test	2566	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,wave3,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dependency_optional_boundary_test.go	internal	other	go-test	21510	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_optional_boundary_test.go	internal	other	go-test	22836	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/desktop_dependency_test.go	internal	other	go-test	612	架构守卫、baseline ratchet 与冻结规则	internal,archtest,desktop,dependency,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deterministic_time_guard_test.go	internal	other	go-test	5503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deterministic,time,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dispatcher_wiring_guard_test.go	internal	other	go-test	8356	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dispatcher,wiring,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -321,7 +321,7 @@ internal/util/safego/safego.go	internal	other	go-source	710	未细分职责：�
 internal/util/toolresults/path_test.go	internal	other	go-test	706	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,test,未细分职责：请结合路径,文件名和相邻代码判断
 internal/util/toolresults/path.go	internal	other	go-source	716	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,未细分职责：请结合路径,文件名和相邻代码判断
 internal/util/util.go	internal	other	go-source	1698	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,未细分职责：请结合路径,文件名和相邻代码判断
-Makefile	(root)	other	file	14703	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	14839	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	5884	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3359	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
@@ -432,7 +432,7 @@ scripts/refactor/rename_codexsdk_to_agentsdk_main_guardrail_test.go	scripts	othe
 scripts/refactor/rename_codexsdk_to_agentsdk_side_effect_guard_test.go	scripts	other	go-test	8401	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,side,effect,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk.go	scripts	other	go-source	13009	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_packaging_integrity_guard_test.go	scripts	other	go-test	4758	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,packaging,integrity,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/rpc_e2e_coverage_guard_test.go	scripts	other	go-test	2381	工程自动化、测试守卫、代码地图与开发脚本	scripts,rpc,e2e,coverage,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/rpc_e2e_coverage_guard_test.go	scripts	other	go-test	7800	工程自动化、测试守卫、代码地图与开发脚本	scripts,rpc,e2e,coverage,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree_guard_test.go	scripts	other	go-test	4474	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree.sh	scripts	other	script	1458	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	13802	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
