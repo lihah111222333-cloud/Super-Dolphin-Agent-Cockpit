@@ -28,6 +28,14 @@ func TestSuiteRejectsMissingRequiredCases(t *testing.T) {
 	}
 }
 
+func TestSuiteRejectsMissingDynamicToolResponderCase(t *testing.T) {
+	spec := CompleteFixtureSpec("fixture")
+	delete(spec.RequiredCases, CaseDynamicToolResponder)
+	if err := ValidateSpec(spec); err == nil {
+		t.Fatal("ValidateSpec() error = nil, want missing dynamic tool responder case")
+	}
+}
+
 func TestSuiteRejectsRequiredCaseWithoutEvidence(t *testing.T) {
 	spec := CompleteFixtureSpec("fixture")
 	spec.RequiredCases[CaseRuntimeReport] = Case{Name: "runtime report", Run: func(*testing.T, *CaseEvidence) {}}
@@ -68,6 +76,18 @@ func TestSuiteRejectsGenericReservedEvidenceKey(t *testing.T) {
 	err := RunSpecForTest(t, spec)
 	if err == nil || !strings.Contains(err.Error(), "typed evidence helper") {
 		t.Fatalf("RunSpecForTest() error = %v, want reserved evidence helper failure", err)
+	}
+}
+
+func TestSuiteRejectsGenericDynamicToolResponderEvidenceKey(t *testing.T) {
+	spec := CompleteFixtureSpec("fixture")
+	spec.RequiredCases[CaseDynamicToolResponder] = Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		e.AssertNoError(t, EvidenceDynamicToolResponder, nil)
+	}}
+	err := RunSpecForTest(t, spec)
+	if err == nil || !strings.Contains(err.Error(), "typed evidence helper") {
+		t.Fatalf("RunSpecForTest() error = %v, want reserved dynamic tool responder evidence helper failure", err)
 	}
 }
 
@@ -169,6 +189,58 @@ func TestSuiteRejectsResumeWithoutIdentityEvidence(t *testing.T) {
 func TestSuiteRunsCompleteProvider(t *testing.T) {
 	spec := CompleteFixtureSpec("fixture")
 	Run(t, spec)
+}
+
+func TestRecordDynamicToolResponderRejectsMissingObservedResponse(t *testing.T) {
+	spec := CompleteFixtureSpec("fixture")
+	spec.RequiredCases[CaseDynamicToolResponder] = Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		e.RecordDynamicToolResponder(t, DynamicToolResponderEvidence{ToolName: "fixture_echo"})
+	}}
+
+	err := RunSpecForTest(t, spec)
+	if err == nil || !strings.Contains(err.Error(), "response id") {
+		t.Fatalf("RunSpecForTest() error = %v, want missing dynamic tool response failure", err)
+	}
+}
+
+func TestRecordDynamicToolResponderRejectsBooleanUnsupported(t *testing.T) {
+	spec := CompleteFixtureSpec("fixture")
+	spec.RequiredCases[CaseDynamicToolResponder] = Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		e.RecordDynamicToolResponder(t, DynamicToolResponderEvidence{
+			ExpectedDependencyName: "dynamic_tools",
+			Unsupported: &UnsupportedOutcomeEvidence{
+				operationID:    "dynamic-tool-op",
+				dependencyName: "dynamic_tools",
+				profile:        contract.DependencyProfileTest,
+				booleanOnly:    true,
+			},
+		})
+	}}
+
+	err := RunSpecForTest(t, spec)
+	if err == nil || !strings.Contains(err.Error(), "typed dependency-mode error") {
+		t.Fatalf("RunSpecForTest() error = %v, want typed unsupported failure", err)
+	}
+}
+
+func TestRecordDynamicToolResponderAcceptsCapturedUnsupported(t *testing.T) {
+	spec := CompleteFixtureSpec("fixture")
+	spec.RequiredCases[CaseDynamicToolResponder] = Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		unsupported := CaptureUnsupportedOutcome(t, "dynamic-tool-op", "dynamic_tools", contract.DependencyProfileTest, func() error {
+			return contract.NewDependencyModeError(contract.ErrUnsupportedDependencyMode, "dynamic_tools", contract.DependencyProfileTest)
+		})
+		e.RecordDynamicToolResponder(t, DynamicToolResponderEvidence{
+			ExpectedDependencyName: "dynamic_tools",
+			Unsupported:            unsupported,
+		})
+	}}
+
+	if err := RunSpecForTest(t, spec); err != nil {
+		t.Fatalf("RunSpecForTest() error = %v, want captured dynamic tool unsupported accepted", err)
+	}
 }
 
 func TestLoadExpectedPromptSnapshotRejectsMissingSnapshot(t *testing.T) {

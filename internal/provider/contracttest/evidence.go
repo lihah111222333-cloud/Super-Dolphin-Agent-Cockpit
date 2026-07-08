@@ -95,6 +95,16 @@ type RuntimeReportEvidence struct {
 	DeferredReason string
 }
 
+// DynamicToolResponderEvidence 证明 provider 已处理动态工具调用，或以 typed unsupported 阻断。
+type DynamicToolResponderEvidence struct {
+	ToolName               string
+	CallID                 string
+	ResponseID             string
+	ResponsePayload        string
+	ExpectedDependencyName string
+	Unsupported            *UnsupportedOutcomeEvidence
+}
+
 // CaseEvidence 记录单个 contract case 的强类型证据。
 type CaseEvidence struct {
 	assertions map[EvidenceKey]string
@@ -275,6 +285,42 @@ func (e *CaseEvidence) RecordRuntimeReport(t *testing.T, report RuntimeReportEvi
 	}
 	e.assertions[EvidenceRuntimeReportPayload] = strings.Join(
 		[]string{report.AgentID, report.Provider, report.SessionURLPort, report.StdioMode, report.DeferredReason},
+		"/",
+	)
+}
+
+// RecordDynamicToolResponder 记录动态工具响应链路证据。
+func (e *CaseEvidence) RecordDynamicToolResponder(t *testing.T, responder DynamicToolResponderEvidence) {
+	t.Helper()
+	if responder.Unsupported != nil {
+		if err := validateUnsupportedOutcome(responder.Unsupported); err != nil {
+			e.invalid = append(e.invalid, fmt.Sprintf("dynamic tool responder unsupported evidence: %v", err))
+			return
+		}
+		if strings.TrimSpace(responder.ExpectedDependencyName) == "" {
+			e.invalid = append(e.invalid, "dynamic tool responder unsupported evidence requires expected dependency name")
+			return
+		}
+		if responder.ExpectedDependencyName != responder.Unsupported.dependencyName {
+			e.invalid = append(e.invalid, fmt.Sprintf(
+				"dynamic tool responder unsupported dependency = %s, want %s",
+				responder.Unsupported.dependencyName,
+				responder.ExpectedDependencyName,
+			))
+			return
+		}
+		e.assertions[EvidenceDynamicToolResponder] = responder.Unsupported.operationID + "/" + responder.Unsupported.dependencyName + "/" + string(responder.Unsupported.profile)
+		return
+	}
+	if strings.TrimSpace(responder.ToolName) == "" ||
+		strings.TrimSpace(responder.CallID) == "" ||
+		strings.TrimSpace(responder.ResponseID) == "" ||
+		strings.TrimSpace(responder.ResponsePayload) == "" {
+		e.invalid = append(e.invalid, "dynamic tool responder evidence requires tool name, call id, response id, and response payload")
+		return
+	}
+	e.assertions[EvidenceDynamicToolResponder] = strings.Join(
+		[]string{responder.ToolName, responder.CallID, responder.ResponseID, responder.ResponsePayload},
 		"/",
 	)
 }

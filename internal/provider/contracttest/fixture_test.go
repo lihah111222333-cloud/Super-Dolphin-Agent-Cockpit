@@ -56,14 +56,15 @@ func CompleteFixtureSpec(provider string) Spec {
 		Resume:     fixtureResume(name),
 		EventCases: []Case{fixtureEventCase()},
 		RequiredCases: map[CaseKey]Case{
-			CaseEventMatrix:   fixtureEventMatrixCase(name),
-			CasePromptParity:  fixturePromptParityCase(),
-			CaseApproval:      fixtureOutcomeCase("approval", EvidenceApprovalOutcome),
-			CaseInterrupt:     fixtureOutcomeCase("interrupt", EvidenceInterruptOutcome),
-			CaseForceComplete: fixtureOutcomeCase("force_complete", EvidenceForceCompleteOutcome),
-			CaseResume:        fixtureResumeIdentityCase(),
-			CaseToolbridge:    fixtureToolbridgeCase(),
-			CaseRuntimeReport: fixtureRuntimeReportCase(name),
+			CaseEventMatrix:          fixtureEventMatrixCase(name),
+			CasePromptParity:         fixturePromptParityCase(),
+			CaseApproval:             fixtureOutcomeCase("approval", EvidenceApprovalOutcome),
+			CaseInterrupt:            fixtureOutcomeCase("interrupt", EvidenceInterruptOutcome),
+			CaseForceComplete:        fixtureOutcomeCase("force_complete", EvidenceForceCompleteOutcome),
+			CaseResume:               fixtureResumeIdentityCase(),
+			CaseToolbridge:           fixtureToolbridgeCase(),
+			CaseDynamicToolResponder: fixtureDynamicToolResponderCase(),
+			CaseRuntimeReport:        fixtureRuntimeReportCase(name),
 		},
 	}
 }
@@ -152,6 +153,18 @@ func fixtureToolbridgeCase() Case {
 			StateAfter:       "completed",
 			DependencyName:   "toolbridge",
 			Profile:          contract.DependencyProfileTest,
+		})
+	}}
+}
+
+func fixtureDynamicToolResponderCase() Case {
+	return Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		e.RecordDynamicToolResponder(t, DynamicToolResponderEvidence{
+			ToolName:        "fixture_echo",
+			CallID:          "call-fixture",
+			ResponseID:      "response-fixture",
+			ResponsePayload: `{"ok":true}`,
 		})
 	}}
 }
