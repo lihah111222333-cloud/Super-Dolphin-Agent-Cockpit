@@ -266,6 +266,106 @@ describe('agentic e2e planner', () => {
       reason: expect.stringContaining('settings-video-key-save-mocked'),
     }));
   });
+
+  it('saves provider settings through the real settings form', () => {
+    const providerGoal = {
+      id: 'settings-provider-save-mocked',
+      modelValue: 'gpt-5',
+      effortValue: 'high',
+      personalityValue: 'friendly',
+      codexHomeValue: '/tmp/agentic-e2e/home/.codex',
+      writableRootsValue: '/tmp/agentic-e2e/project',
+    };
+    const matchingFacts = {
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+      settingsPageVisible: true,
+      settingsProviderSaveVisible: true,
+      settingsProviderModelValue: 'gpt-5',
+      settingsProviderEffortValue: 'high',
+      settingsProviderPersonalityValue: 'friendly',
+      settingsProviderCodexHomeValue: '/tmp/agentic-e2e/home/.codex',
+      settingsProviderInstanceKeyValue: 'agentic-e2e',
+      settingsProviderWritableRootsValue: '/tmp/agentic-e2e/project',
+      mockWailsCallMethods: [],
+    };
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderSaveVisible: false,
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'fail',
+      reason: expect.stringContaining('Provider settings save button is not visible'),
+    }));
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderModelValue: 'gpt-5.5',
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'select',
+      target: { type: 'testId', value: 'settings-provider-model' },
+      value: 'gpt-5',
+    }));
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderEffortValue: 'xhigh',
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'select',
+      target: { type: 'testId', value: 'settings-provider-effort' },
+      value: 'high',
+    }));
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderPersonalityValue: 'pragmatic',
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'select',
+      target: { type: 'testId', value: 'settings-provider-personality' },
+      value: 'friendly',
+    }));
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderCodexHomeValue: '',
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'fill',
+      target: { type: 'testId', value: 'settings-provider-codex-home' },
+      value: '/tmp/agentic-e2e/home/.codex',
+    }));
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderInstanceKeyValue: '',
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'fill',
+      target: { type: 'testId', value: 'settings-provider-instance-key' },
+      value: 'agentic-e2e',
+    }));
+
+    expect(decideNextAction({
+      ...matchingFacts,
+      settingsProviderWritableRootsValue: '',
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'fill',
+      target: { type: 'testId', value: 'settings-provider-writable-roots' },
+      value: '/tmp/agentic-e2e/project',
+    }));
+
+    expect(decideNextAction(matchingFacts, providerGoal)).toEqual(expect.objectContaining({
+      type: 'click',
+      target: { type: 'testId', value: 'settings-provider-save-button' },
+    }));
+
+    expect(decideNextAction({
+      url: 'http://127.0.0.1:5176/settings',
+      hasFrontendApp: true,
+      mockWailsCallMethods: ['ui/preferences/set'],
+    }, providerGoal)).toEqual(expect.objectContaining({
+      type: 'done',
+      reason: expect.stringContaining('settings-provider-save-mocked'),
+    }));
+  });
 });
 
 describe('agentic e2e business discovery', () => {
@@ -377,6 +477,13 @@ describe('agentic e2e readiness', () => {
       type: 'click',
       target: { type: 'role', role: 'button', name: '查询最新日志' },
     })).toEqual({ type: 'testId', value: 'observability-recent-logs' });
+  });
+
+  it('uses stable DOM readiness after provider settings save', () => {
+    expect(readinessForAction({
+      type: 'click',
+      target: { type: 'testId', value: 'settings-provider-save-button' },
+    })).toEqual({ type: 'stableDOM' });
   });
 });
 
@@ -728,6 +835,21 @@ describe('agentic e2e DOM facts', () => {
           <nav data-testid="sidebar-secondary-nav">
             <button aria-label="链路追踪"></button>
           </nav>
+          <section data-testid="settings-page">
+            <select data-testid="settings-provider-model">
+              <option value="gpt-5" selected>gpt-5</option>
+            </select>
+            <select data-testid="settings-provider-effort">
+              <option value="high" selected>high</option>
+            </select>
+            <select data-testid="settings-provider-personality">
+              <option value="friendly" selected>friendly</option>
+            </select>
+            <input data-testid="settings-provider-codex-home" value="/tmp/agentic-e2e/home/.codex" />
+            <input data-testid="settings-provider-instance-key" value="agentic-e2e" />
+            <textarea data-testid="settings-provider-writable-roots">/tmp/agentic-e2e/project</textarea>
+            <button data-testid="settings-provider-save-button">保存</button>
+          </section>
           <h1>观测面板</h1>
           <label>
             筛选
@@ -749,6 +871,15 @@ describe('agentic e2e DOM facts', () => {
         expect.objectContaining({ tag: 'h1', text: '观测面板' }),
         expect.objectContaining({ tag: 'select', ariaLabel: '日志级别' }),
       ]));
+      expect(facts).toEqual(expect.objectContaining({
+        settingsProviderSaveVisible: true,
+        settingsProviderModelValue: 'gpt-5',
+        settingsProviderEffortValue: 'high',
+        settingsProviderPersonalityValue: 'friendly',
+        settingsProviderCodexHomeValue: '/tmp/agentic-e2e/home/.codex',
+        settingsProviderInstanceKeyValue: 'agentic-e2e',
+        settingsProviderWritableRootsValue: '/tmp/agentic-e2e/project',
+      }));
     }
     finally {
       await browser.close();
@@ -783,6 +914,19 @@ describe('agentic e2e config', () => {
     }));
   });
 
+  it('keeps provider goal selection defaults when overrides are blank', () => {
+    expect(normalizeGoal({
+      id: 'settings-provider-save-mocked',
+      modelValue: ' ',
+      codexHomeValue: ' /tmp/agentic-e2e/home/.codex ',
+    })).toEqual(expect.objectContaining({
+      id: 'settings-provider-save-mocked',
+      modelValue: 'gpt-5',
+      codexHomeValue: '/tmp/agentic-e2e/home/.codex',
+      instanceKeyValue: 'agentic-e2e',
+    }));
+  });
+
   it('exposes the stable goal runner candidates', () => {
     expect(AGENTIC_GOAL_IDS).toEqual(expect.arrayContaining([
       'chat-composer',
@@ -797,6 +941,7 @@ describe('agentic e2e config', () => {
       'project-add-sandbox',
       'file-attach-sandbox',
       'settings-video-key-save-mocked',
+      'settings-provider-save-mocked',
     ]));
   });
 
@@ -827,6 +972,20 @@ describe('agentic e2e config', () => {
 
     expect(config.goal.id).toBe('memory-open');
     expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run/memory-open');
+  });
+
+  it('uses sandbox values for provider settings goal selection', () => {
+    const config = agenticE2EConfig({
+      SUPER_DOLPHIN_AGENTIC_E2E_RUN_ID: 'probe run',
+      SUPER_DOLPHIN_AGENTIC_E2E_GOAL: 'settings-provider-save-mocked',
+    }, '/repo/app');
+
+    expect(config.goal).toEqual(expect.objectContaining({
+      id: 'settings-provider-save-mocked',
+      codexHomeValue: '/repo/app/.tmp/agentic-e2e/sandbox/probe-run/home/.codex',
+      writableRootsValue: '/repo/app/.tmp/agentic-e2e/sandbox/probe-run/project',
+    }));
+    expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run/settings-provider-save-mocked');
   });
 
   it('enables strict mock Wails from env or command line', () => {

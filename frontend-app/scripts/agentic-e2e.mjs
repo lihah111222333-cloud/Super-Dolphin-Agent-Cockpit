@@ -27,12 +27,12 @@ export function repoRootFromScript(metaURL = import.meta.url) {
 export function agenticE2EConfig(env = process.env, repoRoot = repoRootFromScript(), argv = []) {
   const cli = parseAgenticE2EArgs(argv);
   const runID = normalizeRunID(env.SUPER_DOLPHIN_AGENTIC_E2E_RUN_ID || new Date().toISOString());
-  const goal = normalizeGoal({
+  const sandbox = agenticE2ESandboxForRun(repoRoot, runID);
+  const goal = goalWithSandboxValues(normalizeGoal({
     id: cli.goal || env.SUPER_DOLPHIN_AGENTIC_E2E_GOAL || DEFAULT_AGENTIC_GOAL.id,
     composerText: cli.composerText || env.SUPER_DOLPHIN_AGENTIC_E2E_COMPOSER_TEXT || DEFAULT_AGENTIC_GOAL.composerText,
-  });
+  }), sandbox);
   const outputBaseDir = cli.outputDir || env.SUPER_DOLPHIN_AGENTIC_E2E_OUTPUT_DIR || path.join(repoRoot, '.tmp', 'agentic-e2e', runID);
-  const sandbox = agenticE2ESandboxForRun(repoRoot, runID);
   return {
     repoRoot,
     runID,
@@ -154,6 +154,13 @@ export async function collectPageFacts(page, consoleMessages = []) {
       settingsApiKeyVisible: isVisible(document.querySelector('#settings-sf-key')),
       settingsApiKeyValue: String(document.querySelector('#settings-sf-key')?.value || ''),
       settingsVideoNoticeVisible: visibleByTestId('settings-video-notice'),
+      settingsProviderSaveVisible: visibleByTestId('settings-provider-save-button'),
+      settingsProviderModelValue: inputValueByTestId('settings-provider-model'),
+      settingsProviderEffortValue: inputValueByTestId('settings-provider-effort'),
+      settingsProviderPersonalityValue: inputValueByTestId('settings-provider-personality'),
+      settingsProviderCodexHomeValue: inputValueByTestId('settings-provider-codex-home'),
+      settingsProviderInstanceKeyValue: inputValueByTestId('settings-provider-instance-key'),
+      settingsProviderWritableRootsValue: inputValueByTestId('settings-provider-writable-roots'),
       mockWailsCallMethods: Array.isArray(window.__AGENTIC_E2E_MOCK_WAILS__?.calls)
         ? window.__AGENTIC_E2E_MOCK_WAILS__.calls.map((call) => String(call?.method || '')).filter(Boolean)
         : [],
@@ -173,6 +180,13 @@ export async function collectPageFacts(page, consoleMessages = []) {
     settingsApiKeyVisible: false,
     settingsApiKeyValue: '',
     settingsVideoNoticeVisible: false,
+    settingsProviderSaveVisible: false,
+    settingsProviderModelValue: '',
+    settingsProviderEffortValue: '',
+    settingsProviderPersonalityValue: '',
+    settingsProviderCodexHomeValue: '',
+    settingsProviderInstanceKeyValue: '',
+    settingsProviderWritableRootsValue: '',
     mockWailsCallMethods: [],
   }));
   const locators = {
@@ -197,6 +211,13 @@ export async function collectPageFacts(page, consoleMessages = []) {
     settingsApiKeyVisible: structuralFacts.settingsApiKeyVisible,
     settingsApiKeyValue: structuralFacts.settingsApiKeyValue,
     settingsVideoNoticeVisible: structuralFacts.settingsVideoNoticeVisible || summaryFacts.settingsVideoNoticeVisible,
+    settingsProviderSaveVisible: structuralFacts.settingsProviderSaveVisible || summaryFacts.settingsProviderSaveVisible,
+    settingsProviderModelValue: structuralFacts.settingsProviderModelValue,
+    settingsProviderEffortValue: structuralFacts.settingsProviderEffortValue,
+    settingsProviderPersonalityValue: structuralFacts.settingsProviderPersonalityValue,
+    settingsProviderCodexHomeValue: structuralFacts.settingsProviderCodexHomeValue,
+    settingsProviderInstanceKeyValue: structuralFacts.settingsProviderInstanceKeyValue,
+    settingsProviderWritableRootsValue: structuralFacts.settingsProviderWritableRootsValue,
     mockWailsCallMethods: structuralFacts.mockWailsCallMethods,
     composerValue: structuralFacts.composerValue || await locators.composer.inputValue({ timeout: 250 }).catch(() => ''),
     consoleErrors,
@@ -251,6 +272,7 @@ export function readinessForAction(action = {}) {
   if (name.includes('链路追踪')) return { type: 'testId', value: 'observability-page' };
   if (name.includes('查询最新日志')) return { type: 'testId', value: 'observability-recent-logs' };
   if (action.target?.parentTestId === 'settings-video-card') return { type: 'testId', value: 'settings-video-notice' };
+  if (action.target?.value === 'settings-provider-save-button') return { type: 'stableDOM' };
   if (action.expectRoute) return { type: 'urlPath', value: action.expectRoute };
   if (action.type === 'goto') return { type: 'testId', value: 'frontend-app' };
   return { type: 'stableDOM' };
@@ -303,6 +325,9 @@ export async function performAction(page, action, config) {
       return;
     case 'fill':
       await resolveLocator(page, action.target).fill(action.value);
+      return;
+    case 'select':
+      await resolveLocator(page, action.target).selectOption(action.value);
       return;
     case 'click':
       await resolveLocator(page, action.target).click();
@@ -384,6 +409,7 @@ function factsFromDOMSummary(summary = []) {
     recentLogsVisible: testIds.has('observability-recent-logs'),
     settingsPageVisible: testIds.has('settings-page'),
     settingsVideoNoticeVisible: testIds.has('settings-video-notice'),
+    settingsProviderSaveVisible: testIds.has('settings-provider-save-button'),
   };
 }
 
@@ -535,6 +561,21 @@ function normalizeString(value) {
 function normalizePathname(value) {
   const normalized = normalizeString(value).replace(/\/+$/g, '');
   return normalized || '/';
+}
+
+function goalWithSandboxValues(goal, sandbox) {
+  if (goal.id !== 'settings-provider-save-mocked') return goal;
+  return Object.freeze({
+    ...goal,
+    codexHomeValue: sandboxPathValue(goal.codexHomeValue, sandbox),
+    writableRootsValue: sandboxPathValue(goal.writableRootsValue, sandbox),
+  });
+}
+
+function sandboxPathValue(value, sandbox) {
+  return normalizeString(value)
+    .replaceAll('AGENTIC_E2E_SANDBOX_HOME', sandbox.homeDir)
+    .replaceAll('AGENTIC_E2E_SANDBOX_PROJECT', sandbox.projectDir);
 }
 
 function assertGoalRuntimeSupported(config) {

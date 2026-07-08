@@ -133,6 +133,28 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     requiresMockWails: true,
     requiresSandbox: true,
   }),
+  'settings-provider-save-mocked': Object.freeze({
+    id: 'settings-provider-save-mocked',
+    kind: 'settings-provider-save-mocked',
+    targetRoute: '/settings',
+    navigationTarget: appSidebarNav('设置'),
+    modelTarget: Object.freeze({ type: 'testId', value: 'settings-provider-model' }),
+    effortTarget: Object.freeze({ type: 'testId', value: 'settings-provider-effort' }),
+    personalityTarget: Object.freeze({ type: 'testId', value: 'settings-provider-personality' }),
+    codexHomeTarget: Object.freeze({ type: 'testId', value: 'settings-provider-codex-home' }),
+    instanceKeyTarget: Object.freeze({ type: 'testId', value: 'settings-provider-instance-key' }),
+    writableRootsTarget: Object.freeze({ type: 'testId', value: 'settings-provider-writable-roots' }),
+    saveTarget: Object.freeze({ type: 'testId', value: 'settings-provider-save-button' }),
+    modelValue: 'gpt-5',
+    effortValue: 'high',
+    personalityValue: 'friendly',
+    codexHomeValue: 'AGENTIC_E2E_SANDBOX_HOME/.codex',
+    instanceKeyValue: 'agentic-e2e',
+    writableRootsValue: 'AGENTIC_E2E_SANDBOX_PROJECT',
+    requiredRPCs: Object.freeze(['ui/preferences/set']),
+    requiresMockWails: true,
+    requiresSandbox: true,
+  }),
 });
 
 export const AGENTIC_GOAL_IDS = Object.freeze(Object.keys(AGENTIC_GOAL_DEFINITIONS));
@@ -164,6 +186,14 @@ export function normalizeGoal(goal = {}) {
   return Object.freeze({
     ...definition,
     composerText,
+    ...explicitStringOverrides(rawGoal, [
+      'modelValue',
+      'effortValue',
+      'personalityValue',
+      'codexHomeValue',
+      'instanceKeyValue',
+      'writableRootsValue',
+    ]),
   });
 }
 
@@ -178,4 +208,14 @@ function isRecord(value) {
 
 function normalizeString(value) {
   return String(value ?? '').trim();
+}
+
+function explicitStringOverrides(rawGoal, fields) {
+  const overrides = {};
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(rawGoal, field)) continue;
+    const value = normalizeString(rawGoal[field]);
+    if (value) overrides[field] = value;
+  }
+  return overrides;
 }
