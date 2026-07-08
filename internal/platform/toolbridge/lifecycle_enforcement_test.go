@@ -140,7 +140,7 @@ func TestMCPToolLifecycleBackfillReadinessFiltersAfterBackfill(t *testing.T) {
 	assertLifecyclePolicyRequest(t, owner.policyRequests, root, mcpdto.ClientKindLSP, "grep")
 }
 
-func TestCodexSurfaceToolCallDeniesDisabledLifecycleAliases(t *testing.T) {
+func TestCodexSurfaceToolCallDeniesNonEnabledLifecycleStates(t *testing.T) {
 	root := t.TempDir()
 	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: strictEmptyObjectSchema()}}}
 	owner := newFakeMCPToolLifecycleOwner()
@@ -160,30 +160,42 @@ func TestCodexSurfaceToolCallDeniesDisabledLifecycleAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
-	owner.setDecision(root, mcpdto.ClientKindLSP, "grep", contract.MCPToolLifecycleDisabled, "blocked")
-
-	for _, name := range []string{"grep", "lsp_grep", "mcp__lsp__grep", "mcp__lsp__lsp_grep"} {
-		t.Run(name, func(t *testing.T) {
-			result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
-				Params: mustRawJSON(t, map[string]any{
-					"name":      name,
-					"arguments": map[string]any{"illegal": true},
-					"_agentId":  "agent-1",
-					"_cwd":      root,
-				}),
-			})
-			if err != nil {
-				t.Fatalf("HandleToolCall(%q) error = %v", name, err)
-			}
-			got, ok := result.(*ToolCallResult)
-			if !ok {
-				t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
-			}
-			assertLifecycleDeniedResult(t, got, mcpdto.ClientKindLSP, "grep", contract.MCPToolLifecycleDenyCodeDisabled)
-		})
+	tests := []struct {
+		name     string
+		state    contract.MCPToolLifecycleState
+		denyCode string
+	}{
+		{name: "disabled", state: contract.MCPToolLifecycleDisabled, denyCode: contract.MCPToolLifecycleDenyCodeDisabled},
+		{name: "suspended", state: contract.MCPToolLifecycleSuspended, denyCode: contract.MCPToolLifecycleDenyCodeSuspended},
+		{name: "removed", state: contract.MCPToolLifecycleRemoved, denyCode: contract.MCPToolLifecycleDenyCodeRemoved},
 	}
-	if len(client.calls) != 0 {
-		t.Fatalf("disabled lifecycle call reached MCP client: calls=%#v", client.calls)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner.setDecision(root, mcpdto.ClientKindLSP, "grep", tt.state, "blocked")
+			for _, name := range []string{"grep", "lsp_grep", "mcp__lsp__grep", "mcp__lsp__lsp_grep"} {
+				t.Run(name, func(t *testing.T) {
+					result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+						Params: mustRawJSON(t, map[string]any{
+							"name":      name,
+							"arguments": map[string]any{"illegal": true},
+							"_agentId":  "agent-1",
+							"_cwd":      root,
+						}),
+					})
+					if err != nil {
+						t.Fatalf("HandleToolCall(%q) error = %v", name, err)
+					}
+					got, ok := result.(*ToolCallResult)
+					if !ok {
+						t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
+					}
+					assertLifecycleDeniedResult(t, got, mcpdto.ClientKindLSP, "grep", tt.denyCode)
+					if len(client.calls) != 0 {
+						t.Fatalf("%s lifecycle call reached MCP client: calls=%#v", tt.name, client.calls)
+					}
+				})
+			}
+		})
 	}
 }
 
