@@ -43,24 +43,14 @@ type Dependencies struct {
 	ModelRegistry  modelregistry.Registry
 }
 
-// Registry 持有 MCP 工具定义快照和名称索引，Lookup 负责旧工具名兼容。
+// Registry 持有 MCP 工具定义快照和名称索引。
 type Registry struct {
 	tools   []ToolDefinition
 	byName  map[string]ToolDefinition
 	initErr error
 }
 
-var legacyOrchestrationAliases = map[string]string{
-	"orchestration_launch_agent":     "launch_agent",
-	"orchestration_send_message":     "send_message",
-	"orchestration_stop_agent":       "stop_agent",
-	"orchestration_recover_agent":    "recover_agent",
-	"orchestration_interrupt_agent":  "interrupt_agent",
-	"orchestration_list_agents":      "list_agents",
-	"orchestration_get_agent_report": "get_agent_report",
-}
-
-// NewRegistry 汇总所有工具定义并建立名称索引；旧 orchestration_* 名称在 Lookup 时映射到新名。
+// NewRegistry 汇总所有工具定义并建立名称索引。
 func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.ToolPorts), taskToolDefinitions(deps.ToolPorts)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
@@ -92,7 +82,7 @@ func (r Registry) List() ([]ToolDefinition, error) {
 	return append([]ToolDefinition(nil), r.tools...), nil
 }
 
-// Lookup 按工具名查找定义，并兼容旧 orchestration_* 别名。
+// Lookup 按工具名查找定义。
 func (r Registry) Lookup(name string) (ToolDefinition, bool) {
 	if r.initErr != nil {
 		return ToolDefinition{
@@ -101,9 +91,6 @@ func (r Registry) Lookup(name string) (ToolDefinition, bool) {
 				return nil, fmt.Errorf("tool registry invalid: %w", r.initErr)
 			},
 		}, true
-	}
-	if canonical, ok := legacyOrchestrationAliases[name]; ok {
-		name = canonical
 	}
 	tool, ok := r.byName[name]
 	return tool, ok

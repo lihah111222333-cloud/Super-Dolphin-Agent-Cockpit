@@ -106,23 +106,11 @@ func TestLaunchHandlerRejectsChildAgentDelegation(t *testing.T) {
 	require.ErrorContains(t, err, "Sub-agents are not allowed to spawn further agents")
 }
 
-func TestRegistryLegacyLaunchAliasRejectsChildAgentDelegation(t *testing.T) {
-	registry := NewRegistry(Dependencies{ToolPorts: ToolPorts{AgentLaunch: &golden.OrchestrationStub{
-		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
-			require.Equal(t, "agent-child", agentID)
-			return contract.AgentSnapshot{ID: "agent-child", AgentID: "agent-child", ParentID: "agent-root"}, nil
-		},
-		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
-			t.Fatal("LaunchAgentSnapshot should not be called through legacy alias")
-			return contract.AgentSnapshot{}, nil
-		},
-	}}})
-	tool, ok := registry.Lookup("orchestration_launch_agent")
-	require.True(t, ok)
+func TestRegistryLegacyLaunchAliasIsNotRegistered(t *testing.T) {
+	registry := NewRegistry(Dependencies{})
 
-	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-child"})
-	_, err := tool.Handler(ctx, json.RawMessage(`{"name":"grandchild","cwd":"/tmp/work","provider":"codex"}`))
-	require.ErrorContains(t, err, "Sub-agents are not allowed to spawn further agents")
+	_, ok := registry.Lookup("orchestration_launch_agent")
+	require.False(t, ok)
 }
 
 func TestLaunchHandlerRejectsClaudeChildAgent(t *testing.T) {

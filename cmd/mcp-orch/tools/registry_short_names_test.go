@@ -54,23 +54,28 @@ func TestRegistryExposesOnlyVideoWithAudioGeneration(t *testing.T) {
 	}
 }
 
-func TestRegistryLookupAcceptsLegacyOrchestrationAliases(t *testing.T) {
+func TestRegistryLookupRejectsLegacyOrchestrationAliases(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 
-	for legacy, canonical := range legacyOrchestrationAliases {
-		legacyTool, ok := registry.Lookup(legacy)
-		if !ok {
-			t.Fatalf("registry.Lookup(%q) = false, want true", legacy)
+	tests := map[string]string{
+		"orchestration_launch_agent":     "launch_agent",
+		"orchestration_send_message":     "send_message",
+		"orchestration_stop_agent":       "stop_agent",
+		"orchestration_recover_agent":    "recover_agent",
+		"orchestration_interrupt_agent":  "interrupt_agent",
+		"orchestration_list_agents":      "list_agents",
+		"orchestration_get_agent_report": "get_agent_report",
+	}
+	for legacy, canonical := range tests {
+		if _, ok := registry.Lookup(legacy); ok {
+			t.Fatalf("registry.Lookup(%q) = true, want false", legacy)
 		}
 		canonicalTool, ok := registry.Lookup(canonical)
 		if !ok {
 			t.Fatalf("registry.Lookup(%q) = false, want true", canonical)
 		}
-		if legacyTool.Name != canonical {
-			t.Fatalf("registry.Lookup(%q).Name = %q, want canonical %q", legacy, legacyTool.Name, canonical)
-		}
-		if legacyTool.Name != canonicalTool.Name {
-			t.Fatalf("registry.Lookup(%q).Name = %q, registry.Lookup(%q).Name = %q", legacy, legacyTool.Name, canonical, canonicalTool.Name)
+		if canonicalTool.Name != canonical {
+			t.Fatalf("registry.Lookup(%q).Name = %q, want %q", canonical, canonicalTool.Name, canonical)
 		}
 	}
 }

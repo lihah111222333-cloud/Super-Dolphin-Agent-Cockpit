@@ -324,13 +324,9 @@ func TestHandleScopedToolsCallWithCallerWrapsLaunchAgentContractErrors(t *testin
 		wantCode string
 	}{
 		{name: "missing cwd", toolName: "launch_agent", err: contract.ErrLaunchCWDRequired, wantCode: "cwd_required"},
-		{name: "missing cwd legacy alias", toolName: "orchestration_launch_agent", err: contract.ErrLaunchCWDRequired, wantCode: "cwd_required"},
 		{name: "invalid cwd", toolName: "launch_agent", err: contract.ErrLaunchCWDInvalid, wantCode: "cwd_invalid"},
-		{name: "invalid cwd legacy alias", toolName: "orchestration_launch_agent", err: contract.ErrLaunchCWDInvalid, wantCode: "cwd_invalid"},
 		{name: "missing provider", toolName: "launch_agent", err: errors.New("provider is required"), wantCode: "provider_required"},
-		{name: "missing provider legacy alias", toolName: "orchestration_launch_agent", err: errors.New("provider is required"), wantCode: "provider_required"},
 		{name: "invalid provider", toolName: "launch_agent", err: errors.New(`invalid provider "openai"`), wantCode: "provider_invalid"},
-		{name: "invalid provider legacy alias", toolName: "orchestration_launch_agent", err: errors.New(`invalid provider "openai"`), wantCode: "provider_invalid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
