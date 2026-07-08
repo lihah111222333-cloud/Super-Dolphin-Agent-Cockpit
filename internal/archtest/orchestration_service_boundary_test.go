@@ -679,7 +679,7 @@ func mergeOrchestrationServiceAliases(
 	return merged
 }
 
-func isAllowedOrchestrationServiceSemanticUse(use orchestrationServiceUse) bool {
+func isAllowedOrchestrationServiceSemanticUse(_ orchestrationServiceUse) bool {
 	return false
 }
 
