@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-08
 >
-> 已索引文件：**4075**
+> 已索引文件：**4077**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -23,12 +23,12 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 索引文件 | 文件数 | 大小 | 覆盖范围 |
 |---|---:|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 312 | 62.1 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 313 | 62.3 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 406 | 90.8 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 717 | 139.5 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1006 | 185.4 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 306 | 45.5 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 850 | 151.1 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 851 | 151.3 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
 | `docs/doc/codemap/project-map/index/other.tsv` | 478 | 90.5 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
@@ -49,9 +49,9 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
 | `internal` | 1975 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 847 | 代码地图、ADR、计划、迁移和内部说明 |
+| `docs` | 848 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 643 | 可执行入口与 MCP peer |
-| `frontend-app` | 310 | 当前 React/Vite 新 UI |
+| `frontend-app` | 311 | 当前 React/Vite 新 UI |
 | `migrations` | 111 | 数据库 migration |
 | `scripts` | 108 | 工程自动化脚本 |
 | `sql` | 30 | SQL query 源文件 |

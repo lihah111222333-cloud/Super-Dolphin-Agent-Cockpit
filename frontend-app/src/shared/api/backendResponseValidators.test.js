@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest';
+
+import { RPC_METHODS } from './backendApi.js';
+import { createBackendResponseValidators } from './backendResponseValidators.js';
+
+const validators = createBackendResponseValidators(RPC_METHODS);
+
+function validate(method, response) {
+  const validator = validators[method];
+  expect(validator, `${method} must have a validator`).toBeTypeOf('function');
+  return validator(method, response);
+}
+
+describe('backend response validators', () => {
+  it('fails fast when required thread and turn response fields are missing', () => {
+    expect(() => validate(RPC_METHODS.THREAD_START, {})).toThrow('thread/start response missing threadId or thread_id');
+    expect(() => validate(RPC_METHODS.THREAD_START, { thread: { id: '' } })).toThrow('thread/start response missing threadId or thread_id');
+    expect(() => validate(RPC_METHODS.TURN_START, {})).toThrow('turn/start response missing turn_id or turnId');
+  });
+
+  it('does not treat turn force-complete failure envelopes as success', () => {
+    expect(validate(RPC_METHODS.TURN_FORCE_COMPLETE, {
+      ok: false,
+      forceCompleted: false,
+      errorCode: 'turn_not_running',
+    })).toEqual({
+      ok: false,
+      forceCompleted: false,
+      errorCode: 'turn_not_running',
+    });
+
+    expect(() => validate(RPC_METHODS.TURN_FORCE_COMPLETE, {
+      ok: true,
+      forceCompleted: false,
+      errorCode: 'turn_not_running',
+    })).toThrow('turn/forceComplete response ok true cannot have forceCompleted false');
+    expect(() => validate(RPC_METHODS.TURN_FORCE_COMPLETE, {
+      ok: false,
+      forceCompleted: false,
+    })).toThrow('turn/forceComplete response failure must include errorCode, error, or message');
+  });
+
+  it('rejects MCP server control responses with unexpected or contradictory fields', () => {
+    expect(() => validate(RPC_METHODS.MCP_SERVER_SQLITE_START, {
+      configPath: '/repo/.mcp.json',
+      serverName: 'sqlite',
+      enabled: true,
+      debug: true,
+    })).toThrow('mcpServer/sqlite/start response body must not include debug');
+
+    expect(() => validate(RPC_METHODS.MCP_SERVER_SQLITE_START, {
+      configPath: '/repo/.mcp.json',
+      serverName: 'playwright',
+      enabled: true,
+    })).toThrow('mcpServer/sqlite/start response serverName must be sqlite');
+
+    expect(() => validate(RPC_METHODS.MCP_SERVER_SQLITE_STOP, {
+      configPath: '/repo/.mcp.json',
+      serverName: 'sqlite',
+      enabled: true,
+    })).toThrow('mcpServer/sqlite/stop response enabled must be false');
+  });
+
+  it('rejects MCP server list responses with unexpected server status fields', () => {
+    expect(() => validate(RPC_METHODS.MCP_SERVER_LIST, {
+      configPath: '/repo/.mcp.json',
+      mcpServers: {
+        sqlite: { enabled: true, command: 'sqlite-mcp' },
+      },
+    })).toThrow('mcpServer/list response mcpServers.sqlite must not include command');
+  });
+
+  it('wraps schema parser errors with method context', () => {
+    expect(() => validate(RPC_METHODS.OBSERVABILITY_TRACE_GET, null)).toThrow(
+      'observability/trace/get response observability response must be an object',
+    );
+    expect(() => validate(RPC_METHODS.UI_SHARED_FILE_GET, { path: '', content: '' })).toThrow(
+      'ui/memory/shared-file/get response shared file detail path is required',
+    );
+  });
+});
