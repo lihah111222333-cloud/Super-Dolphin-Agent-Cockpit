@@ -26,11 +26,6 @@ type orchestrationServiceAliasSource struct {
 	name    string
 	relPath string
 	line    int
-	facade  bool
-}
-
-func (src orchestrationServiceAliasSource) isProductionFacadeServiceAlias() bool {
-	return src.facade && src.name == "Service" && src.relPath == orchestrationServiceFacadeRelPath
 }
 
 type orchestrationServiceUse struct {
@@ -635,7 +630,6 @@ func orchestrationServiceLocalAliasSources(
 					name:    typeSpec.Name.Name,
 					relPath: relPath,
 					line:    fset.Position(typeSpec.Pos()).Line,
-					facade:  isProductionFacadeServiceAliasDeclaration(relPath, typeSpec, contractAliases),
 				}
 				changed = true
 			}
@@ -675,13 +669,6 @@ func directOrchestrationServiceSource() orchestrationServiceAliasSource {
 	return orchestrationServiceAliasSource{name: "contract.OrchestrationService"}
 }
 
-func isProductionFacadeServiceAliasDeclaration(relPath string, spec *ast.TypeSpec, contractAliases map[string]bool) bool {
-	return relPath == orchestrationServiceFacadeRelPath &&
-		spec.Name.Name == "Service" &&
-		spec.Assign.IsValid() &&
-		isOrchestrationServiceSelector(spec.Type, contractAliases)
-}
-
 func mergeOrchestrationServiceAliases(
 	packageAliases map[string]orchestrationServiceAliasSource,
 	localAliases map[string]orchestrationServiceAliasSource,
@@ -693,35 +680,7 @@ func mergeOrchestrationServiceAliases(
 }
 
 func isAllowedOrchestrationServiceSemanticUse(use orchestrationServiceUse) bool {
-	return isAllowedOrchestrationServiceFacadeUse(use) || isAllowedOrchestrationRPCFacadeUse(use)
-}
-
-func isAllowedOrchestrationServiceFacadeUse(use orchestrationServiceUse) bool {
-	if use.relPath != orchestrationServiceFacadeRelPath {
-		return false
-	}
-	if use.kind == "type alias" && use.name == "Service" && use.expr == "contract.OrchestrationService" {
-		return true
-	}
-	return use.kind == "return value" &&
-		use.function == "ProvideServiceInterface" &&
-		use.expr == "Service" &&
-		use.source.isProductionFacadeServiceAlias()
-}
-
-func isAllowedOrchestrationRPCFacadeUse(use orchestrationServiceUse) bool {
-	if use.relPath != orchestrationRPCFacadeRelPath {
-		return false
-	}
-	if use.kind != "parameter" || use.name != "svc" || use.expr != "Service" || !use.source.isProductionFacadeServiceAlias() {
-		return false
-	}
-	switch use.function {
-	case "ProvideRPCFacade", "submissionFromParams", "submissionThreadID":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func (use orchestrationServiceUse) violationMessage() string {
@@ -743,9 +702,6 @@ func (use orchestrationServiceUse) sourceDescription() string {
 	label := "local alias"
 	if use.source.relPath != use.relPath {
 		label = "package alias"
-	}
-	if use.source.isProductionFacadeServiceAlias() {
-		label = "package facade alias"
 	}
 	return fmt.Sprintf("%s %s from %s:%d", label, use.source.name, use.source.relPath, use.source.line)
 }

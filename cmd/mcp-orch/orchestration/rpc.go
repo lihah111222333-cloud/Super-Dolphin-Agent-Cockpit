@@ -62,9 +62,28 @@ func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 	return nil
 }
 
+// rpcFacadeService 是 RPC facade 实际调用的 orchestration 窄端口。
+type rpcFacadeService interface {
+	LaunchAgent(ctx context.Context, req LaunchRequest) error
+	SubmitTurn(ctx context.Context, req TurnSubmission) error
+	StopAgent(ctx context.Context, agentID string) error
+	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
+	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
+	UpdateRuntime(ctx context.Context, report RuntimeReport) error
+	GetState(ctx context.Context, agentID string) (AgentStateResult, error)
+	GetReport(ctx context.Context, agentID string) (AgentReportResult, error)
+	RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
+	HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
+	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
+	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
+	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
+	DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error
+	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
+}
+
 // ProvideRPCFacade 把 orchestration RPC handler 集合交给 cmd/mcp-orch 根装配层。
 // 它只通过 fx group:"rpc_handlers" 被根入口消费，不是给其它子包复用的通用协议壳。
-func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
+func ProvideRPCFacade(svc rpcFacadeService) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"agent/launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
 			req := launchRequestFromParams(p)
@@ -160,7 +179,7 @@ func launchRequestFromParams(p launchParams) LaunchRequest {
 }
 
 // submissionFromParams 将 submit RPC 入参转换为 TurnSubmission，并补齐当前 thread id。
-func submissionFromParams(ctx context.Context, svc Service, p submitParams) (TurnSubmission, error) {
+func submissionFromParams(ctx context.Context, svc rpcFacadeService, p submitParams) (TurnSubmission, error) {
 	agentID := strings.TrimSpace(p.AgentID)
 	items, err := inputItemsFromSubmitParams(p)
 	if err != nil {
@@ -212,7 +231,7 @@ func decodeInputItems(raw json.RawMessage) ([]shareddto.InputItem, error) {
 }
 
 // submissionThreadID 从 snapshot 获取当前 provider thread，失败时退回 agentID 作为兼容 thread id。
-func submissionThreadID(ctx context.Context, svc Service, agentID string) string {
+func submissionThreadID(ctx context.Context, svc rpcFacadeService, agentID string) string {
 	snapshot, err := svc.Snapshot(ctx, agentID)
 	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {
 		return snapshot.ThreadID

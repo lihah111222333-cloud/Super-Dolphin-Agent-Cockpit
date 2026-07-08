@@ -33,10 +33,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Service 及相关请求/结果类型是 contract 层 orchestration RPC 契约在本包的复导出。
-// 这些别名只固定 service 与 transport 的边界名称，状态转换和序列化语义仍以 contract 包为准。
+// RPC 请求/结果类型是 contract 层 orchestration RPC 契约在本包的复导出。
+// 这些别名只固定 service 与 transport 的 DTO 边界名称，状态转换和序列化语义仍以 contract 包为准。
 type (
-	Service                     = contract.OrchestrationService
 	TurnSubmission              = contract.TurnSubmission
 	RuntimeReport               = contract.RuntimeReport
 	LaunchRequest               = contract.LaunchRequest
@@ -196,8 +195,8 @@ func ProvideService(p serviceParams) *service {
 	return svc
 }
 
-// ProvideServiceInterface 将具体 service 暴露为 contract.OrchestrationService。
-func ProvideServiceInterface(s *service) Service { return s }
+// ProvideServiceInterface 将具体 service 暴露给 RPC facade 的窄端口。
+func ProvideServiceInterface(s *service) rpcFacadeService { return s }
 
 // RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
 // 订阅在 fx OnStop 时取消，避免 service 停止后继续推进状态机。
