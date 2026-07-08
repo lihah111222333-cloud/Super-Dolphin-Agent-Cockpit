@@ -1,48 +1,53 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { CheckCircle2, X } from 'lucide-react';
 import { MessageContent } from './MarkdownMessage.jsx';
 import { approvalHintText, approvalRequestId, isApprovalTerminal } from './chatApprovalModel.js';
+import { withTimeout } from '../../shared/pageShared.js';
 
 const APPROVE_LABEL = '\u540c\u610f';
 const APPROVE_ARIA_PREFIX = '\u540c\u610f\u5ba1\u6279';
 const REJECT_LABEL = '\u62d2\u7edd';
 const REJECT_ARIA_PREFIX = '\u62d2\u7edd\u5ba1\u6279';
+const APPROVAL_SUBMIT_TIMEOUT_MS = 15_000;
+const APPROVAL_SUBMIT_TIMEOUT_MESSAGE = '审批提交超时';
+
+function approvalSubmitErrorText(error) {
+  return error?.message || String(error);
+}
 
 function ChatApprovalMessage({ message, actions, formatTime }) {
-  const [submittingRequestId, setSubmittingRequestId] = useState(0);
   const [errorText, setErrorText] = useState('');
   const [resolved, setResolved] = useState(false);
   const requestId = approvalRequestId(message);
-  const busy = submittingRequestId === requestId;
+  const approvalMutation = useMutation({
+    mutationFn: ({ approved }) => withTimeout(
+      actions.onApproval(message, approved),
+      APPROVAL_SUBMIT_TIMEOUT_MS,
+      APPROVAL_SUBMIT_TIMEOUT_MESSAGE
+    ),
+    onMutate: () => {
+      setErrorText('');
+    },
+    onSuccess: (ok) => {
+      if (ok) setResolved(true);
+    },
+    onError: (error) => {
+      const messageText = approvalSubmitErrorText(error);
+      setErrorText(messageText);
+      actions.onError?.('approval.failed', messageText);
+    },
+    retry: false,
+  });
+  const busy = approvalMutation.isPending && approvalMutation.variables?.requestId === requestId;
   const terminal = isApprovalTerminal(message);
   const disabled = requestId <= 0 || busy || resolved || terminal || typeof actions?.onApproval !== 'function';
   const title = (message.title || message.command || '审批请求').toString().trim();
   const hint = approvalHintText({ requestId, busy, resolved, terminal });
 
-  // submitApproval 按 requestId 锁定单次提交；超时释放按钮并展示错误，后续重试走新的响应。
-  const submitApproval = async (approved) => {
+  const submitApproval = (approved) => {
     if (disabled) return;
-    setErrorText('');
-    setSubmittingRequestId(requestId);
-    let timeoutId = 0;
-    try {
-      const ok = await Promise.race([
-        actions.onApproval(message, approved),
-        new Promise((_, reject) => {
-          timeoutId = window.setTimeout(() => reject(new Error('审批提交超时')), 15_000);
-        }),
-      ]);
-      if (ok) setResolved(true);
-    }
-    catch (error) {
-      const messageText = error.message || String(error);
-      setErrorText(messageText);
-      actions.onError?.('approval.failed', messageText);
-    }
-    finally {
-      window.clearTimeout(timeoutId);
-      setSubmittingRequestId(0);
-    }
+    approvalMutation.mutate({ approved, requestId });
   };
 
   return (

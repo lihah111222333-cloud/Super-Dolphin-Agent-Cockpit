@@ -1,10 +1,11 @@
 import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, createEvent, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
+import { renderWithQueryClient as render } from '../../__tests__/reactQueryRender.jsx';
 import { ChatPage } from './ChatPage.jsx';
-import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile, openPath, saveCodeFile } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, locateCodeFile, onFilesDropped } from '../../shared/api/backendApi.js';
+import { openCodeFile, openPath, saveCodeFile } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
@@ -18,36 +19,9 @@ vi.mock('../../shared/api/backendApi.js', () => ({
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
-    render: vi.fn((_id, source) => Promise.resolve({
-      svg: `<svg role="img" aria-label="mock mermaid"><text>${source}</text></svg>`,
-    })),
+    render: vi.fn((_id, source) => Promise.resolve({ svg: `<svg role="img" aria-label="mock mermaid"><text>${source}</text></svg>` })),
   },
 }));
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-}
-
-function render(ui, options) {
-  const queryClient = createTestQueryClient();
-  const view = rtlRender(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
-    options,
-  );
-  return {
-    ...view,
-    rerender(nextUi) {
-      return view.rerender(
-        <QueryClientProvider client={queryClient}>{nextUi}</QueryClientProvider>,
-      );
-    },
-  };
-}
 
 function createFakeStore(overrides = {}) {
   const store = {

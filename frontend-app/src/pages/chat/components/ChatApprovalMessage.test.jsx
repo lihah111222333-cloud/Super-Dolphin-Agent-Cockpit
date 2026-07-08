@@ -1,14 +1,22 @@
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { approvalHintText, approvalRequestId, isApprovalMessage, isApprovalTerminal } from './chatApprovalModel.js';
 
+function renderChatApprovalMessage(ui) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe('ChatApprovalMessage', () => {
   it('submits approval decisions and marks the request resolved', async () => {
     const onApproval = vi.fn().mockResolvedValue(true);
 
-    render(
+    renderChatApprovalMessage(
       <ChatApprovalMessage
         message={{
           kind: 'approval',
@@ -33,7 +41,7 @@ describe('ChatApprovalMessage', () => {
   });
 
   it('disables terminal approval requests', () => {
-    render(
+    renderChatApprovalMessage(
       <ChatApprovalMessage
         message={{ kind: 'approval', request_id: 7, status: 'approved', command: 'Already done' }}
         actions={{ onApproval: vi.fn() }}
@@ -48,7 +56,7 @@ describe('ChatApprovalMessage', () => {
 
   it('disables malformed approval request ids without submitting a decision', () => {
     const onApproval = vi.fn();
-    render(
+    renderChatApprovalMessage(
       <ChatApprovalMessage
         message={{ kind: 'approval', request_id: '7.5', command: 'Malformed id' }}
         actions={{ onApproval }}
@@ -85,7 +93,7 @@ describe('ChatApprovalMessage bug-locking', () => {
   it('calls onError when onApproval rejects', async () => {
     const onApproval = vi.fn().mockRejectedValue(new Error('network error'));
     const onError = vi.fn();
-    render(
+    renderChatApprovalMessage(
       <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
     );
     fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
@@ -97,18 +105,20 @@ describe('ChatApprovalMessage bug-locking', () => {
     vi.useFakeTimers();
     const onApproval = vi.fn(() => new Promise(() => {})); // never resolves
     const onError = vi.fn();
-    render(
+    renderChatApprovalMessage(
       <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
     );
     fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    // microtask flush so catch/finally in submitApproval completes
+    // microtask and mutation notification flush so the rejected mutation updates the UI.
     await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时');
     expect(screen.getByTestId('approval-request-5')).toHaveTextContent('审批提交超时');
     expect(screen.getByRole('button', { name: '同意审批 5' })).not.toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+    await act(async () => { await Promise.resolve(); });
     expect(onApproval).toHaveBeenCalledTimes(2);
   });
 });

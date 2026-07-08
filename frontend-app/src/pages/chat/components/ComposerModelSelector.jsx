@@ -1,14 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from 'react-aria-components';
 import { ChevronDown, Zap } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { loadedModelDraft, modelSelectorDerivedState, modelSelectorSnapshot, nextModelDraft } from '../adapters/composerModelSelectorState.js';
 import { runUIAction } from './chatUiActions.js';
 
+function composerModelSelectorThreadConfigQueryKey(activeThreadId) {
+  if (!activeThreadId) return ['chat', 'composerModelSelector', 'threadConfig'];
+  return ['chat', 'composerModelSelector', 'threadConfig', activeThreadId];
+}
+
 function useModelSelectorController({ copy, store, activeThreadId, disabled }) {
   const [openState, setOpenState] = useState({ disabled, open: false });
-  const mountedRef = useRef(false);
-  const loadRequestRef = useRef(0);
   if (openState.disabled !== disabled) {
     setOpenState({ disabled, open: false });
   }
@@ -26,43 +30,53 @@ function useModelSelectorController({ copy, store, activeThreadId, disabled }) {
   const selectorOpen = open && !disabled;
   const selectorDraft = selectorOpen ? draft : closedDraft;
 
+  const loadThreadConfigQuery = useQuery({
+    queryKey: composerModelSelectorThreadConfigQueryKey(activeThreadId),
+    queryFn: async () => (await store.loadThreadConfig?.(activeThreadId)) || null,
+    enabled: false,
+    retry: false,
+  });
+  const saveModelConfigMutation = useMutation({
+    mutationFn: ({ next, threadId }) => store.saveComposerModelConfig?.({ threadId, model: next.model, effort: next.effort }),
+    retry: false,
+  });
+  const restoreInheritanceMutation = useMutation({
+    mutationFn: ({ threadId }) => store.restoreComposerModelInheritance?.({ threadId }),
+    retry: false,
+  });
+
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      loadRequestRef.current += 1;
-    };
-  }, []);
+    if (!selectorOpen || !loadThreadConfigQuery.data) return;
+    setDraft(loadedModelDraft(loadThreadConfigQuery.data, activeModel, activeEffort));
+  }, [activeEffort, activeModel, loadThreadConfigQuery.data, selectorOpen]);
 
   const setSelectorOpen = async (nextOpen) => {
     if (disabled && nextOpen) return;
-    const requestID = loadRequestRef.current + 1;
-    loadRequestRef.current = requestID;
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
     if (!nextOpen || !activeThreadId) return;
-    const loaded = await store.loadThreadConfig?.(activeThreadId);
-    if (!mountedRef.current || loadRequestRef.current !== requestID || !loaded) return;
-    setDraft(loadedModelDraft(loaded, activeModel, activeEffort));
+    await loadThreadConfigQuery.refetch({ throwOnError: true });
   };
 
   const saveModelConfig = async (patch) => {
     const next = nextModelDraft(providerKey, selectorDraft, patch, activeModel);
     setDraft(next);
-    await store.saveComposerModelConfig?.({ threadId: activeThreadId, model: next.model, effort: next.effort });
+    await saveModelConfigMutation.mutateAsync({ next, threadId: activeThreadId });
   };
 
   const restoreInheritance = async () => {
-    const restored = await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
+    const restored = await restoreInheritanceMutation.mutateAsync({ threadId: activeThreadId });
     if (restored) void setSelectorOpen(false);
   };
+  const derivedState = modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, copy, disabled, draft: selectorDraft, providerKey, store, activeThreadId });
 
   return {
-    ...modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, copy, disabled, draft: selectorDraft, providerKey, store, activeThreadId }),
+    ...derivedState,
     open: selectorOpen,
     restoreInheritance,
     saveModelConfig,
     setSelectorOpen,
+    selectorBusy: derivedState.selectorBusy || loadThreadConfigQuery.isFetching || saveModelConfigMutation.isPending || restoreInheritanceMutation.isPending,
   };
 }
 

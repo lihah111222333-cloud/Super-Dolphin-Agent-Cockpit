@@ -1,6 +1,7 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderWithQueryClient as renderModelSelector } from '../../../__tests__/reactQueryRender.jsx';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
 
 function createStore(overrides = {}) {
@@ -42,7 +43,7 @@ describe('ComposerModelSelector', () => {
   it('renders the active model label and saves thread overrides', async () => {
     const store = createStore();
 
-    render(<ComposerModelSelector store={store} activeThreadId="thread1" />);
+    renderModelSelector(<ComposerModelSelector store={store} activeThreadId="thread1" />);
 
     const trigger = screen.getByRole('button', { name: '选择模型' });
     fireEvent.click(trigger);
@@ -56,7 +57,7 @@ describe('ComposerModelSelector', () => {
 
   it('closes with Escape and restores focus to the selector button', async () => {
     const store = createStore();
-    render(<ComposerModelSelector store={store} activeThreadId="thread1" />);
+    renderModelSelector(<ComposerModelSelector store={store} activeThreadId="thread1" />);
 
     const trigger = screen.getByRole('button', { name: '选择模型' });
     trigger.focus();
@@ -73,7 +74,7 @@ describe('ComposerModelSelector', () => {
 
   it('closes when pressing outside the selector popover', async () => {
     const store = createStore();
-    render(
+    renderModelSelector(
       <>
         <ComposerModelSelector store={store} activeThreadId="thread1" />
         <button type="button">外部区域</button>
@@ -101,7 +102,7 @@ describe('ComposerModelSelector', () => {
       loadThreadConfig: vi.fn(() => pendingConfig.promise),
     });
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { unmount } = render(<ComposerModelSelector store={store} activeThreadId="thread1" />);
+    const { unmount } = renderModelSelector(<ComposerModelSelector store={store} activeThreadId="thread1" />);
 
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
     expect(await screen.findByRole('dialog', { name: '模型配置' })).toBeInTheDocument();
@@ -121,20 +122,18 @@ describe('ComposerModelSelector', () => {
   it('preserves inherited model when only effort is changed', async () => {
     const store = createStore();
 
-    render(<ComposerModelSelector store={store} activeThreadId="thread1" />);
+    renderModelSelector(<ComposerModelSelector store={store} activeThreadId="thread1" />);
 
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
     fireEvent.change(screen.getByLabelText('推理强度'), { target: { value: 'medium' } });
 
-    await waitFor(() => {
-      expect(store.saveComposerModelConfig).toHaveBeenCalledWith({ threadId: 'thread1', model: '', effort: 'medium' });
-    });
+    await waitFor(() => expect(store.saveComposerModelConfig).toHaveBeenCalledWith({ threadId: 'thread1', model: '', effort: 'medium' }));
   });
 
   it('disables the selector when project actions are blocked', () => {
     const store = createStore();
 
-    render(<ComposerModelSelector store={store} activeThreadId="thread1" disabled />);
+    renderModelSelector(<ComposerModelSelector store={store} activeThreadId="thread1" disabled />);
 
     const button = screen.getByRole('button', { name: '选择模型' });
     expect(button).toBeDisabled();

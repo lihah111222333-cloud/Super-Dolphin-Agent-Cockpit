@@ -1,7 +1,8 @@
 import React from 'react';
 import { homedir } from 'node:os';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { renderWithQueryClient as render } from '../../../__tests__/reactQueryRender.jsx';
 import { TimelineLoadingPlaceholder, TimelineMessage, UserMessageAttachments } from './TimelineMessage.jsx';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 
@@ -36,10 +37,7 @@ describe('TimelineMessage', () => {
 
     expect(screen.getByRole('button', { name: '\u653e\u5927\u56fe\u7247 clip.png' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /\u6253\u5f00\u6587\u4ef6 summary\.md/ }));
-    expect(onOpenPath).toHaveBeenCalledWith(expect.objectContaining({
-      path: 'reports/summary.md',
-      raw: 'summary.md',
-    }));
+    expect(onOpenPath).toHaveBeenCalledWith(expect.objectContaining({ path: 'reports/summary.md', raw: 'summary.md' }));
     expect(screen.getByText('with files')).toBeInTheDocument();
   });
 
