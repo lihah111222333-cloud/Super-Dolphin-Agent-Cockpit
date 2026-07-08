@@ -95,7 +95,7 @@ func TestGetAgentDetailSkipsEmptyTurnHistoryWithoutActiveTurn(t *testing.T) {
 	}
 }
 
-func TestListDAGsUsesOrchestration(t *testing.T) {
+func TestListDAGsUsesDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDashboardOrchestration{
@@ -121,7 +121,7 @@ func TestListDAGsUsesOrchestration(t *testing.T) {
 	}
 }
 
-func TestGetDAGDetailUsesOrchestration(t *testing.T) {
+func TestGetDAGDetailUsesDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDashboardOrchestration{
@@ -146,7 +146,7 @@ func TestGetDAGDetailUsesOrchestration(t *testing.T) {
 	}
 }
 
-func TestListDAGRunsUsesOrchestration(t *testing.T) {
+func TestListDAGRunsUsesDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDashboardOrchestration{
@@ -170,7 +170,7 @@ func TestListDAGRunsUsesOrchestration(t *testing.T) {
 	}
 }
 
-func TestListDAGRunsDefaultLimitMatchesOrchestration(t *testing.T) {
+func TestListDAGRunsDefaultLimitMatchesDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDashboardOrchestration{
@@ -231,7 +231,7 @@ func TestGetDAGRunUsesRuntimeNodes(t *testing.T) {
 	}
 }
 
-func TestStartDAGUsesOrchestration(t *testing.T) {
+func TestStartDAGUsesDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDashboardOrchestration{
@@ -346,7 +346,7 @@ func TestCreateAndStartDAGRollsBackCreatedDAGWhenStartFails(t *testing.T) {
 	}
 }
 
-func TestDispatchDAGNodeUsesOrchestration(t *testing.T) {
+func TestDispatchDAGNodeUsesDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDashboardOrchestration{
