@@ -821,6 +821,20 @@ describe('agentic e2e config', () => {
     expect(agenticE2EConfig({}, '/repo/app', ['--mock-wails']).mockWails).toBe(true);
   });
 
+  it('exposes the opt-in desktop wide e2e script without changing desktop smoke', async () => {
+    const pkg = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8'));
+    expect(pkg.scripts?.['test:e2e:desktop-wide']).toBe('playwright test --config playwright.desktop-wide.config.js');
+    expect(pkg.scripts?.['smoke:desktop:ux']).toBe('node scripts/desktop-ux-smoke.mjs');
+  });
+
+  it('keeps desktop wide playwright isolated to its spec and tmp output', async () => {
+    const config = await readFile(path.join(process.cwd(), 'playwright.desktop-wide.config.js'), 'utf8');
+    expect(config).toContain("testMatch: 'desktop-wide.spec.js'");
+    expect(config).toContain("outputDir: '../.tmp/playwright-desktop-wide'");
+    expect(config).toContain("name: 'desktop-1440'");
+    expect(config).toContain("name: 'desktop-1600'");
+  });
+
   it('fails fast for unsupported command line options', () => {
     expect(() => agenticE2EConfig({}, '/repo/app', ['--unknown'])).toThrow(/unsupported agentic e2e option/);
   });

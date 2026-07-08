@@ -11,6 +11,7 @@
     "smoke:desktop:rpc": "node scripts/desktop-smoke.mjs",
     "smoke:desktop:ux": "node scripts/desktop-ux-smoke.mjs",
     "test:e2e:business": "playwright test --config playwright.business-flows.config.js",
+    "test:e2e:desktop-wide": "playwright test --config playwright.desktop-wide.config.js",
     "build": "vite build && node scripts/sync-frontend-dist.mjs",
     "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit",
     "audit:rpc-contracts": "node scripts/rpc-contract-audit.mjs",
