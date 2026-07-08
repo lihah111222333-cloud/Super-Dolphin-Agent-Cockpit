@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 147,
-    "total_interface_methods": 303,
+    "total_interfaces": 151,
+    "total_interface_methods": 307,
     "total_exported": 1215,
-    "total_unexported": 2797,
+    "total_unexported": 2801,
     "total_structs": 575
   },
   "packages": [
@@ -21176,7 +21176,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "sendMessagePort"
             }
           ],
           "returns": [
@@ -24688,8 +24688,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "sendMessageReportWaiter"
             },
             {
               "name": "agentID",
@@ -26142,8 +26142,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "snapshots",
+              "type": "sendMessageSnapshotReader"
             },
             {
               "name": "in",
@@ -26164,8 +26164,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "snapshots",
+              "type": "sendMessageSnapshotReader"
             },
             {
               "name": "agentID",
@@ -26186,7 +26186,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "sendMessagePort"
             },
             {
               "name": "in",
@@ -26207,8 +26207,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "submitter",
+              "type": "sendMessageTurnSubmitter"
             },
             {
               "name": "submission",
@@ -27001,8 +27001,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "sendMessageReportWaiter"
             },
             {
               "name": "waitInput",
@@ -27756,6 +27756,100 @@
               ],
               "returns": [
                 "string",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sendMessagePort",
+          "exported": false,
+          "embeds": [
+            "sendMessageReportWaiter",
+            "sendMessageSnapshotReader",
+            "sendMessageTurnSubmitter"
+          ]
+        },
+        {
+          "name": "sendMessageReportWaiter",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentReportResult",
+                "error"
+              ]
+            },
+            {
+              "name": "RememberReportRequest",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.RememberReportRequest"
+                }
+              ],
+              "returns": [
+                "contract.RememberReportRequestResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sendMessageSnapshotReader",
+          "exported": false,
+          "methods": [
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sendMessageTurnSubmitter",
+          "exported": false,
+          "methods": [
+            {
+              "name": "SubmitTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.TurnSubmission"
+                }
+              ],
+              "returns": [
                 "error"
               ]
             }
