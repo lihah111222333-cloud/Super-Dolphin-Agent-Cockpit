@@ -98,10 +98,11 @@ func TestGetAgentDetailSkipsEmptyTurnHistoryWithoutActiveTurn(t *testing.T) {
 func TestListDAGsUsesOrchestration(t *testing.T) {
 	t.Parallel()
 
+	stub := &stubDashboardOrchestration{
+		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Dag One", Status: "running"}},
+	}
 	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Dag One", Status: "running"}},
-		},
+		dagRuntime: stub,
 	}
 
 	got, err := svc.ListDAGs(context.Background(), contract.ListDAGsFilter{
@@ -112,7 +113,6 @@ func TestListDAGsUsesOrchestration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListDAGs() error = %v", err)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.listDAGsFilter.Keyword != "build" || stub.listDAGsFilter.Status != "running" || stub.listDAGsFilter.Limit != 7 {
 		t.Fatalf("ListDAGs() filter = %#v", stub.listDAGsFilter)
 	}
@@ -124,20 +124,20 @@ func TestListDAGsUsesOrchestration(t *testing.T) {
 func TestGetDAGDetailUsesOrchestration(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			dagDetail: contract.DAGDetail{
-				DAG:   contract.DAGSummary{DagKey: "dag-1", Title: "Dag One"},
-				Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Node One"}},
-			},
+	stub := &stubDashboardOrchestration{
+		dagDetail: contract.DAGDetail{
+			DAG:   contract.DAGSummary{DagKey: "dag-1", Title: "Dag One"},
+			Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Node One"}},
 		},
+	}
+	svc := &service{
+		dagRuntime: stub,
 	}
 
 	got, err := svc.GetDAGDetail(context.Background(), " dag-1 ")
 	if err != nil {
 		t.Fatalf("GetDAGDetail() error = %v", err)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.getDAGKey != "dag-1" {
 		t.Fatalf("GetDAG() key = %q, want dag-1", stub.getDAGKey)
 	}
@@ -149,19 +149,19 @@ func TestGetDAGDetailUsesOrchestration(t *testing.T) {
 func TestListDAGRunsUsesOrchestration(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			listRunsResult: contract.ListRunsResponse{
-				Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
-			},
+	stub := &stubDashboardOrchestration{
+		listRunsResult: contract.ListRunsResponse{
+			Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
 		},
+	}
+	svc := &service{
+		dagRuntime: stub,
 	}
 
 	got, err := svc.ListDAGRuns(context.Background(), " dag-1 ", " running ", 5)
 	if err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.listRunsRequest.DagKey != "dag-1" || stub.listRunsRequest.Status != "running" || stub.listRunsRequest.Limit != 5 {
 		t.Fatalf("ListRuns() request = %#v", stub.listRunsRequest)
 	}
@@ -173,16 +173,16 @@ func TestListDAGRunsUsesOrchestration(t *testing.T) {
 func TestListDAGRunsDefaultLimitMatchesOrchestration(t *testing.T) {
 	t.Parallel()
 
+	stub := &stubDashboardOrchestration{
+		listRunsResult: contract.ListRunsResponse{Runs: []contract.Run{}},
+	}
 	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			listRunsResult: contract.ListRunsResponse{Runs: []contract.Run{}},
-		},
+		dagRuntime: stub,
 	}
 
 	if _, err := svc.ListDAGRuns(context.Background(), "dag-1", "", 0); err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.listRunsRequest.Limit != 50 {
 		t.Fatalf("ListRuns() request limit = %d, want orchestration default 50", stub.listRunsRequest.Limit)
 	}
@@ -191,7 +191,7 @@ func TestListDAGRunsDefaultLimitMatchesOrchestration(t *testing.T) {
 func TestListDAGRunsRequiresDAGKey(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	svc := &service{}
 	_, err := svc.ListDAGRuns(context.Background(), " ", "", 5)
 	if err == nil {
 		t.Fatal("ListDAGRuns() error = nil, want dag key required")
@@ -234,10 +234,11 @@ func TestGetDAGRunUsesRuntimeNodes(t *testing.T) {
 func TestStartDAGUsesOrchestration(t *testing.T) {
 	t.Parallel()
 
+	stub := &stubDashboardOrchestration{
+		startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 7},
+	}
 	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 7},
-		},
+		dagRuntime: stub,
 	}
 
 	got, err := svc.StartDAG(context.Background(), " dag-1 ", " manual ", " ui-click-1 ")
@@ -247,7 +248,6 @@ func TestStartDAGUsesOrchestration(t *testing.T) {
 	if got.RunKey != "dag-1#run-ui" || got.Version != 7 {
 		t.Fatalf("StartDAG() = %#v", got)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.startDAGRequest != (contract.StartDAGRequest{DagKey: "dag-1", TriggerSource: "manual", IdempotencyKey: "ui-click-1"}) {
 		t.Fatalf("StartDAG request = %#v", stub.startDAGRequest)
 	}
@@ -256,16 +256,16 @@ func TestStartDAGUsesOrchestration(t *testing.T) {
 func TestStartDAGDefaultsManualTrigger(t *testing.T) {
 	t.Parallel()
 
+	stub := &stubDashboardOrchestration{
+		startDAGResult: contract.StartDAGResponse{RunKey: "run-1", Version: 1},
+	}
 	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			startDAGResult: contract.StartDAGResponse{RunKey: "run-1", Version: 1},
-		},
+		dagRuntime: stub,
 	}
 
 	if _, err := svc.StartDAG(context.Background(), "dag-1", "", ""); err != nil {
 		t.Fatalf("StartDAG() error = %v", err)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.startDAGRequest.TriggerSource != "manual" {
 		t.Fatalf("trigger source = %q, want manual", stub.startDAGRequest.TriggerSource)
 	}
@@ -274,15 +274,15 @@ func TestStartDAGDefaultsManualTrigger(t *testing.T) {
 func TestTerminateDAGUsesRuntimeAndDefaultsReason(t *testing.T) {
 	t.Parallel()
 
+	stub := &stubDashboardOrchestration{}
 	svc := &service{
-		orchestration: &stubDashboardOrchestration{},
+		dagRuntime: stub,
 	}
 
 	err := svc.TerminateDAG(context.Background(), " dag-1 ", " run-1 ", " ")
 	if err != nil {
 		t.Fatalf("TerminateDAG() error = %v", err)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.terminateDAGRequest != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
 		t.Fatalf("TerminateDAG request = %#v", stub.terminateDAGRequest)
 	}
@@ -291,7 +291,7 @@ func TestTerminateDAGUsesRuntimeAndDefaultsReason(t *testing.T) {
 func TestTerminateDAGRejectsMissingRunKey(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	svc := &service{dagRuntime: &stubDashboardOrchestration{}}
 
 	err := svc.TerminateDAG(context.Background(), "dag-1", " ", "")
 	if err == nil || !strings.Contains(err.Error(), "run key") {
@@ -302,7 +302,7 @@ func TestTerminateDAGRejectsMissingRunKey(t *testing.T) {
 func TestStartDAGRejectsNonManualTrigger(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	svc := &service{dagRuntime: &stubDashboardOrchestration{}}
 	_, err := svc.StartDAG(context.Background(), "dag-1", "scheduled", "")
 	if err == nil || !strings.Contains(err.Error(), "manual") {
 		t.Fatalf("StartDAG() error = %v, want manual trigger rejection", err)
@@ -312,7 +312,7 @@ func TestStartDAGRejectsNonManualTrigger(t *testing.T) {
 func TestStartDAGRequiresDAGKey(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	svc := &service{}
 	_, err := svc.StartDAG(context.Background(), " ", "manual", "")
 	if err == nil {
 		t.Fatal("StartDAG() error = nil, want dag key required")
@@ -325,7 +325,7 @@ func TestCreateAndStartDAGRollsBackCreatedDAGWhenStartFails(t *testing.T) {
 
 	startErr := errors.New("start failed")
 	orchestration := &stubDashboardOrchestration{startDAGErr: startErr}
-	svc := &service{orchestration: orchestration}
+	svc := &service{dagRuntime: orchestration}
 
 	_, _, err := svc.CreateAndStartDAG(context.Background(), contract.CreateDAGRequest{
 		DagKey:    " dag-rollback ",
@@ -349,10 +349,11 @@ func TestCreateAndStartDAGRollsBackCreatedDAGWhenStartFails(t *testing.T) {
 func TestDispatchDAGNodeUsesOrchestration(t *testing.T) {
 	t.Parallel()
 
+	stub := &stubDashboardOrchestration{
+		dispatchNodeResult: contract.DispatchNodeResponse{WakeupID: 99, Enqueued: true},
+	}
 	svc := &service{
-		orchestration: &stubDashboardOrchestration{
-			dispatchNodeResult: contract.DispatchNodeResponse{WakeupID: 99, Enqueued: true},
-		},
+		dagRuntime: stub,
 	}
 
 	got, err := svc.DispatchDAGNode(context.Background(), contract.DispatchNodeRequest{
@@ -367,7 +368,6 @@ func TestDispatchDAGNodeUsesOrchestration(t *testing.T) {
 	if !got.Enqueued || got.WakeupID != 99 {
 		t.Fatalf("DispatchDAGNode() = %#v", got)
 	}
-	stub := svc.orchestration.(*stubDashboardOrchestration)
 	if stub.dispatchNodeRequest != (contract.DispatchNodeRequest{DagKey: "dag-1", RunID: 88, NodeKey: "draft", AssignedTo: "codex-runner"}) {
 		t.Fatalf("DispatchNode request = %#v", stub.dispatchNodeRequest)
 	}
@@ -389,7 +389,7 @@ func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			stub := &stubDashboardOrchestration{}
-			svc := &service{orchestration: stub}
+			svc := &service{dagRuntime: stub}
 
 			_, err := svc.ApplyDAGOps(context.Background(), contract.ApplyOpsRequest{
 				DagKey:      "dag-1",

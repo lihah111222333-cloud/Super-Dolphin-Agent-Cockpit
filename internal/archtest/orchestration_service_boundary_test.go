@@ -20,6 +20,7 @@ func TestOrchestrationServiceConsumersUseNarrowPorts(t *testing.T) {
 
 	root := repoRoot(t)
 	allowances := allowedOrchestrationServiceConsumers()
+	packageAliases := orchestrationServicePackageAliases(t, root)
 	var violations []string
 	for _, absPath := range walkGoFiles(t, root, "cmd", "internal") {
 		relPath, err := filepath.Rel(root, absPath)
@@ -27,7 +28,7 @@ func TestOrchestrationServiceConsumersUseNarrowPorts(t *testing.T) {
 			t.Fatalf("rel path for %s: %v", absPath, err)
 		}
 		relPath = filepath.ToSlash(relPath)
-		count := countOrchestrationServiceSelectors(t, absPath)
+		count := countOrchestrationServiceSelectors(t, absPath, packageAliases[filepath.Dir(absPath)])
 		if count == 0 {
 			continue
 		}
@@ -49,6 +50,7 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 	}
 	return map[string]orchestrationServiceAllowance{
 		"cmd/mcp-orch/orchestration/service.go":           compat(2, "production facade may only re-export Service and provide the interface"),
+		"cmd/mcp-orch/orchestration/rpc.go":               compat(3, "legacy RPC facade consumes the package Service alias until split"),
 		"cmd/mcp-orch/runtime.go":                         compat(2, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
 		"internal/app/dashboard_adapter.go":               compat(2, "explicit app adapter narrows full service to dashboard OrchestrationReader"),
 		"internal/app/runtime_reporter_adapter.go":        compat(2, "explicit app adapter narrows full service to RuntimeReporter"),
@@ -61,7 +63,7 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 	}
 }
 
-func countOrchestrationServiceSelectors(t *testing.T, absPath string) int {
+func countOrchestrationServiceSelectors(t *testing.T, absPath string, packageAliases map[string]bool) int {
 	t.Helper()
 
 	fset := token.NewFileSet()
@@ -70,7 +72,37 @@ func countOrchestrationServiceSelectors(t *testing.T, absPath string) int {
 		t.Fatalf("parse %s: %v", absPath, err)
 	}
 	contractAliases := contractImportAliases(t, absPath, file)
-	return countOrchestrationServiceSelectorUses(file, contractAliases)
+	return countOrchestrationServiceSelectorUses(file, contractAliases, packageAliases)
+}
+
+func orchestrationServicePackageAliases(t *testing.T, root string) map[string]map[string]bool {
+	t.Helper()
+
+	aliasesByDir := map[string]map[string]bool{}
+	for _, absPath := range walkGoFiles(t, root, "cmd", "internal") {
+		file, err := parser.ParseFile(token.NewFileSet(), absPath, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", absPath, err)
+		}
+		contractAliases := contractImportAliases(t, absPath, file)
+		if len(contractAliases) == 0 {
+			continue
+		}
+		localAliases := orchestrationServiceLocalAliases(file, contractAliases)
+		if len(localAliases) == 0 {
+			continue
+		}
+		dir := filepath.Dir(absPath)
+		aliases := aliasesByDir[dir]
+		if aliases == nil {
+			aliases = map[string]bool{}
+			aliasesByDir[dir] = aliases
+		}
+		for name := range localAliases {
+			aliases[name] = true
+		}
+	}
+	return aliasesByDir
 }
 
 func contractImportAliases(t *testing.T, absPath string, file *ast.File) map[string]bool {
@@ -101,11 +133,14 @@ func contractImportAliases(t *testing.T, absPath string, file *ast.File) map[str
 	return contractAliases
 }
 
-func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[string]bool) int {
-	if len(contractAliases) == 0 {
+func countOrchestrationServiceSelectorUses(file *ast.File, contractAliases map[string]bool, packageAliases map[string]bool) int {
+	if len(contractAliases) == 0 && len(packageAliases) == 0 {
 		return 0
 	}
 	localAliases := orchestrationServiceLocalAliases(file, contractAliases)
+	for name := range packageAliases {
+		localAliases[name] = true
+	}
 	count := 0
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch typed := n.(type) {
@@ -231,11 +266,35 @@ func ProvideServiceInterface(s *service) Service { return s }
 				t.Fatalf("parse fixture: %v", err)
 			}
 			contractAliases := contractImportAliases(t, "fixture.go", file)
-			got := countOrchestrationServiceSelectorUses(file, contractAliases)
+			got := countOrchestrationServiceSelectorUses(file, contractAliases, nil)
 			if got != tt.want {
 				t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCountOrchestrationServiceSelectorUsesCountsPackageAliases(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+type holder struct {
+	service Service
+}
+
+func use(svc Service) Service {
+	return svc
+}
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "consumer.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	got := countOrchestrationServiceSelectorUses(file, nil, map[string]bool{"Service": true})
+	const want = 3
+	if got != want {
+		t.Fatalf("countOrchestrationServiceSelectorUses() = %d, want %d; package alias use must consume the boundary budget", got, want)
 	}
 }
 

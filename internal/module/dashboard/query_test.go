@@ -273,7 +273,7 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 			Enqueued: true,
 		},
 	}
-	server := newDashboardTestServer(t, &service{orchestration: orchestration})
+	server := newDashboardTestServer(t, &service{dagRuntime: orchestration})
 
 	assertDashboardDAGList(t, server, orchestration)
 	assertDashboardDAGDetail(t, server, orchestration)
@@ -445,7 +445,7 @@ func assertDashboardDAGDispatchNode(t *testing.T, server *platformrpc.Server, or
 func TestDashboardDAGDispatchNodeRequiresRuntimeRunID(t *testing.T) {
 	t.Parallel()
 
-	server := newDashboardTestServer(t, &service{orchestration: &stubDashboardOrchestration{}})
+	server := newDashboardTestServer(t, &service{dagRuntime: &stubDashboardOrchestration{}})
 
 	var resp contract.DispatchNodeResponse
 	err := dispatchDashboardInto(server, "dashboard/dagDispatchNode", `{"dagKey":"dag-1","nodeKey":"draft","assignedTo":"codex-runner"}`, &resp)
@@ -457,7 +457,7 @@ func TestDashboardDAGDispatchNodeRequiresRuntimeRunID(t *testing.T) {
 func TestDashboardDAGDispatchNodeRequiresAssignedTo(t *testing.T) {
 	t.Parallel()
 
-	server := newDashboardTestServer(t, &service{orchestration: &stubDashboardOrchestration{}})
+	server := newDashboardTestServer(t, &service{dagRuntime: &stubDashboardOrchestration{}})
 
 	var resp contract.DispatchNodeResponse
 	err := dispatchDashboardInto(server, "dashboard/dagDispatchNode", `{"dagKey":"dag-1","runId":88,"nodeKey":"draft"}`, &resp)
@@ -470,7 +470,7 @@ func TestDashboardDAGDispatchNodeRejectsUnknownFieldBeforeServiceCall(t *testing
 	t.Parallel()
 
 	orchestration := &stubDashboardOrchestration{}
-	server := newDashboardTestServer(t, &service{orchestration: orchestration})
+	server := newDashboardTestServer(t, &service{dagRuntime: orchestration})
 
 	var params dagDispatchNodeParams
 	if err := json.Unmarshal([]byte(`{"dagKey":"dag-1","runId":88,"nodeKey":"draft","assignedTo":"codex-runner","unexpectedUiOnlyField":"leak"}`), &params); err == nil || !strings.Contains(err.Error(), "unknown field") {
@@ -540,7 +540,7 @@ func TestDashboardDAGApplyOpsRequiresBaseVersion(t *testing.T) {
 	orchestration := &stubDashboardOrchestration{
 		applyOpsResult: contract.ApplyOpsResponse{NewVersion: 1},
 	}
-	server := newDashboardTestServer(t, &service{orchestration: orchestration})
+	server := newDashboardTestServer(t, &service{dagRuntime: orchestration})
 
 	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft"}}]}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "baseVersion") {
 		t.Fatalf("dispatch missing baseVersion error = %v, want baseVersion required", err)

@@ -57,9 +57,20 @@ func TestRegistryExposesOnlyVideoWithAudioGeneration(t *testing.T) {
 func TestRegistryLookupAcceptsLegacyOrchestrationAliases(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 
-	for _, name := range []string{"launch_agent", "orchestration_launch_agent", "recover_agent", "orchestration_recover_agent", "interrupt_agent", "orchestration_interrupt_agent"} {
-		if _, ok := registry.Lookup(name); !ok {
-			t.Fatalf("registry.Lookup(%q) = false, want true", name)
+	for legacy, canonical := range legacyOrchestrationAliases {
+		legacyTool, ok := registry.Lookup(legacy)
+		if !ok {
+			t.Fatalf("registry.Lookup(%q) = false, want true", legacy)
+		}
+		canonicalTool, ok := registry.Lookup(canonical)
+		if !ok {
+			t.Fatalf("registry.Lookup(%q) = false, want true", canonical)
+		}
+		if legacyTool.Name != canonical {
+			t.Fatalf("registry.Lookup(%q).Name = %q, want canonical %q", legacy, legacyTool.Name, canonical)
+		}
+		if legacyTool.Name != canonicalTool.Name {
+			t.Fatalf("registry.Lookup(%q).Name = %q, registry.Lookup(%q).Name = %q", legacy, legacyTool.Name, canonical, canonicalTool.Name)
 		}
 	}
 }

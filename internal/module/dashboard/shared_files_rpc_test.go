@@ -83,7 +83,7 @@ func TestGetDashboardPageMemorySurfacesMalformedFinalOutputMetadata(t *testing.T
 			Metadata: json.RawMessage(`{"final_output":{"sharedfile":"reports/daily-brief.pptx"}}`),
 		}}},
 	}
-	svc := &service{sharedFiles: shared, orchestration: orchestration}
+	svc := &service{sharedFiles: shared, dagRuntime: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "memory")
 	if err == nil || !strings.Contains(err.Error(), "final_output") {
@@ -158,7 +158,6 @@ func TestDashboardWorkflowMaterialWriteRejectsUnsafeOrEmptyPayloads(t *testing.T
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

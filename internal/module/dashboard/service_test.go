@@ -27,7 +27,7 @@ func TestGetDashboardPageLoadsDAGs(t *testing.T) {
 	orchestration := &stubDashboardOrchestration{
 		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Dag One", Status: "running"}},
 	}
-	svc := &service{orchestration: orchestration}
+	svc := &service{dagRuntime: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "dags")
 	if err != nil {
@@ -128,7 +128,7 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 			}`),
 		}}},
 	}
-	svc := &service{sharedFiles: shared, orchestration: orchestration}
+	svc := &service{sharedFiles: shared, dagRuntime: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "memory")
 	if err != nil {
@@ -157,7 +157,7 @@ func TestGetDashboardPageMemorySurfacesFinalOutputRefErrors(t *testing.T) {
 		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
 		listRunsErr:    errDashboardStub,
 	}
-	svc := &service{sharedFiles: shared, orchestration: orchestration}
+	svc := &service{sharedFiles: shared, dagRuntime: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "memory")
 	if !errors.Is(err, errDashboardStub) {
@@ -285,7 +285,6 @@ func TestGetDashboardPageFiltersPromptsByScopedCWD(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

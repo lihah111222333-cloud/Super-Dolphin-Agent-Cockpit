@@ -13,7 +13,7 @@ func TestGetDashboardPageDAGsIncludeLatestRunAndFinalOutputMarker(t *testing.T) 
 	t.Parallel()
 
 	orchestration := newDAGConsoleDashboardStub()
-	svc := &service{orchestration: orchestration}
+	svc := &service{dagRuntime: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "dags")
 	if err != nil {
@@ -29,7 +29,7 @@ func TestGetDashboardPageDAGsKeepOrderWithPerDAGLatestRuns(t *testing.T) {
 	t.Parallel()
 
 	orchestration := newMultiDAGConsoleDashboardStub()
-	svc := &service{orchestration: orchestration}
+	svc := &service{dagRuntime: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "dags")
 	if err != nil {
@@ -206,7 +206,6 @@ func TestRunMetadataHasFinalOutputRejectsEmptyValues(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
