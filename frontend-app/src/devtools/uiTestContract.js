@@ -1,37 +1,37 @@
-export const UI_TEST_GLOBAL = '__SUPER_DOLPHIN_UI_TEST__';
+const UI_TEST_GLOBAL = '__SUPER_DOLPHIN_UI_TEST__';
 
-export const UI_TEST_TOOLS = Object.freeze([
+const UI_TEST_TOOLS = Object.freeze([
   'ui_snapshot',
   'ui_action',
   'ui_diagnostics',
   'ui_frontend_logs',
 ]);
 
-export const UI_TEST_ACTIONS = Object.freeze([
+const UI_TEST_ACTIONS = Object.freeze([
   'navigate',
   'fill_composer',
   'submit_composer',
   'wait_for',
 ]);
 
-export const UI_TEST_TARGETS = Object.freeze([
+const UI_TEST_TARGETS = Object.freeze([
   'composer_input',
   'composer_submit',
 ]);
 
-export const UI_TEST_ROUTES = Object.freeze({
+const UI_TEST_ROUTES = Object.freeze({
   chat: '/',
   settings: '/settings',
   observability: '/observability',
 });
 
-export const UI_TEST_WAIT_STATES = Object.freeze([
+const UI_TEST_WAIT_STATES = Object.freeze([
   'frontend_ready',
   'composer_text_length',
   'route',
 ]);
 
-export const UI_TEST_LIMITS = Object.freeze({
+const UI_TEST_LIMITS = Object.freeze({
   defaultLimit: 100,
   maxLimit: 100,
   maxTextLength: 4000,
@@ -51,15 +51,15 @@ function assertKnownName(name, values, label) {
   throw new Error(`unknown UI test ${label}: ${String(name)}`);
 }
 
-export function assertKnownToolName(name) {
+function assertKnownToolName(name) {
   return assertKnownName(name, UI_TEST_TOOLS, 'tool');
 }
 
-export function assertKnownActionName(name) {
+function assertKnownActionName(name) {
   return assertKnownName(name, UI_TEST_ACTIONS, 'action');
 }
 
-export function assertKnownTargetName(target) {
+function assertKnownTargetName(target) {
   return assertKnownName(target, UI_TEST_TARGETS, 'target');
 }
 
@@ -71,11 +71,11 @@ function normalizePositiveInteger(value, defaultValue, maxValue, label) {
   return Math.min(value, maxValue);
 }
 
-export function normalizeLimit(limit) {
+function normalizeLimit(limit) {
   return normalizePositiveInteger(limit, UI_TEST_LIMITS.defaultLimit, UI_TEST_LIMITS.maxLimit, 'limit');
 }
 
-export function normalizeTimeoutMs(timeoutMs) {
+function normalizeTimeoutMs(timeoutMs) {
   return normalizePositiveInteger(
     timeoutMs,
     UI_TEST_LIMITS.defaultTimeoutMs,
@@ -90,7 +90,7 @@ function isPlainObject(value) {
   return proto === Object.prototype || proto === null;
 }
 
-export function validateExactKeys(value, allowedKeys, label) {
+function validateExactKeys(value, allowedKeys, label) {
   if (!isPlainObject(value)) {
     throw new Error(`${label} must be a plain object`);
   }
@@ -108,3 +108,19 @@ export function validateExactKeys(value, allowedKeys, label) {
   }
   return value;
 }
+
+export {
+  UI_TEST_GLOBAL,
+  UI_TEST_TOOLS,
+  UI_TEST_ACTIONS,
+  UI_TEST_TARGETS,
+  UI_TEST_ROUTES,
+  UI_TEST_WAIT_STATES,
+  UI_TEST_LIMITS,
+  assertKnownToolName,
+  assertKnownActionName,
+  assertKnownTargetName,
+  normalizeLimit,
+  normalizeTimeoutMs,
+  validateExactKeys,
+};

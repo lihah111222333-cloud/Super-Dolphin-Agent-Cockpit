@@ -2,10 +2,11 @@
 
 import { isSafeNumber, parse as parseLosslessJSON } from 'lossless-json';
 import {
-  isSafeLogForbiddenKey,
-  normalizeSafeLogFieldKey,
-  safeLogFields,
-} from '../diagnostics/safeLogFields.js';
+  BRIDGE_REDACTED_VALUE,
+  isForbiddenBridgeLogKey,
+  normalizeBridgeLogFieldKey,
+  safeBridgeLogFields,
+} from './bridgeSafeLogFields.js';
 import { compactSafeDiagnosticPreview } from './safeDiagnosticPreview.js';
 
 const METHOD_IDS = Object.freeze({
@@ -69,28 +70,7 @@ const FRONTEND_TRACE_FORBIDDEN_KEYS = new Set([
   'stack',
   'raw_stack',
 ]);
-const BRIDGE_LOG_FORBIDDEN_KEYS = new Set([
-  ...[...FRONTEND_TRACE_FORBIDDEN_KEYS].filter((key) => key !== 'result_preview'),
-  'params',
-  'raw_params',
-  'request_params',
-  'secret',
-  'token',
-  'password',
-  'api_key',
-  'auth',
-  'credential',
-  'credentials',
-  'authorization',
-  'auth_token',
-  'access_token',
-  'refresh_token',
-  'id_token',
-  'stack_trace',
-  'stacktrace',
-]);
 const BRIDGE_ERROR_DATA_SAFE_KEYS = new Set(['message', 'code', 'name', 'type', 'status']);
-const BRIDGE_REDACTED_VALUE = '[redacted]';
 const FRONTEND_TRACE_SECRET_ASSIGNMENT_RE =
   /\b(?:api[_\s-]?key|auth[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|id[_\s-]?token|authorization|credential(?:s)?|password|secret|token)\b\s*[:=]\s*["']?[^"',\s}]+/i;
 const FRONTEND_TRACE_TOKEN_VALUE_RE = /\b(?:bearer|basic)\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9][a-z0-9_-]{6,}\b/i;
@@ -137,7 +117,7 @@ function serializableBridgeValue(value, seen = new WeakSet()) {
       .filter(([key]) => !isForbiddenBridgeLogKey(key))
       .map(([key, item]) => [
         key,
-        parentIsErrorLike && normalizeSafeLogFieldKey(key) === 'data'
+        parentIsErrorLike && normalizeBridgeLogFieldKey(key) === 'data'
           ? serializableBridgeErrorData(item, seen)
           : serializableBridgeValue(item, seen),
       ]),
@@ -184,7 +164,7 @@ function serializableBridgeErrorData(value, seen) {
 
   const out = {};
   for (const [key, item] of Object.entries(value)) {
-    const normalizedKey = normalizeSafeLogFieldKey(key);
+    const normalizedKey = normalizeBridgeLogFieldKey(key);
     if (!BRIDGE_ERROR_DATA_SAFE_KEYS.has(normalizedKey)) continue;
     if (isForbiddenBridgeLogKey(key)) continue;
     const safeValue = serializableBridgeDiagnosticValue(item);
@@ -193,17 +173,9 @@ function serializableBridgeErrorData(value, seen) {
   return Object.keys(out).length > 0 ? out : BRIDGE_REDACTED_VALUE;
 }
 
-function isForbiddenBridgeLogKey(key) {
-  return isSafeLogForbiddenKey(key, { forbiddenKeys: BRIDGE_LOG_FORBIDDEN_KEYS });
-}
-
 function writeBridgeLog(level, event, fields) {
   const serializableFields = serializableBridgeValue(optionalDiagnosticFields(fields));
-  const safeFields = safeLogFields(serializableFields, {
-    forbiddenKeys: BRIDGE_LOG_FORBIDDEN_KEYS,
-    forbiddenKeyMode: 'omit',
-    redactedValue: BRIDGE_REDACTED_VALUE,
-  });
+  const safeFields = safeBridgeLogFields(serializableFields);
   if (logStoreInstance && typeof logStoreInstance[level] === 'function') {
     logStoreInstance[level](event, safeFields);
   } else {

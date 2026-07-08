@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, Trash2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
+import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { currentTimestampMillis, dashboardQueryKey, errorMessage, firstPresentText, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, optionalTimestampMillis, requireArrayValue, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
@@ -603,26 +604,9 @@ function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
   );
 }
 
-function UITestMCPShell() {
-  return (
-    <div className="sa-window sidebar-collapsed" data-theme="dark" data-testid="frontend-app">
-      <main className="sa-main" data-testid="ui-test-mcp-shell">
-        <section className="chat-page">
-          <textarea data-testid="composer-input" aria-label="消息输入" />
-          <button type="button" data-testid="composer-submit" aria-label="发送消息">
-            发送
-          </button>
-        </section>
-      </main>
-    </div>
-  );
-}
-
 function AppShell({ skipBootstrap = false, uiTestMCPMode = false }) {
-  const store = useClientStore(useShallow(selectAppShellStore));
-  const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
-  if (uiTestMCPMode) return <UITestMCPShell />;
-  return <AppWindow {...shell} store={store} />;
+  const store = useClientStore(useShallow(selectAppShellStore)); const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
+  return uiTestMCPMode ? <UITestMCPShell /> : <AppWindow {...shell} store={store} />;
 }
 
 function App(props) {

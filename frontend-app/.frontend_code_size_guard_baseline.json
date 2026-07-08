@@ -890,7 +890,7 @@
       ]
     },
     "src/shared/api/wailsBridge.js": {
-      "lines": 1299,
+      "lines": 1280,
       "maxFuncLen": 90,
       "maxNesting": 4,
       "maxParams": 7,
@@ -903,7 +903,7 @@
       "frozenViolations": [
         "empty-func\u0000空函数体，可能是未实现",
         "exports\u000023 个 export，超过上限 10 个",
-        "file-length\u0000文件有效代码 1299 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1280 行，超过上限 500 行",
         "params\u0000函数 attachAPITraceToError 有 6 个参数，超过上限 5 个",
         "params\u0000函数 logAPIDone 有 7 个参数，超过上限 5 个",
         "params\u0000函数 logAPIFailed 有 7 个参数，超过上限 5 个",

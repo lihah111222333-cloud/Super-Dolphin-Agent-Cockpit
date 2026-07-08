@@ -57,6 +57,46 @@ function expectExactKeys(value, keys) {
   expect(Object.keys(value)).toEqual(keys);
 }
 
+const DIAGNOSTIC_WARNING_ENTRIES = [{
+  id: 'warn-1',
+  ts: '2026-07-08T00:00:00.000Z',
+  level: 'warn',
+  event: 'api.warn',
+  fields: { cwd: '/home/me/repo' },
+}];
+
+const DIAGNOSTIC_STATE = {
+  consoleErrors: [{ ts: '2026-07-08T00:00:00.000Z', message: 'console failed' }],
+  unhandledErrors: [{ ts: '2026-07-08T00:00:00.000Z', message: 'promise failed' }],
+};
+
+const FILTERED_LOG_ENTRIES = [
+  {
+    id: 'new-match',
+    ts: '2026-07-08T00:00:02.000Z',
+    level: 'info',
+    scope: 'ui_test_mcp',
+    event: 'submit_composer',
+    fields: { cwd: '/home/me/repo' },
+  },
+  {
+    id: 'old-match',
+    ts: '2026-07-08T00:00:00.000Z',
+    level: 'info',
+    scope: 'ui_test_mcp',
+    event: 'submit_composer',
+    fields: {},
+  },
+  {
+    id: 'wrong-level',
+    ts: '2026-07-08T00:00:03.000Z',
+    level: 'debug',
+    scope: 'ui_test_mcp',
+    event: 'submit_composer',
+    fields: {},
+  },
+];
+
 describe('isUITestHarnessEnabled', () => {
   it('never enables the harness in production', () => {
     expect(isUITestHarnessEnabled({ PROD: true, VITE_SUPER_DOLPHIN_UI_TEST_MCP: '1' })).toBe(false);
@@ -175,14 +215,11 @@ describe('createUITestHarness diagnostics', () => {
     renderHarnessDom();
     const harness = createUITestHarness({
       getState: () => createState({
-        warningEntries: [{ id: 'warn-1', ts: '2026-07-08T00:00:00.000Z', level: 'warn', event: 'api.warn', fields: { cwd: '/home/me/repo' } }],
+        warningEntries: DIAGNOSTIC_WARNING_ENTRIES,
       }),
       documentRef: document,
       locationRef: new URL('http://127.0.0.1:5175/observability'),
-      diagnosticState: {
-        consoleErrors: [{ ts: '2026-07-08T00:00:00.000Z', message: 'console failed' }],
-        unhandledErrors: [{ ts: '2026-07-08T00:00:00.000Z', message: 'promise failed' }],
-      },
+      diagnosticState: DIAGNOSTIC_STATE,
     });
 
     const diagnostics = harness.diagnostics();
@@ -216,32 +253,7 @@ describe('createUITestHarness frontend logs', () => {
     renderHarnessDom();
     const harness = createUITestHarness({
       getState: () => createState({
-        logEntries: [
-          {
-            id: 'new-match',
-            ts: '2026-07-08T00:00:02.000Z',
-            level: 'info',
-            scope: 'ui_test_mcp',
-            event: 'submit_composer',
-            fields: { cwd: '/home/me/repo' },
-          },
-          {
-            id: 'old-match',
-            ts: '2026-07-08T00:00:00.000Z',
-            level: 'info',
-            scope: 'ui_test_mcp',
-            event: 'submit_composer',
-            fields: {},
-          },
-          {
-            id: 'wrong-level',
-            ts: '2026-07-08T00:00:03.000Z',
-            level: 'debug',
-            scope: 'ui_test_mcp',
-            event: 'submit_composer',
-            fields: {},
-          },
-        ],
+        logEntries: FILTERED_LOG_ENTRIES,
       }),
       documentRef: document,
       locationRef: window.location,

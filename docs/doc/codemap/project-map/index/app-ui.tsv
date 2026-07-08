@@ -44,7 +44,7 @@ frontend-app/src/adapters/memoryAdapter.js	frontend-app	app-ui	js-source	4149	�
 frontend-app/src/adapters/memoryAdapter.test.js	frontend-app	app-ui	js-test	422	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,test,当前,React,Vite,前端包
 frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	3541	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端包
 frontend-app/src/adapters/observabilityAdapter.test.js	frontend-app	app-ui	js-test	2343	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,test,当前,React,Vite,前端包
-frontend-app/src/App.jsx	frontend-app	app-ui	jsx	60439	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
+frontend-app/src/App.jsx	frontend-app	app-ui	jsx	59993	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
 frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	345304	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.js	frontend-app	app-ui	js-source	3647	当前 React/Vite 前端包	frontend,app,src,appShellModel,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.test.js	frontend-app	app-ui	js-test	1760	当前 React/Vite 前端包	frontend,app,src,appShellModel,test,当前,React,Vite,前端包
@@ -55,10 +55,11 @@ frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	app-ui	css	4594	�
 frontend-app/src/AppShellWorkbench.css	frontend-app	app-ui	css	13711	当前 React/Vite 前端包	frontend,app,src,AppShellWorkbench,当前,React,Vite,前端包
 frontend-app/src/assets/suiyuan-brand-icon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,src,assets,suiyuan,brand,icon,当前,React,Vite,前端包
 frontend-app/src/assets/super-dolphin-logo.png	frontend-app	app-ui	png	5140	当前 React/Vite 前端包	frontend,app,src,assets,super,dolphin,logo,当前,React,Vite,前端包
-frontend-app/src/devtools/uiTestContract.js	frontend-app	app-ui	js-source	2839	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestContract.js	frontend-app	app-ui	js-source	3027	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,当前,React,Vite,前端包
 frontend-app/src/devtools/uiTestContract.test.js	frontend-app	app-ui	js-test	4784	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,test,当前,React,Vite,前端包
 frontend-app/src/devtools/uiTestHarness.js	frontend-app	app-ui	js-source	16422	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,当前,React,Vite,前端包
-frontend-app/src/devtools/uiTestHarness.test.js	frontend-app	app-ui	js-test	12539	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,test,当前,React,Vite,前端包
+frontend-app/src/devtools/uiTestHarness.test.js	frontend-app	app-ui	js-test	12492	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,test,当前,React,Vite,前端包
+frontend-app/src/devtools/UITestMCPShell.jsx	frontend-app	app-ui	jsx	502	当前 React/Vite 前端包	frontend,app,src,devtools,UITestMCPShell,当前,React,Vite,前端包
 frontend-app/src/entities/client/model/bridgePatchState.js	frontend-app	app-ui	js-source	16187	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgePatchState,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgePatchState.test.js	frontend-app	app-ui	js-test	8102	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgePatchState,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgeRevision.js	frontend-app	app-ui	js-source	2613	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgeRevision,React,客户端状态,thread,composer,store,模型
@@ -297,16 +298,17 @@ frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	89028
 frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	14193	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	3323	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendSchemas.js	frontend-app	app-ui	js-source	3710	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendSchemas,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/bridgeSafeLogFields.js	frontend-app	app-ui	js-source	1100	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,bridgeSafeLogFields,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWire.js	frontend-app	app-ui	js-source	1026	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWire,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWire.test.js	frontend-app	app-ui	js-test	1991	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWire,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWireMethods.js	frontend-app	app-ui	js-source	1639	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWireMethods,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/safeDiagnosticPreview.js	frontend-app	app-ui	js-source	4038	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,safeDiagnosticPreview,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/sessionApi.js	frontend-app	app-ui	js-source	481	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,sessionApi,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/sessionApi.test.js	frontend-app	app-ui	js-test	2198	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,sessionApi,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	47412	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	46764	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	60421	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/diagnostics/safeLogFields.js	frontend-app	app-ui	js-source	6782	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,当前,React,Vite,前端包
-frontend-app/src/shared/diagnostics/safeLogFields.test.js	frontend-app	app-ui	js-test	5486	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,test,当前,React,Vite,前端包
+frontend-app/src/shared/diagnostics/safeLogFields.test.js	frontend-app	app-ui	js-test	5503	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,test,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.js	frontend-app	app-ui	js-source	47083	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,当前,React,Vite,前端包
 frontend-app/src/shared/styles/MarkdownReferences.css	frontend-app	app-ui	css	0	当前 React/Vite 前端包	frontend,app,src,shared,styles,MarkdownReferences,当前,React,Vite,前端包
 frontend-app/src/shared/styles/PagePrimitives.css	frontend-app	app-ui	css	1448	当前 React/Vite 前端包	frontend,app,src,shared,styles,PagePrimitives,当前,React,Vite,前端包

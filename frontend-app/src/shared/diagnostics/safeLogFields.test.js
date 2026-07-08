@@ -8,6 +8,14 @@ import {
   safeLogFields,
 } from './safeLogFields.js';
 
+function nestedDepthPayload(depth, leaf) {
+  let value = leaf;
+  for (let index = depth; index >= 1; index -= 1) {
+    value = { [`level${index}`]: value };
+  }
+  return value;
+}
+
 describe('safeLogFields', () => {
   const forbiddenKeys = [
     'token',
@@ -86,19 +94,7 @@ describe('safeLogFields', () => {
   });
 
   it('bounds objects deeper than maxFieldDepth', () => {
-    const safe = safeLogFields({
-      level1: {
-        level2: {
-          level3: {
-            level4: {
-              level5: {
-                token: 'deep-token-must-not-leak',
-              },
-            },
-          },
-        },
-      },
-    });
+    const safe = safeLogFields(nestedDepthPayload(5, { token: 'deep-token-must-not-leak' }));
 
     expect(safe.level1.level2.level3.level4).toBe(SAFE_LOG_TRUNCATED_VALUE);
     expect(JSON.stringify(safe)).not.toContain('deep-token-must-not-leak');
