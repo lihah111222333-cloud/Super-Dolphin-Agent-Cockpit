@@ -35,8 +35,8 @@ frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	R
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-acceptance.mjs	frontend-app	app-ui	js-source	20743	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,acceptance,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-framing.mjs	frontend-app	app-ui	js-source	6075	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,framing,React,前端构建与校验脚本
-frontend-app/scripts/ui-test-mcp-server.mjs	frontend-app	app-ui	js-source	38367	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,server,React,前端构建与校验脚本
-frontend-app/scripts/ui-test-mcp-server.test.mjs	frontend-app	app-ui	js-test	21189	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,server,React,前端构建与校验脚本
+frontend-app/scripts/ui-test-mcp-server.mjs	frontend-app	app-ui	js-source	38399	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,server,React,前端构建与校验脚本
+frontend-app/scripts/ui-test-mcp-server.test.mjs	frontend-app	app-ui	js-test	22920	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,server,React,前端构建与校验脚本
 frontend-app/src/__tests__/reactQueryRender.jsx	frontend-app	app-ui	jsx	700	当前 React/Vite 前端包	frontend,app,src,tests,reactQueryRender,当前,React,Vite,前端包
 frontend-app/src/adapters/apiErrorAdapter.js	frontend-app	app-ui	js-source	273	当前 React/Vite 前端包	frontend,app,src,adapters,apiErrorAdapter,当前,React,Vite,前端包
 frontend-app/src/adapters/fileAdapter.js	frontend-app	app-ui	js-source	2292	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,当前,React,Vite,前端包

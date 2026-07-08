@@ -299,6 +299,7 @@ export function createUITestMCPServer(options = {}) {
     const page = await ensurePage();
     const targetURL = new URL(contract.UI_TEST_ROUTES[args.route], baseURL);
     await page.goto(targetURL.toString(), { waitUntil: 'domcontentloaded' });
+    await waitForHarness(page);
     await recordActionLog('navigate', { route: args.route, path: targetURL.pathname });
     return {
       action: args.action,

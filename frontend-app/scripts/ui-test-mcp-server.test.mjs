@@ -35,6 +35,7 @@ const CONTRACT = Object.freeze({
     settings_open_probe: { id: 'settings_open_probe', risk: 'read_only' },
     open_route_probe: { id: 'open_route_probe', risk: 'read_only' },
   },
+  UI_TEST_GLOBAL: '__SUPER_DOLPHIN_UI_TEST__',
   UI_TEST_SCENARIO_IDS: [
     'chat_composer_probe',
     'frontend_navigation_probe',
@@ -347,6 +348,37 @@ describe('UI test MCP server lifecycle and protocol', () => {
     ]);
   });
 
+  it('waits for the harness after navigation before recording action logs', async () => {
+    const fake = createFakeBrowser({ requireHarnessWaitAfterGoto: true });
+    const server = createServer({ browserFactory: async () => fake.browser });
+    await server.handleMessage(request(1, 'initialize'));
+
+    const response = await server.handleMessage(request(2, 'tools/call', {
+      name: 'ui_action',
+      arguments: { action: 'navigate', route: 'observability' },
+    }));
+
+    expect(response).not.toHaveProperty('error');
+    expect(response.result).toMatchObject({
+      isError: false,
+      structuredContent: {
+        action: 'navigate',
+        route: 'observability',
+        path: '/observability',
+      },
+    });
+    expect(fake.page.waitForFunctionCalls).toHaveLength(2);
+    expect(fake.page.waitForFunctionCalls[1]).toMatchObject({
+      globalName: CONTRACT.UI_TEST_GLOBAL,
+      timeout: CONTRACT.UI_TEST_LIMITS.defaultTimeoutMs,
+    });
+    expect(fake.page.recordedLogs).toContainEqual(expect.objectContaining({
+      source: 'ui_test_mcp',
+      message: 'navigate',
+      fields: { route: 'observability', path: '/observability' },
+    }));
+  });
+
   it('stops a scenario when diagnostics contain unhandled errors', async () => {
     const fake = createFakeBrowser({
       diagnostics: {
@@ -498,9 +530,11 @@ function createFakeBrowser(options = {}) {
   const page = {
     closed: false,
     filledText: '',
+    harnessReady: true,
     initScripts: [],
     recordedLogs: [],
     submittedToken: null,
+    waitForFunctionCalls: [],
     snapshot: options.snapshot || {
       route: '/',
       inputTextLength: 0,
@@ -512,6 +546,14 @@ function createFakeBrowser(options = {}) {
     async goto(url) {
       this.url = url;
       this.snapshot = { ...this.snapshot, route: new URL(url).pathname };
+      if (options.requireHarnessWaitAfterGoto) this.harnessReady = false;
+    },
+    async waitForFunction(_fn, globalName, waitOptions) {
+      this.waitForFunctionCalls.push({
+        globalName,
+        timeout: waitOptions?.timeout,
+      });
+      this.harnessReady = true;
     },
     locator(selector) {
       if (selector !== '[data-testid="composer-input"]') throw new Error(`unexpected selector: ${selector}`);
@@ -537,6 +579,9 @@ function createFakeBrowser(options = {}) {
       }
       if (source.includes('.frontendLogs(input)')) return [];
       if (source.includes('.recordLog(entry)')) {
+        if (options.requireHarnessWaitAfterGoto && !this.harnessReady) {
+          throw new TypeError('Cannot read properties of undefined (reading \'recordLog\')');
+        }
         this.recordedLogs.push(arg);
         return arg;
       }
