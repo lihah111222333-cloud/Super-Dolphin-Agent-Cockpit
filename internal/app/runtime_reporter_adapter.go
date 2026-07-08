@@ -25,19 +25,19 @@ type runtimeUpdater interface {
 type runtimeUpdaterParams struct {
 	fx.In
 
-	Service contract.OrchestrationService `optional:"true"`
+	Runtime contract.AgentRuntimePort `optional:"true"`
 }
 
-// provideRuntimeUpdater 集中暂存 full service 到 runtime 更新端口的兼容接线。
+// provideRuntimeUpdater 将 agent runtime 窄端口裁剪为 runtime 更新端口。
 func provideRuntimeUpdater(p runtimeUpdaterParams) runtimeUpdater {
-	if p.Service == nil {
+	if p.Runtime == nil {
 		return nil
 	}
-	return p.Service
+	return p.Runtime
 }
 
 // newRuntimeReporter 为桌面进程提供 runtime report 写入入口。
-// orchestration service 可用时写入 UpdateRuntime；未接线时按 dependency profile 决定 fail-fast 或 deferred。
+// runtime updater 可用时写入 UpdateRuntime；未接线时按 dependency profile 决定 fail-fast 或 deferred。
 func newRuntimeReporter(p runtimeReporterParams) (contract.RuntimeReporter, error) {
 	if p.Updater != nil {
 		return orchestrationRuntimeReporter{updater: p.Updater}, nil

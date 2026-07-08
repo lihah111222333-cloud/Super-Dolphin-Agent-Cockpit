@@ -19,35 +19,78 @@ func TestDashboardOrchestrationReaderUsesNarrowPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAgents() error = %v", err)
 	}
-	if len(agents) != 1 || agents[0].AgentID != "agent-1" {
-		t.Fatalf("ListAgents() = %#v, want agent-1", agents)
-	}
+	requireAgentList(t, agents, "agent-1")
 
 	snapshot, err := reader.Snapshot(context.Background(), "agent-2")
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.AgentID != "agent-2" {
-		t.Fatalf("Snapshot() = %#v, want agent-2", snapshot)
-	}
+	requireAgentSnapshot(t, snapshot, "agent-2")
 
 	report, err := reader.GetReport(context.Background(), "agent-3")
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if report.AgentID != "agent-3" {
-		t.Fatalf("GetReport() = %#v, want agent-3", report)
-	}
+	requireAgentReport(t, report, "agent-3")
 
-	wantCalls := []string{"ListAgents", "Snapshot:agent-2", "GetReport:agent-3"}
-	if !stringSlicesEqual(port.calls, wantCalls) {
-		t.Fatalf("calls = %#v, want %#v", port.calls, wantCalls)
-	}
+	requireStringCalls(t, port.calls, []string{"ListAgents", "Snapshot:agent-2", "GetReport:agent-3"})
 }
 
 func TestDashboardOrchestrationReaderAllowsMissingPort(t *testing.T) {
 	if got := newDashboardOrchestrationReader(dashboardOrchestrationReaderParams{}); got != nil {
 		t.Fatalf("newDashboardOrchestrationReader() = %T, want nil", got)
+	}
+}
+
+func TestDashboardOrchestrationReaderPortComposesNarrowPorts(t *testing.T) {
+	lifecycle := &recordingAgentLifecyclePort{}
+	reports := &recordingAgentReportPort{}
+	port := provideDashboardOrchestrationReaderPort(dashboardOrchestrationReaderPortParams{
+		Lifecycle: lifecycle,
+		Reports:   reports,
+	})
+	if port == nil {
+		t.Fatal("provideDashboardOrchestrationReaderPort() = nil, want port")
+	}
+
+	agents, err := port.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	requireAgentList(t, agents, "agent-1")
+
+	snapshot, err := port.Snapshot(context.Background(), "agent-2")
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	requireAgentSnapshot(t, snapshot, "agent-2")
+
+	report, err := port.GetReport(context.Background(), "agent-3")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	requireAgentReport(t, report, "agent-3")
+	requireStringCalls(t, lifecycle.calls, []string{"ListAgents", "Snapshot:agent-2"})
+	requireStringCalls(t, reports.calls, []string{"GetReport:agent-3"})
+}
+
+func TestDashboardOrchestrationReaderPortAllowsMissingNarrowPort(t *testing.T) {
+	lifecycle := &recordingAgentLifecyclePort{}
+	reports := &recordingAgentReportPort{}
+	tests := []struct {
+		name   string
+		params dashboardOrchestrationReaderPortParams
+	}{
+		{name: "missing lifecycle", params: dashboardOrchestrationReaderPortParams{Reports: reports}},
+		{name: "missing reports", params: dashboardOrchestrationReaderPortParams{Lifecycle: lifecycle}},
+		{name: "missing both", params: dashboardOrchestrationReaderPortParams{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := provideDashboardOrchestrationReaderPort(tt.params); got != nil {
+				t.Fatalf("provideDashboardOrchestrationReaderPort() = %T, want nil", got)
+			}
+		})
 	}
 }
 
@@ -62,12 +105,8 @@ func TestUIStateAgentListerUsesNarrowReaderPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAgents() error = %v", err)
 	}
-	if len(agents) != 1 || agents[0].AgentID != "agent-1" {
-		t.Fatalf("ListAgents() = %#v, want agent-1", agents)
-	}
-	if !stringSlicesEqual(port.calls, []string{"ListAgents"}) {
-		t.Fatalf("calls = %#v, want ListAgents only", port.calls)
-	}
+	requireAgentList(t, agents, "agent-1")
+	requireStringCalls(t, port.calls, []string{"ListAgents"})
 }
 
 func TestRuntimeReporterUsesUpdateRuntimePort(t *testing.T) {
@@ -94,6 +133,34 @@ func TestRuntimeReporterUsesUpdateRuntimePort(t *testing.T) {
 	}
 }
 
+func TestRuntimeUpdaterProviderUsesAgentRuntimePort(t *testing.T) {
+	runtimePort := &recordingAgentRuntimePort{}
+	updater := provideRuntimeUpdater(runtimeUpdaterParams{Runtime: runtimePort})
+	if updater == nil {
+		t.Fatal("provideRuntimeUpdater() = nil, want updater")
+	}
+
+	report := contract.RuntimeReport{AgentID: "agent-1", Provider: "codex", Port: 7777}
+	if err := updater.UpdateRuntime(context.Background(), report); err != nil {
+		t.Fatalf("UpdateRuntime() error = %v", err)
+	}
+	if runtimePort.calls != 1 {
+		t.Fatalf("UpdateRuntime calls = %d, want 1", runtimePort.calls)
+	}
+	if runtimePort.bindCalls != 0 {
+		t.Fatalf("BindSessionGeneration calls = %d, want 0", runtimePort.bindCalls)
+	}
+	if runtimePort.report != report {
+		t.Fatalf("UpdateRuntime report = %#v, want %#v", runtimePort.report, report)
+	}
+}
+
+func TestRuntimeUpdaterProviderAllowsMissingPort(t *testing.T) {
+	if got := provideRuntimeUpdater(runtimeUpdaterParams{}); got != nil {
+		t.Fatalf("provideRuntimeUpdater() = %T, want nil", got)
+	}
+}
+
 type recordingDashboardReaderPort struct {
 	calls []string
 }
@@ -113,6 +180,64 @@ func (p *recordingDashboardReaderPort) GetReport(_ context.Context, agentID stri
 	return contract.AgentReportResult{AgentID: agentID}, nil
 }
 
+type recordingAgentLifecyclePort struct {
+	calls []string
+}
+
+func (p *recordingAgentLifecyclePort) LaunchAgent(context.Context, contract.LaunchRequest) error {
+	p.calls = append(p.calls, "LaunchAgent")
+	return nil
+}
+
+func (p *recordingAgentLifecyclePort) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
+	p.calls = append(p.calls, "ListAgents")
+	return []contract.AgentSnapshot{{AgentID: "agent-1"}}, nil
+}
+
+func (p *recordingAgentLifecyclePort) StopAgent(_ context.Context, agentID string) error {
+	p.calls = append(p.calls, "StopAgent:"+agentID)
+	return nil
+}
+
+func (p *recordingAgentLifecyclePort) InterruptAgent(_ context.Context, agentID string, source string) (contract.AgentStateResult, error) {
+	p.calls = append(p.calls, "InterruptAgent:"+agentID+":"+source)
+	return contract.AgentStateResult{}, nil
+}
+
+func (p *recordingAgentLifecyclePort) Recover(_ context.Context, agentID string) error {
+	p.calls = append(p.calls, "Recover:"+agentID)
+	return nil
+}
+
+func (p *recordingAgentLifecyclePort) Snapshot(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+	p.calls = append(p.calls, "Snapshot:"+agentID)
+	return contract.AgentSnapshot{AgentID: agentID}, nil
+}
+
+func (p *recordingAgentLifecyclePort) GetState(_ context.Context, agentID string) (contract.AgentStateResult, error) {
+	p.calls = append(p.calls, "GetState:"+agentID)
+	return contract.AgentStateResult{}, nil
+}
+
+type recordingAgentReportPort struct {
+	calls []string
+}
+
+func (p *recordingAgentReportPort) GetReport(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+	p.calls = append(p.calls, "GetReport:"+agentID)
+	return contract.AgentReportResult{AgentID: agentID}, nil
+}
+
+func (p *recordingAgentReportPort) RememberReportRequest(context.Context, contract.RememberReportRequest) (contract.RememberReportRequestResult, error) {
+	p.calls = append(p.calls, "RememberReportRequest")
+	return contract.RememberReportRequestResult{}, nil
+}
+
+func (p *recordingAgentReportPort) HandleReportEvent(context.Context, contract.ReportEvent) (contract.ReportEventResult, error) {
+	p.calls = append(p.calls, "HandleReportEvent")
+	return contract.ReportEventResult{}, nil
+}
+
 type recordingRuntimeUpdater struct {
 	calls  int
 	report contract.RuntimeReport
@@ -123,6 +248,54 @@ func (u *recordingRuntimeUpdater) UpdateRuntime(_ context.Context, report contra
 	u.calls++
 	u.report = report
 	return u.err
+}
+
+type recordingAgentRuntimePort struct {
+	calls     int
+	bindCalls int
+	report    contract.RuntimeReport
+}
+
+func (p *recordingAgentRuntimePort) UpdateRuntime(_ context.Context, report contract.RuntimeReport) error {
+	p.calls++
+	p.report = report
+	return nil
+}
+
+func (p *recordingAgentRuntimePort) BindSessionGeneration(context.Context, string, uint64) error {
+	p.bindCalls++
+	return nil
+}
+
+func requireAgentList(t *testing.T, agents []contract.AgentSnapshot, wantAgentID string) {
+	t.Helper()
+	if len(agents) != 1 {
+		t.Fatalf("ListAgents() = %#v, want one agent %q", agents, wantAgentID)
+	}
+	if agents[0].AgentID != wantAgentID {
+		t.Fatalf("ListAgents()[0].AgentID = %q, want %q", agents[0].AgentID, wantAgentID)
+	}
+}
+
+func requireAgentSnapshot(t *testing.T, snapshot contract.AgentSnapshot, wantAgentID string) {
+	t.Helper()
+	if snapshot.AgentID != wantAgentID {
+		t.Fatalf("Snapshot() = %#v, want agent %q", snapshot, wantAgentID)
+	}
+}
+
+func requireAgentReport(t *testing.T, report contract.AgentReportResult, wantAgentID string) {
+	t.Helper()
+	if report.AgentID != wantAgentID {
+		t.Fatalf("GetReport() = %#v, want agent %q", report, wantAgentID)
+	}
+}
+
+func requireStringCalls(t *testing.T, got, want []string) {
+	t.Helper()
+	if !stringSlicesEqual(got, want) {
+		t.Fatalf("calls = %#v, want %#v", got, want)
+	}
 }
 
 func stringSlicesEqual(a, b []string) bool {
