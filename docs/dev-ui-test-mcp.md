@@ -25,11 +25,19 @@ cd frontend-app
 npm run mcp:ui-test:acceptance
 ```
 
-Direct invocation is equivalent when the package script is not available yet:
+Run the allowlisted scenario acceptance. By default it starts its own Vite server on `127.0.0.1:5177`, starts the MCP server, calls `ui_scenario_run` with `frontend_navigation_probe`, writes a sanitized JSON result under `frontend-app/.tmp/ui-test-mcp-scenarios`, and shuts everything down.
+
+```bash
+cd frontend-app
+npm run mcp:ui-test:scenario
+```
+
+Direct invocation is equivalent when a package script is not available:
 
 ```bash
 cd frontend-app
 node scripts/ui-test-mcp-acceptance.mjs
+node scripts/ui-test-mcp-scenario.mjs
 ```
 
 When `SUPER_DOLPHIN_UI_TEST_BASE_URL` is provided to the acceptance script, it treats the page as caller-owned and runs read-only by default. Set `SUPER_DOLPHIN_UI_TEST_ACCEPTANCE_OWNS_UI=1` only for an explicitly isolated caller-provided page where submit testing is allowed.
@@ -51,17 +59,59 @@ All MCP calls use `tools/call` with a strict `arguments` object. Extra fields ar
 | `ui_diagnostics` | Read-only | `{}` | `consoleErrors`, `bridgeErrors`, `unhandledErrors`, `warningEntries`, `url`, `readyState` |
 | `ui_frontend_logs` | Read-only | `level?`, `source?`, `since?`, `limit?` | Sanitized log entries |
 | `ui_action` | State-changing | One of the action argument shapes below | Action result and sanitized action log data |
+| `ui_scenario_run` | Scenario-limited | `scenario`, `route?`, `text?`, `timeoutMs?`, `logs?` | Step list, final snapshot, diagnostics, and sanitized logs |
 
 Supported actions:
 
 | Action | Arguments |
 | --- | --- |
-| `navigate` | `{ "action": "navigate", "route": "chat" \| "settings" \| "observability" }` |
+| `navigate` | `{ "action": "navigate", "route": "chat" \| "settings" \| "observability" \| "skills" \| "automation" \| "prompts" \| "files" \| "memory" }` |
 | `fill_composer` | `{ "action": "fill_composer", "target": "composer_input", "text": "..." }` |
 | `submit_composer` | `{ "action": "submit_composer", "target": "composer_submit" }` |
-| `wait_for` | `{ "action": "wait_for", "state": "frontend_ready" \| "composer_text_length" \| "route", "value"?: ..., "timeoutMs"?: ... }` |
+| `wait_for` | `{ "action": "wait_for", "waitState": "frontend_ready" \| "composer_text_length" \| "route", "route"?: "...", "expected"?: 17, "timeoutMs"?: ... }` |
 
-Targets are `composer_input` and `composer_submit`. Routes are `chat`, `settings`, and `observability`. Wait states are `frontend_ready`, `composer_text_length`, and `route`.
+Targets are `composer_input` and `composer_submit`. Routes are `chat`, `settings`, `observability`, `skills`, `automation`, `prompts`, `files`, and `memory`. Wait states are `frontend_ready`, `composer_text_length`, and `route`.
+
+## Scenarios
+
+`ui_scenario_run` composes the existing MCP primitives. It does not add arbitrary browser control. The tool rejects extra fields, unknown scenarios, unknown routes, unbounded timeouts, and fields that are not valid for the selected scenario.
+
+| Scenario | Risk | Required arguments | Optional arguments | Behavior |
+| --- | --- | --- | --- | --- |
+| `chat_composer_probe` | Local UI only | `scenario` | `text`, `timeoutMs`, `logs` | Snapshot, navigate to chat, fill composer, wait for text length. |
+| `frontend_navigation_probe` | Local UI only | `scenario` | `text`, `timeoutMs`, `logs` | Chat composer probe, then navigate to observability. |
+| `observability_logs_probe` | Read-only | `scenario` | `timeoutMs`, `logs` | Snapshot, navigate to observability, read diagnostics and logs. |
+| `settings_open_probe` | Read-only | `scenario` | `timeoutMs`, `logs` | Snapshot, navigate to settings, read diagnostics and logs. |
+| `open_route_probe` | Read-only | `scenario`, `route` | `timeoutMs`, `logs` | Snapshot, navigate to one allowlisted route, read diagnostics and logs. |
+
+Example MCP call:
+
+```json
+{
+  "name": "ui_scenario_run",
+  "arguments": {
+    "scenario": "frontend_navigation_probe",
+    "text": "MCP UI test input",
+    "timeoutMs": 5000,
+    "logs": {
+      "source": "ui_test_mcp",
+      "limit": 20
+    }
+  }
+}
+```
+
+Failure responses are structured tool results, not fake successes. They include `tool`, `scenario`, `stepIndex`, `code`, `action`, `target`, `timeoutMs`, and `reason` when available. Diagnostics gates fail the scenario when `consoleErrors`, `bridgeErrors`, or `unhandledErrors` are present.
+
+The scenario acceptance script supports:
+
+| Environment variable | Behavior |
+| --- | --- |
+| `SUPER_DOLPHIN_UI_TEST_SCENARIO` | Scenario id. Defaults to `frontend_navigation_probe`. |
+| `SUPER_DOLPHIN_UI_TEST_SCENARIO_TEXT` | Text for `chat_composer_probe` and `frontend_navigation_probe`. |
+| `SUPER_DOLPHIN_UI_TEST_SCENARIO_ROUTE` | Required only for `open_route_probe`. |
+| `SUPER_DOLPHIN_UI_TEST_BASE_URL` | Caller-owned UI URL. If omitted, the script starts Vite. |
+| `SUPER_DOLPHIN_UI_TEST_BROWSER_EXECUTABLE_PATH` | Chromium-compatible executable for local Playwright. |
 
 ## Logs
 
@@ -73,6 +123,8 @@ Targets are `composer_input` and `composer_submit`. Routes are `chat`, `settings
 | `source` | Returns only matching sources, such as `ui_test_mcp`. |
 | `since` | Returns entries newer than the provided timestamp or cursor value. |
 | `limit` | Defaults to `100` and cannot exceed `100`. |
+
+`ui_scenario_run.logs` uses the same exact log filter fields. When omitted, scenarios read at most 20 `ui_test_mcp` entries by default.
 
 Log fields are sanitized before storage and before MCP output. Raw prompt text, user messages, memory, skill content, thread messages, tool results, tokens, API keys, authorization values, local file paths, and oversized strings must not appear in MCP log output.
 
@@ -119,7 +171,11 @@ The UI test MCP must not provide:
 - raw prompt, memory, skill, or thread-message logs
 - token, key, authorization, secret, or local path leakage
 - a generic click action
+- generic Playwright actions
+- raw DOM, ARIA, screenshots, network request URLs, or RPC payload dumping
+- Wails bridge monkey-patching as an MCP action
+- real provider turns or real settings writes
 
 ## Production Prohibition
 
-Production builds must not load or expose the harness. `VITE_SUPER_DOLPHIN_UI_TEST_MCP=1` is valid only for dev/test Vite runs, and production build configuration must reject it. Production artifacts must not contain `SUPER_DOLPHIN_UI_TEST`, `ui_snapshot`, `ui_action`, `ui_frontend_logs`, `ui_diagnostics`, `uiTestHarness`, or `submitComposerInIsolation`.
+Production builds must not load or expose the harness. `VITE_SUPER_DOLPHIN_UI_TEST_MCP=1` is valid only for dev/test Vite runs, and production build configuration must reject it. Production artifacts must not contain `SUPER_DOLPHIN_UI_TEST`, `ui_snapshot`, `ui_action`, `ui_frontend_logs`, `ui_diagnostics`, `ui_scenario_run`, `uiTestHarness`, or `submitComposerInIsolation`.
