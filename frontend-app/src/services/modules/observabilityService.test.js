@@ -58,15 +58,7 @@ describe('observabilityService', () => {
       events: { bad: true },
     });
 
-    await expect(listObservabilityRecent({ includeTail: true })).resolves.toMatchObject({
-      degraded: true,
-      parseError: expect.stringContaining('events must be an array'),
-      events: [
-        expect.objectContaining({
-          method: 'observability.events.invalid',
-          status: 'error',
-        }),
-      ],
-    });
+    await expect(listObservabilityRecent({ includeTail: true }))
+      .rejects.toThrow('observability response events must be an array');
   });
 });

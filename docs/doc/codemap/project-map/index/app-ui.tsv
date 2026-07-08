@@ -38,12 +38,12 @@ frontend-app/scripts/ui-test-mcp-framing.mjs	frontend-app	app-ui	js-source	6075	
 frontend-app/scripts/ui-test-mcp-server.mjs	frontend-app	app-ui	js-source	29783	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,server,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-server.test.mjs	frontend-app	app-ui	js-source	17090	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,server,React,前端构建与校验脚本
 frontend-app/src/adapters/apiErrorAdapter.js	frontend-app	app-ui	js-source	273	当前 React/Vite 前端包	frontend,app,src,adapters,apiErrorAdapter,当前,React,Vite,前端包
-frontend-app/src/adapters/fileAdapter.js	frontend-app	app-ui	js-source	4811	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,当前,React,Vite,前端包
-frontend-app/src/adapters/fileAdapter.test.js	frontend-app	app-ui	js-test	1799	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,test,当前,React,Vite,前端包
-frontend-app/src/adapters/memoryAdapter.js	frontend-app	app-ui	js-source	4149	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,当前,React,Vite,前端包
-frontend-app/src/adapters/memoryAdapter.test.js	frontend-app	app-ui	js-test	422	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,test,当前,React,Vite,前端包
-frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	3541	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端包
-frontend-app/src/adapters/observabilityAdapter.test.js	frontend-app	app-ui	js-test	2343	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,test,当前,React,Vite,前端包
+frontend-app/src/adapters/fileAdapter.js	frontend-app	app-ui	js-source	2292	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,当前,React,Vite,前端包
+frontend-app/src/adapters/fileAdapter.test.js	frontend-app	app-ui	js-test	3584	当前 React/Vite 前端包	frontend,app,src,adapters,fileAdapter,test,当前,React,Vite,前端包
+frontend-app/src/adapters/memoryAdapter.js	frontend-app	app-ui	js-source	2253	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,当前,React,Vite,前端包
+frontend-app/src/adapters/memoryAdapter.test.js	frontend-app	app-ui	js-test	2096	当前 React/Vite 前端包	frontend,app,src,adapters,memoryAdapter,test,当前,React,Vite,前端包
+frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	224	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端包
+frontend-app/src/adapters/observabilityAdapter.test.js	frontend-app	app-ui	js-test	2694	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,test,当前,React,Vite,前端包
 frontend-app/src/App.jsx	frontend-app	app-ui	jsx	59993	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
 frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	345304	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.js	frontend-app	app-ui	js-source	3647	当前 React/Vite 前端包	frontend,app,src,appShellModel,当前,React,Vite,前端包
@@ -261,7 +261,7 @@ frontend-app/src/pages/settings/SettingsPage.test.jsx	frontend-app	app-ui	jsx	39
 frontend-app/src/pages/shared/featureDtoGolden.test.js	frontend-app	app-ui	js-test	6409	React 页面与路由级 UI	frontend,app,src,pages,shared,featureDtoGolden,test,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.jsx	frontend-app	app-ui	jsx	1364	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.test.jsx	frontend-app	app-ui	jsx	1393	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,test,React,页面与路由级,UI
-frontend-app/src/pages/shared/pageShared.js	frontend-app	app-ui	js-source	10906	React 页面与路由级 UI	frontend,app,src,pages,shared,pageShared,React,页面与路由级,UI
+frontend-app/src/pages/shared/pageShared.js	frontend-app	app-ui	js-source	10959	React 页面与路由级 UI	frontend,app,src,pages,shared,pageShared,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageShared.test.js	frontend-app	app-ui	js-test	4801	React 页面与路由级 UI	frontend,app,src,pages,shared,pageShared,test,React,页面与路由级,UI
 frontend-app/src/pages/shared/sharedSurfaceBoundary.test.js	frontend-app	app-ui	js-test	7889	React 页面与路由级 UI	frontend,app,src,pages,shared,sharedSurfaceBoundary,test,React,页面与路由级,UI
 frontend-app/src/pages/skills/DatasourcePage.css	frontend-app	app-ui	css	5709	React 页面与路由级 UI	frontend,app,src,pages,skills,DatasourcePage,React,页面与路由级,UI
@@ -287,17 +287,17 @@ frontend-app/src/services/modules/memoryService.js	frontend-app	app-ui	js-source
 frontend-app/src/services/modules/memoryService.test.js	frontend-app	app-ui	js-test	1957	当前 React/Vite 前端包	frontend,app,src,services,modules,memoryService,test,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityPage.degradation.test.jsx	frontend-app	app-ui	jsx	2077	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityPage,degradation,test,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityService.js	frontend-app	app-ui	js-source	1209	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,当前,React,Vite,前端包
-frontend-app/src/services/modules/observabilityService.test.js	frontend-app	app-ui	js-test	2196	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,test,当前,React,Vite,前端包
+frontend-app/src/services/modules/observabilityService.test.js	frontend-app	app-ui	js-test	1997	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,test,当前,React,Vite,前端包
 frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	24743	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
 frontend-app/src/shared/api/approvalRequestId.js	frontend-app	app-ui	js-source	546	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,approvalRequestId,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-source	24612	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.contractMatrix.test.js	frontend-app	app-ui	js-test	7735	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	96025	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.surface.test.js	frontend-app	app-ui	js-test	6576	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,surface,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	89028	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	89105	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	14193	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	3323	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendSchemas.js	frontend-app	app-ui	js-source	3710	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendSchemas,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendSchemas.js	frontend-app	app-ui	js-source	17516	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendSchemas,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/bridgeSafeLogFields.js	frontend-app	app-ui	js-source	1100	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,bridgeSafeLogFields,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWire.js	frontend-app	app-ui	js-source	1026	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWire,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWire.test.js	frontend-app	app-ui	js-test	1991	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWire,test,React,前端,API,facade,与,Wails,bridge

@@ -71,7 +71,7 @@ function guardedBackendResponse(method) {
     const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
 
-    await expect(api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 })).resolves.toEqual(response);
+    await expect(api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 })).resolves.toMatchObject({ source: 'memory', events: [expect.objectContaining({ traceId: 'trace-1' })] });
     await api.getObservabilityThreadRecent({ thread_id: 'thread-1', limit: 7 });
     await api.listObservabilityRecent({ limit: 20, status: 'error', component: 'frontend', keyword: 'thread/start', includeTail: false });
     await api.listObservabilitySlow({ component: 'rpc' });

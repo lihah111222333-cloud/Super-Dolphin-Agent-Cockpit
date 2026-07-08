@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { MEMORY_TYPE_INFO, memoryHealth, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeSimilarityGroups } from '../../adapters/memoryAdapter.js';
+import { memoryHealth, normalizeMemorySnapshot, normalizeSimilarityGroups } from '../../adapters/memoryAdapter.js';
+import { MEMORY_TYPE_INFO, normalizeMemoryEntry, normalizeMemorySection } from '../../shared/api/backendSchemas.js';
 import { memoryPageService } from '../memory/services/memoryPageService.js';
 
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
@@ -11,9 +12,7 @@ async function withTimeout(promise, timeoutMs, message) {
   const timeout = new Promise((_, reject) => {
     timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutID) globalThis.clearTimeout(timeoutID);
-  });
+  return Promise.race([promise, timeout]).finally(() => (timeoutID ? globalThis.clearTimeout(timeoutID) : undefined));
 }
 
 const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({

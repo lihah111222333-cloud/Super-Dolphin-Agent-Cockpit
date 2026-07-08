@@ -28,67 +28,8 @@ function adaptSharedFile(raw, index = 0, fallback = {}) {
   };
 }
 
-function adaptFinalOutputRefs(value) {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error('shared files dashboard finalOutputRefs must be an array');
-  return value.map((item, index) => {
-    if (typeof item === 'string') {
-      const path = textValue(item);
-      if (!path) throw new Error(`final output ref ${index} path is required`);
-      return { path, runKey: '', dagKey: '', sourceNodeKey: '' };
-    }
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error(`final output ref ${index} must be an object`);
-    }
-    const path = firstText(item.path, item.sharedfile?.path, item.sharedFile?.path, item.shared_file?.path);
-    if (!path) throw new Error(`final output ref ${index} path is required`);
-    return {
-      path,
-      runKey: firstText(item.runKey, item.run_key),
-      dagKey: firstText(item.dagKey, item.dag_key),
-      sourceNodeKey: firstText(item.sourceNodeKey, item.source_node_key),
-    };
-  });
-}
-
-function adaptSharedFileRetention(value) {
-  if (value === undefined) {
-    return { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('shared files dashboard sharedFileRetention must be an object');
-  }
-  if (!Array.isArray(value.items)) {
-    throw new Error('shared files dashboard sharedFileRetention.items must be an array');
-  }
-  return {
-    items: value.items.map((item, index) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        throw new Error(`shared file retention item ${index} must be an object`);
-      }
-      const path = textValue(item.path);
-      if (!path) throw new Error(`shared file retention item ${index} path is required`);
-      return {
-        path,
-        protected: Boolean(item.protected),
-        cleanupCandidate: Boolean(item.cleanupCandidate),
-        reason: textValue(item.reason),
-        finalOutput: item.finalOutput || item.final_output || null,
-      };
-    }),
-    protectedCount: Number(value.protectedCount) || 0,
-    cleanupCandidateCount: Number(value.cleanupCandidateCount) || 0,
-  };
-}
-
 function adaptSharedFilesDashboard(response) {
-  const value = parseSharedFilesDashboardResponse(response);
-  const rawFiles = Array.isArray(value.files) ? value.files : value.memory;
-  return {
-    files: rawFiles.map((item, index) => adaptSharedFile(item, index)),
-    finalOutputRefs: adaptFinalOutputRefs(value.finalOutputRefs),
-    retention: adaptSharedFileRetention(value.sharedFileRetention),
-  };
+  return parseSharedFilesDashboardResponse(response);
 }
 
 function detailResponseFile(response) {
@@ -116,4 +57,4 @@ function adaptSharedFileDetail(response, fallbackFile = {}) {
   };
 }
 
-export { adaptFinalOutputRefs, adaptSharedFile, adaptSharedFileDetail, adaptSharedFileRetention, adaptSharedFilesDashboard };
+export { adaptSharedFile, adaptSharedFileDetail, adaptSharedFilesDashboard };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { adaptObservabilityResult } from './observabilityAdapter.js';
+import { parseObservabilityResultResponse } from '../shared/api/backendSchemas.js';
 
 describe('observabilityAdapter', () => {
   it('preserves tail degradation diagnostics during normalization', () => {
@@ -21,43 +22,44 @@ describe('observabilityAdapter', () => {
     });
   });
 
-  it('marks missing events as degraded instead of normalizing them to an empty ok result', () => {
-    const result = adaptObservabilityResult({
-      source: 'memory',
+  it('rejects observability responses with non-array events at the schema boundary', () => {
+    expect(() => parseObservabilityResultResponse({ events: null }))
+      .toThrow('observability response events must be an array');
+  });
+
+  it('normalizes observability event aliases at the schema boundary', () => {
+    const result = parseObservabilityResultResponse({
+      source: 'tail',
+      total_duration_ms: 12,
+      events: [{
+        trace_id: 'trace-1',
+        span_id: 'span-1',
+        duration_ms: 12,
+        status: 'ok',
+      }],
     });
 
     expect(result).toMatchObject({
-      degraded: true,
-      parseError: expect.stringContaining('events must be an array'),
-      events: [
-        expect.objectContaining({
-          method: 'observability.events.invalid',
-          status: 'error',
-        }),
-      ],
+      source: 'tail',
+      totalDurationMs: 12,
+    });
+    expect(result.events[0]).toMatchObject({
+      traceId: 'trace-1',
+      spanId: 'span-1',
+      durationMs: 12,
+      status: 'ok',
     });
   });
 
-  it('keeps malformed observability result bodies visible as degraded parse failures', () => {
-    const result = adaptObservabilityResult({
+  it('rejects malformed observability result bodies instead of fabricating degraded events', () => {
+    expect(() => adaptObservabilityResult({
       source: 'memory',
       tail: 10,
-    });
-
-    expect(result).toMatchObject({
-      degraded: true,
-      parseError: expect.stringContaining('events must be an array'),
-      events: [
-        expect.objectContaining({
-          method: 'observability.events.invalid',
-          status: 'error',
-        }),
-      ],
-    });
+    })).toThrow('observability response events must be an array');
   });
 
-  it('keeps malformed events visible as parse failures', () => {
-    const result = adaptObservabilityResult({
+  it('rejects malformed events instead of fabricating parse failure events', () => {
+    expect(() => adaptObservabilityResult({
       source: 'memory',
       events: [
         null,
@@ -67,16 +69,21 @@ describe('observabilityAdapter', () => {
           method: 'thread/start',
         },
       ],
+    })).toThrow('observability response event[0] must be an object');
+  });
+
+  it('normalizes missing event status to unknown without defaulting to ok', () => {
+    const result = adaptObservabilityResult({
+      source: 'memory',
+      events: [{
+        ts: '2026-06-02T09:01:22.459Z',
+        traceId: 'trace-ok',
+        method: 'thread/start',
+      }],
     });
 
     expect(result).toMatchObject({
-      degraded: true,
-      parseError: expect.stringContaining('event[0] must be an object'),
       events: [
-        expect.objectContaining({
-          method: 'observability.event.parse_failed',
-          status: 'error',
-        }),
         expect.objectContaining({
           traceId: 'trace-ok',
           method: 'thread/start',
