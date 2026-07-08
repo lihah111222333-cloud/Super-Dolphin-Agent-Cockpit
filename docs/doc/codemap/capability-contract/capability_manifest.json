@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 147,
-    "total_interface_methods": 303,
+    "total_interfaces": 149,
+    "total_interface_methods": 305,
     "total_exported": 1215,
-    "total_unexported": 2797,
+    "total_unexported": 2799,
     "total_structs": 575
   },
   "packages": [
@@ -20895,7 +20895,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -20934,7 +20934,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGCreateRuntime"
             }
           ],
           "returns": [
@@ -20947,7 +20947,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGDeleteRuntime"
             }
           ],
           "returns": [
@@ -20973,7 +20973,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "taskNodeDispatcher"
             }
           ],
           "returns": [
@@ -21012,7 +21012,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21025,7 +21025,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21077,7 +21077,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21103,7 +21103,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21228,7 +21228,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21254,7 +21254,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "contract.DAGRuntime"
             }
           ],
           "returns": [
@@ -21267,7 +21267,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "taskNodeStatusUpdater"
             }
           ],
           "returns": [
@@ -27756,6 +27756,52 @@
               ],
               "returns": [
                 "string",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "taskNodeDispatcher",
+          "exported": false,
+          "methods": [
+            {
+              "name": "DispatchNode",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.DispatchNodeRequest"
+                }
+              ],
+              "returns": [
+                "contract.DispatchNodeResponse",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "taskNodeStatusUpdater",
+          "exported": false,
+          "methods": [
+            {
+              "name": "UpdateNodeStatus",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.UpdateNodeStatusRequest"
+                }
+              ],
+              "returns": [
+                "contract.DAGNode",
                 "error"
               ]
             }
