@@ -94,9 +94,15 @@ type recentRunSnapshot struct {
 	Status string
 }
 
+type dagPromptIdentityDiagnosticsPort interface {
+	GetDAG(ctx context.Context, dagKey string) (contract.DAGDetail, error)
+	ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)
+	ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error)
+}
+
 // HandleDiagnoseDAGPromptIdentityGaps 返回只读存量 DAG prompt 身份诊断 handler。
 // 它只调用 DAG/runs 读取接口；发现问题后要求显式 task_dag_apply_ops 重绑或重建。
-func HandleDiagnoseDAGPromptIdentityGaps(svc contract.OrchestrationService) ToolHandler {
+func HandleDiagnoseDAGPromptIdentityGaps(svc dagPromptIdentityDiagnosticsPort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DiagnoseDAGPromptIdentityGapsInput) (DAGPromptIdentityDiagnosticsOutput, error) {
 		return diagnoseDAGPromptIdentityGaps(ctx, svc, in)
 	})
@@ -106,7 +112,7 @@ func HandleDiagnoseDAGPromptIdentityGaps(svc contract.OrchestrationService) Tool
 // 诊断是只读的；任何读取或解析失败都会直接返回错误，避免产出半可信结果。
 func diagnoseDAGPromptIdentityGaps(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc dagPromptIdentityDiagnosticsPort,
 	in DiagnoseDAGPromptIdentityGapsInput,
 ) (DAGPromptIdentityDiagnosticsOutput, error) {
 	scan, err := loadDAGDetailsForPromptIdentityDiagnosis(ctx, svc, in)
@@ -127,7 +133,7 @@ func diagnoseDAGPromptIdentityGaps(
 // dag_key 模式只读取单个 DAG；列表模式才使用 limit，并在返回数量达到 limit 时标记扫描可能被截断。
 func loadDAGDetailsForPromptIdentityDiagnosis(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc dagPromptIdentityDiagnosticsPort,
 	in DiagnoseDAGPromptIdentityGapsInput,
 ) (dagPromptIdentityDiagnosisScan, error) {
 	dagKey, err := resolveOptionalDAGKeyInput(in.DagKey, in.Pos)
@@ -169,7 +175,7 @@ func loadDAGDetailsForPromptIdentityDiagnosis(
 // 这里遇到空 dag_key 或读取失败会直接报错，避免诊断结果悄悄遗漏坏记录。
 func loadDAGDetailsBySummary(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc dagPromptIdentityDiagnosticsPort,
 	dags []contract.DAGSummary,
 ) ([]contract.DAGDetail, error) {
 	details := make([]contract.DAGDetail, 0, len(dags))
@@ -320,7 +326,7 @@ func newPromptIdentityGap(node contract.DAGNode, missing []string) DAGPromptIden
 // 同一 DAG 会走本地缓存，避免列表诊断时重复查询 run 表。
 func enrichPromptIdentityGapsWithRecentRuns(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc dagPromptIdentityDiagnosticsPort,
 	gaps []DAGPromptIdentityGap,
 ) error {
 	cache := make(map[string]recentRunSnapshot)
@@ -339,7 +345,7 @@ func enrichPromptIdentityGapsWithRecentRuns(
 // 没有运行记录不是错误，返回空快照让诊断结果继续展示。
 func recentRunForDAG(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc dagPromptIdentityDiagnosticsPort,
 	dagKey string,
 	cache map[string]recentRunSnapshot,
 ) (recentRunSnapshot, error) {

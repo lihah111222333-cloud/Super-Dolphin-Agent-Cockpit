@@ -76,9 +76,19 @@ type workflowDiagnosticsQuery struct {
 	limit         int
 }
 
+type workflowDiagnosticsPort interface {
+	ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)
+	ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error)
+	GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error)
+}
+
+type workflowRecoveryPort interface {
+	TerminateDAG(ctx context.Context, req contract.TerminateDAGRequest) error
+}
+
 // HandleWorkflowDiagnostics 读取运行快照并生成工作台诊断信息。
 // 它只派生展示状态，不修改持久化的 run/node 状态。
-func HandleWorkflowDiagnostics(svc contract.OrchestrationService) ToolHandler {
+func HandleWorkflowDiagnostics(svc workflowDiagnosticsPort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in WorkflowDiagnosticsInput) (any, error) {
 		query, err := workflowDiagnosticsQueryFromInput(in)
 		if err != nil {
@@ -90,7 +100,7 @@ func HandleWorkflowDiagnostics(svc contract.OrchestrationService) ToolHandler {
 
 // HandleWorkflowRecoveryAction 执行工作台允许的恢复动作。
 // 未落地的 retry 合约必须 fail-fast，避免静默重写运行时状态。
-func HandleWorkflowRecoveryAction(svc contract.OrchestrationService) ToolHandler {
+func HandleWorkflowRecoveryAction(svc workflowRecoveryPort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in WorkflowRecoveryActionInput) (any, error) {
 		action, err := requireEnum(in.Action, "action", recoveryActionEnum)
 		if err != nil {
@@ -206,7 +216,7 @@ func normalizeWorkflowDiagnosticsLimit(limit int) int {
 
 // workflowDiagnostics 根据定位条件读取候选 run，并返回命中的紧凑结果。
 // run_key 走精确读取；否则按 dag 或近期 DAG 列表做有上限扫描。
-func workflowDiagnostics(ctx context.Context, svc contract.OrchestrationService, query workflowDiagnosticsQuery) (WorkflowDiagnosticsOutput, error) {
+func workflowDiagnostics(ctx context.Context, svc workflowDiagnosticsPort, query workflowDiagnosticsQuery) (WorkflowDiagnosticsOutput, error) {
 	var runs []contract.GetRunResponse
 	var err error
 	if query.runKey != "" {
@@ -221,7 +231,7 @@ func workflowDiagnostics(ctx context.Context, svc contract.OrchestrationService,
 }
 
 // workflowDiagnosticsByRunKey 走精确 run 读取路径。
-func workflowDiagnosticsByRunKey(ctx context.Context, svc contract.OrchestrationService, runKey string) ([]contract.GetRunResponse, error) {
+func workflowDiagnosticsByRunKey(ctx context.Context, svc workflowDiagnosticsPort, runKey string) ([]contract.GetRunResponse, error) {
 	resp, err := svc.GetRun(ctx, contract.GetRunRequest{RunKey: runKey})
 	if err != nil {
 		return nil, err
@@ -233,7 +243,7 @@ func workflowDiagnosticsByRunKey(ctx context.Context, svc contract.Orchestration
 // 每个候选 run 都会再读取完整快照，确保节点诊断字段来自同一服务层响应。
 func workflowDiagnosticsByScan(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc workflowDiagnosticsPort,
 	query workflowDiagnosticsQuery,
 ) ([]contract.GetRunResponse, error) {
 	dagKeys, err := workflowDiagnosticDAGKeys(ctx, svc, query)
@@ -264,7 +274,7 @@ func workflowDiagnosticsByScan(
 // 指定 dag_key 时不再列表扫描，避免额外扩大诊断范围。
 func workflowDiagnosticDAGKeys(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc workflowDiagnosticsPort,
 	query workflowDiagnosticsQuery,
 ) ([]string, error) {
 	if query.dagKey != "" {
@@ -658,7 +668,7 @@ func firstNonEmpty(values ...string) string {
 // 错误沿用 task 生命周期翻译逻辑，保持聊天层提示一致。
 func runCancelWithCleanup(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	svc workflowRecoveryPort,
 	in WorkflowRecoveryActionInput,
 ) (WorkflowRecoveryActionOutput, error) {
 	req, err := terminateDAGRequestFromInput(TerminateDAGInput{

@@ -368,13 +368,13 @@ cmd/mcp-orch/tools/shared_file_tools.go	cmd	orchestration	go-source	5207	mcp-orc
 cmd/mcp-orch/tools/task_apply_ops.go	cmd	orchestration	go-source	11888	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,apply,ops,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_create_dag_launch_validation_test.go	cmd	orchestration	go-test	16487	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,create,dag,launch,validation,test,mcp-orch,MCP,tool,schema,registry,与
 cmd/mcp-orch/tools/task_diagnostics_test.go	cmd	orchestration	go-test	4073	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,diagnostics,test,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/task_diagnostics.go	cmd	orchestration	go-source	14886	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,diagnostics,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/task_diagnostics.go	cmd	orchestration	go-source	15219	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,diagnostics,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_e2e_diagnostics_stateful_test.go	cmd	orchestration	go-test	8079	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,e2e,diagnostics,stateful,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_e2e_diagnostics_test.go	cmd	orchestration	go-test	19266	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,e2e,diagnostics,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_lifecycle_helpers.go	cmd	orchestration	go-source	3354	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,lifecycle,helpers,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_runtime_inputs.go	cmd	orchestration	go-source	2044	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,runtime,inputs,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_schemas.go	cmd	orchestration	go-source	28450	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,schemas,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/task_tool_definitions.go	cmd	orchestration	go-source	13172	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,definitions,mcp-orch,MCP,schema,registry,与,handler
+cmd/mcp-orch/tools/task_tool_definitions.go	cmd	orchestration	go-source	13157	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,definitions,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/task_tool_descriptions_test.go	cmd	orchestration	go-test	1043	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,descriptions,test,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/task_tool_legacy_guidance_test.go	cmd	orchestration	go-test	370	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,legacy,guidance,test,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/task_tools.go	cmd	orchestration	go-source	20610	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,mcp-orch,MCP,tool,schema,registry,与,handler
@@ -387,7 +387,7 @@ cmd/mcp-orch/tools/video_tools_test.go	cmd	orchestration	go-test	1970	mcp-orch M
 cmd/mcp-orch/tools/video_tools.go	cmd	orchestration	go-source	5636	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,video,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/video_with_audio_tools_test.go	cmd	orchestration	go-test	425	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,video,with,audio,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/video_with_audio_tools.go	cmd	orchestration	go-source	12488	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,video,with,audio,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/workflow_workbench.go	cmd	orchestration	go-source	23694	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workflow,workbench,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/workflow_workbench.go	cmd	orchestration	go-source	24086	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workflow,workbench,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/workspace_tool_compat.go	cmd	orchestration	go-source	5414	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workspace,tool,compat,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/workspace_tools_compat_test.go	cmd	orchestration	go-test	3246	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workspace,compat,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/workspace_tools.go	cmd	orchestration	go-source	13848	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workspace,mcp-orch,MCP,tool,schema,registry,与,handler
