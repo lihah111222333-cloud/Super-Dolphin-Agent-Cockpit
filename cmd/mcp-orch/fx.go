@@ -182,7 +182,18 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 	options := []fx.Option{
 		fx.Module("orchestration",
 			fx.Provide(
-				orchestration.ProvideService,
+				fx.Annotate(
+					orchestration.ProvideService,
+					fx.As(fx.Self()),
+					fx.As(new(contract.AgentLifecyclePort)),
+					fx.As(new(contract.AgentReportPort)),
+					fx.As(new(contract.TurnSubmissionPort)),
+					fx.As(new(contract.DAGCreateRuntime)),
+					fx.As(new(contract.DAGRuntime)),
+					fx.As(new(contract.DAGDeleteRuntime)),
+					fx.As(new(contract.DAGNodeStatusRuntime)),
+					fx.As(new(contract.DAGNodeDispatchRuntime)),
+				),
 				orchestration.ProvideServiceInterface,
 				orchestration.ProvideScheduledDAGStartService,
 				orchestration.ProvideHookAfterHandler,
