@@ -344,7 +344,8 @@ warn_generated_artifact_drift() {
     return 0
   fi
 
-  echo "⚠️  [pre-push] ${label} reported generated artifact drift; push will continue" >&2
+  echo "⚠️  [pre-push] ${label} reported generated artifact drift; this gate is soft and will not block push" >&2
+  echo "  如果 push 随后失败，请查看本 warning 之后的第一条 ❌ 或失败命令；那才是阻断原因。" >&2
   echo "  提交前请用对应 refresh 命令更新生成物，或确认 pre-commit 已在提交中刷新。" >&2
   return 0
 }

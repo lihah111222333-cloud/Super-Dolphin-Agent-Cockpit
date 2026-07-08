@@ -164,7 +164,8 @@ func TestPrePushWarnsButAllowsGeneratedArtifactDrift(t *testing.T) {
 	assertOutputContainsAll(t, out,
 		"[pre-push] codemap check",
 		"[pre-push] project map check",
-		"generated artifact drift; push will continue",
+		"generated artifact drift; this gate is soft and will not block push",
+		"如果 push 随后失败，请查看本 warning 之后的第一条",
 		"pre-push OK",
 	)
 	log := fixture.log(t)
