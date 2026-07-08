@@ -1,0 +1,57 @@
+name: AI Maintenance Gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: "1"
+
+jobs:
+  ai-maintenance-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-app/package-lock.json
+
+      - name: Install Linux WebView dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install mcp-lsp test dependencies
+        run: |
+          go install golang.org/x/tools/gopls@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          rustup component add rust-analyzer
+
+      - name: Install frontend dependencies
+        working-directory: frontend-app
+        run: npm ci
+
+      - name: Run AI maintenance gates
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/ai_maintenance_gates.sh --base "${{ github.event.pull_request.base.sha }}"
+          else
+            ./scripts/ai_maintenance_gates.sh
+          fi
