@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 143,
-    "total_interface_methods": 297,
+    "total_interfaces": 144,
+    "total_interface_methods": 299,
     "total_exported": 1215,
-    "total_unexported": 2793,
+    "total_unexported": 2794,
     "total_structs": 575
   },
   "packages": [
@@ -20985,8 +20985,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             }
           ],
           "returns": [
@@ -20998,8 +20998,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             }
           ],
           "returns": [
@@ -24623,8 +24623,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "agentID",
@@ -24653,8 +24653,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "req",
@@ -24992,8 +24992,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "req",
@@ -26950,8 +26950,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "req",
@@ -26971,8 +26971,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "contract.OrchestrationService"
+              "name": "reports",
+              "type": "agentReportPort"
             },
             {
               "name": "in",
@@ -27588,6 +27588,46 @@
               ],
               "returns": [
                 "contract.AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "agentReportPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetReport",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.AgentReportResult",
+                "error"
+              ]
+            },
+            {
+              "name": "RememberReportRequest",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.RememberReportRequest"
+                }
+              ],
+              "returns": [
+                "contract.RememberReportRequestResult",
                 "error"
               ]
             }

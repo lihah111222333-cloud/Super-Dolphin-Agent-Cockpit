@@ -66,31 +66,36 @@ type agentReportItem struct {
 	Error     string    `json:"error"`
 }
 
+type agentReportPort interface {
+	GetReport(ctx context.Context, agentID string) (contract.AgentReportResult, error)
+	RememberReportRequest(ctx context.Context, req contract.RememberReportRequest) (contract.RememberReportRequestResult, error)
+}
+
 // HandleGetAgentReport 读取单 agent 报告；wait=true 时进入 after_seq 感知的轮询路径。
-func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetAgentReportInput) (any, error) {
+func HandleGetAgentReport(reports agentReportPort) ToolHandler {
+	return makeHandler(reports, "agent report port", func(ctx context.Context, in GetAgentReportInput) (any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {
 			return nil, err
 		}
 		if !agentReportShouldWait(in) {
-			return svc.GetReport(ctx, agentID)
+			return reports.GetReport(ctx, agentID)
 		}
-		return waitForAgentReport(ctx, svc, in, agentID)
+		return waitForAgentReport(ctx, reports, in, agentID)
 	})
 }
 
 // HandleGetAgentReports 批量读取或等待多个代理报告，只支持 all wait 语义。
-func HandleGetAgentReports(svc contract.OrchestrationService) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, in getAgentReportsInput) (any, error) {
+func HandleGetAgentReports(reports agentReportPort) ToolHandler {
+	return makeHandler(reports, "agent report port", func(ctx context.Context, in getAgentReportsInput) (any, error) {
 		req, err := validateAgentReportsInput(in)
 		if err != nil {
 			return nil, err
 		}
 		if !req.wait {
-			return readAgentReportsSnapshot(ctx, svc, req), nil
+			return readAgentReportsSnapshot(ctx, reports, req), nil
 		}
-		return waitForAgentReports(ctx, svc, req), nil
+		return waitForAgentReports(ctx, reports, req), nil
 	})
 }
 
@@ -139,11 +144,11 @@ func validateAgentReportsInput(in getAgentReportsInput) (agentReportsRequest, er
 }
 
 // readAgentReportsSnapshot 读取批量报告即时快照，不等待 pending agent 完成。
-func readAgentReportsSnapshot(ctx context.Context, svc contract.OrchestrationService, req agentReportsRequest) agentReportsResult {
+func readAgentReportsSnapshot(ctx context.Context, reports agentReportPort, req agentReportsRequest) agentReportsResult {
 	items := make([]agentReportItem, len(req.agentIDs))
 	completed := 0
 	for i, agentID := range req.agentIDs {
-		report, err := svc.GetReport(ctx, agentID)
+		report, err := reports.GetReport(ctx, agentID)
 		items[i] = agentReportItemFromResult(agentID, report, err)
 		if items[i].OK {
 			completed++
@@ -153,7 +158,7 @@ func readAgentReportsSnapshot(ctx context.Context, svc contract.OrchestrationSer
 }
 
 // waitForAgentReports 用一个共享 timeout 轮询所有 pending agent，避免逐个 wait 放大总耗时。
-func waitForAgentReports(ctx context.Context, svc contract.OrchestrationService, req agentReportsRequest) agentReportsResult {
+func waitForAgentReports(ctx context.Context, reports agentReportPort, req agentReportsRequest) agentReportsResult {
 	waitCtx, cancel := platformconfig.WithTimeout(ctx, req.timeout)
 	defer cancel()
 	ticker := time.NewTicker(agentReportPollInterval)
@@ -167,7 +172,7 @@ func waitForAgentReports(ctx context.Context, svc contract.OrchestrationService,
 	completed := 0
 	for len(pending) > 0 {
 		for i := range pending {
-			completedNow, done, timedOut := pollPendingAgentReport(waitCtx, svc, req, i, items, latest)
+			completedNow, done, timedOut := pollPendingAgentReport(waitCtx, reports, req, i, items, latest)
 			if timedOut {
 				return finishTimedOutAgentReports(req, items, latest, pending, completed)
 			}
@@ -194,14 +199,14 @@ func waitForAgentReports(ctx context.Context, svc contract.OrchestrationService,
 // pollPendingAgentReport 读取一个 pending agent，并把“旧终态无新 report”作为 item 错误收口。
 func pollPendingAgentReport(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	reports agentReportPort,
 	req agentReportsRequest,
 	i int,
 	items []agentReportItem,
 	latest []contract.AgentReportResult,
 ) (completed bool, done bool, timedOut bool) {
 	agentID := req.agentIDs[i]
-	report, err := svc.GetReport(ctx, agentID)
+	report, err := reports.GetReport(ctx, agentID)
 	latest[i] = report
 	if err != nil {
 		if ctx.Err() != nil {
@@ -298,19 +303,19 @@ func finishAgentReportsResult(items []agentReportItem, completed, pending int, t
 
 // waitForAgentReport 注册可选 requester 后轮询单 agent 报告。
 // requester 只用于服务端唤醒/关联，等待判定仍由 after_report_seq 和报告内容决定。
-func waitForAgentReport(ctx context.Context, svc contract.OrchestrationService, in GetAgentReportInput, agentID string) (any, error) {
+func waitForAgentReport(ctx context.Context, reports agentReportPort, in GetAgentReportInput, agentID string) (any, error) {
 	timeout, requesterID, err := validateAgentReportWait(ctx, in, agentID)
 	if err != nil {
 		return nil, err
 	}
 	if requesterID != "" {
-		if _, err := svc.RememberReportRequest(ctx, contract.RememberReportRequest{AgentID: agentID, RequesterID: requesterID}); err != nil {
+		if _, err := reports.RememberReportRequest(ctx, contract.RememberReportRequest{AgentID: agentID, RequesterID: requesterID}); err != nil {
 			if !agentReportWaitableError(err) {
 				return nil, err
 			}
 		}
 	}
-	return pollAgentReport(ctx, svc, agentID, timeout, in.AfterReportSeq)
+	return pollAgentReport(ctx, reports, agentID, timeout, in.AfterReportSeq)
 }
 
 // validateAgentReportWait 校验等待参数，after_report_seq 只允许等待更大的持久化版本。
@@ -347,7 +352,7 @@ func reportWaitRequester(ctx context.Context, requesterID string) string {
 // pollAgentReport 按固定间隔读取报告，直到出现新报告、终态无新报告或超时。
 func pollAgentReport(
 	ctx context.Context,
-	svc contract.OrchestrationService,
+	reports agentReportPort,
 	agentID string,
 	timeout time.Duration,
 	afterReportSeq *int64,
@@ -357,7 +362,7 @@ func pollAgentReport(
 	ticker := time.NewTicker(agentReportPollInterval)
 	defer ticker.Stop()
 	for {
-		result, err := svc.GetReport(waitCtx, agentID)
+		result, err := reports.GetReport(waitCtx, agentID)
 		if completed, ok := completedAgentReport(result, afterReportSeq); ok && (err == nil || agentReportWaitableError(err)) {
 			return completed, nil
 		}
