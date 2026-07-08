@@ -114,21 +114,52 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	failIfViolations(t, violations)
 }
 
-func TestDashboardPromptStoreUsesOwnerLocalInterface(t *testing.T) {
+func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
 	const relPath = "internal/module/dashboard/module.go"
 	var violations []string
-	if actual, ok := structFieldType(t, root, relPath, "serviceParams", "Prompts"); !ok {
-		violations = append(violations, relPath+": serviceParams.Prompts not found")
-	} else if actual != "PromptTemplateReader" {
-		violations = append(violations, fmt.Sprintf("%s: serviceParams.Prompts must depend on dashboard PromptTemplateReader, got %s; keep promptstore.Reader behind adaptPromptTemplateReader", relPath, actual))
+
+	fieldChecks := []struct {
+		field string
+		want  string
+	}{
+		{field: "DBQueries", want: "DBQueryExecutor"},
+		{field: "CommandCards", want: "CommandCardReader"},
+		{field: "Prompts", want: "PromptTemplateReader"},
+		{field: "SharedFiles", want: "SharedFileReader"},
 	}
-	if actual, ok := functionParamType(t, root, relPath, "adaptPromptTemplateReader", "reader"); !ok {
-		violations = append(violations, relPath+": adaptPromptTemplateReader.reader not found")
-	} else if actual != "promptstore.Reader" {
-		violations = append(violations, fmt.Sprintf("%s: adaptPromptTemplateReader.reader must be the only promptstore.Reader adapter input, got %s", relPath, actual))
+	for _, check := range fieldChecks {
+		actual, ok := structFieldType(t, root, relPath, "serviceParams", check.field)
+		if !ok {
+			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s not found", relPath, check.field))
+			continue
+		}
+		if actual != check.want {
+			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s must depend on dashboard %s, got %s; keep store readers behind dashboard adapters", relPath, check.field, check.want, actual))
+		}
+	}
+
+	adapterChecks := []struct {
+		funcName  string
+		paramName string
+		want      string
+	}{
+		{funcName: "adaptDBQueryExecutor", paramName: "store", want: "dbquerystore.Store"},
+		{funcName: "adaptCommandCardReader", paramName: "reader", want: "commandcardstore.Reader"},
+		{funcName: "adaptPromptTemplateReader", paramName: "reader", want: "promptstore.Reader"},
+		{funcName: "adaptSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
+	}
+	for _, check := range adapterChecks {
+		actual, ok := functionParamType(t, root, relPath, check.funcName, check.paramName)
+		if !ok {
+			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", relPath, check.funcName, check.paramName))
+			continue
+		}
+		if actual != check.want {
+			violations = append(violations, fmt.Sprintf("%s: %s.%s must be the only %s adapter input, got %s", relPath, check.funcName, check.paramName, check.want, actual))
+		}
 	}
 	failIfViolations(t, violations)
 }
