@@ -45,19 +45,20 @@ var Module = fx.Module("mcpcontrol",
 // HandlerDeps 汇总 MCP 控制面 RPC handler 的依赖，测试可以替换各个 sink/handler。
 type HandlerDeps struct {
 	Registry          *ToolRegistry
-	Approvals         *rpc.ApprovalManager          `optional:"true"`
-	Bridge            *rpc.PushBridge               `optional:"true"`
-	HookManager       contract.HookManager          `optional:"true"`
-	Logger            *pkglogger.Logger             `optional:"true"`
-	Dispatcher        *event.Dispatcher             `optional:"true"`
-	Orchestration     contract.OrchestrationService `optional:"true"`
-	AgentSource       AgentContextSource            `optional:"true"`
-	Context           ContextProvider               `optional:"true"`
-	Events            EventSink                     `optional:"true"`
-	Logs              LogSink                       `optional:"true"`
-	SystemLogs        SystemLogSink                 `optional:"true"`
-	RuntimeReports    RuntimeReportHandler          `optional:"true"`
-	CompletionReports CompletionReportHandler       `optional:"true"`
+	Approvals         *rpc.ApprovalManager    `optional:"true"`
+	Bridge            *rpc.PushBridge         `optional:"true"`
+	HookManager       contract.HookManager    `optional:"true"`
+	Logger            *pkglogger.Logger       `optional:"true"`
+	Dispatcher        *event.Dispatcher       `optional:"true"`
+	AgentSource       AgentContextSource      `optional:"true"`
+	RuntimeUpdates    RuntimeReportUpdater    `optional:"true"`
+	ReportEvents      ReportEventHandler      `optional:"true"`
+	Context           ContextProvider         `optional:"true"`
+	Events            EventSink               `optional:"true"`
+	Logs              LogSink                 `optional:"true"`
+	SystemLogs        SystemLogSink           `optional:"true"`
+	RuntimeReports    RuntimeReportHandler    `optional:"true"`
+	CompletionReports CompletionReportHandler `optional:"true"`
 }
 
 // handlerIn 是 fx 注入形态，对应 HandlerDeps 的运行时依赖集合。
@@ -65,19 +66,20 @@ type handlerIn struct {
 	fx.In
 
 	Registry          *ToolRegistry
-	Approvals         *rpc.ApprovalManager          `optional:"true"`
-	Bridge            *rpc.PushBridge               `optional:"true"`
-	HookManager       contract.HookManager          `optional:"true"`
-	Logger            *pkglogger.Logger             `optional:"true"`
-	Dispatcher        *event.Dispatcher             `optional:"true"`
-	Orchestration     contract.OrchestrationService `optional:"true"`
-	AgentSource       AgentContextSource            `optional:"true"`
-	Context           ContextProvider               `optional:"true"`
-	Events            EventSink                     `optional:"true"`
-	Logs              LogSink                       `optional:"true"`
-	SystemLogs        SystemLogSink                 `optional:"true"`
-	RuntimeReports    RuntimeReportHandler          `optional:"true"`
-	CompletionReports CompletionReportHandler       `optional:"true"`
+	Approvals         *rpc.ApprovalManager    `optional:"true"`
+	Bridge            *rpc.PushBridge         `optional:"true"`
+	HookManager       contract.HookManager    `optional:"true"`
+	Logger            *pkglogger.Logger       `optional:"true"`
+	Dispatcher        *event.Dispatcher       `optional:"true"`
+	AgentSource       AgentContextSource      `optional:"true"`
+	RuntimeUpdates    RuntimeReportUpdater    `optional:"true"`
+	ReportEvents      ReportEventHandler      `optional:"true"`
+	Context           ContextProvider         `optional:"true"`
+	Events            EventSink               `optional:"true"`
+	Logs              LogSink                 `optional:"true"`
+	SystemLogs        SystemLogSink           `optional:"true"`
+	RuntimeReports    RuntimeReportHandler    `optional:"true"`
+	CompletionReports CompletionReportHandler `optional:"true"`
 }
 
 // configFanoutWorkerIn 是配置广播 worker 的 fx 注入参数。
@@ -142,8 +144,9 @@ func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 		HookManager:       in.HookManager,
 		Logger:            in.Logger,
 		Dispatcher:        in.Dispatcher,
-		Orchestration:     in.Orchestration,
 		AgentSource:       in.AgentSource,
+		RuntimeUpdates:    in.RuntimeUpdates,
+		ReportEvents:      in.ReportEvents,
 		Context:           in.Context,
 		Events:            in.Events,
 		Logs:              in.Logs,

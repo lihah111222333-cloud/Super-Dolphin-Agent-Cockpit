@@ -3,6 +3,7 @@ package mcpcontrol
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"testing"
 
@@ -61,9 +62,7 @@ func newRegisteredLocalRegistry(t *testing.T, extra handler.Map, req dto.Registe
 			return registry.Register(ctx, req)
 		}),
 	}
-	for name, fn := range extra {
-		methods[name] = fn
-	}
+	maps.Copy(methods, extra)
 	local := jrpcserver.NewLocal(methods, &jrpcserver.LocalOptions{Server: &jrpc2.ServerOptions{AllowPush: true}})
 	t.Cleanup(func() {
 		local.Close()
