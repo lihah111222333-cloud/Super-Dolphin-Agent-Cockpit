@@ -1084,6 +1084,20 @@ describe('agentic e2e strict Wails mock', () => {
       });
       expect(scalarPath.error.message).toBe('ui/preferences/set sensitive preference value must not be recorded');
 
+      const secretReadOnlyMode = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.sandbox',
+        value: { type: 'readOnly', access: { readableRoots: [sandbox.projectDir] }, readOnlyMode: 'sk-live-secret' },
+      });
+      expect(secretReadOnlyMode.error.message).toBe('ui/preferences/set unsupported read-only mode');
+
+      const invalidPolicy = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.sandbox',
+        value: { type: 'sk-live-secret', access: { readableRoots: [sandbox.projectDir] } },
+      });
+      expect(invalidPolicy.error.message).toBe('ui/preferences/set unsupported sandbox policy');
+
       const state = await readAgenticE2EMockWailsState(page);
       expect(state.failures.map((failure) => failure.method)).toEqual([
         'ui/preferences/set',
@@ -1095,8 +1109,10 @@ describe('agentic e2e strict Wails mock', () => {
         'ui/preferences/set',
         'ui/preferences/set',
         'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
       ]);
-      expect(state.calls.filter((call) => call.method === 'ui/preferences/set').slice(-3)).toEqual([
+      expect(state.calls.filter((call) => call.method === 'ui/preferences/set').slice(-5)).toEqual([
         expect.objectContaining({
           params: expect.objectContaining({ keyType: 'unsupported', valueType: 'string' }),
         }),
@@ -1105,6 +1121,20 @@ describe('agentic e2e strict Wails mock', () => {
         }),
         expect.objectContaining({
           params: expect.objectContaining({ key: 'settings.provider.codex.model', valueType: 'string' }),
+        }),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            key: 'settings.provider.codex.sandbox',
+            sandboxPolicy: 'readOnly',
+            readOnlyMode: 'unsupported',
+          }),
+        }),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            key: 'settings.provider.codex.sandbox',
+            sandboxPolicy: 'unsupported',
+            readOnlyMode: '',
+          }),
         }),
       ]);
       const serializedState = JSON.stringify(state);

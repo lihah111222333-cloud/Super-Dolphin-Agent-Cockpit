@@ -33,6 +33,8 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     ]);
     const allowedPreferencePayloadFields = new Set(['cwd', 'key', 'value']);
     const allowedSandboxAccessFields = new Set(['readableRoots', 'writableRoots']);
+    const allowedSandboxPolicies = new Set(['workspaceWrite', 'readOnly', 'dangerFullAccess']);
+    const allowedReadOnlyModes = new Set(['', 'fullAccess', 'restricted']);
     window.__AGENTIC_E2E_MOCK_WAILS__ = state;
 
     class StrictMockWebSocket {
@@ -262,12 +264,22 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       ];
       return {
         valueType: 'object',
-        sandboxPolicy: String(value.type || ''),
+        sandboxPolicy: sanitizedSandboxPolicySummary(value.type),
         writableRoots: writableRoots.map(sandboxPathSummary),
         readableRoots: readableRoots.map(sandboxPathSummary),
         networkAccess: Boolean(value.networkAccess),
-        readOnlyMode: String(value.readOnlyMode || ''),
+        readOnlyMode: sanitizedReadOnlyModeSummary(value.readOnlyMode),
       };
+    }
+
+    function sanitizedSandboxPolicySummary(value) {
+      const text = String(value || '');
+      return allowedSandboxPolicies.has(text) ? text : 'unsupported';
+    }
+
+    function sanitizedReadOnlyModeSummary(value) {
+      const text = String(value || '');
+      return allowedReadOnlyModes.has(text) ? text : 'unsupported';
     }
 
     function sanitizedEvidenceValue(value) {
@@ -335,8 +347,12 @@ export async function installAgenticE2EMockWails(page, options = {}) {
         throw new Error(`${method} sandbox preference must be an object`);
       }
       const type = String(value.type || '');
-      if (!['workspaceWrite', 'readOnly', 'dangerFullAccess'].includes(type)) {
-        throw new Error(`${method} unsupported sandbox policy: ${type}`);
+      if (!allowedSandboxPolicies.has(type)) {
+        throw new Error(`${method} unsupported sandbox policy`);
+      }
+      const readOnlyMode = String(value.readOnlyMode || '');
+      if (!allowedReadOnlyModes.has(readOnlyMode)) {
+        throw new Error(`${method} unsupported read-only mode`);
       }
       const access = sandboxAccess(method, value.access);
       const writableRoots = [
@@ -354,7 +370,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
         writableRoots: writableRoots.map(() => 'sandbox'),
         readableRoots: readableRoots.map(() => 'sandbox'),
         networkAccess: Boolean(value.networkAccess),
-        readOnlyMode: String(value.readOnlyMode || ''),
+        readOnlyMode,
       };
     }
 
