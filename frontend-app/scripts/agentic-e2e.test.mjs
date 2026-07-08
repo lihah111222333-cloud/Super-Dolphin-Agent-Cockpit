@@ -911,7 +911,7 @@ describe('agentic e2e strict Wails mock', () => {
       const state = await readAgenticE2EMockWailsState(page);
       expect(state.sandboxViolations).toEqual([expect.objectContaining({
         method: 'ui/projects/add',
-        path: '/tmp/outside-project',
+        path: 'outside',
       })]);
       expect(() => assertAgenticE2EMockWailsClean(state)).toThrow(/outside sandbox/);
     }
@@ -938,8 +938,44 @@ describe('agentic e2e strict Wails mock', () => {
         key: 'settings.provider.codex.sandbox',
         value: { type: 'workspaceWrite', writableRoots: [sandbox.projectDir], networkAccess: false },
       })).resolves.toEqual(expect.objectContaining({ result: { ok: true } }));
+      await expect(callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.sandbox',
+        value: { type: 'readOnly', access: { readableRoots: [sandbox.projectDir] }, readOnlyMode: 'restricted' },
+      })).resolves.toEqual(expect.objectContaining({ result: { ok: true } }));
 
       const state = await readAgenticE2EMockWailsState(page);
+      const preferenceCalls = state.calls.filter((call) => call.method === 'ui/preferences/set');
+      expect(preferenceCalls).toEqual([
+        expect.objectContaining({
+          params: expect.objectContaining({
+            cwd: 'sandbox',
+            key: 'settings.provider.codex.codexHome',
+            valueType: 'path',
+            path: 'sandbox',
+          }),
+        }),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            cwd: 'sandbox',
+            key: 'settings.provider.codex.sandbox',
+            valueType: 'object',
+            sandboxPolicy: 'workspaceWrite',
+            writableRoots: ['sandbox'],
+            networkAccess: false,
+          }),
+        }),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            cwd: 'sandbox',
+            key: 'settings.provider.codex.sandbox',
+            valueType: 'object',
+            sandboxPolicy: 'readOnly',
+            readableRoots: ['sandbox'],
+            readOnlyMode: 'restricted',
+          }),
+        }),
+      ]);
       expect(state.settingsWrites).toEqual([
         expect.objectContaining({
           method: 'ui/preferences/set',
@@ -957,8 +993,18 @@ describe('agentic e2e strict Wails mock', () => {
           writableRoots: ['sandbox'],
           networkAccess: false,
         }),
+        expect.objectContaining({
+          method: 'ui/preferences/set',
+          key: 'settings.provider.codex.sandbox',
+          cwd: 'sandbox',
+          valueType: 'object',
+          sandboxPolicy: 'readOnly',
+          readableRoots: ['sandbox'],
+          readOnlyMode: 'restricted',
+        }),
       ]);
-      expect(JSON.stringify(state.settingsWrites)).not.toContain(sandbox.rootDir);
+      const serializedState = JSON.stringify(state);
+      expect(serializedState).not.toContain(sandbox.rootDir);
       expect(() => assertAgenticE2EMockWailsClean(state)).not.toThrow();
     }
     finally {
@@ -996,8 +1042,40 @@ describe('agentic e2e strict Wails mock', () => {
       });
       expect(unexpected.error.message).toMatch(/unsupported preference payload field/);
 
+      const nestedEscaped = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.sandbox',
+        value: { type: 'readOnly', access: { readableRoots: ['/home/l4place/shared'] } },
+      });
+      expect(nestedEscaped.error.message).toMatch(/outside sandbox/);
+
+      const traversal = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.codexHome',
+        value: `${sandbox.rootDir}/../outside/.codex`,
+      });
+      expect(traversal.error.message).toMatch(/outside sandbox/);
+
+      const unknownNested = await callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.sandbox',
+        value: { type: 'readOnly', access: { readableRoots: [sandbox.projectDir], secret: 'sk-live-secret' } },
+      });
+      expect(unknownNested.error.message).toMatch(/unsupported sandbox access field/);
+
       const state = await readAgenticE2EMockWailsState(page);
-      expect(state.failures.map((failure) => failure.method)).toEqual(['ui/preferences/set', 'ui/preferences/set', 'ui/preferences/set']);
+      expect(state.failures.map((failure) => failure.method)).toEqual([
+        'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
+        'ui/preferences/set',
+      ]);
+      const serializedState = JSON.stringify(state);
+      expect(serializedState).not.toContain(sandbox.rootDir);
+      expect(serializedState).not.toContain('/home/l4place');
+      expect(serializedState).not.toContain('sk-live-secret');
       expect(() => assertAgenticE2EMockWailsClean(state)).toThrow(/ui\/preferences\/set/);
     }
     finally {

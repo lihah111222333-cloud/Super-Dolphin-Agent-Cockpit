@@ -8,7 +8,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       failures: [],
       unhandledRPC: [],
       nonWailsSockets: [],
-      sandbox: sandboxConfig,
+      sandbox: sandboxSummary(),
       sandboxViolations: [],
       settingsWrites: [],
       eventNotifications: 0,
@@ -32,6 +32,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       'settings.provider.codex.codexInstanceKey',
     ]);
     const allowedPreferencePayloadFields = new Set(['cwd', 'key', 'value']);
+    const allowedSandboxAccessFields = new Set(['readableRoots', 'writableRoots']);
     window.__AGENTIC_E2E_MOCK_WAILS__ = state;
 
     class StrictMockWebSocket {
@@ -64,8 +65,14 @@ export async function installAgenticE2EMockWails(page, options = {}) {
 
       send(raw) {
         const request = JSON.parse(raw);
-        const call = { jsonrpc: request.jsonrpc, id: request.id, method: request.method, params: request.params || {} };
-        state.calls.push(call);
+        const params = request.params || {};
+        const call = { jsonrpc: request.jsonrpc, id: request.id, method: request.method, params };
+        state.calls.push({
+          jsonrpc: call.jsonrpc,
+          id: call.id,
+          method: call.method,
+          params: sanitizedCallParams(call.method, params),
+        });
         queueMicrotask(() => this.respond(call));
       }
 
@@ -206,6 +213,79 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       return { turn_id: 'turn-agentic-e2e' };
     }
 
+    function sanitizedCallParams(method, params = {}) {
+      if (method === 'ui/preferences/set') return sanitizedPreferenceCallParams(params);
+      return sanitizedEvidenceValue(params);
+    }
+
+    function sanitizedPreferenceCallParams(params = {}) {
+      const payload = params && typeof params === 'object' && !Array.isArray(params) ? params : {};
+      const key = String(payload.key || '');
+      const summary = {
+        cwd: sandboxPathSummary(payload.cwd),
+        key,
+        ...sanitizedPreferenceValueSummary(key, payload.value, Object.prototype.hasOwnProperty.call(payload, 'value')),
+      };
+      const unexpectedFields = Object.keys(payload).filter((field) => !allowedPreferencePayloadFields.has(field));
+      if (unexpectedFields.length > 0) summary.unexpectedFields = unexpectedFields;
+      return summary;
+    }
+
+    function sanitizedPreferenceValueSummary(key, value, hasValue) {
+      if (!hasValue) return { valueType: 'missing' };
+      if (key === 'settings.provider.codex.codexHome') {
+        return { valueType: 'path', path: sandboxPathSummary(value) };
+      }
+      if (key === 'settings.provider.codex.sandbox') return sandboxPreferenceSummary(value);
+      if (value === null) return { valueType: 'null' };
+      if (Array.isArray(value)) return { valueType: 'array' };
+      return { valueType: typeof value };
+    }
+
+    function sandboxPreferenceSummary(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return { valueType: Array.isArray(value) ? 'array' : typeof value };
+      }
+      const access = value.access && typeof value.access === 'object' && !Array.isArray(value.access) ? value.access : {};
+      const readableRoots = [
+        ...rootsFrom(value, 'readableRoots'),
+        ...rootsFrom(access, 'readableRoots'),
+      ];
+      const writableRoots = [
+        ...rootsFrom(value, 'writableRoots'),
+        ...rootsFrom(access, 'writableRoots'),
+      ];
+      return {
+        valueType: 'object',
+        sandboxPolicy: String(value.type || ''),
+        writableRoots: writableRoots.map(sandboxPathSummary),
+        readableRoots: readableRoots.map(sandboxPathSummary),
+        networkAccess: Boolean(value.networkAccess),
+        readOnlyMode: String(value.readOnlyMode || ''),
+      };
+    }
+
+    function sanitizedEvidenceValue(value) {
+      if (Array.isArray(value)) return value.map(sanitizedEvidenceValue);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([field, fieldValue]) => [field, sanitizedEvidenceValue(fieldValue)]));
+      }
+      if (typeof value === 'string') {
+        if (/sk-[a-z0-9_-]{8,}/iu.test(value)) return 'redacted';
+        if (looksPathLike(value)) return sandboxPathSummary(value);
+      }
+      return value;
+    }
+
+    function sandboxSummary() {
+      return {
+        rootDir: 'sandbox',
+        homeDir: 'sandbox',
+        projectDir: 'sandbox',
+        uploadFile: 'sandbox',
+      };
+    }
+
     function savePreference(params = {}, method) {
       assertPreferencePayloadShape(params, method);
       const cwd = String(params.cwd || '');
@@ -253,8 +333,15 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (!['workspaceWrite', 'readOnly', 'dangerFullAccess'].includes(type)) {
         throw new Error(`${method} unsupported sandbox policy: ${type}`);
       }
-      const writableRoots = Array.isArray(value.writableRoots) ? value.writableRoots : [];
-      const readableRoots = Array.isArray(value.readableRoots) ? value.readableRoots : [];
+      const access = sandboxAccess(method, value.access);
+      const writableRoots = [
+        ...rootsFrom(value, 'writableRoots', method),
+        ...rootsFrom(access, 'writableRoots', method),
+      ];
+      const readableRoots = [
+        ...rootsFrom(value, 'readableRoots', method),
+        ...rootsFrom(access, 'readableRoots', method),
+      ];
       for (const root of [...writableRoots, ...readableRoots]) assertSandboxPath(method, root);
       return {
         valueType: 'object',
@@ -264,6 +351,28 @@ export async function installAgenticE2EMockWails(page, options = {}) {
         networkAccess: Boolean(value.networkAccess),
         readOnlyMode: String(value.readOnlyMode || ''),
       };
+    }
+
+    function sandboxAccess(method, value) {
+      if (value === undefined) return {};
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${method} sandbox access must be an object`);
+      }
+      for (const field of Object.keys(value)) {
+        if (!allowedSandboxAccessFields.has(field)) {
+          throw new Error(`${method} unsupported sandbox access field: ${field}`);
+        }
+      }
+      return value;
+    }
+
+    function rootsFrom(value, field, method) {
+      if (!Object.prototype.hasOwnProperty.call(value || {}, field)) return [];
+      if (!Array.isArray(value[field])) {
+        if (method) throw new Error(`${method} sandbox ${field} must be an array`);
+        return [];
+      }
+      return value[field];
     }
 
     function sanitizedScalar(value) {
@@ -282,16 +391,45 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     function assertSandboxPath(method, value) {
       const target = String(value || '');
       if (!target || !isInsideSandbox(target)) {
-        const message = `${method} path outside sandbox: ${target}`;
-        state.sandboxViolations.push({ method, path: target, message });
+        const path = sandboxPathSummary(target);
+        const message = `${method} path outside sandbox: ${path}`;
+        state.sandboxViolations.push({ method, path, message });
         throw new Error(message);
       }
     }
 
     function isInsideSandbox(value) {
-      const root = String(sandboxConfig.rootDir || '').replace(/\/+$/u, '');
-      const target = String(value || '').replace(/\/+$/u, '');
+      const root = normalizeSandboxPath(sandboxConfig.rootDir);
+      const target = normalizeSandboxPath(value);
       return Boolean(root && (target === root || target.startsWith(`${root}/`)));
+    }
+
+    function sandboxPathSummary(value) {
+      const target = String(value || '');
+      if (!target) return 'missing';
+      return isInsideSandbox(target) ? 'sandbox' : 'outside';
+    }
+
+    function normalizeSandboxPath(value) {
+      const text = String(value || '').trim().replace(/\\/gu, '/');
+      if (!text || text.includes('\0')) return '';
+      const absolute = text.startsWith('/');
+      const parts = [];
+      for (const part of text.split('/')) {
+        if (!part || part === '.') continue;
+        if (part === '..') {
+          if (parts.length === 0) return '';
+          parts.pop();
+          continue;
+        }
+        parts.push(part);
+      }
+      const normalized = `${absolute ? '/' : ''}${parts.join('/')}`.replace(/\/+$/u, '');
+      return normalized || (absolute ? '/' : '');
+    }
+
+    function looksPathLike(value) {
+      return value.startsWith('/') || value.includes(sandboxConfig.rootDir);
     }
 
     function preferenceFor(params = {}) {
