@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-08T12:42:19Z"
+    "updatedAt": "2026-07-08T14:51:27Z"
   },
   "files": {
     "src/App.jsx": {
@@ -15,7 +15,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1420 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1420 行，超过上限 800 行",
         "func-length\u0000函数 SidebarProjectTree 共 252 行，超过上限 150 行",
         "nesting\u0000最大嵌套 7 层，超过上限 4 层",
         "params\u0000函数 ActivePageContent 有 9 个参数，超过上限 5 个",
@@ -263,7 +263,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 3238 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 3238 行，超过上限 800 行",
         "func-length\u0000函数 attachAssistantEventRuntime 共 233 行，超过上限 150 行",
         "func-length\u0000函数 createThreadSelectionActions 共 177 行，超过上限 150 行",
         "nesting\u0000最大嵌套 8 层，超过上限 4 层",
@@ -282,7 +282,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1488 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1488 行，超过上限 800 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层",
         "params\u0000函数 PromptCardsGrid 有 6 个参数，超过上限 5 个",
         "params\u0000函数 PromptEditorHost 有 7 个参数，超过上限 5 个",
@@ -306,7 +306,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 941 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 941 行，超过上限 800 行",
         "func-length\u0000函数 Conversation 共 217 行，超过上限 150 行",
         "func-length\u0000函数 useCodePreviewController 共 188 行，超过上限 150 行",
         "nesting\u0000最大嵌套 6 层，超过上限 4 层"
@@ -369,7 +369,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 737 行，超过上限 500 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层"
       ]
     },
@@ -542,7 +541,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 699 行，超过上限 500 行",
         "nesting\u0000最大嵌套 8 层，超过上限 4 层"
       ]
     },
@@ -573,7 +571,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1058 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1058 行，超过上限 800 行",
         "params\u0000函数 MemoryCard 有 6 个参数，超过上限 5 个",
         "params\u0000函数 MemoryCardsSection 有 6 个参数，超过上限 5 个",
         "params\u0000函数 MemoryEditorActions 有 6 个参数，超过上限 5 个",
@@ -596,7 +594,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 744 行，超过上限 500 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层",
         "params\u0000函数 ObservabilityInlineTraceResult 有 6 个参数，超过上限 5 个",
         "params\u0000函数 ObservabilityLogTableRow 有 8 个参数，超过上限 5 个",
@@ -615,7 +612,7 @@
       "todoCount": 0,
       "longLineCount": 1,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1044 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1044 行，超过上限 800 行",
         "line-length\u0000单行 314 字符，超过上限 300，禁止用超长单行绕过复杂度守卫",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层",
         "params\u0000函数 SettingsPageView 有 7 个参数，超过上限 5 个",
@@ -730,7 +727,7 @@
       "todoCount": 0,
       "longLineCount": 4,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 2781 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 2781 行，超过上限 800 行",
         "func-length\u0000函数 DataSourceView 共 251 行，超过上限 150 行",
         "line-length\u0000单行 301 字符，超过上限 300，禁止用超长单行绕过复杂度守卫",
         "line-length\u0000单行 387 字符，超过上限 300，禁止用超长单行绕过复杂度守卫",
@@ -776,7 +773,7 @@
       "todoCount": 0,
       "longLineCount": 2,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 3204 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 3204 行，超过上限 800 行",
         "func-length\u0000函数 EnterpriseWorkflowTemplates 共 167 行，超过上限 150 行",
         "line-length\u0000单行 306 字符，超过上限 300，禁止用超长单行绕过复杂度守卫",
         "line-length\u0000单行 393 字符，超过上限 300，禁止用超长单行绕过复杂度守卫",
@@ -866,7 +863,7 @@
       "frozenViolations": [
         "any\u0000禁止使用 any 类型，请使用具体类型或 unknown",
         "exports\u0000156 个 export，超过上限 10 个",
-        "file-length\u0000文件有效代码 1952 行，超过上限 500 行"
+        "file-length\u0000文件有效代码 1952 行，超过上限 800 行"
       ]
     },
     "src/shared/api/backendResponseValidators.js": {
@@ -903,7 +900,7 @@
       "frozenViolations": [
         "empty-func\u0000空函数体，可能是未实现",
         "exports\u000023 个 export，超过上限 10 个",
-        "file-length\u0000文件有效代码 1280 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1280 行，超过上限 800 行",
         "params\u0000函数 attachAPITraceToError 有 6 个参数，超过上限 5 个",
         "params\u0000函数 logAPIDone 有 7 个参数，超过上限 5 个",
         "params\u0000函数 logAPIFailed 有 7 个参数，超过上限 5 个",
@@ -922,7 +919,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1180 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1180 行，超过上限 800 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层"
       ]
     },

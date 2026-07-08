@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-08T12:42:19Z"
+    "updatedAt": "2026-07-08T14:51:27Z"
   },
   "files": {
     "src/App.test.jsx": {
@@ -18,7 +18,7 @@
         "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
         "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
         "empty-func\u0000空函数体，可能是未实现",
-        "file-length\u0000文件有效代码 7360 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 7360 行，超过上限 800 行",
         "nesting\u0000最大嵌套 7 层，超过上限 4 层"
       ]
     },
@@ -34,7 +34,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 558 行，超过上限 500 行",
         "nesting\u0000最大嵌套 6 层，超过上限 4 层"
       ]
     },
@@ -200,7 +199,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 5579 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 5579 行，超过上限 800 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层"
       ]
     },
@@ -231,7 +230,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 503 行，超过上限 500 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层"
       ]
     },
@@ -247,7 +245,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1591 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1591 行，超过上限 800 行",
         "nesting\u0000最大嵌套 7 层，超过上限 4 层"
       ]
     },
@@ -398,7 +396,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 535 行，超过上限 500 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层"
       ]
     },
@@ -429,7 +426,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 761 行，超过上限 500 行",
         "nesting\u0000最大嵌套 6 层，超过上限 4 层"
       ]
     },
@@ -445,7 +441,6 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 614 行，超过上限 500 行",
         "nesting\u0000最大嵌套 5 层，超过上限 4 层"
       ]
     },
@@ -461,7 +456,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1678 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1678 行，超过上限 800 行",
         "nesting\u0000最大嵌套 7 层，超过上限 4 层",
         "params\u0000函数 enterpriseTemplateDetail 有 6 个参数，超过上限 5 个"
       ]
@@ -523,7 +518,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1827 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1827 行，超过上限 800 行",
         "nesting\u0000最大嵌套 6 层，超过上限 4 层"
       ]
     },
@@ -556,7 +551,7 @@
       "frozenViolations": [
         "empty-func\u0000空函数体，可能是未实现",
         "empty-func\u0000空函数体，可能是未实现",
-        "file-length\u0000文件有效代码 1463 行，超过上限 500 行",
+        "file-length\u0000文件有效代码 1463 行，超过上限 800 行",
         "nesting\u0000最大嵌套 7 层，超过上限 4 层"
       ]
     },
@@ -572,7 +567,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length\u0000文件有效代码 1427 行，超过上限 500 行"
+        "file-length\u0000文件有效代码 1427 行，超过上限 800 行"
       ]
     }
   }

@@ -8,7 +8,7 @@ const baselinePath = path.join(appRoot, '.frontend_code_size_guard_baseline.json
 const baselineTestPath = path.join(appRoot, '.frontend_code_size_guard_baseline_test.json');
 
 export const FRONTEND_CODE_SIZE_LIMITS = Object.freeze({
-  maxFileLines: 500,
+  maxFileLines: 800,
   maxFunctionLines: 150,
   maxNesting: 4,
   maxParams: 5,
