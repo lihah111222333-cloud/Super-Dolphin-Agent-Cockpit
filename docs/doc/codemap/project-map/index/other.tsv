@@ -90,7 +90,7 @@ internal/archtest/guardlib.go	internal	other	go-source	18251	架构守卫、base
 internal/archtest/id_parse_guard_test.go	internal	other	go-test	2341	架构守卫、baseline ratchet 与冻结规则	internal,archtest,id,parse,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/identifier_guard_test.go	internal	other	go-test	1539	架构守卫、baseline ratchet 与冻结规则	internal,archtest,identifier,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ignored_return_guard_test.go	internal	other	go-test	3768	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ignored,return,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/interface_isolation_guard_test.go	internal	other	go-test	10012	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/interface_isolation_guard_test.go	internal	other	go-test	10679	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/jrpc2_error_guard_test.go	internal	other	go-test	1009	架构守卫、baseline ratchet 与冻结规则	internal,archtest,jrpc2,error,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/lifecycle_onstart_guard_test.go	internal	other	go-test	7801	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lifecycle,onstart,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/lsp_tool_guard_test.go	internal	other	go-test	1985	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lsp,tool,guard,test,架构守卫,baseline,ratchet,与冻结规则
