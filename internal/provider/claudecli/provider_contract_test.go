@@ -27,14 +27,15 @@ func CompleteClaudeCLIContractSpec() contracttest.Spec {
 		Resume:     resumeClaudeContractSession,
 		EventCases: claudeContractEventCases(),
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
-			contracttest.CaseEventMatrix:   claudeEventMatrixContractCase(),
-			contracttest.CasePromptParity:  claudePromptParityContractCase(),
-			contracttest.CaseApproval:      claudeApprovalContractCase(),
-			contracttest.CaseInterrupt:     claudeInterruptContractCase(),
-			contracttest.CaseForceComplete: claudeForceCompleteContractCase(),
-			contracttest.CaseResume:        claudeResumeIdentityContractCase(),
-			contracttest.CaseToolbridge:    claudeToolbridgeContractCase(),
-			contracttest.CaseRuntimeReport: claudeRuntimeReportContractCase(),
+			contracttest.CaseEventMatrix:          claudeEventMatrixContractCase(),
+			contracttest.CasePromptParity:         claudePromptParityContractCase(),
+			contracttest.CaseApproval:             claudeApprovalContractCase(),
+			contracttest.CaseInterrupt:            claudeInterruptContractCase(),
+			contracttest.CaseForceComplete:        claudeForceCompleteContractCase(),
+			contracttest.CaseResume:               claudeResumeIdentityContractCase(),
+			contracttest.CaseToolbridge:           claudeToolbridgeContractCase(),
+			contracttest.CaseDynamicToolResponder: claudeDynamicToolResponderUnsupportedContractCase(),
+			contracttest.CaseRuntimeReport:        claudeRuntimeReportContractCase(),
 		},
 	}
 }
@@ -361,6 +362,29 @@ func claudeToolbridgeContractCase() contracttest.Case {
 			StateAfter:       "builtin_tools:" + tools,
 			DependencyName:   "provider_native_tool_governance",
 			Profile:          contract.DependencyProfileTest,
+		})
+	}}
+}
+
+func claudeDynamicToolResponderUnsupportedContractCase() contracttest.Case {
+	return contracttest.Case{Name: "dynamic tool responder unsupported", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		unsupported := contracttest.CaptureUnsupportedOutcome(
+			t,
+			"claude-dynamic-tool-responder",
+			"dynamic_tools",
+			contract.DependencyProfileTest,
+			func() error {
+				return contract.NewDependencyModeError(
+					contract.ErrUnsupportedDependencyMode,
+					"dynamic_tools",
+					contract.DependencyProfileTest,
+				)
+			},
+		)
+		e.RecordDynamicToolResponder(t, contracttest.DynamicToolResponderEvidence{
+			ExpectedDependencyName: "dynamic_tools",
+			Unsupported:            unsupported,
 		})
 	}}
 }

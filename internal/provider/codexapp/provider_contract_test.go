@@ -40,6 +40,7 @@ func CompleteCodexAppContractSpec() contracttest.Spec {
 			contracttest.CaseForceComplete:             codexAppForceCompleteContractCase(),
 			contracttest.CaseResume:                    codexAppResumeIdentityContractCase(),
 			contracttest.CaseToolbridge:                codexAppToolbridgeContractCase(),
+			contracttest.CaseDynamicToolResponder:      codexAppDynamicToolResponderContractCase(),
 			contracttest.CaseRuntimeReport:             codexAppRuntimeReportContractCase(),
 		},
 	}
@@ -394,6 +395,62 @@ func codexAppToolbridgeContractCase() contracttest.Case {
 			StateAfter:       "dynamic_tools:bound;calls:" + strconv.Itoa(listToolsCalls),
 			DependencyName:   "codexapp.toolbridge.dynamic_tools",
 			Profile:          contract.DependencyProfileTest,
+		})
+	}}
+}
+
+func codexAppDynamicToolResponderContractCase() contracttest.Case {
+	return contracttest.Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		ctx := context.Background()
+		manager := &ServerManager{}
+		var successCalled bool
+		var errorCalled bool
+		manager.SetToolHandler(func(_ context.Context, msg RawMessage) (any, error) {
+			name := toolCallParamString(msg.Params, "name")
+			switch name {
+			case "contract_success":
+				successCalled = true
+				return map[string]any{"success": true, "result": "ok"}, nil
+			case "contract_error":
+				errorCalled = true
+				return nil, errors.New("contract dynamic tool failed")
+			default:
+				return nil, errors.New("unexpected contract tool " + name)
+			}
+		})
+		s := newInboundTestSession(ctx, nil, manager)
+
+		successResp := newRecordingResponder()
+		s.onInboundMessage(ctx, successResp, RawMessage{
+			ID:     json.RawMessage(`"req-success"`),
+			Method: "dynamic_tool_call",
+			Params: json.RawMessage(`{"name":"contract_success","arguments":{"value":1},"turnId":"turn-contract","callId":"call-success"}`),
+		})
+		successCall := waitResponseCall(t, successResp.ch)
+
+		errorResp := newRecordingResponder()
+		s.onInboundMessage(ctx, errorResp, RawMessage{
+			ID:     json.RawMessage(`"req-error"`),
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"contract_error","arguments":{"value":2},"turnId":"turn-contract","callId":"call-error"}`),
+		})
+		errorCall := waitResponseCall(t, errorResp.ch)
+		if !successCalled || !errorCalled {
+			t.Fatalf("dynamic tool handler calls success=%t error=%t", successCalled, errorCalled)
+		}
+		if string(successCall.id) != `"req-success"` || successCall.err != nil {
+			t.Fatalf("success dynamic tool response = id %s err %v, want req-success nil", successCall.id, successCall.err)
+		}
+		if string(errorCall.id) != `"req-error"` || errorCall.err == nil {
+			t.Fatalf("error dynamic tool response = id %s err %v, want req-error error", errorCall.id, errorCall.err)
+		}
+
+		e.RecordDynamicToolResponder(t, contracttest.DynamicToolResponderEvidence{
+			ToolName:        "contract_success",
+			CallID:          "call-success",
+			ResponseID:      string(successCall.id),
+			ResponsePayload: "success=true;error_id=" + string(errorCall.id) + ";error_returned=" + strconv.FormatBool(errorCall.err != nil),
 		})
 	}}
 }
