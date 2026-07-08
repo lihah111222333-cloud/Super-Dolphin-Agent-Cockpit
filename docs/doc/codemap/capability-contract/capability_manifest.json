@@ -11,10 +11,10 @@
     "total_packages": 41,
     "total_functions": 2228,
     "total_methods": 1062,
-    "total_interfaces": 147,
-    "total_interface_methods": 303,
+    "total_interfaces": 150,
+    "total_interface_methods": 310,
     "total_exported": 1215,
-    "total_unexported": 2797,
+    "total_unexported": 2800,
     "total_structs": 575
   },
   "packages": [
@@ -20960,7 +20960,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             }
           ],
           "returns": [
@@ -21280,7 +21280,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             }
           ],
           "returns": [
@@ -21293,7 +21293,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowRecoveryPort"
             }
           ],
           "returns": [
@@ -22461,7 +22461,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "in",
@@ -22604,7 +22604,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "gaps",
@@ -23650,7 +23650,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "dags",
@@ -23672,7 +23672,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "in",
@@ -25088,7 +25088,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "dagPromptIdentityDiagnosticsPort"
             },
             {
               "name": "dagKey",
@@ -25735,7 +25735,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowRecoveryPort"
             },
             {
               "name": "in",
@@ -27130,7 +27130,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "query",
@@ -27152,7 +27152,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "runKey",
@@ -27174,7 +27174,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "query",
@@ -27206,7 +27206,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             }
           ],
           "returns": [
@@ -27223,7 +27223,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowDiagnosticsPort"
             },
             {
               "name": "query",
@@ -27305,7 +27305,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.OrchestrationService"
+              "type": "workflowRecoveryPort"
             }
           ],
           "returns": [
@@ -27714,6 +27714,63 @@
           ]
         },
         {
+          "name": "dagPromptIdentityDiagnosticsPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetDAG",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "dagKey",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "contract.DAGDetail",
+                "error"
+              ]
+            },
+            {
+              "name": "ListDAGs",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "filter",
+                  "type": "contract.ListDAGsFilter"
+                }
+              ],
+              "returns": [
+                "[]contract.DAGSummary",
+                "error"
+              ]
+            },
+            {
+              "name": "ListRuns",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.ListRunsRequest"
+                }
+              ],
+              "returns": [
+                "contract.ListRunsResponse",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
           "name": "launchAgentSnapshotter",
           "exported": false,
           "methods": [
@@ -27756,6 +27813,85 @@
               ],
               "returns": [
                 "string",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "workflowDiagnosticsPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "GetRun",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.GetRunRequest"
+                }
+              ],
+              "returns": [
+                "contract.GetRunResponse",
+                "error"
+              ]
+            },
+            {
+              "name": "ListDAGs",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "filter",
+                  "type": "contract.ListDAGsFilter"
+                }
+              ],
+              "returns": [
+                "[]contract.DAGSummary",
+                "error"
+              ]
+            },
+            {
+              "name": "ListRuns",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.ListRunsRequest"
+                }
+              ],
+              "returns": [
+                "contract.ListRunsResponse",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "workflowRecoveryPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "TerminateDAG",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "contract.TerminateDAGRequest"
+                }
+              ],
+              "returns": [
                 "error"
               ]
             }
