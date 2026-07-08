@@ -6,7 +6,7 @@ import (
 )
 
 func TestTaskToolDefinitionsRequireGovernanceMetadata(t *testing.T) {
-	defs := taskToolDefinitions(nil)
+	defs := taskToolDefinitions(ToolPorts{})
 	if len(defs) == 0 {
 		t.Fatal("task tool definitions are empty")
 	}
@@ -50,7 +50,7 @@ func TestWorkflowWriteToolsUseHighRiskWritePermission(t *testing.T) {
 		"task_delete_dag":    true,
 	}
 
-	for _, def := range taskToolDefinitions(nil) {
+	for _, def := range taskToolDefinitions(ToolPorts{}) {
 		if !writeTools[def.Name] {
 			continue
 		}

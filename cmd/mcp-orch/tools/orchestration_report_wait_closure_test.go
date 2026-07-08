@@ -143,7 +143,7 @@ type reportWaitResult struct {
 	err    error
 }
 
-func waitForAgentReportAsync(t *testing.T, svc contract.OrchestrationService, agentID, requesterID string) <-chan reportWaitResult {
+func waitForAgentReportAsync(t *testing.T, svc agentReportPort, agentID, requesterID string) <-chan reportWaitResult {
 	t.Helper()
 	done := make(chan reportWaitResult, 1)
 	goroutines := newTestGoroutineGroup(t)

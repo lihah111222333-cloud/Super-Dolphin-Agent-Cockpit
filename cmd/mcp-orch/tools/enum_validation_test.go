@@ -25,32 +25,32 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 	}{
 		{
 			name:       "task_list_dags.status",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_list_dags", "status"),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_list_dags", "status"),
 			fromVar:    listDAGsStatusEnum,
 		},
 		{
 			name:       "task_list_runs.status",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_list_runs", "status"),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_list_runs", "status"),
 			fromVar:    listRunsStatusEnum,
 		},
 		{
 			name:       "task_start_dag.trigger_source",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_start_dag", "trigger_source"),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_start_dag", "trigger_source"),
 			fromVar:    startDAGTriggerEnum,
 		},
 		{
 			name:       "task_update_node.status",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_update_node", "status"),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_update_node", "status"),
 			fromVar:    updateNodeStatusEnum,
 		},
 		{
 			name:       "task_workflow_recovery_action.action",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_workflow_recovery_action", "action"),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_workflow_recovery_action", "action"),
 			fromVar:    recoveryActionEnum,
 		},
 		{
 			name:       "orchestration_launch_agent.provider",
-			fromSchema: enumValuesFromToolSchema(t, orchestrationToolDefinitions(nil), "launch_agent", "provider"),
+			fromSchema: enumValuesFromToolSchema(t, orchestrationToolDefinitions(ToolPorts{}), "launch_agent", "provider"),
 			fromVar:    launchAgentProviderEnum,
 		},
 	}
@@ -72,7 +72,7 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 func TestUpdateNodeStatusEnumMatchesStateMachineTargets(t *testing.T) {
 	t.Parallel()
 	want := nodeexec.LegalTransitionTargetStatusStrings()
-	got := enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_update_node", "status")
+	got := enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_update_node", "status")
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("task_update_node.status enum = %v, want legal transition targets %v", got, want)
 	}

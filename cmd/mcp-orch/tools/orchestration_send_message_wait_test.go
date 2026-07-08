@@ -232,7 +232,7 @@ func TestSendMessageWaitReportTimeoutMentionsAgentAndSeq(t *testing.T) {
 }
 
 func TestSendMessageSchemaDocumentsWaitReport(t *testing.T) {
-	def := mustFindToolDefinition(t, orchestrationToolDefinitions(&golden.OrchestrationStub{}), "send_message")
+	def := mustFindToolDefinition(t, orchestrationToolDefinitions(ToolPorts{}), "send_message")
 	props := def.InputSchema["properties"].(map[string]any)
 	waitReport, ok := props["wait_report"].(map[string]any)
 	if !ok {

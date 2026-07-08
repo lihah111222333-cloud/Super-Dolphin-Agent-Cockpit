@@ -12,7 +12,7 @@ import (
 )
 
 func TestRecoverAgentSchemaSupportsPosAndAgentID(t *testing.T) {
-	def := mustFindToolDefinition(t, orchestrationToolDefinitions(nil), "recover_agent")
+	def := mustFindToolDefinition(t, orchestrationToolDefinitions(ToolPorts{}), "recover_agent")
 	props := def.InputSchema["properties"].(map[string]any)
 	if _, ok := props["pos"].(map[string]any); !ok {
 		t.Fatalf("recover_agent schema properties = %#v, want pos", props)
