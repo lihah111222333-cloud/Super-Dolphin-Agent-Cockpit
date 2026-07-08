@@ -10,6 +10,10 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+type agentInterruptPort interface {
+	InterruptAgent(ctx context.Context, agentID string, source string) (contract.AgentStateResult, error)
+}
+
 // InterruptAgentInput 是 interrupt_agent 工具入参，兼容 agent_id 与 pos 定位。
 type InterruptAgentInput struct {
 	AgentID   string `json:"agent_id"`
@@ -19,7 +23,7 @@ type InterruptAgentInput struct {
 }
 
 // HandleInterruptAgent 中断远程 Codex 子 agent 当前 turn，并返回收口后的状态。
-func HandleInterruptAgent(svc contract.OrchestrationService) ToolHandler {
+func HandleInterruptAgent(svc agentInterruptPort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in InterruptAgentInput) (map[string]any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {
