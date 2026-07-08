@@ -80,7 +80,7 @@ type UIMemoryEntry struct {
 	Description string    `json:"description,omitempty"`
 	Type        string    `json:"type,omitempty"`
 	Path        string    `json:"path,omitempty"`
-	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt,omitzero"`
 	Preview     string    `json:"preview,omitempty"`
 	Title       string    `json:"title,omitempty"`
 	// Source 透传记忆条目的来源标记（如 "dream"），UI 据此渲染徽章。
@@ -105,7 +105,7 @@ type UIAutoDreamHealth struct {
 	ProcessedTotal int64     `json:"processedTotal"`
 	ScheduledTotal int64     `json:"scheduledTotal"`
 	LastError      string    `json:"lastError,omitempty"`
-	LastAt         time.Time `json:"lastAt,omitempty"`
+	LastAt         time.Time `json:"lastAt,omitzero"`
 	LastThreadID   string    `json:"lastThreadID,omitempty"`
 	Running        bool      `json:"running"`
 	ThreadID       string    `json:"threadID,omitempty"`
@@ -562,7 +562,7 @@ type UISharedFileDetail struct {
 	Path      string    `json:"path"`
 	Content   string    `json:"content,omitempty"`
 	UpdatedBy string    `json:"updatedBy,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt,omitzero"`
 }
 
 // getUISharedFile 读取单个 shared file，空 path 返回公开校验错误，store 未装配则 fail-fast。

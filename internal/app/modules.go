@@ -59,6 +59,7 @@ var Module = fx.Options(
 	fx.Provide(pidregistry.New),
 	fx.Provide(
 		provideDashboardOrchestrationReaderPort,
+		provideUIStateAgentLister,
 		newDashboardOrchestrationReader,
 	),
 	config.Module,

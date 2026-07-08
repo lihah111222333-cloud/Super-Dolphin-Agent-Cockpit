@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-08
 >
-> 已索引文件：**4198**
+> 已索引文件：**4199**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -48,7 +48,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 1980 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 1981 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 853 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 643 | 可执行入口与 MCP peer |
 | `frontend-app` | 422 | 当前 React/Vite 新 UI |

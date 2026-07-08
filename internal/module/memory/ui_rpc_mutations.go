@@ -53,7 +53,7 @@ type UIMemoryEntryDetail struct {
 	Type        string    `json:"type,omitempty"`
 	Content     string    `json:"content,omitempty"`
 	Title       string    `json:"title,omitempty"`
-	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt,omitzero"`
 }
 
 // registerUIMemoryMutationHandlers 注册记忆中心所有写入类 RPC，并把 handler 统一挂到 StrictHandler。

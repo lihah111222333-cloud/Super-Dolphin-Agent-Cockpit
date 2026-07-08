@@ -51,6 +51,25 @@ func TestDashboardOrchestrationReaderAllowsMissingPort(t *testing.T) {
 	}
 }
 
+func TestUIStateAgentListerUsesNarrowReaderPort(t *testing.T) {
+	port := &recordingDashboardReaderPort{}
+	lister := provideUIStateAgentLister(uiStateAgentListerParams{Reader: port})
+	if lister == nil {
+		t.Fatal("provideUIStateAgentLister() = nil, want lister")
+	}
+
+	agents, err := lister.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(agents) != 1 || agents[0].AgentID != "agent-1" {
+		t.Fatalf("ListAgents() = %#v, want agent-1", agents)
+	}
+	if !stringSlicesEqual(port.calls, []string{"ListAgents"}) {
+		t.Fatalf("calls = %#v, want ListAgents only", port.calls)
+	}
+}
+
 func TestRuntimeReporterUsesUpdateRuntimePort(t *testing.T) {
 	wantErr := errors.New("update failed")
 	updater := &recordingRuntimeUpdater{err: wantErr}

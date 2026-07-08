@@ -49,17 +49,11 @@ func allowedOrchestrationServiceConsumers() map[string]orchestrationServiceAllow
 		return orchestrationServiceAllowance{max: max, reason: reason}
 	}
 	return map[string]orchestrationServiceAllowance{
-		"cmd/mcp-orch/orchestration/service.go":           compat(2, "production facade may only re-export Service and provide the interface"),
-		"cmd/mcp-orch/orchestration/rpc.go":               compat(3, "legacy RPC facade consumes the package Service alias until split"),
-		"cmd/mcp-orch/runtime.go":                         compat(2, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
-		"internal/app/dashboard_adapter.go":               compat(2, "explicit app adapter narrows full service to dashboard OrchestrationReader"),
-		"internal/app/runtime_reporter_adapter.go":        compat(2, "explicit app adapter narrows full service to RuntimeReporter"),
-		"internal/module/memory/module.go":                compat(2, "legacy memory runtime bridge pending narrow state port split"),
-		"internal/module/uistate/module.go":               compat(1, "legacy optional uistate input pending read-model port split"),
-		"internal/module/uistate/service.go":              compat(3, "legacy uistate read-model adapter pending narrow port split"),
-		"internal/platform/mcpcontrol/handlers.go":        compat(1, "mcpcontrol context resolver compatibility adapter"),
-		"internal/platform/mcpcontrol/module.go":          compat(2, "mcpcontrol optional report handler adapter"),
-		"internal/platform/mcpcontrol/report_handlers.go": compat(2, "mcpcontrol completion/report compatibility adapter"),
+		"cmd/mcp-orch/orchestration/service.go":    compat(2, "production facade may only re-export Service and provide the interface"),
+		"cmd/mcp-orch/orchestration/rpc.go":        compat(3, "legacy RPC facade consumes the package Service alias until split"),
+		"cmd/mcp-orch/runtime.go":                  compat(2, "mcp-orch registry compatibility adapter fans out to narrower tool handlers"),
+		"internal/app/dashboard_adapter.go":        compat(1, "temporary app provider narrows full service to dashboard read port"),
+		"internal/app/runtime_reporter_adapter.go": compat(1, "temporary app provider narrows full service to runtime update port"),
 	}
 }
 

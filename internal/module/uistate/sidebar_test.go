@@ -2,6 +2,7 @@ package uistate
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -96,6 +97,46 @@ func TestBuildInitialStateSortsThreadsByThreadRefCreatedAt(t *testing.T) {
 	}
 	if state.Threads[0].UpdatedAt != nil {
 		t.Fatalf("thread-new UpdatedAt = %v, want nil for zero source updated_at", state.Threads[0].UpdatedAt)
+	}
+}
+
+func TestBuildInitialStateReadsAgentsThroughListAgentsOnly(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	lister := &agentListStub{items: []contract.AgentSnapshot{{
+		ID:        "agent-1",
+		Name:      "Agent One",
+		ThreadID:  "thread-1",
+		State:     "running",
+		Provider:  "codex",
+		Cwd:       "/tmp/demo",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt.Add(time.Minute),
+	}}}
+
+	state, err := buildInitialState(context.Background(), nil, lister)
+	if err != nil {
+		t.Fatalf("buildInitialState() error = %v", err)
+	}
+	if lister.calls != 1 {
+		t.Fatalf("ListAgents() calls = %d, want 1", lister.calls)
+	}
+	if len(state.Agents) != 1 || state.Agents[0].ID != "agent-1" || state.Agents[0].ThreadID != "thread-1" {
+		t.Fatalf("Agents = %#v, want summarized agent from ListAgents", state.Agents)
+	}
+	if len(state.Threads) != 1 || state.Threads[0].ID != "thread-1" || state.Threads[0].AgentID != "agent-1" {
+		t.Fatalf("Threads = %#v, want thread derived from agent snapshot", state.Threads)
+	}
+}
+
+func TestBuildInitialStateReturnsListAgentsError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("agent list unavailable")
+	_, err := buildInitialState(context.Background(), nil, &agentListStub{err: wantErr})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("buildInitialState() error = %v, want %v", err, wantErr)
 	}
 }
 

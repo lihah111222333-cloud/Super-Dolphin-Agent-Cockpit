@@ -5,6 +5,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"go.uber.org/fx"
 )
 
@@ -42,11 +43,25 @@ func provideDashboardOrchestrationReaderPort(p dashboardOrchestrationReaderPortP
 	return p.Service
 }
 
+type uiStateAgentListerParams struct {
+	fx.In
+
+	Reader dashboardOrchestrationReaderPort
+}
+
+// provideUIStateAgentLister 将 app 本地读端口收窄为 uistate 首屏 agent 列表端口。
+func provideUIStateAgentLister(p uiStateAgentListerParams) uistate.AgentLister {
+	if p.Reader == nil {
+		return nil
+	}
+	return p.Reader
+}
+
 type dashboardOrchestrationReader struct {
 	reader dashboardOrchestrationReaderPort
 }
 
-// ListAgents 转发 dashboard 需要的 agent 列表读取。
+// ListAgents 转发 UI 读模型需要的 agent 列表读取。
 func (r dashboardOrchestrationReader) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {
 	return r.reader.ListAgents(ctx)
 }
