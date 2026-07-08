@@ -99,8 +99,10 @@ type RuntimeReportEvidence struct {
 type DynamicToolResponderEvidence struct {
 	ToolName               string
 	CallID                 string
-	ResponseID             string
-	ResponsePayload        string
+	SuccessResponseID      string
+	SuccessResponsePayload string
+	ErrorResponseID        string
+	ErrorResponsePayload   string
 	ExpectedDependencyName string
 	Unsupported            *UnsupportedOutcomeEvidence
 }
@@ -293,36 +295,58 @@ func (e *CaseEvidence) RecordRuntimeReport(t *testing.T, report RuntimeReportEvi
 func (e *CaseEvidence) RecordDynamicToolResponder(t *testing.T, responder DynamicToolResponderEvidence) {
 	t.Helper()
 	if responder.Unsupported != nil {
-		if err := validateUnsupportedOutcome(responder.Unsupported); err != nil {
-			e.invalid = append(e.invalid, fmt.Sprintf("dynamic tool responder unsupported evidence: %v", err))
-			return
-		}
-		if strings.TrimSpace(responder.ExpectedDependencyName) == "" {
-			e.invalid = append(e.invalid, "dynamic tool responder unsupported evidence requires expected dependency name")
-			return
-		}
-		if responder.ExpectedDependencyName != responder.Unsupported.dependencyName {
-			e.invalid = append(e.invalid, fmt.Sprintf(
-				"dynamic tool responder unsupported dependency = %s, want %s",
-				responder.Unsupported.dependencyName,
-				responder.ExpectedDependencyName,
-			))
+		if err := validateDynamicToolUnsupported(responder); err != nil {
+			e.invalid = append(e.invalid, err.Error())
 			return
 		}
 		e.assertions[EvidenceDynamicToolResponder] = responder.Unsupported.operationID + "/" + responder.Unsupported.dependencyName + "/" + string(responder.Unsupported.profile)
 		return
 	}
-	if strings.TrimSpace(responder.ToolName) == "" ||
-		strings.TrimSpace(responder.CallID) == "" ||
-		strings.TrimSpace(responder.ResponseID) == "" ||
-		strings.TrimSpace(responder.ResponsePayload) == "" {
-		e.invalid = append(e.invalid, "dynamic tool responder evidence requires tool name, call id, response id, and response payload")
+	if err := validateDynamicToolObserved(responder); err != nil {
+		e.invalid = append(e.invalid, err.Error())
 		return
 	}
 	e.assertions[EvidenceDynamicToolResponder] = strings.Join(
-		[]string{responder.ToolName, responder.CallID, responder.ResponseID, responder.ResponsePayload},
+		[]string{
+			responder.ToolName,
+			responder.CallID,
+			responder.SuccessResponseID,
+			responder.SuccessResponsePayload,
+			responder.ErrorResponseID,
+			responder.ErrorResponsePayload,
+		},
 		"/",
 	)
+}
+
+func validateDynamicToolUnsupported(responder DynamicToolResponderEvidence) error {
+	if err := validateUnsupportedOutcome(responder.Unsupported); err != nil {
+		return fmt.Errorf("dynamic tool responder unsupported evidence: %v", err)
+	}
+	if strings.TrimSpace(responder.ExpectedDependencyName) == "" {
+		return fmt.Errorf("dynamic tool responder unsupported evidence requires expected dependency name")
+	}
+	if responder.ExpectedDependencyName != responder.Unsupported.dependencyName {
+		return fmt.Errorf(
+			"dynamic tool responder unsupported dependency = %s, want %s",
+			responder.Unsupported.dependencyName,
+			responder.ExpectedDependencyName,
+		)
+	}
+	return nil
+}
+
+// validateDynamicToolObserved 校验动态工具成功和错误响应都回传到模型请求。
+func validateDynamicToolObserved(responder DynamicToolResponderEvidence) error {
+	if strings.TrimSpace(responder.ToolName) == "" ||
+		strings.TrimSpace(responder.CallID) == "" ||
+		strings.TrimSpace(responder.SuccessResponseID) == "" ||
+		strings.TrimSpace(responder.SuccessResponsePayload) == "" ||
+		strings.TrimSpace(responder.ErrorResponseID) == "" ||
+		strings.TrimSpace(responder.ErrorResponsePayload) == "" {
+		return fmt.Errorf("dynamic tool responder evidence requires tool name, call id, success response id/payload, and error response id/payload")
+	}
+	return nil
 }
 
 // Validate 校验当前 case 是否记录了所有 required evidence。

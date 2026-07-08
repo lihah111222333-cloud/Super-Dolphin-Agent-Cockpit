@@ -447,10 +447,12 @@ func codexAppDynamicToolResponderContractCase() contracttest.Case {
 		}
 
 		e.RecordDynamicToolResponder(t, contracttest.DynamicToolResponderEvidence{
-			ToolName:        "contract_success",
-			CallID:          "call-success",
-			ResponseID:      string(successCall.id),
-			ResponsePayload: "success=true;error_id=" + string(errorCall.id) + ";error_returned=" + strconv.FormatBool(errorCall.err != nil),
+			ToolName:               "contract_success",
+			CallID:                 "call-success",
+			SuccessResponseID:      string(successCall.id),
+			SuccessResponsePayload: "success=true",
+			ErrorResponseID:        string(errorCall.id),
+			ErrorResponsePayload:   "error_returned=" + strconv.FormatBool(errorCall.err != nil),
 		})
 	}}
 }

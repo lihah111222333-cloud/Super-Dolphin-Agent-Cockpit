@@ -52,6 +52,8 @@ func assertRenderedTemplateAcceptancePlaceholdersFail(t *testing.T) {
 		"provider resume identity capture",
 		"replace templateToolbridgeContractCase",
 		"provider toolbridge/proxy readiness capture",
+		"replace templateDynamicToolResponderContractCase",
+		"provider dynamic tool responder capture or typed unsupported evidence",
 		"replace templateRuntimeReportContractCase",
 		"provider runtime reporter capture",
 	} {
@@ -356,6 +358,7 @@ func TestRenderedTemplateAcceptanceCriteriaDeclared(t *testing.T) {
 		contracttest.AcceptanceForceComplete,
 		contracttest.AcceptanceResume,
 		contracttest.AcceptanceToolbridge,
+		contracttest.AcceptanceDynamicToolResponder,
 		contracttest.AcceptanceRuntimeReport,
 		contracttest.AcceptancePromptSnapshotParity,
 	}
@@ -514,6 +517,7 @@ func TestRenderedTemplatePlaceholderFailures(t *testing.T) {
 		{name: "force complete", c: templateForceCompleteContractCase()},
 		{name: "resume", c: templateResumeIdentityContractCase()},
 		{name: "toolbridge", c: templateToolbridgeContractCase()},
+		{name: "dynamic tool responder", c: templateDynamicToolResponderContractCase()},
 		{name: "runtime report", c: templateRuntimeReportContractCase()},
 	}
 	for _, tc := range cases {

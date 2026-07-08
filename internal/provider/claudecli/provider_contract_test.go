@@ -375,11 +375,7 @@ func claudeDynamicToolResponderUnsupportedContractCase() contracttest.Case {
 			"dynamic_tools",
 			contract.DependencyProfileTest,
 			func() error {
-				return contract.NewDependencyModeError(
-					contract.ErrUnsupportedDependencyMode,
-					"dynamic_tools",
-					contract.DependencyProfileTest,
-				)
+				return contract.MissingDependencyModeError("dynamic_tools", contract.DependencyProfileTest)
 			},
 		)
 		e.RecordDynamicToolResponder(t, contracttest.DynamicToolResponderEvidence{

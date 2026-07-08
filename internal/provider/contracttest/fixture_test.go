@@ -161,10 +161,12 @@ func fixtureDynamicToolResponderCase() Case {
 	return Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
 		t.Helper()
 		e.RecordDynamicToolResponder(t, DynamicToolResponderEvidence{
-			ToolName:        "fixture_echo",
-			CallID:          "call-fixture",
-			ResponseID:      "response-fixture",
-			ResponsePayload: `{"ok":true}`,
+			ToolName:               "fixture_echo",
+			CallID:                 "call-fixture",
+			SuccessResponseID:      "response-success-fixture",
+			SuccessResponsePayload: `{"ok":true}`,
+			ErrorResponseID:        "response-error-fixture",
+			ErrorResponsePayload:   `{"error":"fixture"}`,
 		})
 	}}
 }

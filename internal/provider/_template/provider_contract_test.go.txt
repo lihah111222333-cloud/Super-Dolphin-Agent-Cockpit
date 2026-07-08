@@ -25,14 +25,15 @@ func CompleteTemplateContractSpec() contracttest.Spec {
 		Resume:     resumeTemplateContractSession,
 		EventCases: []contracttest.Case{templateEventTranslationContractCase()},
 		RequiredCases: map[contracttest.CaseKey]contracttest.Case{
-			contracttest.CaseEventMatrix:   templateEventMatrixContractCase(),
-			contracttest.CasePromptParity:  templatePromptParityContractCase(),
-			contracttest.CaseApproval:      templateApprovalContractCase(),
-			contracttest.CaseInterrupt:     templateInterruptContractCase(),
-			contracttest.CaseForceComplete: templateForceCompleteContractCase(),
-			contracttest.CaseResume:        templateResumeIdentityContractCase(),
-			contracttest.CaseToolbridge:    templateToolbridgeContractCase(),
-			contracttest.CaseRuntimeReport: templateRuntimeReportContractCase(),
+			contracttest.CaseEventMatrix:          templateEventMatrixContractCase(),
+			contracttest.CasePromptParity:         templatePromptParityContractCase(),
+			contracttest.CaseApproval:             templateApprovalContractCase(),
+			contracttest.CaseInterrupt:            templateInterruptContractCase(),
+			contracttest.CaseForceComplete:        templateForceCompleteContractCase(),
+			contracttest.CaseResume:               templateResumeIdentityContractCase(),
+			contracttest.CaseToolbridge:           templateToolbridgeContractCase(),
+			contracttest.CaseDynamicToolResponder: templateDynamicToolResponderContractCase(),
+			contracttest.CaseRuntimeReport:        templateRuntimeReportContractCase(),
 		},
 	}
 }
@@ -120,6 +121,13 @@ func templateToolbridgeContractCase() contracttest.Case {
 	return contracttest.Case{Name: "toolbridge proxy dependency", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
 		t.Fatal("replace templateToolbridgeContractCase with provider toolbridge/proxy readiness capture")
+	}}
+}
+
+func templateDynamicToolResponderContractCase() contracttest.Case {
+	return contracttest.Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
+		t.Helper()
+		t.Fatal("replace templateDynamicToolResponderContractCase with provider dynamic tool responder capture or typed unsupported evidence")
 	}}
 }
 

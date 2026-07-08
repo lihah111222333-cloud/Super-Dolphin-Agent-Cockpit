@@ -204,6 +204,24 @@ func TestRecordDynamicToolResponderRejectsMissingObservedResponse(t *testing.T) 
 	}
 }
 
+func TestRecordDynamicToolResponderRejectsSingleSuccessResponse(t *testing.T) {
+	spec := CompleteFixtureSpec("fixture")
+	spec.RequiredCases[CaseDynamicToolResponder] = Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
+		t.Helper()
+		e.RecordDynamicToolResponder(t, DynamicToolResponderEvidence{
+			ToolName:               "fixture_echo",
+			CallID:                 "call-fixture",
+			SuccessResponseID:      "response-success-fixture",
+			SuccessResponsePayload: `{"ok":true}`,
+		})
+	}}
+
+	err := RunSpecForTest(t, spec)
+	if err == nil || !strings.Contains(err.Error(), "error response id/payload") {
+		t.Fatalf("RunSpecForTest() error = %v, want missing dynamic tool error response failure", err)
+	}
+}
+
 func TestRecordDynamicToolResponderRejectsBooleanUnsupported(t *testing.T) {
 	spec := CompleteFixtureSpec("fixture")
 	spec.RequiredCases[CaseDynamicToolResponder] = Case{Name: "dynamic tool responder", Run: func(t *testing.T, e *CaseEvidence) {
