@@ -20,6 +20,13 @@
 
 ## LSP 强制使用规则
 
+### LSP 工具链不可降级规则
+
+- `cmd/mcp-lsp` 是 generic multi-language LSP peer；不得把本文件的 LSP 要求降级、改写或替换成 `gopls check`、`go test`、`rg + cat/sed`、单语言检查器或纯 shell 验证。
+- Go 文件可以由底层语言服务器使用 gopls，但人工工作流必须通过 `grep`、`structure`、`inspect`、`xref`、`file`、`edit`、`completion` 等 LSP 工具完成导航、影响面分析、读取、编辑和诊断；`gopls check` 只能作为额外验证，不能替代 LSP 工具证据。
+- LSP 工具超时、不可用或返回异常时，必须先收窄 `work_dir`、路径、查询、语言或结果数后重试；仍失败时记录 blocker，包含 tool/action、`work_dir`、目标文件或符号、错误信息和已尝试的收窄方式。禁止静默降级为 `gopls check` 或 shell 命令，也禁止把“无法取得 diagnostics”写成 PASS。
+- 审查、修复、路径判断或行为解释涉及源码时，至少保留一组可复查的 LSP 证据：定位（`grep` 或 `structure`）、理解（`inspect`）、影响面（`xref`）、精读（`file(read_file)`）和诊断（`file(diagnostics)`）。如果某一类证据因工具能力或文件类型无法取得，必须在输出中说明缺口和 blocker。
+
 ### LSP diagnostics 处理规则
 
 - LSP diagnostics 返回的 `Error`、`Warning`、`Information`、`Hint` 均视为待修复项；不得因 severity 为 hint 或“仅建议”而忽略。无法修复时必须记录 blocker，包含文件、行号、规则和原因。
