@@ -1,6 +1,11 @@
 // Wails Bridge Adapter for React Frontend
 
 import { isSafeNumber, parse as parseLosslessJSON } from 'lossless-json';
+import {
+  isSafeLogForbiddenKey,
+  normalizeSafeLogFieldKey,
+  safeLogFields,
+} from '../diagnostics/safeLogFields.js';
 import { compactSafeDiagnosticPreview } from './safeDiagnosticPreview.js';
 
 const METHOD_IDS = Object.freeze({
@@ -132,7 +137,7 @@ function serializableBridgeValue(value, seen = new WeakSet()) {
       .filter(([key]) => !isForbiddenBridgeLogKey(key))
       .map(([key, item]) => [
         key,
-        parentIsErrorLike && normalizeBridgeLogKey(key) === 'data'
+        parentIsErrorLike && normalizeSafeLogFieldKey(key) === 'data'
           ? serializableBridgeErrorData(item, seen)
           : serializableBridgeValue(item, seen),
       ]),
@@ -179,7 +184,7 @@ function serializableBridgeErrorData(value, seen) {
 
   const out = {};
   for (const [key, item] of Object.entries(value)) {
-    const normalizedKey = normalizeBridgeLogKey(key);
+    const normalizedKey = normalizeSafeLogFieldKey(key);
     if (!BRIDGE_ERROR_DATA_SAFE_KEYS.has(normalizedKey)) continue;
     if (isForbiddenBridgeLogKey(key)) continue;
     const safeValue = serializableBridgeDiagnosticValue(item);
@@ -188,23 +193,21 @@ function serializableBridgeErrorData(value, seen) {
   return Object.keys(out).length > 0 ? out : BRIDGE_REDACTED_VALUE;
 }
 
-function normalizeBridgeLogKey(key) {
-  return optionalDiagnosticString(key)
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[\s.-]+/g, '_')
-    .toLowerCase();
-}
-
 function isForbiddenBridgeLogKey(key) {
-  return BRIDGE_LOG_FORBIDDEN_KEYS.has(normalizeBridgeLogKey(key));
+  return isSafeLogForbiddenKey(key, { forbiddenKeys: BRIDGE_LOG_FORBIDDEN_KEYS });
 }
 
 function writeBridgeLog(level, event, fields) {
   const serializableFields = serializableBridgeValue(optionalDiagnosticFields(fields));
+  const safeFields = safeLogFields(serializableFields, {
+    forbiddenKeys: BRIDGE_LOG_FORBIDDEN_KEYS,
+    forbiddenKeyMode: 'omit',
+    redactedValue: BRIDGE_REDACTED_VALUE,
+  });
   if (logStoreInstance && typeof logStoreInstance[level] === 'function') {
-    logStoreInstance[level](event, serializableFields);
+    logStoreInstance[level](event, safeFields);
   } else {
-    console[level === 'error' ? 'error' : 'log'](`[Bridge ${level}] ${event}`, serializableFields);
+    console[level === 'error' ? 'error' : 'log'](`[Bridge ${level}] ${event}`, safeFields);
   }
 }
 
