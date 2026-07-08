@@ -39,6 +39,14 @@ run_go_test() {
   )
 }
 
+run_copylocks_guard() {
+  local real_go="$1"
+  (
+    cd "$ROOT_DIR"
+    "$real_go" vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
+  )
+}
+
 all_args_are_go_files() {
   local arg
   for arg in "$@"; do
@@ -104,6 +112,7 @@ main() {
         exit 1
       fi
       run_guard "$real_go"
+      run_copylocks_guard "$real_go"
       run_go_test "$real_go" "$@"
       ;;
     *)
@@ -116,6 +125,7 @@ main() {
         return
       fi
       run_guard "$real_go"
+      run_copylocks_guard "$real_go"
       run_go_test "$real_go" "$@"
       ;;
   esac

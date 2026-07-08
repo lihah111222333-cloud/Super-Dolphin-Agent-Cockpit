@@ -499,11 +499,36 @@ func hasUsefulChineseFuncDoc(fd *ast.FuncDecl) bool {
 		if text == "" || strings.Contains(text, archGuardIgnorePrefix) {
 			continue
 		}
-		if containsChineseRune(text) {
+		if containsChineseRune(text) && hasSpecificFuncDocText(fd.Name.Name, text) {
 			return true
 		}
 	}
 	return false
+}
+
+// hasSpecificFuncDocText 拦截“函数名 + 空泛模板”式注释，避免只靠中文字符骗过守卫。
+func hasSpecificFuncDocText(funcName, text string) bool {
+	cleaned := strings.TrimSpace(strings.ReplaceAll(text, funcName, ""))
+	cleaned = strings.Trim(cleaned, " ，。,.、:：；;")
+	if cleaned == "" {
+		return false
+	}
+	boilerplates := []string{
+		"处理逻辑",
+		"实现逻辑",
+		"相关逻辑",
+		"函数说明",
+		"执行操作",
+		"进行处理",
+		"用于处理",
+		"完成操作",
+		"负责处理",
+	}
+	for _, phrase := range boilerplates {
+		cleaned = strings.ReplaceAll(cleaned, phrase, "")
+	}
+	cleaned = strings.Trim(cleaned, " ，。,.、:：；;")
+	return containsChineseRune(cleaned)
 }
 
 func containsChineseRune(text string) bool {

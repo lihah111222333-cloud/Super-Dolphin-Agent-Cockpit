@@ -5539,6 +5539,39 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('rejects stale thread patch generation after restart advances', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: '2',
+        sequence: '1',
+        timelineItems: [{ id: 'assistant-current', kind: 'assistant', text: 'current generation' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: '1',
+        sequence: '99',
+        timelineItems: [{ id: 'assistant-stale-generation', kind: 'assistant', text: 'stale generation' }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-current', text: 'current generation' }),
+    ]);
+  });
+
   it('coalesces repeated RPC warning entries while preserving occurrence count', () => {
     useClientStore.getState().addLog('error', 'api.rpc.failed', {
       method: 'thread/config/get',

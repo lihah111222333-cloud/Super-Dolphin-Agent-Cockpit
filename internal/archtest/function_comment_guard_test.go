@@ -66,6 +66,25 @@ func BuildRunner() {}
 	}
 }
 
+func TestFunctionCommentGuardRejectsVagueChineseTemplateDoc(t *testing.T) {
+	t.Parallel()
+
+	path := writeFunctionCommentFixture(t, `package sample
+
+// BuildRunner 处理逻辑。
+func BuildRunner() {}
+`)
+
+	violations := filterViolationsByKind(CheckFiles(CheckOptions{
+		RepoRoot:            filepath.Dir(path),
+		EnforceFuncComments: true,
+	}, []string{filepath.Base(path)}), ViolationFuncComment)
+
+	if len(violations) != 1 {
+		t.Fatalf("func comment violations = %d, want 1:\n%s", len(violations), formatViolations(violations))
+	}
+}
+
 func TestFunctionCommentGuardIgnoresShortPrivateFunctions(t *testing.T) {
 	t.Parallel()
 

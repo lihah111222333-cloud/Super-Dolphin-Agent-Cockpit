@@ -244,6 +244,17 @@ function Invoke-GoTest {
     }
 }
 
+function Invoke-CopylocksGuard {
+    param([string]$realGo)
+    Push-Location $RootDir
+    try {
+        & $realGo vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
+        $script:LastStatus = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
 function Test-AllArgsAreGoFiles {
     param([string[]]$Args)
     if ($Args.Count -eq 0) {
@@ -330,6 +341,11 @@ function Main {
             if ($status -ne 0) {
                 exit $status
             }
+            Invoke-CopylocksGuard -realGo $realGo
+            $status = $script:LastStatus
+            if ($status -ne 0) {
+                exit $status
+            }
             Invoke-GoTest -realGo $realGo -GuardArgs $remaining
             $status = $script:LastStatus
             exit $status
@@ -345,6 +361,11 @@ function Main {
                 exit $status
             }
             Invoke-Guard -realGo $realGo
+            $status = $script:LastStatus
+            if ($status -ne 0) {
+                exit $status
+            }
+            Invoke-CopylocksGuard -realGo $realGo
             $status = $script:LastStatus
             if ($status -ne 0) {
                 exit $status

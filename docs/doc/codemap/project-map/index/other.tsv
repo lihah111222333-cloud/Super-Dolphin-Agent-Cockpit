@@ -81,12 +81,12 @@ internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	4640	�
 internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry.go	internal	other	go-source	5395	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/frontend_app_shell_surface_guard_test.go	internal	other	go-test	1361	架构守卫、baseline ratchet 与冻结规则	internal,archtest,frontend,app,shell,surface,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/function_comment_guard_test.go	internal	other	go-test	4811	架构守卫、baseline ratchet 与冻结规则	internal,archtest,function,comment,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/function_comment_guard_test.go	internal	other	go-test	5346	架构守卫、baseline ratchet 与冻结规则	internal,archtest,function,comment,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_graph_test.go	internal	other	go-test	267	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,graph,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_invoke_guard_fixture_test.go	internal	other	go-test	3295	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,fixture,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_invoke_guard_test.go	internal	other	go-test	5764	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_lifecycle_guard_test.go	internal	other	go-test	2505	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,lifecycle,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/guardlib.go	internal	other	go-source	18251	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/guardlib.go	internal	other	go-source	19017	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/id_parse_guard_test.go	internal	other	go-test	2341	架构守卫、baseline ratchet 与冻结规则	internal,archtest,id,parse,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/identifier_guard_test.go	internal	other	go-test	1539	架构守卫、baseline ratchet 与冻结规则	internal,archtest,identifier,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ignored_return_guard_test.go	internal	other	go-test	3768	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ignored,return,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -448,8 +448,8 @@ scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	5895	工程自�
 scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main.go	scripts	other	go-source	2592	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1251	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.ps1	scripts	other	script	11441	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.sh	scripts	other	script	2428	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.ps1	scripts	other	script	12071	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.sh	scripts	other	script	2684	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	4208	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
 scripts/uat-p21.sh	scripts	other	script	9414	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
