@@ -5,13 +5,13 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4235,
+  "files": 4243,
   "domains": {
     "docs-agent": 866,
     "other": 502,
     "app-ui": 426,
-    "platform-provider": 1005,
-    "orchestration": 412,
+    "platform-provider": 1010,
+    "orchestration": 415,
     "modules": 717,
     "store-sql": 307
   },
@@ -29,8 +29,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 412,
-        "size_kb": 92.3,
+        "file_count": 415,
+        "size_kb": 93.1,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1005,
-        "size_kb": 185.2,
+        "file_count": 1010,
+        "size_kb": 186,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -72,10 +72,10 @@
   },
   "module_counts": {
     "(root)": 7,
-    "cmd": 649,
+    "cmd": 655,
     "docs": 863,
     "frontend-app": 424,
-    "internal": 1997,
+    "internal": 1999,
     "migrations": 112,
     "pkg": 25,
     "scripts": 109,

@@ -5,42 +5,6 @@
     "tests": {}
   },
   "priority_ssa": {
-    "cmd/mcp-lsp/tools/factory.go:397:priority_ssa_error_string:error string match strings.Contains": {
-      "rule": "priority_ssa_error_string",
-      "file": "cmd/mcp-lsp/tools/factory.go",
-      "line": 397,
-      "detail": "error string match strings.Contains"
-    },
-    "cmd/mcp-lsp/tools/factory.go:398:priority_ssa_error_string:error string match strings.Contains": {
-      "rule": "priority_ssa_error_string",
-      "file": "cmd/mcp-lsp/tools/factory.go",
-      "line": 398,
-      "detail": "error string match strings.Contains"
-    },
-    "cmd/mcp-lsp/tools/factory.go:399:priority_ssa_error_string:error string match strings.Contains": {
-      "rule": "priority_ssa_error_string",
-      "file": "cmd/mcp-lsp/tools/factory.go",
-      "line": 399,
-      "detail": "error string match strings.Contains"
-    },
-    "cmd/mcp-lsp/tools/factory.go:400:priority_ssa_error_string:error string match strings.Contains": {
-      "rule": "priority_ssa_error_string",
-      "file": "cmd/mcp-lsp/tools/factory.go",
-      "line": 400,
-      "detail": "error string match strings.Contains"
-    },
-    "cmd/mcp-lsp/tools/factory.go:401:priority_ssa_error_string:error string match strings.Contains": {
-      "rule": "priority_ssa_error_string",
-      "file": "cmd/mcp-lsp/tools/factory.go",
-      "line": 401,
-      "detail": "error string match strings.Contains"
-    },
-    "cmd/mcp-lsp/tools/factory.go:402:priority_ssa_error_string:error string match strings.Contains": {
-      "rule": "priority_ssa_error_string",
-      "file": "cmd/mcp-lsp/tools/factory.go",
-      "line": 402,
-      "detail": "error string match strings.Contains"
-    },
     "cmd/mcp-orch/fx.go:179:priority_ssa_wide_port:type conversion in buildOrchestrationOptions uses broad port taskdag.Store": {
       "rule": "priority_ssa_wide_port",
       "file": "cmd/mcp-orch/fx.go",

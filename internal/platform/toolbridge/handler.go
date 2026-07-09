@@ -400,22 +400,6 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	return result, nil
 }
 
-// toolCallTextResult 构造文本型 ToolCallResult，供本地拦截和错误分支复用。
-func toolCallTextResult(success bool, text string) *ToolCallResult {
-	return &ToolCallResult{
-		Success: success,
-		ContentItems: []ToolCallContentItem{{
-			Type: "inputText",
-			Text: text,
-		}},
-	}
-}
-
-// toolCallErrorResult 构造失败文本结果，保持 peer callback 错误不向 JSON-RPC 外层冒泡。
-func toolCallErrorResult(text string) *ToolCallResult {
-	return toolCallTextResult(false, text)
-}
-
 // managed launch 参数注入相关 helper 位于 handler_managed_launch.go。
 
 // resolveCurrentToolCallBinding 从 agentID、threadID 和 provider thread 中恢复当前 tool call 绑定。

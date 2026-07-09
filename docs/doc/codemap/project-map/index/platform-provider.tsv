@@ -168,8 +168,11 @@ cmd/mcp-lsp/tools_scope_routing_test.go	cmd	platform-provider	go-test	10948	代�
 cmd/mcp-lsp/tools_test.go	cmd	platform-provider	go-test	17449	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools.go	cmd	platform-provider	go-source	4578	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools/atomic_write.go	cmd	platform-provider	go-source	3665	LSP MCP tools 实现	cmd,mcp,lsp,tools,atomic,write,LSP,MCP,实现
+cmd/mcp-lsp/tools/factory_bindings.go	cmd	platform-provider	go-source	9269	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,bindings,LSP,MCP,实现
+cmd/mcp-lsp/tools/factory_results.go	cmd	platform-provider	go-source	2622	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,results,LSP,MCP,实现
+cmd/mcp-lsp/tools/factory_scope.go	cmd	platform-provider	go-source	9483	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,scope,LSP,MCP,实现
 cmd/mcp-lsp/tools/factory_test.go	cmd	platform-provider	go-test	13571	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,test,LSP,MCP,实现
-cmd/mcp-lsp/tools/factory.go	cmd	platform-provider	go-source	24256	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,LSP,MCP,实现
+cmd/mcp-lsp/tools/factory.go	cmd	platform-provider	go-source	3668	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,LSP,MCP,实现
 cmd/mcp-lsp/tools/formatter_test.go	cmd	platform-provider	go-test	1161	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/formatter.go	cmd	platform-provider	go-source	16346	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,LSP,MCP,实现
 cmd/mcp-lsp/tools/position.go	cmd	platform-provider	go-source	12195	LSP MCP tools 实现	cmd,mcp,lsp,tools,position,LSP,MCP,实现
@@ -668,13 +671,14 @@ internal/platform/toolbridge/handler_managed_launch.go	internal	platform-provide
 internal/platform/toolbridge/handler_peer_decode_helpers.go	internal	platform-provider	go-source	25291	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,helpers,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_peer_decode.go	internal	platform-provider	go-source	26350	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_proxy_timeout_test.go	internal	platform-provider	go-test	2267	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,proxy,timeout,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/handler_response.go	internal	platform-provider	go-source	525	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,response,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_runtime_test.go	internal	platform-provider	go-test	11012	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,runtime,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_shard13_memory_test.go	internal	platform-provider	go-test	18730	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,shard13,memory,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_shard13_persistent_test.go	internal	platform-provider	go-test	11924	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,shard13,persistent,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_shard13_routing_test.go	internal	platform-provider	go-test	20260	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,shard13,routing,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_shard13_tools_list_test.go	internal	platform-provider	go-test	7082	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,shard13,tools,list,test,provider,与,MCP,桥接
 internal/platform/toolbridge/handler_test.go	internal	platform-provider	go-test	20275	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/handler.go	internal	platform-provider	go-source	30737	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/handler.go	internal	platform-provider	go-source	30231	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/history_read_tool_test.go	internal	platform-provider	go-test	15697	provider 与 MCP tools 桥接	internal,platform,toolbridge,history,read,tool,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/host_tools_dispatch_contract_test.go	internal	platform-provider	go-test	4592	provider 与 MCP tools 桥接	internal,platform,toolbridge,host,tools,dispatch,contract,test,provider,与,MCP,桥接
 internal/platform/toolbridge/host_tools_memory_codex_shard19_test.go	internal	platform-provider	go-test	17370	provider 与 MCP tools 桥接	internal,platform,toolbridge,host,tools,memory,codex,shard19,test,provider,与,MCP,桥接
@@ -839,9 +843,10 @@ internal/provider/codexapp/driver_resume_snapshot_test.go	internal	platform-prov
 internal/provider/codexapp/driver_session_helpers_test.go	internal	platform-provider	go-test	8197	Codex app/server provider 集成	internal,provider,codexapp,driver,session,helpers,test,Codex,app,server,集成
 internal/provider/codexapp/driver_session_test.go	internal	platform-provider	go-test	30080	Codex app/server provider 集成	internal,provider,codexapp,driver,session,test,Codex,app,server,集成
 internal/provider/codexapp/driver_start_failure_test.go	internal	platform-provider	go-test	4272	Codex app/server provider 集成	internal,provider,codexapp,driver,start,failure,test,Codex,app,server,集成
+internal/provider/codexapp/driver_surface.go	internal	platform-provider	go-source	17879	Codex app/server provider 集成	internal,provider,codexapp,driver,surface,Codex,app,server,集成
 internal/provider/codexapp/driver_toolbridge_test.go	internal	platform-provider	go-test	21736	Codex app/server provider 集成	internal,provider,codexapp,driver,toolbridge,test,Codex,app,server,集成
 internal/provider/codexapp/driver_toolsurface_contract_test.go	internal	platform-provider	go-test	2716	Codex app/server provider 集成	internal,provider,codexapp,driver,toolsurface,contract,test,Codex,app,server,集成
-internal/provider/codexapp/driver.go	internal	platform-provider	go-source	34526	Codex app/server provider 集成	internal,provider,codexapp,driver,Codex,app,server,集成
+internal/provider/codexapp/driver.go	internal	platform-provider	go-source	17265	Codex app/server provider 集成	internal,provider,codexapp,driver,Codex,app,server,集成
 internal/provider/codexapp/dynamic_skill_tools_e2e_test.go	internal	platform-provider	go-test	14695	Codex app/server provider 集成	internal,provider,codexapp,dynamic,skill,tools,e2e,test,Codex,app,server,集成
 internal/provider/codexapp/dynamic_tool_details_test.go	internal	platform-provider	go-test	4826	Codex app/server provider 集成	internal,provider,codexapp,dynamic,tool,details,test,Codex,app,server,集成
 internal/provider/codexapp/env_allowlist_test.go	internal	platform-provider	go-test	5381	Codex app/server provider 集成	internal,provider,codexapp,env,allowlist,test,Codex,app,server,集成
