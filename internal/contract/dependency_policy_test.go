@@ -113,6 +113,33 @@ func TestDependencyAbsencePolicyReturnsTypedModeErrorOnlyWhenAllowed(t *testing.
 	}
 }
 
+func TestRequireDependencyAllowsRegisteredAbsenceForConstructors(t *testing.T) {
+	if err := RequireDependency("runtime_reporter.orchestration_service", DependencyProfileDesktopHost, nil); err != nil {
+		t.Fatalf("RequireDependency(desktop registered nil) error = %v, want nil", err)
+	}
+	if err := RequireDependency("runtime_reporter.orchestration_service", DependencyProfileTest, nil); err != nil {
+		t.Fatalf("RequireDependency(test registered nil) error = %v, want nil", err)
+	}
+	if err := RequireDependency("runtime_reporter.orchestration_service", DependencyProfileProduction, struct{}{}); err != nil {
+		t.Fatalf("RequireDependency(production present) error = %v", err)
+	}
+}
+
+func TestRequireDependencyRejectsProductionAndUnknownAbsence(t *testing.T) {
+	if err := RequireDependency("runtime_reporter.orchestration_service", DependencyProfileProduction, nil); err == nil {
+		t.Fatal("RequireDependency(production registered nil) error = nil, want production failure")
+	}
+	if err := RequireDependency("unknown.optional", DependencyProfileDesktopHost, nil); err == nil {
+		t.Fatal("RequireDependency(unknown nil) error = nil, want unknown dependency failure")
+	}
+	if err := RequireDependency("", DependencyProfileDesktopHost, nil); err == nil {
+		t.Fatal("RequireDependency(empty name) error = nil, want dependency name failure")
+	}
+	if err := RequireDependency("runtime_reporter.orchestration_service", "", nil); err == nil {
+		t.Fatal("RequireDependency(empty profile) error = nil, want dependency profile failure")
+	}
+}
+
 func TestRegisteredDependencyAbsencePoliciesReturnsCopy(t *testing.T) {
 	policies := RegisteredDependencyAbsencePolicies()
 	if len(policies) == 0 {

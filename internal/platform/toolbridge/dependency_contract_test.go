@@ -51,8 +51,8 @@ func TestToolbridgeDesktopProfileAllowsOnlyNamedMissingDependencies(t *testing.T
 			omit:    dependency,
 		}.handlerIn())
 		if allowed[dependency] {
-			if !contract.IsDependencyModeError(err, dependency, contract.DependencyProfileDesktopHost, contract.ErrUnsupportedDependencyMode) {
-				t.Fatalf("%s error = %v, want desktop typed unsupported", dependency, err)
+			if err != nil {
+				t.Fatalf("%s error = %v, want nil for registered desktop constructor absence", dependency, err)
 			}
 			continue
 		}
@@ -70,8 +70,8 @@ func TestToolbridgeTestProfileAllowsOnlyTestNamedMissingDependencies(t *testing.
 			omit:    dependency,
 		}.handlerIn())
 		if allowed[dependency] {
-			if !contract.IsDependencyModeError(err, dependency, contract.DependencyProfileTest, contract.ErrUnsupportedDependencyMode) {
-				t.Fatalf("%s error = %v, want test typed unsupported", dependency, err)
+			if err != nil {
+				t.Fatalf("%s error = %v, want nil for registered test constructor absence", dependency, err)
 			}
 			continue
 		}

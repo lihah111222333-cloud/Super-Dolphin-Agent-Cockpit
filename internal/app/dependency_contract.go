@@ -18,17 +18,7 @@ func newDependencyContract(profile contract.DependencyProfile) dependencyContrac
 // Require 按 dependency profile 校验 app 依赖是否允许缺席。
 // production 缺关键依赖必须 fail-fast，desktop/test 只允许清单内的显式外部依赖。
 func (c dependencyContract) Require(name string, value any) error {
-	name = strings.TrimSpace(name)
-	if value != nil {
-		return nil
-	}
-	if strings.TrimSpace(string(c.profile)) == "" {
-		return fmt.Errorf("app dependency profile is required before resolving %q", name)
-	}
-	if contract.AllowsMissingDependency(name, c.profile) {
-		return nil
-	}
-	return contract.MissingDependencyModeError(name, c.profile)
+	return contract.RequireDependency(name, c.profile, value)
 }
 
 func appDependencyProfile(dependency contract.DependencyConfig, cfg *contract.Config) (contract.DependencyProfile, error) {

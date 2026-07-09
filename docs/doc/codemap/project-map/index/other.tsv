@@ -13,7 +13,7 @@ internal/app/app_test.go	internal	other	go-test	4257	root Fx/app 装配、runner
 internal/app/app.go	internal	other	go-source	12858	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/dashboard_adapter.go	internal	other	go-source	4484	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dashboard,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/dependency_contract_test.go	internal	other	go-test	3724	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/dependency_contract.go	internal	other	go-source	1784	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/dependency_contract.go	internal	other	go-source	1507	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/desktop_preflight_test.go	internal	other	go-test	15173	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,desktop,preflight,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/frontend_embed_contract_test.go	internal	other	go-test	2482	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,frontend,embed,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/mcpcontrol_log_sink.go	internal	other	go-source	1489	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,mcpcontrol,log,sink,root,Fx,装配,runner,与,toolbridge,adapters
@@ -70,7 +70,7 @@ internal/archtest/dependency_direction_mcp_orch_test.go	internal	other	go-test	3
 internal/archtest/dependency_direction_module_store_test.go	internal	other	go-test	5286	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,module,store,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_test.go	internal	other	go-test	20080	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_wave3_test.go	internal	other	go-test	2566	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,wave3,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dependency_optional_boundary_test.go	internal	other	go-test	37844	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_optional_boundary_test.go	internal	other	go-test	38630	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/desktop_dependency_test.go	internal	other	go-test	612	架构守卫、baseline ratchet 与冻结规则	internal,archtest,desktop,dependency,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deterministic_time_guard_test.go	internal	other	go-test	5503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deterministic,time,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dispatcher_wiring_guard_test.go	internal	other	go-test	8356	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dispatcher,wiring,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -190,13 +190,13 @@ internal/contract/bus.go	internal	other	go-source	2153	跨模块稳定接口、�
 internal/contract/change_request_test.go	internal	other	go-test	1381	跨模块稳定接口、事件和 DTO 边界	internal,contract,change,request,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/codex_identity_test.go	internal	other	go-test	352	跨模块稳定接口、事件和 DTO 边界	internal,contract,codex,identity,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/codex_identity.go	internal	other	go-source	6561	跨模块稳定接口、事件和 DTO 边界	internal,contract,codex,identity,跨模块稳定接口,事件和,DTO,边界
-internal/contract/config.go	internal	other	go-source	13877	跨模块稳定接口、事件和 DTO 边界	internal,contract,config,跨模块稳定接口,事件和,DTO,边界
+internal/contract/config.go	internal	other	go-source	14790	跨模块稳定接口、事件和 DTO 边界	internal,contract,config,跨模块稳定接口,事件和,DTO,边界
 internal/contract/contracttest/section_invalidator.go	internal	other	go-source	1609	跨模块稳定接口、事件和 DTO 边界	internal,contract,contracttest,section,invalidator,跨模块稳定接口,事件和,DTO,边界
 internal/contract/cron.go	internal	other	go-source	2164	跨模块稳定接口、事件和 DTO 边界	internal,contract,cron,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_events_test.go	internal	other	go-test	3611	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,events,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_final_output_test.go	internal	other	go-test	2532	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,final,output,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_start_response_test.go	internal	other	go-test	1228	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/dependency_policy_test.go	internal	other	go-test	4750	跨模块稳定接口、事件和 DTO 边界	internal,contract,dependency,policy,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dependency_policy_test.go	internal	other	go-test	6276	跨模块稳定接口、事件和 DTO 边界	internal,contract,dependency,policy,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dream.go	internal	other	go-source	2468	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
 internal/contract/errors.go	internal	other	go-source	3220	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
 internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界

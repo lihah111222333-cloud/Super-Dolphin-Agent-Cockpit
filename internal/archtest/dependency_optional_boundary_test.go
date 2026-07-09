@@ -68,6 +68,23 @@ func TestOptionalDependencyBoundary(t *testing.T) {
 	}
 }
 
+func TestOptionalDependencyAbsenceUsesRequireDependency(t *testing.T) {
+	t.Parallel()
+
+	classifications := registeredOptionalDependencyClassifications()
+	for key, classification := range classifications {
+		if classification.category != optionalDependencyAbsence {
+			continue
+		}
+		if err := contract.RequireDependency(classification.dependency, classification.profile, nil); err != nil {
+			t.Fatalf("%s: RequireDependency(%q, %s, nil) error = %v, want nil", key, classification.dependency, classification.profile, err)
+		}
+		if err := contract.RequireDependency(classification.dependency, contract.DependencyProfileProduction, nil); err == nil {
+			t.Fatalf("%s: RequireDependency(%q, production, nil) error = nil, want production failure", key, classification.dependency)
+		}
+	}
+}
+
 func TestOptionalDependencyBudgetGuard(t *testing.T) {
 	t.Parallel()
 

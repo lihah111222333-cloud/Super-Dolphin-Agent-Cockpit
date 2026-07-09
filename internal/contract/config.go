@@ -220,6 +220,30 @@ func MissingDependencyModeError(name string, profile DependencyProfile) error {
 	return fmt.Errorf("unknown dependency absence policy %q in %s profile", name, profile)
 }
 
+// RequireDependency 校验构造期依赖是否存在；已登记的非生产缺席只允许构造继续，不转换成运行期 typed mode error。
+func RequireDependency(name string, profile DependencyProfile, value any) error {
+	name = strings.TrimSpace(name)
+	if value != nil {
+		return nil
+	}
+	if name == "" {
+		return fmt.Errorf("dependency name is required")
+	}
+	if strings.TrimSpace(string(profile)) == "" {
+		return fmt.Errorf("dependency profile is required for %q", name)
+	}
+	if !isKnownDependencyProfile(profile) {
+		return fmt.Errorf("dependency profile %q is not supported for %q", profile, name)
+	}
+	if _, ok := lookupDependencyAbsencePolicy(name, profile); ok {
+		return nil
+	}
+	if dependencyAbsencePolicyNameExists(name) {
+		return fmt.Errorf("dependency %q is required in %s profile", name, profile)
+	}
+	return fmt.Errorf("unknown dependency absence policy %q in %s profile", name, profile)
+}
+
 // lookupDependencyAbsencePolicy 按 name/profile 精确查找注册策略，空值或未注册时返回 false。
 func lookupDependencyAbsencePolicy(name string, profile DependencyProfile) (DependencyAbsencePolicy, bool) {
 	name = strings.TrimSpace(name)

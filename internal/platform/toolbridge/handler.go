@@ -158,20 +158,20 @@ func validateToolbridgeDependencies(in handlerIn) error {
 	}
 	for _, dependency := range []struct {
 		name    string
-		missing bool
+		present bool
 	}{
-		{name: toolbridgeDependencyDispatcher, missing: in.Dispatcher == nil || in.Emitter == nil},
-		{name: toolbridgeDependencyWorkdirResolver, missing: in.Resolver == nil},
-		{name: toolbridgeDependencyPreferences, missing: in.Preferences == nil},
-		{name: toolbridgeDependencyLifecycleBackfiller, missing: in.Lifecycle == nil},
-		{name: toolbridgeDependencyLifecyclePolicyReader, missing: in.LifecyclePolicy == nil},
-		{name: toolbridgeDependencyAgentThreadLookup, missing: in.BindingStore == nil},
-		{name: toolbridgeDependencyThreadConfigOverride, missing: in.ThreadStore == nil},
-		{name: toolbridgeDependencyHostTools, missing: toolbridgeHostToolsMissing(in.HostTools)},
-		{name: toolbridgeDependencySkillTools, missing: in.SkillTools == nil},
+		{name: toolbridgeDependencyDispatcher, present: in.Dispatcher != nil && in.Emitter != nil},
+		{name: toolbridgeDependencyWorkdirResolver, present: in.Resolver != nil},
+		{name: toolbridgeDependencyPreferences, present: in.Preferences != nil},
+		{name: toolbridgeDependencyLifecycleBackfiller, present: in.Lifecycle != nil},
+		{name: toolbridgeDependencyLifecyclePolicyReader, present: in.LifecyclePolicy != nil},
+		{name: toolbridgeDependencyAgentThreadLookup, present: in.BindingStore != nil},
+		{name: toolbridgeDependencyThreadConfigOverride, present: in.ThreadStore != nil},
+		{name: toolbridgeDependencyHostTools, present: !toolbridgeHostToolsMissing(in.HostTools)},
+		{name: toolbridgeDependencySkillTools, present: in.SkillTools != nil},
 	} {
-		if dependency.missing {
-			return toolbridgeMissingDependencyError(dependency.name, profile)
+		if err := requireToolbridgeDependency(dependency.name, profile, dependency.present); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -180,7 +180,7 @@ func validateToolbridgeDependencies(in handlerIn) error {
 func validateToolbridgeConfigDependency(cfg *platformconfig.Config, dependency contract.DependencyConfig) error {
 	profile := dependency.Profile
 	if cfg == nil || strings.TrimSpace(string(cfg.Dependency.Profile)) == "" {
-		return toolbridgeMissingDependencyError(toolbridgeDependencyConfig, profile)
+		return contract.RequireDependency(toolbridgeDependencyConfig, profile, nil)
 	}
 	if cfg.Dependency.Profile != profile {
 		return fmt.Errorf(
@@ -196,8 +196,11 @@ func toolbridgeHostToolsMissing(hostTools HostToolRegistry) bool {
 	return hostTools == nil || len(hostTools.ListHostTools()) == 0
 }
 
-func toolbridgeMissingDependencyError(name string, profile contract.DependencyProfile) error {
-	return contract.MissingDependencyModeError(name, profile)
+func requireToolbridgeDependency(name string, profile contract.DependencyProfile, present bool) error {
+	if present {
+		return nil
+	}
+	return contract.RequireDependency(name, profile, nil)
 }
 
 // HandleToolCall 是 JSON-RPC tool call 的入口。
