@@ -190,8 +190,8 @@ const (
 	processExitAutoRecoverWindow = 2 * time.Minute
 )
 
-func shouldAutoRecoverProcessExitLocked(s *service, agent *agentRuntime, err error) bool {
-	if !processExitAutoRecoverable(s, agent, err) {
+func shouldAutoRecoverProcessExitLocked(launcher recoveryLauncherPort, agent *agentRuntime, err error) bool {
+	if !processExitAutoRecoverable(launcher, agent, err) {
 		return false
 	}
 	resetProcessExitAutoRecoverWindowLocked(agent, time.Now())
@@ -204,9 +204,9 @@ func shouldAutoRecoverProcessExitLocked(s *service, agent *agentRuntime, err err
 }
 
 // processExitAutoRecoverable 判断进程退出后是否还能由本地命令或 launcher 恢复。
-func processExitAutoRecoverable(s *service, agent *agentRuntime, err error) bool {
-	return s != nil && agent != nil && err != nil && !agent.stopRequested &&
-		(len(agent.command) > 0 || s.lifecycle.launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
+func processExitAutoRecoverable(launcher recoveryLauncherPort, agent *agentRuntime, err error) bool {
+	return agent != nil && err != nil && !agent.stopRequested &&
+		(len(agent.command) > 0 || launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
 }
 
 func resetProcessExitAutoRecoverWindowLocked(agent *agentRuntime, now time.Time) {

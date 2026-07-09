@@ -24,7 +24,7 @@ type turnLifecycleRuntime interface {
 	forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error)
 	forceIdleAfterInterruptionError(ctx context.Context, agentID string, turnID string, reason string) (bool, error)
 	stopAgentAfterPermanentTurnFailure(agentID, threadID, source string)
-	withAgentReadLocked(agentID string, fn func(*agentRuntime) error) error
+	turnTerminalConverged(agentID, turnID string) bool
 }
 
 // TurnLifecyclePort is the narrow runtime consumed by fx turn lifecycle hooks.
@@ -333,7 +333,7 @@ func (s *service) forceIdleAfterCompletionError(
 	errMsg string,
 ) (bool, error) {
 	recovered := false
-	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	err := s.turns.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
 			recoveredTrigger: string(completionRecoveryTrigger(success)),
@@ -355,7 +355,7 @@ func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev t
 	if err != nil {
 		return false, err
 	}
-	err = s.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err = s.turns.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		if !canRecoverProviderTurnCompletion(agent, ev) {
 			return errTurnNotActive
 		}
@@ -390,7 +390,7 @@ func (s *service) forceIdleAfterInterruptionError(
 	reason string,
 ) (bool, error) {
 	recovered := false
-	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	err := s.turns.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
 			recoveredTrigger: string(agentdto.TriggerTurnAborted),
@@ -521,14 +521,7 @@ func turnTerminalConverged(runtime turnLifecycleRuntime, agentID, turnID string)
 	if runtime == nil {
 		return false
 	}
-	converged := false
-	if err := runtime.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		converged = turnTerminalConvergedLocked(agent, turnID)
-		return nil
-	}); err != nil {
-		return false
-	}
-	return converged
+	return runtime.turnTerminalConverged(agentID, turnID)
 }
 
 // turnTerminalConvergedLocked 在持锁读取路径判断 turn 终态是否已收敛。

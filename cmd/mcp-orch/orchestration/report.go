@@ -19,7 +19,7 @@ import (
 // GetState 返回 agent 当前状态；runtime 缺失时回退到持久化 thread 快照。
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
-	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
+	err := s.registry.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		result = AgentStateResult{AgentID: agent.id, State: string(agent.state)}
 		return nil
 	})

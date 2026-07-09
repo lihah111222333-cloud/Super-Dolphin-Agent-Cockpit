@@ -79,6 +79,7 @@ func TestOrchestrationLifecycleControllerStateOwnershipRatchet(t *testing.T) {
 	actualFields := orchestrationInternalBoundaryStructFieldNames(lifecycleStruct)
 	actual := orchestrationInternalBoundarySet(actualFields)
 	expectedFields := []string{
+		"registry",
 		"launcher",
 		"sessionCleaner",
 		"recoveryStore",
@@ -216,6 +217,29 @@ func TestOrchestrationDoesNotGrowDuplicateStopperInterfaces(t *testing.T) {
 	foundCanonical, violations := orchestrationInternalBoundaryStopperInterfaceViolations(t, root, files)
 	if !foundCanonical {
 		violations = append(violations, "cmd/mcp-orch/orchestration/stop_helper.go:35 StopAgentService not found; duplicate stopper guard has no canonical reuse target")
+	}
+	failIfViolations(t, violations)
+}
+
+func TestOrchestrationServiceDoesNotExposeRegistryPassThroughWrappers(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	files := orchestrationInternalBoundaryGoFiles(t, root, "cmd/mcp-orch/orchestration")
+	bannedNames := map[string]struct{}{
+		"listAgents":                   {},
+		"withAgentLocked":              {},
+		"withAgentReadLocked":          {},
+		"withAgentReadLockedByAgentID": {},
+	}
+
+	var violations []string
+	for _, relPath := range files {
+		if strings.HasSuffix(relPath, "_test.go") {
+			continue
+		}
+		fset, file := orchestrationInternalBoundaryParseFile(t, root, relPath)
+		violations = append(violations, orchestrationInternalBoundaryServiceRegistryPassThroughViolations(fset, file, relPath, bannedNames)...)
 	}
 	failIfViolations(t, violations)
 }
@@ -376,6 +400,71 @@ func orchestrationInternalBoundaryExactStructFieldViolations(relPath, typeName s
 		violations = append(violations, fmt.Sprintf("%s: %s.%s must not be added without an explicit owner-boundary update", relPath, typeName, field))
 	}
 	return violations
+}
+
+func orchestrationInternalBoundaryServiceRegistryPassThroughViolations(
+	fset *token.FileSet,
+	file *ast.File,
+	relPath string,
+	bannedNames map[string]struct{},
+) []string {
+	var violations []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		recvName, ok := orchestrationInternalBoundaryServiceReceiverName(fn)
+		if !ok {
+			continue
+		}
+		line := fset.Position(fn.Pos()).Line
+		if _, banned := bannedNames[fn.Name.Name]; banned {
+			violations = append(violations, fmt.Sprintf("%s:%d service.%s must not reintroduce agentRegistry pass-through wrappers; use agentRegistry or a lifecycle/turn/report owner directly", relPath, line, fn.Name.Name))
+			continue
+		}
+		if orchestrationInternalBoundaryPureRegistryReturn(fn, recvName, bannedNames) {
+			violations = append(violations, fmt.Sprintf("%s:%d service.%s is a pure s.registry pass-through; move the call to the real owner or add domain logic behind a narrow port", relPath, line, fn.Name.Name))
+		}
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryServiceReceiverName(fn *ast.FuncDecl) (string, bool) {
+	if fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return "", false
+	}
+	recv := fn.Recv.List[0]
+	typeName := exprTypeString(recv.Type)
+	if typeName != "*service" && typeName != "service" {
+		return "", false
+	}
+	if len(recv.Names) != 1 {
+		return "", false
+	}
+	return recv.Names[0].Name, true
+}
+
+func orchestrationInternalBoundaryPureRegistryReturn(fn *ast.FuncDecl, recvName string, bannedRegistryMethods map[string]struct{}) bool {
+	if fn.Body == nil || len(fn.Body.List) != 1 {
+		return false
+	}
+	ret, ok := fn.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return false
+	}
+	call, ok := ret.Results[0].(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if _, banned := bannedRegistryMethods[sel.Sel.Name]; !banned {
+		return false
+	}
+	return orchestrationInternalBoundarySelectorChain(sel.X, recvName, "registry")
 }
 
 func orchestrationInternalBoundaryParseFile(t *testing.T, root, relPath string) (*token.FileSet, *ast.File) {
