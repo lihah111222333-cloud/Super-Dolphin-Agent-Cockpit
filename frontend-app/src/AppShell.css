@@ -1,3 +1,8 @@
+.nav-rail {
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--line);
+}
+
 .sa-window[data-theme="light"] .nav-rail {
   background: var(--bg-elevated);
 }
@@ -17,9 +22,9 @@
   place-items: center;
   gap: 4px;
   border: 0;
-  border-radius: 0 14px 14px 0;
+  border-radius: 0 18px 18px 0;
   background: transparent;
-  color: var(--muted);
+  color: var(--text-muted);
   padding: 6px 5px;
   transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
 }
@@ -34,17 +39,17 @@
 }
 
 .nav-rail button.active {
-  color: var(--ink);
-  background: var(--accent-soft);
+  color: var(--text-pri);
+  background: var(--primary-soft);
 }
 
 .nav-rail button.active::before {
-  background: var(--accent-2);
+  background: var(--primary);
 }
 
 .nav-rail button:hover {
-  color: var(--ink);
-  background: var(--panel-2);
+  color: var(--text-pri);
+  background: var(--surface-2);
 }
 
 .nav-rail button span {
@@ -76,7 +81,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: transparent;
+  background: var(--bg);
 }
 
 .chat-page,

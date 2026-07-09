@@ -944,6 +944,22 @@ describe('conversation content column styles', () => {
 });
 
 describe('workbench shell styles', () => {
+  describe('suiyuan shell layout', () => {
+    it('uses warm Suiyuan surfaces for the app shell and primary navigation', () => {
+      const navRail = declarationsFor('.nav-rail');
+      const activeNav = declarationsFor('.nav-rail button.active');
+      const topCommand = declarationsFor('.top-command');
+      const main = declarationsFor('.sa-main');
+
+      expect(navRail.background).toBe('var(--bg-elevated)');
+      expect(activeNav.background).toBe('var(--primary-soft)');
+      expect(activeNav.color).toBe('var(--text-pri)');
+      expect(topCommand.background).toBe('var(--bg-elevated)');
+      expect(topCommand['border-bottom']).toBe('1px solid var(--line)');
+      expect(main.background).toBe('var(--bg)');
+    });
+  });
+
   it('keeps the screenshot-style sidebar fixed and branded', () => {
     const sidebar = topLevelDeclarationsFor('.app-sidebar');
     const resizer = topLevelDeclarationsFor('.workbench-sidebar-resizer');

@@ -136,6 +136,7 @@ textarea:disabled {
 
 .nav-rail {
   background: var(--bg-elevated);
+  border-right: 1px solid var(--line);
 }
 
 .sa-window[data-theme="light"] .nav-rail {
@@ -149,12 +150,12 @@ textarea:disabled {
 
 .nav-rail button {
   min-height: 62px;
-  border-radius: 0;
+  border-radius: 0 18px 18px 0;
   color: var(--text-muted);
 }
 
 .nav-rail button.active {
-  background: color-mix(in srgb, var(--accent-2) 13%, transparent);
+  background: var(--primary-soft);
   color: var(--text-pri);
 }
 
@@ -747,3 +748,4 @@ textarea:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}

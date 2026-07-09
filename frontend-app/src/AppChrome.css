@@ -8,6 +8,10 @@
   color: var(--ink);
 }
 
+.sa-window[data-theme="light"] {
+  background: var(--bg);
+}
+
 .titlebar {
   height: 48px;
   display: flex;
