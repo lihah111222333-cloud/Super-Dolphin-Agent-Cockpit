@@ -20,28 +20,38 @@ import (
 // ErrRunNotFound 表示按 run_key 读取运行记录失败。
 var ErrRunNotFound = errors.New("orchestration: run_key not found")
 
-// GetRun 按 run_key 读取运行记录和对应 runtime nodes。
+// GetRun 保持 service 对外 RPC/tool 方法不变，并把 DAG run 读取逻辑委托给 dagController。
 func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
-	if s == nil || s.runStore == nil {
+	return s.dagFacade().GetRun(ctx, req)
+}
+
+// GetRun 按 run_key 读取运行记录和对应 runtime nodes。
+func (c *dagController) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
+	if c == nil || c.runStore == nil {
 		return contract.GetRunResponse{}, ErrRunStoreUnset
 	}
 	runKey := strings.TrimSpace(req.RunKey)
 	if runKey == "" {
 		return contract.GetRunResponse{}, fmt.Errorf("orchestration: GetRun: run_key required")
 	}
-	run, err := s.runStore.GetRun(ctx, runKey)
+	run, err := c.runStore.GetRun(ctx, runKey)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return contract.GetRunResponse{}, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
 		}
 		return contract.GetRunResponse{}, fmt.Errorf("orchestration: GetRun(%q): %w", runKey, err)
 	}
-	return getRunResponse(ctx, s.runStore, runKey, run)
+	return getRunResponse(ctx, c.runStore, runKey, run)
+}
+
+// ListRuns 保持 service 对外 RPC/tool 方法不变，并把 DAG run 列表逻辑委托给 dagController。
+func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	return s.dagFacade().ListRuns(ctx, req)
 }
 
 // ListRuns 按 dag_key 和可选 status 列出运行记录。
-func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
-	if s == nil || s.runStore == nil {
+func (c *dagController) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	if c == nil || c.runStore == nil {
 		return contract.ListRunsResponse{}, ErrRunStoreUnset
 	}
 	dagKey := strings.TrimSpace(req.DagKey)
@@ -49,38 +59,43 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (c
 		return contract.ListRunsResponse{}, fmt.Errorf("orchestration: ListRuns: dag_key required")
 	}
 	filter := taskdag.ListRunsFilter{DagKey: dagKey, Status: strings.TrimSpace(req.Status), Limit: int32(shared.ClampLimit(int(req.Limit), 1, 200, 50))}
-	rows, err := s.runStore.ListRuns(ctx, filter)
+	rows, err := c.runStore.ListRuns(ctx, filter)
 	if err != nil {
 		return contract.ListRunsResponse{}, fmt.Errorf("orchestration: ListRuns(%q): %w", dagKey, err)
 	}
 	return contract.ListRunsResponse{Runs: mapRuns(rows)}, nil
 }
 
-// TerminateDAG 终止一次运行中的 DAG run，并停止该 run 拉起的子 agent。
+// TerminateDAG 保持 service 对外 RPC/tool 方法不变，并把 DAG run 终止逻辑委托给 dagController。
 func (s *service) TerminateDAG(ctx context.Context, req TerminateDAGRequest) error {
-	dagKey, runKey, run, err := s.terminableRun(ctx, req)
+	return s.dagFacade().TerminateDAG(ctx, req)
+}
+
+// TerminateDAG 终止一次运行中的 DAG run，并停止该 run 拉起的子 agent。
+func (c *dagController) TerminateDAG(ctx context.Context, req TerminateDAGRequest) error {
+	dagKey, runKey, run, err := c.terminableRun(ctx, req)
 	if err != nil || run == nil {
 		return err
 	}
 	input := taskdag.TerminateRunInput{DagKey: dagKey, RunKey: runKey, RunID: run.ID, Reason: strings.TrimSpace(req.Reason)}
-	result, err := s.runStore.TerminateRun(ctx, input)
+	result, err := c.runStore.TerminateRun(ctx, input)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			latest, getErr := s.runStore.GetRun(ctx, runKey)
+			latest, getErr := c.runStore.GetRun(ctx, runKey)
 			if getErr == nil && latest != nil && strings.TrimSpace(latest.DagKey) == dagKey && latest.Status != "running" {
 				return nil
 			}
 		}
 		return fmt.Errorf("orchestration: TerminateDAG(%q/%q): %w", dagKey, runKey, err)
 	}
-	return s.stopSpawnedAgentThreads(ctx, dagKey, run.ID, result.SpawnedThreadIDs)
+	return c.stopSpawnedAgentThreads(ctx, dagKey, run.ID, result.SpawnedThreadIDs)
 }
 
 // terminableRun 校验终止请求并返回可终止的 run。
 // 非 running/cancelled 的 run 视为无需终止，调用方会直接返回 nil。
-func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (string, string, *taskdag.Run, error) {
+func (c *dagController) terminableRun(ctx context.Context, req TerminateDAGRequest) (string, string, *taskdag.Run, error) {
 	dagKey, runKey := strings.TrimSpace(req.DagKey), strings.TrimSpace(req.RunKey)
-	if s == nil || s.runStore == nil {
+	if c == nil || c.runStore == nil {
 		return "", "", nil, ErrRunStoreUnset
 	}
 	if dagKey == "" {
@@ -89,7 +104,7 @@ func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (s
 	if runKey == "" {
 		return "", "", nil, fmt.Errorf("orchestration: TerminateDAG: run_key required")
 	}
-	run, err := s.runStore.GetRun(ctx, runKey)
+	run, err := c.runStore.GetRun(ctx, runKey)
 	if platformdb.IsNotFound(err) {
 		return "", "", nil, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
 	}
@@ -111,10 +126,10 @@ func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (s
 }
 
 // stopSpawnedAgentThreads 停止 DAG run 启动过的子 agent 线程，并合并失败。
-func (s *service) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {
+func (c *dagController) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {
 	var stopErrs []error
 	for _, threadID := range threadIDs {
-		result, err := StopSpawnedAgent(ctx, s.agentThreads, s, threadID)
+		result, err := StopSpawnedAgent(ctx, c.agentThreads, c.svcStopper, threadID)
 		if terminateStopResultError(result, err) {
 			if err == nil {
 				err = fmt.Errorf("spawned agent stop result %s", result)

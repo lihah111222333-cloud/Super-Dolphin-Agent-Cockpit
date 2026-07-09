@@ -136,7 +136,7 @@ func (s *stubDispatchStore) MarkDispatchIncompleteIfMissingWakeup(_ context.Cont
 }
 
 func newServiceForDispatch(store taskdag.DispatchNodeStore) *service {
-	return &service{dispatchStore: store}
+	return newDAGTestService(dagControllerParams{DispatchStore: store})
 }
 
 func dispatchTestRunID(id int64) *int64 {

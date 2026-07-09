@@ -107,7 +107,7 @@ func (s *stubNodeFlowStore) ReleaseWorkerLease(context.Context, taskdag.ReleaseW
 }
 
 func makeServiceWithStub(stub taskdag.OrchestrationStore) *service {
-	return &service{dagStore: stub}
+	return newDAGTestService(dagControllerParams{DAGStore: stub})
 }
 
 func taskUpdateNodeTestContext() context.Context {
@@ -165,7 +165,7 @@ func TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged(t *testing.T) {
 			Node: &taskdag.Node{DagKey: "dag-1", NodeKey: "A", RunID: &runID, Status: "done"},
 		},
 	}
-	s := &service{dagStore: stub, eventBus: dispatcher}
+	s := newDAGTestService(dagControllerParams{DAGStore: stub, EventBus: dispatcher})
 	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
@@ -221,7 +221,6 @@ func TestUpdateNodeStatusNonDone_UsesCASUpdate(t *testing.T) {
 
 func TestUpdateNodeStatusFailed_RoutesLegalSourcesToFailCascade(t *testing.T) {
 	for _, fromStatus := range []string{"running", "retrying"} {
-		fromStatus := fromStatus
 		t.Run(fromStatus, func(t *testing.T) {
 			stub := &stubNodeFlowStore{fromStatus: fromStatus}
 			s := makeServiceWithStub(stub)

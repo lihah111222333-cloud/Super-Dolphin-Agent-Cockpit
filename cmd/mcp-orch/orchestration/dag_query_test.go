@@ -18,11 +18,7 @@ import (
 // makeGetRunService builds the service under test for GetRun, wiring only the
 // runStore (GetRun does not touch dagStore).
 func makeGetRunService(runStore taskdag.RunStore) *service {
-	// dagStore 也注入是为了�?service.dagStore != nil 通过初期防御检查，
-	// �?makeStartDAGService 保持一致�?
-	// dagStore is also wired so that service.dagStore != nil passes any future
-	// defensive checks; mirrors makeStartDAGService.
-	return &service{dagStore: &stubStartDAGStore{}, runStore: runStore}
+	return newDAGTestService(dagControllerParams{DAGStore: &stubStartDAGStore{}, RunStore: runStore})
 }
 
 // ---- happy path ----
@@ -194,7 +190,7 @@ func TestGetDAG_IncludesCurrentVersionForApplyOps(t *testing.T) {
 		}},
 	}
 	stub.dagStatus = "ready"
-	svc := &service{dagStore: stub}
+	svc := newDAGTestService(dagControllerParams{DAGStore: stub})
 
 	resp, err := svc.GetDAG(context.Background(), "dag-1")
 	if err != nil {
@@ -222,7 +218,7 @@ func TestGetDAG_RejectsVersionChangedDuringDetailLoad(t *testing.T) {
 		}},
 	}
 	stub.dagStatus = "ready"
-	svc := &service{dagStore: stub}
+	svc := newDAGTestService(dagControllerParams{DAGStore: stub})
 
 	_, err := svc.GetDAG(context.Background(), "dag-1")
 	if err == nil {

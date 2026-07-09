@@ -211,11 +211,11 @@ func uniqueViolationErr(constraintName string) error {
 
 // makeStartDAGService 构造测试用 service：仅注入 dagStore + runStore。
 func makeStartDAGService(dagStore taskdag.OrchestrationStore, runStore taskdag.RunStore) *service {
-	svc := &service{dagStore: dagStore, runStore: runStore}
+	params := dagControllerParams{DAGStore: dagStore, RunStore: runStore}
 	if scheduled, ok := runStore.(taskdag.ScheduledStartStore); ok {
-		svc.scheduledStartStore = scheduled
+		params.ScheduledStartStore = scheduled
 	}
-	return svc
+	return newDAGTestService(params)
 }
 
 // ---- happy path ----

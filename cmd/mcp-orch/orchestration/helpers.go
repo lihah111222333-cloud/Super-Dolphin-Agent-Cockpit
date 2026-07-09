@@ -15,7 +15,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
@@ -396,13 +395,6 @@ func agentSessionFenceOK(agent *agentState, evSessionID string) bool {
 		return true
 	}
 	return ev == agentSessionID(agent)
-}
-
-func (s *service) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {
-	if s == nil || s.dagStore == nil {
-		return errors.New("dag store is not configured")
-	}
-	return fn(s.dagStore)
 }
 
 func decodeLegacyAlias[C any, L any](

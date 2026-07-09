@@ -177,7 +177,7 @@ func (s *stubDAGOpsTxFixture) WithDAGOpsTx(ctx context.Context, fn func(taskdag.
 
 // makeApplyOpsService 构造测试用 service，仅注入 dagStore。
 func makeApplyOpsService(store taskdag.OrchestrationStore) *service {
-	return &service{dagStore: store}
+	return newDAGTestService(dagControllerParams{DAGStore: store})
 }
 
 // ---- happy path ----

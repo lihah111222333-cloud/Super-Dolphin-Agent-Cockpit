@@ -11,6 +11,13 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
+func newTerminateDAGTestService(runStore taskdag.RunStore, threads AgentThreadLookup) *service {
+	return attachDAGTestController(&service{registry: newAgentRegistry()}, dagControllerParams{
+		RunStore:     runStore,
+		AgentThreads: threads,
+	})
+}
+
 func TestTerminateDAG_CancelsRunningRun(t *testing.T) {
 	runStore := &stubRunStore{
 		getRunReply: &taskdag.Run{
@@ -20,7 +27,7 @@ func TestTerminateDAG_CancelsRunningRun(t *testing.T) {
 			Status: "running",
 		},
 	}
-	svc := &service{registry: newAgentRegistry(), runStore: runStore}
+	svc := newTerminateDAGTestService(runStore, nil)
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{
 		DagKey: " dag-1 ",
@@ -51,7 +58,7 @@ func TestTerminateDAG_TerminalRunIsIdempotent(t *testing.T) {
 			Status: "cancelled",
 		},
 	}
-	svc := &service{registry: newAgentRegistry(), runStore: runStore}
+	svc := newTerminateDAGTestService(runStore, nil)
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err != nil {
@@ -67,7 +74,7 @@ func TestTerminateDAG_ConcurrentTerminalRunIsIdempotent(t *testing.T) {
 		getRunReply:     &taskdag.Run{ID: 77, RunKey: "dag-1#run-1", DagKey: "dag-1", Status: "running"},
 		terminateRunErr: platformdb.ErrNotFound,
 	}
-	svc := &service{registry: newAgentRegistry(), runStore: runStore}
+	svc := newTerminateDAGTestService(runStore, nil)
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err != nil {
@@ -87,7 +94,7 @@ func TestTerminateDAG_RejectsDagKeyMismatch(t *testing.T) {
 			Status: "running",
 		},
 	}
-	svc := &service{registry: newAgentRegistry(), runStore: runStore}
+	svc := newTerminateDAGTestService(runStore, nil)
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "other", RunKey: "dag-1#run-1"})
 	if err == nil || !strings.Contains(err.Error(), "does not belong") {
@@ -106,7 +113,7 @@ func TestTerminateDAG_PropagatesTerminateStoreFailure(t *testing.T) {
 		},
 		terminateRunErr: boom,
 	}
-	svc := &service{registry: newAgentRegistry(), runStore: runStore}
+	svc := newTerminateDAGTestService(runStore, nil)
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if !errors.Is(err, boom) {
@@ -126,12 +133,12 @@ func TestTerminateDAG_CancelsRunBeforeStoppingSpawnedAgents(t *testing.T) {
 	}
 	launcher := &terminateLauncherSpy{runStore: runStore}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.runStore = runStore
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "thr-running", AgentID: "agent-running"},
 		{ThreadID: "thr-ready", AgentID: "agent-ready"},
 		{ThreadID: "thr-done", AgentID: "agent-done"},
 	}}
+	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.agentThreads})
 	agent := svc.newAgentLocked("agent-running")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thr-running"
@@ -178,8 +185,8 @@ func TestTerminateDAG_ReturnsStopFailureAfterCancellingRun(t *testing.T) {
 	}
 	launcher := &terminateLauncherSpy{stopErr: stopErr, runStore: runStore}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.runStore = runStore
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: "thr-running", AgentID: "agent-running"}}}
+	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.agentThreads})
 	agent := svc.newAgentLocked("agent-running")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thr-running"
@@ -216,8 +223,8 @@ func TestTerminateDAG_RetriesSpawnedAgentStopAfterCancelledRun(t *testing.T) {
 	}
 	launcher := &terminateLauncherSpy{stopErr: stopErr, runStore: runStore}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.runStore = runStore
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: threadID, AgentID: "agent-running"}}}
+	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.agentThreads})
 	agent := svc.newAgentLocked("agent-running")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = threadID
@@ -260,7 +267,7 @@ func TestTerminateDAG_ReturnsSpawnedThreadLookupMissAfterCancellingRun(t *testin
 		},
 		terminateRunResult: taskdag.TerminateRunResult{SpawnedThreadIDs: []string{"thr-missing"}},
 	}
-	svc := &service{registry: newAgentRegistry(), runStore: runStore, agentThreads: fakeAgentThreadStore{}}
+	svc := newTerminateDAGTestService(runStore, fakeAgentThreadStore{})
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err == nil || !strings.Contains(err.Error(), "skipped_no_thread_id") {
@@ -281,11 +288,7 @@ func TestTerminateDAG_ReturnsSpawnedBindingMissingAfterCancellingRun(t *testing.
 		},
 		terminateRunResult: taskdag.TerminateRunResult{SpawnedThreadIDs: []string{"thr-no-binding"}},
 	}
-	svc := &service{
-		registry:     newAgentRegistry(),
-		runStore:     runStore,
-		agentThreads: fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: "thr-no-binding"}}},
-	}
+	svc := newTerminateDAGTestService(runStore, fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: "thr-no-binding"}}})
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err == nil || !strings.Contains(err.Error(), "skipped_binding_missing") {

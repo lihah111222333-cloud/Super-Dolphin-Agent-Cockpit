@@ -24,7 +24,7 @@ func TestSQLiteApplyOpsConcurrentSameVersionOneConflict(t *testing.T) {
 		t.Fatalf("UpsertDAG() error = %v", err)
 	}
 
-	svc := &service{dagStore: store}
+	svc := newDAGTestService(dagControllerParams{DAGStore: store})
 	ops := json.RawMessage(`[{"op":"update_dag","patch":{"description":"updated"}}]`)
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -68,7 +68,7 @@ func TestSQLiteApplyOpsAddUpdateDeleteAndEmptyShortCircuit(t *testing.T) {
 	db := openOrchestrationSQLiteDB(t)
 	store := taskdag.NewStore(db)
 	seedSQLiteApplyOpsDAG(t, ctx, store, "dag-ops")
-	svc := &service{dagStore: store}
+	svc := newDAGTestService(dagControllerParams{DAGStore: store})
 
 	resp, err := svc.ApplyOps(ctx, contract.ApplyOpsRequest{
 		DagKey:      "dag-ops",
@@ -140,7 +140,7 @@ func TestSQLiteApplyOpsRejectsConfigChangeForDoneTemplateNode(t *testing.T) {
 		t.Fatalf("mark template node done: %v", err)
 	}
 
-	svc := &service{dagStore: store}
+	svc := newDAGTestService(dagControllerParams{DAGStore: store})
 	_, err := svc.ApplyOps(ctx, contract.ApplyOpsRequest{
 		DagKey:      "dag-done",
 		BaseVersion: 0,

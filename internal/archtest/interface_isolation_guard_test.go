@@ -56,22 +56,22 @@ func TestTaskDAGStoreConsumersUseNarrowPort(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	const relPath = "cmd/mcp-orch/orchestration/service.go"
 	var violations []string
 	for _, field := range []struct {
+		relPath    string
 		structName string
 		fieldName  string
 	}{
-		{structName: "service", fieldName: "dagStore"},
-		{structName: "serviceParams", fieldName: "DAGStore"},
+		{relPath: "cmd/mcp-orch/orchestration/dag_controller.go", structName: "dagController", fieldName: "dagStore"},
+		{relPath: "cmd/mcp-orch/orchestration/service.go", structName: "serviceParams", fieldName: "DAGStore"},
 	} {
-		actual, ok := structFieldType(t, root, relPath, field.structName, field.fieldName)
+		actual, ok := structFieldType(t, root, field.relPath, field.structName, field.fieldName)
 		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", relPath, field.structName, field.fieldName))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", field.relPath, field.structName, field.fieldName))
 			continue
 		}
 		if actual != "taskdag.OrchestrationStore" {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s must depend on taskdag.OrchestrationStore, got %s", relPath, field.structName, field.fieldName, actual))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s must depend on taskdag.OrchestrationStore, got %s", field.relPath, field.structName, field.fieldName, actual))
 		}
 	}
 	failIfViolations(t, violations)

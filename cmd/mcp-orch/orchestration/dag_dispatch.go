@@ -34,14 +34,19 @@ var ErrDispatchIncomplete = errors.New("orchestration: node dispatch incomplete"
 // enqueue 混淆。
 const dispatchNodeWakeupKind = "manual_dispatch"
 
+// DispatchNode 保持 service 对外 RPC/tool 方法不变，并把节点派发逻辑委托给 dagController。
+func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	return s.dagFacade().DispatchNode(ctx, req)
+}
+
 // DispatchNode 领取并调度一个可运行的 DAG 节点。
 // 只接受 runtime run 上 pending/ready 节点；agent 节点必须先配置 exec.cwd，避免入队后才失败。
-func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
-	dagKey, nodeKey, assignedTo, runID, err := normalizeDispatchInputs(s, req)
+func (c *dagController) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	dagKey, nodeKey, assignedTo, runID, err := normalizeDispatchInputs(c, req)
 	if err != nil {
 		return contract.DispatchNodeResponse{}, err
 	}
-	target, err := s.findDispatchTarget(ctx, dagKey, nodeKey, runID)
+	target, err := c.findDispatchTarget(ctx, dagKey, nodeKey, runID)
 	if err != nil {
 		return contract.DispatchNodeResponse{}, err
 	}
@@ -53,10 +58,10 @@ func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeReq
 			return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode: agent node %s/%s requires node.config.exec.cwd before task_dispatch_node enqueue: %w", target.DagKey, target.NodeKey, err)
 		}
 	}
-	if err := s.blockDispatchIncomplete(ctx, target, assignedTo, runID); err != nil {
+	if err := c.blockDispatchIncomplete(ctx, target, assignedTo, runID); err != nil {
 		return contract.DispatchNodeResponse{}, err
 	}
-	result, err := s.assignAndEnqueueDispatch(ctx, target, assignedTo, runID)
+	result, err := c.assignAndEnqueueDispatch(ctx, target, assignedTo, runID)
 	if err != nil {
 		return contract.DispatchNodeResponse{}, err
 	}
@@ -113,10 +118,10 @@ func recordDispatchRetryMetric(w *taskdag.Wakeup, lastErr string) (DispatchRetry
 	}, record.ShouldAlert
 }
 
-// normalizeDispatchInputs trim 三个必填字段并检查 service / dispatchStore 到位。
+// normalizeDispatchInputs trim 三个必填字段并检查 dagController / dispatchStore 到位。
 // 拆出独立函数是为了压住 DispatchNode 主高的 CC。
-func normalizeDispatchInputs(s *service, req contract.DispatchNodeRequest) (string, string, string, int64, error) {
-	if s == nil || s.dispatchStore == nil {
+func normalizeDispatchInputs(c *dagController, req contract.DispatchNodeRequest) (string, string, string, int64, error) {
+	if c == nil || c.dispatchStore == nil {
 		return "", "", "", 0, ErrDispatchStoreUnset
 	}
 	dagKey, nodeKey, assignedTo := strings.TrimSpace(req.DagKey), strings.TrimSpace(req.NodeKey), strings.TrimSpace(req.AssignedTo)
@@ -130,8 +135,8 @@ func normalizeDispatchInputs(s *service, req contract.DispatchNodeRequest) (stri
 }
 
 // findDispatchTarget 走 dispatchStore.ListRunNodes 拿到当前 run 的目标节点。
-func (s *service) findDispatchTarget(ctx context.Context, dagKey, nodeKey string, runID int64) (*taskdag.Node, error) {
-	nodes, err := s.dispatchStore.ListRunNodes(ctx, dagKey, runID)
+func (c *dagController) findDispatchTarget(ctx context.Context, dagKey, nodeKey string, runID int64) (*taskdag.Node, error) {
+	nodes, err := c.dispatchStore.ListRunNodes(ctx, dagKey, runID)
 	if err != nil {
 		return nil, fmt.Errorf("orchestration: DispatchNode list run nodes %s run_id=%d: %w", dagKey, runID, err)
 	}
@@ -155,11 +160,11 @@ func ensureDispatchEligible(target *taskdag.Node) error {
 
 // blockDispatchIncomplete 在重复派发前标记历史半写节点并阻断。
 // 这能把 assign 成功但 wakeup 入队失败的旧状态显式暴露为 dispatch_incomplete。
-func (s *service) blockDispatchIncomplete(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) error {
+func (c *dagController) blockDispatchIncomplete(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) error {
 	if strings.TrimSpace(target.AssignedTo) == "" {
 		return nil
 	}
-	result, err := s.dispatchStore.MarkDispatchIncompleteIfMissingWakeup(ctx, taskdag.MarkDispatchIncompleteInput{
+	result, err := c.dispatchStore.MarkDispatchIncompleteIfMissingWakeup(ctx, taskdag.MarkDispatchIncompleteInput{
 		DagKey:     target.DagKey,
 		NodeKey:    target.NodeKey,
 		RunID:      runID,
@@ -176,12 +181,12 @@ func (s *service) blockDispatchIncomplete(ctx context.Context, target *taskdag.N
 
 // assignAndEnqueueDispatch 在 store 事务里同时写 assigned_to 和 manual_dispatch wakeup。
 // 任何一步失败都不能留下半写 assignment。
-func (s *service) assignAndEnqueueDispatch(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) (*taskdag.AssignNodeAndEnqueueWakeupResult, error) {
+func (c *dagController) assignAndEnqueueDispatch(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) (*taskdag.AssignNodeAndEnqueueWakeupResult, error) {
 	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{AgentID: assignedTo})
 	if err != nil {
 		return nil, fmt.Errorf("orchestration: DispatchNode marshal payload: %w", err)
 	}
-	result, err := s.dispatchStore.AssignNodeAndEnqueueWakeup(ctx, taskdag.AssignNodeAndEnqueueWakeupInput{
+	result, err := c.dispatchStore.AssignNodeAndEnqueueWakeup(ctx, taskdag.AssignNodeAndEnqueueWakeupInput{
 		Assign: taskdag.AssignNodeInput{
 			DagKey:     target.DagKey,
 			NodeKey:    target.NodeKey,
@@ -229,25 +234,35 @@ func (noopScheduler) Schedule(_ context.Context, _ string) error { return ErrSch
 // NewNoopScheduler 创建不执行外部调度的空实现。
 func NewNoopScheduler() Scheduler { return noopScheduler{} }
 
+// StartDAG 保持 service 对外 RPC/tool 方法不变，并把 DAG 启动逻辑委托给 dagController。
+func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
+	return s.dagFacade().StartDAG(ctx, req)
+}
+
 // StartDAG 创建一次 DAG run，不直接改模板。
 // 根节点会先变 ready；没 assigned_to 的根节点要等 task_dispatch_node。
-func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
-	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
+func (c *dagController) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
+	dagKey, dag, err := c.validateStartDAGPrereq(ctx, req)
 	if err != nil {
 		return StartDAGResponse{}, err
 	}
 	runKey := generateRunKey(dagKey, req.IdempotencyKey)
 	triggerSource := strings.TrimSpace(req.TriggerSource)
 	input := taskdag.CreateRunInput{RunKey: runKey, DagKey: dagKey, DagVersionSnapshot: dag.Version, TriggerSource: triggerSource}
-	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
+	return c.runStartDAGWithFallback(ctx, dagKey, runKey, input)
+}
+
+// StartScheduledDAG 保持 service 对外 RPC/tool 方法不变，并把计划启动逻辑委托给 dagController。
+func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
+	return s.dagFacade().StartScheduledDAG(ctx, req)
 }
 
 // StartScheduledDAG 按计划启动 DAG，并写入本次运行记录。
-func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
-	if s == nil || s.scheduledStartStore == nil {
+func (c *dagController) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
+	if c == nil || c.scheduledStartStore == nil {
 		return ErrRunStoreUnset
 	}
-	return scheduledstart.Start(ctx, s.scheduledStartStore, req)
+	return scheduledstart.Start(ctx, c.scheduledStartStore, req)
 }
 
 // ScheduledDAGStartService 是 cron 子包启动 scheduled DAG 时依赖的窄端口。
@@ -259,18 +274,18 @@ type ScheduledDAGStartService interface {
 func ProvideScheduledDAGStartService(s *service) ScheduledDAGStartService { return s }
 
 // validateStartDAGPrereq 校验计划启动 DAG 前必须存在的依赖。
-func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
-	if s == nil || s.dagStore == nil {
+func (c *dagController) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
+	if c == nil || c.dagStore == nil {
 		return "", nil, ErrLifecycleNotImplemented
 	}
-	if s.runStore == nil {
+	if c.runStore == nil {
 		return "", nil, ErrRunStoreUnset
 	}
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
 		return "", nil, fmt.Errorf("orchestration: StartDAG: dag_key required")
 	}
-	dag, err := s.dagStore.GetDAG(ctx, dagKey)
+	dag, err := c.dagStore.GetDAG(ctx, dagKey)
 	if err != nil {
 		return "", nil, fmt.Errorf("orchestration: StartDAG: GetDAG(%q): %w", dagKey, err)
 	}
@@ -282,9 +297,9 @@ func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGReques
 
 // runStartDAGWithFallback 创建 run、复制节点、调度根节点，三步必须在同一事务里完成。
 // 并发启动靠数据库唯一键兜住，不在这里先查再猜。
-func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
+func (c *dagController) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
 	var resp StartDAGResponse
-	txErr := s.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
+	txErr := c.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
 		lockedDAG, err := lockDAGForRunStart(ctx, tx, dagKey)
 		if err != nil {
 			return err
@@ -310,7 +325,7 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 	if !platformdb.IsUniqueViolation(txErr) {
 		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): %w", dagKey, txErr)
 	}
-	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
+	return c.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
 }
 
 // lockDAGForRunStart 在启动 run 前锁住模板行，确保 version 和复制出的节点来自同一版。
@@ -338,12 +353,12 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string)
 // resolveStartDAGUniqueViolation 处理 run_key 唯一键冲突后的幂等返回。
 // 同一个 run_key 已经 running/succeeded 时返回已有 run。
 // 如果它 failed/cancelled，调用方要换 idempotency_key，不能复用旧失败 run。
-func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
-	existing, getErr := s.runStore.GetRun(ctx, runKey)
+func (c *dagController) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
+	existing, getErr := c.runStore.GetRun(ctx, runKey)
 	if getErr == nil && existing != nil {
 		switch existing.Status {
 		case "running":
-			scheduledWakeups, err := s.runStore.ScheduleRootWakeups(ctx, dagKey, existing.ID)
+			scheduledWakeups, err := c.runStore.ScheduleRootWakeups(ctx, dagKey, existing.ID)
 			if err != nil {
 				return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): ScheduleRootWakeups existing run %s: %w", dagKey, existing.RunKey, err)
 			}

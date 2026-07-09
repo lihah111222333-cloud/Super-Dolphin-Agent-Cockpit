@@ -193,7 +193,7 @@ func TestCreateDAGRejectsInvalidTopologyBeforeStore(t *testing.T) {
 func TestCreateDAGPropagatesDuplicateDagKeyConflict(t *testing.T) {
 	t.Parallel()
 	stub := &stubCreateDAGStore{upsertErr: platformdb.ErrConflict}
-	s := &service{dagStore: stub}
+	s := newDAGTestService(dagControllerParams{DAGStore: stub})
 
 	_, err := s.CreateDAG(context.Background(), contract.CreateDAGRequest{
 		DagKey:    "dag-a",

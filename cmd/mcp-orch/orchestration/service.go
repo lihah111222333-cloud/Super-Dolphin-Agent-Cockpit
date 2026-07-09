@@ -69,10 +69,7 @@ type service struct {
 	launcher               AgentLauncher
 	sessionCleaner         contract.OrchestrationSessionCleaner
 	turnStarter            contract.OrchestrationTurnStarter
-	dagStore               taskdag.OrchestrationStore
-	runStore               taskdag.RunStore
-	scheduledStartStore    taskdag.ScheduledStartStore
-	dispatchStore          taskdag.DispatchNodeStore
+	dagController          *dagController
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
@@ -165,7 +162,6 @@ func NewService(
 		launcher:       launcher,
 		sessionCleaner: sessionCleaner,
 		turnStarter:    turnStarter,
-		dagStore:       dagStore,
 		recoveryStore:  recoveryStore,
 		machineCfg: platformstatemachine.Config{
 			Initial: string(agentdto.StateProvisioning),
@@ -177,6 +173,12 @@ func NewService(
 		asyncCtx:               asyncCtx,
 		asyncCancel:            asyncCancel,
 	}
+	svc.dagController = newDAGController(dagControllerParams{
+		Logger:     logger,
+		EventBus:   eventBus,
+		DAGStore:   dagStore,
+		SvcStopper: svc,
+	})
 	bindRemoteLauncherEventSink(launcher, svc)
 	if local, ok := launcher.(*localLauncher); ok {
 		local.exitMonitor = svc.exitMonitor
@@ -187,11 +189,18 @@ func NewService(
 // ProvideService 从 fx 参数创建 service，并挂接可选 store 依赖。
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
-	svc.runStore = p.RunStore
-	svc.scheduledStartStore = p.ScheduledStart
 	svc.agentThreads = p.AgentThreads
 	svc.agentBindings = p.AgentBindings
-	svc.dispatchStore = p.DispatchStore
+	svc.dagController = newDAGController(dagControllerParams{
+		Logger:              svc.logger,
+		EventBus:            svc.eventBus,
+		DAGStore:            p.DAGStore,
+		RunStore:            p.RunStore,
+		ScheduledStartStore: p.ScheduledStart,
+		DispatchStore:       p.DispatchStore,
+		AgentThreads:        p.AgentThreads,
+		SvcStopper:          svc,
+	})
 	return svc
 }
 

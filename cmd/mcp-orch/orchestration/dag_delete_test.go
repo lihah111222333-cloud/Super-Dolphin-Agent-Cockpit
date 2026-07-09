@@ -14,7 +14,7 @@ func TestDeleteDAG_DeletesThroughDAGDeleteStore(t *testing.T) {
 	t.Parallel()
 
 	store := &stubDeleteDAGStore{rows: 1}
-	svc := &service{dagStore: store}
+	svc := newDAGTestService(dagControllerParams{DAGStore: store})
 
 	err := svc.DeleteDAG(context.Background(), contract.DeleteDAGRequest{DagKey: " dag-1 "})
 	if err != nil {
@@ -39,7 +39,7 @@ func TestDeleteDAG_MapsMissingAndActiveRunErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			svc := &service{dagStore: &stubDeleteDAGStore{rows: tc.rows, err: tc.err}}
+			svc := newDAGTestService(dagControllerParams{DAGStore: &stubDeleteDAGStore{rows: tc.rows, err: tc.err}})
 			err := svc.DeleteDAG(context.Background(), contract.DeleteDAGRequest{DagKey: "dag-1"})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("DeleteDAG() error = %v, want %v", err, tc.want)
@@ -51,7 +51,7 @@ func TestDeleteDAG_MapsMissingAndActiveRunErrors(t *testing.T) {
 func TestDeleteDAG_RequiresDAGKey(t *testing.T) {
 	t.Parallel()
 
-	err := (&service{dagStore: &stubDeleteDAGStore{rows: 1}}).DeleteDAG(context.Background(), contract.DeleteDAGRequest{DagKey: " "})
+	err := newDAGTestService(dagControllerParams{DAGStore: &stubDeleteDAGStore{rows: 1}}).DeleteDAG(context.Background(), contract.DeleteDAGRequest{DagKey: " "})
 	if err == nil || !strings.Contains(err.Error(), "dag key is required") {
 		t.Fatalf("DeleteDAG() error = %v, want dag key required", err)
 	}

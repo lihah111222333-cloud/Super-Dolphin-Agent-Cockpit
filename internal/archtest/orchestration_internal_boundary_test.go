@@ -30,18 +30,15 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 	actualFields := orchestrationInternalBoundaryStructFieldNames(serviceStruct)
 	actual := orchestrationInternalBoundarySet(actualFields)
 	nonDebt := map[string]struct{}{
-		"logger":   {},
-		"eventBus": {},
-		"registry": {},
+		"logger":        {},
+		"eventBus":      {},
+		"dagController": {},
+		"registry":      {},
 	}
 	debtFields := []string{
 		"launcher",
 		"sessionCleaner",
 		"turnStarter",
-		"dagStore",
-		"runStore",
-		"scheduledStartStore",
-		"dispatchStore",
 		"recoveryStore",
 		"agentThreads",
 		"agentBindings",
@@ -55,6 +52,24 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 	debt := orchestrationInternalBoundarySet(debtFields)
 
 	failIfViolations(t, orchestrationInternalBoundaryServiceFieldViolations(relPath, actualFields, actual, nonDebt, debtFields, debt))
+}
+
+func TestOrchestrationDAGControllerDoesNotOwnServiceOrRuntimeAgentState(t *testing.T) {
+	t.Parallel()
+
+	const relPath = "cmd/mcp-orch/orchestration/dag_controller.go"
+	root := repoRoot(t)
+	file := parseGoFileForInterfaceGuard(t, root, relPath)
+	typeSpec, ok := findTypeSpec(file, "dagController")
+	if !ok {
+		t.Fatalf("%s: type dagController struct not found", relPath)
+	}
+	controllerStruct, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		t.Fatalf("%s: type dagController is %T, want *ast.StructType", relPath, typeSpec.Type)
+	}
+
+	failIfViolations(t, orchestrationInternalBoundaryDAGControllerStateViolations(relPath, controllerStruct))
 }
 
 func TestOrchestrationAgentRegistryOwnsRuntimeAgentMapAndLock(t *testing.T) {
@@ -99,6 +114,23 @@ func TestOrchestrationDoesNotGrowDuplicateStopperInterfaces(t *testing.T) {
 		violations = append(violations, "cmd/mcp-orch/orchestration/stop_helper.go:35 StopAgentService not found; duplicate stopper guard has no canonical reuse target")
 	}
 	failIfViolations(t, violations)
+}
+
+func orchestrationInternalBoundaryDAGControllerStateViolations(relPath string, controllerStruct *ast.StructType) []string {
+	var violations []string
+	for _, field := range controllerStruct.Fields.List {
+		typeName := orchestrationInternalBoundaryRuntimeAgentFieldTypeString(field.Type)
+		switch typeName {
+		case "*service", "agentRegistry", "*agentRegistry", "contextlock.RWMutex", "map[string]*agentRuntime":
+			for _, name := range field.Names {
+				violations = append(violations, fmt.Sprintf("%s: dagController field %s must not hold %s", relPath, name.Name, typeName))
+			}
+			if len(field.Names) == 0 {
+				violations = append(violations, fmt.Sprintf("%s: dagController embedded field must not hold %s", relPath, typeName))
+			}
+		}
+	}
+	return violations
 }
 
 func orchestrationInternalBoundaryRuntimeAgentRegistryFieldViolations(fset *token.FileSet, file *ast.File, relPath, allowedRelPath string) []string {

@@ -135,13 +135,33 @@ func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
-// CreateDAG 创建 DAG 记录、节点和初始调度状态。
+// CreateDAG 保持 service 对外 RPC/tool 方法不变，并把 DAG 创建逻辑委托给 dagController。
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
+	return s.dagFacade().CreateDAG(ctx, req)
+}
+
+// GetDAG 保持 service 对外 RPC/tool 方法不变，并把 DAG 读取逻辑委托给 dagController。
+func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) {
+	return s.dagFacade().GetDAG(ctx, dagKey)
+}
+
+// ListDAGs 保持 service 对外 RPC/tool 方法不变，并把 DAG 列表逻辑委托给 dagController。
+func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error) {
+	return s.dagFacade().ListDAGs(ctx, filter)
+}
+
+// UpdateNodeStatus 保持 service 对外 RPC/tool 方法不变，并把节点状态更新逻辑委托给 dagController。
+func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error) {
+	return s.dagFacade().UpdateNodeStatus(ctx, req)
+}
+
+// CreateDAG 创建 DAG 记录、节点和初始调度状态。
+func (c *dagController) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
 	if err := nodeexec.ValidateCreateDAGNodes(req.Nodes); err != nil {
 		return DAGDetail{}, fmt.Errorf("orchestration: create_dag invalid request: nodes topology invalid: %w", err)
 	}
 	var detail DAGDetail
-	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+	err := c.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		return store.WithTx(ctx, func(txStore taskdag.DAGMutationStore) error {
 			dag, dagErr := upsertDAG(ctx, txStore, req)
 			if dagErr != nil {
@@ -165,9 +185,9 @@ func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetai
 }
 
 // GetDAG 读取 DAG 明细并补齐节点、边和运行状态。
-func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) {
+func (c *dagController) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) {
 	var detail DAGDetail
-	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+	err := c.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		loaded, loadErr := loadDAGDetail(ctx, store, dagKey)
 		if loadErr != nil {
 			return loadErr
@@ -179,9 +199,9 @@ func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) 
 }
 
 // ListDAGs 按查询条件列出 DAG 摘要。
-func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error) {
+func (c *dagController) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error) {
 	var summaries []DAGSummary
-	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+	err := c.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		dags, listErr := store.ListDAGs(ctx, taskdag.ListDAGsFilter{
 			Status:  strings.TrimSpace(filter.Status),
 			Keyword: strings.TrimSpace(filter.Keyword),
@@ -201,14 +221,14 @@ func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSum
 
 // task_update_node 先按当前 run 的节点状态校验，再决定怎么写。
 // done 要唤醒下游，failed 要处理失败级联；别绕过这些流程直接改 status。
-func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error) {
+func (c *dagController) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error) {
 	input, err := nodeStatusUpdateFromRequest(req)
 	if err != nil {
 		return DAGNode{}, err
 	}
 	var result DAGNode
-	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
-		current, vErr := s.validateNodeTransition(ctx, store, input)
+	err = c.withDAGStore(func(store taskdag.OrchestrationStore) error {
+		current, vErr := c.validateNodeTransition(ctx, store, input)
 		if vErr != nil {
 			return vErr
 		}
@@ -219,7 +239,7 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 		input.ExpectedStatus = oldStatus
 		if input.Status == "done" {
 			if flow, ok := store.(taskdag.NodeFlowStore); ok {
-				return s.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
+				return c.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
 			}
 		}
 		if input.Status == "failed" {
@@ -227,13 +247,13 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 			if !ok {
 				return fmt.Errorf("orchestration: task_update_node failed requires NodeFlowStore for dag_key=%s node_key=%s run_id=%d", input.DagKey, input.NodeKey, input.RunID)
 			}
-			return s.failNodeWithDownstream(ctx, flow, input, oldStatus, &result)
+			return c.failNodeWithDownstream(ctx, flow, input, oldStatus, &result)
 		}
 		node, updateErr := store.UpdateNodeStatus(ctx, input)
 		if updateErr != nil {
 			return updateErr
 		}
-		nodeevents.Publish(s.eventBus, oldStatus, node)
+		nodeevents.Publish(c.eventBus, oldStatus, node)
 		result = dagNodeDTO(*node)
 		return nil
 	})
@@ -245,7 +265,7 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 
 // validateNodeTransition 在公开 task_update_node 写入前读取 run-scoped 当前状态。
 // 该校验只覆盖工具/RPC 入口；dispatcher 热路径依赖 SQL fence 和状态白名单阻止并发写。
-func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (taskdag.Node, error) {
+func (c *dagController) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (taskdag.Node, error) {
 	runReader, ok := any(store).(taskdag.RunNodeReadStore)
 	if !ok {
 		return taskdag.Node{}, fmt.Errorf("validate transition: store does not implement RunNodeReadStore for run_id=%d", input.RunID)
@@ -274,7 +294,7 @@ func (s *service) validateNodeTransition(ctx context.Context, store taskdag.Orch
 
 // completeNodeWithDownstream 完成节点时让 store 统一处理下游和 run 收尾。
 // service 只发布事件和记日志，不自己重新扫 DAG。
-func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
+func (c *dagController) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
 		Status:        input.Status,
 		Result:        input.Result,
@@ -287,12 +307,12 @@ func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.N
 	if err != nil {
 		return err
 	}
-	nodeevents.PublishComplete(s.eventBus, oldStatus, res)
+	nodeevents.PublishComplete(c.eventBus, oldStatus, res)
 	if res.Node != nil {
 		*result = dagNodeDTO(*res.Node)
 	}
-	if len(res.ScheduledDownstream) > 0 && s.logger != nil {
-		s.logger.Info("orchestration: scheduled downstream wakeups",
+	if len(res.ScheduledDownstream) > 0 && c.logger != nil {
+		c.logger.Info("orchestration: scheduled downstream wakeups",
 			"dag_key", input.DagKey,
 			"completed_node", input.NodeKey,
 			"count", len(res.ScheduledDownstream))
@@ -302,7 +322,7 @@ func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.N
 
 // failNodeWithDownstream 在公开调用把节点标 failed 时同步处理下游 pending 节点。
 // 否则它们会一直等一个永远不会 done 的上游。
-func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
+func (c *dagController) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	reason := string(input.Result)
 	if reason == "" {
 		reason = "task_update_node status=failed"
@@ -311,7 +331,7 @@ func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeF
 	if err != nil {
 		return err
 	}
-	nodeevents.PublishFail(s.eventBus, oldStatus, res)
+	nodeevents.PublishFail(c.eventBus, oldStatus, res)
 	if res.Node != nil {
 		*result = dagNodeDTO(*res.Node)
 	}
@@ -612,13 +632,18 @@ type (
 // TerminateDAGRequest 是终止一次 DAG run 的入参。
 type TerminateDAGRequest = contract.TerminateDAGRequest
 
-// DeleteDAG 删除 DAG 及其关联的节点和运行状态。
+// DeleteDAG 保持 service 对外 RPC/tool 方法不变，并把 DAG 删除逻辑委托给 dagController。
 func (s *service) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
+	return s.dagFacade().DeleteDAG(ctx, req)
+}
+
+// DeleteDAG 删除 DAG 及其关联的节点和运行状态。
+func (c *dagController) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
 		return errors.New("orchestration: dag key is required")
 	}
-	return s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+	return c.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		deleter, ok := any(store).(taskdag.DAGDeleteStore)
 		if ok {
 			rows, err := deleter.DeleteDAG(ctx, dagKey)
@@ -652,6 +677,11 @@ var ErrVersionConflict = errors.New("orchestration: apply_ops version conflict")
 // taskdag.Store 同时实现两者、不会命中。
 var ErrApplyOpsStoreNotConfigured = errors.New("orchestration: apply_ops dag store does not implement DAGOpsStore/DAGOpsTxRunner")
 
+// ApplyOps 保持 service 对外 RPC/tool 方法不变，并把 DAG typed ops 逻辑委托给 dagController。
+func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	return s.dagFacade().ApplyOps(ctx, req)
+}
+
 // ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node / update_dag），带 base_version OCC。
 // 它是 AI 设计器、UI 表单和 ops MCP 工具的同一写入口：先校验版本，再解码白名单 op，最后进入事务规划和持久化。
 //
@@ -659,7 +689,7 @@ var ErrApplyOpsStoreNotConfigured = errors.New("orchestration: apply_ops dag sto
 // handler（translate*Error）按 errors.Is 转译为中英双语用户消息。这样
 // service 层与 transport 层职责单一：service 决定「是不是合法」，transport
 // 决定「怎么说人话」。
-func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+func (c *dagController) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	if req.BaseVersion < 0 {
 		// base_version 必须非负：0 表示「首次写入空 DAG」，>0 是 OCC 期望
 		// 版本。负数没有定义，直接拒。
@@ -680,13 +710,13 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
 	}
 
-	return s.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
+	return c.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
 }
 
 // applyTypedOps 是 4 个 op_kind 的事务入口。
 // 它先做空操作短路，再把 add/update/remove/update_dag 统一交给 dag_query.go 的 plan/persist helper。
-func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
-	if s == nil || s.dagStore == nil {
+func (c *dagController) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
+	if c == nil || c.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
 	}
 	dagKey = strings.TrimSpace(dagKey)
@@ -700,9 +730,9 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	// 空 ops 在事务外短路：没有 add/update/remove/update_dag 时只需比对当前 version。
 	// 这样合法 no-op 不会白付 FOR UPDATE 锁成本，也避免高并发下形成无意义锁竞争。
 	if isNoopOpsBatch(parts) {
-		return s.applyEmptyOpsShortCircuit(ctx, dagKey, baseVersion)
+		return c.applyEmptyOpsShortCircuit(ctx, dagKey, baseVersion)
 	}
-	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
+	runner, ok := c.dagStore.(taskdag.DAGOpsTxRunner)
 	if !ok {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
 	}
@@ -727,8 +757,8 @@ func isNoopOpsBatch(parts partitionedOps) bool {
 }
 
 // applyEmptyOpsShortCircuit 让 no-op ApplyOps 保持无锁，同时保留与事务写路径一致的 OCC 错误语义。
-func (s *service) applyEmptyOpsShortCircuit(ctx context.Context, dagKey string, baseVersion int64) (contract.ApplyOpsResponse, error) {
-	reader, ok := s.dagStore.(taskdag.DAGVersionReader)
+func (c *dagController) applyEmptyOpsShortCircuit(ctx context.Context, dagKey string, baseVersion int64) (contract.ApplyOpsResponse, error) {
+	reader, ok := c.dagStore.(taskdag.DAGVersionReader)
 	if !ok {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
 	}
