@@ -74,10 +74,11 @@ This wave can be implemented by parallel agents, but integration must be serial:
 4. Prompt focus refresh cleanup.
 5. Skills datasource DTO zod normalization.
 6. Runtime activity popovers React Aria replacement.
-7. Settings runtime/preferences Query migration.
-8. `rpc-contract-audit` frontend JS AST parsing.
-9. `frontend-code-size-guard` AST shadow metrics.
-10. Full frontend validation and remote sync.
+7. Settings runtime preferences Query migration.
+8. Settings provider preferences Query migration.
+9. `rpc-contract-audit` frontend JS AST parsing.
+10. `frontend-code-size-guard` AST shadow metrics.
+11. Full frontend validation and remote sync.
 
 The first four implementation stages are low-risk enough to run in parallel because they touch disjoint files. Stages 5-8 should still use independent agents, but main-session integration must inspect diffs before staging because Settings/Skills/Guard changes have broader behavior implications.
 
@@ -111,6 +112,7 @@ The main session updates this plan if any agent finds a real blocker. If an agen
 
 **Files:**
 - Modify: `frontend-app/src/pages/workflows/services/workflowScheduleModel.js`
+- Create: `frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js`
 - Test: `frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx`
 - Test: `frontend-app/src/pages/workflows/WorkflowPage.runtime.test.jsx`
 - Test: `frontend-app/src/pages/workflows/WorkflowPage.test.jsx`
@@ -121,9 +123,9 @@ The main session updates this plan if any agent finds a real blocker. If an agen
 - Keep unsupported but syntactically valid ranges such as `*/15 9 * * 1-5` as range-warning UI state, not as a selected preset.
 - Do not call `parser.next()` in page rendering; the page only needs shape validation and readable schedule state.
 
-- [ ] **Step 1: Add pure model tests through existing workflow suites**
+- [ ] **Step 1: Add pure model tests**
 
-There is no standalone `workflowScheduleModel.test.js` in this tree. Add direct model assertions to the smallest existing workflow test file that already covers schedule behavior, preferably `frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx` if it already imports pure helpers, otherwise create `frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js` and keep it model-only:
+Create `frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js` and keep it model-only:
 
 ```js
 import { describe, expect, it } from 'vitest';
@@ -153,16 +155,16 @@ describe('workflowScheduleModel', () => {
 
   it('keeps complex but valid cron outside the supported preset range', () => {
     expect(scheduleStateFromCron('CRON_TZ=Asia/Shanghai */15 9 * * 1-5')).toMatchObject({
-      warning: '当前计划使用了暂不支持的 cron 范围，请重新选择运行频率。',
+      warning: '已有计划超出简化设置范围，请重新选择运行频率和时间。',
     });
   });
 
   it('rejects malformed or six-field cron expressions with the existing warning copy', () => {
     expect(scheduleStateFromCron('CRON_TZ=Asia/Shanghai 0 5 * * * *')).toMatchObject({
-      warning: '当前计划使用了暂不支持的 cron 格式，请重新选择运行频率。',
+      warning: '已有计划格式无法识别，请重新选择运行频率和时间。',
     });
     expect(scheduleStateFromCron('CRON_TZ=Asia/Shanghai nope 5 * * *')).toMatchObject({
-      warning: '当前计划使用了暂不支持的 cron 格式，请重新选择运行频率。',
+      warning: '已有计划格式无法识别，请重新选择运行频率和时间。',
     });
   });
 
@@ -184,7 +186,7 @@ npx vitest run --no-file-parallelism --maxWorkers=1 \
   src/pages/workflows/WorkflowPage.runtime.test.jsx
 ```
 
-Expected: FAIL until `cron-parser` syntax validation is wired into the existing model, or PASS for already-covered legacy cases and FAIL for the new complex-cron cases.
+Expected: FAIL until `cron-parser` syntax validation is wired into the existing model.
 
 - [ ] **Step 3: Add cron-parser validation to the existing model**
 
@@ -239,6 +241,8 @@ Run diagnostics for:
 ```text
 frontend-app/src/pages/workflows/services/workflowScheduleModel.js
 frontend-app/src/pages/workflows/components/WorkflowNodeEditorPanels.jsx
+frontend-app/src/pages/workflows/WorkflowPage.jsx
+frontend-app/src/pages/workflows/WorkflowPage.test.jsx
 ```
 
 Fix every Error, Warning, Information, and Hint.
@@ -260,15 +264,21 @@ git commit -m "refactor(frontend): 用 cron-parser 收敛工作流计划解析"
 
 **Files:**
 - Modify: `frontend-app/src/pages/chat/markdown/ImageLightbox.jsx`
+- Modify: `frontend-app/src/pages/chat/ChatMessages.css`
 - Modify: `frontend-app/src/pages/chat/markdown/MarkdownMessage.test.jsx`
 - Modify: `frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx`
 - Test: `frontend-app/src/pages/chat/thread/TimelineMessage.test.jsx`
+- Test: `frontend-app/src/App.test.jsx`
+- Test: `frontend-app/src/styles.test.js`
 
 **Side effects to preserve:**
 - `onClose` fires when the backdrop, close button, or Escape closes the lightbox.
 - Markdown image preview and Mermaid preview continue sharing the same lightbox component.
 - The close button keeps the `关闭图片预览` accessible name.
+- Preserve `firstTrimmedText(label, PREVIEW_LABEL)`.
+- Preserve a dark backdrop through `ChatMessages.css`; React Aria `ModalOverlay` replaces the old `.image-lightbox-backdrop` button.
 - Do not introduce another UI framework.
+- Do not add `@testing-library/user-event`; current tests use `fireEvent`.
 
 - [ ] **Step 1: Add focus and dismiss tests**
 
@@ -276,12 +286,11 @@ Extend `MarkdownMessage.test.jsx` around the existing lightbox test:
 
 ```jsx
 it('closes the image lightbox with Escape and returns control to the preview trigger', async () => {
-  const user = userEvent.setup();
   render(<MarkdownMessage content={'![demo](app://generated-image?path=generated_images/demo.png)'} />);
   const trigger = await screen.findByRole('button', { name: /demo/ });
-  await user.click(trigger);
+  fireEvent.click(trigger);
   expect(screen.getByRole('dialog', { name: /图片预览/ })).toBeInTheDocument();
-  await user.keyboard('{Escape}');
+  fireEvent.keyDown(document, { key: 'Escape' });
   expect(screen.queryByRole('dialog', { name: /图片预览/ })).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
 });
@@ -291,7 +300,7 @@ Extend `MermaidDiagram.test.jsx` to assert the shared dialog closes through the 
 
 ```jsx
 expect(screen.getByRole('dialog', { name: /图片预览/ })).toBeInTheDocument();
-await user.keyboard('{Escape}');
+fireEvent.keyDown(document, { key: 'Escape' });
 expect(screen.queryByRole('dialog', { name: /图片预览/ })).not.toBeInTheDocument();
 ```
 
@@ -314,13 +323,14 @@ Update `ImageLightbox.jsx`:
 import React from 'react';
 import { Dialog, Modal, ModalOverlay } from 'react-aria-components';
 import { X } from 'lucide-react';
+import { firstTrimmedText } from './markdownMessageModel.js';
 
 const PREVIEW_LABEL = '预览';
 const LIGHTBOX_LABEL_PREFIX = '图片预览：';
 const CLOSE_LABEL = '关闭图片预览';
 
 function ImageLightbox({ label, onClose, children }) {
-  const displayLabel = (label || '').toString().trim() || PREVIEW_LABEL;
+  const displayLabel = firstTrimmedText(label, PREVIEW_LABEL);
   return (
     <ModalOverlay
       className="image-lightbox"
@@ -348,7 +358,7 @@ function ImageLightbox({ label, onClose, children }) {
 export { ImageLightbox };
 ```
 
-Adjust CSS selectors only if the current `.image-lightbox > .image-lightbox-panel` relationship breaks. Keep class names stable where possible.
+Adjust `frontend-app/src/pages/chat/ChatMessages.css` so `.image-lightbox` itself supplies the fixed full-screen dark backdrop. Keep `.image-lightbox-panel` stable, and remove/update `.image-lightbox-backdrop` assertions in `styles.test.js` if the class no longer exists.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -357,7 +367,9 @@ cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
   src/pages/chat/markdown/MarkdownMessage.test.jsx \
   src/pages/chat/markdown/MermaidDiagram.test.jsx \
-  src/pages/chat/thread/TimelineMessage.test.jsx
+  src/pages/chat/thread/TimelineMessage.test.jsx \
+  src/App.test.jsx \
+  src/styles.test.js
 ```
 
 Expected: PASS.
@@ -370,14 +382,18 @@ Run diagnostics for:
 frontend-app/src/pages/chat/markdown/ImageLightbox.jsx
 frontend-app/src/pages/chat/markdown/MarkdownImagePreview.jsx
 frontend-app/src/pages/chat/markdown/MermaidDiagram.jsx
+frontend-app/src/pages/chat/ChatMessages.css
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add frontend-app/src/pages/chat/markdown/ImageLightbox.jsx \
+  frontend-app/src/pages/chat/ChatMessages.css \
   frontend-app/src/pages/chat/markdown/MarkdownMessage.test.jsx \
-  frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx
+  frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx \
+  frontend-app/src/App.test.jsx \
+  frontend-app/src/styles.test.js
 git commit -m "refactor(frontend): 用 React Aria 托管图片预览弹窗"
 ```
 
@@ -401,19 +417,16 @@ Add a focused test in `PromptPageView.test.jsx`:
 
 ```jsx
 it('uses Query focus refresh without custom duplicate prompt RPCs', async () => {
-  const user = userEvent.setup();
   const calls = [];
-  mockBackend({
-    'prompt-assets/list': async () => {
-      calls.push('assets');
-      return { items: [] };
-    },
-    'settings/preference/get': async () => {
-      calls.push('active');
-      return '';
-    },
+  backend.listPromptAssets.mockImplementation(async () => {
+    calls.push('assets');
+    return { prompts: [] };
   });
-  renderPromptPageView({ cwd: '/repo' });
+  backend.getPreference.mockImplementation(async () => {
+    calls.push('active');
+    return '';
+  });
+  renderPromptPage();
   await screen.findByText(/提示词/);
   calls.length = 0;
   window.dispatchEvent(new Event('focus'));
@@ -426,21 +439,18 @@ Add an invalid-active prompt case:
 
 ```jsx
 it('clears stale active prompt cache after prompt assets refresh', async () => {
-  mockBackendSequence({
-    'prompt-assets/list': [
-      { items: [{ id: 'old', title: 'Old', kind: 'expert', enabled: true }] },
-      { items: [] },
-    ],
-    'settings/preference/get': ['old', 'old'],
-  });
-  const queryClient = renderPromptPageView({ cwd: '/repo' });
+  backend.listPromptAssets
+    .mockResolvedValueOnce({ prompts: [{ id: 'old', name: 'Old', kind: 'expert', enabled: true }] })
+    .mockResolvedValueOnce({ prompts: [] });
+  backend.getPreference.mockResolvedValue('old');
+  const { queryClient } = renderPromptPage();
   await screen.findByText('Old');
-  await queryClient.invalidateQueries({ queryKey: ['dashboard', 'project', '/repo', 'prompts'], exact: true });
-  await waitFor(() => expect(queryClient.getQueryData(['dashboard', 'project', '/repo', 'active-prompt'])).toBe(''));
+  await queryClient.invalidateQueries({ queryKey: ['dashboard', 'project', '/repo/app', 'prompts'], exact: true });
+  await waitFor(() => expect(queryClient.getQueryData(['dashboard', 'project', '/repo/app', 'active-prompt'])).toBe(''));
 });
 ```
 
-Use the actual test helpers in the file; keep the query keys aligned with the implementation.
+Use the actual `renderPromptPage` helper and hoisted `backend` mock in the file; prompt list responses use `{ prompts: [...] }`, and the default cwd is `/repo/app`.
 
 - [ ] **Step 2: Run RED focused tests**
 
@@ -459,7 +469,7 @@ In `usePromptQueries`, set explicit Query options:
 ```js
 useQuery({
   queryKey: promptAssetsQueryKey(cwd),
-  queryFn: () => fetchPromptAssets(cwd),
+  queryFn: () => fetchPromptAssetsSurface(cwd),
   enabled: Boolean(cwd),
   retry: false,
   refetchOnWindowFocus: 'always',
@@ -467,7 +477,7 @@ useQuery({
 
 useQuery({
   queryKey: activePromptQueryKey(cwd),
-  queryFn: () => fetchActivePrompt(cwd),
+  queryFn: () => fetchActivePromptId(cwd),
   enabled: Boolean(cwd),
   retry: false,
   refetchOnWindowFocus: 'always',
@@ -538,6 +548,7 @@ git commit -m "refactor(frontend): 交给 Query 刷新提示词焦点数据"
 - Preserve `useQuery` and `useInfiniteQuery` behavior.
 - Preserve datasource pagination progress guard: `hasMore` without chunks must fail fast.
 - Preserve backend alias support: `documentId/document_id/id`, `nextCursor/next_cursor`, snake_case and camelCase response fields.
+- Preserve exact existing fail-fast copy, including `datasourceV2/list response.documents must be an array` and `datasourceV2/get returned hasMore without chunks`.
 - Do not include skill tools DTO in this task; current tree has insufficient visible tool UI/test coverage for a safe combined migration.
 
 - [ ] **Step 1: Add malformed datasource tests**
@@ -546,29 +557,27 @@ Extend `SkillsPage.test.jsx`:
 
 ```jsx
 it('fails fast when datasource documents response is malformed', async () => {
-  mockSkillsBackend({
-    'datasource_v2/list': async () => ({ documents: null }),
-  });
-  renderSkillsPage({ cwd: '/repo' });
-  await screen.findByText(/datasource documents must be an array/);
+  backend.listDatasourceDocuments.mockResolvedValueOnce({ documents: null });
+  renderSkillsPage();
+  fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+  await screen.findByText(/datasourceV2\/list response\.documents must be an array/);
 });
 
 it('normalizes datasource detail aliases through the zod boundary', async () => {
-  mockSkillsBackend({
-    'datasource_v2/get': async () => ({
-      document: { document_id: 9, file_name: 'a.md', chunk_count: 1 },
-      chunks: [{ chunk_id: 3, content: 'hello', token_count: 2 }],
-      next_cursor: '4',
-      has_more: true,
-    }),
+  backend.getDatasourceDocument.mockResolvedValueOnce({
+    document: { document_id: 9, file_name: 'a.md', chunk_count: 1 },
+    chunks: [{ chunk_id: 3, content: 'hello', token_count: 2 }],
+    next_cursor: '4',
+    has_more: true,
   });
-  renderSkillsPage({ cwd: '/repo' });
-  await userEvent.click(await screen.findByRole('button', { name: /a.md/ }));
+  renderSkillsPage();
+  fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+  fireEvent.click(await screen.findByTestId('datasource-view-101'));
   expect(await screen.findByText('hello')).toBeInTheDocument();
 });
 ```
 
-Use existing datasource test helper names from the file.
+Use the existing `backend`, `renderSkillsPage`, `fireEvent`, and datasource test ids from the file.
 
 - [ ] **Step 2: Run RED focused tests**
 
@@ -647,7 +656,7 @@ function parseDatasourceDocument(raw, index = 0) {
 }
 ```
 
-Add equivalent schemas for list/detail/chunk page. Keep `assertDatasourceChunkPageProgress` after schema normalization.
+Add equivalent schemas for list/detail/chunk page, but do not over-tighten chunk fields the current UI tolerates as optional. Keep `assertDatasourceChunkPageProgress` after schema normalization.
 
 - [ ] **Step 4: Replace hand-written datasource normalizers**
 
@@ -697,7 +706,10 @@ git commit -m "refactor(frontend): 用 zod 收敛数据源 DTO"
 - Modify: `frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx`
 - Modify: `frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx`
 - Modify: `frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx`
+- Modify: `frontend-app/src/pages/chat/runtime/RuntimePanel.css`
 - Modify: `frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx`
+- Test: `frontend-app/src/App.test.jsx`
+- Test: `frontend-app/src/styles.test.js`
 
 **Side effects to preserve:**
 - Runtime result and warning popovers must keep redaction behavior.
@@ -705,6 +717,9 @@ git commit -m "refactor(frontend): 用 zod 收敛数据源 DTO"
 - Collapsed panel must hide warning log lines and clear warning popover state.
 - Opening one popover closes the other.
 - Outside interaction must not close the popover when the target is the panel resizer.
+- Preserve `data-testid="runtime-stat-tooltip"` and `data-testid="warning-log-popover"` or update every assertion in `RuntimePanelComponents.test.jsx` and `App.test.jsx`.
+- React Aria `Popover` must not inherit `pointer-events: none`; update `RuntimePanel.css` deliberately.
+- Do not add `@testing-library/user-event`; current tests use `fireEvent`.
 
 - [ ] **Step 1: Add popover behavior tests**
 
@@ -712,23 +727,24 @@ Extend `RuntimePanelComponents.test.jsx`:
 
 ```jsx
 it('keeps runtime popovers mutually exclusive and dismisses through Escape', async () => {
-  const user = userEvent.setup();
+  const warningFixtures = [{ id: 'warning-1', method: 'turn/start', message: 'rpc.failed', status: 'error' }];
+  const runtimeResultFixtures = [{ id: 'result-1', toolName: 'grep', status: 'succeeded', output: 'ok' }];
   renderRuntimeActivityPanel({ warnings: warningFixtures, runtimeResults: runtimeResultFixtures });
-  await user.click(screen.getByRole('button', { name: /上下文/ }));
-  expect(screen.getByRole('dialog', { name: /上下文/ })).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: /警告/ }));
-  expect(screen.queryByRole('dialog', { name: /上下文/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('dialog', { name: /警告/ })).toBeInTheDocument();
-  await user.keyboard('{Escape}');
-  expect(screen.queryByRole('dialog', { name: /警告/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /上下文/ }));
+  expect(await screen.findByTestId('runtime-stat-tooltip')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /警告/ }));
+  await waitFor(() => expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument());
+  expect(await screen.findByTestId('warning-log-popover')).toBeInTheDocument();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument());
 });
 
 it('does not close an open runtime popover when dragging the activity resizer', async () => {
-  const user = userEvent.setup();
+  const warningFixtures = [{ id: 'warning-1', method: 'turn/start', message: 'rpc.failed', status: 'error' }];
   renderRuntimeActivityPanel({ warnings: warningFixtures });
-  await user.click(screen.getByRole('button', { name: /警告/ }));
+  fireEvent.click(screen.getByRole('button', { name: /警告/ }));
   fireEvent.pointerDown(screen.getByTestId('activity-panel-resizer'));
-  expect(screen.getByRole('dialog', { name: /警告/ })).toBeInTheDocument();
+  expect(await screen.findByTestId('warning-log-popover')).toBeInTheDocument();
 });
 ```
 
@@ -777,7 +793,7 @@ For warnings:
     className="warning-log-popover"
     shouldCloseOnInteractOutside={(element) => !element.closest('.activity-panel-resizer')}
   >
-    <Dialog aria-label="警告详情">...</Dialog>
+    <Dialog aria-label={runtimeLogInlineLabel(entry)}>...</Dialog>
   </Popover>
 </DialogTrigger>
 ```
@@ -790,7 +806,9 @@ Preserve the existing redacted content builders; do not move redaction into Reac
 cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
   src/pages/chat/components/RuntimePanelComponents.test.jsx \
-  src/pages/chat/runtime/RuntimePanelSlot.test.jsx
+  src/pages/chat/runtime/RuntimePanelSlot.test.jsx \
+  src/App.test.jsx \
+  src/styles.test.js
 ```
 
 Expected: PASS.
@@ -803,6 +821,7 @@ Run diagnostics for:
 frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx
 frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx
 frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx
+frontend-app/src/pages/chat/runtime/RuntimePanel.css
 ```
 
 - [ ] **Step 6: Commit**
@@ -811,7 +830,10 @@ frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx
 git add frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx \
   frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx \
   frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx \
-  frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx
+  frontend-app/src/pages/chat/runtime/RuntimePanel.css \
+  frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx \
+  frontend-app/src/App.test.jsx \
+  frontend-app/src/styles.test.js
 git commit -m "refactor(frontend): 用 React Aria 托管运行面板弹层"
 ```
 
@@ -821,16 +843,14 @@ git commit -m "refactor(frontend): 用 React Aria 托管运行面板弹层"
 
 **Files:**
 - Modify: `frontend-app/src/pages/settings/settingsRuntimeHook.js`
-- Modify: `frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js`
 - Modify: `frontend-app/src/pages/settings/SettingsPage.jsx` only if hook signatures change.
 - Modify: `frontend-app/src/pages/settings/SettingsPage.test.jsx`
 
 **Side effects to preserve:**
 - App update mutations can remain as existing `useMutation`.
-- Dirty provider drafts must not be overwritten by background refetch.
 - Active provider remains codex-only where current behavior enforces it.
-- Scoped/global fallback and tombstone behavior must remain visible in tests.
 - Query focus behavior must be explicit; do not inherit accidental global focus refetch if it would overwrite form state.
+- Do not migrate provider summary/approval in this commit; that belongs to Task 7.
 
 - [ ] **Step 1: Add settings query regression tests**
 
@@ -838,18 +858,15 @@ Extend `SettingsPage.test.jsx`:
 
 ```jsx
 it('does not reload runtime preferences on window focus when a runtime form is dirty', async () => {
-  const user = userEvent.setup();
   const reads = [];
-  mockSettingsBackend({
-    'settings/preference/get': async (payload) => {
-      reads.push(payload.key);
-      return payload.key === 'stallThresholdSec' ? '30' : '';
-    },
+  const preferences = preferenceFixture();
+  backend.getPreference.mockImplementation(({ key }) => {
+    reads.push(key);
+    return Promise.resolve(preferences[key] ?? null);
   });
-  renderSettingsPage({ cwd: '/repo' });
+  renderSettingsPage('/repo/app');
   const threshold = await screen.findByLabelText(/卡顿阈值/);
-  await user.clear(threshold);
-  await user.type(threshold, '45');
+  fireEvent.change(threshold, { target: { value: '45' } });
   reads.length = 0;
   window.dispatchEvent(new Event('focus'));
   await waitFor(() => expect(threshold).toHaveValue(45));
@@ -857,7 +874,7 @@ it('does not reload runtime preferences on window focus when a runtime form is d
 });
 ```
 
-Keep or strengthen the existing dirty model provider draft test around `SettingsPage.test.jsx`.
+Use the existing `preferenceFixture`, `backend.getPreference`, and `renderSettingsPage` helpers in the file. Do not touch the top-level unrelated `frontend-app/src/SettingsPage.test.jsx`.
 
 - [ ] **Step 2: Run RED focused tests**
 
@@ -871,21 +888,17 @@ Expected: FAIL until runtime preferences use explicit Query options or until the
 
 - [ ] **Step 3: Add runtime preference query keys**
 
-In `settingsRuntimeHook.js` and `settingsProviderPreferencesRuntime.js`, import Query hooks where they are needed:
+In `settingsRuntimeHook.js`, import `useQuery` next to the existing mutation hook:
 
 ```js
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 ```
 
-Add query keys near settings constants:
+Add the runtime query key near settings constants:
 
 ```js
 function settingsRuntimePreferencesQueryKey(cwd) {
   return ['settings', 'runtime-preferences', optionalSettingsCwd(cwd)];
-}
-
-function settingsProviderPreferencesQueryKey(cwd, provider) {
-  return ['settings', 'provider-preferences', optionalSettingsCwd(cwd), normalizeRuntimeProviderName(provider)];
 }
 ```
 
@@ -928,12 +941,83 @@ async function readRuntimePreferences(cwd) {
 
 Keep form update and save handlers local.
 
-- [ ] **Step 5: Migrate provider preferences only after runtime tests pass**
+- [ ] **Step 5: Run focused tests**
 
-Use a separate internal commit checkpoint if runtime migration is hard to review. Convert `useProviderPreferences` to `useQuery` with:
+```bash
+cd frontend-app
+npx vitest run --no-file-parallelism --maxWorkers=1 \
+  src/pages/settings/SettingsPage.test.jsx
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: LSP diagnostics**
+
+Run diagnostics for:
+
+```text
+frontend-app/src/pages/settings/SettingsPage.jsx
+frontend-app/src/pages/settings/settingsRuntimeHook.js
+frontend-app/src/pages/settings/SettingsPage.test.jsx
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add frontend-app/src/pages/settings/settingsRuntimeHook.js \
+  frontend-app/src/pages/settings/SettingsPage.jsx \
+  frontend-app/src/pages/settings/SettingsPage.test.jsx
+git commit -m "refactor(frontend): 用 Query 管理设置运行时偏好"
+```
+
+---
+
+## Task 7: Move Settings Provider Preferences To TanStack Query
+
+**Files:**
+- Modify: `frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js`
+- Modify: `frontend-app/src/pages/settings/settingsPageRuntime.js` only if existing pure helpers need a small exported adapter.
+- Modify: `frontend-app/src/pages/settings/SettingsPage.test.jsx`
+- Test: `frontend-app/src/pages/settings/components/ModelProvidersCard.test.jsx`
+
+**Side effects to preserve:**
+- Preserve `readScopedPreference()` fallback and tombstone behavior.
+- Preserve codex-only provider normalization.
+- Dirty summary/approval drafts must not be overwritten by background refetch.
+- Query focus behavior must be explicit: `refetchOnWindowFocus: false`.
+- Do not change global QueryClient defaults in `App.jsx`.
+
+- [ ] **Step 1: Add provider dirty-state regression test**
+
+Extend `SettingsPage.test.jsx` with a test that edits provider summary or approval, dispatches `focus`, and verifies no provider preference read overwrites the dirty draft. Use `preferenceFixture`, `backend.getPreference.mockImplementation(...)`, and `renderSettingsPage('/repo/app')`.
+
+- [ ] **Step 2: Run RED focused tests**
+
+```bash
+cd frontend-app
+npx vitest run --no-file-parallelism --maxWorkers=1 \
+  src/pages/settings/SettingsPage.test.jsx \
+  src/pages/settings/components/ModelProvidersCard.test.jsx
+```
+
+Expected: FAIL until provider preference loading uses explicit Query options and dirty-state protection.
+
+- [ ] **Step 3: Add provider preference query key**
+
+In `settingsProviderPreferencesRuntime.js`, add:
 
 ```js
-useQuery({
+function settingsProviderPreferencesQueryKey(cwd, provider) {
+  return ['settings', 'provider-preferences', optionalSettingsCwd(cwd), normalizeRuntimeProviderName(provider)];
+}
+```
+
+- [ ] **Step 4: Replace provider request sequence with Query**
+
+Convert `useProviderPreferences` to `useQuery` with:
+
+```js
+const providerPreferencesQuery = useQuery({
   queryKey: settingsProviderPreferencesQueryKey(cwd, activeProvider),
   queryFn: () => readProviderRuntimePreferences(cwd, activeProvider),
   enabled: Boolean(optionalSettingsCwd(cwd) && activeProvider),
@@ -942,9 +1026,9 @@ useQuery({
 });
 ```
 
-When query data arrives, only apply it if the provider form is not dirty. Use the same dirty predicate currently protected by `SettingsPage.test.jsx`.
+When query data arrives, only apply it if the local provider form is not dirty. Keep existing fallback/tombstone normalization in `settingsPageRuntime.js`; do not inline it into the hook.
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **Step 5: Run focused tests**
 
 ```bash
 cd frontend-app
@@ -955,30 +1039,28 @@ npx vitest run --no-file-parallelism --maxWorkers=1 \
 
 Expected: PASS.
 
-- [ ] **Step 7: LSP diagnostics**
+- [ ] **Step 6: LSP diagnostics**
 
 Run diagnostics for:
 
 ```text
-frontend-app/src/pages/settings/SettingsPage.jsx
-frontend-app/src/pages/settings/settingsRuntimeHook.js
 frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js
+frontend-app/src/pages/settings/settingsPageRuntime.js
 frontend-app/src/pages/settings/SettingsPage.test.jsx
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add frontend-app/src/pages/settings/settingsRuntimeHook.js \
-  frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js \
-  frontend-app/src/pages/settings/SettingsPage.jsx \
+git add frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js \
+  frontend-app/src/pages/settings/settingsPageRuntime.js \
   frontend-app/src/pages/settings/SettingsPage.test.jsx
-git commit -m "refactor(frontend): 用 Query 管理设置偏好读取"
+git commit -m "refactor(frontend): 用 Query 管理设置提供方偏好"
 ```
 
 ---
 
-## Task 7: Replace rpc-contract-audit Frontend JS Regex Parsing With AST
+## Task 8: Replace rpc-contract-audit Frontend JS Regex Parsing With AST
 
 **Files:**
 - Modify: `frontend-app/scripts/rpc-contract-audit.mjs`
@@ -1009,15 +1091,21 @@ it('extracts multiline frontend RPC methods and contract entries with AST parsin
   ]);
 
   const entries = parseContractMatrixForTest(`
-    export const BACKEND_CONTRACT_MATRIX = Object.freeze({
-      THREAD_START: {
-        method: RPC_METHODS.THREAD_START,
-        responseValidator: parseThreadStartResponse,
-      },
+    export const RPC_CONTRACT_REGISTRY = Object.freeze({
+      THREAD_START: contract(
+        'THREAD_START',
+        'startThread',
+        'P0',
+        'thread',
+        [TESTS.API],
+        ['runtime lifecycle start'],
+        false,
+        { responseValidator: 'threadStartResponse' },
+      ),
     })
   `);
   expect(entries).toEqual([
-    { key: 'THREAD_START', methodKey: 'THREAD_START', hasResponseValidator: true },
+    expect.objectContaining({ key: 'THREAD_START', declaredKey: 'THREAD_START', responseValidator: 'threadStartResponse' }),
   ]);
 });
 ```
@@ -1026,16 +1114,16 @@ Add payload builder fixture:
 
 ```js
 it('extracts payload keys from nested facade builders without splitTopLevelArguments regex', () => {
-  const keys = extractPayloadBuilderConsumedKeysForTest(`
-    function threadStartPayload(input) {
+  const keys = collectFrontendPayloadKeysFromSource(`
+    function threadStartPayload(params) {
+      const unused = { ...params }
       return cleanObject({
-        cwd: input.cwd,
-        promptKey: normalize(input.promptKey),
-        nested: { ignored: input.notPayload },
+        cwd: takePayloadField(unused, 'cwd'),
+        promptKey: takePayloadField(unused, 'promptKey'),
       })
     }
-  `, 'threadStartPayload');
-  expect([...keys].sort()).toEqual(['cwd', 'promptKey']);
+  `).get('thread/start');
+  expect(keys).toEqual(['cwd', 'promptKey']);
 });
 ```
 
@@ -1047,7 +1135,7 @@ npx vitest run --no-file-parallelism --maxWorkers=1 \
   scripts/rpc-contract-audit.test.mjs
 ```
 
-Expected: FAIL until exported-for-test AST helpers exist.
+Expected: FAIL until exported-for-test AST helpers exist. Keep using existing `collectFrontendPayloadKeysFromSource` for payload builder tests.
 
 - [ ] **Step 3: Add AST parse helper**
 
@@ -1059,6 +1147,13 @@ import ts from 'typescript';
 function parseJavaScriptSource(source, fileName = 'source.js') {
   return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 }
+```
+
+Export narrow test-only helpers:
+
+```js
+export const parseRpcMethodsForTest = parseRpcMethods;
+export const parseContractMatrixForTest = parseContractMatrix;
 ```
 
 Replace `parseRpcMethods` regex with AST traversal:
@@ -1138,7 +1233,7 @@ git commit -m "refactor(frontend): 用 AST 收敛 RPC 契约审计"
 
 ---
 
-## Task 8: Add frontend-code-size-guard AST Shadow Metrics
+## Task 9: Add frontend-code-size-guard AST Shadow Metrics
 
 **Files:**
 - Modify: `frontend-app/scripts/frontend-code-size-guard.mjs`
@@ -1162,24 +1257,25 @@ it('keeps AST shadow metrics aligned for nested callbacks and template braces', 
     '  return [value].map((item) => ({ item, text }));',
     '}',
   ];
-  const current = measureFileForTest(lines, { useAstShadow: false });
-  const shadow = measureFileForTest(lines, { useAstShadow: true });
-  expect(shadow.functions.map((item) => item.name)).toContain('outer');
+  const source = lines.join('\n');
+  const current = measureFrontendCodeSizeSource('src/shadow.js', source);
+  const shadow = measureFrontendCodeSizeSourceAstShadow('src/shadow.js', source);
+  expect(shadow.functionNames).toContain('outer');
   expect(shadow.maxNesting).toBe(current.maxNesting);
 });
 
 it('counts destructured and rest params through AST shadow parsing', () => {
-  const lines = [
+  const source = [
     'function acceptsMany({ a, b }, ...rest) {',
     '  return rest.length + a + b;',
     '}',
-  ];
-  const shadow = measureFileForTest(lines, { useAstShadow: true });
+  ].join('\n');
+  const shadow = measureFrontendCodeSizeSourceAstShadow('src/params.js', source);
   expect(shadow.maxParams).toBe(2);
 });
 ```
 
-Use actual exported helper names from the test file. If no measurement helper exists, export a test-only helper from the guard script rather than testing the CLI through temp files for every fixture.
+Import the new helper next to the existing `measureFrontendCodeSizeSource` test import.
 
 - [ ] **Step 2: Run RED guard tests**
 
@@ -1215,6 +1311,14 @@ console usage / any usage / empty function checks only where AST improves correc
 
 Keep current functions in place. The production guard should call both implementations on touched fixture paths or under a test-only option first.
 
+Export the shadow helper:
+
+```js
+export function measureFrontendCodeSizeSourceAstShadow(relFile, source) {
+  // Return the same metric keys as measureFrontendCodeSizeSource, plus functionNames for parity tests.
+}
+```
+
 - [ ] **Step 4: Add parity assertions**
 
 In tests, compare current and AST shadow metrics for representative source snippets and at least one real small frontend file. Fail fast on mismatches with the file path and metric name.
@@ -1249,7 +1353,7 @@ git commit -m "refactor(frontend): 为代码尺寸守卫加入 AST 影子指标"
 
 ---
 
-## Task 9: Full Wave Validation And Remote Sync
+## Task 10: Full Wave Validation And Remote Sync
 
 **Files:**
 - No source edits unless validation exposes a regression.
@@ -1312,7 +1416,7 @@ These are intentionally not mixed into this wave:
    - Task 6 uses the existing `settingsRuntimeHook.js` and `settingsProviderPreferencesRuntime.js` files. Further hook/file reshaping should wait until Query migration tests pass.
 
 3. **RPC contract Go-side AST parsing**
-   - Task 7 only replaces frontend JS parsing. Go handler and struct parsing should be planned separately with Go/LSP evidence.
+   - Task 8 only replaces frontend JS parsing. Go handler and struct parsing should be planned separately with Go/LSP evidence.
 
 ## Atomic Commit Ledger
 
@@ -1325,7 +1429,8 @@ refactor(frontend): 用 React Aria 托管图片预览弹窗
 refactor(frontend): 交给 Query 刷新提示词焦点数据
 refactor(frontend): 用 zod 收敛数据源 DTO
 refactor(frontend): 用 React Aria 托管运行面板弹层
-refactor(frontend): 用 Query 管理设置偏好读取
+refactor(frontend): 用 Query 管理设置运行时偏好
+refactor(frontend): 用 Query 管理设置提供方偏好
 refactor(frontend): 用 AST 收敛 RPC 契约审计
 refactor(frontend): 为代码尺寸守卫加入 AST 影子指标
 ```
