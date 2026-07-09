@@ -302,6 +302,22 @@ describe('composer layout styles', () => {
     expect(activeComposer['grid-row']).toBe('3');
   });
 
+  it('renders the Suiyuan floating composer as a raised white input object', () => {
+    const floatingCard = declarationsFor('.composer--floating .composer-card');
+    const textarea = declarationsFor('.composer--floating textarea');
+    const meta = declarationsFor('.composer--floating .composer-meta');
+    const send = declarationsFor('.composer .send');
+    const disabledSend = declarationsFor('.composer .send:disabled');
+
+    expect(floatingCard.background).toBe('var(--surface)');
+    expect(floatingCard['border-radius']).toBe('28px');
+    expect(floatingCard['box-shadow']).toContain('var(--suiyuan-input-shadow)');
+    expect(textarea.padding).toBe('22px 26px 12px');
+    expect(meta['min-height']).toBe('58px');
+    expect(send.background).toBe('var(--primary-action-bg)');
+    expect(disabledSend.background).toBe('var(--surface-2)');
+  });
+
   it('keeps composer send controls aligned with the shell theme', () => {
     const sendIcon = declarationsFor('.composer .send svg');
 
@@ -505,6 +521,7 @@ describe('theme-aware component styles', () => {
       expect(rootTokens['--suiyuan-gutter']).toBe('24px');
       expect(rootTokens['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.05)');
       expect(rootTokens['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.04)');
+      expect(rootTokens['--suiyuan-input-highlight']).toBe('inset 0 1px 0 rgba(255, 255, 255, 0.82)');
     });
   });
 
@@ -954,9 +971,9 @@ describe('conversation content column styles', () => {
     const attach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
     const track = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track');
 
-    expect(floatingCard.background).toBe('var(--composer-floating-bg, var(--surface))');
-    expect(floatingCard['border-color']).toContain('var(--border)');
-    expect(floatingCard['box-shadow']).toBe('0 18px 46px color-mix(in srgb, var(--text-pri) 8%, transparent)');
+    expect(floatingCard.background).toBe('var(--surface)');
+    expect(floatingCard['border-color']).toBe('var(--line)');
+    expect(floatingCard['box-shadow']).toBe('var(--suiyuan-input-shadow), var(--suiyuan-input-highlight)');
     expect(attach.background).toBe('transparent');
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
   });

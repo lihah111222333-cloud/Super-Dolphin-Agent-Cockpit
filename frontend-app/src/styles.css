@@ -20,6 +20,7 @@
   --suiyuan-gutter: 24px;
   --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.05);
   --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+  --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
   --bg: #070816;
   --bg-elevated: #0d1024;
   --app-bg: linear-gradient(135deg, #12143a 0%, #070816 52%, #0d213d 100%);

@@ -369,7 +369,6 @@
 }
 
 .composer-card,
-.composer--floating .composer-card,
 .composer--docked .composer-card {
   width: 100%;
   margin: 0 auto;
@@ -377,6 +376,17 @@
   border-radius: 30px;
   background: var(--composer-docked-bg, var(--surface));
   box-shadow: var(--composer-shadow);
+  overflow: visible;
+}
+
+.composer--floating .composer-card {
+  width: 100%;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-color: var(--line);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
   overflow: visible;
 }
 
@@ -399,6 +409,7 @@
 .composer--floating textarea {
   height: 136px;
   min-height: 136px;
+  padding: 22px 26px 12px;
 }
 
 .composer textarea::placeholder {
@@ -514,10 +525,11 @@
   min-width: 42px;
   height: 42px;
   margin-left: auto;
-  border: 0;
+  border: 1px solid var(--primary-action-border);
   border-radius: 999px;
-  background: var(--workbench-ink, var(--accent-2));
-  color: var(--on-accent);
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
 }
 
 .composer .send svg {
@@ -528,19 +540,26 @@
 }
 
 .composer .send:disabled {
-  background: var(--surface-3);
-  color: var(--text-muted);
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  box-shadow: none;
   opacity: 1;
 }
 
 .conversation--intro .composer .send:disabled {
-  background: var(--workbench-ink, var(--accent-2)) !important;
-  color: var(--on-accent) !important;
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  box-shadow: none;
 }
 
 .composer .send--interrupt,
 .composer .send--interrupt:hover {
-  background: var(--error);
+  border-color: color-mix(in srgb, var(--error) 48%, var(--line));
+  background: color-mix(in srgb, var(--error) 14%, var(--surface));
+  color: var(--error);
+  box-shadow: none;
 }
 
 .composer.drop-active .composer-card {

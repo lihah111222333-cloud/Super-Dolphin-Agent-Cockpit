@@ -23,7 +23,7 @@
 
 .composer--floating {
   z-index: 6;
-  width: min(1180px, calc(100% - 48px));
+  width: min(920px, calc(100% - 48px));
   padding: 0;
   border-top: 0;
   background: transparent;
@@ -52,10 +52,11 @@
 .composer--floating .composer-card {
   width: 100%;
   margin: 0 auto;
-  border-color: var(--border-strong);
+  border: 1px solid var(--line);
+  border-color: var(--line);
   border-radius: 28px;
-  background: color-mix(in srgb, var(--surface-2) 86%, var(--bg));
-  box-shadow: var(--shadow), inset 0 1px 0 color-mix(in srgb, var(--text-pri) 4%, transparent);
+  background: var(--surface);
+  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
 }
 
 .composer textarea {
@@ -125,7 +126,7 @@
 
 .composer button {
   min-height: 34px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--text-sec);
@@ -318,10 +319,30 @@
   min-height: 38px;
   display: grid;
   place-items: center;
+  border-color: var(--primary-action-border);
   border-radius: 999px;
   background: var(--primary-action-bg);
   color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
   padding: 0;
+}
+
+.composer .send:hover,
+.composer .send:focus-visible {
+  background: var(--primary-action-bg-hover);
+}
+
+.composer .send:disabled {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  box-shadow: none;
+}
+
+.composer .send--interrupt {
+  border-color: color-mix(in srgb, var(--error) 48%, var(--line));
+  background: color-mix(in srgb, var(--error) 14%, var(--surface));
+  color: var(--error);
 }
 
 .attachments {

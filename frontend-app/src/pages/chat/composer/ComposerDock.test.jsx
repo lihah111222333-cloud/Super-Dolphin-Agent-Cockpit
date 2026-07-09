@@ -117,6 +117,7 @@ describe('ComposerDock', () => {
 
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
+    expect(screen.getByTestId('composer-dock').querySelector('.composer-card')).toBeInTheDocument();
   });
 
   it('switches the primary action to interrupt when the active thread is interruptible', () => {
