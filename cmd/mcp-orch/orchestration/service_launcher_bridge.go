@@ -497,16 +497,7 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 
 // submitTurnViaLauncher 优先提交到远端 launcher，无法远端处理时回落到本地队列。
 func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
-	agentID := strings.TrimSpace(req.AgentID)
-	if agentID == "" {
-		return errors.New("agent id is required")
-	}
-	s.ensureRuntimeForPersistedAgent(ctx, agentID)
-	handled, err := s.trySubmitRemoteTurn(ctx, agentID, req)
-	if handled || err != nil {
-		return err
-	}
-	return s.enqueueLocalTurnSubmission(ctx, agentID, req)
+	return s.turnController().SubmitTurn(ctx, req)
 }
 
 // remoteTurnSubmitAttempt 保存远端 turn 提交的 active turn fence 和请求副本。
@@ -519,18 +510,42 @@ type remoteTurnSubmitAttempt struct {
 
 // InterruptAgent 请求远程 Codex 子 agent 中断当前 turn，并等待状态收口。
 func (s *service) InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error) {
+	return s.turnController().InterruptAgent(ctx, agentID, source)
+}
+
+// SubmitTurn 统一处理 turn 提交：远端 launcher 优先，无法远端处理时进入本地队列。
+func (c *turnController) SubmitTurn(ctx context.Context, req TurnSubmission) error {
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID == "" {
+		return errors.New("agent id is required")
+	}
+	if c.rehydrator != nil {
+		c.rehydrator.ensureRuntimeForPersistedAgent(ctx, agentID)
+	}
+	handled, err := c.trySubmitRemoteTurn(ctx, agentID, req)
+	if handled || err != nil {
+		return err
+	}
+	return c.enqueueLocalTurnSubmission(ctx, agentID, req)
+}
+
+// InterruptAgent 请求远端 launcher 中断当前 active turn，并轮询等待状态收口。
+func (c *turnController) InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error) {
 	source = shared.FirstTrimmed(source, "parent_agent")
-	agent, turnID, err := s.prepareInterruptAgent(agentID)
+	agent, turnID, err := c.prepareInterruptAgent(agentID)
 	if err != nil {
 		return AgentStateResult{}, err
 	}
-	if err := s.launcher.Interrupt(ctx, &agent, source); err != nil {
+	if c.launcher == nil {
+		return AgentStateResult{}, errors.New("interrupt_agent currently supports remote Codex agents only")
+	}
+	if err := c.launcher.Interrupt(ctx, &agent, source); err != nil {
 		return AgentStateResult{}, err
 	}
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		result, activeTurnID, err := s.interruptAgentSnapshot(agent.id)
+		result, activeTurnID, err := c.interruptAgentSnapshot(agent.id)
 		if err != nil {
 			return AgentStateResult{}, err
 		}
@@ -546,11 +561,11 @@ func (s *service) InterruptAgent(ctx context.Context, agentID string, source str
 }
 
 // prepareInterruptAgent 校验远端 agent 可中断条件，并复制 launcher.Interrupt 所需快照。
-func (s *service) prepareInterruptAgent(agentID string) (agentRuntime, string, error) {
+func (c *turnController) prepareInterruptAgent(agentID string) (agentRuntime, string, error) {
 	var agent agentRuntime
 	turnID := ""
-	err := s.withAgentReadLocked(agentID, func(current *agentRuntime) error {
-		if s.launcher == nil {
+	err := c.withAgentReadLocked(agentID, func(current *agentRuntime) error {
+		if c.launcher == nil {
 			return errors.New("interrupt_agent currently supports remote Codex agents only")
 		}
 		if !agentStateMatches(current.state, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput) {
@@ -569,10 +584,10 @@ func (s *service) prepareInterruptAgent(agentID string) (agentRuntime, string, e
 }
 
 // interruptAgentSnapshot 读取中断轮询所需的状态和 active turn。
-func (s *service) interruptAgentSnapshot(agentID string) (AgentStateResult, string, error) {
+func (c *turnController) interruptAgentSnapshot(agentID string) (AgentStateResult, string, error) {
 	result := AgentStateResult{}
 	activeTurnID := ""
-	err := s.withAgentReadLocked(agentID, func(current *agentRuntime) error {
+	err := c.withAgentReadLocked(agentID, func(current *agentRuntime) error {
 		result = AgentStateResult{AgentID: current.id, State: string(current.state)}
 		activeTurnID = strings.TrimSpace(current.activeTurnID)
 		return nil
@@ -580,32 +595,36 @@ func (s *service) interruptAgentSnapshot(agentID string) (AgentStateResult, stri
 	return result, activeTurnID, err
 }
 
-// trySubmitRemoteTurn 在 launcher agent 运行时直接提交 turn，并负责失败后的状态回滚。
-func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
-	attempt, handled, err := s.prepareRemoteTurnSubmit(ctx, agentID, req)
+// trySubmitRemoteTurn 在 launcher 管理的远端 agent 可用时直接提交 turn。
+func (c *turnController) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
+	attempt, handled, err := c.prepareRemoteTurnSubmit(ctx, agentID, req)
 	if !handled || err != nil {
 		return handled, err
 	}
-	remoteTurnID, submitErr := s.launcher.SubmitTurn(ctx, attempt.agent, attempt.req)
+	remoteTurnID, submitErr := c.launcher.SubmitTurn(ctx, attempt.agent, attempt.req)
 	if submitErr != nil {
-		s.finishRemoteTurnSubmitFailure(ctx, attempt, submitErr)
+		c.finishRemoteTurnSubmitFailure(ctx, attempt, submitErr)
 		if launcherrors.Classify(submitErr) == launcherrors.ClassPermanent {
 			cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 			defer cancel()
-			submitErr = errors.Join(submitErr, s.stopAgentViaLauncher(cleanupCtx, attempt.agentID, "remote_turn_submit_failed"))
+			if c.stopper == nil {
+				submitErr = errors.Join(submitErr, errors.New("turn stop port is not configured"))
+			} else {
+				submitErr = errors.Join(submitErr, c.stopper.stopAgentViaLauncher(cleanupCtx, attempt.agentID, "remote_turn_submit_failed"))
+			}
 		}
 		return true, submitErr
 	}
-	s.finishRemoteTurnSubmitSuccess(ctx, attempt, remoteTurnID)
+	c.finishRemoteTurnSubmitSuccess(ctx, attempt, remoteTurnID)
 	return true, nil
 }
 
 // prepareRemoteTurnSubmit 校验远端 turn 提交前提并构造提交 attempt。
-func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, req TurnSubmission) (remoteTurnSubmitAttempt, bool, error) {
+func (c *turnController) prepareRemoteTurnSubmit(ctx context.Context, agentID string, req TurnSubmission) (remoteTurnSubmitAttempt, bool, error) {
 	attempt := remoteTurnSubmitAttempt{}
 	handled := true
-	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		if !s.canSubmitViaLauncher(ctx, agent) {
+	err := c.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !c.canSubmitViaLauncher(ctx, agent) {
 			handled = false
 			return nil
 		}
@@ -616,15 +635,15 @@ func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, r
 			return fmt.Errorf("agent %q is busy", agent.id)
 		}
 		req.AgentID = agentID
-		req.ExpectedTurnID = s.turnIDFor(req)
+		req.ExpectedTurnID = c.turnIDFor(req)
 		if threadID := strings.TrimSpace(req.ThreadID); threadID != "" {
 			agent.threadID = threadID
 		}
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
 			return err
 		}
 		agent.activeTurnID = req.ExpectedTurnID
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
 			agent.activeTurnID = ""
 			return err
 		}
@@ -636,14 +655,14 @@ func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, r
 }
 
 // finishRemoteTurnSubmitSuccess 将远端返回的 turn id 绑定到 active turn。
-func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt remoteTurnSubmitAttempt, remoteTurnID string) {
-	_ = s.withAgentLocked(attempt.agentID, func(agent *agentRuntime) error {
+func (c *turnController) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt remoteTurnSubmitAttempt, remoteTurnID string) {
+	_ = c.withAgentLocked(attempt.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != attempt.turnID {
 			return nil
 		}
 		agent.activeTurnID = shared.FirstTrimmed(remoteTurnID, attempt.turnID)
 		if agent.state == agentdto.StateTurnStarting {
-			if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+			if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
 				return err
 			}
 		}
@@ -653,13 +672,13 @@ func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt rem
 }
 
 // finishRemoteTurnSubmitFailure 将远端提交失败收口为 turn start failure。
-func (s *service) finishRemoteTurnSubmitFailure(ctx context.Context, attempt remoteTurnSubmitAttempt, submitErr error) {
-	s.finishTurnStartFailure(ctx, turnWork{agentID: attempt.agentID, turnID: attempt.turnID}, submitErr)
+func (c *turnController) finishRemoteTurnSubmitFailure(ctx context.Context, attempt remoteTurnSubmitAttempt, submitErr error) {
+	c.finishTurnStartFailure(ctx, turnWork{agentID: attempt.agentID, turnID: attempt.turnID}, submitErr)
 }
 
 // canSubmitViaLauncher 判断 agent 是否可通过远端 launcher 接收新 turn。
-func (s *service) canSubmitViaLauncher(ctx context.Context, agent *agentRuntime) bool {
-	return s.launcher != nil && agent.cmd == nil && s.launcher.IsRunning(ctx, agent)
+func (c *turnController) canSubmitViaLauncher(ctx context.Context, agent *agentRuntime) bool {
+	return c.launcher != nil && agent.cmd == nil && c.launcher.IsRunning(ctx, agent)
 }
 
 // remoteAgentBusy 判断远端 agent 是否仍有未完成 turn。
@@ -668,17 +687,17 @@ func remoteAgentBusy(agent *agentRuntime) bool {
 }
 
 // enqueueLocalTurnSubmission 把 turn 放入本地队列等待进程就绪后执行。
-func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string, req TurnSubmission) error {
-	waitForSession, err := s.submitAgentReadyState(ctx, agentID)
+func (c *turnController) enqueueLocalTurnSubmission(ctx context.Context, agentID string, req TurnSubmission) error {
+	waitForSession, err := c.submitAgentReadyState(ctx, agentID)
 	if err != nil {
 		return err
 	}
 	if waitForSession {
-		if err := s.waitForSubmitSessionReady(ctx, agentID); err != nil {
+		if err := c.waitForSubmitSessionReady(ctx, agentID); err != nil {
 			return err
 		}
 	}
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if agent.cmd == nil {
 			pkglogger.Warn("orchestration: submit turn rejected: agent not running", "agent_id", agent.id, "state", agent.state, "launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq, "last_error", agent.lastError)
 			return fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, agent.id)
@@ -690,7 +709,7 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 		req.AgentID = agentID
 		agent.queue.Enqueue(req)
 		if agent.state == agentdto.StateIdle {
-			if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
+			if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
 				return err
 			}
 		}

@@ -44,26 +44,33 @@ func (s *service) removeSession(agent *agentRuntime) {
 // claimTurnWork 从各 agent 队列领取可执行 turn，并在锁内先推进状态。
 // 状态推进失败时会把 turn 放回队头，避免任务在并发状态变更中丢失。
 func (s *service) claimTurnWork(ctx context.Context) []turnWork {
-	registry := s.agentRegistry()
-	registry.lock()
-	defer registry.unlock()
+	return s.turnController().claimTurnWork(ctx)
+}
 
-	work := make([]turnWork, 0, len(registry.agents))
-	for _, agent := range registry.agents {
-		s.reconcileReadyStateLocked(ctx, agent)
-		if !s.agentRunningLocked(ctx, agent) || agent.stopRequested || agent.state != agentdto.StateTurnQueued {
+// claimTurnWork 从本地队列领取可执行 turn，并先把状态推进到 turn_starting。
+func (c *turnController) claimTurnWork(ctx context.Context) []turnWork {
+	if c.registry == nil {
+		return nil
+	}
+	c.registry.lock()
+	defer c.registry.unlock()
+
+	work := make([]turnWork, 0, len(c.registry.agents))
+	for _, agent := range c.registry.agents {
+		c.reconcileReadyStateLocked(ctx, agent)
+		if !c.agentRunningLocked(ctx, agent) || agent.stopRequested || agent.state != agentdto.StateTurnQueued {
 			continue
 		}
 		submission, ok := agent.queue.Dequeue()
 		if !ok {
 			continue
 		}
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
 			agent.queue.Enqueue(submission)
-			s.logger.Warn("orchestration: failed to accept queued turn", "agent_id", agent.id, "error", err)
+			c.log().Warn("orchestration: failed to accept queued turn", "agent_id", agent.id, "error", err)
 			continue
 		}
-		turnID := s.turnIDFor(submission)
+		turnID := c.turnIDFor(submission)
 		submission.ExpectedTurnID = turnID
 		if threadID := strings.TrimSpace(submission.ThreadID); threadID != "" {
 			agent.threadID = threadID

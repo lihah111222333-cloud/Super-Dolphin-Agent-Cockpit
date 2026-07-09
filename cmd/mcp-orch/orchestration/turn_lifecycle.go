@@ -129,28 +129,52 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 
 // markAwaitingUserInput 将 active turn 推进到 awaiting_user_input。
 func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	return s.turnController().markAwaitingUserInput(ctx, agentID, turnID)
+}
+
+// resolveAwaitingUserInput 将 awaiting_user_input 恢复为 turn_running，重复 resolved 视为幂等。
+func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
+	return s.turnController().resolveAwaitingUserInput(ctx, agentID, turnID, reason)
+}
+
+// CompleteTurn 根据 provider 终态事件完成或中止当前 active turn。
+func (c *turnController) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
+	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		kind := activeTurnFinalizationKind{
+			trigger:   agentdto.TriggerTurnAborted,
+			errorText: errMsg,
+		}
+		if success {
+			kind.trigger = agentdto.TriggerTurnCompleted
+			kind.clearError = true
+		}
+		return c.finalizeActiveTurnLocked(ctx, agent, turnID, kind)
+	})
+}
+
+func (c *turnController) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
+	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
 			return errTurnNotActive
 		}
-		if err := s.ensureTurnRunningForUserInputLocked(ctx, agent); err != nil {
+		if err := c.ensureTurnRunningForUserInputLocked(ctx, agent); err != nil {
 			return err
 		}
 		if agent.state == agentdto.StateAwaitingUserInput {
 			return nil
 		}
-		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputRequested)
+		return c.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputRequested)
 	})
 }
 
 // resolveAwaitingUserInput 将 awaiting_user_input 恢复为 turn_running，重复 resolved 视为幂等。
-func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
+func (c *turnController) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "reject"
 	}
-	logger := userInputLogger(s.logger)
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	logger := userInputLogger(c.log())
+	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
 			return errTurnNotActive
 		}
@@ -160,7 +184,7 @@ func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID,
 		}
 		switch agent.state {
 		case agentdto.StateAwaitingUserInput:
-			if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputResolved); err != nil {
+			if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputResolved); err != nil {
 				return err
 			}
 			logger.Info("orchestration: resolved awaiting user input", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
@@ -175,8 +199,8 @@ func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID,
 }
 
 // ensureTurnRunningForUserInputLocked 确保 agent 已进入可请求用户输入的运行态。
-func (s *service) ensureTurnRunningForUserInputLocked(ctx context.Context, agent *agentRuntime) error {
-	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerUserInputRequested, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
+func (c *turnController) ensureTurnRunningForUserInputLocked(ctx context.Context, agent *agentRuntime) error {
+	return c.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerUserInputRequested, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
 // userInputMatchesActiveTurn 判断 approval 事件是否匹配当前 active turn。
@@ -253,11 +277,16 @@ func userInputLogger(logger *slog.Logger) *slog.Logger {
 
 // interruptTurn 在 service 锁内中止当前 active turn。
 func (s *service) interruptTurn(ctx context.Context, agentID, turnID, reason string) error {
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		if err := s.ensureTurnAbortableLocked(ctx, agent); err != nil {
+	return s.turnController().interruptTurn(ctx, agentID, turnID, reason)
+}
+
+// interruptTurn 在 registry 锁内中止当前 active turn。
+func (c *turnController) interruptTurn(ctx context.Context, agentID, turnID, reason string) error {
+	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if err := c.ensureTurnAbortableLocked(ctx, agent); err != nil {
 			return err
 		}
-		return s.finalizeActiveTurnLocked(ctx, agent, turnID, activeTurnFinalizationKind{
+		return c.finalizeActiveTurnLocked(ctx, agent, turnID, activeTurnFinalizationKind{
 			trigger:   agentdto.TriggerTurnAborted,
 			errorText: reason,
 		})
@@ -356,7 +385,7 @@ func (s *service) recoverTurnInterruptionStateLocked(ctx context.Context, agent 
 	if agent == nil || agent.state == agentdto.StateIdle {
 		return nil
 	}
-	if err := s.ensureTurnAbortableLocked(ctx, agent); err != nil {
+	if err := s.turnController().ensureTurnAbortableLocked(ctx, agent); err != nil {
 		return err
 	}
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAborted)
@@ -381,8 +410,8 @@ func (s *service) normalizeTurnCompletionStateLocked(ctx context.Context, agent 
 }
 
 // ensureTurnAbortableLocked 确保 agent 已进入可被中止的 turn 运行态。
-func (s *service) ensureTurnAbortableLocked(ctx context.Context, agent *agentRuntime) error {
-	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerTurnAborted, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
+func (c *turnController) ensureTurnAbortableLocked(ctx context.Context, agent *agentRuntime) error {
+	return c.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerTurnAborted, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
 // completionRecoveryTrigger 根据 completion 成功与否选择完成或中止触发。

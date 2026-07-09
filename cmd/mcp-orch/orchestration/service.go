@@ -83,6 +83,127 @@ type service struct {
 	asyncWg     sync.WaitGroup
 }
 
+type turnStatePort interface {
+	fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error
+	finalizeActiveTurnLocked(ctx context.Context, agent *agentRuntime, turnID string, kind activeTurnFinalizationKind) error
+	ensureTurnStartedLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger, states ...agentdto.AgentState) error
+}
+
+type turnRuntimeRehydrator interface {
+	ensureRuntimeForPersistedAgent(ctx context.Context, agentID string)
+}
+
+type turnStopPort interface {
+	stopAgentViaLauncher(ctx context.Context, agentID, reason string) error
+}
+
+type turnControllerDeps struct {
+	registry    *agentRegistry
+	launcher    AgentLauncher
+	turnStarter contract.OrchestrationTurnStarter
+	state       turnStatePort
+	rehydrator  turnRuntimeRehydrator
+	stopper     turnStopPort
+	logger      *slog.Logger
+}
+
+// turnController owns turn submission and active-turn state transitions.
+type turnController struct {
+	registry    *agentRegistry
+	launcher    AgentLauncher
+	turnStarter contract.OrchestrationTurnStarter
+	state       turnStatePort
+	rehydrator  turnRuntimeRehydrator
+	stopper     turnStopPort
+	logger      *slog.Logger
+}
+
+func newTurnController(deps turnControllerDeps) *turnController {
+	return &turnController{
+		registry:    deps.registry,
+		launcher:    deps.launcher,
+		turnStarter: deps.turnStarter,
+		state:       deps.state,
+		rehydrator:  deps.rehydrator,
+		stopper:     deps.stopper,
+		logger:      deps.logger,
+	}
+}
+
+func (s *service) turnController() *turnController {
+	if s == nil {
+		return newTurnController(turnControllerDeps{})
+	}
+	return newTurnController(turnControllerDeps{
+		registry:    s.agentRegistry(),
+		launcher:    s.launcher,
+		turnStarter: s.turnStarter,
+		state:       s,
+		rehydrator:  s,
+		stopper:     s,
+		logger:      s.logger,
+	})
+}
+
+func (c *turnController) agentRunningLocked(ctx context.Context, agent *agentRuntime) bool {
+	if agent == nil {
+		return false
+	}
+	if c.launcher != nil {
+		return c.launcher.IsRunning(ctx, agent)
+	}
+	return agent.cmd != nil
+}
+
+func (c *turnController) withAgentLocked(agentID string, fn func(*agentRuntime) error) error {
+	if c == nil || c.registry == nil {
+		return errAgentNotFound
+	}
+	return c.registry.withAgentLocked(agentID, fn)
+}
+
+func (c *turnController) withAgentReadLocked(agentID string, fn func(*agentRuntime) error) error {
+	if c == nil || c.registry == nil {
+		return errAgentNotFound
+	}
+	return c.registry.withAgentReadLocked(agentID, fn)
+}
+
+func (c *turnController) turnIDFor(sub TurnSubmission) string {
+	if c != nil && c.registry != nil {
+		return c.registry.turnIDFor(sub)
+	}
+	return strings.TrimSpace(sub.ExpectedTurnID)
+}
+
+func (c *turnController) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
+	if c == nil || c.state == nil {
+		return errors.New("turn state port is not configured")
+	}
+	return c.state.fireOrForceLocked(ctx, agent, trigger)
+}
+
+func (c *turnController) finalizeActiveTurnLocked(ctx context.Context, agent *agentRuntime, turnID string, kind activeTurnFinalizationKind) error {
+	if c == nil || c.state == nil {
+		return errors.New("turn state port is not configured")
+	}
+	return c.state.finalizeActiveTurnLocked(ctx, agent, turnID, kind)
+}
+
+func (c *turnController) ensureTurnStartedLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger, states ...agentdto.AgentState) error {
+	if c == nil || c.state == nil {
+		return errors.New("turn state port is not configured")
+	}
+	return c.state.ensureTurnStartedLocked(ctx, agent, trigger, states...)
+}
+
+func (c *turnController) log() *slog.Logger {
+	if c != nil && c.logger != nil {
+		return c.logger
+	}
+	return pkglogger.Get()
+}
+
 // serviceParams 是 fx 依赖注入参数结构体，包含 service 所需的所有依赖。
 type serviceParams struct {
 	fx.In
@@ -421,7 +542,7 @@ func (s *service) DrainAsync(ctx context.Context) {
 
 // SubmitTurn 提交一次 turn，远端 agent 优先走 launcher，其他 agent 进入本地队列。
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
-	return s.submitTurnViaLauncher(ctx, req)
+	return s.turnController().SubmitTurn(ctx, req)
 }
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。
@@ -465,15 +586,5 @@ func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 
 // CompleteTurn 根据 provider 终态事件完成或中止当前 active turn。
 func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		kind := activeTurnFinalizationKind{
-			trigger:   agentdto.TriggerTurnAborted,
-			errorText: errMsg,
-		}
-		if success {
-			kind.trigger = agentdto.TriggerTurnCompleted
-			kind.clearError = true
-		}
-		return s.finalizeActiveTurnLocked(ctx, agent, turnID, kind)
-	})
+	return s.turnController().CompleteTurn(ctx, agentID, turnID, success, errMsg)
 }

@@ -44,11 +44,16 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 
 // BindActiveTurnID 把当前活跃 turn 绑定到 provider 返回的真实 turn ID。
 func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
+	return s.turnController().BindActiveTurnID(ctx, agentID, turnID)
+}
+
+// BindActiveTurnID 把当前 active turn 绑定到 provider 返回的真实 turn ID。
+func (c *turnController) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return errors.New("turn id is required")
 	}
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID == "" {
 			return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
 		}
@@ -62,13 +67,13 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 }
 
 // reconcileReadyStateLocked 在进程已就绪时修正本地状态和队列状态。
-func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
+func (c *turnController) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
 	if agent.cmd == nil || agent.stopRequested {
 		return
 	}
 	if agent.activeTurnID == "" && agent.state == agentdto.StateIdle && agent.queue.Len() > 0 {
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
-			s.logger.Warn("orchestration: failed to mark queued turn", "agent_id", agent.id, "error", err)
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
+			c.log().Warn("orchestration: failed to mark queued turn", "agent_id", agent.id, "error", err)
 		}
 		return
 	}
@@ -77,33 +82,38 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 	}
 	switch agent.state {
 	case agentdto.StateTurnStarting, agentdto.StateTurnRunning:
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
-			s.logger.Warn("orchestration: failed to reconcile ready state", "agent_id", agent.id, "state", agent.state, "error", err)
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
+			c.log().Warn("orchestration: failed to reconcile ready state", "agent_id", agent.id, "state", agent.state, "error", err)
 		}
 	}
 }
 
 // startTurnExecution 等待 session 可提交后，把排队的 turn 交给 provider 执行。
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
+	s.turnController().startTurnExecution(ctx, work)
+}
+
+// startTurnExecution 等待 session 可提交后，把已领取的 turn 交给 provider 执行。
+func (c *turnController) startTurnExecution(ctx context.Context, work turnWork) {
 	startedAt := time.Now()
 	logger := pkglogger.FromContext(ctx)
-	if s != nil && s.logger != nil {
-		logger = s.logger
+	if c.logger != nil {
+		logger = c.logger
 	}
 	logger.Info("orchestration: turn execution start",
 		pkglogger.String(pkglogger.FieldAgentID, work.agentID),
 		pkglogger.String(pkglogger.FieldThreadID, work.threadID),
 		pkglogger.String(pkglogger.FieldTurnID, work.turnID),
 		pkglogger.String(pkglogger.FieldComponent, "submit_turn"))
-	if err := s.waitForSubmitSessionReady(ctx, work.agentID); err != nil {
-		s.finishTurnStartFailure(ctx, work, err)
+	if err := c.waitForSubmitSessionReady(ctx, work.agentID); err != nil {
+		c.finishTurnStartFailure(ctx, work, err)
 		return
 	}
-	if s.turnStarter == nil {
-		s.finishTurnStartFailure(ctx, work, errors.New("turn starter is not configured"))
+	if c.turnStarter == nil {
+		c.finishTurnStartFailure(ctx, work, errors.New("turn starter is not configured"))
 		return
 	}
-	startedTurnID, err := s.turnStarter.StartTurn(ctx, work.submission)
+	startedTurnID, err := c.turnStarter.StartTurn(ctx, work.submission)
 	if err != nil {
 		logger.Warn("orchestration: turn execution start failed",
 			pkglogger.String(pkglogger.FieldAgentID, work.agentID),
@@ -111,7 +121,7 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 			pkglogger.String(pkglogger.FieldTurnID, work.turnID),
 			pkglogger.String(pkglogger.FieldError, err.Error()),
 			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
-		s.finishTurnStartFailure(ctx, work, err)
+		c.finishTurnStartFailure(ctx, work, err)
 		return
 	}
 	logger.Info("orchestration: turn execution accepted",
@@ -121,37 +131,37 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 		pkglogger.String(pkglogger.FieldComponent, "submit_turn"),
 		pkglogger.String("started_turn_id", strings.TrimSpace(startedTurnID)),
 		pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
-	s.finishTurnStartSuccess(ctx, work, startedTurnID)
+	c.finishTurnStartSuccess(ctx, work, startedTurnID)
 }
 
 // finishTurnStartSuccess 记录 provider 接受的 turn ID，并把状态推进到运行中。
-func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, startedTurnID string) {
+func (c *turnController) finishTurnStartSuccess(ctx context.Context, work turnWork, startedTurnID string) {
 	currentTurnID := strings.TrimSpace(startedTurnID)
 	if currentTurnID == "" {
 		currentTurnID = work.turnID
 	}
 	if currentTurnID != work.turnID {
-		if err := s.BindActiveTurnID(ctx, work.agentID, currentTurnID); err != nil {
-			s.logger.Warn("orchestration: failed to bind started turn id", "agent_id", work.agentID, "turn_id", currentTurnID, "error", err)
+		if err := c.BindActiveTurnID(ctx, work.agentID, currentTurnID); err != nil {
+			c.log().Warn("orchestration: failed to bind started turn id", "agent_id", work.agentID, "turn_id", currentTurnID, "error", err)
 			return
 		}
 	}
-	if lockErr := s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+	if lockErr := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != currentTurnID {
 			return nil
 		}
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
-			s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+			c.log().Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
 		}
 		return nil
 	}); lockErr != nil {
-		s.logger.Warn("orchestration: finish turn start success lock failed",
+		c.log().Warn("orchestration: finish turn start success lock failed",
 			"agent_id", work.agentID, "turn_id", currentTurnID, "error", lockErr)
 	}
 }
 
-func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {
-	if lockErr := s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+func (c *turnController) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {
+	if lockErr := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != work.turnID {
 			return nil
 		}
@@ -160,12 +170,12 @@ func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, sta
 		if agent.state != agentdto.StateTurnStarting {
 			return nil
 		}
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
-			s.logger.Warn("orchestration: failed to reset turn after start error", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
+		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
+			c.log().Warn("orchestration: failed to reset turn after start error", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
 		}
 		return nil
 	}); lockErr != nil {
-		s.logger.Warn("orchestration: finish turn start failure lock failed",
+		c.log().Warn("orchestration: finish turn start failure lock failed",
 			"agent_id", work.agentID, "turn_id", work.turnID, "error", lockErr)
 	}
 }
@@ -209,10 +219,10 @@ func setStopReasonIfEmpty(agent *agentRuntime, reason string) {
 	}
 }
 
-func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bool, error) {
+func (c *turnController) submitAgentReadyState(ctx context.Context, agentID string) (bool, error) {
 	ready := false
-	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		if !s.agentRunningLocked(ctx, agent) {
+	err := c.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		if !c.agentRunningLocked(ctx, agent) {
 			return fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, agent.id)
 		}
 		if agent.stopRequested {
@@ -226,19 +236,24 @@ func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bo
 
 // waitForSubmitSessionReady 在提交 turn 前等待 provider session 完成启动。
 func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
-	if s == nil || s.turnStarter == nil {
+	return s.turnController().waitForSubmitSessionReady(ctx, agentID)
+}
+
+// waitForSubmitSessionReady 在提交 turn 前等待 provider session 完成启动。
+func (c *turnController) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
+	if c == nil || c.turnStarter == nil {
 		return nil
 	}
 	startedAt := time.Now()
 	logger := pkglogger.FromContext(ctx)
-	if s.logger != nil {
-		logger = s.logger
+	if c.logger != nil {
+		logger = c.logger
 	}
 	logger.Info("orchestration: waiting for submit session ready",
 		pkglogger.String(pkglogger.FieldAgentID, agentID),
 		pkglogger.String(pkglogger.FieldComponent, "submit_turn"),
 		pkglogger.Int64(pkglogger.FieldDurationMS, submitSessionReadyTimeout.Milliseconds()))
-	err := s.turnStarter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
+	err := c.turnStarter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
 	elapsed := time.Since(startedAt)
 	attrs := []any{
 		pkglogger.String(pkglogger.FieldAgentID, agentID),
