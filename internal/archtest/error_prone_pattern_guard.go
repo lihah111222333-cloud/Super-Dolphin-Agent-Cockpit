@@ -230,7 +230,7 @@ func (g *errorPronePatternGuard) guardLanguageAnchorPattern() {
 }
 
 // guardEmptyCWDPropagationPattern 锁定子 agent 启动时的工作目录继承。
-// orchestration_launch_agent 省略 cwd 时必须继承父级 cwd，否则空 cwd 会进入持久化和侧栏投影，使子任务出现在错误项目视图。
+// launch_agent 省略 cwd 时必须继承父级 cwd，否则空 cwd 会进入持久化和侧栏投影，使子任务出现在错误项目视图。
 //
 // 同时校验 pool server spawn 使用 session 请求里的 workDir，保证进程启动边界和 UI 归属一致。
 func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
@@ -327,24 +327,6 @@ func (g *errorPronePatternGuard) requireNotContains(rel, note string, tokens ...
 	}
 }
 
-func (g *errorPronePatternGuard) requireFunctionContains(rel, name, body, note string, tokens ...string) {
-	for _, token := range tokens {
-		if strings.Contains(body, token) {
-			continue
-		}
-		g.addViolation(rel, 1, "%s (%s): missing %q", note, name, token)
-	}
-}
-
-func (g *errorPronePatternGuard) requireFunctionNotContains(rel, name, body, note string, tokens ...string) {
-	for _, token := range tokens {
-		if !strings.Contains(body, token) {
-			continue
-		}
-		g.addViolation(rel, lineNumber(body, token), "%s (%s): forbidden %q", note, name, token)
-	}
-}
-
 func (g *errorPronePatternGuard) requireOrderInFunction(rel, name, note, before, after string) {
 	body, ok := g.functionBody(rel, name)
 	if !ok {
@@ -427,9 +409,9 @@ func (g *errorPronePatternGuard) addViolation(rel string, line int, format strin
 }
 
 func lineNumber(content, token string) int {
-	idx := strings.Index(content, token)
-	if idx < 0 {
+	before, _, ok := strings.Cut(content, token)
+	if !ok {
 		return 1
 	}
-	return strings.Count(content[:idx], "\n") + 1
+	return strings.Count(before, "\n") + 1
 }
