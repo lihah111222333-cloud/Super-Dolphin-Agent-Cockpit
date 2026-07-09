@@ -125,9 +125,9 @@ func TestStopSpawnedAgent_SkippedAlreadyStopped(t *testing.T) {
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
-	// Matches helpers.go:196 / service_launcher_bridge.go:355,492 wording.
+	// Matches helpers.go / service_launcher_bridge.go sentinel wrapping.
 	svc := &stopHelperServiceSpy{
-		stopErr: fmt.Errorf("agent %q is not running", "agent-1"),
+		stopErr: fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, "agent-1"),
 	}
 
 	result, err := StopSpawnedAgent(context.Background(), threads, svc, "thr-1")
@@ -143,9 +143,9 @@ func TestStopSpawnedAgent_SkippedStopping(t *testing.T) {
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
-	// Matches helpers.go:199 / service_launcher_bridge.go:428,497 wording.
+	// Matches helpers.go / service_launcher_bridge.go sentinel wrapping.
 	svc := &stopHelperServiceSpy{
-		stopErr: fmt.Errorf("agent %q is stopping", "agent-1"),
+		stopErr: fmt.Errorf("%w: agent %q is stopping", errAgentStoppingForStopper, "agent-1"),
 	}
 
 	result, err := StopSpawnedAgent(context.Background(), threads, svc, "thr-1")

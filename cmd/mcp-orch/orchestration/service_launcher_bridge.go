@@ -466,7 +466,7 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 	)
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !s.agentRunningLocked(ctx, agent) {
-			return fmt.Errorf("agent %q is not running", agent.id)
+			return fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, agent.id)
 		}
 		if _, err := s.markStoppingLocked(ctx, agent, reason); err != nil {
 			return err
@@ -596,7 +596,7 @@ func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, r
 			return nil
 		}
 		if agent.stopRequested {
-			return fmt.Errorf("agent %q is stopping", agent.id)
+			return fmt.Errorf("%w: agent %q is stopping", errAgentStoppingForStopper, agent.id)
 		}
 		if remoteAgentBusy(agent) {
 			return fmt.Errorf("agent %q is busy", agent.id)
@@ -667,11 +667,11 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if agent.cmd == nil {
 			pkglogger.Warn("orchestration: submit turn rejected: agent not running", "agent_id", agent.id, "state", agent.state, "launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq, "last_error", agent.lastError)
-			return fmt.Errorf("agent %q is not running", agent.id)
+			return fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, agent.id)
 		}
 		if agent.stopRequested {
 			pkglogger.Warn("orchestration: submit turn rejected: agent stopping", "agent_id", agent.id, "state", agent.state, "stop_reason", agent.stopReason)
-			return fmt.Errorf("agent %q is stopping", agent.id)
+			return fmt.Errorf("%w: agent %q is stopping", errAgentStoppingForStopper, agent.id)
 		}
 		req.AgentID = agentID
 		agent.queue.Enqueue(req)

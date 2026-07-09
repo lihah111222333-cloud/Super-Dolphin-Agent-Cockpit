@@ -56,9 +56,13 @@ type (
 	DAGDetail                   = contract.DAGDetail
 )
 
-var errAgentNotFound = contract.ErrAgentNotFound
-var errIllegalStateTransition = errors.New("illegal state transition")
-var errTurnNotActive = errors.New("turn is not active")
+var (
+	errAgentNotFound             = contract.ErrAgentNotFound
+	errIllegalStateTransition    = errors.New("illegal state transition")
+	errTurnNotActive             = errors.New("turn is not active")
+	errAgentNotRunningForStopper = errors.New("agent is not running")
+	errAgentStoppingForStopper   = errors.New("agent is stopping")
+)
 
 type service struct {
 	logger                   *slog.Logger

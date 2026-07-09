@@ -36,11 +36,6 @@ type StopAgentService interface {
 	StopAgent(ctx context.Context, agentID string) error
 }
 
-// stopSpawnedAgentSink 是 StopSpawnedAgent 指标计数器接口。
-type stopSpawnedAgentSink interface {
-	Inc(result StopResult)
-}
-
 // StopSpawnedAgent 根据 spawned thread 反查 agent 并执行停止。
 // 已停止/已归档视为幂等成功；真实失败会保留错误返回给调用方。
 func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAgentService, threadID string) (StopResult, error) {
@@ -227,7 +222,6 @@ func isThreadNotFound(err error) bool {
 }
 
 // classifyStopError 将 service.StopAgent 的错误归类为 StopResult。
-// not running / is stopping 目前来自普通 fmt.Errorf 文本，尚无 sentinel 可供 errors.Is。
 func classifyStopError(err error) StopResult {
 	if err == nil {
 		return StopResultSuccess
@@ -235,11 +229,7 @@ func classifyStopError(err error) StopResult {
 	if errors.Is(err, errAgentNotFound) {
 		return StopResultSkippedAlreadyArchived
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "is not running") {
-		return StopResultSkippedAlreadyStopped
-	}
-	if strings.Contains(msg, "is stopping") {
+	if errors.Is(err, errAgentNotRunningForStopper) || errors.Is(err, errAgentStoppingForStopper) {
 		return StopResultSkippedAlreadyStopped
 	}
 	return StopResultFailed

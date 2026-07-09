@@ -215,10 +215,10 @@ func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bo
 	ready := false
 	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
 		if !s.agentRunningLocked(ctx, agent) {
-			return fmt.Errorf("agent %q is not running", agent.id)
+			return fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, agent.id)
 		}
 		if agent.stopRequested {
-			return fmt.Errorf("agent %q is stopping", agent.id)
+			return fmt.Errorf("%w: agent %q is stopping", errAgentStoppingForStopper, agent.id)
 		}
 		ready = agent.state == agentdto.StateIdle && agent.activeTurnID == "" && agent.queue.Len() == 0
 		return nil

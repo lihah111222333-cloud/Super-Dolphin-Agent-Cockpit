@@ -79,7 +79,7 @@ internal/archtest/effective_lines.go	internal	other	go-source	1020	架构守卫�
 internal/archtest/error_prone_pattern_guard.go	internal	other	go-source	16525	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,prone,pattern,guard,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/error_string_match_guard_test.go	internal	other	go-test	3203	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,string,match,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/eventbus_payload_guard_test.go	internal	other	go-test	2431	架构守卫、baseline ratchet 与冻结规则	internal,archtest,eventbus,payload,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/freeze_baseline.json	internal	other	json	15466	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/freeze_baseline.json	internal	other	json	14868	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	4640	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry.go	internal	other	go-source	5395	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
@@ -117,6 +117,7 @@ internal/archtest/observability_log_event_guard_test.go	internal	other	go-test	2
 internal/archtest/observability_metric_emit_guard_test.go	internal	other	go-test	2242	架构守卫、baseline ratchet 与冻结规则	internal,archtest,observability,metric,emit,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/onion_architecture_guard_test.go	internal	other	go-test	3913	架构守卫、baseline ratchet 与冻结规则	internal,archtest,onion,architecture,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_agent_identity_reverse_lookup_guard_test.go	internal	other	go-test	2592	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,agent,identity,reverse,lookup,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_internal_boundary_test.go	internal	other	go-test	16777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_launcher_protocol_guard_test.go	internal	other	go-test	3026	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,launcher,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_no_hookconsumer_export_guard_test.go	internal	other	go-test	1593	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,hookconsumer,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_no_module_export_guard_test.go	internal	other	go-test	1816	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,module,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
