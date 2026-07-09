@@ -2242,7 +2242,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(await screen.findByRole('button', { name: '放大 Mermaid 图表' }));
 
     const dialog = screen.getByRole('dialog', { name: '图片预览：Mermaid 图表' });
-    expect(dialog.tagName).toBe('DIALOG');
+    expect(dialog).toHaveClass('image-lightbox-dialog');
     expect(within(dialog).getByRole('img', { name: 'Mermaid 图表' })).toBeInTheDocument();
     expect(within(dialog).queryByRole('link', { name: '外部打开' })).not.toBeInTheDocument();
   });
@@ -2468,7 +2468,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '放大图片 ig_lightbox.png' }));
 
     const dialog = await screen.findByRole('dialog', { name: '图片预览：ig_lightbox.png' });
-    expect(dialog.tagName).toBe('DIALOG');
+    expect(dialog).toHaveClass('image-lightbox-dialog');
     expect(within(dialog).getByRole('img', { name: 'ig_lightbox.png' })).toHaveAttribute('src', routedSrc);
     expect(within(dialog).queryByRole('link', { name: '外部打开' })).not.toBeInTheDocument();
   });
@@ -4271,8 +4271,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('LSP (8 tools)');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('edit');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('3');
-    fireEvent.click(screen.getByRole('region', { name: '工具使用面板' }));
-    expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'LSP (8 tools) 调用明细' }), { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
+    });
 
     fireEvent.mouseDown(screen.getByTestId('activity-panel-resizer'), { clientY: 500 });
     fireEvent.mouseMove(window, { clientY: 0 });
@@ -5483,9 +5485,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('rpc.failed');
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('turn/start');
 
-    fireEvent.click(screen.getByTestId('warning-log-panel'));
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'rpc.failed' }), { key: 'Escape' });
 
-    expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
+    });
   });
 
   it('navigates to screenshot-style secondary pages', async () => {

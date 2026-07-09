@@ -49,12 +49,6 @@ func reviewerAllowedTools() []string {
 		trustedReadOnlyTool("xref"),
 		trustedReadOnlyTool("structure"),
 		trustedReadOnlyTool("completion"),
-		trustedReadOnlyTool("lsp_file"),
-		trustedReadOnlyTool("lsp_grep"),
-		trustedReadOnlyTool("lsp_inspect"),
-		trustedReadOnlyTool("lsp_xref"),
-		trustedReadOnlyTool("lsp_structure"),
-		trustedReadOnlyTool("lsp_completion"),
 		trustedReadOnlyTool("shared_file_read"),
 	})
 }

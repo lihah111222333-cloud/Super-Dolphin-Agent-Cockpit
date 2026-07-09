@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { parse as parseJavaScriptSource } from '@babel/parser';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const baselinePath = path.join(appRoot, '.frontend_code_size_guard_baseline.json');
@@ -219,6 +220,113 @@ export function measureFrontendCodeSizeSource(relFile, source) {
     todoCount: violations.filter((entry) => entry.rule === 'todo').length,
     longLineCount: violations.filter((entry) => entry.rule === 'line-length').length,
   };
+}
+
+export function measureFrontendCodeSizeSourceAstShadow(relFile, source) {
+  const lines = source.split('\n');
+  const ast = parseFrontendCodeSizeAst(source);
+  const functions = extractFunctionsFromAst(ast);
+  const violations = rulesForSource(relFile, source);
+  return {
+    lines: countEffectiveLines(lines),
+    maxFuncLen: functions.reduce((max, func) => Math.max(max, func.lines), 0),
+    maxNesting: measureMaxNestingFromAst(ast),
+    maxParams: functions.reduce((max, func) => Math.max(max, func.params), 0),
+    exportCount: countExportsFromAst(ast),
+    consoleLogs: violations.filter((entry) => entry.rule === 'console-log').length,
+    anyCount: violations.filter((entry) => entry.rule === 'any').length,
+    emptyFuncs: violations.filter((entry) => entry.rule === 'empty-func').length,
+    todoCount: violations.filter((entry) => entry.rule === 'todo').length,
+    longLineCount: violations.filter((entry) => entry.rule === 'line-length').length,
+  };
+}
+
+function parseFrontendCodeSizeAst(source) {
+  return parseJavaScriptSource(source, {
+    sourceType: 'module',
+    plugins: ['jsx', 'typescript'],
+  });
+}
+
+function extractFunctionsFromAst(ast) {
+  const functions = [];
+  traverseAst(ast, (node, parent) => {
+    const name = astFunctionName(node, parent);
+    if (!name || !node.loc) return;
+    functions.push({
+      name,
+      start: node.loc.start.line,
+      end: node.loc.end.line,
+      lines: node.loc.end.line - node.loc.start.line + 1,
+      params: Array.isArray(node.params) ? node.params.length : 0,
+    });
+  });
+  return functions.sort((left, right) => left.start - right.start || left.name.localeCompare(right.name));
+}
+
+function astFunctionName(node, parent) {
+  if (node.type === 'FunctionDeclaration') return node.id?.name || 'anonymous';
+  if (node.type === 'ObjectMethod' || node.type === 'ClassMethod' || node.type === 'ClassPrivateMethod') return astPropertyKeyName(node.key);
+  if (node.type !== 'ArrowFunctionExpression' && node.type !== 'FunctionExpression') return '';
+  if (parent?.type === 'VariableDeclarator' && parent.id.type === 'Identifier') return parent.id.name;
+  return '';
+}
+
+function measureMaxNestingFromAst(ast) {
+  let maxDepth = 0;
+  walkAstNesting(ast, 0, (depth) => {
+    if (depth > maxDepth) maxDepth = depth;
+  });
+  return maxDepth;
+}
+
+function walkAstNesting(node, depth, updateMax) {
+  if (!node || typeof node.type !== 'string') return;
+  const nextDepth = isNestingAstNode(node) ? depth + 1 : depth;
+  updateMax(nextDepth);
+  for (const child of astChildren(node)) {
+    walkAstNesting(child, nextDepth, updateMax);
+  }
+}
+
+function isNestingAstNode(node) {
+  return node.type === 'BlockStatement' || node.type === 'ObjectExpression' || node.type === 'ClassBody' || node.type === 'SwitchStatement';
+}
+
+function countExportsFromAst(ast) {
+  return ast.program.body.filter((node) => (
+    node.type === 'ExportNamedDeclaration'
+    || node.type === 'ExportDefaultDeclaration'
+    || node.type === 'ExportAllDeclaration'
+  )).length;
+}
+
+function traverseAst(node, visit, parent = null) {
+  if (!node || typeof node.type !== 'string') return;
+  visit(node, parent);
+  for (const child of astChildren(node)) {
+    traverseAst(child, visit, node);
+  }
+}
+
+function astChildren(node) {
+  const children = [];
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'loc' || key === 'start' || key === 'end') continue;
+    if (Array.isArray(value)) {
+      children.push(...value.filter((entry) => entry && typeof entry.type === 'string'));
+    } else if (value && typeof value.type === 'string') {
+      children.push(value);
+    }
+  }
+  return children;
+}
+
+function astPropertyKeyName(key) {
+  if (key?.type === 'Identifier') return key.name;
+  if (key?.type === 'StringLiteral' || key?.type === 'NumericLiteral') return String(key.value);
+  if (key?.type === 'PrivateName') return key.id.name;
+  return 'anonymous';
 }
 
 function walkSourceFiles(dir, files = []) {

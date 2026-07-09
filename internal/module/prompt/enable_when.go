@@ -127,23 +127,11 @@ func containsExact(values []string, want string) bool {
 	return false
 }
 
-// canonicalPromptToolName 把兼容工具名和 orchestration 别名映射为当前短工具名。
+// canonicalPromptToolName 规范化当前工具名和 orchestration 别名。
 func canonicalPromptToolName(name string) string {
 	switch strings.TrimSpace(name) {
-	case "lsp_file":
-		return "file"
-	case "lsp_grep":
-		return "grep"
-	case "lsp_inspect":
-		return "inspect"
-	case "lsp_xref":
-		return "xref"
-	case "lsp_structure":
-		return "structure"
-	case "lsp_edit":
-		return "edit"
-	case "lsp_completion":
-		return "completion"
+	case "patch_edit":
+		return "patch_edit"
 	default:
 		if canonical, ok := canonicalPromptOrchestrationToolName(name); ok {
 			return canonical
@@ -183,7 +171,7 @@ func canonicalPromptLSPTools(values []string) []string {
 // isPromptLSPToolName 判断工具名是否属于 prompt 可展示的 LSP 工具集合。
 func isPromptLSPToolName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
+	case "file", "grep", "inspect", "xref", "structure", "patch_edit", "completion":
 		return true
 	default:
 		return false

@@ -17,7 +17,7 @@ func TestProxyToolCall_SetsTimeoutAndNormalizesNullArguments(t *testing.T) {
 		if !ok {
 			t.Fatal("Callback() context missing deadline")
 		}
-		assertToolCallPayload(t, params, "lsp_hover", json.RawMessage(`{}`))
+		assertToolCallPayload(t, params, "inspect", json.RawMessage(`{}`))
 		resp, ok := result.(*peerToolCallResponse)
 		if !ok {
 			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
@@ -30,7 +30,7 @@ func TestProxyToolCall_SetsTimeoutAndNormalizesNullArguments(t *testing.T) {
 		"id":      "req-1",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_hover",
+			"name":      "inspect",
 			"arguments": nil,
 		},
 	}))

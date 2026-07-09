@@ -109,7 +109,7 @@ ListTools filtering 和 direct-call deny 是两个独立消费点，必须分别
 - `ListToolsForCodex`、`PrepareCodexToolSurface` 和 proxy `tools/list` 在发布 schema 前查询 lifecycle policy。
 - `HandleToolCall` 的 Codex surface 路径在 `entry.client.CallTool` 前查询 lifecycle policy。
 - 非 Codex surface 的 `routeToolCall` 路径在选择 peer 或调用 peer 前查询 lifecycle policy。
-- `mcp__server__tool` 包装名、legacy LSP/orch alias、canonical short name 都必须解析到同一个 policy key。
+- `mcp__server__tool` 包装名和 canonical short name 必须解析到同一个 policy key；legacy LSP/orch alias 不再作为可调用入口。
 - 被拒绝调用返回稳定 tool error envelope，至少包含 tool、server、state、reason 和 machine-readable code。
 
 ListTools 隐藏不是安全边界；direct-call deny 必须独立存在。

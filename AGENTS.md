@@ -23,7 +23,8 @@
 ### LSP 工具链不可降级规则
 
 - `cmd/mcp-lsp` 是 generic multi-language LSP peer；不得把本文件的 LSP 要求降级、改写或替换成 `gopls check`、`go test`、`rg + cat/sed`、单语言检查器或纯 shell 验证。
-- Go 文件可以由底层语言服务器使用 gopls，但人工工作流必须通过 `grep`、`structure`、`inspect`、`xref`、`file`、`edit`、`completion` 等 LSP 工具完成导航、影响面分析、读取、编辑和诊断；`gopls check` 只能作为额外验证，不能替代 LSP 工具证据。
+- Go 文件可以由底层语言服务器使用 gopls，但人工工作流必须通过当前对外暴露的 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion` 等 LSP 工具完成导航、影响面分析、读取、编辑和诊断；`gopls check` 只能作为额外验证，不能替代 LSP 工具证据。
+- 当前 MCP 暴露名使用短名；在 Codex 工具命名空间中对应 `mcp__lsp.file`、`mcp__lsp.inspect`、`mcp__lsp.xref`、`mcp__lsp.grep`、`mcp__lsp.structure`、`mcp__lsp.patch_edit`、`mcp__lsp.completion`。`file(diagnostics)` 是诊断入口，没有独立 `diagnostics` 工具；`edit`、`lsp_edit`、`lsp_file` 等旧名不是当前对外契约。
 - LSP 工具超时、不可用或返回异常时，必须先收窄 `work_dir`、路径、查询、语言或结果数后重试；仍失败时记录 blocker，包含 tool/action、`work_dir`、目标文件或符号、错误信息和已尝试的收窄方式。禁止静默降级为 `gopls check` 或 shell 命令，也禁止把“无法取得 diagnostics”写成 PASS。
 - 审查、修复、路径判断或行为解释涉及源码时，至少保留一组可复查的 LSP 证据：定位（`grep` 或 `structure`）、理解（`inspect`）、影响面（`xref`）、精读（`file(read_file)`）和诊断（`file(diagnostics)`）。如果某一类证据因工具能力或文件类型无法取得，必须在输出中说明缺口和 blocker。
 
@@ -74,7 +75,7 @@
 
 审查类：grep(text_search|ast_search) 定位 → inspect(definition|hover|type_definition) 理解 → xref(references|call_hierarchy) 影响面 → file(read_file) 精读 → 输出判定
 
-修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → edit(replace_range) 修改 → file(diagnostics) 检查 → build/test 验证
+修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → patch_edit(replace_range|rename|code_action|format) 修改 → file(diagnostics) 检查 → build/test 验证
 
 
 ## 上下文预算卫生

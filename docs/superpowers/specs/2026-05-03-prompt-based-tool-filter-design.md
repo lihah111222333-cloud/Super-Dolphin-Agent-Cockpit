@@ -14,7 +14,7 @@ P5 nativefilter 在 spawn Claude CLI 前，把 `SkillMeta.ReplacesNative["claude
 
 ### 1.2 目标
 
-- **去重**：项目已通过 MCP 提供 lsp_file / lsp_grep / lsp_edit 等能力，不希望模型同时看到功能重叠的原生工具
+- **去重**：项目已通过 MCP 提供 file / grep / patch_edit 等能力，不希望模型同时看到功能重叠的原生工具
 - **跨模型统一**：一处声明，所有底层 LLM 都遵守
 - **可扩展**：未来加新 MCP 工具时，只需在 skill meta 声明，无需改代码
 
@@ -108,7 +108,7 @@ if len(build.SuppressedTools) > 0 {
 渲染效果：
 ```
 Tool preferences:
-- Prefer repository-aware tools first: use lsp_file for reading, lsp_edit for edits, and lsp_grep for search.
+- Prefer repository-aware tools first: use file for reading, patch_edit for edits, and grep for search.
 - Use exec_command for shell execution only when a dedicated tool cannot do the job.
 - Do NOT use these native tools — they have been replaced by project MCP equivalents: Read, Write, Edit, Grep, Bash.
 - Break larger tasks into explicit steps and keep tool usage stable instead of churning approaches.
@@ -173,7 +173,7 @@ Tool preferences:
 ### 5.2 集成验证
 
 - 启动会话，确认 system prompt 包含抑制文本
-- 确认模型实际使用 lsp_file 而非 Read
+- 确认模型实际使用 file 而非 Read
 
 ## 6. 前端设计
 
@@ -241,9 +241,9 @@ suppressed = union(
 │ 技能自动替代 + 用户手动勾选，统一对所有模型生效。  │
 │                                                      │
 │ ▸ 自动替代（8）—— 由技能声明，不可取消              │
-│   🔄 Read     ← lsp提示词 (lsp_file)                │
-│   🔄 Write    ← lsp提示词 (lsp_edit)                │
-│   🔄 Edit     ← lsp提示词 (lsp_edit)                │
+│   🔄 Read     ← lsp提示词 (file)                │
+│   🔄 Write    ← lsp提示词 (patch_edit)                │
+│   🔄 Edit     ← lsp提示词 (patch_edit)                │
 │   ...                                                │
 │                                                      │
 │ ▸ 手动过滤（2）—— 用户自行勾选                    │

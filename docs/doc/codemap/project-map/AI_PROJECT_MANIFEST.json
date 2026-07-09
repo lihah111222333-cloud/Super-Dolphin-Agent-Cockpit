@@ -5,12 +5,12 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4231,
+  "files": 4232,
   "domains": {
-    "docs-agent": 863,
+    "docs-agent": 864,
     "other": 502,
-    "app-ui": 425,
-    "platform-provider": 1006,
+    "app-ui": 426,
+    "platform-provider": 1005,
     "orchestration": 411,
     "modules": 717,
     "store-sql": 307
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 425,
-        "size_kb": 85.9,
+        "file_count": 426,
+        "size_kb": 86.1,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1006,
-        "size_kb": 185.4,
+        "file_count": 1005,
+        "size_kb": 185.2,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,8 +57,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 863,
-        "size_kb": 153.3,
+        "file_count": 864,
+        "size_kb": 153.6,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
@@ -73,9 +73,9 @@
   "module_counts": {
     "(root)": 7,
     "cmd": 648,
-    "docs": 860,
-    "frontend-app": 423,
-    "internal": 1998,
+    "docs": 861,
+    "frontend-app": 424,
+    "internal": 1997,
     "migrations": 112,
     "pkg": 25,
     "scripts": 109,

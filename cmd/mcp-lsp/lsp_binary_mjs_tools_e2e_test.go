@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -170,17 +169,17 @@ func mjsCompletionAndEditToolCalls(target, pos string) []mjsToolCallCase {
 			"language_id": "javascript",
 			"max_results": 10,
 		}},
-		{name: "edit code_action", tool: "edit", arguments: map[string]any{
+		{name: "patch_edit code_action", tool: "patch_edit", arguments: map[string]any{
 			"action":      "code_action",
 			"pos":         pos,
 			"language_id": "javascript",
 		}},
-		{name: "edit format", tool: "edit", arguments: map[string]any{
+		{name: "patch_edit format", tool: "patch_edit", arguments: map[string]any{
 			"action":      "format",
 			"file_path":   target,
 			"language_id": "javascript",
 		}},
-		{name: "edit rename", tool: "edit", arguments: map[string]any{
+		{name: "patch_edit rename", tool: "patch_edit", arguments: map[string]any{
 			"action":      "rename",
 			"pos":         pos,
 			"language_id": "javascript",

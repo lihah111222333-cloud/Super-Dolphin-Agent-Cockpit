@@ -4,6 +4,8 @@ import {
   collectFrontendPayloadKeysFromSource,
   collectHardcodedPayloadGuardFindingsFromSources,
   collectPayloadRegistryDrift,
+  parseContractMatrixForTest,
+  parseRpcMethodsForTest,
 } from './rpc-contract-audit.mjs'
 
 describe('rpc contract audit', () => {
@@ -54,6 +56,46 @@ describe('rpc contract audit', () => {
       'frontend-app/src/shared/api/backendApi.js:RPC_ALLOWED_PAYLOAD_KEYS',
       'frontend-app/src/shared/api/backendApi.js:THREAD_START_ALLOWED_KEYS',
       'internal/module/thread/rpc_types.go:startParamWireFields',
+    ])
+  })
+
+  it('parses RPC methods and contract registry entries from AST fixtures', () => {
+    const rpcMethodsSource = `
+      export const RPC_METHODS = Object.freeze({
+        THREAD_START: 'thread/start',
+        TURN_START: 'turn/start',
+      })
+    `
+    const contractMatrixSource = `
+      const TESTS = Object.freeze({ API: 'api.test.js' })
+      function contract() {}
+      export const RPC_CONTRACT_REGISTRY = Object.freeze({
+        THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API], ['runtime lifecycle start'], false, { responseValidator: 'threadStartResponse' }),
+        TURN_START: contract('TURN_START', 'startTurn', 'P0', 'turn', [TESTS.API], ['runtime lifecycle start'], false, { responsePassthroughReason: 'turn start passthrough' }),
+      })
+    `
+
+    expect(parseRpcMethodsForTest(rpcMethodsSource)).toEqual([
+      { key: 'THREAD_START', method: 'thread/start' },
+      { key: 'TURN_START', method: 'turn/start' },
+    ])
+    expect(parseContractMatrixForTest(contractMatrixSource)).toEqual([
+      {
+        key: 'THREAD_START',
+        declaredKey: 'THREAD_START',
+        facade: 'startThread',
+        level: 'P0',
+        responseValidator: 'threadStartResponse',
+        responsePassthroughReason: '',
+      },
+      {
+        key: 'TURN_START',
+        declaredKey: 'TURN_START',
+        facade: 'startTurn',
+        level: 'P0',
+        responseValidator: '',
+        responsePassthroughReason: 'turn start passthrough',
+      },
     ])
   })
 

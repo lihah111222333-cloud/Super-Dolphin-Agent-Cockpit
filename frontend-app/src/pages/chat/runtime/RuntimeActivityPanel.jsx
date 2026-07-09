@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { activityStatDetailEntries, activityStatItems } from '../adapters/runtimeActivityAdapter.js';
 import { runtimeLogEntries } from '../adapters/runtimeLogAdapter.js';
-import { RuntimeLogLines, RuntimeWarningPopover } from './RuntimeActivityLog.jsx';
-import { RuntimeStatList, RuntimeStatTooltip } from './RuntimeActivityStats.jsx';
+import { RuntimeLogLines } from './RuntimeActivityLog.jsx';
+import { RuntimeStatList } from './RuntimeActivityStats.jsx';
 import { requiredMarkdownArray, requiredMarkdownObject } from '../markdown/markdownMessageModel.js';
 import { elementViewportRect } from './runtimeActivityGeometry.js';
 
-const NO_ACTIVE_STAT_DETAILS = Object.freeze([]);
 const NO_ACTIVITY_STATS = Object.freeze({});
 
 function RuntimeActivityPanel({
@@ -25,10 +24,8 @@ function RuntimeActivityPanel({
    * 活动面板只展示传入的 runtime 视图。
    * tooltip、popover 是本地交互状态，不要写回 store。
    */
-  const [activeStat, setActiveStat] = useState(null);
-  const [activeWarning, setActiveWarning] = useState(null);
+  const [activePopover, setActivePopover] = useState(null);
   const panelRef = useRef(null);
-  const runtimePopupOpenRef = useRef(false);
   const stats = useMemo(() => (activityStats ? requiredMarkdownObject(activityStats, 'activityStats') : NO_ACTIVITY_STATS), [activityStats]);
   const statItems = useMemo(() => activityStatItems(stats), [stats]);
   const detailEntriesByStat = useMemo(() => Object.fromEntries(
@@ -36,87 +33,35 @@ function RuntimeActivityPanel({
   ), [statItems, stats]);
   const logEntries = useMemo(() => runtimeLogEntries(warnings, runtimeResults), [warnings, runtimeResults]);
   const logLinesVisible = activityPanelHeight > activityPanelMinHeight;
-  const visibleActiveWarning = logLinesVisible ? activeWarning : null;
+  const activeStat = activePopover?.type === 'stat' ? activePopover : null;
+  const visibleActiveWarning = logLinesVisible && activePopover?.type === 'warning' ? activePopover : null;
   const activeWarningEntry = useMemo(
     () => logEntries.find((entry) => entry.id === visibleActiveWarning?.id) || null,
     [visibleActiveWarning, logEntries],
   );
-  const activeStatItem = useMemo(
-    () => statItems.find((item) => item.key === activeStat?.key) || null,
-    [activeStat, statItems],
-  );
-  const activeStatDetailEntries = activeStat
-    ? requiredMarkdownArray(detailEntriesByStat[activeStat.key], 'activeStat.detailEntries')
-    : NO_ACTIVE_STAT_DETAILS;
-  const hideStatTooltip = useCallback(() => setActiveStat(null), []);
-  const hideWarningPopover = useCallback(() => setActiveWarning(null), []);
-  const toggleStatTooltip = (key, element) => {
-    setActiveWarning(null);
-    setActiveStat((current) => (
-      current?.key === key ? null : { key, anchorRect: elementViewportRect(element) }
-    ));
-  };
-  const toggleWarningPopover = (id, element) => {
-    setActiveStat(null);
-    setActiveWarning((current) => (
-      current?.id === id ? null : {
+  const normalizedDetailEntriesByStat = useMemo(() => Object.fromEntries(
+    Object.entries(detailEntriesByStat).map(([key, entries]) => [key, requiredMarkdownArray(entries, 'activeStat.detailEntries')]),
+  ), [detailEntriesByStat]);
+  const handleStatOpenChange = useCallback((key, open, element) => {
+    setActivePopover((current) => {
+      if (!open) return current?.type === 'stat' && current.key === key ? null : current;
+      return { type: 'stat', key, anchorRect: elementViewportRect(element) };
+    });
+  }, []);
+  const handleWarningOpenChange = useCallback((id, open, element) => {
+    setActivePopover((current) => {
+      if (!open) return current?.type === 'warning' && current.id === id ? null : current;
+      return {
+        type: 'warning',
         id,
         anchorRect: elementViewportRect(element),
         panelRect: elementViewportRect(panelRef.current),
-      }
-    ));
-  };
-  const handleStatKeyDown = (event, key) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggleStatTooltip(key, event.currentTarget);
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      hideStatTooltip();
-    }
-  };
-  const handleWarningKeyDown = (event, id) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggleWarningPopover(id, event.currentTarget);
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      hideWarningPopover();
-    }
-  };
-
-  if (!logLinesVisible && activeWarning) setActiveWarning(null);
-
-  useEffect(() => {
-    runtimePopupOpenRef.current = Boolean(activeStat || visibleActiveWarning);
-  }, [activeStat, visibleActiveWarning]);
-
-  useEffect(() => {
-    const keepRuntimePopupOpen = (target) => {
-      if (!(target instanceof Element)) return false;
-      return Boolean(target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover, .activity-panel-resizer'));
-    };
-    const handleDocumentDismiss = (event) => {
-      if (!runtimePopupOpenRef.current || keepRuntimePopupOpen(event.target)) return;
-      setActiveStat(null);
-      setActiveWarning(null);
-    };
-    const handleDocumentKeyDown = (event) => {
-      if (!runtimePopupOpenRef.current || event.key !== 'Escape') return;
-      setActiveStat(null);
-      setActiveWarning(null);
-    };
-    document.addEventListener('pointerdown', handleDocumentDismiss);
-    document.addEventListener('click', handleDocumentDismiss);
-    document.addEventListener('keydown', handleDocumentKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handleDocumentDismiss);
-      document.removeEventListener('click', handleDocumentDismiss);
-      document.removeEventListener('keydown', handleDocumentKeyDown);
-    };
+      };
+    });
   }, []);
+  useEffect(() => {
+    if (!logLinesVisible && activePopover?.type === 'warning') setActivePopover(null);
+  }, [activePopover, logLinesVisible]);
 
   return (
     <section className={`runtime-activity-panel${logLinesVisible ? '' : ' is-log-collapsed'}`} aria-label="工具使用面板" ref={panelRef}>
@@ -129,22 +74,20 @@ function RuntimeActivityPanel({
       />
       <RuntimeStatList
         activeStat={activeStat}
-        onStatKeyDown={handleStatKeyDown}
-        onToggleStat={toggleStatTooltip}
+        detailEntriesByStat={normalizedDetailEntriesByStat}
+        onStatOpenChange={handleStatOpenChange}
         statItems={statItems}
         tokenUsage={tokenUsage}
       />
-      <RuntimeStatTooltip activeStat={activeStat} detailEntries={activeStatDetailEntries} item={activeStatItem} />
       {logLinesVisible ? (
         <RuntimeLogLines
           activeWarning={visibleActiveWarning}
+          activeWarningEntry={activeWarningEntry}
           entries={logEntries}
           formatTime={formatTime}
-          onWarningKeyDown={handleWarningKeyDown}
-          onToggleWarning={toggleWarningPopover}
+          onWarningOpenChange={handleWarningOpenChange}
         />
       ) : null}
-      <RuntimeWarningPopover entry={activeWarningEntry} formatTime={formatTime} hoverState={visibleActiveWarning} />
     </section>
   );
 }

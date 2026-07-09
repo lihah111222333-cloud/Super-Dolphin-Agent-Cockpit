@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react'; import { Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
+import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react'; import { Dialog, Modal, ModalOverlay, Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
 import { CheckCircle2, File, FileText } from 'lucide-react'; import {
 commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draftPromptIntent, dryRunPromptIntent, getDashboardPrompts, getPersonalizationProfile, getPreference, getPrompt, listPromptAssets, savePersonalizationProfile, setPreference, writePrompt,
-} from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+} from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js'; import './PromptPageView.css';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey'; const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
 const PROMPT_KIND_OPTIONS = Object.freeze([ { key: 'expert', label: '专家能力' }, { key: 'recall', label: '参考资料' }, { key: 'default_rule', label: '默认规则' }, ]);
@@ -201,11 +201,17 @@ function PromptCardActions(props) { if (props.item.isPendingDraft) { return <Pro
 function PromptCard(props) { const { item, active } = props; return (
 <article className={`prompt-card ${item.enabled === false && !item.isPendingDraft ? 'disabled' : ''} ${item.isPendingDraft ? 'pending' : ''}`}> <div className="prompt-card-head"> <h3>{item.name || '未命名'}</h3> <PromptBadges item={item} active={active} /> </div>
 {item.description ? <p className="prompt-card-desc">{item.description}</p> : null} <PromptTagRow tags={item.tags} /> <p className="prompt-card-preview">{trunc(item.preview)}</p> <div className="prompt-card-actions"> <PromptCardActions {...props} /> </div> </article> ); }
+function PromptAriaModal(props) { const { ariaLabel, children, className = 'modal-box', closeDisabled = false, closeOnOverlayClick = false, onClose, overlayClassName = 'modal-overlay' } = props; const [restoreFocusElement] = useState(() => {
+const activeElement = document.activeElement; return activeElement instanceof HTMLElement ? activeElement : null;
+}); useEffect(() => () => { if (restoreFocusElement && document.contains(restoreFocusElement)) restoreFocusElement.focus(); }, [restoreFocusElement]); const handleOpenChange = useCallback((isOpen) => {
+if (!isOpen && !closeDisabled && typeof onClose === 'function') onClose();
+}, [closeDisabled, onClose]); return (
+<ModalOverlay className={overlayClassName} isOpen isDismissable={closeOnOverlayClick && !closeDisabled} isKeyboardDismissDisabled={closeDisabled} onOpenChange={handleOpenChange}> <Modal className={className}> <Dialog aria-label={ariaLabel}>{children}</Dialog> </Modal> </ModalOverlay> ); }
 function PromptEditorModal(props) { const { form, notice, saving, onChange, onClose, onSave } = props; const update = (key) => (event) => { const { type, checked, value } = event.target; onChange({ ...form, [key]: type === 'checkbox' ? checked : value });
 }; const scopeLabel = form.scope === 'global' ? '全局可用' : '这个项目'; const scopeHint = form.scope === 'global' ? '说明：其他项目也可以使用；当前项目同名内容优先。' : '说明：只在当前项目的对话中使用。'; const previewText = form.content || form.whenToUse || form.description || '已保存，AI 会在相关场景中使用';
 const advancedDebugAvailable = optionalPromptDebugStorageEnabled(); return (
-<FocusTrapDialog ariaLabel="编辑提示词" className="modal-box prompt-editor-modal" overlayClassName="modal-overlay prompt-modal-overlay" closeDisabled={saving} closeOnOverlayClick onClose={onClose} > <header> <div> <h2>编辑提示词</h2> <p>{scopeLabel}</p> </div> </header>
-<div className="prompt-scope-copy"> <div>可用范围：{scopeLabel}</div> <PromptScopeChoice ariaLabel="可用范围" scope={form.scope} onChange={(value) => onChange({ ...form, scope: value })} /> <div>{scopeHint}</div> </div> <div className="prompt-editor-grid">
+<PromptAriaModal ariaLabel="编辑提示词" className="modal-box prompt-editor-modal" overlayClassName="modal-overlay prompt-modal-overlay" closeDisabled={saving} closeOnOverlayClick onClose={onClose} > <header> <div> <h2>编辑提示词</h2> <p>{scopeLabel}</p> </div> </header>
+<div className="prompt-scope-copy"> <div>可用范围：{scopeLabel}</div> <PromptScopeChoice ariaLabel="可用范围" autoFocusProject scope={form.scope} onChange={(value) => onChange({ ...form, scope: value })} /> <div>{scopeHint}</div> </div> <div className="prompt-editor-grid">
 <label>名称<input value={form.name} onChange={update('name')} aria-label="名称" /></label> <label className="wide">一句话描述<input value={form.description} onChange={update('description')} aria-label="一句话描述" /></label>
 <label className="wide">AI 什么时候会使用它<textarea value={form.whenToUse} onChange={update('whenToUse')} aria-label="AI 什么时候会使用它" /></label> <label className="wide">AI 使用时怎么做<textarea value={form.content} onChange={update('content')} aria-label="AI 使用时怎么做" /></label>
 <label className="wide">保存后 AI 会看到什么<textarea className="prompt-preview-readonly" value={previewText} aria-label="保存后 AI 会看到什么" readOnly /></label> <label className="prompt-check"><input type="checkbox" checked={form.enabled} onChange={update('enabled')} /> 启用状态</label>
@@ -213,14 +219,14 @@ const advancedDebugAvailable = optionalPromptDebugStorageEnabled(); return (
 <label>场景标签<input value={form.tagsText} onChange={update('tagsText')} aria-label="场景标签" /></label> <label>排序权重<input type="number" value={form.priority} onChange={update('priority')} aria-label="排序权重" /></label>
 <label className="wide">match_when JSON<textarea value={form.matchWhenText} onChange={update('matchWhenText')} aria-label="match_when JSON" /></label> </div> </details>
 ) : null} {notice ? <div className="prompt-notice">{notice}</div> : null} <footer> <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button> <button type="button" onClick={onSave} disabled={saving}>{saving ? '保存中...' : '保存'}</button>
-</footer> </FocusTrapDialog> ); }
+</footer> </PromptAriaModal> ); }
 async function buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPreferences }) { const launchPreferences = typeof resolveLaunchPreferences === 'function' ? await resolveLaunchPreferences(cwd) : null; return draftPromptIntent({ cwd, kind, rawInput,
 sourceType: 'user_input', scope, provider: firstPresentText(launchPreferences?.modelProvider, launchPreferences?.provider), model: textValue(launchPreferences?.model),
 codexModelProvider: firstPresentText(launchPreferences?.codexModelProvider, launchPreferences?.config?.codexModelProvider), }); }
-function PromptKindTabs({ kind, onChange }) { return ( <div className="prompt-kind-tabs" role="tablist" aria-label="内容类型"> {PROMPT_KIND_OPTIONS.map((option) => (
-<button key={option.key} type="button" role="tab" aria-selected={kind === option.key} className={kind === option.key ? 'active' : ''} onClick={() => onChange(option.key)}> {option.label} </button> ))} </div> ); }
-function PromptScopeChoice({ scope, onChange, ariaLabel = '草稿范围' }) { return (
-<RadioGroup aria-label={ariaLabel} className="prompt-scope-choice" onChange={onChange} value={scope === 'global' ? 'global' : 'project'} > <Radio className={({ isSelected }) => (isSelected ? 'active' : '')} value="project">这个项目</Radio>
+function PromptKindTabs({ kind, onChange, autoFocus = false }) { return ( <div className="prompt-kind-tabs" role="tablist" aria-label="内容类型"> {PROMPT_KIND_OPTIONS.map((option) => (
+<button key={option.key} type="button" role="tab" aria-selected={kind === option.key} autoFocus={autoFocus && kind === option.key} className={kind === option.key ? 'active' : ''} onClick={() => onChange(option.key)}> {option.label} </button> ))} </div> ); }
+function PromptScopeChoice({ scope, onChange, ariaLabel = '草稿范围', autoFocusProject = false }) { return (
+<RadioGroup aria-label={ariaLabel} className="prompt-scope-choice" onChange={onChange} value={scope === 'global' ? 'global' : 'project'} > <Radio autoFocus={autoFocusProject && scope !== 'global'} className={({ isSelected }) => (isSelected ? 'active' : '')} value="project">这个项目</Radio>
 <Radio className={({ isSelected }) => (isSelected ? 'active' : '')} value="global">全局可用</Radio> </RadioGroup> ); }
 function PromptDraftExamples({ draft }) { if (!draft.hitExamples.length && !draft.missExamples.length) return null; return ( <div className="prompt-draft-examples"> {draft.hitExamples.length ? (
 <div> <strong>适合的问题</strong> <ul>{draft.hitExamples.map((example) => <li key={example}>{example}</li>)}</ul> </div> ) : null} {draft.missExamples.length ? ( <div> <strong>不适合的问题</strong> <ul>{draft.missExamples.map((example) => <li key={example}>{example}</li>)}</ul> </div>
@@ -257,14 +263,14 @@ const commitDraft = async () => { if (!draft?.draftKey) return; if (promptDraftN
 const draftNeedsRevision = promptDraftNeedsRevision(draft); const draftHasReviewIssues = promptDraftHasReviewIssues(draft); const canCommitDraft = Boolean(draft?.draftKey) && !draftNeedsRevision && (!draftHasReviewIssues || reviewConfirmed); const runDryRun = async () => {
 await runPromptDraftDryRun({ cwd, draft, question: dryRunQuestion, setDryRunResult, setNotice, setWorking }); };
 return (
-<FocusTrapDialog ariaLabel="添加给 AI 的内容" className="modal-box prompt-wizard-modal" overlayClassName="modal-overlay prompt-modal-overlay" closeDisabled={working === 'commit'} closeOnOverlayClick onClose={onClose} > <header> <div> <h2>添加给 AI 的内容</h2> <p>{cwd || '未知'}</p> </div>
-</header> <PromptKindTabs kind={kind} onChange={(value) => setWizardField('kind', value)} /> <PromptScopeChoice scope={scope} onChange={(value) => setWizardField('scope', value)} /> <label className="prompt-wizard-input"> 写下希望 AI 记住或使用的内容
+<PromptAriaModal ariaLabel="添加给 AI 的内容" className="modal-box prompt-wizard-modal" overlayClassName="modal-overlay prompt-modal-overlay" closeDisabled={working === 'commit'} closeOnOverlayClick onClose={onClose} > <header> <div> <h2>添加给 AI 的内容</h2> <p>{cwd || '未知'}</p> </div>
+</header> <PromptKindTabs autoFocus kind={kind} onChange={(value) => setWizardField('kind', value)} /> <PromptScopeChoice scope={scope} onChange={(value) => setWizardField('scope', value)} /> <label className="prompt-wizard-input"> 写下希望 AI 记住或使用的内容
 <textarea value={rawInput} onChange={(event) => setWizardField('rawInput', event.target.value)} aria-label="写下希望 AI 记住或使用的内容" /> </label> <button type="button" onClick={runDraft} disabled={working === 'draft'}>{working === 'draft' ? '生成中...' : '帮我生成'}</button>
 {working === 'draft' ? <output className="prompt-notice" aria-live="polite">正在整理内容，可能需要一点时间。</output> : null} <PromptDraftReview draft={draft} /> {draft ? (
 <details className="prompt-dry-run-panel"> <summary>试问验证</summary> <div className="prompt-dry-run-body"> <label>试问问题 <textarea value={dryRunQuestion} onChange={(event) => setWizardField('dryRunQuestion', event.target.value)} aria-label="试问问题" /> </label>
 <button type="button" disabled={working === 'dry-run'} onClick={runDryRun}>{working === 'dry-run' ? '验证中...' : '验证'}</button> {dryRunResult ? <div className="prompt-notice">{promptDryRunSummary(dryRunResult, draft)}</div> : null} </div> </details>
 ) : null} <PromptWizardNotice draftNeedsRevision={draftNeedsRevision} notice={notice} /> <PromptDraftRiskConfirmation checked={reviewConfirmed} disabled={Boolean(working)} show={draftHasReviewIssues && !draftNeedsRevision} onChange={setReviewConfirmed} /> <footer>
-<button type="button" className="ghost" onClick={onClose} disabled={working === 'commit'}>关闭</button> <button type="button" onClick={commitDraft} disabled={!canCommitDraft || working === 'commit'}> {working === 'commit' ? '保存中...' : '确认保存'} </button> </footer> </FocusTrapDialog>
+<button type="button" className="ghost" onClick={onClose} disabled={working === 'commit'}>关闭</button> <button type="button" onClick={commitDraft} disabled={!canCommitDraft || working === 'commit'}> {working === 'commit' ? '保存中...' : '确认保存'} </button> </footer> </PromptAriaModal>
 ); }
 function promptDraftHasReviewIssues(draft) { return Array.isArray(draft?.issues) && draft.issues.some((issue) => textValue(issue?.severity).toLowerCase() === 'review'); }
 function PromptDraftRiskConfirmation({ checked, disabled, show, onChange }) { if (!show) return null; return (

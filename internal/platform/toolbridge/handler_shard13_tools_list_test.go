@@ -41,7 +41,7 @@ func TestProxyToolsList_LSPDoesNotIncludeHostMemory(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "memory_write", Description: "host memory"}}}
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-			dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+			dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "lsp"}}, nil)},
 		}},
 		hostTools:      host,
 		proxyAuthToken: newProxyAuthToken(),
@@ -60,8 +60,8 @@ func TestProxyToolsList_LSPDoesNotIncludeHostMemory(t *testing.T) {
 		t.Fatalf("tools = %#v, want one lsp tool", result["tools"])
 	}
 	tool := tools[0].(map[string]any)
-	if tool["name"] != "lsp_hover" {
-		t.Fatalf("tool = %#v, want lsp_hover", tool)
+	if tool["name"] != "inspect" {
+		t.Fatalf("tool = %#v, want inspect", tool)
 	}
 }
 
@@ -69,8 +69,8 @@ func TestProxyToolsList_MultiplePeersAmbiguousLikeToolsCall(t *testing.T) {
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 			dto.ClientKindLSP: {
-				listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "first"}}, nil),
-				listToolsPeer([]dto.MCPTool{{Name: "lsp_definition", Description: "second"}}, nil),
+				listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "first"}}, nil),
+				listToolsPeer([]dto.MCPTool{{Name: "xref", Description: "second"}}, nil),
 			},
 		}},
 		proxyAuthToken: newProxyAuthToken(),
@@ -87,7 +87,7 @@ func TestProxyToolsList_MultiplePeersAmbiguousLikeToolsCall(t *testing.T) {
 
 func TestProxyToolsList_LSPFiltersPeerMemoryRead(t *testing.T) {
 	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "inspect", Description: "lsp"}}, nil)},
 	}}, proxyAuthToken: newProxyAuthToken()}
 
 	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
@@ -99,7 +99,7 @@ func TestProxyToolsList_LSPFiltersPeerMemoryRead(t *testing.T) {
 	if proxyToolsContainName(tools, ToolNameMemoryRead) {
 		t.Fatalf("tools = %#v, must filter peer memory_read for non-orch proxy list", tools)
 	}
-	if !proxyToolsContainName(tools, "lsp_hover") {
+	if !proxyToolsContainName(tools, "inspect") {
 		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
 	}
 }

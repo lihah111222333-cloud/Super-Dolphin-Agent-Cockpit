@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { RuntimeActivityPanel } from '../runtime/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from '../runtime/RuntimeDiffView.jsx';
@@ -187,6 +187,48 @@ function renderRuntimeActivityPanel(overrides = {}) {
     expect(popover).not.toHaveTextContent('/home/l4place');
     expect(popover).not.toHaveTextContent('sk-live-secret');
     expect(popover).not.toHaveTextContent('secret.txt');
+  });
+
+  it('keeps runtime popovers mutually exclusive and dismisses through Escape', async () => {
+    renderRuntimeActivityPanel({
+      activityStats: {
+        toolCalls: {
+          mcp__lsp__lsp_grep: 2,
+        },
+      },
+      warnings: [{
+        id: 'warning-1',
+        method: 'turn/start',
+        message: 'rpc.failed',
+        status: 'error',
+      }],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'LSP (8 tools) 调用次数' }));
+    expect(await screen.findByTestId('runtime-stat-tooltip')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('rpc.failed').closest('button'));
+
+    await waitFor(() => expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('warning-log-popover')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'rpc.failed' }), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument());
+  });
+
+  it('does not close an open runtime popover when dragging the activity resizer', async () => {
+    renderRuntimeActivityPanel({
+      warnings: [{
+        id: 'warning-1',
+        method: 'turn/start',
+        message: 'rpc.failed',
+        status: 'error',
+      }],
+    });
+
+    fireEvent.click(screen.getByText('rpc.failed').closest('button'));
+    fireEvent.pointerDown(screen.getByTestId('activity-panel-resizer'));
+
+    expect(await screen.findByTestId('warning-log-popover')).toBeInTheDocument();
   });
 
   it('hides runtime log lines when the activity panel is collapsed', () => {

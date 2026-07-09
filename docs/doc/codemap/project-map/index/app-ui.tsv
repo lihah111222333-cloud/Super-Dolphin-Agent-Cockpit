@@ -21,16 +21,16 @@ frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	10249	React
 frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-test	2380	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.mjs	frontend-app	app-ui	js-source	7636	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.test.mjs	frontend-app	app-ui	js-test	2456	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,test,React,前端构建与校验脚本
-frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	21314	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
-frontend-app/scripts/frontend-code-size-guard.test.mjs	frontend-app	app-ui	js-test	7327	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	25277	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
+frontend-app/scripts/frontend-code-size-guard.test.mjs	frontend-app	app-ui	js-test	8078	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-contract-store-guard.mjs	frontend-app	app-ui	js-source	19450	React 前端构建与校验脚本	frontend,app,scripts,contract,store,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-contract-store-guard.test.mjs	frontend-app	app-ui	js-test	11293	React 前端构建与校验脚本	frontend,app,scripts,contract,store,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/no-critical-skip.mjs	frontend-app	app-ui	js-source	4897	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,React,前端构建与校验脚本
 frontend-app/scripts/no-critical-skip.test.mjs	frontend-app	app-ui	js-test	3886	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,test,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.mjs	frontend-app	app-ui	js-source	6280	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.test.mjs	frontend-app	app-ui	js-test	4473	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,test,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	21214	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	3684	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	24428	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	5243	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-acceptance.mjs	frontend-app	app-ui	js-source	20806	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,acceptance,React,前端构建与校验脚本
@@ -47,7 +47,7 @@ frontend-app/src/adapters/memoryAdapter.test.js	frontend-app	app-ui	js-test	2096
 frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	224	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端包
 frontend-app/src/adapters/observabilityAdapter.test.js	frontend-app	app-ui	js-test	2694	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,test,当前,React,Vite,前端包
 frontend-app/src/App.jsx	frontend-app	app-ui	jsx	17470	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
-frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	345352	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
+frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	345513	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.js	frontend-app	app-ui	js-source	3647	当前 React/Vite 前端包	frontend,app,src,appShellModel,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.test.js	frontend-app	app-ui	js-test	1760	当前 React/Vite 前端包	frontend,app,src,appShellModel,test,当前,React,Vite,前端包
 frontend-app/src/AppChrome.css	frontend-app	app-ui	css	7375	当前 React/Vite 前端包	frontend,app,src,AppChrome,当前,React,Vite,前端包
@@ -130,8 +130,8 @@ frontend-app/src/entities/client/model/warningRuntime.test.js	frontend-app	app-u
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2531	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4875	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	8230	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	54808	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	24684	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	55896	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	25132	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
 frontend-app/src/main.jsx	frontend-app	app-ui	jsx	3284	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
 frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/__tests__/chatPageTestSupport.js	frontend-app	app-ui	js-source	5145	React 页面与路由级 UI	frontend,app,src,pages,chat,tests,chatPageTestSupport,React,页面与路由级,UI
@@ -150,7 +150,7 @@ frontend-app/src/pages/chat/adapters/runtimeLogAdapter.js	frontend-app	app-ui	js
 frontend-app/src/pages/chat/adapters/threadIdentityAdapter.js	frontend-app	app-ui	js-source	4037	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadIdentityAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/threadStateAdapter.js	frontend-app	app-ui	js-source	453	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadStateAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/threadStatusAdapter.js	frontend-app	app-ui	js-source	4693	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadStatusAdapter,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	14114	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatMessages,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	14246	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatMessages,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.core.test.jsx	frontend-app	app-ui	jsx	16579	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,core,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	5108	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	13598	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
@@ -168,7 +168,7 @@ frontend-app/src/pages/chat/components/ProjectDropdown.jsx	frontend-app	app-ui	j
 frontend-app/src/pages/chat/components/ProjectSelector.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ProjectSelector,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ProjectSelector.jsx	frontend-app	app-ui	jsx	2499	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ProjectSelector,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ProjectSelector.test.jsx	frontend-app	app-ui	jsx	2103	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ProjectSelector,test,React,页面与路由级,UI
-frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx	frontend-app	app-ui	jsx	10494	React 页面与路由级 UI	frontend,app,src,pages,chat,components,RuntimePanelComponents,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx	frontend-app	app-ui	jsx	12020	React 页面与路由级 UI	frontend,app,src,pages,chat,components,RuntimePanelComponents,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/RuntimePanelPolish.css	frontend-app	app-ui	css	677	React 页面与路由级 UI	frontend,app,src,pages,chat,components,RuntimePanelPolish,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/AttachmentPreviewModal.jsx	frontend-app	app-ui	jsx	1787	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,AttachmentPreviewModal,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/composerAttachmentKey.js	frontend-app	app-ui	js-source	210	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,composerAttachmentKey,React,页面与路由级,UI
@@ -198,14 +198,14 @@ frontend-app/src/pages/chat/hooks/useRuntimePanelLayout.js	frontend-app	app-ui	j
 frontend-app/src/pages/chat/hooks/useSmoothStreamingText.js	frontend-app	app-ui	js-source	2782	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useSmoothStreamingText,React,页面与路由级,UI
 frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js	frontend-app	app-ui	js-source	2307	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,React,页面与路由级,UI
 frontend-app/src/pages/chat/hooks/useTimelineMaterialization.test.jsx	frontend-app	app-ui	jsx	2108	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,test,React,页面与路由级,UI
-frontend-app/src/pages/chat/markdown/ImageLightbox.jsx	frontend-app	app-ui	jsx	1045	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,ImageLightbox,React,页面与路由级,UI
+frontend-app/src/pages/chat/markdown/ImageLightbox.jsx	frontend-app	app-ui	jsx	1160	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,ImageLightbox,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MarkdownDirectiveChip.jsx	frontend-app	app-ui	jsx	1393	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownDirectiveChip,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MarkdownDirectiveChip.test.jsx	frontend-app	app-ui	jsx	2088	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownDirectiveChip,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/markdownDirectiveModel.js	frontend-app	app-ui	js-source	7194	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,markdownDirectiveModel,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MarkdownImagePreview.jsx	frontend-app	app-ui	jsx	1796	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownImagePreview,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/markdownMermaidModel.js	frontend-app	app-ui	js-source	3858	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,markdownMermaidModel,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MarkdownMessage.jsx	frontend-app	app-ui	jsx	14144	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownMessage,React,页面与路由级,UI
-frontend-app/src/pages/chat/markdown/MarkdownMessage.test.jsx	frontend-app	app-ui	jsx	8620	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownMessage,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/markdown/MarkdownMessage.test.jsx	frontend-app	app-ui	jsx	9794	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownMessage,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/markdownMessageModel.js	frontend-app	app-ui	js-source	9762	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,markdownMessageModel,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/markdownMessageModel.test.js	frontend-app	app-ui	js-test	1354	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,markdownMessageModel,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/markdownRendererModel.js	frontend-app	app-ui	js-source	14468	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,markdownRendererModel,React,页面与路由级,UI
@@ -226,12 +226,12 @@ frontend-app/src/pages/chat/runtime/CodePreviewDialog.test.jsx	frontend-app	app-
 frontend-app/src/pages/chat/runtime/PathChoiceDialog.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,PathChoiceDialog,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/PathChoiceDialog.jsx	frontend-app	app-ui	jsx	1333	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,PathChoiceDialog,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/runtimeActivityGeometry.js	frontend-app	app-ui	js-source	2771	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,runtimeActivityGeometry,React,页面与路由级,UI
-frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx	frontend-app	app-ui	jsx	1792	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityLog,React,页面与路由级,UI
-frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx	frontend-app	app-ui	jsx	7005	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityPanel,React,页面与路由级,UI
-frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx	frontend-app	app-ui	jsx	2713	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityStats,React,页面与路由级,UI
+frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx	frontend-app	app-ui	jsx	2683	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityLog,React,页面与路由级,UI
+frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx	frontend-app	app-ui	jsx	4943	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityPanel,React,页面与路由级,UI
+frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx	frontend-app	app-ui	jsx	3638	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityStats,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimeCodePreviewDialogs.jsx	frontend-app	app-ui	jsx	1339	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeCodePreviewDialogs,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimeDiffView.jsx	frontend-app	app-ui	jsx	4860	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeDiffView,React,页面与路由级,UI
-frontend-app/src/pages/chat/runtime/RuntimePanel.css	frontend-app	app-ui	css	13479	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
+frontend-app/src/pages/chat/runtime/RuntimePanel.css	frontend-app	app-ui	css	13632	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanel.jsx	frontend-app	app-ui	jsx	2579	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanelSlot.jsx	frontend-app	app-ui	jsx	1543	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanelSlot,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanelSlot.test.jsx	frontend-app	app-ui	jsx	7010	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanelSlot,test,React,页面与路由级,UI
@@ -306,11 +306,11 @@ frontend-app/src/pages/settings/services/settingsPageService.js	frontend-app	app
 frontend-app/src/pages/settings/settingsBuiltinToolsRuntime.js	frontend-app	app-ui	js-source	6950	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsBuiltinToolsRuntime,React,页面与路由级,UI
 frontend-app/src/pages/settings/SettingsPage.css	frontend-app	app-ui	css	1237	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,React,页面与路由级,UI
 frontend-app/src/pages/settings/SettingsPage.jsx	frontend-app	app-ui	jsx	5756	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,React,页面与路由级,UI
-frontend-app/src/pages/settings/SettingsPage.test.jsx	frontend-app	app-ui	jsx	39311	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,test,React,页面与路由级,UI
-frontend-app/src/pages/settings/settingsPageRuntime.js	frontend-app	app-ui	js-source	22421	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsPageRuntime,React,页面与路由级,UI
+frontend-app/src/pages/settings/SettingsPage.test.jsx	frontend-app	app-ui	jsx	42167	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,test,React,页面与路由级,UI
+frontend-app/src/pages/settings/settingsPageRuntime.js	frontend-app	app-ui	js-source	22677	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsPageRuntime,React,页面与路由级,UI
 frontend-app/src/pages/settings/settingsPromptRuntime.js	frontend-app	app-ui	js-source	8476	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsPromptRuntime,React,页面与路由级,UI
-frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js	frontend-app	app-ui	js-source	3395	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsProviderPreferencesRuntime,React,页面与路由级,UI
-frontend-app/src/pages/settings/settingsRuntimeHook.js	frontend-app	app-ui	js-source	6803	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsRuntimeHook,React,页面与路由级,UI
+frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js	frontend-app	app-ui	js-source	4504	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsProviderPreferencesRuntime,React,页面与路由级,UI
+frontend-app/src/pages/settings/settingsRuntimeHook.js	frontend-app	app-ui	js-source	7383	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsRuntimeHook,React,页面与路由级,UI
 frontend-app/src/pages/shared/featureDtoGolden.test.js	frontend-app	app-ui	js-test	6409	React 页面与路由级 UI	frontend,app,src,pages,shared,featureDtoGolden,test,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.jsx	frontend-app	app-ui	jsx	1364	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.test.jsx	frontend-app	app-ui	jsx	1393	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,test,React,页面与路由级,UI
@@ -323,8 +323,8 @@ frontend-app/src/pages/skills/services/skillsPageService.js	frontend-app	app-ui	
 frontend-app/src/pages/skills/SkillMarkdownPreview.jsx	frontend-app	app-ui	jsx	5755	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillMarkdownPreview,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillMarkdownPreviewModel.js	frontend-app	app-ui	js-source	1992	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillMarkdownPreviewModel,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPage.css	frontend-app	app-ui	css	16043	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
-frontend-app/src/pages/skills/SkillsPage.jsx	frontend-app	app-ui	jsx	114323	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
-frontend-app/src/pages/skills/SkillsPage.test.jsx	frontend-app	app-ui	jsx	31225	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,test,React,页面与路由级,UI
+frontend-app/src/pages/skills/SkillsPage.jsx	frontend-app	app-ui	jsx	115492	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
+frontend-app/src/pages/skills/SkillsPage.test.jsx	frontend-app	app-ui	jsx	31746	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,test,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPageHub.css	frontend-app	app-ui	css	10172	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPageHub,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillToolsTable.jsx	frontend-app	app-ui	jsx	1740	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillToolsTable,React,页面与路由级,UI
 frontend-app/src/pages/workflows/adapters/workflowDisplayAdapter.js	frontend-app	app-ui	js-source	5714	React 页面与路由级 UI	frontend,app,src,pages,workflows,adapters,workflowDisplayAdapter,React,页面与路由级,UI
@@ -343,7 +343,8 @@ frontend-app/src/pages/workflows/services/workflowDagModel.js	frontend-app	app-u
 frontend-app/src/pages/workflows/services/workflowEnterpriseTemplateModel.js	frontend-app	app-ui	js-source	20998	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowEnterpriseTemplateModel,React,页面与路由级,UI
 frontend-app/src/pages/workflows/services/workflowNodeModel.js	frontend-app	app-ui	js-source	11102	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowNodeModel,React,页面与路由级,UI
 frontend-app/src/pages/workflows/services/workflowPageService.js	frontend-app	app-ui	js-source	3078	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowPageService,React,页面与路由级,UI
-frontend-app/src/pages/workflows/services/workflowScheduleModel.js	frontend-app	app-ui	js-source	6732	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowScheduleModel,React,页面与路由级,UI
+frontend-app/src/pages/workflows/services/workflowScheduleModel.js	frontend-app	app-ui	js-source	7017	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowScheduleModel,React,页面与路由级,UI
+frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js	frontend-app	app-ui	js-test	1776	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowScheduleModel,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowEmptyState.css	frontend-app	app-ui	css	1663	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowEmptyState,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.css	frontend-app	app-ui	css	22507	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx	frontend-app	app-ui	jsx	12149	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,edge,test,React,页面与路由级,UI
@@ -361,7 +362,7 @@ frontend-app/src/services/modules/memoryService.test.js	frontend-app	app-ui	js-t
 frontend-app/src/services/modules/observabilityPage.degradation.test.jsx	frontend-app	app-ui	jsx	2077	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityPage,degradation,test,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityService.js	frontend-app	app-ui	js-source	1209	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityService.test.js	frontend-app	app-ui	js-test	1997	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,test,当前,React,Vite,前端包
-frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	24743	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
+frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	25013	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
 frontend-app/src/shared/api/approvalRequestId.js	frontend-app	app-ui	js-source	546	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,approvalRequestId,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiCommon.js	frontend-app	app-ui	js-source	6298	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiCommon,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiFactoryCore.js	frontend-app	app-ui	js-source	21076	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiFactoryCore,React,前端,API,facade,与,Wails,bridge

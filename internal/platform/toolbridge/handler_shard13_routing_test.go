@@ -40,7 +40,7 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_file",
+		Name:      "file",
 		Arguments: args,
 		AgentID:   "agent-1",
 		CWD:       root,
@@ -242,7 +242,7 @@ func TestToolBridge_ForwardsTrustedWorkspaceRootsToPeer(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:           "lsp_file",
+		Name:           "file",
 		Arguments:      args,
 		AgentID:        "agent-roots",
 		ThreadID:       "thread-roots",
@@ -265,7 +265,7 @@ func TestToolBridge_DoesNotTrustRelativePrimaryRoot(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:           "lsp_file",
+		Name:           "file",
 		Arguments:      args,
 		AgentID:        "agent-rel",
 		ThreadID:       "thread-rel",
@@ -294,7 +294,7 @@ func TestToolBridge_ForwardsAbsoluteAdditionalRootWithoutTrustedPrimary(t *testi
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:           "lsp_file",
+		Name:           "file",
 		Arguments:      args,
 		AgentID:        "agent-no-primary",
 		ThreadID:       "thread-no-primary",
@@ -324,7 +324,7 @@ func TestToolBridge_ResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:           "lsp_file",
+		Name:           "file",
 		Arguments:      args,
 		AgentID:        "agent-rel-extra",
 		ThreadID:       "thread-rel-extra",
@@ -362,7 +362,7 @@ func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_file",
+		Name:      "file",
 		Arguments: args,
 		AgentID:   "agent-b",
 		ThreadID:  "thread-b",
@@ -397,7 +397,7 @@ func TestLSPReleaseScopeAdminCallCarriesTrustedScope(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_file",
+		Name:      "file",
 		Arguments: args,
 		AgentID:   "trusted-agent",
 		ThreadID:  "trusted-thread",
@@ -431,7 +431,7 @@ func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_file",
+		Name:      "file",
 		Arguments: args,
 		AgentID:   "agent-http",
 		ThreadID:  "thread-http",
@@ -447,7 +447,7 @@ func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
 func TestToolBridge_NoPeer_FailFast(t *testing.T) {
 	h, _ := newHandlerForTest()
 
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "lsp_hover", Arguments: json.RawMessage(`{}`)})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "inspect", Arguments: json.RawMessage(`{}`)})
 	if !errors.Is(err, ErrNoPeerAvailable) {
 		t.Fatalf("routeToolCall() error = %v, want %v", err, ErrNoPeerAvailable)
 	}
@@ -457,9 +457,9 @@ func TestToolBridge_NoPeer_FailFast(t *testing.T) {
 }
 
 func TestToolBridge_MultiplePeers_Ambiguous(t *testing.T) {
-	h, _ := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "ignored", nil), newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "ignored", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "ignored", nil), newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "ignored", nil))
 
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "lsp_hover", Arguments: json.RawMessage(`{}`)})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "inspect", Arguments: json.RawMessage(`{}`)})
 	if !errors.Is(err, ErrAmbiguousPeer) {
 		t.Fatalf("routeToolCall() error = %v, want %v", err, ErrAmbiguousPeer)
 	}
@@ -476,9 +476,9 @@ func TestToolBridge_Timeout_120s(t *testing.T) {
 
 func TestToolBridge_PeerError_AdaptToResult(t *testing.T) {
 	peerErr := errors.New("peer callback failed")
-	h, _ := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "", peerErr))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "", peerErr))
 
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "lsp_hover", Arguments: json.RawMessage(`{}`)})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "inspect", Arguments: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v, want structured tool failure result", err)
 	}
@@ -490,13 +490,13 @@ func TestToolBridge_PeerError_AdaptToResult(t *testing.T) {
 
 func TestProxyToolCall_PeerErrorUsesToolResultNotJSONRPCError(t *testing.T) {
 	peerErr := errors.New("peer callback failed")
-	h, _ := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "", peerErr))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "", peerErr))
 	body := string(mustRawJSON(t, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "req-peer-error",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_hover",
+			"name":      "inspect",
 			"arguments": map[string]any{},
 		},
 	}))
@@ -522,7 +522,7 @@ func TestProxyToolCall_PeerExplicitFailureSetsIsError(t *testing.T) {
 		if method != ProxyMethodToolsCall {
 			t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
 		}
-		assertToolCallPayload(t, params, "lsp_edit", json.RawMessage(`{}`))
+		assertToolCallPayload(t, params, "patch_edit", json.RawMessage(`{}`))
 		resp, ok := result.(*peerToolCallResponse)
 		if !ok {
 			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
@@ -537,7 +537,7 @@ func TestProxyToolCall_PeerExplicitFailureSetsIsError(t *testing.T) {
 		"id":      "req-peer-failure",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_edit",
+			"name":      "patch_edit",
 			"arguments": map[string]any{},
 		},
 	}))
@@ -554,10 +554,10 @@ func TestProxyToolCall_PeerExplicitFailureSetsIsError(t *testing.T) {
 }
 
 func TestToolBridge_RouteToolCall_RejectsMismatchedClientKind(t *testing.T) {
-	h, registry := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "ignored", nil))
+	h, registry := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "ignored", nil))
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:       "lsp_hover",
+		Name:       "inspect",
 		Arguments:  json.RawMessage(`{}`),
 		ClientKind: "orch",
 	})
@@ -574,7 +574,7 @@ func TestToolBridge_RouteToolCall_RejectsMismatchedClientKind(t *testing.T) {
 
 func TestProxyRequest_RejectsOversizedBody(t *testing.T) {
 	h, _ := newHandlerForTest()
-	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":"req-1","method":"tools/call","params":{"name":"lsp_hover","arguments":{"blob":"%s"}}}`,
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":"req-1","method":"tools/call","params":{"name":"inspect","arguments":{"blob":"%s"}}}`,
 		strings.Repeat("x", proxyMaxBodyBytes))
 
 	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)

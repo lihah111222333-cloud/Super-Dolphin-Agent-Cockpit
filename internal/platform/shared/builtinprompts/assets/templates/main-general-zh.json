@@ -60,7 +60,7 @@
       "region": "static",
       "ordinal": 55,
       "trigger_type": "always",
-      "enable_when": {"enabled_tools_has": ["lsp_grep", "lsp_structure", "lsp_inspect", "lsp_xref", "lsp_file", "lsp_edit", "lsp_completion"]},
+      "enable_when": {"enabled_tools_has": ["grep", "structure", "inspect", "xref", "file", "patch_edit", "completion"]},
       "body_file": "sections/main-general-zh/55-lsp-basics.md"
     },
     {
@@ -84,7 +84,7 @@
       "trigger_type": "always",
       "enable_when": {
         "tags_has": ["refactor", "rename", "trace", "call hierarchy", "type hierarchy", "find references", "implementations", "bug", "重构", "重写", "改名", "重命名", "调用链", "被谁调用", "谁调用", "调用关系", "哪里调用", "类型层次", "继承体系", "接口的实现", "有几个实现", "影响面", "影响哪", "会不会影响", "牵一发", "排查", "追查", "追踪", "调试", "根因", "定位问题", "找引用", "查引用", "哪里用到", "哪里引用", "找用法", "用法", "报错", "编译错", "编译失败", "修 bug", "修复"],
-        "enabled_tools_has": ["lsp_grep", "lsp_structure", "lsp_inspect", "lsp_xref", "lsp_file", "lsp_edit", "lsp_completion"]
+        "enabled_tools_has": ["grep", "structure", "inspect", "xref", "file", "patch_edit", "completion"]
       },
       "body_file": "sections/main-general-zh/80-lsp-advanced.md"
     },

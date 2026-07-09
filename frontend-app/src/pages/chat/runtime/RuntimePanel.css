@@ -466,8 +466,14 @@
   background: var(--surface);
   color: var(--text-pri);
   box-shadow: var(--shadow);
-  pointer-events: none;
+  pointer-events: auto;
   white-space: normal;
+}
+
+.runtime-stat-tooltip-dialog {
+  display: grid;
+  gap: 8px;
+  outline: 0;
 }
 
 .runtime-stat-tooltip-title,
@@ -633,7 +639,13 @@
   background: var(--surface);
   color: var(--text-pri);
   box-shadow: var(--shadow);
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+.warning-log-popover-dialog {
+  display: grid;
+  gap: 8px;
+  outline: 0;
 }
 
 .warning-log-popover-title {

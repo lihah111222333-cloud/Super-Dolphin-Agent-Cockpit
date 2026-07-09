@@ -1230,7 +1230,7 @@ describe('runtime resize styles', () => {
     expect(popover['min-width']).toBe('0');
     expect(popover.left).toBe('var(--warning-log-popover-left, 12px)');
     expect(popover.right).toBe('var(--warning-log-popover-right, 12px)');
-    expect(popover['pointer-events']).toBe('none');
+    expect(popover['pointer-events']).toBe('auto');
     expect(Number(popover['z-index'])).toBeGreaterThan(80);
     expect(code.display).toBe('block');
     expect(code['max-width']).toBe('100%');

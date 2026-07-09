@@ -1,3 +1,4 @@
+import parser from 'cron-parser';
 import { firstText, objectValue, textValue } from '../../shared/pageShared.js';
 
 const DEFAULT_DAG_SCHEDULE = Object.freeze({ preset: 'daily', time: '08:00', weekday: '1', monthDay: '1' });
@@ -66,16 +67,26 @@ function cronSchedulePartsWithTimezone(cronExpr) {
   return { cronText: text, timezone: DAG_SCHEDULE_TIMEZONE };
 }
 
+function cronTextIsValid(cronText, timezone) {
+  try {
+    parser.parseExpression(cronText, { tz: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parseCronScheduleParts(cronExpr) {
   const { cronText: text, timezone } = cronSchedulePartsWithTimezone(cronExpr);
   if (!text) return { empty: true };
   const parts = text.split(/\s+/);
   if (parts.length !== 5) return { error: DAG_SCHEDULE_FORMAT_WARNING };
+  if (!cronTextIsValid(text, timezone)) return { error: DAG_SCHEDULE_FORMAT_WARNING };
   const [minuteText, hourText, dayOfMonth, month, dayOfWeek] = parts;
   const hour = Number(hourText);
   const minute = Number(minuteText);
   if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > MAX_SCHEDULE_HOUR || minute < 0 || minute > MAX_SCHEDULE_MINUTE) {
-    return { error: DAG_SCHEDULE_FORMAT_WARNING };
+    return { error: DAG_SCHEDULE_RANGE_WARNING };
   }
   return { minute, hour, dayOfMonth, month, dayOfWeek, time: `${twoDigits(hour)}:${twoDigits(minute)}`, timezone };
 }

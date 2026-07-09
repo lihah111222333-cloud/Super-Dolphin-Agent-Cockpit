@@ -8,6 +8,7 @@ import {
   countEffectiveLines,
   extractFunctions,
   measureFrontendCodeSizeSource,
+  measureFrontendCodeSizeSourceAstShadow,
   measureMaxNesting,
   parseFrontendCodeSizeGuardArgs,
 } from './frontend-code-size-guard.mjs';
@@ -155,6 +156,28 @@ describe('frontend code size guard', () => {
       consoleLogs: 1,
       maxNesting: expect.any(Number),
     }));
+  });
+
+  it('keeps AST shadow metrics aligned with handwritten metrics for key scenarios', () => {
+    const source = [
+      'export function outer(a, b, c, d, e, f) {',
+      '  if (first) {',
+      '    for (const item of items) {',
+      '      if (item.ok) {',
+      '        console.log(item);',
+      '      }',
+      '    }',
+      '  }',
+      '}',
+      'export const makePayload = (value) => {',
+      '  return { value };',
+      '};',
+      `const longLine = '${'x'.repeat(FRONTEND_CODE_SIZE_LIMITS.maxLineLength + 1)}';`,
+    ].join('\n');
+
+    expect(measureFrontendCodeSizeSourceAstShadow('src/nested.js', source)).toEqual(
+      measureFrontendCodeSizeSource('src/nested.js', source),
+    );
   });
 
   it('parses scope and repeatable file filters', () => {

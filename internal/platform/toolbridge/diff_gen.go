@@ -10,7 +10,7 @@ import (
 )
 
 // beginToolDiffSnapshot 在工具调用前捕获 git 快照。
-// 只有可追踪的 edit 调用且能确定 cwd 时才创建快照，避免无关工具产生额外 git 开销。
+// 只有可追踪的 patch_edit 调用且能确定 cwd 时才创建快照，避免无关工具产生额外 git 开销。
 func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest) *difftracker.Snapshot {
 	if h == nil {
 		return nil
@@ -70,17 +70,17 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 	}
 }
 
-// shouldTrackDiff 判断工具调用是否需要 diff 追踪；目前只追踪带 patch 的 LSP edit。
+// shouldTrackDiff 判断工具调用是否需要 diff 追踪；目前只追踪带 patch 的 LSP patch_edit。
 func shouldTrackDiff(toolName string, arguments json.RawMessage) bool {
 	switch canonicalToolName(toolName) {
-	case "edit":
-		return lspEditPatchIsDiff(arguments)
+	case "patch_edit":
+		return patchEditPatchIsDiff(arguments)
 	}
 	return false
 }
 
-// lspEditPatchIsDiff 从 LSP edit 参数中确认 patch 非空，避免空 edit 被误当成文件改动。
-func lspEditPatchIsDiff(arguments json.RawMessage) bool {
+// patchEditPatchIsDiff 从 LSP patch_edit 参数中确认 patch 非空，避免空 edit 被误当成文件改动。
+func patchEditPatchIsDiff(arguments json.RawMessage) bool {
 	if len(strings.TrimSpace(string(arguments))) == 0 {
 		return false
 	}

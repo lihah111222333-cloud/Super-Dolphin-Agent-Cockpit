@@ -8,7 +8,7 @@ import (
 )
 
 func TestBudgetOverflowSetsSuccessFalse(t *testing.T) {
-	handler := WithOutputBudget("edit", func(context.Context, json.RawMessage) (any, error) {
+	handler := WithOutputBudget("patch_edit", func(context.Context, json.RawMessage) (any, error) {
 		return map[string]any{"success": true, "data": strings.Repeat("x", 1024)}, nil
 	}, Budget{MaxBytes: 64})
 
@@ -69,8 +69,8 @@ func TestFileToolBudgetIsFiftyKiB(t *testing.T) {
 	}
 }
 
-func TestEditToolBudgetIsThirtyTwoKiB(t *testing.T) {
-	if got := ToolBudget("edit"); got != 32*1024 {
-		t.Fatalf("ToolBudget(edit) = %d, want %d", got, 32*1024)
+func TestPatchEditToolBudgetIsThirtyTwoKiB(t *testing.T) {
+	if got := ToolBudget("patch_edit"); got != 32*1024 {
+		t.Fatalf("ToolBudget(patch_edit) = %d, want %d", got, 32*1024)
 	}
 }

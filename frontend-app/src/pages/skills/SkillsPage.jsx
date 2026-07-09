@@ -198,16 +198,24 @@ return ( <section className="skill-tools-panel" aria-label={SKILL_TOOLS_UI.title
 {!cwd ? <p className="skill-tools-notice">{SKILL_TOOLS_UI.waitingProject}</p> : null} {cwd && isLoading ? <p className="skill-tools-notice">{SKILL_TOOLS_UI.loading}</p> : null}
 <SkillToolsState cwd={cwd} error={error} errorMessage={errorMessage} isError={isError} isLoading={isLoading} tools={tools} /> </section> ); }
 function datasourceDocumentsQueryKey() { return ['datasourceV2', 'documents']; } function datasourceDocumentQueryKey(documentId) { return ['datasourceV2', 'document', documentId]; }
+const datasourceDocumentsResponseSchema = z.object({ documents: z.array(z.unknown()) }).passthrough();
+const datasourceDetailResponseSchema = z.object({ document: z.unknown() }).passthrough();
+const datasourceChunkPageResponseSchema = z.object({ chunks: z.array(z.unknown()).optional(), hasMore: z.unknown().optional(), has_more: z.unknown().optional() }).passthrough();
+function parseDatasourceObjectResponse(response, source) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error(`${source} response must be an object`); } return response; }
+function parseDatasourceDocumentsResponse(response) { const result = datasourceDocumentsResponseSchema.safeParse(response); if (result.success) return result.data; parseDatasourceObjectResponse(response, 'datasourceV2/list');
+throw new Error('datasourceV2/list response.documents must be an array'); }
+function parseDatasourceDetailResponse(response) { const result = datasourceDetailResponseSchema.safeParse(response); if (result.success) return result.data; parseDatasourceObjectResponse(response, 'datasourceV2/get'); return response; }
+function parseDatasourceChunkPageResponse(response, source) { const result = datasourceChunkPageResponseSchema.safeParse(response); if (result.success) { const parsed = result.data; if (Array.isArray(parsed.chunks)) return parsed;
+if (parsed.hasMore ?? parsed.has_more) throw new Error(`${source} returned hasMore without chunks`); throw new Error(`${source} response.chunks must be an array`); } parseDatasourceObjectResponse(response, source); throw new Error(`${source} response.chunks must be an array`); }
 function normalizeDatasourceDocument(raw, index = 0) { if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(`datasource document ${index} must be an object`);
 } const documentId = Number(raw.documentId ?? raw.document_id ?? raw.id); if (!Number.isInteger(documentId) || documentId <= 0) { throw new Error(`datasource document ${index} is missing documentId`); } return { documentId,
 sourcePath: cleanScalar(raw.sourcePath ?? raw.source_path), fileName: cleanScalar(raw.fileName ?? raw.file_name), extension: cleanScalar(raw.extension), sizeBytes: Number(raw.sizeBytes ?? raw.size_bytes ?? 0), contentHash: cleanScalar(raw.contentHash ?? raw.content_hash),
 chunkCount: Number(raw.chunkCount ?? raw.chunk_count ?? 0), totalChars: Number(raw.totalChars ?? raw.total_chars ?? 0), status: cleanScalar(raw.status), errorMessage: cleanScalar(raw.errorMessage ?? raw.error_message), createdAt: cleanScalar(raw.createdAt ?? raw.created_at),
-updatedAt: cleanScalar(raw.updatedAt ?? raw.updated_at), }; } function normalizeDatasourceDocuments(response) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error('datasourceV2/list response must be an object'); } if (!Array.isArray(response.documents)) {
-throw new Error('datasourceV2/list response.documents must be an array'); } return response.documents.map(normalizeDatasourceDocument); }
-function normalizeDatasourceDetail(response) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error('datasourceV2/get response must be an object'); } const document = normalizeDatasourceDocument(response.document, 0); return { document,
+updatedAt: cleanScalar(raw.updatedAt ?? raw.updated_at), }; } function normalizeDatasourceDocuments(response) { const parsed = parseDatasourceDocumentsResponse(response); return parsed.documents.map(normalizeDatasourceDocument); }
+function normalizeDatasourceDetail(response) { const parsed = parseDatasourceDetailResponse(response); const document = normalizeDatasourceDocument(parsed.document, 0); return { document,
 ...normalizeDatasourceChunkPage(response, document, 'datasourceV2/get'), }; }
-function normalizeDatasourceChunkPage(response, document, source) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error(`${source} response must be an object`); } if (!Array.isArray(response.chunks)) {
-throw new Error(`${source} response.chunks must be an array`); } const chunks = response.chunks.map((raw, index) => normalizeDatasourceChunk(raw, document, index)); return { chunks, hasMore: Boolean(response.hasMore ?? response.has_more),
+function normalizeDatasourceChunkPage(response, document, source) { const parsed = parseDatasourceChunkPageResponse(response, source);
+const chunks = parsed.chunks.map((raw, index) => normalizeDatasourceChunk(raw, document, index)); return { chunks, hasMore: Boolean(response.hasMore ?? response.has_more),
 nextCursor: Number(response.nextCursor ?? response.next_cursor ?? -1), }; } function normalizeDatasourceChunk(raw, document, index) { if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(`datasource chunk ${index} must be an object`); } return { id: Number(raw.id),
 documentId: Number(hasOwnField(raw, 'documentId') ? raw.documentId : document.documentId), chunkIndex: Number(hasOwnField(raw, 'chunkIndex') ? raw.chunkIndex : index), content: textFromValue(raw.content), charCount: Number(raw.charCount), byteCount: Number(raw.byteCount), }; }
 function assertDatasourceChunkPageProgress(page, source) { if (page.hasMore && page.chunks.length === 0) { throw new Error(`${source} returned hasMore without chunks`); } return page; }

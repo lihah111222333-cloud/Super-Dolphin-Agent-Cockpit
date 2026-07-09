@@ -60,7 +60,7 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	pkglogger.Warn("lsp relay backend persistence e2e",
-		pkglogger.FieldToolName, "lsp_grep",
+		pkglogger.FieldToolName, "grep",
 		pkglogger.FieldComponent, "mcp-lsp",
 	)
 
@@ -70,7 +70,7 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 		"mcp_binary_name=mcp-lsp",
 		"mcp_client_kind=lsp",
 		"thread_id=thread-log-e2e",
-		"tool_name=lsp_grep",
+		"tool_name=grep",
 	})
 }
 

@@ -483,7 +483,7 @@ func largeThreadPatch() uidto.UIThreadPatch {
 		Interruptible:   &interruptible,
 		DiffText:        strings.Repeat("+payload\n", 9000),
 		AgentMeta:       map[string]any{"agent": "agent-1", "blob": strings.Repeat("m", 2048)},
-		ActivityStats:   &uidto.PatchActivityStats{ToolCalls: map[string]int64{"lsp_edit": 1}},
+		ActivityStats:   &uidto.PatchActivityStats{ToolCalls: map[string]int64{"patch_edit": 1}},
 		Alerts:          []uidto.PatchAlert{{ID: "alert-1", Time: "now", Level: "warn", Message: strings.Repeat("!", 2048)}},
 		TimelineItems:   []uidto.PatchTimelineItem{{ID: "item-1", Kind: "tool", Text: strings.Repeat("x", 8192)}},
 		RemovedItemIds:  []string{"old-1"},

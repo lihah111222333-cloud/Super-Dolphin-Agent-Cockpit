@@ -207,7 +207,7 @@ func promptAssemblyStartRequest(cwd string) StartRequest {
 		CWD:              cwd,
 		Model:            "gpt-5.5",
 		Language:         "Chinese",
-		EnabledTools:     []string{"lsp_file", "spawn_agent", "lsp_file"},
+		EnabledTools:     []string{"file", "spawn_agent", "file"},
 		SessionFlags:     map[string]bool{"verification_required": true},
 	}
 }
@@ -247,7 +247,7 @@ func assertPromptAssemblyOptions(t *testing.T, got contract.StartInput) {
 	if got.Language != "Chinese" {
 		t.Fatalf("Language = %q, want Chinese", got.Language)
 	}
-	if enabled := sortedStrings(got.EnabledTools); !slices.Equal(enabled, []string{"lsp_file", "spawn_agent"}) {
+	if enabled := sortedStrings(got.EnabledTools); !slices.Equal(enabled, []string{"file", "spawn_agent"}) {
 		t.Fatalf("EnabledTools = %#v", enabled)
 	}
 	if !got.SessionFlags["verification_required"] {

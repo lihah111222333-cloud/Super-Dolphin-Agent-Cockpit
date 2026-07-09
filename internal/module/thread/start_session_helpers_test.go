@@ -131,12 +131,12 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 		GitRoot:                      "/repo",
 		IsWorktree:                   true,
 		Language:                     "Chinese",
-		EnabledTools:                 []string{"lsp_file", "spawn_agent"},
+		EnabledTools:                 []string{"file", "spawn_agent"},
 		AdditionalWorkingDirectories: []string{"/repo/extra"},
 		ClaudeMdExcludes:             []string{"/repo/**/CLAUDE.local.md"},
 		MCPSnapshot: contract.MCPSnapshot{
 			Servers:      []string{"lsp"},
-			Tools:        []string{"mcp__lsp__lsp_grep"},
+			Tools:        []string{"mcp__lsp__grep"},
 			Instructions: map[string]string{"lsp": "Use the LSP MCP first."},
 		},
 		SessionFlags: map[string]bool{"verification_required": true},
@@ -145,7 +145,7 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	requireSessionConfigValue(t, cfg, "gitRoot", "/repo")
 	requireSessionConfigValue(t, cfg, "language", "Chinese")
 	requireSessionConfigValue(t, cfg, "isWorktree", true)
-	requireSessionConfigStringSlice(t, cfg, "enabledTools", []string{"lsp_file", "spawn_agent"})
+	requireSessionConfigStringSlice(t, cfg, "enabledTools", []string{"file", "spawn_agent"})
 	requireSessionConfigMapValue(t, cfg, "mcpInstructions", "lsp", "Use the LSP MCP first.")
 	requireSessionConfigMapValue(t, cfg, "sessionFlags", "verification_required", true)
 	requireSessionConfigStringSlice(t, cfg, "claudeMdExcludes", []string{"/repo/**/CLAUDE.local.md"})
@@ -293,7 +293,7 @@ func TestBuildStartSessionConfigCarriesCodexDisabledNativeTools(t *testing.T) {
 func TestBuildStartSessionConfigMergesLaunchToolSurfaceConfig(t *testing.T) {
 	cfg := buildStartSessionConfig(StartRequest{
 		Config: map[string]any{
-			"disallowed_tools":         "edit,lsp_edit,task_start_dag",
+			"disallowed_tools":         "patch_edit,task_start_dag",
 			"codexDisabledNativeTools": []any{"shell", "apply_patch", "spawn_agent"},
 		},
 	}, contract.StartInput{
@@ -302,7 +302,7 @@ func TestBuildStartSessionConfigMergesLaunchToolSurfaceConfig(t *testing.T) {
 		SuppressedTools: []string{"spawn_agent", "write_new_file"},
 	})
 
-	requireSessionConfigValue(t, cfg, "disallowed_tools", "edit,lsp_edit,task_start_dag")
+	requireSessionConfigValue(t, cfg, "disallowed_tools", "patch_edit,task_start_dag")
 	requireSessionConfigStringSlice(t, cfg, "codexDisabledNativeTools", []string{
 		"spawn_agent",
 		"write_new_file",

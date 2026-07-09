@@ -6,10 +6,18 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-func TestClassifyToolCanonicalAndLegacyLSPNames(t *testing.T) {
-	for _, name := range []string{"file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion", "lsp_file", "lsp_grep", "lsp_edit", "lsp_format_preview", "lsp_hover"} {
+func TestClassifyToolCanonicalLSPNames(t *testing.T) {
+	for _, name := range []string{"file", "grep", "inspect", "xref", "structure", "patch_edit", "completion"} {
 		if got := classifyTool(name); got != dto.ClientKindLSP {
 			t.Fatalf("classifyTool(%q) = %q, want %q", name, got, dto.ClientKindLSP)
+		}
+	}
+}
+
+func TestClassifyToolRejectsLegacyLSPNames(t *testing.T) {
+	for _, name := range []string{"lsp_file", "lsp_grep", "lsp_edit", "lsp_completion", "lsp_format_preview", "lsp_hover", "format_preview"} {
+		if got := classifyTool(name); got == dto.ClientKindLSP {
+			t.Fatalf("classifyTool(%q) = %q, want non-LSP after legacy alias removal", name, got)
 		}
 	}
 }
@@ -31,14 +39,22 @@ func TestValidateProxyToolFamilyIDA(t *testing.T) {
 	}
 }
 
-func TestResolveToolClientKindAcceptsCanonicalAndLegacyLSPNames(t *testing.T) {
-	for _, name := range []string{"grep", "lsp_grep", "format_preview", "lsp_format_preview"} {
+func TestResolveToolClientKindAcceptsCanonicalLSPNames(t *testing.T) {
+	for _, name := range []string{"grep", "patch_edit", "completion"} {
 		got, err := resolveToolClientKind(ToolCallRequest{Name: name, ClientKind: dto.ClientKindLSP})
 		if err != nil {
 			t.Fatalf("resolveToolClientKind(%q) error = %v", name, err)
 		}
 		if got != dto.ClientKindLSP {
 			t.Fatalf("resolveToolClientKind(%q) = %q, want %q", name, got, dto.ClientKindLSP)
+		}
+	}
+}
+
+func TestResolveToolClientKindRejectsLegacyLSPNames(t *testing.T) {
+	for _, name := range []string{"lsp_grep", "lsp_edit", "lsp_completion", "lsp_format_preview", "format_preview"} {
+		if _, err := resolveToolClientKind(ToolCallRequest{Name: name, ClientKind: dto.ClientKindLSP}); err == nil {
+			t.Fatalf("resolveToolClientKind(%q) error = nil, want family mismatch", name)
 		}
 	}
 }

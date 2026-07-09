@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	// editLogMessage* 是 edit 工具阶段日志的稳定消息名，便于外部日志检索聚合。
-	editLogMessageStageStarted   = "mcp-lsp edit stage started"
-	editLogMessageStageCompleted = "mcp-lsp edit stage completed"
-	editLogMessageStageFailed    = "mcp-lsp edit stage failed"
-	editLogMessageStageSkipped   = "mcp-lsp edit stage skipped"
+	// editLogMessage* 是 patch_edit 工具阶段日志的稳定消息名，便于外部日志检索聚合。
+	editLogMessageStageStarted   = "mcp-lsp patch_edit stage started"
+	editLogMessageStageCompleted = "mcp-lsp patch_edit stage completed"
+	editLogMessageStageFailed    = "mcp-lsp patch_edit stage failed"
+	editLogMessageStageSkipped   = "mcp-lsp patch_edit stage skipped"
 )
 
 // editStageLogger 串起一次 edit 调用内的阶段日志。
@@ -89,7 +89,7 @@ func (l *editStageLogger) attrs(stage string, status string, stageStarted time.T
 		action = "unknown"
 	}
 	out := []any{
-		"tool", "edit",
+		"tool", "patch_edit",
 		"action", action,
 		"stage", strings.TrimSpace(stage),
 		"status", strings.TrimSpace(status),

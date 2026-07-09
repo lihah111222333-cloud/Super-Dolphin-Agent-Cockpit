@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseJavaScriptSource } from '@babel/parser'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_FRONTEND_ROOT = resolve(SCRIPT_DIR, '..')
@@ -166,42 +167,26 @@ export function formatRpcAuditReport(report) {
 }
 
 function parseRpcMethods(source) {
-  const objectMatch = source.match(/export const RPC_METHODS = Object\.freeze\(\{([\s\S]*?)\n\}\)/)
-  if (!objectMatch) {
+  const objectExpression = findFrozenObjectExport(source, 'RPC_METHODS')
+  if (!objectExpression) {
     throw new Error('RPC_METHODS object was not found in backendApi.js')
   }
 
-  const methods = []
-  const entryPattern = /^\s*([A-Z0-9_]+):\s*'([^']+)',/gm
-  let match
-  while ((match = entryPattern.exec(objectMatch[1])) !== null) {
-    methods.push({
-      key: match[1],
-      method: match[2],
-    })
-  }
-  return methods
+  return objectPropertiesOnly(objectExpression, 'RPC_METHODS')
+    .map((property) => ({
+      key: propertyKeyName(property),
+      method: stringLiteralValue(property.value, `RPC_METHODS.${propertyKeyName(property)}`),
+    }))
 }
 
 function parseContractMatrix(source) {
-  const entries = []
-  const entryPattern = /^\s*([A-Z0-9_]+):\s*contract\((.+)\),?$/gm
-  let match
-  while ((match = entryPattern.exec(source)) !== null) {
-    const args = match[2]
-    const header = args.match(/^\s*'([A-Z0-9_]+)',\s*'([^']+)',\s*'([^']+)'/)
-    if (!header) {
-      continue
-    }
-    entries.push({
-      key: match[1],
-      declaredKey: header[1],
-      facade: header[2],
-      level: header[3],
-      responseValidator: parseObjectStringProperty(args, 'responseValidator'),
-      responsePassthroughReason: parseObjectStringProperty(args, 'responsePassthroughReason'),
-    })
+  const objectExpression = findFrozenObjectExport(source, 'RPC_CONTRACT_REGISTRY')
+  if (!objectExpression) {
+    throw new Error('RPC_CONTRACT_REGISTRY object was not found in backendApi.contractMatrix.js')
   }
+
+  const entries = objectPropertiesOnly(objectExpression, 'RPC_CONTRACT_REGISTRY')
+    .map((property) => parseContractRegistryProperty(property))
 
   const badKey = entries.find((entry) => entry.key !== entry.declaredKey)
   if (badKey) {
@@ -211,9 +196,110 @@ function parseContractMatrix(source) {
   return entries
 }
 
-function parseObjectStringProperty(source, property) {
-  const pattern = new RegExp(`\\b${escapeRegExp(property)}\\s*:\\s*'([^']+)'`)
-  return source.match(pattern)?.[1] ?? ''
+export const parseRpcMethodsForTest = parseRpcMethods
+export const parseContractMatrixForTest = parseContractMatrix
+
+function parseContractRegistryProperty(property) {
+  const key = propertyKeyName(property)
+  if (property.value.type !== 'CallExpression' || property.value.callee.type !== 'Identifier' || property.value.callee.name !== 'contract') {
+    throw new Error(`RPC_CONTRACT_REGISTRY.${key} must call contract(...)`)
+  }
+  const args = property.value.arguments
+  const options = args[7]?.type === 'ObjectExpression' ? args[7] : null
+  return {
+    key,
+    declaredKey: stringLiteralValue(args[0], `RPC_CONTRACT_REGISTRY.${key} declared key`),
+    facade: stringLiteralValue(args[1], `RPC_CONTRACT_REGISTRY.${key} facade`),
+    level: stringLiteralValue(args[2], `RPC_CONTRACT_REGISTRY.${key} level`),
+    responseValidator: objectStringPropertyValue(options, 'responseValidator'),
+    responsePassthroughReason: objectStringPropertyValue(options, 'responsePassthroughReason'),
+  }
+}
+
+function findFrozenObjectExport(source, exportName) {
+  let found = null
+  traverseAst(parseFrontendAst(source), (node) => {
+    if (found || node.type !== 'ExportNamedDeclaration' || node.declaration?.type !== 'VariableDeclaration') {
+      return
+    }
+    for (const declarator of node.declaration.declarations) {
+      if (declarator.id.type !== 'Identifier' || declarator.id.name !== exportName) {
+        continue
+      }
+      found = unwrapObjectFreezeObject(declarator.init)
+      if (!found) {
+        throw new Error(`${exportName} must be assigned Object.freeze({...})`)
+      }
+    }
+  })
+  return found
+}
+
+function unwrapObjectFreezeObject(node) {
+  if (
+    node?.type === 'CallExpression'
+    && node.callee.type === 'MemberExpression'
+    && node.callee.object.type === 'Identifier'
+    && node.callee.object.name === 'Object'
+    && node.callee.property.type === 'Identifier'
+    && node.callee.property.name === 'freeze'
+    && node.arguments[0]?.type === 'ObjectExpression'
+  ) {
+    return node.arguments[0]
+  }
+  return null
+}
+
+function parseFrontendAst(source) {
+  return parseJavaScriptSource(source, {
+    sourceType: 'module',
+    plugins: ['jsx', 'typescript'],
+  })
+}
+
+function traverseAst(node, visit) {
+  if (!node || typeof node.type !== 'string') return
+  visit(node)
+  for (const value of Object.values(node)) {
+    if (!value) continue
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        traverseAst(child, visit)
+      }
+    } else if (typeof value.type === 'string') {
+      traverseAst(value, visit)
+    }
+  }
+}
+
+function objectPropertiesOnly(objectExpression, label) {
+  return objectExpression.properties.map((property) => {
+    if (property.type !== 'ObjectProperty') {
+      throw new Error(`${label} entries must be object properties`)
+    }
+    return property
+  })
+}
+
+function propertyKeyName(property) {
+  if (property.key.type === 'Identifier' && !property.computed) return property.key.name
+  if (property.key.type === 'StringLiteral') return property.key.value
+  throw new Error('Object property key must be an identifier or string literal')
+}
+
+function stringLiteralValue(node, label) {
+  if (node?.type !== 'StringLiteral') {
+    throw new Error(`${label} must be a string literal`)
+  }
+  return node.value
+}
+
+function objectStringPropertyValue(objectExpression, propertyName) {
+  if (!objectExpression) return ''
+  const property = objectPropertiesOnly(objectExpression, 'contract options')
+    .find((candidate) => propertyKeyName(candidate) === propertyName)
+  if (!property) return ''
+  return stringLiteralValue(property.value, propertyName)
 }
 
 function collectFrontendResponseValidatorKeys(frontendSources) {

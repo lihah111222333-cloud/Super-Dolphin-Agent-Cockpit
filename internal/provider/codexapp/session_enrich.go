@@ -90,8 +90,11 @@ func injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd str
 
 func shouldWarnToolCWDTrace(toolName string) bool {
 	toolName = strings.TrimSpace(toolName)
-	return strings.HasPrefix(toolName, "lsp_") ||
-		strings.HasPrefix(toolName, "code_") ||
+	switch toolName {
+	case "file", "grep", "inspect", "xref", "structure", "patch_edit", "completion":
+		return true
+	}
+	return strings.HasPrefix(toolName, "code_") ||
 		contract.IsOrchestrationLaunchTool(toolName)
 }
 

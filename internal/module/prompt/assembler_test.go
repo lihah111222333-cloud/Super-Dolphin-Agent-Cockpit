@@ -535,7 +535,7 @@ func TestCacheByNameSectionIgnoresInputNoise(t *testing.T) {
 	second, err := svc.AssembleTurn(context.Background(), TurnInput{
 		Language:     "en",
 		UserText:     "second",
-		EnabledTools: []string{"spawn_agent", "lsp_grep"},
+		EnabledTools: []string{"spawn_agent", "grep"},
 		SessionFlags: map[string]bool{"verification_required": true},
 	})
 	if err != nil {

@@ -102,7 +102,7 @@ func expandedPrepareInputSession() *rpcHelperSession {
 			"model":                        "runtime-model",
 			"gitRoot":                      "/runtime-repo",
 			"language":                     "Chinese",
-			"enabledTools":                 []string{"lsp_file", "spawn_agent"},
+			"enabledTools":                 []string{"file", "spawn_agent"},
 			"additionalWorkingDirectories": []string{"/repo/runtime-extra"},
 			"mcpTools":                     []string{"mcp__orch__send_message"},
 			"mcpInstructions":              map[string]any{"orch": "Use orchestration runtime fallback."},
@@ -130,7 +130,7 @@ func expandedPrepareInputSpec(items []InputItem) prepareInputSpec {
 			"isWorktree":                   true,
 			"language":                     "German",
 			"additionalWorkingDirectories": []string{"/repo/thread-extra"},
-			"mcpTools":                     []string{"mcp__lsp__lsp_grep"},
+			"mcpTools":                     []string{"mcp__lsp__grep"},
 			"mcpInstructions":              map[string]any{"lsp": "Use the LSP thread fallback."},
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		},
@@ -186,7 +186,7 @@ func assertExpandedPrepareInputRuntimeFallbacks(t *testing.T, input PrepareInput
 	if got := input.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/thread-extra" {
 		t.Fatalf("AdditionalWorkingDirectories = %#v, want thread-state fallback", got)
 	}
-	if got := input.MCPSnapshot.Tools; !slices.Contains(got, "mcp__lsp__lsp_grep") {
+	if got := input.MCPSnapshot.Tools; !slices.Contains(got, "mcp__lsp__grep") {
 		t.Fatalf("MCPSnapshot.Tools = %#v, want thread-state tool present", got)
 	}
 	if input.MCPSnapshot.Instructions["lsp"] != "Use the LSP thread fallback." {

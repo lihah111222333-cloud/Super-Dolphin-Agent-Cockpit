@@ -49,15 +49,14 @@ func SplitMCPToolName(name string) (MCPToolNamespace, bool) {
 }
 
 var toolCWDTraceCanonicalTools = map[string]struct{}{
-	"file":           {},
-	"grep":           {},
-	"inspect":        {},
-	"xref":           {},
-	"structure":      {},
-	"edit":           {},
-	"format_preview": {},
-	"completion":     {},
-	"launch_agent":   {},
+	"file":         {},
+	"grep":         {},
+	"inspect":      {},
+	"xref":         {},
+	"structure":    {},
+	"patch_edit":   {},
+	"completion":   {},
+	"launch_agent": {},
 }
 
 func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
@@ -92,7 +91,7 @@ func shouldWarnToolCWDTrace(toolName string) bool {
 	if _, ok := toolCWDTraceCanonicalTools[canonicalOrchestrationToolName(trimmed)]; ok {
 		return true
 	}
-	return strings.HasPrefix(trimmed, "lsp_")
+	return false
 }
 
 func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest, forwardedCWD string) {
@@ -272,10 +271,6 @@ func requiresCodexToolSurface(name string) bool {
 	if namespace, ok := SplitMCPToolName(name); ok {
 		return requiresCodexSurfaceFamilyTool(namespace.Server, namespace.Tool)
 	}
-	if strings.HasPrefix(name, "lsp_") {
-		_, ok := legacyLSPToolAliases[name]
-		return ok
-	}
 	return requiresCanonicalCodexSurfaceTool(name)
 }
 
@@ -301,8 +296,7 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	"xref":              {},
 	"grep":              {},
 	"structure":         {},
-	"edit":              {},
-	"format_preview":    {},
+	"patch_edit":        {},
 	"completion":        {},
 	"launch_agent":      {},
 	"send_message":      {},

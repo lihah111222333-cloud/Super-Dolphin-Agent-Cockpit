@@ -260,27 +260,38 @@ func addHiddenMCPToolAliases(surface *codexToolSurface, family string, tools []m
 		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
 			continue
 		}
+		if err := validateCurrentLSPPeerToolName(family, tool.Name); err != nil {
+			return err
+		}
 		canonical := canonicalCodexToolName(family, tool.Name)
 		if shouldNamespaceExternalMCPTool(surface, family, canonical) {
 			canonical = wrappedMCPToolName(family, tool.Name)
 		}
 		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family)}
 		for _, alias := range mcpSurfaceToolAliases(family, tool.Name, canonical) {
-			alias = strings.TrimSpace(alias)
-			if alias == "" {
-				continue
+			if err := addHiddenMCPToolAlias(surface, alias, entry); err != nil {
+				return err
 			}
-			if _, visible := surface.aliases[alias]; visible {
-				continue
-			}
-			if existing, ok := surface.hiddenMCPTools[alias]; ok &&
-				(existing.family != entry.family || existing.realName != entry.realName) {
-				return fmt.Errorf("toolbridge: hidden codex surface alias %q maps to both %q/%q and %q/%q",
-					alias, existing.family, existing.realName, entry.family, entry.realName)
-			}
-			surface.hiddenMCPTools[alias] = entry
 		}
 	}
+	return nil
+}
+
+// addHiddenMCPToolAlias 注册单个 hidden alias，已可见的 alias 由 visible surface 负责处理。
+func addHiddenMCPToolAlias(surface *codexToolSurface, alias string, entry codexToolEntry) error {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return nil
+	}
+	if _, visible := surface.aliases[alias]; visible {
+		return nil
+	}
+	if existing, ok := surface.hiddenMCPTools[alias]; ok &&
+		(existing.family != entry.family || existing.realName != entry.realName) {
+		return fmt.Errorf("toolbridge: hidden codex surface alias %q maps to both %q/%q and %q/%q",
+			alias, existing.family, existing.realName, entry.family, entry.realName)
+	}
+	surface.hiddenMCPTools[alias] = entry
 	return nil
 }
 
@@ -350,26 +361,6 @@ func canonicalCodexToolName(family, name string) string {
 // canonicalOrchestrationToolName 将 legacy orchestration peer 名映射为短工具名。
 func canonicalOrchestrationToolName(name string) string {
 	return strings.TrimSpace(name)
-}
-
-// callableLegacyCodexToolAliases 只返回仍允许作为调用入口的 legacy alias。
-func callableLegacyCodexToolAliases(family, canonical string) []string {
-	if strings.TrimSpace(family) != mcpdto.ClientKindLSP {
-		return nil
-	}
-	if legacy := legacyLSPName(canonical); legacy != "" {
-		return []string{legacy, "mcp__lsp__" + legacy}
-	}
-	return nil
-}
-
-// mcpSurfaceDenyAndHiddenAliases 返回 direct-call deny/hidden 识别需要的别名。
-func mcpSurfaceDenyAndHiddenAliases(family, canonical string) []string {
-	switch strings.TrimSpace(family) {
-	case mcpdto.ClientKindLSP:
-		return callableLegacyCodexToolAliases(family, canonical)
-	}
-	return nil
 }
 
 // codexSurfaceKeys 生成 surface 可被查找的所有作用域 key。

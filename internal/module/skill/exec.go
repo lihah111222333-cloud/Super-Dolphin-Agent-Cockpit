@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ var shellInterpreters = map[string]bool{"bash": true, "cmd": true, "cmd.exe": tr
 
 var codeExecutionCommands = map[string]bool{"bun": true, "bun.exe": true, "deno": true, "deno.exe": true, "dotnet": true, "dotnet.exe": true, "go": true, "go.exe": true, "java": true, "java.exe": true, "node": true, "node.exe": true, "npm": true, "npm.cmd": true, "npx": true, "npx.cmd": true, "perl": true, "perl.exe": true, "php": true, "php.exe": true, "py": true, "py.exe": true, "python": true, "python.exe": true, "python3": true, "python3.exe": true, "ruby": true, "ruby.exe": true}
 
-const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：file inspect xref grep structure edit completion。\n"
+const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：file inspect xref grep structure patch_edit completion。\n"
 
 type execCommandHandler func(context.Context, execCommandRequest) (ExecResult, error)
 
@@ -88,9 +89,7 @@ func cloneExecEnv(input map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
+	maps.Copy(out, input)
 	return out
 }
 

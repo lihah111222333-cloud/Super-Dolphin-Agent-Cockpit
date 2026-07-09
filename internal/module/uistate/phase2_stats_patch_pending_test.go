@@ -84,18 +84,18 @@ func TestActivityStats_LSPToolIncrementsLSPCalls(t *testing.T) {
 	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-lsp", "agent-1"), "turn-1")
 
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-1", ToolName: "edit"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-1", ToolName: "patch_edit"},
 	})
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-2", ToolName: "edit"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-2", ToolName: "patch_edit"},
 	})
 
 	stats := activityStatsForThread(t, svc, "thread-stats-lsp")
 	if stats.LSPCalls != 2 {
 		t.Fatalf("stats.LSPCalls = %d, want 2", stats.LSPCalls)
 	}
-	if got := stats.ToolCalls["edit"]; got != 2 {
-		t.Fatalf("stats.ToolCalls[edit] = %d, want 2", got)
+	if got := stats.ToolCalls["patch_edit"]; got != 2 {
+		t.Fatalf("stats.ToolCalls[patch_edit] = %d, want 2", got)
 	}
 }
 
@@ -127,28 +127,28 @@ func TestActivityStats_MCPNamespacedLSPToolIncrementsLSPCalls(t *testing.T) {
 	}
 }
 
-func TestActivityStats_FormatPreviewIncrementsLSPCalls(t *testing.T) {
+func TestActivityStats_CompletionIncrementsLSPCalls(t *testing.T) {
 	t.Parallel()
 
 	svc := newProjectionTestService(t)
-	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-format-preview", "agent-1"), "turn-1")
+	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-completion", "agent-1"), "turn-1")
 
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-format-preview-1", ToolName: "format_preview"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-completion-1", ToolName: "completion"},
 	})
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-format-preview-2", ToolName: "mcp__lsp__lsp_format_preview"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-completion-2", ToolName: "mcp__lsp__completion"},
 	})
 
-	stats := activityStatsForThread(t, svc, "thread-stats-format-preview")
+	stats := activityStatsForThread(t, svc, "thread-stats-completion")
 	if stats.LSPCalls != 2 {
-		t.Fatalf("stats.LSPCalls = %d, want 2 for format_preview aliases", stats.LSPCalls)
+		t.Fatalf("stats.LSPCalls = %d, want 2 for completion aliases", stats.LSPCalls)
 	}
-	if got := stats.ToolCalls["format_preview"]; got != 1 {
-		t.Fatalf("stats.ToolCalls[format_preview] = %d, want 1", got)
+	if got := stats.ToolCalls["completion"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[completion] = %d, want 1", got)
 	}
-	if got := stats.ToolCalls["mcp__lsp__lsp_format_preview"]; got != 1 {
-		t.Fatalf("stats.ToolCalls[mcp__lsp__lsp_format_preview] = %d, want 1", got)
+	if got := stats.ToolCalls["mcp__lsp__completion"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[mcp__lsp__completion] = %d, want 1", got)
 	}
 }
 
@@ -196,7 +196,7 @@ func TestActivityStats_MCPNamespacedNonLSPToolDoesNotIncrementLSPCalls(t *testin
 	svc := newProjectionTestService(t)
 	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-mcp-other", "agent-1"), "turn-1")
 
-	// Non-LSP MCP tool: stripped name does not start with "lsp_", so LSPCalls stays 0.
+	// Non-LSP MCP tool: stripped name is not in the current LSP tool set, so LSPCalls stays 0.
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
 		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-other-1", ToolName: "mcp__json_render__render"},
 	})
@@ -220,23 +220,18 @@ func TestNormalizeToolName(t *testing.T) {
 		{"empty", "", ""},
 		{"whitespace", "   \t\n", ""},
 		{"short bare name", "grep", "grep"},
-		{"legacy bare name", "lsp_grep", "grep"},
-		{"legacy bare name uppercase", "LSP_GREP", "grep"},
 		{"mcp lsp namespaced", "mcp__lsp__grep", "grep"},
-		{"legacy mcp lsp namespaced", "mcp__lsp__lsp_grep", "grep"},
-		{"format preview", "format_preview", "format_preview"},
-		{"legacy format preview", "lsp_format_preview", "format_preview"},
-		{"mcp format preview", "mcp__lsp__lsp_format_preview", "format_preview"},
+		{"completion", "completion", "completion"},
+		{"mcp completion", "mcp__lsp__completion", "completion"},
 		{"mcp orch namespaced", "mcp__orch__launch_agent", "launch_agent"},
 		{"mcp playwright namespaced", "mcp__playwright__browser_click", "browser_click"},
 		{"mcp prefix without server", "mcp__", "mcp__"},
 		{"mcp prefix only", "mcp__lsp", "mcp__lsp"},
 		{"non-mcp keeps name", "shell_exec", "shell_exec"},
 		{"trims and lowercases", "  MCP__LSP__xref  ", "xref"},
-		{"trims and lowercases legacy", "  MCP__LSP__lsp_xref  ", "xref"},
+		{"legacy bare name remains literal", "lsp_grep", "lsp_grep"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := normalizeToolName(tc.in); got != tc.want {
@@ -261,7 +256,6 @@ func TestClassifyToolActivity_HandlesMCPNamespace(t *testing.T) {
 		{"non-collab bare tool", "shell_exec", "tool"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := classifyToolActivity(tc.in); got != tc.want {
@@ -308,7 +302,7 @@ func TestThreadPatch_ActivityStats_Included(t *testing.T) {
 	t.Parallel()
 
 	svc := newProjectionTestService(t)
-	setActivityStatsForThread(t, svc, "thread-stats-patch", 2, 1, 3, map[string]int64{"shell": 4, "lsp_edit": 3})
+	setActivityStatsForThread(t, svc, "thread-stats-patch", 2, 1, 3, map[string]int64{"shell": 4, "patch_edit": 3})
 	svc.state.Threads = []ThreadSummary{{ID: "thread-stats-patch", State: "running"}}
 
 	svc.mu.Lock()

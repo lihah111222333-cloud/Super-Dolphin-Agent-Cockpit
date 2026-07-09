@@ -343,10 +343,10 @@ func TestRegisterSubscriptions_ToolCallDistinctByToolAndCallID(t *testing.T) {
 	}
 
 	publish("bash")
-	publish("lsp_edit")
+	publish("patch_edit")
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 2 && items[0].Tool == "bash" && items[1].Tool == "lsp_edit"
+		return len(items) == 2 && items[0].Tool == "bash" && items[1].Tool == "patch_edit"
 	}, "expected same callID with different tools to keep two timeline items")
 }
 
@@ -374,12 +374,12 @@ func TestRegisterSubscriptions_ToolCallEndWithoutToolNameUpdatesBeginRow(t *test
 			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
 		},
 		CallID:   "call-1",
-		ToolName: "lsp_grep",
+		ToolName: "grep",
 	}
 	event.Publish(dispatcher, tooldto.ToolCallBegin{ToolCallHeader: header})
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Tool == "lsp_grep" && items[0].Status == "running"
+		return len(items) == 1 && items[0].Tool == "grep" && items[0].Status == "running"
 	}, "begin must create one running tool item")
 
 	// End event drops ToolName (mimics runtimes that only echo CallID on End).
@@ -397,6 +397,6 @@ func TestRegisterSubscriptions_ToolCallEndWithoutToolNameUpdatesBeginRow(t *test
 			return false
 		}
 		item := items[0]
-		return item.Tool == "lsp_grep" && item.Done && item.Status == "warning" && item.Error == "tool result cache unavailable"
+		return item.Tool == "grep" && item.Done && item.Status == "warning" && item.Error == "tool result cache unavailable"
 	}, "end without ToolName must update the existing row in place, not spawn a 未知工具 duplicate")
 }

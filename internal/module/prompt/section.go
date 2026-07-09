@@ -90,7 +90,7 @@ func renderToolPreferencesSectionText(build BuildCtx) string {
 		})
 	}
 	bullets := []string{
-		"Prefer repository-aware tools first: use file for reading, edit for edits, and grep for search.",
+		"Prefer repository-aware tools first: use file for reading, patch_edit for edits, and grep for search.",
 		"Use exec_command for ordinary shell commands such as git, directory/file inspection, package scripts, tests, and direct shell requests.",
 		"Prefer LSP tools for code understanding, symbol jumps, references, call hierarchy, diagnostics, and edits.",
 		"Do not use shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.",

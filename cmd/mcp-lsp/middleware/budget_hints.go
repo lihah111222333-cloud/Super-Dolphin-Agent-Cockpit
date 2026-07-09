@@ -37,7 +37,7 @@ var toolOverflowHints = map[string]toolOverflowHint{
 	"structure": {
 		Hint: "next: structure action=document_symbol file_path=<file> max_results=10",
 	},
-	"edit": {
+	"patch_edit": {
 		Hint: "next: check success/applied fields for status",
 	},
 	"completion": {
@@ -86,7 +86,7 @@ func extractSummary(toolName string, payload map[string]any) map[string]any {
 			"total":   numericField(payload, "total"),
 			"showing": numericField(payload, "showing"),
 		}
-	case "edit":
+	case "patch_edit":
 		return map[string]any{
 			"success": payload["success"],
 			"applied": payload["applied"],

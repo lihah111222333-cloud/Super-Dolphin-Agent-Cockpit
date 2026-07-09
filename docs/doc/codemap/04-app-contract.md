@@ -926,7 +926,7 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 | --- | --- | --- | --- | --- |
-| 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | `lsp_grep` `modules.go`；必要时跑 `internal/app/runner_test.go` |
+| 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | `grep` `modules.go`；必要时跑 `internal/app/runner_test.go` |
 | RPC 收编 | 新模块需要暴露 JSON-RPC / Wails RPC | 1. 返回 `rpc.HandlerMapResult`；2. 在模块侧提供 `New*Handlers`；3. 由 `internal/platform/rpc.registerAllHandlers` 统一收编。 | `internal/platform/rpc/module.go`、`registerAllHandlers` | `internal/platform/rpc/server_minimal_test.go` |
 | freeze | 适配层膨胀 / bridge 临时收口触发架构 guard | 1. 优先把 helper / adapter 收回 owning module；2. 对照 `freeze_registry.go` 找当前真值；3. 用 `TestCodeSizeGuard` 校验是否需要同步调整 freeze。 | `internal/archtest/freeze_registry.go`、`internal/archtest/code_size_guard_test.go` | `go test ./internal/archtest -run TestCodeSizeGuard` |
 | 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestSkillService|TestTaskDAG'` |

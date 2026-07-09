@@ -52,6 +52,7 @@ func markdownContextPatchCase() unsupportedTextReplaceRangeCase {
 		}, "\n"),
 		req: func(path string) EditRequest {
 			return EditRequest{
+				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@ target status",
@@ -82,6 +83,7 @@ func plaintextMultiHunkPatchCase() unsupportedTextReplaceRangeCase {
 		content: "alpha\nbeta\nomega\n",
 		req: func(path string) EditRequest {
 			return EditRequest{
+				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@ alpha",
@@ -105,6 +107,7 @@ func plaintextBareHeaderPatchCase() unsupportedTextReplaceRangeCase {
 		content: "alpha\nbeta\nomega\n",
 		req: func(path string) EditRequest {
 			return EditRequest{
+				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@",
@@ -125,6 +128,7 @@ func jsonPatchCase() unsupportedTextReplaceRangeCase {
 		content: "{\n  \"enabled\": false,\n  \"name\": \"demo\"\n}\n",
 		req: func(path string) EditRequest {
 			return EditRequest{
+				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@ enabled",
@@ -152,6 +156,7 @@ func yamlConfigPatchCase() unsupportedTextReplaceRangeCase {
 		}, "\n"),
 		req: func(path string) EditRequest {
 			return EditRequest{
+				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@ yaml feature",

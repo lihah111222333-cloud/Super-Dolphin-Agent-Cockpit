@@ -9,12 +9,12 @@ import (
 )
 
 func TestProxyJSONRPCNotificationToolCallUsesAcceptedNoBody(t *testing.T) {
-	h, _ := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "ok", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "ok", nil))
 	body := string(mustRawJSON(t, map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_hover",
+			"name":      "inspect",
 			"arguments": map[string]any{},
 		},
 	}))
@@ -29,7 +29,7 @@ func TestProxyJSONRPCNotificationToolCallErrorUsesAcceptedNoBody(t *testing.T) {
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_hover",
+			"name":      "inspect",
 			"arguments": map[string]any{},
 		},
 	}))
@@ -39,13 +39,13 @@ func TestProxyJSONRPCNotificationToolCallErrorUsesAcceptedNoBody(t *testing.T) {
 }
 
 func TestProxyJSONRPCRequestToolCallKeepsResultBody(t *testing.T) {
-	h, _ := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "ok", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "ok", nil))
 	body := string(mustRawJSON(t, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "req-success",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_hover",
+			"name":      "inspect",
 			"arguments": map[string]any{},
 		},
 	}))
@@ -70,7 +70,7 @@ func TestProxyJSONRPCRequestToolCallKeepsErrorBody(t *testing.T) {
 		"id":      "req-failure",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_hover",
+			"name":      "inspect",
 			"arguments": map[string]any{},
 		},
 	}))

@@ -13,7 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
-func TestEditRequiresPatch(t *testing.T) {
+func TestEditRequiresAction(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")
 	original := "package main\n\nfunc f() { old() }\n"
@@ -27,8 +27,8 @@ func TestEditRequiresPatch(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 	_, err = handler(testToolContext(root), input)
-	if err == nil || !strings.Contains(err.Error(), "requires patch") {
-		t.Fatalf("edit error = %v, want containing 'requires patch'", err)
+	if err == nil || !strings.Contains(err.Error(), "patch_edit requires action") {
+		t.Fatalf("edit error = %v, want containing 'patch_edit requires action'", err)
 	}
 	assertFileContent(t, path, original)
 }
@@ -47,9 +47,14 @@ func TestEditRejectsInvalidActionAndMissingFields(t *testing.T) {
 		wantErr string
 	}{
 		{
+			name:    "missing_action",
+			raw:     `{"file_path":` + quoteJSON(t, path) + `,"patch":" x\n-old\n+new"}`,
+			wantErr: "patch_edit requires action",
+		},
+		{
 			name:    "invalid_action",
 			raw:     `{"action":"delete","file_path":` + quoteJSON(t, path) + `}`,
-			wantErr: "unsupported edit action",
+			wantErr: "unsupported patch_edit action",
 		},
 		{
 			name:    "replace_range_missing_patch",
@@ -78,7 +83,7 @@ func TestEditRejectsInvalidActionAndMissingFields(t *testing.T) {
 			input := json.RawMessage(tt.raw)
 			_, err := handler(testToolContext(root), input)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("edit %s error = %v, want containing %q", tt.name, err, tt.wantErr)
+				t.Fatalf("patch_edit %s error = %v, want containing %q", tt.name, err, tt.wantErr)
 			}
 		})
 	}
@@ -134,6 +139,7 @@ func TestReplaceRangeSyncUsesDirectDidChangeWithoutBootstrap(t *testing.T) {
 	manager := &editRereadSyncManager{rewriteContent: diskAfterBootstrap}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",
@@ -175,6 +181,7 @@ func TestReplaceRangeDoesNotWarnForLargeFullDocumentSync(t *testing.T) {
 	manager := &editRereadSyncManager{}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",

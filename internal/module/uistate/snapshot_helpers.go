@@ -170,7 +170,7 @@ func classifyItemActivity(itemType, rawType, command, file string) string {
 	}
 }
 
-// normalizeToolName 归一化工具名，去掉 MCP namespace 并兼容旧 LSP 名称。
+// normalizeToolName 归一化工具名，去掉 MCP namespace。
 // 统计表只识别 grep/xref 等短名；不做归一化会让 MCP 工具调用落入默认分支，导致计数为零。
 func normalizeToolName(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
@@ -185,25 +185,11 @@ func normalizeToolName(name string) string {
 	return canonicalLSPToolName(s)
 }
 
-// canonicalLSPToolName 将旧 lsp_* 名称映射为当前前端统计使用的短名。
+// canonicalLSPToolName 规范化当前前端统计使用的 LSP 工具名。
 func canonicalLSPToolName(name string) string {
 	switch strings.TrimSpace(name) {
-	case "lsp_file":
-		return "file"
-	case "lsp_grep":
-		return "grep"
-	case "lsp_inspect":
-		return "inspect"
-	case "lsp_xref":
-		return "xref"
-	case "lsp_structure":
-		return "structure"
-	case "lsp_edit":
-		return "edit"
-	case "lsp_completion":
-		return "completion"
-	case "lsp_format_preview":
-		return "format_preview"
+	case "patch_edit":
+		return "patch_edit"
 	default:
 		return strings.TrimSpace(name)
 	}
@@ -212,10 +198,10 @@ func canonicalLSPToolName(name string) string {
 func isLSPActivityTool(name string) bool {
 	trimmed := strings.TrimSpace(name)
 	switch trimmed {
-	case "file", "grep", "inspect", "xref", "structure", "edit", "completion", "format_preview":
+	case "file", "grep", "inspect", "xref", "structure", "patch_edit", "completion":
 		return true
 	default:
-		return strings.HasPrefix(trimmed, "lsp_")
+		return false
 	}
 }
 

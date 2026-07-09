@@ -416,6 +416,12 @@ async function readRuntimePreferenceValues(cwd) {
   return { activeProvider, contextValue, providerValues, stallValue };
 }
 
+async function readRuntimeSettingsForm(cwd) {
+  const projectCwd = normalizeSettingsCwd(cwd);
+  if (!projectCwd) return defaultSettingsForm();
+  return settingsFormFromPreferences(await readRuntimePreferenceValues(projectCwd));
+}
+
 async function readRuntimePreferenceValuesForProvider(cwd, activeProvider) {
   const [stallValue, contextValue, providerValues] = await Promise.all([
     getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
@@ -547,6 +553,6 @@ function codexIdentityPreferenceValue(value) {
 
 export {
   PROVIDER_LABELS, changeActiveProviderPreference, defaultSettingsForm, isCurrentPreferenceRequest, loadRuntimePreferences,
-  loadSettingsDashboardLogs, normalizeProviderName, normalizeSettingsCwd, providerConfigValue, providerSettingKey,
+  loadSettingsDashboardLogs, normalizeProviderName, normalizeSettingsCwd, providerConfigValue, providerSettingKey, readRuntimeSettingsForm,
   providerSettingsViewConfig, readScopedPreference, saveProviderRuntimePreferences, saveRuntimePreferences, settingsFormWithUpdate, textValue,
 };

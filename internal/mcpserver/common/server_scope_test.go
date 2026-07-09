@@ -404,7 +404,7 @@ func TestHTTPDirectPeerRequiresTrustedScopeMetadata(t *testing.T) {
 		"id":      10,
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_file",
+			"name":      "file",
 			"arguments": map[string]any{"cwd": "/forged"},
 			"_agentId":  "agent-http",
 			"_threadId": "thread-http",
@@ -441,7 +441,7 @@ func TestHTTPDirectPeerWithoutTrustedMetadataIsNotMultiAgentIsolationPass(t *tes
 	}}
 	server := NewHTTPServer("mcp-lsp", "dev", provider)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"lsp_file","arguments":{"agent_id":"forged-agent","cwd":"/forged"}}}`))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"file","arguments":{"agent_id":"forged-agent","cwd":"/forged"}}}`))
 
 	server.handleMCP(rec, req)
 

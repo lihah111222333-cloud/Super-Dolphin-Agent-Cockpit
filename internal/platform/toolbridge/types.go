@@ -214,25 +214,24 @@ type peerToolCallContent struct {
 	Text string `json:"text,omitempty"`
 }
 
-// legacyLSPToolAliases 保存旧版 lsp_* 工具名到短工具名的映射。
-var legacyLSPToolAliases = map[string]string{
-	"lsp_file":           "file",
-	"lsp_grep":           "grep",
-	"lsp_inspect":        "inspect",
-	"lsp_xref":           "xref",
-	"lsp_structure":      "structure",
-	"lsp_edit":           "edit",
-	"lsp_format_preview": "format_preview",
-	"lsp_completion":     "completion",
+// canonicalToolName 规范化当前 LSP 工具名。
+func canonicalToolName(name string) string {
+	return strings.TrimSpace(name)
 }
 
-// canonicalToolName 将旧版 LSP 工具名折叠为短工具名。
-func canonicalToolName(name string) string {
-	trimmed := strings.TrimSpace(name)
-	if alias, ok := legacyLSPToolAliases[trimmed]; ok {
-		return alias
-	}
-	return trimmed
+var currentLSPToolNames = map[string]struct{}{
+	"file":       {},
+	"grep":       {},
+	"inspect":    {},
+	"xref":       {},
+	"structure":  {},
+	"patch_edit": {},
+	"completion": {},
+}
+
+func isCurrentLSPToolName(name string) bool {
+	_, ok := currentLSPToolNames[strings.TrimSpace(name)]
+	return ok
 }
 
 // classifyTool 根据工具名推断所属 MCP client family。
@@ -241,18 +240,13 @@ func classifyTool(name string) string {
 	if namespace, ok := SplitMCPToolName(trimmed); ok {
 		return strings.TrimSpace(namespace.Server)
 	}
-	switch canonicalToolName(trimmed) {
-	case "file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion":
+	if isCurrentLSPToolName(canonicalToolName(trimmed)) {
 		return dto.ClientKindLSP
-	default:
-		if strings.HasPrefix(trimmed, "lsp_") {
-			return dto.ClientKindLSP
-		}
-		if strings.HasPrefix(trimmed, "ida_") {
-			return dto.ClientKindIDA
-		}
-		return dto.ClientKindOrch
 	}
+	if strings.HasPrefix(trimmed, "ida_") {
+		return dto.ClientKindIDA
+	}
+	return dto.ClientKindOrch
 }
 
 // resolveToolClientKind 校验请求指定的 clientKind 与工具名分类一致。

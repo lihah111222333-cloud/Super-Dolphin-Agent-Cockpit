@@ -185,7 +185,7 @@ func (p registryToolProvider) semanticLSPAvailable(ctx context.Context) (bool, e
 // isSemanticLSPToolName 判断工具名是否属于需要语义 LSP server 才能运行的工具。
 func isSemanticLSPToolName(name string) bool {
 	switch canonicalToolName(name) {
-	case "inspect", "xref", "structure", "edit", "completion":
+	case "inspect", "xref", "structure", "patch_edit", "completion":
 		return true
 	default:
 		return false
@@ -286,7 +286,7 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 func shouldWarnLSPCWDTrace(toolName string) bool {
 	toolName = canonicalToolName(toolName)
 	switch toolName {
-	case "file", "inspect", "xref", "grep", "structure", "edit", "completion":
+	case "file", "inspect", "xref", "grep", "structure", "patch_edit", "completion":
 		return true
 	default:
 		return false

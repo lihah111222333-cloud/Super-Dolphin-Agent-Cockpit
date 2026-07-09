@@ -461,8 +461,9 @@ button.user-attachment-file-pill:focus-visible {
   margin: 0;
   padding: 28px;
   border: 0;
-  background: transparent;
+  background: var(--overlay);
   color: inherit;
+  cursor: zoom-out;
 }
 
 .image-lightbox-backdrop {
@@ -479,16 +480,23 @@ button.user-attachment-file-pill:focus-visible {
   z-index: 1;
   width: min(1180px, 94vw);
   max-height: 92vh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow);
+  cursor: default;
 }
 
-.image-lightbox-panel header {
+.image-lightbox-dialog {
+  min-width: 0;
+  max-height: inherit;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  outline: none;
+}
+
+.image-lightbox-dialog header {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -498,7 +506,7 @@ button.user-attachment-file-pill:focus-visible {
   padding: 10px 12px;
 }
 
-.image-lightbox-panel header strong {
+.image-lightbox-dialog header strong {
   min-width: 0;
   overflow: hidden;
   color: var(--text-sec);
@@ -507,14 +515,14 @@ button.user-attachment-file-pill:focus-visible {
   white-space: nowrap;
 }
 
-.image-lightbox-panel header div {
+.image-lightbox-dialog header div {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-.image-lightbox-panel header a,
-.image-lightbox-panel header button {
+.image-lightbox-dialog header a,
+.image-lightbox-dialog header button {
   min-height: 32px;
   display: inline-flex;
   align-items: center;
@@ -526,7 +534,7 @@ button.user-attachment-file-pill:focus-visible {
   text-decoration: none;
 }
 
-.image-lightbox-panel > img {
+.image-lightbox-dialog > img {
   max-width: 100%;
   max-height: calc(92vh - 54px);
   justify-self: center;

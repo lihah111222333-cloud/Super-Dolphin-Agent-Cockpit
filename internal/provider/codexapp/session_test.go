@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -59,6 +60,7 @@ func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, 
 		agentID:            "agent-1",
 		approvals:          approvals,
 		ctx:                ctx,
+		logger:             slog.Default(),
 		manager:            manager,
 		suppressed:         map[string]struct{}{},
 		suppressedToolEnds: map[string]struct{}{},

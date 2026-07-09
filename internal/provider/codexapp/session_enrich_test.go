@@ -109,7 +109,7 @@ func TestShouldWarnToolCWDTraceUsesOrchestrationContractRegistry(t *testing.T) {
 		name string
 		want bool
 	}{
-		{name: "lsp_file", want: true},
+		{name: "file", want: true},
 		{name: "code_execute", want: true},
 		{name: "launch_agent", want: true},
 		{name: "send_message", want: false},
@@ -167,7 +167,7 @@ func TestPublishToolCallEnd_FileReadEmptySuccessResultFailsWithPathGuidance(t *t
 
 func TestEnrichToolCallParams_InjectsTrustedCWD(t *testing.T) {
 	msg := rawParams(t, map[string]any{
-		"name":      "lsp_file",
+		"name":      "file",
 		"cwd":       "/untrusted/model/cwd",
 		"arguments": map[string]any{"action": "read_file", "file_path": "go.mod"},
 	})
@@ -191,7 +191,7 @@ func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicA
 	repo := filepath.Join(t.TempDir(), "repo")
 	api := filepath.Join(repo, "packages", "api")
 	msg := rawParams(t, map[string]any{
-		"name":           "lsp_file",
+		"name":           "file",
 		"cwd":            "/forged/cwd",
 		"workspaceRoots": []string{"/forged/camel"},
 		"workspace_roots": []string{
@@ -231,7 +231,7 @@ func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicA
 func TestEnrichToolCallParamsStrictResolvesRelativeWorkspaceRootsAgainstCWD(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	msg := rawParams(t, map[string]any{
-		"name":      "lsp_file",
+		"name":      "file",
 		"arguments": map[string]any{"file_path": "go.mod"},
 	})
 
@@ -281,7 +281,7 @@ func TestTrustedWorkspaceRootsDropsAdditionalRootsWithoutTrustedCWD(t *testing.T
 
 func TestEnrichToolCallParamsStrictDoesNotPromoteAdditionalRootWithoutTrustedCWD(t *testing.T) {
 	msg := rawParams(t, map[string]any{
-		"name":      "lsp_file",
+		"name":      "file",
 		"arguments": map[string]any{"file_path": "go.mod"},
 	})
 

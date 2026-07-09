@@ -19,7 +19,7 @@ func assertAllow(t *testing.T, got mcp.BeforeDecision) {
 func TestReviewerPreset_AllowsReadOnlyTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	want := []string{"file", "grep", "inspect", "xref", "structure", "completion", "lsp_file", "lsp_grep", "lsp_inspect", "lsp_xref", "lsp_structure", "lsp_completion", "shared_file_read"}
+	want := []string{"file", "grep", "inspect", "xref", "structure", "completion", "shared_file_read"}
 	if !slices.Equal(got.AllowedTools, want) {
 		t.Fatalf("allowed = %#v, want %#v", got.AllowedTools, want)
 	}
@@ -40,7 +40,7 @@ func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 
 	deniedNames := append([]string{
 		"shared_file_write",
-		"lsp_edit",
+		"patch_edit",
 		"memory_write",
 		"task_create_dag",
 		"task_dag_apply_ops",
