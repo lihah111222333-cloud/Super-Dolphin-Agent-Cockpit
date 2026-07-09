@@ -250,19 +250,22 @@ textarea:disabled {
 }
 
 .thread-rail,
-.conversation,
-.runtime-panel {
+.conversation {
   background: var(--bg);
 }
 
-.thread-tools,
-.runtime-toolbar {
+.runtime-panel {
+  background: var(--surface-2);
+}
+
+.thread-tools {
   height: 60px;
   background: var(--surface);
 }
 
 .runtime-toolbar {
   height: var(--runtime-toolbar-height);
+  background: var(--surface-2);
 }
 
 .round,
@@ -593,18 +596,18 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .runtime-panel {
-  background: var(--bg);
+  background: var(--surface-2);
 }
 
 .sa-window[data-theme="light"] .runtime-toolbar {
-  border-bottom-color: var(--border);
-  background: var(--surface);
+  border-bottom-color: var(--line);
+  background: var(--surface-2);
 }
 
 .sa-window[data-theme="light"] .runtime-toolbar button,
 .sa-window[data-theme="light"] .score {
-  border-color: var(--border);
-  background: var(--surface-2);
+  border-color: var(--line);
+  background: var(--surface);
   color: var(--text-sec);
 }
 
@@ -628,8 +631,8 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .runtime-activity-panel {
-  border-top-color: var(--border);
-  background: var(--surface);
+  border-top-color: var(--line);
+  background: var(--surface-2);
   color: var(--text-sec);
 }
 
@@ -638,8 +641,8 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .runtime-icons {
-  border-bottom-color: var(--border);
-  background: var(--surface);
+  border-bottom-color: var(--line);
+  background: var(--surface-2);
   color: var(--text-muted);
 }
 
@@ -681,7 +684,7 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .diff-file-header {
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 
 .sa-window[data-theme="light"] .diff-file-lines {

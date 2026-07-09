@@ -54,7 +54,7 @@
     minmax(var(--activity-panel-min-height), var(--activity-panel-height));
   overflow: hidden;
   border-left: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--surface-2);
 }
 
 .runtime-toolbar {
@@ -68,7 +68,7 @@
   gap: 8px;
   overflow: hidden;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--surface-2);
   padding: 6px 12px;
 }
 
@@ -82,7 +82,7 @@
   min-height: 26px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text-sec);
   padding: 0 8px;
   font-size: 13px;
@@ -104,9 +104,10 @@
   position: relative;
   z-index: 1;
   margin: 18px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
-  color: var(--text-subtle);
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text-muted);
   font-size: 18px;
   min-width: 0;
   overflow: hidden auto;
@@ -124,7 +125,7 @@
 .diff-file-group {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 14px;
   background: var(--surface);
   overflow: hidden;
 }
@@ -135,7 +136,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 
 .diff-file-group.is-collapsed .diff-file-header {
@@ -346,7 +347,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border-top: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  background: var(--surface-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 

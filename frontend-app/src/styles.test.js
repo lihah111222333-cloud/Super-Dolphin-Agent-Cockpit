@@ -461,20 +461,23 @@ describe('composer layout styles', () => {
 
   it('keeps runtime panel details shrink-safe inside the right rail', () => {
     const panel = declarationsFor('.runtime-panel');
+    const toolbar = declarationsFor('.runtime-toolbar');
     const activityPanel = declarationsFor('.runtime-activity-panel');
+    const diffGroup = declarationsFor('.diff-file-group');
     const icons = declarationsFor('.runtime-icons');
     const logs = declarationsFor('.log-lines');
     const tooltipRow = declarationsFor('.runtime-stat-tooltip-row');
     const tooltipName = declarationsFor('.runtime-stat-tooltip-name');
     const logLine = declarationsFor('.warning-log-line');
 
-    expect(panel.border).toBeUndefined();
     expect(panel.position).toBe('relative');
     expect(Number(panel['z-index'])).toBeGreaterThan(20);
     expect(panel.overflow).toBe('hidden');
-    expect(activityPanel.border).toBeUndefined();
+    expect(panel.background).toBe('var(--surface-2)');
+    expect(toolbar.background).toBe('var(--surface-2)');
+    expect(diffGroup.background).toBe('var(--surface)');
     expect(activityPanel['border-top']).toBe('1px solid var(--line)');
-    expect(activityPanel['border-radius']).toBeUndefined();
+    expect(activityPanel.background).toBe('var(--surface-2)');
     expect(activityPanel['min-width']).toBe('0');
     expect(activityPanel['max-width']).toBe('100%');
     expect(activityPanel.overflow).toBe('hidden');
@@ -1343,9 +1346,9 @@ describe('light theme baseline usability', () => {
     const popoverCode = declarationsFor('.sa-window[data-theme="light"] .warning-log-popover code');
     const diffLines = declarationsFor('.sa-window[data-theme="light"] .diff-file-lines');
 
-    expect(activity['border-top-color']).toBe('var(--border)');
+    expect(activity['border-top-color']).toBe('var(--line)');
     expect(activity['border-color']).toBeUndefined();
-    expect(activity.background).toBe('var(--surface)');
+    expect(activity.background).toBe('var(--surface-2)');
     expect(activity.color).toBe('var(--text-sec)');
     expect(logs.background).toBe('var(--surface-code)');
     expect(logs.color).toBe('var(--text-sec)');
@@ -1362,12 +1365,12 @@ describe('light theme baseline usability', () => {
     const goodScore = declarationsFor('.sa-window[data-theme="light"] .score.good');
     const badScore = declarationsFor('.sa-window[data-theme="light"] .score.bad');
 
-    expect(toolbar.background).toBe('var(--surface)');
-    expect(toolbar['border-bottom-color']).toBe('var(--border)');
-    expect(button.background).toBe('var(--surface-2)');
+    expect(toolbar.background).toBe('var(--surface-2)');
+    expect(toolbar['border-bottom-color']).toBe('var(--line)');
+    expect(button.background).toBe('var(--surface)');
     expect(button.color).toBe('var(--text-sec)');
-    expect(button['border-color']).toBe('var(--border)');
-    expect(score.background).toBe('var(--surface-2)');
+    expect(button['border-color']).toBe('var(--line)');
+    expect(score.background).toBe('var(--surface)');
     expect(score.color).toBe('var(--text-sec)');
     expect(goodScore.background).toBe('color-mix(in srgb, var(--success) 9%, var(--surface))');
     expect(badScore.background).toBe('color-mix(in srgb, var(--error) 8%, var(--surface))');
