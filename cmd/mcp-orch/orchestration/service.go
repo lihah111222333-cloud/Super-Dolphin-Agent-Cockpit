@@ -8,7 +8,6 @@ import (
 	"errors"
 	"log/slog"
 	"os/exec"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -528,18 +527,7 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 
 // StopAllAgents 按字母顺序停止所有运行中的 agent，并在调用方 deadline 内等待异步任务完成。
 func (s *service) StopAllAgents(ctx context.Context) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ids := s.agentRegistry().agentIDs()
-	sort.Strings(ids)
-	for _, agentID := range ids {
-		if err := s.stopAgentViaLauncher(ctx, agentID, "shutdown"); err != nil &&
-			!errors.Is(err, errAgentNotFound) {
-			s.logger.Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
-		}
-	}
-	s.DrainAsync(ctx)
+	s.lifecycle.stopAllAgents(ctx, s.registry, s, s.logger)
 }
 
 // DrainAsync 取消 service 共享异步 context，并等待已登记 goroutine 收尾。
@@ -575,7 +563,7 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
-	snapshots, err := s.runtimeAgentSnapshots(ctx)
+	snapshots, err := s.registry.runtimeAgentSnapshots(ctx, s.snapshotLocked)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +581,7 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 // Snapshot 返回单个 agent 快照；runtime 不存在时回退到持久化 thread/binding。
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	var snapshot AgentSnapshot
-	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
+	err := s.registry.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		snapshot = s.snapshotLocked(ctx, agent)
 		return nil
 	})

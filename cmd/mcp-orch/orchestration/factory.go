@@ -349,15 +349,15 @@ func (s *service) syncStateChangedHookLocked(ctx context.Context, agent *agentRu
 }
 
 func (s *service) suppressStoppedHookThreadLocked(threadID string) {
-	s.agentRegistry().suppressStoppedHookThreadLocked(threadID)
+	s.registry.suppressStoppedHookThreadLocked(threadID)
 }
 
 func (s *service) suppressStoppedHookThreadUntilLocked(threadID string, beforeOrAt time.Time) {
-	s.agentRegistry().suppressStoppedHookThreadUntilLocked(threadID, beforeOrAt)
+	s.registry.suppressStoppedHookThreadUntilLocked(threadID, beforeOrAt)
 }
 
 func (s *service) stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool {
-	return s.agentRegistry().stoppedHookThreadSuppressed(threadID, timestamp)
+	return s.registry.stoppedHookThreadSuppressed(threadID, timestamp)
 }
 
 func bindStateChangedHookThreadLocked(agent *agentRuntime, threadID, nextState string) bool {

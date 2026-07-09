@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -95,7 +96,7 @@ func (c *turnController) claimTurnWork(ctx context.Context) []turnWork {
 // launchSeq 是进程生命周期围栏：旧进程、重复事件或合成退出只能命中一次；有效退出会清理 active turn，
 // 按退出原因推进 stopped/failed，并在终态缺 report 时尝试持久化兜底报告，持久化失败只记日志不重入状态机。
 func (s *service) handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error) {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 
 	agent, lookupErr := registry.lookupAgentBySeqLocked(agentID, launchSeq)
@@ -127,7 +128,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
 	s.removeSession(agent)
 	s.recordProcessExitError(agent, err)
-	s.handleProcessExitTransition(ctx, agent)
+	s.lifecycle.handleProcessExitTransition(ctx, s, s.logger, agent)
 	s.logger.Warn("orchestration: agent process exited",
 		"agent_id", agentID, "launch_seq", launchSeq,
 		"state_before", stateBefore, "state_after", agent.state,
@@ -151,7 +152,11 @@ func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
 	}
 }
 
-func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentRuntime) {
+type lifecycleTransitionPort interface {
+	fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error
+}
+
+func (c *lifecycleController) handleProcessExitTransition(ctx context.Context, state lifecycleTransitionPort, logger *slog.Logger, agent *agentRuntime) {
 	trigger := agentdto.TriggerProcessExited
 	message := "orchestration: failed to mark agent failed after process exit"
 	if agent.stopRequested {
@@ -160,24 +165,23 @@ func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentR
 		trigger = agentdto.TriggerLaunchFailed
 		message = "orchestration: failed to mark launch failure after process exit"
 	}
-	if fireErr := s.fireOrForceLocked(ctx, agent, trigger); fireErr != nil {
-		s.logger.Warn(message, "agent_id", agent.id, "error", fireErr)
+	if fireErr := state.fireOrForceLocked(ctx, agent, trigger); fireErr != nil {
+		loggerOrDefault(logger).Warn(message, "agent_id", agent.id, "error", fireErr)
 	}
 }
 
 // waitForProcessExit 等待指定 launchSeq 的子进程退出。
 // 超时后会尝试强制停止进程，避免 stop 调用无限等待。
-func (s *service) waitForProcessExit(ctx context.Context, agentID string, launchSeq uint64) error {
+func (c *lifecycleController) waitForProcessExit(ctx context.Context, registry *agentRegistry, logger *slog.Logger, agentID string, launchSeq uint64) error {
 	if launchSeq == 0 {
 		return nil
 	}
-	waitCtx, cancel := platformconfig.WithTimeout(ctx, s.lifecycle.processExitWaitTimeout)
+	waitCtx, cancel := platformconfig.WithTimeout(ctx, c.processExitWaitTimeout)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		registry := s.agentRegistry()
 		registry.rLock()
 		agent, err := registry.lookupAgentBySeqLocked(agentID, launchSeq)
 		exited := err == nil && agent.lastExitedSeq >= launchSeq
@@ -190,19 +194,18 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 			if ctx != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return s.forceKillProcess(agentID, launchSeq)
+			return c.forceKillProcess(registry, logger, agentID, launchSeq)
 		case <-ticker.C:
 		}
 	}
 }
 
 // forceKillProcess 在温和停止失败后强制结束进程。
-func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
+func (c *lifecycleController) forceKillProcess(registry *agentRegistry, logger *slog.Logger, agentID string, launchSeq uint64) error {
 	var (
 		cmd   *exec.Cmd
 		guard *processctl.Guard
 	)
-	registry := s.agentRegistry()
 	registry.rLock()
 	if agent, err := registry.lookupAgentBySeqLocked(agentID, launchSeq); err == nil &&
 		agent.lastExitedSeq < launchSeq && agent.cmd != nil {
@@ -214,10 +217,10 @@ func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
 		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q; no live process handle", agentID)
 	}
 	if err := processctl.ForceStop(cmd, guard); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		s.logger.Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)
+		loggerOrDefault(logger).Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)
 		return fmt.Errorf("orchestration: failed to force-kill timed out agent process %q: %w", agentID, err)
 	}
-	s.logger.Warn("orchestration: timed out waiting for process exit; forced kill issued", "agent_id", agentID, "launch_seq", launchSeq, "timeout", s.lifecycle.processExitWaitTimeout)
+	loggerOrDefault(logger).Warn("orchestration: timed out waiting for process exit; forced kill issued", "agent_id", agentID, "launch_seq", launchSeq, "timeout", c.processExitWaitTimeout)
 	return nil
 }
 
@@ -243,6 +246,26 @@ func (s *service) runnerLifecycleController() *lifecycleController {
 		return nil
 	}
 	return s.lifecycle
+}
+
+type lifecycleStopAllPort interface {
+	stopAgentViaLauncher(ctx context.Context, agentID, reason string) error
+	DrainAsync(ctx context.Context)
+}
+
+func (c *lifecycleController) stopAllAgents(ctx context.Context, registry *agentRegistry, stopper lifecycleStopAllPort, logger *slog.Logger) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ids := registry.agentIDs()
+	sort.Strings(ids)
+	for _, agentID := range ids {
+		if err := stopper.stopAgentViaLauncher(ctx, agentID, "shutdown"); err != nil &&
+			!errors.Is(err, errAgentNotFound) {
+			loggerOrDefault(logger).Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
+		}
+	}
+	stopper.DrainAsync(ctx)
 }
 
 type runnerActor struct {
