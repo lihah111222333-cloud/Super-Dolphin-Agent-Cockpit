@@ -1,8 +1,9 @@
 # LSP 高级工具链使用指南（子 Agent 必读）
 
-> 当前契约：`grep`、`file`、`structure`、`inspect`、`xref`、`patch_edit`、`completion` + `exec_command`。
-> 每个任务至少组合 4 种 LSP 工具；不要只用 `grep + file`。
+> 当前 LSP MCP 对外工具短名：`file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion`；Codex 会话中对应 `mcp__lsp.<name>`。
+> `file(action=diagnostics)` 是诊断入口，没有独立 `diagnostics` 工具；编辑入口是 `patch_edit`，不是 `edit` / `lsp_edit`。
 > `exec_command` 只用于构建、测试、脚本和必要 shell，不替代 LSP 导航、读取、诊断和编辑。
+> 每个任务至少组合 4 种 LSP 工具；不要只用 `grep + file`。
 
 ---
 
@@ -22,7 +23,10 @@
 
 ## 三、最新契约要点
 
-- `pos` 使用 `file:line:column`；`line/column` 都是 1-based。
+- 工具名在文档和调用说明中使用短名；不要写 `mcp_lsp.*`、`lsp_*` 或旧 `edit` 别名，除非是在说明 Codex 命名空间 `mcp__lsp.<name>`。
+- `file` actions：`open_file`、`read_file`、`diagnostics`；diagnostics 支持 `file_path` 或 `file_paths[]`。
+- `patch_edit` actions：`replace_range`、`rename`、`code_action`、`format`；纯插入 patch 仍要用上下文行锚定。
+- `inspect`、`xref`、`completion` 的 `pos` 使用 `file:line:column`；`line/column` 都是 1-based。
 - `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
 - 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
 - `structure(workspace_symbol)` 必须带 `query`；`language` 与 `file_path` 二选一。
