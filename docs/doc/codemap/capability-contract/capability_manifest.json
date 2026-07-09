@@ -9,11 +9,11 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2238,
+    "total_functions": 2240,
     "total_methods": 1062,
     "total_interfaces": 159,
     "total_interface_methods": 333,
-    "total_exported": 1227,
+    "total_exported": 1229,
     "total_unexported": 2809,
     "total_structs": 577
   },
@@ -29361,6 +29361,19 @@
           ]
         },
         {
+          "name": "IsOrchestrationLaunchTool",
+          "exported": true,
+          "params": [
+            {
+              "name": "toolName",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "IsValidArtifactKind",
           "exported": true,
           "params": [
@@ -29659,6 +29672,14 @@
           "returns": [
             "[]string",
             "error"
+          ]
+        },
+        {
+          "name": "OrchestrationLaunchLegacyPeerRealName",
+          "exported": true,
+          "returns": [
+            "string",
+            "bool"
           ]
         },
         {
