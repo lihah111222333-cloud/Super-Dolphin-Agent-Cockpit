@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -78,110 +77,6 @@ type bindGenerationStatusRecord struct {
 	Profile    contract.DependencyProfile
 	Status     string
 	Reason     string
-}
-
-type slogBindSessionGenerationStatusRecorder struct {
-	logger *slog.Logger
-}
-
-func newBindSessionGenerationStatusRecorder(logger *slog.Logger) (bindSessionGenerationStatusRecorder, error) {
-	if logger == nil {
-		return nil, errors.New("thread bind-session-generation status logger is required")
-	}
-	return slogBindSessionGenerationStatusRecorder{logger: logger}, nil
-}
-
-// RecordBindSessionGenerationSkipped 记录允许缺失 profile 下 bind generation 被跳过的生产可观测状态。
-func (r slogBindSessionGenerationStatusRecorder) RecordBindSessionGenerationSkipped(
-	ctx context.Context,
-	record bindGenerationStatusRecord,
-) error {
-	if strings.TrimSpace(record.AgentID) == "" ||
-		record.Dependency != bindSessionGenerationDependency ||
-		record.Profile == "" ||
-		strings.TrimSpace(record.Status) == "" ||
-		strings.TrimSpace(record.Reason) == "" {
-		return errors.New("thread bind-session-generation skipped status record is incomplete")
-	}
-	r.logger.WarnContext(ctx, "thread bind-session-generation skipped",
-		"agent_id", strings.TrimSpace(record.AgentID),
-		"dependency", record.Dependency,
-		"profile", record.Profile,
-		"status", record.Status,
-		"reason", record.Reason,
-	)
-	return nil
-}
-
-// bindSessionGeneration 把当前 session generation 绑定到 orchestration。
-// 如果运行时不支持 generation 可安全跳过，但支持时 generation 缺失必须报错阻断。
-func (s *service) bindSessionGeneration(ctx context.Context, agentID string) error {
-	profile, err := threadDependencyProfile(s.cfg)
-	if err != nil {
-		return err
-	}
-	provider, ok := s.sessions.(sessionGenerationProvider)
-	if s.sessionGenerationBinder == nil || s.sessions == nil || !ok {
-		return s.handleBindSessionGenerationError(ctx, agentID, missingBindSessionGenerationDependency(profile), profile)
-	}
-	generation := provider.SessionGeneration(agentID)
-	if generation == 0 {
-		return errors.New("session generation is not available")
-	}
-	err = s.sessionGenerationBinder.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
-	return s.handleBindSessionGenerationError(ctx, agentID, err, profile)
-}
-
-func threadDependencyProfile(cfg *contract.Config) (contract.DependencyProfile, error) {
-	if cfg == nil {
-		return contract.DependencyProfileProduction, nil
-	}
-	if strings.TrimSpace(string(cfg.Dependency.Profile)) == "" {
-		return "", errors.New("thread dependency profile is required")
-	}
-	return cfg.Dependency.Profile, nil
-}
-
-func missingBindSessionGenerationDependency(profile contract.DependencyProfile) error {
-	return contract.MissingDependencyModeError(bindSessionGenerationDependency, profile)
-}
-
-// handleBindSessionGenerationError 只把 desktop/test 的精确 typed unsupported 转成可观测 skipped 状态。
-func (s *service) handleBindSessionGenerationError(
-	ctx context.Context,
-	agentID string,
-	err error,
-	profile contract.DependencyProfile,
-) error {
-	if err == nil {
-		return nil
-	}
-	if !contract.AllowsMissingDependency(bindSessionGenerationDependency, profile) {
-		return err
-	}
-	if !contract.IsDependencyModeError(
-		err,
-		bindSessionGenerationDependency,
-		profile,
-		contract.ErrUnsupportedDependencyMode,
-	) {
-		return err
-	}
-	logger := s.logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-	recorder, recorderErr := newBindSessionGenerationStatusRecorder(logger)
-	if recorderErr != nil {
-		return recorderErr
-	}
-	return recorder.RecordBindSessionGenerationSkipped(ctx, bindGenerationStatusRecord{
-		AgentID:    strings.TrimSpace(agentID),
-		Dependency: bindSessionGenerationDependency,
-		Profile:    profile,
-		Status:     bindSessionGenerationStatusUnsupported,
-		Reason:     err.Error(),
-	})
 }
 
 // prepareStartRequest 完成启动前的请求规范化、Codex 身份注入和 agent id 预留。

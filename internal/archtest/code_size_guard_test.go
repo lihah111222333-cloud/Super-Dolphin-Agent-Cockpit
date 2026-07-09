@@ -1,6 +1,7 @@
 package archtest_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +23,33 @@ func TestCodeSizeGuard(t *testing.T) {
 
 	freezePath := filepath.Join(root, "internal/archtest/freeze_baseline.json")
 	runUnifiedFreezeRatchetAndShrink(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
+}
+
+func TestAIVisualBoundaryHotspotsStayReadable(t *testing.T) {
+	root := repoRoot(t)
+	targets := map[string]int{
+		"cmd/mcp-orch/orchestration/nodeexec/executor_automation.go": 650,
+		"internal/provider/codexapp/driver.go":                       650,
+		"internal/module/thread/lifecycle.go":                        650,
+		"internal/platform/toolbridge/handler.go":                    650,
+		"cmd/mcp-lsp/tools/factory.go":                               650,
+	}
+	var violations []string
+	for rel, limit := range targets {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			violations = append(violations, rel+": "+err.Error())
+			continue
+		}
+		lines := archtest.CountEffectiveLines(data)
+		if lines > limit {
+			violations = append(violations, fmt.Sprintf("%s has %d effective lines; limit is %d", rel, lines, limit))
+		}
+	}
+	slices.Sort(violations)
+	if len(violations) > 0 {
+		t.Fatalf("AI visual hotspot budget violations:\n%s", strings.Join(violations, "\n"))
+	}
 }
 
 func runUnifiedFreezeRatchetAndShrink(
