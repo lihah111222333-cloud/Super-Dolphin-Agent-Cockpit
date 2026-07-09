@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -95,4 +97,93 @@ func TestOrchestrationRegistryDefinitionsStayInReadOnlyDenylist(t *testing.T) {
 			t.Fatalf("orchestration tool definition %q missing from contract.ReadOnlyAgentDeniedTools()", def.Name)
 		}
 	}
+}
+
+func TestReadOnlyDenylistCoversWritableRegistryTools(t *testing.T) {
+	registry := NewRegistry(Dependencies{})
+	defs, err := registry.List()
+	if err != nil {
+		t.Fatalf("registry.List() error = %v", err)
+	}
+
+	denied := toolNameSet(contract.ReadOnlyAgentDeniedTools())
+	exemptions := readOnlyRegistryDenylistExemptions()
+	missing := uncoveredWritableRegistryTools(defs, denied, exemptions)
+	if len(missing) > 0 {
+		t.Fatalf("writable/high-risk registry tools missing from contract.ReadOnlyAgentDeniedTools() or explicit exemption: %s", strings.Join(missing, ", "))
+	}
+
+	assertReadOnlyRegistryDenylistExemptions(t, registry, denied, exemptions)
+}
+
+func toolNameSet(names []string) map[string]bool {
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[name] = true
+	}
+	return set
+}
+
+func uncoveredWritableRegistryTools(defs []ToolDefinition, denied map[string]bool, exemptions map[string]string) []string {
+	var missing []string
+	for _, def := range defs {
+		reason, required := registryToolRequiresReadOnlyDeny(def)
+		if required && !denied[def.Name] && strings.TrimSpace(exemptions[def.Name]) == "" {
+			missing = append(missing, def.Name+" ("+reason+")")
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func assertReadOnlyRegistryDenylistExemptions(t *testing.T, registry Registry, denied map[string]bool, exemptions map[string]string) {
+	t.Helper()
+	for tool, reason := range exemptions {
+		if strings.TrimSpace(reason) == "" {
+			t.Fatalf("read-only denylist exemption %q must include a reason", tool)
+		}
+		if denied[tool] {
+			t.Fatalf("read-only denylist exemption %q is stale: tool is already denied", tool)
+		}
+		def, ok := registry.Lookup(tool)
+		if !ok {
+			t.Fatalf("read-only denylist exemption %q is stale: tool is not exposed by registry", tool)
+		}
+		if _, required := registryToolRequiresReadOnlyDeny(def); !required {
+			t.Fatalf("read-only denylist exemption %q is stale: tool is not classified as writable/high-risk", tool)
+		}
+	}
+}
+
+var legacyWritableRegistryToolClassifications = map[string]string{
+	"workspace_create_run": "legacy workspace definition lacks ToolMetadata; creates persistent workspace run state",
+	"workspace_merge_run":  "legacy workspace definition lacks ToolMetadata; writes workspace changes back to the source root",
+	"workspace_abort_run":  "legacy workspace definition lacks ToolMetadata; mutates persistent workspace run state",
+}
+
+func readOnlyRegistryDenylistExemptions() map[string]string {
+	return map[string]string{}
+}
+
+func registryToolRequiresReadOnlyDeny(def ToolDefinition) (string, bool) {
+	if reason, ok := legacyWritableRegistryToolClassifications[def.Name]; ok {
+		return reason, true
+	}
+	if def.Metadata.RiskClass == ToolRiskHigh {
+		return "metadata risk_class=high", true
+	}
+	switch def.Metadata.Permission {
+	case ToolPermissionWorkflowWrite, ToolPermissionSharedFileWrite, ToolPermissionCommandExecute:
+		return "metadata permission=" + string(def.Metadata.Permission), true
+	}
+	if len(def.Metadata.PathPolicy.WriteFields) > 0 {
+		return "metadata path_policy.write_fields", true
+	}
+	for _, capability := range def.Metadata.Capabilities {
+		capability = strings.TrimSpace(capability)
+		if strings.HasSuffix(capability, ".write") || strings.HasSuffix(capability, ".execute") {
+			return "metadata capability=" + capability, true
+		}
+	}
+	return "", false
 }
