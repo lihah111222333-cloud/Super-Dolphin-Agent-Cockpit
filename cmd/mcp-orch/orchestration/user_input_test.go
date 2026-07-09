@@ -28,6 +28,24 @@ func TestHandleToolApprovalRequestedEventMarksAwaitingUserInput(t *testing.T) {
 	}
 }
 
+func TestHandleToolApprovalRequestedEventIgnoresCanceledLifecycleContext(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.activeTurnID = "turn-1"
+	svc.registry.agents[agent.id] = agent
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	handleToolApprovalRequestedEventWithCtx(svc, silentLogger(), approvalRequestedEvent("agent-1", "turn-1"), ctx)
+
+	if agent.state != agentdto.StateTurnRunning {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateTurnRunning)
+	}
+}
+
 func TestHandleToolApprovalRequestedEventMarksAwaitingUserInputForToolKind(t *testing.T) {
 	t.Parallel()
 
@@ -59,6 +77,24 @@ func TestHandleToolApprovalResolvedEventReturnsToTurnRunning(t *testing.T) {
 
 	if agent.state != agentdto.StateTurnRunning {
 		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateTurnRunning)
+	}
+}
+
+func TestHandleToolApprovalResolvedEventIgnoresCanceledLifecycleContext(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateAwaitingUserInput
+	agent.activeTurnID = "turn-1"
+	svc.registry.agents[agent.id] = agent
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	handleToolApprovalResolvedEventWithCtx(svc, silentLogger(), approvalResolvedEvent("agent-1", "turn-1"), ctx)
+
+	if agent.state != agentdto.StateAwaitingUserInput {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateAwaitingUserInput)
 	}
 }
 

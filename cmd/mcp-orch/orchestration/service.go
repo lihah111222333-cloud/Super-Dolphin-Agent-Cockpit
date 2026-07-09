@@ -456,14 +456,14 @@ func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, ru
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleToolApprovalRequestedEvent(runtime, loggerOrDefault(logger), ev)
+				handleToolApprovalRequestedEventWithCtx(runtime, loggerOrDefault(logger), ev, lifecycleCtx)
 			}, logger)
 			// approval resolved 事件解除 awaiting_user_input；重复完成会被下游视为幂等。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleToolApprovalResolvedEvent(runtime, loggerOrDefault(logger), ev)
+				handleToolApprovalResolvedEventWithCtx(runtime, loggerOrDefault(logger), ev, lifecycleCtx)
 			}, logger)
 			return nil
 		},

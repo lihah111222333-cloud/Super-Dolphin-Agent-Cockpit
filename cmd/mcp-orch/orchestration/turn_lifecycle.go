@@ -180,10 +180,15 @@ func (c *turnController) CompleteTurn(ctx context.Context, agentID, turnID strin
 	})
 }
 
+// markAwaitingUserInput 将当前 active turn 推进到 awaiting_user_input。
+// lifecycle 已取消时必须在持锁后停止，避免 queued approval 事件在服务停机后改写状态。
 func (c *turnController) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
 	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
 			return errTurnNotActive
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
 		}
 		if err := c.ensureTurnRunningForUserInputLocked(ctx, agent); err != nil {
 			return err
@@ -205,6 +210,9 @@ func (c *turnController) resolveAwaitingUserInput(ctx context.Context, agentID, 
 	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
 			return errTurnNotActive
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
 		}
 		resolvedTurnID := strings.TrimSpace(turnID)
 		if resolvedTurnID == "" {
@@ -246,10 +254,22 @@ func userInputMatchesActiveTurn(agent *agentRuntime, turnID string) bool {
 
 // handleToolApprovalRequestedEvent 将 request_user_input/tool approval 事件映射为 awaiting_user_input。
 func handleToolApprovalRequestedEvent(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalRequested) {
+	handleToolApprovalRequestedEventWithCtx(runtime, logger, ev, context.Background())
+}
+
+// handleToolApprovalRequestedEventWithCtx 在指定 lifecycle context 下处理 approval requested。
+// context 取消表示订阅已停止，事件应被丢弃而不是进入 awaiting_user_input。
+func handleToolApprovalRequestedEventWithCtx(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalRequested, parent context.Context) {
 	if runtime == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := runtime.markAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return
+	}
+	if err := runtime.markAwaitingUserInput(withEventTime(parent, ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to mark awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
@@ -258,10 +278,22 @@ func handleToolApprovalRequestedEvent(runtime ApprovalLifecyclePort, logger *slo
 
 // handleToolApprovalResolvedEvent 将 approval resolved 事件映射为用户输入已解决。
 func handleToolApprovalResolvedEvent(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalResolved) {
+	handleToolApprovalResolvedEventWithCtx(runtime, logger, ev, context.Background())
+}
+
+// handleToolApprovalResolvedEventWithCtx 在指定 lifecycle context 下处理 approval resolved。
+// context 取消表示订阅已停止，事件应被丢弃而不是恢复运行态。
+func handleToolApprovalResolvedEventWithCtx(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalResolved, parent context.Context) {
 	if runtime == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := runtime.resolveAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return
+	}
+	if err := runtime.resolveAwaitingUserInput(withEventTime(parent, ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to resolve awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
@@ -292,7 +324,7 @@ func isRequestUserInputEvent(kind string) bool {
 
 // shouldIgnoreUserInputErr 判断 user-input 状态事件是否已经幂等收口。
 func shouldIgnoreUserInputErr(err error) bool {
-	return err == nil || errors.Is(err, errAgentNotFound) || errors.Is(err, errTurnNotActive)
+	return err == nil || errors.Is(err, errAgentNotFound) || errors.Is(err, errTurnNotActive) || errors.Is(err, context.Canceled)
 }
 
 // userInputLogger 返回非 nil logger，避免事件路径因 logger 缺失 panic。
