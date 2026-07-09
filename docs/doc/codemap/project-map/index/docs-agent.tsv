@@ -333,7 +333,7 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59144	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1390849	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
+docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1389414	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3030	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
@@ -831,21 +831,24 @@ docs/superpowers/需求文档/竞品调研与产品差异-未完成.md	docs	docs
 docs/superpowers/需求文档/账号试用充值与运营后台-未完成.md	docs	docs-agent	doc	7846	项目文档体系	docs,superpowers,需求文档,账号试用充值与运营后台,未完成,项目文档体系
 docs/契约/atomic-commit-convention.md	docs	docs-agent	doc	8075	项目文档体系	docs,契约,atomic,commit,convention,项目文档体系
 docs/契约/fail-fast-convention.md	docs	docs-agent	doc	9470	项目文档体系	docs,契约,fail,fast,convention,项目文档体系
-docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	24809	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
-docs/契约/fx-convention.md	docs	docs-agent	doc	3482	项目文档体系	docs,契约,fx,convention,项目文档体系
+docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	24833	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
+docs/契约/fx-convention.md	docs	docs-agent	doc	3512	项目文档体系	docs,契约,fx,convention,项目文档体系
 docs/契约/jrpc2-convention.md	docs	docs-agent	doc	34549	项目文档体系	docs,契约,jrpc2,convention,项目文档体系
-docs/契约/mcp-service-convention.md	docs	docs-agent	doc	15785	项目文档体系	docs,契约,mcp,service,convention,项目文档体系
-docs/契约/modularity-convention.md	docs	docs-agent	doc	47437	项目文档体系	docs,契约,modularity,convention,项目文档体系
+docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16247	项目文档体系	docs,契约,mcp,service,convention,项目文档体系
+docs/契约/modularity-convention.md	docs	docs-agent	doc	47406	项目文档体系	docs,契约,modularity,convention,项目文档体系
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	3656	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系
+docs/契约/README.md	docs	docs-agent	doc	1866	项目文档体系	docs,契约,README,项目文档体系
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1328	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
-docs/契约/rungroup-convention.md	docs	docs-agent	doc	3584	项目文档体系	docs,契约,rungroup,convention,项目文档体系
-docs/契约/sqlc-convention.md	docs	docs-agent	doc	3935	项目文档体系	docs,契约,sqlc,convention,项目文档体系
-docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32400	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系
+docs/契约/rungroup-convention.md	docs	docs-agent	doc	3639	项目文档体系	docs,契约,rungroup,convention,项目文档体系
+docs/契约/sqlc-convention.md	docs	docs-agent	doc	3936	项目文档体系	docs,契约,sqlc,convention,项目文档体系
+docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
+docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	9478	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14159	项目文档体系	docs,架构,skeleton,fx,项目文档体系
-docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4964	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系
+docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系
 docs/架构/skeleton-rungroup.md	docs	docs-agent	doc	4776	项目文档体系	docs,架构,skeleton,rungroup,项目文档体系
 docs/架构/skeleton-stateless.md	docs	docs-agent	doc	3785	项目文档体系	docs,架构,skeleton,stateless,项目文档体系
 docs/调研/context-window/raw-claude-code.md	docs	docs-agent	doc	8812	项目文档体系	docs,调研,context,window,raw,claude,code,项目文档体系

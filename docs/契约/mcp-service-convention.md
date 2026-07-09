@@ -49,15 +49,15 @@ V3 的目标契约是：
 
 ### 1.1 当前代码现状
 
-当前仓库还没有达到上述目标态：
+当前仓库已经按上述目标态收敛到以下实现形态：
 
-- `internal/platform/rpc/server.go` 只有 active 连接集合和 `NotifyAll`，没有 `peer_kind` 分类
-- `internal/platform/rpc/push.go` 已有单连接 `NotifyClient` / `CallbackClient`
-- `internal/platform/rpc/approval.go` 已有 pending approval 生命周期，但恢复目标还没有限制到 `ui` 连接
-- `internal/dto/provider/manifest.go` 只注入了有限 `GO_AGENT_MCP_*` env
-- `internal/mcpserver/common/server.go` 仍是骨架，尚未形成 `stdio serve + rpc bootstrap` 协调启动
+- `internal/platform/rpc/server.go` 记录 active peer 的 `peer_kind`，控制面连接在 `ctl/register` 鉴权后登记为 tool，UI WebSocket 登记为 ui。
+- `internal/platform/rpc/push.go` 提供单连接 `NotifyClient` / `CallbackClient`，pending approval 恢复只投递给 `peer_kind=ui` 的连接。
+- `internal/platform/mcpcontrol/*` 承载 `ctl/*` handler、lease registry、selector fanout、sweeper 和配置广播 worker，并通过 `internal/contract` 暴露窄接口。
+- `internal/contract/manifest.go` 注入规范 `GO_AGENT_CTL_*` env；`GO_AGENT_MCP_*` / `RPC_ADDR` 只作为兼容别名读取，并禁止把数据库路径或连接串透传给 provider 进程。
+- `internal/mcpserver/common/server.go` 已实现 stdio MCP `Run`、`initialize`、`tools/list`、`tools/call`、scope 注入和工具错误 envelope；各 `cmd/mcp-*` 的 bootstrap 协调通过 `internal/mcpserver/common/bootstrap` 与各自 RunGroup 绑定完成。
 
-因此本文描述的是目标契约，不表示当前实现已经落地。
+因此本文是当前契约，不再是未落地目标说明。
 
 ### 1.2 DTO 迁移映射
 

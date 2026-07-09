@@ -266,13 +266,13 @@ fix 过程被打断或重启会话时，下一轮必须先恢复状态，而不�
 | Go 业务/平台代码 | `internal/app`、`internal/module`、`internal/platform`、`internal/provider`、`cmd/mcp-*`、`pkg` | `./scripts/test_with_guard.sh <affected packages> -count=1` | 如果改公共 contract、provider bridge、runtime lifecycle，说明为何不跑 `make test`/`make build-plain` |
 | 架构守卫/基线 | `internal/archtest`、guard 脚本、`baseline.json` | `./scripts/test_with_guard.sh ./internal/archtest -count=1` 或 `make guard` | baseline diff 必须逐项解释；不得用 freeze 绕过 |
 | SQL/store | `internal/store`、`sql/queries`、migrations、sqlc 生成代码 | `make sqlc-verify` 加受影响 Go 包测试 | 说明 schema/migration 兼容性和是否需要 fixture/golden |
-| Frontend | `cmd/agent-terminal/frontend` | `node scripts/size-guard.cjs`、`npx vitest run`、`npm run build` | UI/交互改动需浏览器或截图验证；说明未跑浏览器的原因 |
+| Frontend | `frontend-app` | `npm run lint`、`npm test`、`npm run build`；必要时加 `node scripts/frontend-code-size-guard.mjs` | UI/交互改动需浏览器或截图验证；说明未跑浏览器的原因 |
 | Wails/desktop/打包 | `cmd/agent-terminal`、`scripts/package_*`、embedded assets、release docs | 相关脚本/guard 测试，加 `make build-plain` 或目标平台 smoke | 平台不可用时列出未覆盖平台和手动验证计划 |
 | MCP sidecar/tool contract | `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida`、`internal/mcpserver` | sidecar 包测试，加真实 MCP/binary e2e 或 contract test | 明确是源码级 harness 还是产物级 e2e |
 | Provider/runtime | `internal/provider`、`internal/platform/rpc`、thread/turn/prompt/memory 串联 | 受影响 provider/module 测试，加原始 turn/session 复现 | 外部 CLI/API 不可用时使用明确 stub，并说明未覆盖真 provider |
 | 文档/契约 | `docs/契约`、`docs/decisions`、`docs/adr`、`docs/internal-notes` | `git diff --check` | docs-only 可跳过 Go 测试，但 final 必须说明 |
 | codemap | `docs/doc/codemap`、生成脚本 | `make codemap-check` | 如只读使用 codemap 不需跑；编辑 codemap 必须验证 |
-| skills/provider mirrors | `.agent/skills`、skill module/provider mirror 相关代码 | 相关 skill/module/provider mirror tests | provider mirrors 是生成物时不要直接编辑，先确认 canonical source |
+| skills/provider mirrors | `.agents/skills`、skill module/provider mirror 相关代码 | 相关 skill/module/provider mirror tests | provider mirrors 是生成物时不要直接编辑，先确认 canonical source |
 
 ## 4. 文档落点
 
