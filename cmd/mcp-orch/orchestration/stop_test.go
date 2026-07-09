@@ -191,7 +191,7 @@ func TestWaitForProcessExitReturnsErrorWhenForceKillFails(t *testing.T) {
 	agent.launchSeq = 1
 	svc.registry.agents[agent.id] = agent
 
-	if err := svc.waitForProcessExit(context.Background(), agent.id, agent.launchSeq); err == nil {
+	if err := svc.lifecycle.waitForProcessExit(context.Background(), svc.registry, svc.logger, agent.id, agent.launchSeq); err == nil {
 		t.Fatal("waitForProcessExit() error = nil, want force-kill failure")
 	}
 }
@@ -303,10 +303,10 @@ func TestRequestAgentStopKeepsOriginalReasonOnRepeat(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	svc.registry.agents[agent.id] = agent
 
-	if _, err := svc.requestAgentStop(context.Background(), agent.id, "shutdown"); err != nil {
+	if _, err := svc.lifecycle.requestAgentStop(context.Background(), svc.registry, agent.id, "shutdown", svc); err != nil {
 		t.Fatalf("requestAgentStop(first) error = %v", err)
 	}
-	if _, err := svc.requestAgentStop(context.Background(), agent.id, "user_requested"); err != nil {
+	if _, err := svc.lifecycle.requestAgentStop(context.Background(), svc.registry, agent.id, "user_requested", svc); err != nil {
 		t.Fatalf("requestAgentStop(second) error = %v", err)
 	}
 	if !agent.stopRequested {

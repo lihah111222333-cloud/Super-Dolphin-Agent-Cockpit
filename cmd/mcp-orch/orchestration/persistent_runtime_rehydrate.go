@@ -80,11 +80,11 @@ func persistedRuntimeRehydrateLogLevel(err error) string {
 }
 
 func (s *service) addRehydratedRuntimeAgent(agent *agentRuntime) bool {
-	return s.agentRegistry().addRehydratedRuntimeAgent(agent)
+	return s.registry.addRehydratedRuntimeAgent(agent)
 }
 
 func (s *service) hasRuntimeAgent(agentID string) bool {
-	return s.agentRegistry().hasRuntimeAgent(agentID)
+	return s.registry.hasRuntimeAgent(agentID)
 }
 
 // buildRuntimeFromPersistedBinding 从绑定、线程和 report 文件重建可继续提交 turn 的 runtime。

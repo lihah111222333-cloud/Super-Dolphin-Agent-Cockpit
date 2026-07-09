@@ -214,7 +214,7 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 	if err != nil {
 		return launcherLaunchAttempt{}, true, err
 	}
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 	defer registry.unlock()
 	if existing, err := registry.lookupAgentByIdentityLocked(req.AgentID, agentIdentityLocalOnly); err == nil && launchInProgress(ctx, s, existing) {
@@ -271,7 +271,7 @@ func (s *service) forkParentForLaunch(ctx context.Context, req LaunchRequest) (a
 
 // runtimeForkParentForLaunch 从当前进程内存态读取可信父 agent 快照。
 func (s *service) runtimeForkParentForLaunch(parentID string) (agentRuntime, bool, error) {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.rLock()
 	defer registry.rUnlock()
 	parent, lookupErr := registry.lookupAgentByIdentityLocked(parentID, agentIdentityLocalOnly)
@@ -338,7 +338,7 @@ func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool
 
 // finishLauncherLaunch 在锁内用 launchSeq fence 提交 launcher 启动结果。
 func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 	agent, err := registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
 	if err != nil {
@@ -370,7 +370,7 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 		lastErr = launching.lastError
 	}
 	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, lastErr)
-	s.agentRegistry().unlock()
+	s.registry.unlock()
 	if launching != nil && s.lifecycle.launcher != nil {
 		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: fail launch cleanup stop failed", "agent_id", launching.id, "error", stopErr)
@@ -385,7 +385,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	bindLaunchResult(agent, result)
 	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
-		s.agentRegistry().unlock()
+		s.registry.unlock()
 		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: rekey failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
@@ -396,19 +396,19 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		agent.cmd = nil
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
-		s.agentRegistry().unlock()
+		s.registry.unlock()
 		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: commit success failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 		return err
 	}
-	s.agentRegistry().unlock()
+	s.registry.unlock()
 	return nil
 }
 
 // rekeyLaunchedAgentLocked 把 agent 的 map key 从本地生成 ID 改为远端返回的 agentID。
 func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
-	return s.agentRegistry().rekeyLaunchedAgentLocked(agent)
+	return s.registry.rekeyLaunchedAgentLocked(agent)
 }
 
 // stopAgentViaLauncher 通过 launcher 停止 agent 并等待进程退出。

@@ -282,7 +282,7 @@ type launcherRecoveryAttempt struct {
 
 // canRecoverAgentViaLauncher 判断当前 agent 是否由 launcher 管理且仍可远端恢复。
 func (s *service) canRecoverAgentViaLauncher(ctx context.Context, agentID string) bool {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.rLock()
 	defer registry.rUnlock()
 	agent, err := registry.lookupAgentByIDLocked(agentID)
@@ -338,7 +338,7 @@ func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason s
 
 // commitLauncherRecoveryFailure 在恢复启动失败时写入失败状态和 no-report fallback。
 func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt launcherRecoveryAttempt, launchErr error) error {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 	agent, err := registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
 	if err != nil {
@@ -356,7 +356,7 @@ func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt lau
 // commitLauncherRecoverySuccess 在 seq fence 命中时采用新 launcher 状态并完成恢复。
 // rekey 或持久化失败会主动停止新 runtime，避免留下孤儿远端 agent。
 func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt launcherRecoveryAttempt, result LaunchResult) error {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 	agent, err := registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
 	if err != nil || agent.state != agentdto.StateRecovering || agent.stopRequested {
