@@ -200,7 +200,7 @@
     {
       "name": "请求代码审查",
       "selected_source_id": "project/请求代码审查",
-      "selected_content_hash": "8c297b1e05acfc0886e4b125cb60adede32e120d99a50bccbe9001b35fe30afe",
+      "selected_content_hash": "d4eb7c79452d5b7124a33eb80dc1efa8550d62d56ed3cf390755ef3f916cc4e6",
       "excluded_source_ids": [
         "personal/hub/请求代码审查"
       ],
@@ -214,14 +214,14 @@
         {
           "canonical_id": "project/请求代码审查",
           "scope": "project",
-          "content_hash": "8c297b1e05acfc0886e4b125cb60adede32e120d99a50bccbe9001b35fe30afe"
+          "content_hash": "d4eb7c79452d5b7124a33eb80dc1efa8550d62d56ed3cf390755ef3f916cc4e6"
         }
       ]
     },
     {
       "name": "调度并行代理",
       "selected_source_id": "project/调度并行代理",
-      "selected_content_hash": "6fa2933bb2994a1c609f57465715d8d54f9599a875e19d8f3b9b0d257036045d",
+      "selected_content_hash": "a9760f54e60ac00f910ea9152775e9ef04b2848a31d11bb64a54a9f817f80bc0",
       "excluded_source_ids": [
         "personal/hub/调度并行代理"
       ],
@@ -235,7 +235,7 @@
         {
           "canonical_id": "project/调度并行代理",
           "scope": "project",
-          "content_hash": "6fa2933bb2994a1c609f57465715d8d54f9599a875e19d8f3b9b0d257036045d"
+          "content_hash": "a9760f54e60ac00f910ea9152775e9ef04b2848a31d11bb64a54a9f817f80bc0"
         }
       ]
     },
@@ -284,7 +284,7 @@
     {
       "name": "子代理驱动开发",
       "selected_source_id": "project/子代理驱动开发",
-      "selected_content_hash": "1efbb0574f862c4ad019cc5880878372929451c7a2821cbdf49ce96212b7b8f6",
+      "selected_content_hash": "1450b3afab59134cdb3e0c61b96acea8c06958a4e3dfe93b87fba003e83ebbd7",
       "excluded_source_ids": [
         "personal/imported/子代理驱动开发"
       ],
@@ -298,14 +298,14 @@
         {
           "canonical_id": "project/子代理驱动开发",
           "scope": "project",
-          "content_hash": "1efbb0574f862c4ad019cc5880878372929451c7a2821cbdf49ce96212b7b8f6"
+          "content_hash": "1450b3afab59134cdb3e0c61b96acea8c06958a4e3dfe93b87fba003e83ebbd7"
         }
       ]
     },
     {
       "name": "思维与决策辅助",
       "selected_source_id": "project/思维与决策辅助",
-      "selected_content_hash": "2341971f639bb2718e3a0c606fb600f03f09c096f41ceec77d151046cf279d8f",
+      "selected_content_hash": "af9edd82db52a7e9ae56903e41a0bacad865e0a977065607977b7ac1f90dccd5",
       "excluded_source_ids": [
         "personal/imported/思维与决策辅助"
       ],
@@ -319,7 +319,7 @@
         {
           "canonical_id": "project/思维与决策辅助",
           "scope": "project",
-          "content_hash": "2341971f639bb2718e3a0c606fb600f03f09c096f41ceec77d151046cf279d8f"
+          "content_hash": "af9edd82db52a7e9ae56903e41a0bacad865e0a977065607977b7ac1f90dccd5"
         }
       ]
     }

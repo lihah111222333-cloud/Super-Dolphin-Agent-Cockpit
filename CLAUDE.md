@@ -97,7 +97,7 @@
 
 本策略管理从 `.agents/skills/*/SKILL.md` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。历史 `.agent/skills` 仅作为旧路径保留，不是规范入口，也不是人工编辑目标。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agents/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。显式配置的提供方主目录仍可使用自己的 `skills` 目录。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
 
-子代理不强制绑定 `mcp-go-agent-orchestration` 或 `mcp-orch` 生命周期；优先使用当前平台可用的原生子代理/多代理能力。只有任务确实需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
+子代理不强制绑定 `mcp-orch` 生命周期；优先使用当前平台可用的原生子代理/多代理能力。只有任务确实需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
 
 ## 完成验证
 

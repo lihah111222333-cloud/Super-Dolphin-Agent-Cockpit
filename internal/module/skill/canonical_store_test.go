@@ -512,7 +512,7 @@ func TestServiceListSkillsAppliesOwnerKeepSelectedPolicy(t *testing.T) {
 	assertHasSkillInfo(t, infos, "build", skillScopePersonal, personalSkillTypeAgent)
 }
 
-func newTestCanonicalStore(project, home string) *canonicalStore {
+func newTestCanonicalStore(_ string, home string) *canonicalStore {
 	return newCanonicalStore(filepath.Join(home, ".super-dolphin"))
 }
 

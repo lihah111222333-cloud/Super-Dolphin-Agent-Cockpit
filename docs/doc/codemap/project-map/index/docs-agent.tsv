@@ -1,6 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 AGENTS.md	(root)	docs-agent	doc	7842	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	8354	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	8321	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
 docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11837	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
@@ -323,7 +323,7 @@ docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25444	手写代码地图�
 docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	64331	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
 docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67005	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
 docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	38126	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
-docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27543	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
+docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27740	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	37736	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6108	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
 docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54954	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index

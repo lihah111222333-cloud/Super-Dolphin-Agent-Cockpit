@@ -403,7 +403,7 @@ scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化
 scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3001	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
 scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_build_guard_test.go	scripts	other	go-test	1989	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	14737	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	16462	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify.sh	scripts	other	script	2368	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,工程自动化,测试守卫,代码地图与开发脚本
 scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	12019	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/generate_ai_project_map.mjs	scripts	other	js-source	38906	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
@@ -477,7 +477,7 @@ scripts/uat-p21.sh	scripts	other	script	9414	工程自动化、测试守卫、�
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_risk_evidence.py	scripts	other	py	7460	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,risk,evidence,工程自动化,测试守卫,代码地图与开发脚本
-scripts/validate_super_agent_skills.py	scripts	other	py	19343	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,工程自动化,测试守卫,代码地图与开发脚本
+scripts/validate_super_agent_skills.py	scripts	other	py	23489	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_linux.sh	scripts	other	script	16336	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,linux,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_macos.sh	scripts	other	script	24337	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,macos,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_windows.ps1	scripts	other	script	22969	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,windows,工程自动化,测试守卫,代码地图与开发脚本

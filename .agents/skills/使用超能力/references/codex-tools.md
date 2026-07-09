@@ -4,7 +4,7 @@
 
 | 技能引用 | super-agent-v3 / Codex 等价工具 |
 |-----------------|------------------|
-| `Task` 工具（派发子代理） | 使用平台当前可用的子代理能力；需要持久 DAG/重试/租约/交接记录时可选使用 `mcp-go-agent-orchestration` |
+| `Task` 工具（派发子代理） | 使用平台当前可用的子代理能力；需要持久 DAG/重试/租约/交接记录时可选使用 `mcp-orch` 的 `task_*` 工具 |
 | 多个 `Task` 调用（并行） | 原生多代理可直接并行；若选择 mcp-orch，则给每个独立任务建 node |
 | Task 返回结果 | 收集子代理返回摘要；若本轮使用 mcp-orch，再用 `task_update_node` 写入 `done` / `failed` / `blocked` |
 | Task 自动完成 | 节点收口后释放本地代理资源 |
@@ -18,7 +18,7 @@
 在本仓库里，子代理生命周期不绑定 mcp-orch。按任务需要选择派发方式：
 
 1. 平台原生子代理/多代理：默认可用路径，适合普通实现、审查、调查和并行拆分。
-2. `mcp-go-agent-orchestration`：可选路径，适合需要持久 DAG 状态、重试/租约、cron/wakeup 或结构化跨代理交接记录的任务。
+2. `mcp-orch` 的 `task_*` 工具：可选路径，适合需要持久 DAG 状态、重试/租约、cron/wakeup 或结构化跨代理交接记录的任务。
 3. 当前会话执行：适合工具不可用、任务太小、或派发会增加冲突风险的场景。
 
 如果本轮选择 mcp-orch，使用下面生命周期记录：
@@ -28,7 +28,7 @@
 3. `task_dispatch_node`：当 ready 节点缺少 `assigned_to` 或需要人工指派时，带 `dag_key` / `node_key` / `run_id` 显式派发。
 4. `task_update_node`：写入 `running`、`done`、`failed` 或 `blocked`，不要只依赖聊天摘要。
 
-如果当前 Codex 会话没有暴露这些 mcp-go-agent-orchestration 工具，继续使用平台原生子代理能力；只需在报告里说明缺少持久 DAG 观测。
+如果当前 Codex 会话没有暴露这些 `mcp-orch` 工具，继续使用平台原生子代理能力；只需在报告里说明缺少持久 DAG 观测。
 
 ## Codex 多代理兼容说明
 

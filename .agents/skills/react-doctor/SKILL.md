@@ -1,6 +1,6 @@
 ---
 name: react-doctor
-description: Use when finishing a feature, fixing a bug, before committing React code, or when the user types `/doctor`, asks to scan, triage, or clean up React diagnostics. Covers lint, accessibility, bundle size, architecture. Includes a regression check and a full local-triage workflow that fetches the canonical playbook.
+description: Use when the user explicitly requests react-doctor, `/doctor`, or a React diagnostics cleanup pass.
 version: "1.1.0"
 ---
 
@@ -8,17 +8,26 @@ version: "1.1.0"
 
 Scans React codebases for security, performance, correctness, and architecture issues. Outputs a 0–100 health score.
 
-## After making React code changes:
+## super-agent-v3 default verification
 
-Run `npx react-doctor@latest --verbose --diff` and check the score did not regress.
+For ordinary `frontend-app` changes in this repository, prefer repo-native validation:
 
-If the score dropped, fix the regressions before committing.
+```bash
+cd frontend-app
+npm run lint
+npm test
+npm run build
+```
 
-## For general cleanup or code improvement:
+Do not run `npx react-doctor@latest` as the default finishing step. Use it only when the user explicitly asks for react-doctor diagnostics or when the repo has pinned/configured it.
 
-Run `npx react-doctor@latest --verbose` (without `--diff`) to scan the full codebase. Fix issues by severity — errors first, then warnings.
+## Explicit react-doctor requests
 
-## /doctor — full local triage workflow
+If the user explicitly asks to run react-doctor and no pinned local binary/config exists, ask before using `npx react-doctor@latest` because it downloads current external code.
+
+For general cleanup or code improvement, run the configured local command first. If the user approves latest, run `npx react-doctor@latest --verbose` and fix issues by severity: errors first, then warnings.
+
+## /doctor - full local triage workflow
 
 When the user types `/doctor`, says "run react doctor", or asks for a full triage / cleanup pass (not just a regression check), fetch the canonical local-triage playbook and follow every step in it:
 
@@ -36,7 +45,7 @@ Pair it with the matching per-rule prompts at `https://www.react.doctor/prompts/
 
 When the user wants to understand a rule, disagrees with one, or wants to disable / tune which rules run (not fix code), use the `doctor-explain` skill (alias `/doctor-config`). Start with `npx react-doctor@latest rules explain <rule>`, then apply the narrowest control via `npx react-doctor@latest rules disable|set|category|ignore-tag …`, which edits your `doctor.config.*` (or `package.json#reactDoctor`).
 
-## Command
+## Optional command
 
 ```bash
 npx react-doctor@latest --verbose --diff

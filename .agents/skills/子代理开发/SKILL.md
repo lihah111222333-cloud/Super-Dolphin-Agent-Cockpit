@@ -12,6 +12,6 @@ aliases: ["@子代理开发", "@子代理驱动开发", "@subagent-driven-develo
 - 只有任务需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
 - 先规格符合性审查，再代码质量审查。
 - 审查发现问题必须回到实现 node 修复并复审。
-- 没有 mcp-go-agent-orchestration 工具不是阻断条件；使用当前平台可用的子代理能力，或在不适合派发时改为当前会话审查并说明观测限制。
+- 没有 mcp-orch `task_*` 工具不是阻断条件；使用当前平台可用的子代理能力，或在不适合派发时改为当前会话审查并说明观测限制。
 
 详细流程见 repo-local `子代理驱动开发` 技能。

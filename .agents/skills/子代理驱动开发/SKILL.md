@@ -12,7 +12,7 @@ aliases: ["@子代理驱动开发", "@子代理开发", "@subagent-driven-develo
 
 **核心原则：** 每个任务使用新子代理 + 两阶段审查（先规格、后质量）= 高质量、快速迭代
 
-**super-agent-v3 编排选择：** 子代理生命周期不强制绑定 mcp-orch。优先使用当前平台可用的原生子代理能力；只有任务需要持久 DAG、重试、租约、cron/wakeup 或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。缺少 mcp-go-agent-orchestration 工具不是阻断条件；继续使用可用的子代理能力，或在不适合派发时改为当前会话执行并说明观测限制。
+**super-agent-v3 编排选择：** 子代理生命周期不强制绑定 mcp-orch。优先使用当前平台可用的原生子代理能力；只有任务需要持久 DAG、重试、租约、cron/wakeup 或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。缺少 mcp-orch `task_*` 工具不是阻断条件；继续使用可用的子代理能力，或在不适合派发时改为当前会话执行并说明观测限制。
 
 ## 何时使用
 
