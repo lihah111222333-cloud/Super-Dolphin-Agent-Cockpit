@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'; import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
 import { Database, Eye, FileText, MousePointer2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js'; import { skillsPageService } from './services/skillsPageService.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js'; import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx'; import './SkillsPage.css';
@@ -15,6 +16,14 @@ function optionalObject(value) { return value && typeof value === 'object' && !A
 function firstTextField(raw, fields, source, required = false) { for (const field of fields) { const text = trimmedText(raw?.[field]); if (text) return text; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return ''; }
 function firstArrayField(raw, fields, source, required = false) { for (const field of fields) { const value = raw?.[field]; if (Array.isArray(value)) return value; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return []; }
 function hasOwnField(raw, field) { return Boolean(raw && typeof raw === 'object' && Object.prototype.hasOwnProperty.call(raw, field)); }
+const skillDashboardItemSchema = z.object({ name: z.unknown().optional(), dir: z.unknown().optional(), skill_file: z.unknown().optional() }).passthrough();
+const skillsDashboardResponseSchema = z.object({ skills: z.array(skillDashboardItemSchema) }).passthrough();
+const skillResolutionItemsSchema = z.array(z.unknown());
+const skillResolutionResponseSchema = z.union([
+  skillResolutionItemsSchema,
+  z.object({ items: skillResolutionItemsSchema }).passthrough(),
+  z.object({ conflicts: skillResolutionItemsSchema }).passthrough(),
+]);
 async function fetchSkillsDashboard(cwd) { const response = await withTimeout( getDashboardPage({ cwd, page: 'skills' }), SKILLS_DASHBOARD_TIMEOUT_MS, '技能列表加载超时，请检查技能目录或后端状态。', ); return normalizeSkillsResponse(response); }
 async function fetchSkillResolutionsDashboard(cwd) { const response = await withTimeout( listSkillResolutions({ cwd }), SKILLS_DASHBOARD_TIMEOUT_MS, '技能冲突检查超时，请检查技能目录或后端状态。', ); return normalizeResolutionResponse(response); }
 function scopeForSkill(raw) { const scope = lowerTrimmedText(raw?.scope); if (scope === 'project' || scope === 'personal') return scope;
@@ -26,8 +35,18 @@ seen.add(key); words.push(text); }); return words; } function normalizeSkill(raw
 const skillFile = firstTextField(raw, ['skill_file'], source, true); const description = firstTextField(raw, ['description'], source); const summary = firstTextField(raw, ['summary'], source); const title = displayName ? displayName : name;
 const personalType = firstTextField(raw, ['personal_type'], source); return { id: [scope, personalType, name, dir, index].join(':'), name, title: title ? title : '未命名技能', dir, skillFile, description, summary, scope, personalType,
 tags: normalizeWordList(firstArrayField(raw, ['trigger_words'], source), firstArrayField(raw, ['force_words'], source)), }; }
-function normalizeSkillsResponse(response) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error('skills dashboard response must be an object'); } if (!Array.isArray(response.skills)) {
-throw new Error('skills dashboard response skills must be an array'); } return response.skills.map((item, index) => normalizeSkill(item, index)); }
+function parseSkillsDashboardResponse(response) {
+  const result = skillsDashboardResponseSchema.safeParse(response);
+  if (result.success) return result.data;
+  const issue = result.error.issues[0];
+  if (issue?.path?.[0] === 'skills') {
+    const itemIndex = issue.path.find((part) => Number.isInteger(part));
+    if (Number.isInteger(itemIndex)) throw new Error(`skills dashboard response item ${itemIndex} must be an object`);
+    throw new Error('skills dashboard response skills must be an array');
+  }
+  throw new Error('skills dashboard response must be an object');
+}
+function normalizeSkillsResponse(response) { const parsed = parseSkillsDashboardResponse(response); return parsed.skills.map((item, index) => normalizeSkill(item, index)); }
 function normalizeSummarySuggestion(value) { if (value && typeof value === 'object' && !Array.isArray(value)) { return textValue(value.description); } return textValue(value); }
 function parseWordsValue(value) { if (Array.isArray(value)) return wordListFromText(value); const raw = trimmedText(value); if (!raw) return []; return wordListFromText(raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw); }
 function parseSkillMarkdown(content, fallbackName = '') { const text = textFromValue(content).replace(/\r\n/g, '\n'); if (!text.startsWith('---\n')) { return { name: fallbackName, displayName: '', description: '', triggerWords: [], body: text, };
@@ -52,8 +71,17 @@ function findSkillForCitation(skills, citation) { const items = Array.isArray(sk
 function normalizeSkillFileList(response) { if (!response || typeof response !== 'object' || !Array.isArray(response.files)) { throw new Error('skills/local/files response.files must be an array'); } const files = []; for (const file of response.files) { const normalized = {
 name: requiredText(file?.name, 'name', 'skills/local/files item'), path: requiredText(file?.path, 'path', 'skills/local/files item'), isMain: Boolean(file?.is_main), }; files.push(normalized); } return files; }
 function isMainSkillFile(path) { return /(^|[\\/])SKILL\.md$/i.test(trimmedText(path)); }
-function normalizeResolutionResponse(response) { if (Array.isArray(response)) return response; if (!response || typeof response !== 'object') { throw new Error('skill resolutions response must be an object'); } if (Array.isArray(response?.items)) return response.items;
-if (Array.isArray(response?.conflicts)) return response.conflicts; throw new Error('skill resolutions response items must be an array'); }
+function normalizeResolutionResponse(response) {
+  const result = skillResolutionResponseSchema.safeParse(response);
+  if (!result.success) {
+    if (!response || typeof response !== 'object') throw new Error('skill resolutions response must be an object');
+    throw new Error('skill resolutions response items must be an array');
+  }
+  const parsed = result.data;
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed.items)) return parsed.items;
+  return parsed.conflicts;
+}
 function resolutionKindLabel(kind) { return ({ mirror_drift: '外部版本有改动', unmanaged_provider_skill: '发现外部技能', unmanaged: '发现外部技能', same_name: '同名技能', same_name_scope_conflict: '同名技能', canonical_deleted_with_drift: '旧版本需要处理', external_personal_project_same_name: '私人和项目同名',
 }[lowerTrimmedText(kind)] || '需要处理'); } function resolutionActionLabel(action) { return ({ view_diff: '查看两个版本', view_unmanaged: '查看外部位置', sync_back_to_canonical: '用外部修改更新本项目', canonical_overwrite_mirror: '用本项目内容覆盖外部版本', save_as_new_skill: '另存为新技能', confirm_delete_drifted_mirror: '删除旧版本',
 sync_back_to_personal: '继续私人使用', personal_overwrite_mirror: '用私人技能覆盖外部版本', save_as_new_personal_skill: '另存为新私人技能', import_to_personal_imported: '导入到私人使用', import_to_project: '导入到项目共享', takeover_provider_skill: '纳入管理', use_project_shared_skill: '使用项目共享版本，删除旧私人版本',
