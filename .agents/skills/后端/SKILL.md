@@ -1,6 +1,6 @@
 ---
 name: "后端"
-description: "完整的 Go 后端开发指南，涵盖 Effective Go 最佳实践、super-agent-v3 架构契约（fx, SQLite/sqlc, jrpc2, rungroup, stateless）。在编写、审查或重构 Go 代码时使用此技能。"
+description: "在 super-agent-v3 中编写、审查或重构 Go 后端代码时使用。"
 trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "rungroup", "stateless", "mcp", "V3架构"]
 ---
 
@@ -17,7 +17,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | V3 目录结构、分层设计、fx 模块化 | 目录结构 (`cmd/mcp-*`, `internal/module/*`, `internal/platform/*`)、依赖注入 (`fx.Module`, `fx.Provide`)、边界隔离 | `./project_structure.md` |
 | 重构文件、消除重复、代码审查 | 文件组织红线、DRY、工厂模式、接口隔离 (实现私有化，接口公开)、Options 模式 | `./code_organization.md` |
 | 错误处理、错误映射、日志上下文 | jrpc2 标准错误映射 (`jrpc2.Errorf`)、应用级业务 code、日志预留字段常量、上下文透传 | `./error_handling.md` |
-| 后台任务托管、并发模型、生命周期管理 | `oklog/run` 契约 (`execute/interrupt` 模型)、Runner 接口、禁用独立 goroutine 的规则 | `./concurrency_basics.md` |
+| 后台任务托管、并发模型、生命周期管理 | `internal/platform/runner` 契约、Runner 接口、受控 goroutine 规则 | `./concurrency_basics.md` |
 | 写测试、排查 bug、依赖注入测试 | 表驱动测试、测试辅助函数、`fx` Graph 依赖方向测试坑、状态机全矩阵测试 (State Matrix Test) | `./testing_pitfalls.md` |
 
 ---
@@ -40,7 +40,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 
 | 规则 | 要求 | 示例 |
 |------|------|------|
-| 格式化 | MUST `gofmt`，推荐 `goimports` 自动排序导入 | `goimports -w .` |
+| 格式化 | MUST `gofmt`，推荐 `goimports` 自动排序导入 | `gofmt -w path/to/file.go` / `goimports -w path/to/file.go` |
 | 导出命名 | MixedCaps (大写开头) | `func NewService()`, `type Agent struct` |
 | 未导出命名 | mixedCaps (小写开头) | `func parseConfig()`, `var runtimeCache` |
 | 包名 | 小写单词，无下划线，简短 | `user`, `rpc`, `config` |
@@ -53,7 +53,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | **DI 容器** | 运行时装配 MUST 统一由 `go.uber.org/fx` 完成，禁止使用包级全局变量。 |
 | **持久化** | 数据库操作 MUST 使用 `sqlc` 生成 `Querier` 接口，严禁引入 ORM 或手写增删改查。 |
 | **RPC 通信** | RPC 通信 MUST 基于 `github.com/creachadair/jrpc2` 实现 JSON-RPC 2.0，禁止直接使用 Gin 暴露 HTTP 接口。 |
-| **生命周期** | 长跑任务和后台 goroutine MUST 由 `github.com/oklog/run` (RunGroup) 托管，禁止 `go func(){}` 满天飞。 |
+| **生命周期** | 长跑任务 MUST 注入 `group:"runners"` 并由 `internal/platform/runner.RunGroup` 托管；禁止在构造器、handler 或 singleton 初始化中启动未受控 goroutine。 |
 | **状态机** | 复杂实体生命周期 MUST 使用 `qmuntal/stateless` 进行全矩阵映射，禁止零散的 `switch/case` 和二次副作用推导。 |
 | **事件总线** | 进程内事件解耦 MUST 使用 `kelindar/event`，必须使用强类型结构体传递，禁止使用 `map[string]any`。 |
 
@@ -71,7 +71,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | 规则 | 要求 |
 |------|------|
 | 禁止 chains | NEVER `_chains.go` 文件，0 容忍。 |
-| 单文件下限 | \<50 行的文件 MUST 合并到父文件。 |
+| 单文件下限 | \<50 行文件不自动判错；只有当它只是无边界价值的碎片化包装时才合并，测试、契约、窄端口和清晰 owner 边界可以保留。 |
 | 隐藏实现 | 模块只暴露 Interface 和 `fx.Module`，具体的结构体实现应当保持包私有。 |
 | 接口定义 | 接口在使用方定义，而非实现方。 |
 

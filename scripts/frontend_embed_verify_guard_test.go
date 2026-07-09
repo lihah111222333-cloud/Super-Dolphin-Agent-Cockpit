@@ -263,6 +263,51 @@ if "SKILL.md" not in files:
 	}
 }
 
+func TestValidateSuperAgentSkillsRejectsPlaceholderAndStaleSkillTokens(t *testing.T) {
+	code := `
+import importlib.util
+import pathlib
+import sys
+import tempfile
+
+script = pathlib.Path("validate_super_agent_skills.py")
+spec = importlib.util.spec_from_file_location("validate_super_agent_skills", script)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+root = pathlib.Path(tempfile.mkdtemp())
+skills = root / ".agents" / "skills"
+bad = skills / "skill-11"
+bad.mkdir(parents=True)
+(bad / "SKILL.md").write_text("---\nname: skill-11\ndescription: 11\n---\n11\n", encoding="utf-8")
+
+failures = []
+module.check_skill_package_schema(failures, skills)
+if not any("placeholder" in item for item in failures):
+    sys.exit("placeholder skill package was accepted: " + repr(failures))
+
+good = skills / "good"
+good.mkdir(parents=True)
+(good / "SKILL.md").write_text(
+    "---\nname: good\ndescription: Valid skill description\n---\n# Good\n\nUseful body for validation.\n",
+    encoding="utf-8",
+)
+(good / "stale.md").write_text("mcp-go-agent-orchestration and ~/.claude/skills/design/scripts/logo/generate.py\n", encoding="utf-8")
+failures = []
+module.check_forbidden_skill_tree_tokens(failures, skills)
+if not any("mcp-go-agent-orchestration" in item for item in failures):
+    sys.exit("stale orchestration token was accepted: " + repr(failures))
+if not any("~/.claude/skills/design/scripts" in item for item in failures):
+    sys.exit("stale design script path was accepted: " + repr(failures))
+`
+	cmd := exec.Command("python3", "-c", code)
+	cmd.Dir = "."
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("validator stale skill guard rejected expected contract: %v\n%s", err, out)
+	}
+}
+
 func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)

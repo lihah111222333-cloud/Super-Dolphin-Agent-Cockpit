@@ -39,7 +39,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 3. `task_dispatch_node`：将 ready 的 reviewer node 指派给 `superpowers:code-reviewer` 对应执行者。
 4. `task_update_node`：审查完成后写入 `done`、`failed` 或 `blocked`，并保存 findings 摘要。
 
-没有 mcp-go-agent-orchestration 工具不是阻断条件；直接派发子代理或改为本会话单代理审查，并说明观测限制。
+没有 mcp-orch `task_*` 工具不是阻断条件；直接派发子代理或改为本会话单代理审查，并说明观测限制。
 
 **占位符：**
 - `{WHAT_WAS_IMPLEMENTED}`：你刚构建的内容

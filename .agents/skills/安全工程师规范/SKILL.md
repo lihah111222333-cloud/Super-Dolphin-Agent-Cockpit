@@ -1,12 +1,23 @@
 ---
 name: 安全工程师规范
-description: 全栈安全工程指南，涵盖应用安全(AppSec)、基础设施安全(InfraSec)、代码审计与合规性检查。
+description: 在 super-agent-v3 中进行安全设计、代码审计、漏洞修复或合规检查时使用。
 tags: [security, appsec, owasp, audit, encryption, auth, vulnerability, 安全, 渗透测试, 代码审计, 加密, 认证]
 ---
 
 # 安全工程师规范 (Security Engineer Standards)
 
 本指南定义了 super-agent-v3 项目的安全工程标准。安全不是附加功能，而是系统的免疫系统。
+
+## super-agent-v3 默认安全审查面
+
+优先审查当前仓库实际边界，而不是套用通用 Web 清单：
+
+* **Wails / JSON-RPC 边界**：host-facing RPC 必须校验 `cwd`、provider、workspace、thread/session 所属关系；错误返回遵循 jrpc2 映射，不泄露内部路径、token 或堆栈。
+* **MCP sidecar 与 toolbridge**：`cmd/mcp-*`、`internal/mcpserver/common`、tool approval、stdio envelope 和 provider tool 调用必须 fail-fast；不得静默降级、吞错或绕过 approval。
+* **技能与 provider home**：canonical skill 只来自 `<cwd>/.agents/skills` 与 active personal roots；`.claude/skills` / `.agents/skills` provider mirror 是生成物；必须防 symlink、路径穿越、unmanaged mirror 和同名冲突污染。
+* **文件系统与命令执行**：所有路径基于显式 `cwd` / project root 解析；拒绝越权写入、符号链接逃逸、shell 拼接和无审计命令执行。
+* **SQLite/sqlc**：默认持久化是 SQLite + sqlc；禁止字符串拼接 SQL、隐式迁移绕过、空配置兜底和跨 store 直接共享业务查询。
+* **日志与密钥**：日志字段使用预留常量，禁止输出 provider token、approval payload、prompt/memory 私密内容、用户文件正文和本机绝对密钥路径。
 
 ## 何时使用
 

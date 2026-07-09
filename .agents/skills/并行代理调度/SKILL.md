@@ -9,7 +9,7 @@ aliases: ["@并行代理调度", "@调度并行代理", "@parallel-agent-orchest
 这是 `调度并行代理` 的同名兼容入口。核心要求：
 
 - 每个独立任务一个子代理或任务节点。
-- 平台原生并行代理可直接使用；不要因为没有 mcp-go-agent-orchestration 就阻断派发。
+- 平台原生并行代理可直接使用；不要因为没有 mcp-orch `task_*` 工具就阻断派发。
 - 只有需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
 - 不适合派发子代理时，改为单代理只读分析或当前会话执行，并说明观测限制。
 

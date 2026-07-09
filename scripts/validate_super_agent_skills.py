@@ -18,7 +18,7 @@ MIRROR_IGNORED_REL_FILES = {
 
 REQUIRED = {
     "CLAUDE.md": [
-        "子代理不强制绑定 `mcp-go-agent-orchestration`",
+        "子代理不强制绑定 `mcp-orch`",
         "原生子代理/多代理能力",
         "可选使用 `task_create_dag`",
     ],
@@ -29,26 +29,26 @@ REQUIRED = {
     ],
     ".agents/skills/子代理驱动开发/SKILL.md": [
         "子代理生命周期不强制绑定 mcp-orch",
-        "缺少 mcp-go-agent-orchestration 工具不是阻断条件",
+        "缺少 mcp-orch `task_*` 工具不是阻断条件",
         "未使用 mcp-orch 时伪造 DAG/node/run 证据",
     ],
     ".agents/skills/调度并行代理/SKILL.md": [
         "并行代理不强制绑定 mcp-orch",
-        "缺少 mcp-go-agent-orchestration 工具不是阻断条件",
+        "缺少 mcp-orch `task_*` 工具不是阻断条件",
         "不需要伪造 DAG/node 证据",
     ],
     ".agents/skills/并行代理调度/SKILL.md": [
         "平台原生并行代理可直接使用",
-        "不要因为没有 mcp-go-agent-orchestration 就阻断派发",
+        "不要因为没有 mcp-orch `task_*` 工具就阻断派发",
     ],
     ".agents/skills/子代理开发/SKILL.md": [
         "平台原生子代理直接派发",
         "不要把生命周期强制绑定到 mcp-orch",
-        "没有 mcp-go-agent-orchestration 工具不是阻断条件",
+        "没有 mcp-orch `task_*` 工具不是阻断条件",
     ],
     ".agents/skills/请求代码审查/SKILL.md": [
         "可选创建审查 DAG/node",
-        "没有 mcp-go-agent-orchestration 工具不是阻断条件",
+        "没有 mcp-orch `task_*` 工具不是阻断条件",
     ],
     ".agents/skills/MCP协议/SKILL.md": [
         "internal/mcpserver/common",
@@ -214,6 +214,7 @@ FORBIDDEN = {
     "CLAUDE.md": [
         "任务生命周期管理与协同",
         "必须使用 `mcp-go-agent-orchestration`",
+        "mcp-go-agent-orchestration",
         "task_start_node",
     ],
     ".agents/skills/super-dolphin-workflow/SKILL.md": [
@@ -342,6 +343,33 @@ STALE_TOKENS = [
     'engine: "postgresql"',
 ]
 
+FORBIDDEN_SKILL_TREE_TOKENS = [
+    "mcp-go-agent-orchestration",
+    "go-agent-orchestration",
+    "~/.claude/skills/design/scripts",
+    "`scripts/logo/",
+    "`scripts/cip/",
+    "`scripts/icon/",
+    "github.com/oklog/run",
+    "`oklog/run`",
+    "goimports -w .",
+]
+
+CODEMAP_SKILL_FACT_FORBIDDEN = [
+    "project .agent/skills",
+    "<cwd>/.agent/skills",
+    "projectRoot/.agent/skills",
+    "空 `cwd` 时仍保留旧的全局列表行为",
+]
+
+PLACEHOLDER_VALUES = {
+    "",
+    "11",
+    "todo",
+    "tbd",
+    "placeholder",
+}
+
 FORBIDDEN_MIRROR_SKILLS = {
     "Docker容器化部署",
     "GORM数据库操作",
@@ -366,6 +394,7 @@ FORBIDDEN_MIRROR_SKILLS = {
     "需求澄清提问",
     "验收官",
     "token",
+    "skill-11",
 }
 
 
@@ -389,6 +418,27 @@ def skill_dirs(base: Path) -> list[Path]:
     if not base.exists():
         return []
     return sorted(p for p in base.iterdir() if p.is_dir() and (p / "SKILL.md").is_file())
+
+
+def yaml_scalar(value: str) -> str:
+    return value.strip().strip('"\'')
+
+
+def skill_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text.strip()
+    for idx, line in enumerate(lines[1:], start=1):
+        if line.strip() != "---":
+            continue
+        fields: dict[str, str] = {}
+        for item in lines[1:idx]:
+            if ":" not in item:
+                continue
+            key, value = item.split(":", 1)
+            fields[key.strip()] = yaml_scalar(value)
+        return fields, "\n".join(lines[idx + 1:]).strip()
+    return {}, text.strip()
 
 
 def rel_files(base: Path) -> set[str]:
@@ -486,6 +536,54 @@ def check_policy_hashes(failures: list[str]) -> None:
                 failures.append(f"policy source hash mismatch: {name}")
 
 
+def check_skill_package_schema(failures: list[str], base: Path | None = None) -> None:
+    root = base if base is not None else ROOT / ".agents/skills"
+    for skill_dir in skill_dirs(root):
+        path = skill_dir / "SKILL.md"
+        rel = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+        text = path.read_text(encoding="utf-8")
+        fields, body = skill_frontmatter(text)
+        name = fields.get("name", "")
+        description = fields.get("description", "")
+        if yaml_scalar(name).casefold() in PLACEHOLDER_VALUES:
+            failures.append(f"{rel}: missing or placeholder frontmatter name")
+        if yaml_scalar(description).casefold() in PLACEHOLDER_VALUES or len(description.strip()) < 8:
+            failures.append(f"{rel}: missing or placeholder frontmatter description")
+        if body.casefold() in PLACEHOLDER_VALUES or len(body) < 20:
+            failures.append(f"{rel}: missing or placeholder skill body")
+
+
+def check_forbidden_skill_tree_tokens(failures: list[str], base: Path | None = None) -> None:
+    root = base if base is not None else ROOT / ".agents/skills"
+    if not root.exists():
+        failures.append(f"missing {root}")
+        return
+    for file_path in text_files(root):
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for needle in FORBIDDEN_SKILL_TREE_TOKENS:
+            if needle in text:
+                rel = file_path.relative_to(ROOT) if file_path.is_relative_to(ROOT) else file_path
+                failures.append(f"{rel}: forbidden stale skill token {needle!r}")
+
+
+def check_codemap_current_skill_facts(failures: list[str]) -> None:
+    rel_path = "docs/doc/codemap/07-module-read.md"
+    text = read(rel_path)
+    for needle in CODEMAP_SKILL_FACT_FORBIDDEN:
+        if needle in text:
+            failures.append(f"{rel_path}: stale skill fact {needle!r}")
+    for needle in (
+        "<cwd>/.agents/skills",
+        "请求缺少 `cwd` 时返回 `ErrMissingCWD`",
+        "provider mirror 是生成物，不是 canonical 真值",
+    ):
+        if needle not in text:
+            failures.append(f"{rel_path}: missing current skill fact {needle!r}")
+
+
 def check_review_dimension_sections(failures: list[str]) -> None:
     rel_path = ".agents/skills/代码审查维度/SKILL.md"
     text = read(rel_path)
@@ -546,6 +644,9 @@ def main() -> int:
                 failures.append(f"{rel_path}: missing {needle!r}")
 
     check_review_dimension_sections(failures)
+    check_skill_package_schema(failures)
+    check_forbidden_skill_tree_tokens(failures)
+    check_codemap_current_skill_facts(failures)
 
     for rel_path, needles in FORBIDDEN.items():
         path = ROOT / rel_path

@@ -9,7 +9,7 @@ description: 创建新技能、编辑现有技能，或部署前验证技能是�
 
 **编写技能就是把测试驱动开发应用到流程文档。**
 
-**个人技能由 Super-Dolphin 统一管理，生效目录是 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作目录/市场来源，不参与扫描、mirror 或 provider 调用。Claude/Codex 目录只是自动生成的 mirror。**
+**个人技能由 Super-Dolphin 统一管理；项目级 canonical 位于 `<cwd>/.agents/skills`，个人生效目录是 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作目录/市场来源，不参与扫描、mirror 或 provider 调用。Claude/Codex 目录只是自动生成的 mirror。**
 
 你编写测试用例（用子代理制造压力场景），看它们失败（基线行为），编写技能（文档），看测试通过（代理遵循），然后重构（堵住漏洞）。
 

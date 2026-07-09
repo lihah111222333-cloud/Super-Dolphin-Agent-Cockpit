@@ -9,8 +9,8 @@
 MUST 使用 `gofmt`，不可协商。推荐 `goimports` (自动管理导入)。
 
 ```bash
-gofmt -w .
-goimports -w .
+gofmt -w path/to/file.go
+goimports -w path/to/file.go
 ```
 
 最大行长: **120 字符**。在逻辑点断行:

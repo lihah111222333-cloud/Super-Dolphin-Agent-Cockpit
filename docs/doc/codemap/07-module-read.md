@@ -19,7 +19,7 @@ flowchart LR
     DASH --> ORCH[contract.AgentLifecyclePort / AgentReportPort / DAG*Runtime]
     DASH --> STORES[(agentstatus/ailog/auditlog/buslog/commandcard/dbquery/prompt/sharedfile/tasktrace)]
     DASH -->|SkillLister| SKILL
-    SKILL --> ROOTS[(project .agent/skills\n+ ~/.super-dolphin/skills/personal/*)]
+    SKILL --> ROOTS[(project .agents/skills\n+ ~/.super-dolphin/skills/personal/*)]
     SKILL --> EVENTS[uidto.SkillsChanged]
     TURN[turn hydrateSkillRefs] -->|SkillHydrationSource| SKILL
     PROVIDERS[claudecli / codexapp] -->|SkillMirrorReconciler| SKILL
@@ -262,7 +262,7 @@ flowchart TD
 
 `skill` 同时承担四类职责：
 
-1. **canonical skill 扫描与有效集**：项目级 `<cwd>/.agent/skills` + 个人级 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作目录/市场来源，不参与扫描、mirror 或 provider 调用。
+1. **canonical skill 扫描与有效集**：项目级 `<cwd>/.agents/skills` + 个人级 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作目录/市场来源，不参与扫描、mirror 或 provider 调用。
 2. **provider-native mirror**：把有效集发布到 `<cwd>/.claude/skills` / `<cwd>/.agents/skills`，以及个人默认 `~/.claude/skills` / `~/.agents/skills` 或显式 provider home `skills`，让 Claude/Codex 原生发现。
 3. **本地文件与冲突处理 RPC**：`skills/local/*`、`skills/resolution_*`、`skills/summary/suggest`、`skill/list` 等 host/UI 面继续保留；`skill/expand` 和旧 `skills/candidate/*` 候选审批入口已退出 V1 生产面。
 4. **受限命令执行与事件**：`command/exec` + `uidto.SkillsChanged` debounce 发布。
@@ -286,16 +286,18 @@ Fx 装配见 `module.go:15-30`：
 
 | 层级 | 规则 |
 |---|---|
-| 项目根 | `<cwd>/.agent/skills`；若请求没带 cwd，则回退构造期 `projectRoot/.agent/skills` |
+| 项目根 | `<cwd>/.agents/skills`；请求缺少 `cwd` 时返回 `ErrMissingCWD`，不回退到构造期 project root |
 | 个人根 | `~/.super-dolphin/skills/personal/{user,agent,imported}`，可由 `SUPER_DOLPHIN_HOME` 改变 home；`personal/hub` 是 catalog-only，不是 active canonical root |
-| project policy | `<cwd>/.agent/skills/.super-dolphin-skill-policy.json` 可禁用某个 personal source 对当前项目生效 |
+| project policy | `<cwd>/.agents/skills/.super-dolphin-skill-policy.json` 可禁用某个 personal source 对当前项目生效 |
 | personal policy | `~/.super-dolphin/skills/.super-dolphin-personal-skill-policy.json` 可在个人同名冲突中 keep selected |
 | provider mirror | `<cwd>/.claude/skills` / `<cwd>/.agents/skills` 及个人默认 `~/.claude/skills` / `~/.agents/skills`；显式 provider home 可使用其 `skills` 子目录；这些是生成物，不是 canonical 真值 |
+
+provider mirror 是生成物，不是 canonical 真值；人工修改应先落到 canonical，再由 mirror reconcile 或同步流程发布。
 
 `cwd_scope_test.go:14-119` 已验证：
 
 - 带 `cwd` 时可隔离同名 skill（`projectA` 与 `projectB`）
-- 空 `cwd` 时仍保留旧的全局列表行为
+- 空 `cwd` 时返回 `ErrMissingCWD`，避免跨项目泄漏 canonical skill 列表
 - `DeleteLocal` 会按 scope 删除 project/personal skill，personal 删除会归档；同名冲突通过 resolution RPC 或 policy 收敛。
 
 ### 4.3 host/UI skill RPC

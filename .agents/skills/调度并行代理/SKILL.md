@@ -14,7 +14,7 @@ aliases: ["@调度并行代理", "@并行代理调度", "@parallel-agent-orchest
 
 **核心原则：** 每个独立问题域派发一个代理。让它们并发工作。
 
-**super-agent-v3 编排选择：** 并行代理不强制绑定 mcp-orch。优先使用当前平台可用的原生多代理能力；只有需要持久 DAG、重试、租约、cron/wakeup 或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。缺少 mcp-go-agent-orchestration 工具不是阻断条件；继续使用可用的子代理能力，或在不适合派发时改为单代理只读分析并说明观测限制。
+**super-agent-v3 编排选择：** 并行代理不强制绑定 mcp-orch。优先使用当前平台可用的原生多代理能力；只有需要持久 DAG、重试、租约、cron/wakeup 或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。缺少 mcp-orch `task_*` 工具不是阻断条件；继续使用可用的子代理能力，或在不适合派发时改为单代理只读分析并说明观测限制。
 
 ## 何时使用
 

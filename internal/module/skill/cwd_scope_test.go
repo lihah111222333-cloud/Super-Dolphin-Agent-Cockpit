@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -194,7 +195,7 @@ func assertScopedSkillList(t *testing.T, svc *service, cwd, label string, wantNa
 		t.Fatalf("len(%s skills) = %d, want %d (%v)", label, len(skills), len(wantNames), names)
 	}
 	assertSkillNames(t, label, names, wantNames, leakedName)
-	if containsString(wantNames, "shared") && summaries["shared"] != "global" {
+	if slices.Contains(wantNames, "shared") && summaries["shared"] != "global" {
 		got := summaries["shared"]
 		t.Fatalf("%s shared summary = %q, want global", label, got)
 	}
@@ -213,11 +214,11 @@ func skillNamesAndSummaries(skills []SkillInfo) ([]string, map[string]string) {
 func assertSkillNames(t *testing.T, label string, names, wantNames []string, leakedName string) {
 	t.Helper()
 	for _, want := range wantNames {
-		if !containsString(names, want) {
+		if !slices.Contains(names, want) {
 			t.Fatalf("%s names = %v, missing %s", label, names, want)
 		}
 	}
-	if containsString(names, leakedName) {
+	if slices.Contains(names, leakedName) {
 		t.Fatalf("%s names leaked %s: %v", label, leakedName, names)
 	}
 }
@@ -276,13 +277,4 @@ func writeScopedSystemSkill(t *testing.T, systemRoot, cwd, name, content string)
 		t.Fatalf("write system skill: %v", err)
 	}
 	return path
-}
-
-func containsString(items []string, needle string) bool {
-	for _, item := range items {
-		if item == needle {
-			return true
-		}
-	}
-	return false
 }

@@ -4,73 +4,65 @@
 
 ---
 
-## V3 核心契约：`oklog/run` (RunGroup)
+## V3 核心契约：`internal/platform/runner` (RunGroup)
 
 > [!IMPORTANT]
 > **V3 严禁在 `fx.Provide`、HTTP Handler 或单例初始化中随意启动野生 `go func()`。**
-> 所有的长生命周期组件（如监听器、后台轮询、事件分发队列）MUST 作为独立 Actor 被 `oklog/run` 统一托管。
+> 所有的长生命周期组件（如监听器、后台轮询、事件分发队列）MUST 注入 Fx `group:"runners"`，由 `internal/platform/runner.RunGroup` 统一托管。
 
-### 1. Execute / Interrupt 二元模型
+### 1. Runner / Context 模型
 
-每一个需要后台运行的组件，都必须提供一个执行函数（阻塞）和一个中断函数（触发退出）。
+每一个需要后台运行的组件，都必须实现阻塞式 `Run(ctx context.Context) error`；`ctx` 取消后应尽快退出并返回真实错误。进程入口负责聚合 runner 并调用 `platformrunner.RunGroup`。
 
 ```go
 package rpc
 
 import (
-    "net"
-    "github.com/oklog/run"
+    "context"
+
+    platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+    "github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+    "go.uber.org/fx"
 )
 
 // 错误示范：野生 goroutine
-// go func() { ln.Accept() }()
+// go func() { worker.Run(context.Background()) }()
 
 // 正确示范：被 RunGroup 托管
-func setupServer(g *run.Group, ln net.Listener) {
-    g.Add(
-        func() error {
-            // execute: 必须是阻塞的
-            _, err := ln.Accept()
-            return err
-        },
-        func(err error) {
-            // interrupt: 触发 execute 退出
-            _ = ln.Close()
-        },
+type Worker struct{}
+
+func (w *Worker) Run(ctx context.Context) error {
+    <-ctx.Done()
+    return nil
+}
+
+func ProvideWorker() fx.Option {
+    return fx.Provide(
+        fx.Annotate(
+            func() platformrunner.Runner { return &Worker{} },
+            fx.ResultTags(`group:"runners"`),
+        ),
     )
 }
 ```
 
 ### 2. 桥接 fx 与 RunGroup
 
-在 V3 架构中，`fx` 负责构造对象，`run.Group` 负责启动。
+在 V3 架构中，`fx` 负责构造对象，根入口聚合 `group:"runners"` 并启动 `platformrunner.RunGroup`。业务模块只提供 runner，不直接持有全局 group。
 
 ```go
-// 统一的 Runner 接口
-type Runner interface {
-    Run(ctx context.Context) error
+type RuntimeParams struct {
+    fx.In
+    Runners []platformrunner.Runner `group:"runners"`
 }
 
-func newWorker() Runner {
-    return &myWorker{}
-}
-
-// 在入口处的 fx.Invoke 中统一装配给 run.Group
-fx.Invoke(func(lc fx.Lifecycle, workers []Runner) {
-    var g run.Group
-    ctx, cancel := context.WithCancel(context.Background())
-
-    for _, w := range workers {
-        worker := w
-        g.Add(
-            func() error { return worker.Run(ctx) },
-            func(err error) { cancel() },
-        )
-    }
-
+fx.Invoke(func(lc fx.Lifecycle, params RuntimeParams) {
+    runCtx, cancel := context.WithCancel(context.Background())
     lc.Append(fx.Hook{
         OnStart: func(context.Context) error {
-            go g.Run() // 统一启动
+            safego.Go(runCtx, nil, "app.runtime.rungroup", func(context.Context) {
+                _ = platformrunner.RunGroup(runCtx, params.Runners, platformrunner.GroupOptions{})
+            })
             return nil
         },
         OnStop: func(context.Context) error {

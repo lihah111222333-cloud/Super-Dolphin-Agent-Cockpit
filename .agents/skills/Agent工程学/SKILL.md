@@ -8,7 +8,7 @@ trigger_words: ["agentic-engineering", "agent workflow", "subagent", "parallel a
 # Agent 工程学 (Agentic Engineering)
 
 ## Overview
-使用此技能来规范 AI Agent 驱动的工程工作流。在这种模式下，AI Agent 执行大部分的实现工作，而人类或高阶监督系统（如 `go-agent-orchestration`）负责质量、风险控制与进度管理。
+使用此技能来规范 AI Agent 驱动的工程工作流。在这种模式下，AI Agent 执行大部分的实现工作，而人类、当前平台原生多代理能力或可选 `mcp-orch` 编排面负责质量、风险控制与进度管理。
 
 ## When to Use
 - **症状与用例**:
