@@ -3,6 +3,7 @@ package archtest_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,12 +13,6 @@ import (
 func TestCodeSizeGuard(t *testing.T) {
 	root := repoRoot(t)
 	opts := codeSizeGuardOptions(root)
-	// 守卫运行时自动收缩 / 删除已回落到默认预算的 freeze 条目（同步回写 freeze_registry.go）。
-	fixes, err := archtest.AutoRepairFreezeRegistry(opts)
-	if err != nil {
-		t.Fatalf("freeze registry autofix failed: %v", err)
-	}
-	logFreezeRegistryRepairs(t, fixes)
 
 	violations := archtest.CheckAll(opts)
 	prodViolations, testFilesWithViolations := splitGuardViolations(violations)
@@ -25,25 +20,44 @@ func TestCodeSizeGuard(t *testing.T) {
 	// 生产文件违规：直接失败（与修改前行为一致）
 	failIfGuardViolations(t, "code size guard violations", prodViolations, "")
 
-	// ── 生产文件：棘轮检查 + 自动收缩 ──
-	prodBaselinePath := filepath.Join(root, "internal/archtest/baseline.json")
-	runBaselineRatchetAndShrink(t, "prod", prodBaselinePath, opts, root, false)
+	freezePath := filepath.Join(root, "internal/archtest/freeze_baseline.json")
+	runUnifiedFreezeRatchetAndShrink(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
+}
 
-	if len(testFilesWithViolations) == 0 {
+func runUnifiedFreezeRatchetAndShrink(
+	t *testing.T,
+	path string,
+	opts archtest.CheckOptions,
+	root string,
+	checkTests bool,
+	violations []archtest.Violation,
+) {
+	t.Helper()
+	info, err := archtest.LoadGuardFreeze(path)
+	if err != nil {
+		t.Fatalf("load unified freeze failed: %v", err)
+	}
+	freeze := info.Data
+	changed := false
+	freeze.Metrics.Production, changed = runBaselineRatchetAndShrink(t, "prod", freeze.Metrics.Production, opts, root, false, changed)
+	if checkTests {
+		loadRequiredTestBaseline(t, freeze.Metrics.Tests, violations)
+
+		// 新测试文件（不在基线中）的违规：不允许
+		newTestViolations := collectNewTestViolations(violations, freeze.Metrics.Tests)
+		failIfGuardViolations(t, "new test file violations not in baseline", newTestViolations,
+			"\nFix the test or run: go run scripts/code_size_guard.go --freeze")
+
+		// 已冻结测试文件：棘轮检查 + 自动收缩
+		freeze.Metrics.Tests, changed = runBaselineRatchetAndShrink(t, "test", freeze.Metrics.Tests, opts, root, true, changed)
+	}
+	priorityChanged := runPrioritySSABaselineRatchetAndShrink(t, &freeze, opts)
+	if !changed && !priorityChanged {
 		return
 	}
-
-	// ── 测试文件违规：通过 baseline_test.json 棘轮管理 ──
-	testBaselinePath := filepath.Join(root, "internal/archtest/baseline_test.json")
-	testBLInfo := loadRequiredTestBaseline(t, testBaselinePath, violations)
-
-	// 新测试文件（不在基线中）的违规：不允许
-	newTestViolations := collectNewTestViolations(violations, testBLInfo.Data)
-	failIfGuardViolations(t, "new test file violations not in baseline", newTestViolations,
-		"\nFix the test or run: go run scripts/code_size_guard.go --freeze")
-
-	// 已冻结测试文件：棘轮检查 + 自动收缩
-	runBaselineRatchetAndShrink(t, "test", testBaselinePath, opts, root, true)
+	if err := archtest.SaveGuardFreeze(path, freeze); err != nil {
+		t.Fatalf("save shrunk unified freeze failed: %v", err)
+	}
 }
 
 func codeSizeGuardOptions(root string) archtest.CheckOptions {
@@ -66,19 +80,7 @@ func TestCodeSizeGuardScansPkgRoot(t *testing.T) {
 }
 
 func containsScanRoot(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func logFreezeRegistryRepairs(t *testing.T, fixes []archtest.FreezeRegistryAutoFix) {
-	t.Helper()
-	for _, f := range fixes {
-		t.Logf("freeze registry auto-repaired: %s", f.String())
-	}
+	return slices.Contains(values, want)
 }
 
 func splitGuardViolations(violations []archtest.Violation) ([]archtest.Violation, map[string]bool) {
@@ -111,19 +113,14 @@ func violationStrings(violations []archtest.Violation) []string {
 	return lines
 }
 
-func loadRequiredTestBaseline(t *testing.T, path string, violations []archtest.Violation) archtest.BaselineInfo {
+func loadRequiredTestBaseline(t *testing.T, baseline archtest.Baseline, violations []archtest.Violation) {
 	t.Helper()
-	testBLInfo, loadErr := archtest.LoadBaseline(path)
-	if loadErr != nil {
-		t.Fatalf("load test baseline failed: %v", loadErr)
-	}
-	if len(testBLInfo.Data) != 0 {
-		return testBLInfo
+	if len(baseline) != 0 {
+		return
 	}
 	lines := violationStrings(collectTestViolations(violations))
 	t.Fatalf("test file violations without baseline (%d):\n%s\nRun: go run scripts/code_size_guard.go --freeze",
 		len(lines), strings.Join(lines, "\n"))
-	return testBLInfo
 }
 
 func collectTestViolations(violations []archtest.Violation) []archtest.Violation {
@@ -150,18 +147,22 @@ func collectNewTestViolations(violations []archtest.Violation, baseline map[stri
 }
 
 // runBaselineRatchetAndShrink 对指定 baseline 做棘轮检查 + 自动收缩。
-func runBaselineRatchetAndShrink(t *testing.T, label, blPath string, opts archtest.CheckOptions, root string, testsOnly bool) {
+func runBaselineRatchetAndShrink(
+	t *testing.T,
+	label string,
+	baseline archtest.Baseline,
+	opts archtest.CheckOptions,
+	root string,
+	testsOnly bool,
+	changed bool,
+) (archtest.Baseline, bool) {
 	t.Helper()
-	blInfo, loadErr := archtest.LoadBaseline(blPath)
-	if loadErr != nil {
-		t.Fatalf("load %s baseline failed: %v", label, loadErr)
-	}
-	if len(blInfo.Data) == 0 {
-		return
+	if len(baseline) == 0 {
+		return baseline, changed
 	}
 	phaseOpts := opts
 	phaseOpts.BaselineTestsOnly = testsOnly
-	result := archtest.CheckWithBaseline(phaseOpts, blInfo.Data)
+	result := archtest.CheckWithBaseline(phaseOpts, baseline)
 	if !result.OK() {
 		lines := make([]string, 0, len(result.Violations)+len(result.NewFileViolations))
 		for _, v := range result.Violations {
@@ -173,16 +174,32 @@ func runBaselineRatchetAndShrink(t *testing.T, label, blPath string, opts archte
 		t.Fatalf("%s baseline ratchet regressions (%d):\n%s", label, len(lines), strings.Join(lines, "\n"))
 	}
 	fileSet := buildFileSetFiltered(t, phaseOpts, root, testsOnly)
-	newBL, stats := archtest.ShrinkBaseline(blInfo.Data, fileSet, func(relPath string) archtest.FileMetrics {
+	newBL, stats := archtest.ShrinkBaseline(baseline, fileSet, func(relPath string) archtest.FileMetrics {
 		return archtest.MeasureBaselineFileMetrics(filepath.Join(root, filepath.FromSlash(relPath)))
 	})
 	if stats.Changed() {
-		if saveErr := archtest.SaveBaseline(blPath, newBL); saveErr != nil {
-			t.Fatalf("save shrunk %s baseline failed: %v", label, saveErr)
-		} else {
-			t.Logf("🧹 %s baseline auto-shrunk: shrunk=%d graduated=%d removed=%d", label, stats.Shrunk, stats.Graduated, stats.Removed)
-		}
+		changed = true
+		t.Logf("🧹 %s baseline auto-shrunk: shrunk=%d graduated=%d removed=%d", label, stats.Shrunk, stats.Graduated, stats.Removed)
 	}
+	return newBL, changed
+}
+
+func runPrioritySSABaselineRatchetAndShrink(t *testing.T, freeze *archtest.GuardFreeze, opts archtest.CheckOptions) bool {
+	t.Helper()
+	result, err := archtest.CheckPrioritySSAWithBaseline(opts, freeze.PrioritySSA)
+	if err != nil {
+		t.Fatalf("check priority SSA baseline failed: %v", err)
+	}
+	if len(result.New) > 0 {
+		t.Fatalf("priority SSA new violations not in baseline (%d):\n%s\nRun: go run scripts/code_size_guard.go --freeze",
+			len(result.New), strings.Join(archtest.PrioritySSAViolationStrings(result.New), "\n"))
+	}
+	if len(result.Stale) == 0 {
+		return false
+	}
+	freeze.PrioritySSA = archtest.PrioritySSABaselineFromCurrent(result)
+	t.Logf("🧹 priority SSA baseline auto-shrunk: stale=%d", len(result.Stale))
+	return true
 }
 
 func buildFileSetFiltered(t *testing.T, opts archtest.CheckOptions, root string, testsOnly bool) map[string]bool {

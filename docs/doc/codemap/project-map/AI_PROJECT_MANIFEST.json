@@ -5,10 +5,10 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4210,
+  "files": 4219,
   "domains": {
     "docs-agent": 858,
-    "other": 491,
+    "other": 500,
     "app-ui": 425,
     "platform-provider": 1007,
     "orchestration": 406,
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 491,
-        "size_kb": 93.4,
+        "file_count": 500,
+        "size_kb": 95.2,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -75,10 +75,10 @@
     "cmd": 643,
     "docs": 855,
     "frontend-app": 423,
-    "internal": 1989,
+    "internal": 1997,
     "migrations": 111,
     "pkg": 25,
-    "scripts": 108,
+    "scripts": 109,
     "sql": 30,
     "test": 9,
     "tests": 1,
@@ -160,7 +160,7 @@
     {
       "goal": "修改架构守卫",
       "primary": "internal/archtest/",
-      "secondary": "internal/archtest/baseline.json",
+      "secondary": "internal/archtest/freeze_baseline.json",
       "keywords": "guard baseline ratchet freeze"
     },
     {

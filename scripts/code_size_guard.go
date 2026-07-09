@@ -35,8 +35,7 @@ func main() {
 		SkipDirs:            archtest.DefaultSkipDirs(),
 		EnforceFuncComments: true,
 	}
-	baselinePath := filepath.Join(repoRoot, "internal/archtest/baseline.json")
-	testBaselinePath := filepath.Join(repoRoot, "internal/archtest/baseline_test.json")
+	freezePath := filepath.Join(repoRoot, "internal/archtest/freeze_baseline.json")
 
 	if len(cfg.goFiles) > 0 {
 		runSingleFileCheck(opts, cfg.goFiles)
@@ -45,11 +44,11 @@ func main() {
 
 	switch cfg.mode {
 	case "freeze":
-		runFreeze(opts, baselinePath, testBaselinePath)
+		runFreeze(opts, freezePath)
 	case "strict":
 		runStrict(opts)
 	default:
-		runCheck(opts, baselinePath, testBaselinePath)
+		runCheck(opts, freezePath)
 	}
 }
 
@@ -96,31 +95,36 @@ func modeFlag(mode string) string {
 
 // runFreeze 全仓扫描并重建生产/测试 baseline。
 // 该模式会写 baseline 文件，只应在明确更新守卫基线时使用。
-func runFreeze(opts archtest.CheckOptions, baselinePath, testBaselinePath string) {
+func runFreeze(opts archtest.CheckOptions, freezePath string) {
 	fmt.Println("🔒  代码守卫: freeze 模式 — 建立 baseline")
-	bl := archtest.FreezeBaseline(opts)
-	if err := archtest.SaveBaseline(baselinePath, bl); err != nil {
-		fmt.Fprintf(os.Stderr, "❌  保存 baseline 失败: %v\n", err)
+	freeze, err := archtest.FreezeGuardState(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  生成统一冻结失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅  生产 baseline — %d 个文件已冻结\n", len(bl))
-
-	testBL := archtest.FreezeTestBaseline(opts)
-	if err := archtest.SaveBaseline(testBaselinePath, testBL); err != nil {
-		fmt.Fprintf(os.Stderr, "❌  保存 test baseline 失败: %v\n", err)
+	if err := archtest.SaveGuardFreeze(freezePath, freeze); err != nil {
+		fmt.Fprintf(os.Stderr, "❌  保存统一冻结失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅  测试 baseline — %d 个文件已冻结\n", len(testBL))
+	fmt.Printf("✅  统一冻结 — 生产 %d 个文件，测试 %d 个文件，priority SSA %d 条违规已冻结\n",
+		len(freeze.Metrics.Production), len(freeze.Metrics.Tests), len(freeze.PrioritySSA))
 }
 
 // runStrict 不使用 baseline 进行全量检查，适合验证新规则当前是否全仓通过。
 func runStrict(opts archtest.CheckOptions) {
 	fmt.Println("🔍  代码守卫: strict 模式")
-	runFreezeRegistryAutoRepair(opts)
 	violations := archtest.CheckAll(opts)
 	printThresholds()
 	if len(violations) > 0 {
 		reportAndExit("strict", violations)
+	}
+	priorityViolations, err := archtest.CollectPrioritySSAViolations(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  扫描 priority SSA 违规失败: %v\n", err)
+		os.Exit(1)
+	}
+	if len(priorityViolations) > 0 {
+		reportPrioritySSAViolationsAndExit("priority SSA strict 违规", priorityViolations)
 	}
 	failIfGuardGeneratedFilesDrifted(opts)
 	fmt.Println("✅  strict 模式全量通过")
@@ -141,8 +145,7 @@ func runSingleFileCheck(opts archtest.CheckOptions, goFiles []string) {
 }
 
 // runCheck 执行默认棘轮模式：先检查生产违规，再分别校验和收缩生产/测试 baseline。
-func runCheck(opts archtest.CheckOptions, blPath, testBLPath string) {
-	runFreezeRegistryAutoRepair(opts)
+func runCheck(opts archtest.CheckOptions, freezePath string) {
 	violations := archtest.CheckAll(opts)
 	printThresholds()
 
@@ -151,9 +154,7 @@ func runCheck(opts archtest.CheckOptions, blPath, testBLPath string) {
 		reportAndExit("生产文件", prodViolations)
 	}
 
-	root := resolveRoot(opts)
-	runRatchetPhase("生产", blPath, opts, root, false)
-	runRatchetPhase("测试", testBLPath, opts, root, true)
+	runUnifiedFreezePhase(freezePath, opts)
 	failIfGuardGeneratedFilesDrifted(opts)
 	printPassSummary()
 }
@@ -187,17 +188,36 @@ func reportAndExit(label string, vs []archtest.Violation) {
 	os.Exit(1)
 }
 
-// runRatchetPhase 运行单个 baseline 文件的棘轮校验和自动收缩。
-func runRatchetPhase(label, blPath string, opts archtest.CheckOptions, root string, testsOnly bool) {
-	blInfo, err := archtest.LoadBaseline(blPath)
+// reportPrioritySSAViolationsAndExit 输出 SSA 规则违规并提示显式刷新冻结。
+func reportPrioritySSAViolationsAndExit(label string, vs []archtest.PrioritySSAViolation) {
+	fmt.Fprintf(os.Stderr, "\n❌  %s (%d):\n\n", label, len(vs))
+	for _, v := range vs {
+		fmt.Fprintln(os.Stderr, "  •", v.String())
+	}
+	fmt.Fprintln(os.Stderr, "\n确认真阳性后请修复；确认接受当前债务时运行: go run ./scripts/code_size_guard.go --freeze")
+	fmt.Fprintln(os.Stderr)
+	os.Exit(1)
+}
+
+// runUnifiedFreezePhase 对统一冻结文件执行新增拦截和自动毕业。
+func runUnifiedFreezePhase(freezePath string, opts archtest.CheckOptions) {
+	info, err := archtest.LoadGuardFreeze(freezePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  加载 %s baseline 失败: %v\n", label, err)
+		fmt.Fprintf(os.Stderr, "❌  加载统一冻结失败: %v\n", err)
 		os.Exit(1)
 	}
-	phaseOpts := opts
-	phaseOpts.BaselineTestsOnly = testsOnly
-	checkRatchetResult(label, phaseOpts, blInfo.Data)
-	shrinkAndSave(label, blPath, blInfo.Data, phaseOpts, root, testsOnly)
+	root := resolveRoot(opts)
+	freeze := info.Data
+	changed := false
+	freeze.Metrics.Production, changed = runMetricFreezePhase("生产", freeze.Metrics.Production, opts, root, false, changed)
+	freeze.Metrics.Tests, changed = runMetricFreezePhase("测试", freeze.Metrics.Tests, opts, root, true, changed)
+	priorityChanged := runPrioritySSAFreezePhase(&freeze, opts)
+	if changed || priorityChanged {
+		if err := archtest.SaveGuardFreeze(freezePath, freeze); err != nil {
+			fmt.Fprintf(os.Stderr, "❌  保存统一冻结收缩失败: %v\n", err)
+			os.Exit(1)
+		}
+	}
 }
 
 // checkRatchetResult 比对当前度量与 baseline，发现恶化立即退出。
@@ -218,11 +238,21 @@ func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Ba
 	os.Exit(1)
 }
 
-// shrinkAndSave 删除或收紧已改善的 baseline 项，并在有变化时写回文件。
-func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.CheckOptions, root string, testsOnly bool) {
+// runMetricFreezePhase 对统一冻结里的一个 metrics 分区做棘轮校验和自动收缩。
+func runMetricFreezePhase(
+	label string,
+	bl archtest.Baseline,
+	opts archtest.CheckOptions,
+	root string,
+	testsOnly bool,
+	changed bool,
+) (archtest.Baseline, bool) {
+	phaseOpts := opts
+	phaseOpts.BaselineTestsOnly = testsOnly
+	checkRatchetResult(label, phaseOpts, bl)
 	fileSet, err := buildFileSet(root, opts, testsOnly)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  收集 %s baseline 文件集合失败: %v\n", label, err)
+		fmt.Fprintf(os.Stderr, "❌  收集 %s 冻结文件集合失败: %v\n", label, err)
 		os.Exit(1)
 	}
 	measure := func(rel string) archtest.FileMetrics {
@@ -230,27 +260,32 @@ func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.Che
 	}
 	newBL, stats := archtest.ShrinkBaseline(bl, fileSet, measure)
 	if stats.Changed() {
-		if err := archtest.SaveBaseline(blPath, newBL); err != nil {
-			fmt.Fprintf(os.Stderr, "❌  保存收缩 %s baseline 失败: %v\n", label, err)
-			os.Exit(1)
-		} else {
-			fmt.Printf("🧹  %s baseline 收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
-				label, stats.Shrunk, stats.Graduated, stats.Removed)
-		}
+		changed = true
+		fmt.Printf("🧹  %s 冻结收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
+			label, stats.Shrunk, stats.Graduated, stats.Removed)
 	}
-	fmt.Printf("📊  %s baseline 棘轮通过 — %d 个文件冻结中\n", label, len(newBL))
+	fmt.Printf("📊  %s 冻结棘轮通过 — %d 个文件冻结中\n", label, len(newBL))
+	return newBL, changed
 }
 
-// runFreezeRegistryAutoRepair 执行 freeze registry 自动修复，失败时终止守卫。
-func runFreezeRegistryAutoRepair(opts archtest.CheckOptions) {
-	fixes, err := archtest.AutoRepairFreezeRegistry(opts)
+// runPrioritySSAFreezePhase 对 priority SSA 分区做新增拦截和自动毕业。
+func runPrioritySSAFreezePhase(freeze *archtest.GuardFreeze, opts archtest.CheckOptions) bool {
+	result, err := archtest.CheckPrioritySSAWithBaseline(opts, freeze.PrioritySSA)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  auto-fix freeze registry 失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "❌  扫描 priority SSA 违规失败: %v\n", err)
 		os.Exit(1)
 	}
-	for _, fix := range fixes {
-		fmt.Printf("🧹  %s\n", fix.String())
+	if len(result.New) > 0 {
+		reportPrioritySSAViolationsAndExit("priority SSA 新增违规", result.New)
 	}
+	if len(result.Stale) == 0 {
+		fmt.Printf("📊  priority SSA 冻结检查通过 — %d 条违规冻结中\n", len(result.Current))
+		return false
+	}
+	freeze.PrioritySSA = archtest.PrioritySSABaselineFromCurrent(result)
+	fmt.Printf("🧹  priority SSA 冻结收缩 — 清理 %d\n", len(result.Stale))
+	fmt.Printf("📊  priority SSA 冻结检查通过 — %d 条违规冻结中\n", len(result.Current))
+	return true
 }
 
 // failIfGuardGeneratedFilesDrifted 让 hook/CI 守卫在自动修复 baseline 或 freeze 后失败。
@@ -261,9 +296,7 @@ func failIfGuardGeneratedFilesDrifted(opts archtest.CheckOptions) {
 	}
 	repoRoot := resolveRoot(opts)
 	paths := []string{
-		"internal/archtest/baseline.json",
-		"internal/archtest/baseline_test.json",
-		"internal/archtest/freeze_registry.go",
+		"internal/archtest/freeze_baseline.json",
 	}
 	args := append([]string{"-C", repoRoot, "diff", "--exit-code", "--"}, paths...)
 	cmd := exec.Command("git", args...)

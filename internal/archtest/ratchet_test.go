@@ -13,9 +13,7 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	assertGuardModeFileContains(t, root, "scripts/code_size_guard.go",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
 		"failIfGuardGeneratedFilesDrifted",
-		"internal/archtest/baseline.json",
-		"internal/archtest/baseline_test.json",
-		"internal/archtest/freeze_registry.go",
+		"internal/archtest/freeze_baseline.json",
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",

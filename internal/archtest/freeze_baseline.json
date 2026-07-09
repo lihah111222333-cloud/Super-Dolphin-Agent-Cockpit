@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "metrics": {
+    "production": {},
+    "tests": {}
+  },
+  "priority_ssa": {
+    "cmd/mcp-lsp/tools/factory.go:397:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-lsp/tools/factory.go",
+      "line": 397,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-lsp/tools/factory.go:398:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-lsp/tools/factory.go",
+      "line": 398,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-lsp/tools/factory.go:399:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-lsp/tools/factory.go",
+      "line": 399,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-lsp/tools/factory.go:400:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-lsp/tools/factory.go",
+      "line": 400,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-lsp/tools/factory.go:401:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-lsp/tools/factory.go",
+      "line": 401,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-lsp/tools/factory.go:402:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-lsp/tools/factory.go",
+      "line": 402,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-orch/fx.go:179:priority_ssa_wide_port:type conversion in buildOrchestrationOptions uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/fx.go",
+      "line": 179,
+      "detail": "type conversion in buildOrchestrationOptions uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/dispatch_retry_alert.go:19:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
+      "line": 19,
+      "detail": "field store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/dispatch_retry_alert.go:24:priority_ssa_wide_port:parameter store in NewDispatchRetryAlertNotifier uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
+      "line": 24,
+      "detail": "parameter store in NewDispatchRetryAlertNotifier uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/dispatch_retry_alert.go:28:priority_ssa_wide_port:storage propagation in NewDispatchRetryAlertNotifier uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
+      "line": 28,
+      "detail": "storage propagation in NewDispatchRetryAlertNotifier uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/dispatch_retry_alert.go:32:priority_ssa_wide_port:parameter store in provideDispatchRetryAlertSink uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
+      "line": 32,
+      "detail": "parameter store in provideDispatchRetryAlertSink uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/subscribers.go:57:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/subscribers.go",
+      "line": 57,
+      "detail": "field store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/subscribers.go:78:priority_ssa_wide_port:parameter store in NewDAGNotifier uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/subscribers.go",
+      "line": 78,
+      "detail": "parameter store in NewDAGNotifier uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify/subscribers.go:85:priority_ssa_wide_port:storage propagation in NewDAGNotifier uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify/subscribers.go",
+      "line": 85,
+      "detail": "storage propagation in NewDAGNotifier uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/notify:0:priority_ssa_wide_port:type conversion in init uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/notify",
+      "line": 0,
+      "detail": "type conversion in init uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/dag_subscriber_module.go:21:priority_ssa_wide_port:parameter store in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/dag_subscriber_module.go",
+      "line": 21,
+      "detail": "parameter store in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/dag_subscriber_module.go:21:priority_ssa_wide_port:type conversion in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/dag_subscriber_module.go",
+      "line": 21,
+      "detail": "type conversion in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/node_router.go:27:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/node_router.go",
+      "line": 27,
+      "detail": "field store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/node_router.go:47:priority_ssa_wide_port:parameter store in NewNodeExecutorRouter uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/node_router.go",
+      "line": 47,
+      "detail": "parameter store in NewNodeExecutorRouter uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/node_router.go:58:priority_ssa_wide_port:storage propagation in NewNodeExecutorRouter uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/node_router.go",
+      "line": 58,
+      "detail": "storage propagation in NewNodeExecutorRouter uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/nodeexec/ops.go:115:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-orch/orchestration/nodeexec/ops.go",
+      "line": 115,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-orch/orchestration/retry_strategy.go:355:priority_ssa_wide_port:parameter store in listDispatcherNodesForRun uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/retry_strategy.go",
+      "line": 355,
+      "detail": "parameter store in listDispatcherNodesForRun uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/retry_strategy.go:355:priority_ssa_wide_port:type conversion in listDispatcherNodesForRun uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/retry_strategy.go",
+      "line": 355,
+      "detail": "type conversion in listDispatcherNodesForRun uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/service.go:302:priority_ssa_wide_port:field Store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/service.go",
+      "line": 302,
+      "detail": "field Store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/stop_helper.go:239:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-orch/orchestration/stop_helper.go",
+      "line": 239,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-orch/orchestration/stop_helper.go:242:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "cmd/mcp-orch/orchestration/stop_helper.go",
+      "line": 242,
+      "detail": "error string match strings.Contains"
+    },
+    "cmd/mcp-orch/orchestration/wakeup_dispatcher.go:73:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeup_dispatcher.go",
+      "line": 73,
+      "detail": "field store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/wakeup_dispatcher.go:84:priority_ssa_wide_port:parameter store in NewWakeupDispatcher uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeup_dispatcher.go",
+      "line": 84,
+      "detail": "parameter store in NewWakeupDispatcher uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/wakeup_dispatcher.go:91:priority_ssa_wide_port:storage propagation in NewWakeupDispatcher uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeup_dispatcher.go",
+      "line": 91,
+      "detail": "storage propagation in NewWakeupDispatcher uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:145:priority_ssa_wide_port:field Store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
+      "line": 145,
+      "detail": "field Store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:48:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
+      "line": 48,
+      "detail": "field store uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:56:priority_ssa_wide_port:parameter store in NewWakeupReclaimer uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
+      "line": 56,
+      "detail": "parameter store in NewWakeupReclaimer uses broad port taskdag.Store"
+    },
+    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:68:priority_ssa_wide_port:storage propagation in NewWakeupReclaimer uses broad port taskdag.Store": {
+      "rule": "priority_ssa_wide_port",
+      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
+      "line": 68,
+      "detail": "storage propagation in NewWakeupReclaimer uses broad port taskdag.Store"
+    },
+    "internal/module/memory/ui_rpc.go:484:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/module/memory/ui_rpc.go",
+      "line": 484,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/module/skill/summarysuggest/execute.go:51:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/module/skill/summarysuggest/execute.go",
+      "line": 51,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/module/skill/summarysuggest/execute.go:52:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/module/skill/summarysuggest/execute.go",
+      "line": 52,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/db/errors.go:95:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/db/errors.go",
+      "line": 95,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/db/errors.go:96:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/db/errors.go",
+      "line": 96,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/db/sqlite_helpers.go:45:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/db/sqlite_helpers.go",
+      "line": 45,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/db/sqlite_helpers.go:46:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/db/sqlite_helpers.go",
+      "line": 46,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/db/sqlite_helpers.go:47:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/db/sqlite_helpers.go",
+      "line": 47,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/db/sqlite_helpers.go:48:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/db/sqlite_helpers.go",
+      "line": 48,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/difftracker/git_ops.go:183:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/difftracker/git_ops.go",
+      "line": 183,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/difftracker/git_ops.go:184:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/difftracker/git_ops.go",
+      "line": 184,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/difftracker/git_ops.go:88:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/difftracker/git_ops.go",
+      "line": 88,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/platform/toolbridge/memory_write_tool.go:117:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/platform/toolbridge/memory_write_tool.go",
+      "line": 117,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/provider/codexapp/transport_process.go:230:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/provider/codexapp/transport_process.go",
+      "line": 230,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/provider/dreamexec/dreamexec.go:157:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/provider/dreamexec/dreamexec.go",
+      "line": 157,
+      "detail": "error string match strings.Contains"
+    },
+    "internal/provider/dreamexec/dreamexec.go:158:priority_ssa_error_string:error string match strings.Contains": {
+      "rule": "priority_ssa_error_string",
+      "file": "internal/provider/dreamexec/dreamexec.go",
+      "line": 158,
+      "detail": "error string match strings.Contains"
+    }
+  }
+}

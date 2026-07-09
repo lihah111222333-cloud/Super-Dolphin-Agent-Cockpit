@@ -79,6 +79,7 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

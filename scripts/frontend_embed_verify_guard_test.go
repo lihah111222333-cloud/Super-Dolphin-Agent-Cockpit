@@ -178,7 +178,7 @@ func TestCodeSizeGuardDefaultAndStrictEnableFunctionCommentGuard(t *testing.T) {
 	assertScriptContains(t, guard, "EnforceFuncComments: true")
 	assertScriptOrder(t, guard, "EnforceFuncComments: true", "switch cfg.mode")
 	assertScriptContains(t, guard, "runStrict(opts)")
-	assertScriptContains(t, guard, "runCheck(opts, baselinePath, testBaselinePath)")
+	assertScriptContains(t, guard, "runCheck(opts, freezePath)")
 }
 
 func TestValidateRiskEvidenceRejectsMissingExtraAndMisfiledIDs(t *testing.T) {

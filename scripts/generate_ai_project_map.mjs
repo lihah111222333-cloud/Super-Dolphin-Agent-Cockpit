@@ -222,7 +222,7 @@ const QUICK_ROUTES = [
   ['修改控制面/bootstrap', 'internal/platform/mcpcontrol/', 'internal/mcpserver/common/bootstrap/', 'peer register bootstrap hooks'],
   ['修改持久化/SQL', 'internal/store/', 'sql/queries/', 'store sqlc migration queries'],
   ['修改代码地图', 'docs/doc/codemap/', 'scripts/codemap_index.go', 'codemap ai-index make codemap-refresh'],
-  ['修改架构守卫', 'internal/archtest/', 'internal/archtest/baseline.json', 'guard baseline ratchet freeze'],
+  ['修改架构守卫', 'internal/archtest/', 'internal/archtest/freeze_baseline.json', 'guard baseline ratchet freeze'],
 ];
 
 const runtime = {
