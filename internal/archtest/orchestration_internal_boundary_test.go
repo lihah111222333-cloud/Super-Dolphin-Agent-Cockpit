@@ -301,20 +301,21 @@ func orchestrationInternalBoundaryFullServiceTypeFieldViolations(fset *token.Fil
 	}
 	var violations []string
 	for _, field := range st.Fields.List {
-		if _, ok := orchestrationInternalBoundaryServiceStar(field.Type); !ok {
-			continue
-		}
-		violations = append(violations, orchestrationInternalBoundaryFullServiceFieldViolation(fset, field, relPath, typeSpec.Name.Name))
+		violations = append(violations, orchestrationInternalBoundaryFullServiceFieldViolationsForField(fset, field, relPath, typeSpec.Name.Name)...)
 	}
 	return violations
 }
 
-func orchestrationInternalBoundaryFullServiceFieldViolation(fset *token.FileSet, field *ast.Field, relPath, typeName string) string {
+func orchestrationInternalBoundaryFullServiceFieldViolationsForField(fset *token.FileSet, field *ast.Field, relPath, typeName string) []string {
 	fieldName := "<embedded>"
 	if len(field.Names) > 0 {
 		fieldName = field.Names[0].Name
 	}
-	return fmt.Sprintf("%s:%d %s.%s must not hold *service; use a narrow port/controller owner", relPath, fset.Position(field.Pos()).Line, typeName, fieldName)
+	var violations []string
+	for _, star := range orchestrationInternalBoundaryServiceStarsInExpr(field.Type) {
+		violations = append(violations, fmt.Sprintf("%s:%d %s.%s must not reference *service in its field type; use a narrow port/controller owner", relPath, fset.Position(star.Pos()).Line, typeName, fieldName))
+	}
+	return violations
 }
 
 func orchestrationInternalBoundaryFullServiceProviderParamViolations(fset *token.FileSet, file *ast.File, relPath string) []string {
@@ -345,7 +346,8 @@ func orchestrationInternalBoundaryFullServiceFieldOwner(typeName string, st *ast
 	if strings.Contains(lower, "controller") ||
 		strings.Contains(lower, "adapter") ||
 		strings.Contains(lower, "actor") ||
-		strings.Contains(lower, "consumer") {
+		strings.Contains(lower, "consumer") ||
+		strings.Contains(lower, "kind") {
 		return true
 	}
 	return orchestrationInternalBoundaryStructEmbedsFxIn(st)
@@ -404,6 +406,18 @@ func orchestrationInternalBoundaryServiceStarNode(node ast.Node) (*ast.StarExpr,
 		return nil, false
 	}
 	return orchestrationInternalBoundaryServiceStar(star)
+}
+
+func orchestrationInternalBoundaryServiceStarsInExpr(expr ast.Expr) []*ast.StarExpr {
+	var stars []*ast.StarExpr
+	ast.Inspect(expr, func(node ast.Node) bool {
+		star, ok := orchestrationInternalBoundaryServiceStarNode(node)
+		if ok {
+			stars = append(stars, star)
+		}
+		return true
+	})
+	return stars
 }
 
 func orchestrationInternalBoundaryServiceStar(expr ast.Expr) (*ast.StarExpr, bool) {

@@ -22,11 +22,16 @@ type activeTurnFinalizationKind struct {
 	clearError bool
 }
 
+type turnRecoveryOwner interface {
+	recoverTurnCompletionStateLocked(context.Context, *agentRuntime, bool) error
+	recoverTurnInterruptionStateLocked(context.Context, *agentRuntime) error
+}
+
 type activeTurnRecoveryKind struct {
 	recoveredTrigger string
 	errorText        string
 	clearError       bool
-	recover          func(context.Context, *service, *agentRuntime) error
+	recover          func(context.Context, turnRecoveryOwner, *agentRuntime) error
 }
 
 const (

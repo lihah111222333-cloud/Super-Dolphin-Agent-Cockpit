@@ -339,8 +339,8 @@ func (s *service) forceIdleAfterCompletionError(
 			recoveredTrigger: string(completionRecoveryTrigger(success)),
 			errorText:        errMsg,
 			clearError:       success,
-			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
-				return svc.recoverTurnCompletionStateLocked(ctx, agent, success)
+			recover: func(ctx context.Context, owner turnRecoveryOwner, agent *agentRuntime) error {
+				return owner.recoverTurnCompletionStateLocked(ctx, agent, success)
 			},
 		})
 		return recoverErr
@@ -351,14 +351,15 @@ func (s *service) forceIdleAfterCompletionError(
 // forceIdleAfterProviderTurnCompletion 在确认 agent/thread 匹配后落 report 并强制收口当前 turn。
 func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error) {
 	recovered := false
-	if s == nil || s.reports == nil {
-		return false, errors.New("report controller is not configured")
+	reporter, err := s.configuredReportApplier()
+	if err != nil {
+		return false, err
 	}
-	err := s.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err = s.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		if !canRecoverProviderTurnCompletion(agent, ev) {
 			return errTurnNotActive
 		}
-		if _, err := s.reports.applyReportEventLocked(
+		if _, err := reporter.applyReportEventLocked(
 			ctx,
 			agent,
 			"turn/completed",
@@ -372,8 +373,8 @@ func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev t
 			recoveredTrigger: string(completionRecoveryTrigger(ev.Success)),
 			errorText:        ev.Error,
 			clearError:       ev.Success,
-			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
-				return svc.recoverTurnCompletionStateLocked(ctx, agent, ev.Success)
+			recover: func(ctx context.Context, owner turnRecoveryOwner, agent *agentRuntime) error {
+				return owner.recoverTurnCompletionStateLocked(ctx, agent, ev.Success)
 			},
 		})
 		return recoverErr
@@ -394,8 +395,8 @@ func (s *service) forceIdleAfterInterruptionError(
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
 			recoveredTrigger: string(agentdto.TriggerTurnAborted),
 			errorText:        reason,
-			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
-				return svc.recoverTurnInterruptionStateLocked(ctx, agent)
+			recover: func(ctx context.Context, owner turnRecoveryOwner, agent *agentRuntime) error {
+				return owner.recoverTurnInterruptionStateLocked(ctx, agent)
 			},
 		})
 		return recoverErr
