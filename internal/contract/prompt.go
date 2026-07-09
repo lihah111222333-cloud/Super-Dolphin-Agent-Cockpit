@@ -722,7 +722,7 @@ const (
 	AgentTypePlan    AgentType = "Plan"
 )
 
-var readOnlyAgentDeniedTools = []string{
+var readOnlyNonOrchestrationDeniedTools = []string{
 	"patch_edit", "shared_file_write", "memory_write",
 	"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
 	"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
@@ -731,14 +731,19 @@ var readOnlyAgentDeniedTools = []string{
 	"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
 	"multi_agent", "multi_tool_use.parallel", "spawn_agent", "send_input",
 	"resume_agent", "wait_agent", "close_agent",
+	"connect_tool_source",
+}
+
+// ReadOnlyNonOrchestrationDeniedTools 返回不来自 mcp-orch orchestration registry 的只读禁用工具名。
+func ReadOnlyNonOrchestrationDeniedTools() []string {
+	return append([]string(nil), readOnlyNonOrchestrationDeniedTools...)
 }
 
 // ReadOnlyAgentDeniedTools 返回只读/规划子 agent 必须禁用的精确工具名。
 // 返回副本避免调用方修改共享 deny list，launch env 和 reviewer preset 共用这份名单。
 func ReadOnlyAgentDeniedTools() []string {
-	denied := append([]string(nil), readOnlyAgentDeniedTools...)
+	denied := ReadOnlyNonOrchestrationDeniedTools()
 	denied = append(denied, OrchestrationToolDenylist()...)
-	denied = append(denied, "connect_tool_source")
 	return denied
 }
 

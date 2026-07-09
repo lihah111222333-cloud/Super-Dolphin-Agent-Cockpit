@@ -76,3 +76,23 @@ func TestRegistryLookupRejectsLegacyOrchestrationAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestOrchestrationRegistryDefinitionsStayInReadOnlyDenylist(t *testing.T) {
+	canonical := make(map[string]bool)
+	for _, name := range contract.OrchestrationToolDenylist() {
+		canonical[name] = true
+	}
+	denied := make(map[string]bool)
+	for _, name := range contract.ReadOnlyAgentDeniedTools() {
+		denied[name] = true
+	}
+
+	for _, def := range orchestrationToolDefinitions(ToolPorts{}) {
+		if !canonical[def.Name] {
+			t.Fatalf("orchestration tool definition %q missing from contract.OrchestrationToolDenylist()", def.Name)
+		}
+		if !denied[def.Name] {
+			t.Fatalf("orchestration tool definition %q missing from contract.ReadOnlyAgentDeniedTools()", def.Name)
+		}
+	}
+}
