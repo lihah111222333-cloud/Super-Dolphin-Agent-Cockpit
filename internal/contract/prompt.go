@@ -724,6 +724,7 @@ const (
 
 var readOnlyNonOrchestrationDeniedTools = []string{
 	"patch_edit", "shared_file_write", "memory_write",
+	"tts_generate", "av_merge", "video_with_audio",
 	"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
 	"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
 	"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
