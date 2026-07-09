@@ -1,4 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react'; import { Radio, RadioGroup } from 'react-aria-components'; import { CheckCircle2, File, FileText } from 'lucide-react'; import {
+import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react'; import { Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
+import { CheckCircle2, File, FileText } from 'lucide-react'; import {
 commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draftPromptIntent, dryRunPromptIntent, getDashboardPrompts, getPersonalizationProfile, getPreference, getPrompt, listPromptAssets, savePersonalizationProfile, setPreference, writePrompt,
 } from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js'; import './PromptPageView.css';
@@ -10,6 +11,15 @@ missing_recall_topic: '资料需要有一个可检索主题。', missing_recall_
 missing_source_fact_coverage: '原文里的关键要点没有覆盖完整，建议按缺口重新整理。', source_fact_not_applied: '原文里的关键要点没有写入保存内容。', external_system_prompt: '这是外部模型或产品的系统提示词，不能直接作为默认规则启用。', external_system_prompt_source: '这是外部模型或产品的系统提示词，保存前需要确认来源和用途。', identity_pollution: '内容里包含模型或供应商身份声明，不能写入专家能力或默认规则。',
 tool_protocol_pollution: '内容里包含外部工具协议，不能写入专家能力或默认规则。', overbroad_scope: '适用范围太宽，建议收窄到具体任务或问题。', default_rule_conflict: '和已有默认规则可能重复或冲突，保存前需要确认。', project_prompt_duplicate: '当前项目已有相似提示词，建议先确认是否更新已有内容。', builtin_prompt_duplicate: '系统已内置相似能力，不需要再保存一份。',
 duplicate_recall_topic: '当前项目已有同名资料主题，请更新已有资料或换一个更具体的主题。', });
+const promptListItemSchema = z.object({
+id: z.unknown().optional(), prompt_key: z.unknown().optional(), promptKey: z.unknown().optional(), draft_key: z.unknown().optional(), draftKey: z.unknown().optional(),
+name: z.unknown().optional(), title: z.unknown().optional(), content: z.unknown().optional(), prompt_text: z.unknown().optional(), promptText: z.unknown().optional(), hint: z.unknown().optional(),
+description: z.unknown().optional(), summary: z.unknown().optional(), when_to_use: z.unknown().optional(), whenToUse: z.unknown().optional(), tags: z.unknown().optional(), Tags: z.unknown().optional(),
+assetType: z.unknown().optional(), asset_type: z.unknown().optional(), kind: z.unknown().optional(), prompt_kind: z.unknown().optional(), agent_key: z.unknown().optional(), agentKey: z.unknown().optional(), agentType: z.unknown().optional(),
+scope: z.unknown().optional(), Scope: z.unknown().optional(), state: z.unknown().optional(), status: z.unknown().optional(), draft_status: z.unknown().optional(), draftStatus: z.unknown().optional(),
+priority: z.unknown().optional(), enabled: z.unknown().optional(), issues: z.unknown().optional(), card: z.unknown().optional(), isDefault: z.unknown().optional(), is_default: z.unknown().optional(), match_when: z.unknown().optional(), matchWhen: z.unknown().optional(),
+}).passthrough();
+const promptListResponseSchema = z.object({ prompts: z.array(promptListItemSchema) }).passthrough();
 function textValue(value) { return value === null || value === undefined ? '' : value.toString().trim(); }
 function textValues(values) { if (!Array.isArray(values)) return []; const result = []; for (const value of values) { const text = textValue(value); if (text) result.push(text); } return result; }
 function optionalPromptCwd(value) { const cwd = textValue(value); return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : ''; }
@@ -39,7 +49,7 @@ content: firstText(raw.content, raw.prompt_text, raw.promptText, raw.hint), desc
 priority: Number.isFinite(Number(raw.priority)) ? Number(raw.priority) : 0, enabled: raw.enabled === undefined ? true : Boolean(raw.enabled), scope: promptAssetScope(raw, tags), tags: cleanPromptTags(tags), assetType, state, draftKey, draftStatus,
 card: raw.card && typeof raw.card === 'object' ? raw.card : null, issues: Array.isArray(raw.issues) ? raw.issues : [], isDefault: Boolean(raw.isDefault || raw.is_default), matchWhen: raw.match_when ?? raw.matchWhen,
 }; item.isPendingDraft = state === 'pending_confirm' || Boolean(draftKey && draftStatus === 'ready_to_save'); item.preview = promptPreviewText(item); return item; }
-function normalizePromptList(response) { const items = Array.isArray(response?.prompts) ? response.prompts : []; const prompts = []; for (let index = 0; index < items.length; index += 1) {
+function normalizePromptList(response) { const items = promptListResponseSchema.parse(response).prompts; const prompts = []; for (let index = 0; index < items.length; index += 1) {
 const item = normalizePromptItem(items[index], index); if (item.id || item.name) prompts.push(item); } return prompts; }
 function promptBucket(item) { if (item.isPendingDraft) return 'pending'; return item.assetType === 'recall' || item.assetType === 'default_rule' ? item.assetType : 'expert'; }
 function canForceLaunchPrompt(item) { return promptBucket(item) === 'expert' && item.enabled !== false && !item.isPendingDraft; }

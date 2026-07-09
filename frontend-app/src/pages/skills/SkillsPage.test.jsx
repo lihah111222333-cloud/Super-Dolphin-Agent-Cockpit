@@ -416,25 +416,76 @@ describe('SkillsPage backend migration', () => {
     expect(within(getOverviewMetric(overview, '待处理冲突')).getByText('0')).toBeInTheDocument();
   });
 
-  it('fails fast when the skills dashboard omits required skill_file', async () => {
-    backend.getDashboardPage.mockResolvedValueOnce({
-      skills: [{
+  [
+    {
+      field: 'name',
+      skill: {
+        display_name: '后端',
+        dir: '/repo/app/.agent/skills/backend',
+        skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
+        description: '当你需要 Go 后端开发时使用。',
+        trigger_words: ['go'],
+        scope: 'project',
+      },
+    },
+    {
+      field: 'dir',
+      skill: {
+        name: 'backend',
+        display_name: '后端',
+        skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
+        description: '当你需要 Go 后端开发时使用。',
+        trigger_words: ['go'],
+        scope: 'project',
+      },
+    },
+    {
+      field: 'skill_file',
+      skill: {
         name: 'backend',
         display_name: '后端',
         dir: '/repo/app/.agent/skills/backend',
         description: '当你需要 Go 后端开发时使用。',
         trigger_words: ['go'],
         scope: 'project',
-      }],
+      },
+    },
+  ].forEach(({ field, skill }) => {
+    it(`fails fast when the skills dashboard omits required ${field}`, async () => {
+      backend.getDashboardPage.mockResolvedValueOnce({ skills: [skill] });
+
+      renderSkillsPage();
+      openSkillTools();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        `skills dashboard response item 0 is missing ${field}`,
+      );
+      expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
     });
+  });
+
+  it('fails fast when the skills dashboard skills field is not an array', async () => {
+    backend.getDashboardPage.mockResolvedValueOnce({ skills: {} });
 
     renderSkillsPage();
     openSkillTools();
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'skills dashboard response item 0 is missing skill_file',
+      'skills dashboard response skills must be an array',
     );
     expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
+  });
+
+  it('fails fast when the skill resolutions response has no items or conflicts array', async () => {
+    backend.listSkillResolutions.mockResolvedValueOnce({ total: 1 });
+
+    renderSkillsPage();
+    openSkillTools();
+
+    expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'skill resolutions response items must be an array',
+    );
   });
 
   it('does not report zero conflicts when conflict sync has not succeeded', async () => {
@@ -502,9 +553,9 @@ describe('SkillsPage backend migration', () => {
     expect(backend.writeSkill.mock.calls.at(-1)[0].content).toContain('description: "当你需要维护 Go 服务时使用。"');
   });
 
-  it('shows partial failure feedback when applying a skill resolution needs follow-up', async () => {
+  it('parses conflicts alias and shows partial failure feedback when applying a mirror resolution', async () => {
     backend.listSkillResolutions.mockResolvedValue({
-      items: [{
+      conflicts: [{
         conflict_id: 'conflict-1',
         kind: 'mirror_drift',
         name: 'backend',

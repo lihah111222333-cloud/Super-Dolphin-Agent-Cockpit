@@ -359,6 +359,43 @@ describe('PromptPageView backend wiring', () => {
     expect(screen.getByRole('button', { name: '查看' })).toBeInTheDocument();
   });
 
+  it('fails fast on malformed prompt-assets/list responses without readonly fallback', async () => {
+    backend.listPromptAssets.mockResolvedValueOnce({ prompts: {} });
+
+    renderPromptPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('加载提示词失败');
+    expect(backend.getDashboardPrompts).not.toHaveBeenCalled();
+    expect(screen.queryByText(/只读模式/)).not.toBeInTheDocument();
+  });
+
+  it('shows sync failure when readonly fallback dashboard prompts are malformed after fallback is selected', async () => {
+    const missingMethodError = new Error('method not found');
+    missingMethodError.code = -32601;
+    backend.listPromptAssets
+      .mockRejectedValueOnce(missingMethodError)
+      .mockRejectedValueOnce(missingMethodError);
+    backend.getDashboardPrompts
+      .mockResolvedValueOnce({
+        prompts: [{
+          id: 'legacy/prompt',
+          name: '旧提示词',
+          content: 'legacy readonly data',
+          tags: ['intent:expert'],
+        }],
+      })
+      .mockResolvedValueOnce({ prompts: {} });
+
+    renderPromptPage();
+
+    expect(await screen.findByText('旧提示词')).toBeInTheDocument();
+    window.dispatchEvent(new Event('focus'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据');
+    expect(screen.getByText('旧提示词')).toBeInTheDocument();
+    expect(screen.getByText(/只读模式/)).toBeInTheDocument();
+  });
+
   it('copies saved prompt content after reading the complete prompt body', async () => {
     backend.getPrompt.mockResolvedValueOnce({ prompt: { content: '完整提示词内容' } });
 
