@@ -78,10 +78,18 @@ type AgentBindingStore interface {
 // listPersistedAgentSnapshots 从持久化线程表恢复可展示的 agent 快照。
 // 同一 agent 只保留第一条快照，runtime 快照会在上层 merge 时覆盖动态字段。
 func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
-	if s == nil || s.agentThreads == nil {
+	if s == nil {
 		return nil, nil
 	}
-	threads, err := s.agentThreads.ListAll(ctx)
+	return listPersistedAgentSnapshotsFromStore(ctx, s.agentThreads)
+}
+
+// listPersistedAgentSnapshotsFromStore 从 thread store 恢复可展示快照，供 service 与 report fallback 共用。
+func listPersistedAgentSnapshotsFromStore(ctx context.Context, agentThreads AgentThreadStore) ([]AgentSnapshot, error) {
+	if agentThreads == nil {
+		return nil, nil
+	}
+	threads, err := agentThreads.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -104,16 +112,24 @@ func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnaps
 // persistedAgentSnapshot 按 agentID 或 threadID 查找持久化快照。
 // 先走 threadID 精确查询，失败后再列表扫描兼容旧绑定。
 func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
+	if s == nil {
+		return AgentSnapshot{}, fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	return persistedAgentSnapshotFromStore(ctx, s.agentThreads, agentID)
+}
+
+// persistedAgentSnapshotFromStore 按 agent_id 精确恢复持久化快照，禁止用 display name 误命中旧 report。
+func persistedAgentSnapshotFromStore(ctx context.Context, agentThreads AgentThreadStore, agentID string) (AgentSnapshot, error) {
 	agentID = strings.TrimSpace(agentID)
-	if s == nil || s.agentThreads == nil || agentID == "" {
+	if agentThreads == nil || agentID == "" {
 		return AgentSnapshot{}, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 	}
-	if snapshot, ok, err := s.persistedAgentSnapshotByThreadID(ctx, agentID); err != nil {
+	if snapshot, ok, err := persistedAgentSnapshotByThreadIDFromStore(ctx, agentThreads, agentID); err != nil {
 		return AgentSnapshot{}, err
 	} else if ok {
 		return snapshot, nil
 	}
-	if snapshot, ok, err := s.persistedAgentSnapshotByList(ctx, agentID); err != nil {
+	if snapshot, ok, err := persistedAgentSnapshotByListFromStore(ctx, agentThreads, agentID); err != nil {
 		return AgentSnapshot{}, err
 	} else if ok {
 		return snapshot, nil
@@ -121,10 +137,12 @@ func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (A
 	return AgentSnapshot{}, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 }
 
-// persistedAgentSnapshotByThreadID 通过持久化 thread_id 查找并补齐 report 信息。
-// agentID 不匹配时返回 ok=false，让调用方继续兼容路径。
-func (s *service) persistedAgentSnapshotByThreadID(ctx context.Context, agentID string) (AgentSnapshot, bool, error) {
-	thread, err := s.agentThreads.GetByThreadID(ctx, agentID)
+// persistedAgentSnapshotByThreadIDFromStore 先用 thread_id 快路径查找，agent_id 不匹配时交给列表兼容路径。
+func persistedAgentSnapshotByThreadIDFromStore(ctx context.Context, agentThreads AgentThreadStore, agentID string) (AgentSnapshot, bool, error) {
+	if agentThreads == nil {
+		return AgentSnapshot{}, false, nil
+	}
+	thread, err := agentThreads.GetByThreadID(ctx, agentID)
 	if err != nil {
 		if errors.Is(err, errAgentNotFound) || platformdb.IsNotFound(err) {
 			return AgentSnapshot{}, false, nil
@@ -142,8 +160,12 @@ func (s *service) persistedAgentSnapshotByThreadID(ctx context.Context, agentID 
 	return AgentSnapshot{}, false, nil
 }
 
-func (s *service) persistedAgentSnapshotByList(ctx context.Context, agentID string) (AgentSnapshot, bool, error) {
-	threads, listErr := s.agentThreads.ListAll(ctx)
+// persistedAgentSnapshotByListFromStore 扫描 thread store 兼容旧绑定，只接受 agent_id 相同的快照。
+func persistedAgentSnapshotByListFromStore(ctx context.Context, agentThreads AgentThreadStore, agentID string) (AgentSnapshot, bool, error) {
+	if agentThreads == nil {
+		return AgentSnapshot{}, false, nil
+	}
+	threads, listErr := agentThreads.ListAll(ctx)
 	if listErr != nil {
 		return AgentSnapshot{}, false, listErr
 	}

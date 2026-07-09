@@ -518,7 +518,7 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 		ctx = context.Background()
 	}
 	eventCtx := withEventTime(ctx, ev.Timestamp)
-	_, err := s.HandleReportEvent(eventCtx, ReportEvent{
+	_, err := s.reportController().HandleReportEvent(eventCtx, ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
 		Report:    turnCompletedReportText(ev),
 		EventType: eventsurface.MethodTurnCompleted,
@@ -544,7 +544,7 @@ func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.Tu
 	if reason != "" {
 		report = "turn failed: " + reason
 	}
-	if _, err := s.HandleReportEvent(eventCtx, ReportEvent{AgentID: strings.TrimSpace(ev.AgentID), Report: report, EventType: "turn.aborted", EventData: mustMarshalHookReportEvent(ev)}); err != nil && !errors.Is(err, errAgentNotFound) {
+	if _, err := s.reportController().HandleReportEvent(eventCtx, ReportEvent{AgentID: strings.TrimSpace(ev.AgentID), Report: report, EventType: "turn.aborted", EventData: mustMarshalHookReportEvent(ev)}); err != nil && !errors.Is(err, errAgentNotFound) {
 		pkglogger.Warn("orchestration: remote turn interruption report failed", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID), "turn_id", strings.TrimSpace(ev.TurnID), "error", err)
 	}
 	lifecycle := ev

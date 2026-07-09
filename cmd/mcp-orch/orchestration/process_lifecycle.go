@@ -130,7 +130,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		emitEvent(s.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, agent.stopReason)
 	}
-	s.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
+	s.reportController().setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
 	clearAgentStopReasonLocked(agent)
 	registry.unlock()
 	s.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)

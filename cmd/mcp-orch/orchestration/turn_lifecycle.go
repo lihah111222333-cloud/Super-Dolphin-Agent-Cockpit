@@ -324,7 +324,7 @@ func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev t
 		if !canRecoverProviderTurnCompletion(agent, ev) {
 			return errTurnNotActive
 		}
-		if _, err := s.applyReportEventLocked(
+		if _, err := s.reportController().applyReportEventLocked(
 			ctx,
 			agent,
 			"turn/completed",

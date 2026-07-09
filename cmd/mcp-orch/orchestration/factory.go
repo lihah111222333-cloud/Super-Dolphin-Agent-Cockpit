@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -251,16 +250,6 @@ func resetRuntimeAfterProcessExitLocked(agent *agentRuntime, recoverViaLauncher 
 	}
 }
 
-func (s *service) setProcessExitFallbackReportLocked(ctx context.Context, agent *agentRuntime, launchSeq uint64, shouldRecover bool) {
-	if shouldRecover {
-		return
-	}
-	if fallbackErr := s.setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
-		s.logger.Warn("orchestration: process exit fallback report persist failed",
-			"agent_id", agent.id, "launch_seq", launchSeq, "error", fallbackErr)
-	}
-}
-
 func (s *service) recoverAfterProcessExit(ctx context.Context, agentID string, launchSeq uint64, shouldRecover bool) {
 	if !shouldRecover {
 		return
@@ -301,48 +290,6 @@ func applyLaunchRequestLocked(agent *agentRuntime, req LaunchRequest) {
 	agent.providerSource = "inferred"
 }
 
-func (s *service) setNoReportFallbackLocked(ctx context.Context, agent *agentRuntime) error {
-	if agent == nil || strings.TrimSpace(agent.lastReport) != "" {
-		return nil
-	}
-	setReportLocked(ctx, agent, noReportFallbackText(string(agent.state), agent.lastError))
-	if err := s.persistAgentReportFileAndGC(ctx, agentReportFileRecordFromRuntime(agent)); err != nil {
-		return err
-	}
-	drainReportRequestersLocked(ctx, agent)
-	return nil
-}
-
-// applyReportEventLocked 应用 report 事件，并在终态缺报告时生成兜底说明。
-func (s *service) applyReportEventLocked(ctx context.Context, agent *agentRuntime, eventType string, data json.RawMessage, report string) (ReportEventResult, error) {
-	terminal := isTerminalReportEvent(eventType, data)
-	if report == "" && terminal && strings.TrimSpace(agent.lastReport) == "" {
-		report = noReportFallbackText(string(agent.state), agent.lastError)
-	}
-	if report != "" {
-		setReportLocked(ctx, agent, report)
-		if err := s.persistAgentReportFileAndGC(ctx, agentReportFileRecordFromRuntime(agent)); err != nil {
-			return ReportEventResult{}, err
-		}
-	}
-	if report == "" {
-		report = strings.TrimSpace(agent.lastReport)
-	}
-	notified := []string(nil)
-	if report != "" || terminal {
-		notified = drainReportRequestersLocked(ctx, agent)
-	}
-	return ReportEventResult{
-		Success:              true,
-		AgentID:              agent.id,
-		EventType:            eventType,
-		Report:               report,
-		ReportSeq:            agent.lastReportSeq,
-		UpdatedAt:            agent.lastReportUpdatedAt,
-		NotifiedRequesterIDs: notified,
-	}, nil
-}
-
 func noReportFallbackText(state, detail string) string {
 	state, detail = strings.TrimSpace(state), strings.TrimSpace(detail)
 	text := "agent ended"
@@ -377,16 +324,6 @@ func terminalMirroredState(nextState string) bool {
 	return nextState == string(agentdto.StateIdle) ||
 		nextState == string(agentdto.StateStopped) ||
 		nextState == string(agentdto.StateFailed)
-}
-
-func (s *service) setStateChangedFallbackReportLocked(ctx context.Context, agent *agentRuntime, nextState string) {
-	if agent == nil || !terminalFailedOrStopped(agent.state) || !terminalFailedOrStoppedString(nextState) {
-		return
-	}
-	if err := s.setNoReportFallbackLocked(ctx, agent); err != nil {
-		s.logger.Warn("orchestration: state-change fallback report persist failed",
-			"agent_id", agent.id, "thread_id", agent.remoteThreadID, "state", nextState, "error", err)
-	}
 }
 
 func terminalFailedOrStopped(state agentdto.AgentState) bool {
@@ -496,13 +433,6 @@ func bindPendingLaunchThreadLocked(agent *agentRuntime, threadID string) bool {
 	agent.threadID, agent.remoteThreadID = threadID, threadID
 	agent.pendingLaunchThreadID, agent.pendingLaunchThreadAt = "", time.Time{}
 	return true
-}
-
-func (s *service) setStoppedFallbackReportLocked(ctx context.Context, agent *agentRuntime) {
-	if err := s.setNoReportFallbackLocked(ctx, agent); err != nil {
-		s.logger.Warn("orchestration: stopped hook fallback report persist failed",
-			"agent_id", agent.id, "thread_id", agent.remoteThreadID, "error", err)
-	}
 }
 
 func staleHookThread(agent *agentRuntime, threadID string) bool {

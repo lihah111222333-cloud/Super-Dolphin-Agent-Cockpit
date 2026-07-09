@@ -99,7 +99,7 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, e
 	}
 	if !shouldReplay {
 		if shouldWriteRecoveryNoReplayFallback(agent, activeTurnID) {
-			return false, s.setNoReportFallbackLocked(ctx, agent)
+			return false, s.reportController().setNoReportFallbackLocked(ctx, agent)
 		}
 		return false, nil
 	}
@@ -346,7 +346,7 @@ func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt lau
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
 	err = s.commitLaunchFailureLocked(ctx, agent, launchErr)
-	if fallbackErr := s.setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
+	if fallbackErr := s.reportController().setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
 		err = errors.Join(err, fallbackErr)
 	}
 	registry.unlock()
@@ -398,7 +398,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 func (s *service) finishLauncherRecoveryTurnLocked(ctx context.Context, agent *agentRuntime, attempt launcherRecoveryAttempt) error {
 	if !attempt.shouldReplay {
 		if shouldWriteRecoveryNoReplayFallback(agent, attempt.turnID) {
-			return s.setNoReportFallbackLocked(ctx, agent)
+			return s.reportController().setNoReportFallbackLocked(ctx, agent)
 		}
 		return nil
 	}
@@ -416,7 +416,7 @@ func (s *service) notifyRecoveryFailure(ctx context.Context, agentID string, rec
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if strings.TrimSpace(agent.lastReport) == "" {
 			agent.lastError = strings.TrimSpace(recoverErr.Error())
-			return s.setNoReportFallbackLocked(ctx, agent)
+			return s.reportController().setNoReportFallbackLocked(ctx, agent)
 		}
 		return nil
 	})

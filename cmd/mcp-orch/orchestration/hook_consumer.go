@@ -293,7 +293,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 				)
 			}
 		}
-		c.svc.setStateChangedFallbackReportLocked(ctx, agent, nextState)
+		c.svc.reportController().setStateChangedFallbackReportLocked(ctx, agent, nextState)
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
 	})
@@ -316,7 +316,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 			c.logger.Warn("orchestration: hook sync force stopped failed", "agent_id", agent.id, "from", before, "error", err)
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-		c.svc.setStoppedFallbackReportLocked(ctx, agent)
+		c.svc.reportController().setStoppedFallbackReportLocked(ctx, agent)
 		emitEvent(c.svc.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, ev.Reason)
 		return nil
 	})
@@ -342,7 +342,7 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 		return
 	}
 	report := turnCompletedReportText(ev)
-	_, err := c.svc.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
+	_, err := c.svc.reportController().HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
 		Report:    report,
 		EventType: "turn/completed",
@@ -390,7 +390,7 @@ func (c *hookConsumer) handleItemCompleted(ctx context.Context, ev turndto.ItemC
 	if c == nil || c.svc == nil || !isFinalAnswerItem(ev) {
 		return
 	}
-	_, err := c.svc.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
+	_, err := c.svc.reportController().HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
 		EventType: strings.TrimSpace(platformshared.FirstTrimmed(ev.RawType, "item/completed")),
 		EventData: append(json.RawMessage(nil), ev.Payload...),
