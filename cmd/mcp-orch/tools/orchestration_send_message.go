@@ -136,19 +136,19 @@ func threadIDFromSnapshot(snapshot contract.AgentSnapshot, agentID string) strin
 
 // submitSendMessageTurn 向 orchestration service 提交后续 turn，并记录最小诊断日志。
 func submitSendMessageTurn(ctx context.Context, submitter sendMessageTurnSubmitter, submission contract.TurnSubmission, message string) error {
-	pkglogger.Warn("orchestration_send_message: submit begin",
+	pkglogger.Warn("send_message: submit begin",
 		"agent_id", submission.AgentID,
 		"thread_id", submission.ThreadID,
 		"input_items", len(submission.Inputs),
 		"message_len", len([]rune(strings.TrimSpace(message))))
 	if err := submitter.SubmitTurn(ctx, submission); err != nil {
-		pkglogger.Warn("orchestration_send_message: submit failed",
+		pkglogger.Warn("send_message: submit failed",
 			"agent_id", submission.AgentID,
 			"thread_id", submission.ThreadID,
 			"error", err)
 		return err
 	}
-	pkglogger.Warn("orchestration_send_message: submit accepted",
+	pkglogger.Warn("send_message: submit accepted",
 		"agent_id", submission.AgentID,
 		"thread_id", submission.ThreadID)
 	return nil

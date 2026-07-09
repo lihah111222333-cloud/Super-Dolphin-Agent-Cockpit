@@ -155,7 +155,7 @@ func handleLaunchAgentWithExeFn(svc agentLaunchPort, exeFn func() (string, error
 		if err != nil {
 			return nil, err
 		}
-		pkglogger.Debug("orchestration_launch_agent: request config trace",
+		pkglogger.Debug("launch_agent: request config trace",
 			"agent_id", req.AgentID,
 			"name", strings.TrimSpace(in.Name),
 			"provider", strings.TrimSpace(in.Provider),
@@ -196,7 +196,7 @@ func handleLaunchAgentWithExeFn(svc agentLaunchPort, exeFn func() (string, error
 			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 			defer cancel()
 			if err := svc.LaunchAgent(bgCtx, req); err != nil {
-				pkglogger.Warn("orchestration_launch_agent: async launch failed",
+				pkglogger.Warn("launch_agent: async launch failed",
 					"agent_id", req.AgentID, "error", err)
 			}
 		})
@@ -427,7 +427,7 @@ func HandleStopAgent(svc contract.AgentLifecyclePort) ToolHandler {
 		}
 		archived := false
 		if archiver, ok := svc.(agentArchiver); ok {
-			pkglogger.Info("orchestration_stop_agent: dispatching to ArchiveAgent (recycle path)",
+			pkglogger.Info("stop_agent: dispatching to ArchiveAgent (recycle path)",
 				"agent_id", agentID)
 			outcome, err := archiver.ArchiveAgent(ctx, agentID)
 			if err != nil {
@@ -438,7 +438,7 @@ func HandleStopAgent(svc contract.AgentLifecyclePort) ToolHandler {
 				return nil, fmt.Errorf("%w: %s", contract.ErrAgentNotFound, agentID)
 			}
 		} else {
-			pkglogger.Warn("orchestration_stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
+			pkglogger.Warn("stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
 				"agent_id", agentID,
 				"svc_type", fmt.Sprintf("%T", svc))
 			if err := svc.StopAgent(ctx, agentID); err != nil {
@@ -458,7 +458,7 @@ func HandleListAgents(svc agentListPort) ToolHandler {
 		}
 		agents, err := listAgentSnapshots(ctx, svc)
 		if err != nil {
-			pkglogger.Warn("orchestration_list_agents: list failed",
+			pkglogger.Warn("list_agents: list failed",
 				"state", strings.TrimSpace(in.State),
 				"cwd", cwdFilter,
 				"include_inactive", in.IncludeInactive,
@@ -474,7 +474,7 @@ func HandleListAgents(svc agentListPort) ToolHandler {
 			}
 		}
 		if len(filtered) != len(agents) || !in.IncludeReports {
-			pkglogger.Warn("orchestration_list_agents: compacted response",
+			pkglogger.Warn("list_agents: compacted response",
 				"total", len(agents),
 				"returned", len(filtered),
 				"state", strings.TrimSpace(in.State),
