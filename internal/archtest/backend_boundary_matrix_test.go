@@ -133,6 +133,14 @@ func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 			},
 			wantHits: []string{"cmd/mcp-orch depends on", "internal/module/thread"},
 		},
+		{
+			name:   "mcp_lsp_orch_only_platform_dependency",
+			ruleID: "mcp_sidecar_narrow_import_surface",
+			deps: map[string][]string{
+				"cmd/mcp-lsp": {internalPrefix("internal/platform/notify")},
+			},
+			wantHits: []string{"cmd/mcp-lsp depends on", "internal/platform/notify"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -239,7 +247,7 @@ func mcpSidecarFilePatterns() []string {
 }
 
 func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
-	prefixes := []struct {
+	common := []struct {
 		prefix string
 		reason string
 	}{
@@ -248,34 +256,57 @@ func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
 		{"internal/mcpserver/common", "shared MCP stdio/bootstrap protocol helpers"},
 		{"internal/platform/config", "configuration primitives used by sidecar boot"},
 		{"internal/platform/db", "SQLite lifecycle primitives for sidecar-owned stores"},
-		{"internal/platform/bus", "typed in-process event bus primitives"},
-		{"internal/platform/discovery", "runtime discovery primitives shared by sidecars"},
-		{"internal/platform/eventsurface", "event surface adapter primitives"},
 		{"internal/platform/metrics", "metrics registry primitives"},
-		{"internal/platform/notify", "notification primitives consumed by orchestration sidecar"},
 		{"internal/platform/rlimit", "process resource-limit primitives"},
-		{"internal/platform/rpc", "RPC client-side protocol primitives only; host symbols are guarded separately"},
 		{"internal/platform/runner", "run-group lifecycle primitives"},
 		{"internal/platform/runtimeenv", "runtime environment probes"},
 		{"internal/platform/runtimesafe", "runtime safety primitives"},
 		{"internal/platform/securefs", "filesystem safety primitives"},
 		{"internal/platform/shared", "shared value helpers and embedded prompt constants"},
-		{"internal/platform/sharedfilefs", "shared-file filesystem primitives"},
-		{"internal/platform/sharedfilegitignore", "shared-file gitignore primitives"},
-		{"internal/platform/sharedfilepath", "shared-file path primitives"},
-		{"internal/platform/statemachine", "statemachine primitives shared across sidecars"},
 		{"internal/util", "leaf utility packages without module ownership"},
 	}
 	var out []backendBoundaryImportAllowance
 	for _, pattern := range mcpSidecarFilePatterns() {
-		for _, prefix := range prefixes {
-			out = append(out, backendBoundaryImportAllowance{
-				Owner:        "mcp_sidecar_boundary",
-				FilePattern:  pattern,
-				ImportPrefix: prefix.prefix,
-				Reason:       prefix.reason,
-			})
-		}
+		out = appendBackendBoundaryImportAllowances(out, pattern, common)
+	}
+	out = appendBackendBoundaryImportAllowances(out, "cmd/mcp-orch/**/*.go", []struct {
+		prefix string
+		reason string
+	}{
+		{"internal/platform/bus", "orchestration sidecar publishes typed runtime events"},
+		{"internal/platform/discovery", "orchestration sidecar discovers runtime peers and workspaces"},
+		{"internal/platform/eventsurface", "orchestration sidecar exposes event-surface adapters"},
+		{"internal/platform/notify", "orchestration sidecar emits user-visible notifications"},
+		{"internal/platform/rpc", "orchestration sidecar uses RPC client-side protocol primitives only; host symbols are guarded separately"},
+		{"internal/platform/sharedfilefs", "orchestration sidecar owns shared-file filesystem access"},
+		{"internal/platform/sharedfilegitignore", "orchestration sidecar applies shared-file gitignore rules"},
+		{"internal/platform/sharedfilepath", "orchestration sidecar normalizes shared-file paths"},
+		{"internal/platform/statemachine", "orchestration sidecar owns agent lifecycle state machines"},
+	})
+	out = appendBackendBoundaryImportAllowances(out, "cmd/mcp-lsp/**/*.go", []struct {
+		prefix string
+		reason string
+	}{
+		{"internal/platform/discovery", "LSP sidecar discovers language server workspace capabilities"},
+	})
+	return out
+}
+
+func appendBackendBoundaryImportAllowances(
+	out []backendBoundaryImportAllowance,
+	pattern string,
+	prefixes []struct {
+		prefix string
+		reason string
+	},
+) []backendBoundaryImportAllowance {
+	for _, prefix := range prefixes {
+		out = append(out, backendBoundaryImportAllowance{
+			Owner:        "mcp_sidecar_boundary",
+			FilePattern:  pattern,
+			ImportPrefix: prefix.prefix,
+			Reason:       prefix.reason,
+		})
 	}
 	return out
 }

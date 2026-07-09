@@ -29,12 +29,6 @@ type orchestrationServiceSSAAllowance struct {
 	reason   string
 }
 
-type orchestrationServiceSSAGuardFixture struct {
-	name         string
-	files        map[string]string
-	wantContains []string
-}
-
 func TestOrchestrationServiceSSAConsumersDoNotPropagateFullService(t *testing.T) {
 	t.Parallel()
 
@@ -56,114 +50,6 @@ func TestOrchestrationServiceSSAConsumersDoNotPropagateFullService(t *testing.T)
 	}
 	sort.Strings(violations)
 	failIfViolations(t, violations)
-}
-
-func TestOrchestrationServiceSSAGuardFixtures(t *testing.T) {
-	t.Parallel()
-
-	target := mustLoadOrchestrationServiceTypeObject(t, repoRoot(t))
-	for _, tt := range orchestrationServiceSSAGuardFixtures() {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			pkg := typeCheckOrchestrationServiceFixturePackage(t, target.Pkg(), tt.files)
-			got := orchestrationServiceSSAUseMessages(collectOrchestrationServiceSSAUses(t, pkg, target))
-			for _, want := range tt.wantContains {
-				if !containsViolation(got, want) {
-					t.Fatalf("missing violation containing %q; got:\n%s", want, strings.Join(got, "\n"))
-				}
-			}
-		})
-	}
-}
-
-func orchestrationServiceSSAGuardFixtures() []orchestrationServiceSSAGuardFixture {
-	return []orchestrationServiceSSAGuardFixture{
-		{
-			name: "signature and field propagation",
-			files: map[string]string{
-				"cmd/mcp-orch/orchestration/semantic.go": `package orchestration
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-type holder struct { service contract.OrchestrationService }
-
-func returns(svc contract.OrchestrationService) contract.OrchestrationService { return svc }
-`,
-			},
-			wantContains: []string{
-				"field service uses full orchestration service",
-				"parameter svc in returns uses full orchestration service",
-				"return value (anonymous) in returns uses full orchestration service",
-			},
-		},
-		{
-			name: "interface assertion and conversion propagation",
-			files: map[string]string{
-				"cmd/mcp-orch/orchestration/semantic.go": `package orchestration
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-func conversions(value any, svc contract.OrchestrationService) {
-	_, _ = value.(contract.OrchestrationService)
-	_ = any(svc)
-}
-`,
-			},
-			wantContains: []string{
-				"interface assertion in conversions uses full orchestration service",
-				"type conversion in conversions uses full orchestration service",
-			},
-		},
-		{
-			name: "generic constraint propagation",
-			files: map[string]string{
-				"internal/module/dashboard/semantic.go": `package dashboard
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-func generic[T contract.OrchestrationService](value T) {}
-`,
-			},
-			wantContains: []string{
-				"generic constraint T in generic uses full orchestration service",
-			},
-		},
-		{
-			name: "method value and closure capture propagation",
-			files: map[string]string{
-				"internal/platform/mcpcontrol/semantic.go": `package mcpcontrol
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-func methodValue(svc contract.OrchestrationService) any {
-	submit := svc.SubmitTurn
-	captured := func() { _ = svc }
-	return func(next contract.OrchestrationService) { _ = submit; captured(); _ = next }
-}
-`,
-			},
-			wantContains: []string{
-				"method value SubmitTurn in methodValue uses full orchestration service",
-				"closure capture svc in methodValue uses full orchestration service",
-				"function value propagation methodValue$2 in methodValue uses full orchestration service",
-			},
-		},
-		{
-			name: "method expression function value propagation",
-			files: map[string]string{
-				"internal/platform/mcpcontrol/semantic.go": `package mcpcontrol
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-func methodExpression() any { return contract.OrchestrationService.SubmitTurn }
-`,
-			},
-			wantContains: []string{
-				"method expression SubmitTurn in methodExpression uses full orchestration service",
-			},
-		},
-	}
 }
 
 func collectOrchestrationServiceSSAUses(
