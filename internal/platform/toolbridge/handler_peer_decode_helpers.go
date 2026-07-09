@@ -49,15 +49,15 @@ func SplitMCPToolName(name string) (MCPToolNamespace, bool) {
 }
 
 var toolCWDTraceCanonicalTools = map[string]struct{}{
-	"file":                       {},
-	"grep":                       {},
-	"inspect":                    {},
-	"xref":                       {},
-	"structure":                  {},
-	"edit":                       {},
-	"format_preview":             {},
-	"completion":                 {},
-	"orchestration_launch_agent": {},
+	"file":           {},
+	"grep":           {},
+	"inspect":        {},
+	"xref":           {},
+	"structure":      {},
+	"edit":           {},
+	"format_preview": {},
+	"completion":     {},
+	"launch_agent":   {},
 }
 
 func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
@@ -87,6 +87,9 @@ func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req Tool
 func shouldWarnToolCWDTrace(toolName string) bool {
 	trimmed := strings.TrimSpace(toolName)
 	if _, ok := toolCWDTraceCanonicalTools[canonicalToolName(trimmed)]; ok {
+		return true
+	}
+	if _, ok := toolCWDTraceCanonicalTools[canonicalOrchestrationToolName(trimmed)]; ok {
 		return true
 	}
 	return strings.HasPrefix(trimmed, "lsp_")
@@ -273,7 +276,7 @@ func requiresCodexToolSurface(name string) bool {
 		_, ok := legacyLSPToolAliases[name]
 		return ok
 	}
-	if strings.HasPrefix(name, "orchestration_") {
+	if isLegacyOrchPeerRealName(name) {
 		return requiresCanonicalCodexSurfaceTool(canonicalOrchestrationToolName(name))
 	}
 	return requiresCanonicalCodexSurfaceTool(name)
@@ -616,7 +619,7 @@ func mcpToolLifecycleCanonicalToolName(serverName string, toolName string) strin
 		return canonicalToolName(toolName)
 	case mcpdto.ClientKindOrch:
 		canonical := canonicalOrchestrationToolName(toolName)
-		if legacy := legacyOrchName(canonical); legacy != "" {
+		if legacy := legacyOrchPeerRealName(canonical); legacy != "" {
 			return legacy
 		}
 		return canonical

@@ -321,6 +321,7 @@ func TestPeerToolCallDeniesDisabledLifecycleAliasesBeforePeerSelection(t *testin
 		{name: "mcp__lsp__grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
 		{name: "mcp__lsp__lsp_grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
 		{name: "launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
+		{name: "mcp__orch__launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
 		{name: "orchestration_launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
 		{name: "mcp__orch__orchestration_launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
 	}

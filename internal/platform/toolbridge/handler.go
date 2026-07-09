@@ -538,7 +538,7 @@ func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRe
 // runtimeHasManagedLaunchTool 判断 runtime 工具列表是否显式暴露持久化子 agent 启动工具。
 func runtimeHasManagedLaunchTool(runtime map[string]any) (bool, bool) {
 	shortAvailable, shortKnown := runtimeHasTool(runtime, "launch_agent")
-	legacyAvailable, legacyKnown := runtimeHasTool(runtime, "orchestration_launch_agent")
+	legacyAvailable, legacyKnown := runtimeHasTool(runtime, legacyManagedLaunchPeerRealName())
 	if shortKnown || legacyKnown {
 		return shortAvailable || legacyAvailable, true
 	}

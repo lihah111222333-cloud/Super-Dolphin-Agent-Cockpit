@@ -19,11 +19,15 @@ func TestOrchestrationToolAliasDenylistIncludesLegacyAndShortNames(t *testing.T)
 }
 
 func TestOrchestrationToolAliasRegistryDrivesCanonicalAndLegacyMapping(t *testing.T) {
-	for _, name := range OrchestrationToolAliasDenylist() {
-		canonical := canonicalOrchestrationToolName(name)
-		legacy := legacyOrchName(canonical)
-		if canonical == "" || legacy == "" {
-			t.Fatalf("alias %q resolved canonical=%q legacy=%q", name, canonical, legacy)
+	for _, alias := range legacyOrchestrationToolAliases {
+		if got := legacyOrchPeerRealName(alias.Canonical); got != alias.LegacyPeerRealName {
+			t.Fatalf("legacyOrchPeerRealName(%q) = %q, want %q", alias.Canonical, got, alias.LegacyPeerRealName)
+		}
+		if got := canonicalOrchSurfaceName(alias.LegacyPeerRealName); got != alias.Canonical {
+			t.Fatalf("canonicalOrchSurfaceName(%q) = %q, want %q", alias.LegacyPeerRealName, got, alias.Canonical)
+		}
+		if !isLegacyOrchPeerRealName(alias.LegacyPeerRealName) {
+			t.Fatalf("isLegacyOrchPeerRealName(%q) = false, want true", alias.LegacyPeerRealName)
 		}
 	}
 }

@@ -45,7 +45,7 @@ func mcpSurfaceToolAliases(family, realName, canonical string) []string {
 	if isLegacyOrchestrationSurfaceName(family, realName) {
 		aliases = append(aliases, wrappedMCPToolName(family, canonical))
 	}
-	aliases = append(aliases, legacyCodexToolAliases(family, canonical)...)
+	aliases = append(aliases, mcpSurfaceDenyAndHiddenAliases(family, canonical)...)
 	return aliases
 }
 
