@@ -119,8 +119,18 @@ REQUIRED = {
     ],
     ".agents/skills/后端/project_structure.md": [
         "internal/platform/db",
+        "internal/app/modules.go",
+        "store.Module 是明确的聚合例外",
         "modernc.org/sqlite",
+        "DAG 编排由独立 `mcp-orch` MCP server 承担",
         "cmd/mcp-orch/sql/queries",
+    ],
+    ".agents/skills/后端/SKILL.md": [
+        "internal/app/modules.go",
+        "internal/platform/db/module.go",
+        "internal/store/module.go",
+        "SQLite schema",
+        "provider-native mirror",
     ],
     ".agents/skills/后端/testing_pitfalls.md": [
         'sql.Open("sqlite", ":memory:")',
@@ -172,6 +182,11 @@ REQUIRED = {
         "frontend-app",
         "SQLite + sqlc",
         "internal/provider",
+        "docs/契约/README.md",
+        "docs/架构/README.md",
+        "docs/契约/onion-architecture-convention.md",
+        "docs/架构/skeleton-fx.md",
+        "源码、测试和 LSP 证据仍是事实来源",
     ],
     ".agents/skills/日志与错误处理/SKILL.md": [
         "stdio MCP",

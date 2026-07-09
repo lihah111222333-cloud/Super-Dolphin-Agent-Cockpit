@@ -8,7 +8,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 
 ## 子文件按需加载
 
-详细内容拆分在同目录子文件中。读完本文件后，根据任务用 `view_file` 加载**仅需的那 1 个子文件**。
+详细内容拆分在同目录子文件中。读完本文件后，根据任务只加载最相关的子文件；若任务跨越多个后端边界，再按证据追加读取。
 
 | 加载场景 | 内容摘要 | 子文件 |
 |---------|---------|-------|
@@ -23,6 +23,18 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 ---
 
 ## 核心强制规则 (始终生效，无需加载子文件)
+
+### 当前后端事实
+
+| 事实 | 当前落点 |
+|------|---------|
+| 根装配 | `internal/app/modules.go` 是桌面和后台共享的根 Fx 图；`app.Module` 组合 platform、store、module、provider 和 toolbridge。 |
+| Orchestration | DAG 编排由独立 `mcp-orch` MCP server 承担；桌面进程通过 contract/adapters 连接，不内嵌 orchestration module。 |
+| 数据库 | `internal/platform/db/module.go` 打开 SQLite，启动期执行 migration / SQLite schema 校验；路径来自 `SUPER_DOLPHIN_SQLITE_PATH` / `SUPER_DOLPHIN_HOME`。 |
+| Store | `internal/store/module.go` 中的 store.Module 是明确的聚合例外：只负责共享 `sqlc.Queries` 与子 store Fx module，不放业务逻辑。 |
+| 契约层 | `internal/contract` 放跨模块窄端口、DTO 和哨兵错误；单模块 owner-local port 优先留在模块内。 |
+| Provider | `internal/provider` 适配 Codex / Claude / unified session；provider-native mirror 在 provider 启动/acquire 前由 skill 模块刷新。 |
+| Sidecar | `cmd/mcp-*` 是 MCP peer / sidecar 壳；通用 MCP 协议优先放 `internal/mcpserver/common`。 |
 
 ### 格式化与命名
 
@@ -73,8 +85,10 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 
 | 文档 | 路径 |
 |------|------|
+| 契约与骨架索引 | `docs/契约/README.md`, `docs/架构/README.md` |
 | 模块化与 fx DI 契约 | `docs/契约/modularity-convention.md`, `docs/契约/fx-convention.md` |
 | sqlc 数据库契约 | `docs/契约/sqlc-convention.md` |
 | 生命周期与 RunGroup 契约 | `docs/契约/rungroup-convention.md` |
 | RPC 与 MCP 契约 | `docs/契约/jrpc2-convention.md`, `docs/契约/mcp-service-convention.md` |
 | 状态机与事件总线契约 | `docs/契约/statemachine-event-convention.md` |
+| 架构骨架 | `docs/架构/skeleton-fx.md`, `docs/架构/skeleton-rungroup.md`, `docs/架构/skeleton-jrpc2.md`, `docs/架构/skeleton-event.md`, `docs/架构/skeleton-stateless.md` |
