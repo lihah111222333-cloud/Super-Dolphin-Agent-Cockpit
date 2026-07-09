@@ -202,24 +202,11 @@ func newRegistry(p newRegistryParams) tools.Registry {
 	})
 }
 
-// agentMessengerPorts 组合 send_message 需要的生命周期、报告等待和 turn 提交端口。
-type agentMessengerPorts struct {
-	contract.AgentLifecyclePort
-	contract.AgentReportPort
-	contract.TurnSubmissionPort
-}
-
-// agentListPorts 组合 list_agents 需要的快照读取和报告读取端口。
-type agentListPorts struct {
-	contract.AgentLifecyclePort
-	contract.AgentReportPort
-}
-
 // toolPortsFromRegistryParams 把 fx 注入的 contract 窄口装配为工具 registry 的端口集合。
 func toolPortsFromRegistryParams(p newRegistryParams) tools.ToolPorts {
 	return tools.ToolPorts{
 		AgentLaunch:            p.AgentLifecycle,
-		AgentMessenger:         newAgentMessengerPorts(p.AgentLifecycle, p.AgentReports, p.TurnSubmission),
+		AgentMessenger:         newSendMessagePorts(p.AgentLifecycle, p.AgentReports, p.TurnSubmission),
 		AgentLifecycle:         p.AgentLifecycle,
 		AgentRecovery:          p.AgentLifecycle,
 		AgentInterrupt:         p.AgentLifecycle,
@@ -236,30 +223,30 @@ func toolPortsFromRegistryParams(p newRegistryParams) tools.ToolPorts {
 	}
 }
 
-// newAgentMessengerPorts 在依赖完整时返回 send_message 端口组合，缺失时保持 nil 以复用工具层 fail-fast。
-func newAgentMessengerPorts(
+// newSendMessagePorts 在依赖完整时返回 send_message 的分离端口集合。
+func newSendMessagePorts(
 	lifecycle contract.AgentLifecyclePort,
 	reports contract.AgentReportPort,
 	turns contract.TurnSubmissionPort,
-) *agentMessengerPorts {
+) tools.SendMessagePorts {
 	if lifecycle == nil || reports == nil || turns == nil {
-		return nil
+		return tools.SendMessagePorts{}
 	}
-	return &agentMessengerPorts{
-		AgentLifecyclePort: lifecycle,
-		AgentReportPort:    reports,
-		TurnSubmissionPort: turns,
+	return tools.SendMessagePorts{
+		Snapshots: lifecycle,
+		Reports:   reports,
+		Turns:     turns,
 	}
 }
 
-// newAgentListPorts 在依赖完整时返回 list_agents 端口组合，缺失时保持 nil 以复用工具层 fail-fast。
-func newAgentListPorts(lifecycle contract.AgentLifecyclePort, reports contract.AgentReportPort) *agentListPorts {
+// newAgentListPorts 在依赖完整时返回 list_agents 的分离端口集合。
+func newAgentListPorts(lifecycle contract.AgentLifecyclePort, reports contract.AgentReportPort) tools.AgentListPorts {
 	if lifecycle == nil || reports == nil {
-		return nil
+		return tools.AgentListPorts{}
 	}
-	return &agentListPorts{
-		AgentLifecyclePort: lifecycle,
-		AgentReportPort:    reports,
+	return tools.AgentListPorts{
+		Snapshots: lifecycle,
+		Reports:   reports,
 	}
 }
 

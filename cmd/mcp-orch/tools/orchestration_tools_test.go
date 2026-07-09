@@ -558,7 +558,7 @@ func disabledToolCounts(csv string) map[string]int {
 }
 
 func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "agent-stopped", AgentID: "agent-stopped", State: "stopped", LastReport: "old report"},
@@ -590,7 +590,7 @@ func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {
 }
 
 func TestListAgentsHandlerFiltersCommaSeparatedState(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "agent-stopped", AgentID: "agent-stopped", State: "stopped"},
@@ -614,7 +614,7 @@ func TestListAgentsHandlerFiltersCommaSeparatedState(t *testing.T) {
 }
 
 func TestListAgentsHandlerDefaultsToTrustedScopeCWD(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "other-agent", AgentID: "other-agent", State: "idle", Cwd: "/repo/other"},
@@ -638,7 +638,7 @@ func TestListAgentsHandlerDefaultsToTrustedScopeCWD(t *testing.T) {
 }
 
 func TestListAgentsHandlerExcludesLegacyAgentsWithoutCWDWhenFiltering(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "other-agent", AgentID: "other-agent", State: "idle", Cwd: "/repo/other"},
@@ -667,7 +667,7 @@ func TestListAgentsHandlerExcludesLegacyAgentsWithoutCWDWhenFiltering(t *testing
 }
 
 func TestListAgentsHandlerCWDFilterStillDefaultsToActiveAgents(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "stopped-agent", AgentID: "stopped-agent", State: "stopped", Cwd: "/repo/current"},
@@ -691,7 +691,7 @@ func TestListAgentsHandlerCWDFilterStillDefaultsToActiveAgents(t *testing.T) {
 }
 
 func TestListAgentsHandlerFiltersExplicitCWDWithoutTrustedScope(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "other-agent", AgentID: "other-agent", State: "idle", Cwd: "/repo/other"},
@@ -714,7 +714,7 @@ func TestListAgentsHandlerFiltersExplicitCWDWithoutTrustedScope(t *testing.T) {
 }
 
 func TestListAgentsHandlerTrustedScopeCWDOverridesArgumentCWD(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "evil-agent", AgentID: "evil-agent", State: "idle", Cwd: "/repo/evil"},

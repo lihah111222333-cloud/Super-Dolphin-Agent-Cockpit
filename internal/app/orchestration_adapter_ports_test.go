@@ -26,28 +26,37 @@ func TestDashboardOrchestrationReaderUsesNarrowPort(t *testing.T) {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	requireAgentSnapshot(t, snapshot, "agent-2")
+	requireStringCalls(t, port.calls, []string{"ListAgents", "Snapshot:agent-2"})
+}
+
+func TestDashboardOrchestrationReportReaderUsesNarrowPort(t *testing.T) {
+	port := &recordingDashboardReaderPort{}
+	reader := newDashboardOrchestrationReportReader(dashboardOrchestrationReportReaderParams{Reader: port})
+	if reader == nil {
+		t.Fatal("newDashboardOrchestrationReportReader() = nil, want reader")
+	}
 
 	report, err := reader.GetReport(context.Background(), "agent-3")
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
 	requireAgentReport(t, report, "agent-3")
-
-	requireStringCalls(t, port.calls, []string{"ListAgents", "Snapshot:agent-2", "GetReport:agent-3"})
+	requireStringCalls(t, port.calls, []string{"GetReport:agent-3"})
 }
 
 func TestDashboardOrchestrationReaderAllowsMissingPort(t *testing.T) {
 	if got := newDashboardOrchestrationReader(dashboardOrchestrationReaderParams{}); got != nil {
 		t.Fatalf("newDashboardOrchestrationReader() = %T, want nil", got)
 	}
+	if got := newDashboardOrchestrationReportReader(dashboardOrchestrationReportReaderParams{}); got != nil {
+		t.Fatalf("newDashboardOrchestrationReportReader() = %T, want nil", got)
+	}
 }
 
 func TestDashboardOrchestrationReaderPortComposesNarrowPorts(t *testing.T) {
 	lifecycle := &recordingAgentLifecyclePort{}
-	reports := &recordingAgentReportPort{}
 	port := provideDashboardOrchestrationReaderPort(dashboardOrchestrationReaderPortParams{
 		Lifecycle: lifecycle,
-		Reports:   reports,
 	})
 	if port == nil {
 		t.Fatal("provideDashboardOrchestrationReaderPort() = nil, want port")
@@ -64,33 +73,35 @@ func TestDashboardOrchestrationReaderPortComposesNarrowPorts(t *testing.T) {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	requireAgentSnapshot(t, snapshot, "agent-2")
+	requireStringCalls(t, lifecycle.calls, []string{"ListAgents", "Snapshot:agent-2"})
+}
 
+func TestDashboardOrchestrationReportReaderPortUsesNarrowPort(t *testing.T) {
+	reports := &recordingAgentReportPort{}
+	port := provideDashboardOrchestrationReportReaderPort(dashboardOrchestrationReportReaderPortParams{
+		Reports: reports,
+	})
+	if port == nil {
+		t.Fatal("provideDashboardOrchestrationReportReaderPort() = nil, want port")
+	}
 	report, err := port.GetReport(context.Background(), "agent-3")
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
 	requireAgentReport(t, report, "agent-3")
-	requireStringCalls(t, lifecycle.calls, []string{"ListAgents", "Snapshot:agent-2"})
 	requireStringCalls(t, reports.calls, []string{"GetReport:agent-3"})
 }
 
 func TestDashboardOrchestrationReaderPortAllowsMissingNarrowPort(t *testing.T) {
-	lifecycle := &recordingAgentLifecyclePort{}
 	reports := &recordingAgentReportPort{}
-	tests := []struct {
-		name   string
-		params dashboardOrchestrationReaderPortParams
-	}{
-		{name: "missing lifecycle", params: dashboardOrchestrationReaderPortParams{Reports: reports}},
-		{name: "missing reports", params: dashboardOrchestrationReaderPortParams{Lifecycle: lifecycle}},
-		{name: "missing both", params: dashboardOrchestrationReaderPortParams{}},
+	if got := provideDashboardOrchestrationReaderPort(dashboardOrchestrationReaderPortParams{}); got != nil {
+		t.Fatalf("provideDashboardOrchestrationReaderPort() = %T, want nil", got)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := provideDashboardOrchestrationReaderPort(tt.params); got != nil {
-				t.Fatalf("provideDashboardOrchestrationReaderPort() = %T, want nil", got)
-			}
-		})
+	if got := provideDashboardOrchestrationReportReaderPort(dashboardOrchestrationReportReaderPortParams{}); got != nil {
+		t.Fatalf("provideDashboardOrchestrationReportReaderPort() = %T, want nil", got)
+	}
+	if got := provideDashboardOrchestrationReportReaderPort(dashboardOrchestrationReportReaderPortParams{Reports: reports}); got == nil {
+		t.Fatal("provideDashboardOrchestrationReportReaderPort() = nil, want port")
 	}
 }
 

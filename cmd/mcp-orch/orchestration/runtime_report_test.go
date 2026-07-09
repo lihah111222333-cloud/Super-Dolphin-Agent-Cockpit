@@ -94,7 +94,7 @@ func dispatchRuntimeReport(t *testing.T, svc *service) json.RawMessage {
 	t.Helper()
 
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(ProvideRPCFacade(svc).Handlers)
+	server.Register(ProvideRPCFacade(testRPCFacadeParams(svc)).Handlers)
 
 	raw, err := server.Dispatch(context.Background(), "orchestration/reportRuntime", json.RawMessage(`{"agent_id":"agent-1","provider":"claude"}`))
 	if err != nil {

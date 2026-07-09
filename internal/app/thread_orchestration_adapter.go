@@ -16,7 +16,7 @@ import (
 )
 
 // mcpOrchOrchestrationFacade 通过 toolbridge 调用独立 mcp-orch 的 agent 生命周期工具。
-// 它不直接注入 contract.OrchestrationService，避免桌面进程内嵌另一套编排器。
+// 它不直接注入完整编排服务，避免桌面进程内嵌另一套编排器。
 type mcpOrchOrchestrationFacade struct {
 	tools             dagToolCaller
 	dependency        contract.DependencyConfig
@@ -25,8 +25,11 @@ type mcpOrchOrchestrationFacade struct {
 	now               func() time.Time
 }
 
-// mcpOrchOrchestrationFacade 必须满足 thread 的编排 facade 接口。
-var _ thread.OrchestrationFacade = (*mcpOrchOrchestrationFacade)(nil)
+// mcpOrchOrchestrationFacade 必须分别满足 thread 的生命周期和 generation 绑定端口。
+var (
+	_ thread.OrchestrationFacade     = (*mcpOrchOrchestrationFacade)(nil)
+	_ thread.SessionGenerationBinder = (*mcpOrchOrchestrationFacade)(nil)
+)
 
 const (
 	defaultOrchFacadePeerReadyTimeout      = 10 * time.Second

@@ -15,7 +15,7 @@ func TestListAgentStatusesUsesStoreAndTrimsStatus(t *testing.T) {
 	store := &stubAgentStatusStore{
 		listResult: []AgentStatus{{AgentID: "agent-1", Status: "running"}},
 	}
-	svc := NewService(nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	got, err := svc.ListAgentStatuses(context.Background(), " running ")
 	if err != nil {
@@ -32,7 +32,7 @@ func TestListAgentStatusesUsesStoreAndTrimsStatus(t *testing.T) {
 func TestListAgentStatusesWithoutStoreReturnsEmpty(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	got, err := svc.ListAgentStatuses(context.Background(), "running")
 	if err != nil {
 		t.Fatalf("ListAgentStatuses() error = %v", err)
@@ -48,7 +48,7 @@ func TestDashboardAgentStatusHandlerSupportsStatusFilter(t *testing.T) {
 	store := &stubAgentStatusStore{
 		listResult: []AgentStatus{{AgentID: "agent-1", Status: "running"}},
 	}
-	svc := NewService(nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewDashboardHandlers(svc).Handlers)
 

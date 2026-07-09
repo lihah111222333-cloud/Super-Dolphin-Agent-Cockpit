@@ -60,8 +60,19 @@ func TestParentFxStartup(t *testing.T) {
 	// 这里镜像 buildOrchestrationOptions 的生产组合，防止父级 fx 启动缺依赖。
 	orchAssembly := fx.Module("orchestration",
 		fx.Provide(
-			orchestration.ProvideService,
-			orchestration.ProvideServiceInterface,
+			fx.Annotate(
+				orchestration.ProvideService,
+				fx.As(fx.Self()),
+				fx.As(new(contract.AgentLifecyclePort)),
+				fx.As(new(contract.AgentRuntimePort)),
+				fx.As(new(contract.AgentReportPort)),
+				fx.As(new(contract.TurnSubmissionPort)),
+				fx.As(new(contract.DAGCreateRuntime)),
+				fx.As(new(contract.DAGRuntime)),
+				fx.As(new(contract.DAGDeleteRuntime)),
+				fx.As(new(contract.DAGNodeStatusRuntime)),
+				fx.As(new(contract.DAGNodeDispatchRuntime)),
+			),
 			orchestration.ProvideScheduledDAGStartService,
 			orchestration.ProvideHookAfterHandler,
 			orchestration.ProvideRPCFacade,

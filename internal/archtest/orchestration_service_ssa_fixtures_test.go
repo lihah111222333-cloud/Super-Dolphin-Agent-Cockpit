@@ -16,13 +16,12 @@ type orchestrationServiceSSAGuardFixture struct {
 func TestOrchestrationServiceSSAGuardFixtures(t *testing.T) {
 	t.Parallel()
 
-	target := mustLoadOrchestrationServiceTypeObject(t, repoRoot(t))
 	for _, tt := range orchestrationServiceSSAGuardFixtures() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pkg := typeCheckOrchestrationServiceFixturePackage(t, target.Pkg(), tt.files)
-			got := orchestrationServiceSSAUseMessages(collectOrchestrationServiceSSAUses(t, pkg, target))
+			pkg := typeCheckWideOrchestrationFixturePackage(t, superAgentModulePath+"/internal/ssafixture", tt.files)
+			got := orchestrationServiceSSAUseMessages(collectOrchestrationServiceSSAUses(t, pkg, nil))
 			assertOrchestrationServiceSSAFixtureMessages(t, tt, got)
 		})
 	}
@@ -64,13 +63,16 @@ func orchestrationServiceSSASignatureFieldFixture() orchestrationServiceSSAGuard
 	return orchestrationServiceSSAGuardFixture{
 		name: "signature and field propagation",
 		files: map[string]string{
-			"cmd/mcp-orch/orchestration/semantic.go": `package orchestration
+			"internal/ssafixture/semantic.go": `package ssafixture
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
 
-type holder struct { service contract.OrchestrationService }
+type holder struct { service wide }
 
-func returns(svc contract.OrchestrationService) contract.OrchestrationService { return svc }
+func returns(svc wide) wide { return svc }
 `,
 		},
 		wantContains: []string{
@@ -85,12 +87,15 @@ func orchestrationServiceSSAConversionFixture() orchestrationServiceSSAGuardFixt
 	return orchestrationServiceSSAGuardFixture{
 		name: "interface assertion and conversion propagation",
 		files: map[string]string{
-			"cmd/mcp-orch/orchestration/semantic.go": `package orchestration
+			"internal/ssafixture/semantic.go": `package ssafixture
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
 
-func conversions(value any, svc contract.OrchestrationService) {
-	_, _ = value.(contract.OrchestrationService)
+func conversions(value any, svc wide) {
+	_, _ = value.(wide)
 	_ = any(svc)
 }
 `,
@@ -106,11 +111,14 @@ func orchestrationServiceSSAGenericConstraintFixture() orchestrationServiceSSAGu
 	return orchestrationServiceSSAGuardFixture{
 		name: "generic constraint propagation",
 		files: map[string]string{
-			"internal/module/dashboard/semantic.go": `package dashboard
+			"internal/ssafixture/semantic.go": `package ssafixture
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
 
-func generic[T contract.OrchestrationService](value T) {}
+func generic[T wide](value T) {}
 `,
 		},
 		wantContains: []string{
@@ -123,19 +131,22 @@ func orchestrationServiceSSAMethodValueFixture() orchestrationServiceSSAGuardFix
 	return orchestrationServiceSSAGuardFixture{
 		name: "method value and closure capture propagation",
 		files: map[string]string{
-			"internal/platform/mcpcontrol/semantic.go": `package mcpcontrol
+			"internal/ssafixture/semantic.go": `package ssafixture
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
 
-func methodValue(svc contract.OrchestrationService) any {
-	submit := svc.SubmitTurn
+func methodValue(svc wide) any {
+	submit := svc.LaunchAgent
 	captured := func() { _ = svc }
-	return func(next contract.OrchestrationService) { _ = submit; captured(); _ = next }
+	return func(next wide) { _ = submit; captured(); _ = next }
 }
 `,
 		},
 		wantContains: []string{
-			"method value SubmitTurn in methodValue uses full orchestration service",
+			"method value LaunchAgent in methodValue uses full orchestration service",
 			"closure capture svc in methodValue uses full orchestration service",
 			"function value propagation methodValue$2 in methodValue uses full orchestration service",
 		},
@@ -146,15 +157,18 @@ func orchestrationServiceSSAMethodExpressionFixture() orchestrationServiceSSAGua
 	return orchestrationServiceSSAGuardFixture{
 		name: "method expression function value propagation",
 		files: map[string]string{
-			"internal/platform/mcpcontrol/semantic.go": `package mcpcontrol
+			"internal/ssafixture/semantic.go": `package ssafixture
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
 
-func methodExpression() any { return contract.OrchestrationService.SubmitTurn }
+func methodExpression() any { return wide.LaunchAgent }
 `,
 		},
 		wantContains: []string{
-			"method expression SubmitTurn in methodExpression uses full orchestration service",
+			"method expression LaunchAgent in methodExpression uses full orchestration service",
 		},
 	}
 }

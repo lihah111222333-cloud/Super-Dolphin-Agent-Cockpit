@@ -316,7 +316,7 @@ func TestMutationHandlersAcceptPosSelectors(t *testing.T) {
 
 func assertSendMessagePosSelector(t *testing.T) {
 	var got contract.TurnSubmission
-	handler := HandleSendMessage(&golden.OrchestrationStub{
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SubmitTurnFunc: func(_ context.Context, req contract.TurnSubmission) error {
 			got = req
 			return nil

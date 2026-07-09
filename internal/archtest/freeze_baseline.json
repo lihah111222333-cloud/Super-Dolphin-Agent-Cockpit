@@ -143,12 +143,6 @@
       "line": 355,
       "detail": "type conversion in listDispatcherNodesForRun uses broad port taskdag.Store"
     },
-    "cmd/mcp-orch/orchestration/service.go:302:priority_ssa_wide_port:field Store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/service.go",
-      "line": 302,
-      "detail": "field Store uses broad port taskdag.Store"
-    },
     "cmd/mcp-orch/orchestration/stop_helper.go:239:priority_ssa_error_string:error string match strings.Contains": {
       "rule": "priority_ssa_error_string",
       "file": "cmd/mcp-orch/orchestration/stop_helper.go",

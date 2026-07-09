@@ -21,8 +21,9 @@ import (
 type serviceParams struct {
 	fx.In
 
-	Orchestration OrchestrationReader `optional:"true"`
-	DAGRuntime    contract.DAGRuntime `optional:"true"`
+	Orchestration OrchestrationReader       `optional:"true"`
+	Reports       OrchestrationReportReader `optional:"true"`
+	DAGRuntime    contract.DAGRuntime       `optional:"true"`
 	AgentStatuses AgentStatusReader
 	SystemLogs    SystemLogReader
 	AuditLogs     AuditLogReader
@@ -566,6 +567,7 @@ var Module = fx.Module("dashboard",
 	fx.Provide(func(p serviceParams) Service {
 		return newServiceWithDAGRuntime(
 			p.Orchestration,
+			p.Reports,
 			p.DAGRuntime,
 			p.AgentStatuses,
 			p.SystemLogs,

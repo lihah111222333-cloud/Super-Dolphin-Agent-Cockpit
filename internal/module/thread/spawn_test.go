@@ -192,11 +192,12 @@ func TestSpawnIfNeededPreservesPendingLaunchSandboxPreference(t *testing.T) {
 	bindings := &stubBindingStore{}
 	var capturedStart dto.StartSessionRequest
 	svc := &service{
-		threadStore:    store,
-		bindingStore:   bindings,
-		sessions:       sessions,
-		orchestration:  &stubThreadOrchestration{},
-		promptAssembly: promptAssemblyStub{},
+		threadStore:             store,
+		bindingStore:            bindings,
+		sessions:                sessions,
+		orchestration:           &stubThreadOrchestration{},
+		sessionGenerationBinder: &stubThreadOrchestration{},
+		promptAssembly:          promptAssemblyStub{},
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 			capturedStart = req
 			session := &stubSession{threadID: providerUUID}
@@ -335,12 +336,13 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 	}}
 	sessions := &stubSessionProvider{}
 	svc := &service{
-		threadStore:    store,
-		bindingStore:   &stubBindingStore{},
-		sessions:       sessions,
-		orchestration:  &stubThreadOrchestration{},
-		promptAssembly: promptAssemblyStub{},
-		promptCatalog:  threadprompt.NewRuntimeCatalog(&fakePromptStore{}, nil),
+		threadStore:             store,
+		bindingStore:            &stubBindingStore{},
+		sessions:                sessions,
+		orchestration:           &stubThreadOrchestration{},
+		sessionGenerationBinder: &stubThreadOrchestration{},
+		promptAssembly:          promptAssemblyStub{},
+		promptCatalog:           threadprompt.NewRuntimeCatalog(&fakePromptStore{}, nil),
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: threadID}
 			sessions.session = session
@@ -385,11 +387,12 @@ func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 	sessions := &stubSessionProvider{}
 	bindings := &stubBindingStore{}
 	svc := &service{
-		threadStore:    store,
-		bindingStore:   bindings,
-		sessions:       sessions,
-		orchestration:  &stubThreadOrchestration{},
-		promptAssembly: promptAssemblyStub{},
+		threadStore:             store,
+		bindingStore:            bindings,
+		sessions:                sessions,
+		orchestration:           &stubThreadOrchestration{},
+		sessionGenerationBinder: &stubThreadOrchestration{},
+		promptAssembly:          promptAssemblyStub{},
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: providerUUID}
 			sessions.session = session
@@ -438,11 +441,12 @@ func TestSpawnIfNeededUsesRuntimeCodexIdentityWhenPendingConfigIsPartial(t *test
 	sessions := &stubSessionProvider{}
 	bindings := &stubBindingStore{}
 	svc := &service{
-		threadStore:    store,
-		bindingStore:   bindings,
-		sessions:       sessions,
-		orchestration:  &stubThreadOrchestration{},
-		promptAssembly: promptAssemblyStub{},
+		threadStore:             store,
+		bindingStore:            bindings,
+		sessions:                sessions,
+		orchestration:           &stubThreadOrchestration{},
+		sessionGenerationBinder: &stubThreadOrchestration{},
+		promptAssembly:          promptAssemblyStub{},
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{
 				threadID: providerUUID,

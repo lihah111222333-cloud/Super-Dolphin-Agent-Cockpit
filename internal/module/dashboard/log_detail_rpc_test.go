@@ -31,7 +31,7 @@ func TestDashboardLogDetailReturnsSanitizedRawAndExtra(t *testing.T) {
 		"duration_ms":    int64(123),
 		"extra":          `{"password":"hunter2","safe":"visible"}`,
 	}}}
-	svc := NewService(nil, nil, nil, nil, nil, nil, db, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, db, nil, nil, nil, nil)
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewDashboardHandlers(svc).Handlers)
 

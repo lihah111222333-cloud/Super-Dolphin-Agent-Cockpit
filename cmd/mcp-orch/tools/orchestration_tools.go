@@ -102,8 +102,20 @@ type agentLaunchPort interface {
 	Snapshot(context.Context, string) (contract.AgentSnapshot, error)
 }
 
-type agentListPort interface {
-	agentSnapshotLister
+// AgentListPorts 分开保存 list_agents 的快照读和可选报告补水端口。
+type AgentListPorts struct {
+	Snapshots agentSnapshotLister
+	Reports   agentListReportReader
+}
+
+func (p AgentListPorts) configuredDependency() any {
+	if p.Snapshots == nil || p.Reports == nil {
+		return nil
+	}
+	return &p
+}
+
+type agentListReportReader interface {
 	GetReport(context.Context, string) (contract.AgentReportResult, error)
 }
 
@@ -397,16 +409,16 @@ func releaseLaunchAgentID(agentID string) func() {
 }
 
 // HandleSendMessage 向已有 agent 提交文本 turn；wait_report=true 时只允许 idle 后续消息。
-func HandleSendMessage(svc sendMessagePort) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
+func HandleSendMessage(ports SendMessagePorts) ToolHandler {
+	return makeHandler(ports.configuredDependency(), "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
 		if sendMessageShouldWaitReport(in) {
-			return submitMessageAndWaitForReport(ctx, svc, in)
+			return submitMessageAndWaitForReport(ctx, ports, in)
 		}
-		submission, err := submissionFromMessage(ctx, svc, in)
+		submission, err := submissionFromMessage(ctx, ports.Snapshots, in)
 		if err != nil {
 			return nil, err
 		}
-		if err := submitSendMessageTurn(ctx, svc, submission, in.Message); err != nil {
+		if err := submitSendMessageTurn(ctx, ports.Turns, submission, in.Message); err != nil {
 			return nil, err
 		}
 		return successResult(map[string]any{"agent_id": submission.AgentID}), nil
@@ -450,13 +462,13 @@ func HandleStopAgent(svc contract.AgentLifecyclePort) ToolHandler {
 }
 
 // HandleListAgents 列出 agent 快照，默认只返回活跃项且不携带报告正文。
-func HandleListAgents(svc agentListPort) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
+func HandleListAgents(ports AgentListPorts) ToolHandler {
+	return makeHandler(ports.configuredDependency(), "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
 		cwdFilter, err := listAgentsCWDFilter(ctx, in.CWD)
 		if err != nil {
 			return nil, err
 		}
-		agents, err := listAgentSnapshots(ctx, svc)
+		agents, err := listAgentSnapshots(ctx, ports.Snapshots)
 		if err != nil {
 			pkglogger.Warn("list_agents: list failed",
 				"state", strings.TrimSpace(in.State),
@@ -469,7 +481,7 @@ func HandleListAgents(svc agentListPort) ToolHandler {
 		}
 		filtered := filterListAgentSnapshots(agents, in, cwdFilter)
 		if in.IncludeReports {
-			if err := hydrateListAgentReports(ctx, svc, filtered); err != nil {
+			if err := hydrateListAgentReports(ctx, ports.Reports, filtered); err != nil {
 				return nil, err
 			}
 		}
@@ -511,7 +523,7 @@ func listAgentSnapshots(ctx context.Context, svc agentSnapshotLister) ([]contrac
 }
 
 // hydrateListAgentReports 为缺少 LastReport 的快照补取报告；找不到 agent 只跳过，其他错误立即返回。
-func hydrateListAgentReports(ctx context.Context, svc agentListPort, agents []contract.AgentSnapshot) error {
+func hydrateListAgentReports(ctx context.Context, reports agentListReportReader, agents []contract.AgentSnapshot) error {
 	reportCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 	for i := range agents {
@@ -522,7 +534,7 @@ func hydrateListAgentReports(ctx context.Context, svc agentListPort, agents []co
 		if agentID == "" {
 			continue
 		}
-		report, err := svc.GetReport(reportCtx, agentID)
+		report, err := reports.GetReport(reportCtx, agentID)
 		if err != nil {
 			if errors.Is(err, contract.ErrAgentNotFound) {
 				continue

@@ -11,7 +11,7 @@ cmd/super-dolphin-updater/main.go	cmd	other	go-source	8714	Super-Dolphin updater
 go.mod	(root)	other	mod	3822	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app_test.go	internal	other	go-test	4257	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/app.go	internal	other	go-source	12858	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/dashboard_adapter.go	internal	other	go-source	3389	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dashboard,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/dashboard_adapter.go	internal	other	go-source	4484	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dashboard,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/dependency_contract_test.go	internal	other	go-test	3724	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/dependency_contract.go	internal	other	go-source	1784	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,dependency,contract,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/desktop_preflight_test.go	internal	other	go-test	15173	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,desktop,preflight,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -20,14 +20,14 @@ internal/app/mcpcontrol_log_sink.go	internal	other	go-source	1489	root Fx/app �
 internal/app/modules_builtin_tools_test.go	internal	other	go-test	3631	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,builtin,tools,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_e2efixture_test.go	internal	other	go-test	3845	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_graph_test.go	internal	other	go-test	16575	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/modules.go	internal	other	go-source	9536	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules.go	internal	other	go-source	9684	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_scripts_test.go	internal	other	go-test	24999	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_sqlite_scripts_test.go	internal	other	go-test	4678	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,sqlite,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/observability_trace_adapters.go	internal	other	go-source	2984	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,observability,trace,adapters,root,Fx,装配,runner,与,toolbridge
-internal/app/orchestration_adapter_ports_test.go	internal	other	go-test	10061	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,adapter,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/orchestration_adapter_ports_test.go	internal	other	go-test	10851	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,adapter,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	16005	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	12622	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/provider_hooks_contract_test.go	internal	other	go-test	1071	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -37,8 +37,8 @@ internal/app/runtime_reporter_adapter.go	internal	other	go-source	2573	root Fx/a
 internal/app/session_ports_test.go	internal	other	go-test	1277	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/session_ports.go	internal	other	go-source	525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/sharedfile_adapter.go	internal	other	go-source	896	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7166	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/thread_orchestration_adapter.go	internal	other	go-source	9933	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7232	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/thread_orchestration_adapter.go	internal	other	go-source	10026	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/toolbridge_adapters_test.go	internal	other	go-test	2374	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,test,root,Fx,装配,runner,与
 internal/app/toolbridge_adapters.go	internal	other	go-source	13659	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,root,Fx,装配,runner,与
 internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2515	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,field,writes,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -79,7 +79,7 @@ internal/archtest/effective_lines.go	internal	other	go-source	1020	架构守卫�
 internal/archtest/error_prone_pattern_guard.go	internal	other	go-source	16525	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,prone,pattern,guard,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/error_string_match_guard_test.go	internal	other	go-test	3203	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,string,match,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/eventbus_payload_guard_test.go	internal	other	go-test	2431	架构守卫、baseline ratchet 与冻结规则	internal,archtest,eventbus,payload,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/freeze_baseline.json	internal	other	json	15763	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/freeze_baseline.json	internal	other	json	15466	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	4640	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry.go	internal	other	go-source	5395	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
@@ -122,26 +122,26 @@ internal/archtest/orchestration_no_hookconsumer_export_guard_test.go	internal	ot
 internal/archtest/orchestration_no_module_export_guard_test.go	internal	other	go-test	1816	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,module,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_no_rpc_shell_export_guard_test.go	internal	other	go-test	1430	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,rpc,shell,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_report_protocol_guard_test.go	internal	other	go-test	2078	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,report,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_rpc_golden_test.go	internal	other	go-test	3003	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,rpc,golden,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_boundary_fixtures_test.go	internal	other	go-test	13968	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,boundary,fixtures,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_boundary_test.go	internal	other	go-test	25114	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,boundary,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_ssa_boundary_test.go	internal	other	go-test	22416	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,ssa,boundary,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_ssa_fixtures_test.go	internal	other	go-test	5770	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,ssa,fixtures,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_type_boundary_test.go	internal	other	go-test	13877	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,boundary,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/orchestration_service_type_loader_test.go	internal	other	go-test	16048	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,loader,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_rpc_golden_test.go	internal	other	go-test	3045	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,rpc,golden,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_boundary_test.go	internal	other	go-test	992	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_ssa_boundary_test.go	internal	other	go-test	22353	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,ssa,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_ssa_fixtures_test.go	internal	other	go-test	5350	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,ssa,fixtures,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_type_boundary_test.go	internal	other	go-test	15986	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_type_loader_test.go	internal	other	go-test	1508	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,type,loader,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_service_wide_helpers_test.go	internal	other	go-test	7424	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,service,wide,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_session_cleaner_guard_test.go	internal	other	go-test	2348	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,cleaner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/orchestration_session_ready_guard_test.go	internal	other	go-test	2201	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,ready,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/parse_fail_closed_guard_test.go	internal	other	go-test	2539	架构守卫、baseline ratchet 与冻结规则	internal,archtest,parse,fail,closed,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/pattern_guard_helpers_test.go	internal	other	go-test	1170	架构守卫、baseline ratchet 与冻结规则	internal,archtest,pattern,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_baseline_test.go	internal	other	go-test	5079	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,baseline,test,架构守卫,ratchet,与冻结规则
+internal/archtest/priority_ssa_baseline_test.go	internal	other	go-test	5082	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,baseline,test,架构守卫,ratchet,与冻结规则
 internal/archtest/priority_ssa_baseline.go	internal	other	go-source	6416	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_helpers_test.go	internal	other	go-test	19782	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_test.go	internal	other	go-test	11963	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_production_guard_test.go	internal	other	go-test	1195	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,production,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules.go	internal	other	go-source	21721	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_scan.go	internal	other	go-source	7364	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,scan,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/priority_ssa_scan.go	internal	other	go-source	7473	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,scan,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_util.go	internal	other	go-source	5573	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,util,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_wide.go	internal	other	go-source	20220	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,wide,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/priority_ssa_wide.go	internal	other	go-source	25587	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,wide,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_builtin_config_test.go	internal	other	go-test	18129	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,builtin,config,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_external_reference_guard_helpers_test.go	internal	other	go-test	19959	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_external_reference_guard_test.go	internal	other	go-test	12820	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -209,7 +209,7 @@ internal/contract/memory.go	internal	other	go-source	7763	跨模块稳定接口�
 internal/contract/message_notifier.go	internal	other	go-source	1872	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration_tools_test.go	internal	other	go-test	3422	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,tools,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration_workbench_test.go	internal	other	go-test	1783	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,workbench,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/orchestration.go	internal	other	go-source	33111	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
+internal/contract/orchestration.go	internal	other	go-source	31084	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
 internal/contract/pending_launch_spawner.go	internal	other	go-source	1028	跨模块稳定接口、事件和 DTO 边界	internal,contract,pending,launch,spawner,跨模块稳定接口,事件和,DTO,边界
 internal/contract/prompt_attachment.go	internal	other	go-source	3872	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,attachment,跨模块稳定接口,事件和,DTO,边界
 internal/contract/prompt.go	internal	other	go-source	29025	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,跨模块稳定接口,事件和,DTO,边界

@@ -103,35 +103,42 @@ func newService(
 		dispatcher = threadEvents.Dispatcher()
 	}
 	s := &service{
-		logger:           logger,
-		threadStore:      threadStore,
-		bindingStore:     bindingStore,
-		sharedFiles:      sharedFiles,
-		sessions:         sessions,
-		starter:          starter,
-		promptAssembly:   promptAssembly,
-		cfg:              cfg,
-		toolRegistry:     toolRegistry,
-		mcpServers:       mcpServers,
-		turns:            turns,
-		orchestration:    orchestration,
-		tracing:          tracing,
-		bus:              dispatcher,
-		promptStore:      promptStore,
-		promptCatalog:    promptCatalog,
-		matchWhenEval:    matchWhenEval,
-		enableWhenEval:   enableWhenEval,
-		emitStarted:      contract.NewEmitter[threaddto.Started](dispatcher),
-		emitStopped:      contract.NewEmitter[threaddto.Stopped](dispatcher),
-		emitUpdated:      contract.NewEmitter[threaddto.Updated](dispatcher),
-		emitMessagesPage: contract.NewEmitter[threaddto.MessagesPage](dispatcher),
-		emitCompacted:    contract.NewEmitter[threaddto.Compacted](dispatcher),
-		emitLaunched:     contract.NewEmitter[threaddto.Launched](dispatcher),
-		threadAgents:     make(map[string]string),
-		reconnectDelay:   sessionRecoveryReconnectDelay,
+		logger:                  logger,
+		threadStore:             threadStore,
+		bindingStore:            bindingStore,
+		sharedFiles:             sharedFiles,
+		sessions:                sessions,
+		starter:                 starter,
+		promptAssembly:          promptAssembly,
+		cfg:                     cfg,
+		toolRegistry:            toolRegistry,
+		mcpServers:              mcpServers,
+		turns:                   turns,
+		orchestration:           orchestration,
+		sessionGenerationBinder: sessionGenerationBinderFromOrchestration(orchestration),
+		tracing:                 tracing,
+		bus:                     dispatcher,
+		promptStore:             promptStore,
+		promptCatalog:           promptCatalog,
+		matchWhenEval:           matchWhenEval,
+		enableWhenEval:          enableWhenEval,
+		emitStarted:             contract.NewEmitter[threaddto.Started](dispatcher),
+		emitStopped:             contract.NewEmitter[threaddto.Stopped](dispatcher),
+		emitUpdated:             contract.NewEmitter[threaddto.Updated](dispatcher),
+		emitMessagesPage:        contract.NewEmitter[threaddto.MessagesPage](dispatcher),
+		emitCompacted:           contract.NewEmitter[threaddto.Compacted](dispatcher),
+		emitLaunched:            contract.NewEmitter[threaddto.Launched](dispatcher),
+		threadAgents:            make(map[string]string),
+		reconnectDelay:          sessionRecoveryReconnectDelay,
 	}
 	// Workers live beside service methods they call; bus callbacks only enqueue.
 	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)
 	s.sessionRecoveryWorker = newSessionRecoveryWorker(s, logger)
 	return s
+}
+
+// sessionGenerationBinderFromOrchestration 从兼容 facade 里提取独立 generation 绑定端口。
+func sessionGenerationBinderFromOrchestration(orchestration OrchestrationFacade) SessionGenerationBinder {
+	binder, _ := orchestration.(SessionGenerationBinder)
+	return binder
 }

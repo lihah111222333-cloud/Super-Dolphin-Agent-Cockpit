@@ -553,9 +553,10 @@ func eagerSnapshotFailureFixture(t *testing.T) (*cleanupCountingThreadStore, *st
 			sessionProvider.register(session)
 			return session, nil
 		}},
-		sessions:       sessionProvider,
-		orchestration:  orch,
-		promptAssembly: snapshotPromptAssembly{},
+		sessions:                sessionProvider,
+		orchestration:           orch,
+		sessionGenerationBinder: orch,
+		promptAssembly:          snapshotPromptAssembly{},
 	}
 	return threads, bindings, orch, svc
 }

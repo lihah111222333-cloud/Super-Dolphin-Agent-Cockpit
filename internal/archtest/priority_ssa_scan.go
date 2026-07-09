@@ -131,7 +131,7 @@ func prioritySSAWidePortTargets(pkgs []*prioritySSAPackage) ([]*types.TypeName, 
 	for _, pkg := range pkgs {
 		byPath[pkg.pkgPath] = pkg
 	}
-	specs := prioritySSABackendWidePortTargetSpecs()
+	specs := prioritySSANamedWidePortTargetSpecs()
 	targets := make([]*types.TypeName, 0, len(specs))
 	for _, spec := range specs {
 		target, err := prioritySSAWidePortTarget(byPath, spec)
@@ -140,13 +140,16 @@ func prioritySSAWidePortTargets(pkgs []*prioritySSAPackage) ([]*types.TypeName, 
 		}
 		targets = append(targets, target)
 	}
+	targets = append(targets, prioritySSAWideOrchestrationTargets(pkgs)...)
+	sort.Slice(targets, func(i, j int) bool {
+		return prioritySSATargetSortKey(targets[i]) < prioritySSATargetSortKey(targets[j])
+	})
 	return targets, nil
 }
 
-func prioritySSABackendWidePortTargetSpecs() []prioritySSATargetSpec {
+func prioritySSANamedWidePortTargetSpecs() []prioritySSATargetSpec {
 	return []prioritySSATargetSpec{
 		{importPath: prioritySSAModulePath + "/cmd/mcp-orch/store/taskdag", name: "Store"},
-		{importPath: prioritySSAModulePath + "/internal/contract", name: "OrchestrationService"},
 		{importPath: prioritySSAModulePath + "/internal/module/skill", name: "Service"},
 	}
 }

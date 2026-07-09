@@ -13,7 +13,7 @@ import (
 
 func TestListAgentsHandlerSkipsReportHydrationWhenReportsOmitted(t *testing.T) {
 	deadlineSeen := false
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(ctx context.Context) ([]contract.AgentSnapshot, error) {
 			_, deadlineSeen = ctx.Deadline()
 			return []contract.AgentSnapshot{{ID: "agent-idle", AgentID: "agent-idle", State: "idle", LastReport: "must be stripped"}}, nil
@@ -38,7 +38,7 @@ func TestListAgentsHandlerSkipsReportHydrationWhenReportsOmitted(t *testing.T) {
 }
 
 func TestListAgentsHandlerCanIncludeInactiveReportsAndLimit(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "agent-stopped", AgentID: "agent-stopped", State: "stopped"},
@@ -67,7 +67,7 @@ func TestListAgentsHandlerCanIncludeInactiveReportsAndLimit(t *testing.T) {
 }
 
 func TestListAgentsHandlerIncludeReportsKeepsAgentsWithoutReport(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{
 				{ID: "agent-provisioning", AgentID: "agent-provisioning", State: "provisioning"},
@@ -99,7 +99,7 @@ func TestListAgentsHandlerIncludeReportsKeepsAgentsWithoutReport(t *testing.T) {
 }
 
 func TestListAgentsHandlerIncludeReportsFailsOnReportError(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{{ID: "agent-1", AgentID: "agent-1", State: "idle"}}, nil
 		},
@@ -115,7 +115,7 @@ func TestListAgentsHandlerIncludeReportsFailsOnReportError(t *testing.T) {
 }
 
 func TestListAgentsEnvelopeGuidesSingleAndBatchReportReads(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{{ID: "agent-1", AgentID: "agent-1", State: "idle"}}, nil
 		},

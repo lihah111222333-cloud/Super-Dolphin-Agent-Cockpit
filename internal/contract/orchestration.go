@@ -158,36 +158,7 @@ type TurnSubmissionPort interface {
 	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
 }
 
-// OrchestrationService 是内部模块和 MCP orchestration runtime 共用的总边界。
-// 这里聚合 agent 生命周期、DAG runtime、报告和恢复入口，调用方不应在本接口外私接 mcp-orch 内部实现。
-type OrchestrationService interface {
-	DAGRuntime
-	DAGDeleteRuntime
-	LaunchAgent(ctx context.Context, req LaunchRequest) error
-	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
-	StopAgent(ctx context.Context, agentID string) error
-	InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error)
-	SubmitTurn(ctx context.Context, req TurnSubmission) error
-	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
-	Recover(ctx context.Context, agentID string) error
-	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
-	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
-	UpdateRuntime(ctx context.Context, report RuntimeReport) error
-	GetState(ctx context.Context, agentID string) (AgentStateResult, error)
-	GetReport(ctx context.Context, agentID string) (AgentReportResult, error)
-	RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
-	HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
-	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
-	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
-	// GetRun 按 run_key 查询单条 run（task_get_run MCP 工具承载点）。
-	// 返回值包含该 run 的 runtime node 快照；DAG 模板节点仍由 task_get_dag 读取。
-	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
-	// DispatchNode 显式恢复 ready/pending 且缺少 assignee 的 runtime node。
-	// 它写入 assigned_to 后立即 enqueue wakeup，让 dispatcher 能继续派发该节点。
-	DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
-}
-
-// DispatchNodeRequest 是 OrchestrationService.DispatchNode 的入参。
+// DispatchNodeRequest 是 DAGNodeDispatchRuntime.DispatchNode 的入参。
 // RunID 必填，确保手动派发落到某次运行的 runtime node，而不是误改 DAG 模板节点。
 type DispatchNodeRequest struct {
 	DagKey, NodeKey string
@@ -513,13 +484,13 @@ type ApplyOpsResponse struct {
 	NewVersion int64 `json:"new_version"`
 }
 
-// GetRunRequest 是 task_get_run / OrchestrationService.GetRun 的入参。
+// GetRunRequest 是 task_get_run / DAGRuntime.GetRun 的入参。
 // run_key 必填，服务端 trim 后空串拒绝。
 type GetRunRequest struct {
 	RunKey string
 }
 
-// GetRunResponse 是 task_get_run / OrchestrationService.GetRun 的出参。
+// GetRunResponse 是 task_get_run / DAGRuntime.GetRun 的出参。
 // Nodes 返回该 run 的 runtime node 快照；模板节点由 task_get_dag 读取，避免混淆运行态和模板态。
 type GetRunResponse struct {
 	Run   Run       `json:"run"`

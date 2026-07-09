@@ -33,15 +33,11 @@ func TestOrchestrationServiceSSAConsumersDoNotPropagateFullService(t *testing.T)
 	t.Parallel()
 
 	root := repoRoot(t)
-	target := mustLoadOrchestrationServiceTypeObject(t, root)
-	pkgs := loadOrchestrationServiceTypeGuardPackages(t, root, target.Pkg())
+	pkgs := loadWideOrchestrationTypeGuardPackages(t, root)
 	allowances := orchestrationServiceSSAAllowances()
 	var violations []string
 	for _, pkg := range pkgs {
-		if !isOrchestrationServiceTypeGuardProductionPackage(pkg) {
-			continue
-		}
-		for _, use := range collectOrchestrationServiceSSAUses(t, pkg, target) {
+		for _, use := range collectOrchestrationServiceSSAUses(t, pkg, nil) {
 			if isAllowedOrchestrationServiceSSAUse(use, allowances) {
 				continue
 			}
@@ -58,10 +54,10 @@ func collectOrchestrationServiceSSAUses(
 	target *types.TypeName,
 ) []orchestrationServiceSSAUse {
 	t.Helper()
-	if pkg == nil || pkg.types == nil || pkg.typesInfo == nil || target == nil {
+	if pkg == nil || pkg.types == nil || pkg.typesInfo == nil {
 		return nil
 	}
-	if !orchestrationServiceCheckedPackageMayCarryTarget(pkg, target) {
+	if target != nil && !orchestrationServiceCheckedPackageMayCarryTarget(pkg, target) {
 		return nil
 	}
 
@@ -622,6 +618,9 @@ func orchestrationServiceSSAAllowances() []orchestrationServiceSSAAllowance {
 }
 
 func isAllowedOrchestrationServiceSSAUse(use orchestrationServiceSSAUse, allowances []orchestrationServiceSSAAllowance) bool {
+	if isAllowedWideOrchestrationFacadeUse(use.relPath, use.kind, use.symbol) {
+		return true
+	}
 	for _, allowance := range allowances {
 		if allowance.reason == "" {
 			continue

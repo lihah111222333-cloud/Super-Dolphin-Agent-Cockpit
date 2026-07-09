@@ -13,10 +13,18 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-type sendMessagePort interface {
-	sendMessageSnapshotReader
-	sendMessageReportWaiter
-	sendMessageTurnSubmitter
+// SendMessagePorts 按 send_message 的三个动作阶段保存独立窄端口。
+type SendMessagePorts struct {
+	Snapshots sendMessageSnapshotReader
+	Reports   sendMessageReportWaiter
+	Turns     sendMessageTurnSubmitter
+}
+
+func (p SendMessagePorts) configuredDependency() any {
+	if p.Snapshots == nil || p.Reports == nil || p.Turns == nil {
+		return nil
+	}
+	return &p
 }
 
 type sendMessageSnapshotReader interface {
@@ -39,7 +47,7 @@ func sendMessageShouldWaitReport(in SendMessageInput) bool {
 
 // submitMessageAndWaitForReport 只处理 idle agent 的后续消息等待路径。
 // 先记录当前 report_seq，再提交 turn，最后等待更大的 seq，避免误读上一轮旧报告。
-func submitMessageAndWaitForReport(ctx context.Context, svc sendMessagePort, in SendMessageInput) (map[string]any, error) {
+func submitMessageAndWaitForReport(ctx context.Context, ports SendMessagePorts, in SendMessageInput) (map[string]any, error) {
 	agentID, message, err := sendMessageParts(in)
 	if err != nil {
 		return nil, err
@@ -55,12 +63,12 @@ func submitMessageAndWaitForReport(ctx context.Context, svc sendMessagePort, in 
 	}
 	followUpCtx, cancel := platformconfig.WithTimeout(ctx, timeout)
 	defer cancel()
-	previousReportSeq, err := previousFollowUpReportSeq(followUpCtx, svc, agentID)
+	previousReportSeq, err := previousFollowUpReportSeq(followUpCtx, ports.Reports, agentID)
 	if err != nil {
 		return nil, err
 	}
 	waitInput.AfterReportSeq = &previousReportSeq
-	snapshot, err := svc.Snapshot(followUpCtx, agentID)
+	snapshot, err := ports.Snapshots.Snapshot(followUpCtx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot agent %q before follow-up: %w", agentID, err)
 	}
@@ -68,10 +76,10 @@ func submitMessageAndWaitForReport(ctx context.Context, svc sendMessagePort, in 
 		return nil, err
 	}
 	submission := turnSubmissionFromMessage(agentID, threadIDFromSnapshot(snapshot, agentID), message)
-	if err := submitSendMessageTurn(followUpCtx, svc, submission, message); err != nil {
+	if err := submitSendMessageTurn(followUpCtx, ports.Turns, submission, message); err != nil {
 		return nil, sendMessageSubmitError(agentID, timeout, err)
 	}
-	report, err := waitForFollowUpReport(ctx, followUpCtx, svc, waitInput, agentID, timeout, previousReportSeq)
+	report, err := waitForFollowUpReport(ctx, followUpCtx, ports.Reports, waitInput, agentID, timeout, previousReportSeq)
 	if err != nil {
 		return nil, err
 	}

@@ -195,9 +195,6 @@ func ProvideService(p serviceParams) *service {
 	return svc
 }
 
-// ProvideServiceInterface 将具体 service 暴露给 RPC facade 的窄端口。
-func ProvideServiceInterface(s *service) rpcFacadeService { return s }
-
 // RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
 // 订阅在 fx OnStop 时取消，避免 service 停止后继续推进状态机。
 func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {

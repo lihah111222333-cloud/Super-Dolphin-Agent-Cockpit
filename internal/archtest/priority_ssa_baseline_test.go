@@ -57,7 +57,7 @@ func assertPrioritySSANewViolation(t *testing.T, fixture prioritySSABaselineFixt
 		Rule:   PrioritySSAWidePortRule,
 		File:   "internal/risk/orchestration.go",
 		Line:   9,
-		Detail: "parameter service in pass uses broad port contract.OrchestrationService",
+		Detail: "parameter service in pass uses broad port contract.WideOrchestration",
 	}
 	assertPrioritySSAContains(t, result.New, orchestration)
 	return result, []PrioritySSAViolation{want, cancel, orchestration}
@@ -115,8 +115,9 @@ type Service interface {
 `)
 	writePrioritySSAFile(t, root, "internal/contract/orchestration.go", `package contract
 
-type OrchestrationService interface {
-	Launch()
+type WideOrchestration interface {
+	LaunchAgent()
+	GetReport()
 }
 `)
 	writePrioritySSAFile(t, root, "internal/risk/orchestration.go", `package risk
@@ -124,10 +125,10 @@ type OrchestrationService interface {
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 type holder struct {
-	service contract.OrchestrationService
+	service contract.WideOrchestration
 }
 
-func pass(service contract.OrchestrationService) contract.OrchestrationService {
+func pass(service contract.WideOrchestration) contract.WideOrchestration {
 	return service
 }
 `)

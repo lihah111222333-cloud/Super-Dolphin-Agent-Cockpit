@@ -29,6 +29,10 @@ type OrchestrationFacade interface {
 	LaunchAgent(ctx context.Context, req LaunchAgentRequest) error
 	StopAgent(ctx context.Context, agentID string) error
 	Recover(ctx context.Context, agentID string) error
+}
+
+// SessionGenerationBinder 是 thread 绑定 provider session generation 的运行时端口。
+type SessionGenerationBinder interface {
 	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
 }
 
@@ -117,14 +121,14 @@ func (s *service) bindSessionGeneration(ctx context.Context, agentID string) err
 		return err
 	}
 	provider, ok := s.sessions.(sessionGenerationProvider)
-	if s.orchestration == nil || s.sessions == nil || !ok {
+	if s.sessionGenerationBinder == nil || s.sessions == nil || !ok {
 		return s.handleBindSessionGenerationError(ctx, agentID, missingBindSessionGenerationDependency(profile), profile)
 	}
 	generation := provider.SessionGeneration(agentID)
 	if generation == 0 {
 		return errors.New("session generation is not available")
 	}
-	err = s.orchestration.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
+	err = s.sessionGenerationBinder.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
 	return s.handleBindSessionGenerationError(ctx, agentID, err, profile)
 }
 

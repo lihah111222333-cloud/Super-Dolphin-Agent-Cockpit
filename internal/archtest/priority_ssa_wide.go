@@ -31,6 +31,136 @@ func prioritySSAPackageMayCarryTarget(pkg *prioritySSAPackage, target *types.Typ
 		prioritySSASelectionMapMayCarryTarget(pkg.typesInfo.Selections, target)
 }
 
+func prioritySSAWideOrchestrationTargets(pkgs []*prioritySSAPackage) []*types.TypeName {
+	var targets []*types.TypeName
+	for _, pkg := range pkgs {
+		targets = append(targets, prioritySSAWideOrchestrationPackageTargets(pkg)...)
+	}
+	return targets
+}
+
+// prioritySSAWideOrchestrationPackageTargets 枚举单包内声明的 orchestration 宽口接口。
+func prioritySSAWideOrchestrationPackageTargets(pkg *prioritySSAPackage) []*types.TypeName {
+	if pkg == nil || pkg.types == nil {
+		return nil
+	}
+	scope := pkg.types.Scope()
+	var targets []*types.TypeName
+	for _, name := range scope.Names() {
+		obj, ok := scope.Lookup(name).(*types.TypeName)
+		if ok && obj.Exported() && prioritySSAWideOrchestrationType(obj.Type()) {
+			targets = append(targets, obj)
+		}
+	}
+	return targets
+}
+
+func prioritySSAWideOrchestrationType(typ types.Type) bool {
+	return len(prioritySSAWideOrchestrationFamilies(typ, map[types.Type]bool{})) >= 2
+}
+
+// prioritySSAWideOrchestrationFamilies 递归提取类型覆盖的 orchestration 能力族。
+func prioritySSAWideOrchestrationFamilies(typ types.Type, seen map[types.Type]bool) map[string]bool {
+	families := map[string]bool{}
+	if typ == nil || seen[typ] {
+		return families
+	}
+	seen[typ] = true
+	switch typed := types.Unalias(typ).(type) {
+	case *types.Named:
+		return prioritySSAWideOrchestrationFamilies(typed.Underlying(), seen)
+	case *types.TypeParam:
+		return prioritySSAWideOrchestrationFamilies(typed.Constraint(), seen)
+	case *types.Interface:
+		return prioritySSAWideOrchestrationInterfaceFamilies(typed, seen)
+	case *types.Signature:
+		return prioritySSAWideOrchestrationSignatureFamilies(typed, seen)
+	default:
+		return prioritySSAWideOrchestrationContainerFamilies(typed, seen)
+	}
+}
+
+func prioritySSAWideOrchestrationInterfaceFamilies(iface *types.Interface, seen map[types.Type]bool) map[string]bool {
+	families := map[string]bool{}
+	iface.Complete()
+	for method := range iface.Methods() {
+		if family := prioritySSAWideOrchestrationMethodFamily(method.Name()); family != "" {
+			families[family] = true
+		}
+	}
+	for embedded := range iface.EmbeddedTypes() {
+		prioritySSAMergeWideOrchestrationFamilies(families, prioritySSAWideOrchestrationFamilies(embedded, seen))
+	}
+	return families
+}
+
+func prioritySSAWideOrchestrationSignatureFamilies(sig *types.Signature, seen map[types.Type]bool) map[string]bool {
+	families := prioritySSAWideOrchestrationTupleFamilies(sig.Params(), seen)
+	prioritySSAMergeWideOrchestrationFamilies(families, prioritySSAWideOrchestrationTupleFamilies(sig.Results(), seen))
+	return families
+}
+
+func prioritySSAWideOrchestrationContainerFamilies(typ types.Type, seen map[types.Type]bool) map[string]bool {
+	families := map[string]bool{}
+	for _, child := range prioritySSAContainerChildren(typ) {
+		prioritySSAMergeWideOrchestrationFamilies(families, prioritySSAWideOrchestrationFamilies(child, seen))
+	}
+	return families
+}
+
+// prioritySSAContainerChildren 返回容器类型中可能继续承载宽口的子类型。
+func prioritySSAContainerChildren(typ types.Type) []types.Type {
+	switch typed := typ.(type) {
+	case *types.Pointer:
+		return []types.Type{typed.Elem()}
+	case *types.Slice:
+		return []types.Type{typed.Elem()}
+	case *types.Array:
+		return []types.Type{typed.Elem()}
+	case *types.Map:
+		return []types.Type{typed.Key(), typed.Elem()}
+	case *types.Chan:
+		return []types.Type{typed.Elem()}
+	default:
+		return nil
+	}
+}
+
+func prioritySSAWideOrchestrationTupleFamilies(tuple *types.Tuple, seen map[types.Type]bool) map[string]bool {
+	families := map[string]bool{}
+	if tuple == nil {
+		return families
+	}
+	for variable := range tuple.Variables() {
+		prioritySSAMergeWideOrchestrationFamilies(families, prioritySSAWideOrchestrationFamilies(variable.Type(), seen))
+	}
+	return families
+}
+
+func prioritySSAMergeWideOrchestrationFamilies(dst, src map[string]bool) {
+	for family := range src {
+		dst[family] = true
+	}
+}
+
+// prioritySSAWideOrchestrationMethodFamily 将 orchestration 方法名归入能力族。
+func prioritySSAWideOrchestrationMethodFamily(method string) string {
+	switch method {
+	case "LaunchAgent", "ListAgents", "StopAgent", "InterruptAgent", "Recover", "Snapshot", "GetState":
+		return "agent_lifecycle"
+	case "SubmitTurn", "CompleteTurn":
+		return "turn_submission"
+	case "UpdateRuntime", "BindSessionGeneration":
+		return "agent_runtime"
+	case "GetReport", "RememberReportRequest", "HandleReportEvent":
+		return "agent_report"
+	case "CreateDAG", "GetDAG", "ListDAGs", "StartDAG", "TerminateDAG", "ListRuns", "GetRun", "ApplyOps", "DeleteDAG", "UpdateNodeStatus", "DispatchNode":
+		return "dag_runtime"
+	default:
+		return ""
+	}
+}
+
 func collectPrioritySSAWidePortViolations(
 	pkg *prioritySSAPackage,
 	ssaPkg *ssa.Package,
@@ -40,6 +170,9 @@ func collectPrioritySSAWidePortViolations(
 	label := prioritySSATargetLabel(target)
 	violations := make([]PrioritySSAViolation, 0, len(uses))
 	for _, use := range uses {
+		if prioritySSAWideUseAllowed(use, target) {
+			continue
+		}
 		violations = append(violations, PrioritySSAViolation{
 			Rule:   PrioritySSAWidePortRule,
 			File:   use.relPath,
@@ -48,6 +181,20 @@ func collectPrioritySSAWidePortViolations(
 		})
 	}
 	return violations
+}
+
+// prioritySSAWideUseAllowed 保留现有 fx.In wiring 层的固定宽口例外。
+func prioritySSAWideUseAllowed(use prioritySSAWideUse, target *types.TypeName) bool {
+	if target == nil || target.Pkg() == nil {
+		return false
+	}
+	if target.Pkg().Path() == prioritySSAModulePath+"/cmd/mcp-orch/store/taskdag" &&
+		target.Name() == "Store" {
+		return use.relPath == "cmd/mcp-orch/orchestration/service.go" &&
+			use.kind == "field" &&
+			use.symbol == "Store"
+	}
+	return false
 }
 
 func collectPrioritySSAWidePortUses(
@@ -621,6 +768,16 @@ func prioritySSATargetLabel(target *types.TypeName) string {
 		return target.Name()
 	}
 	return target.Pkg().Name() + "." + target.Name()
+}
+
+func prioritySSATargetSortKey(target *types.TypeName) string {
+	if target == nil {
+		return ""
+	}
+	if target.Pkg() == nil {
+		return target.Name()
+	}
+	return target.Pkg().Path() + "." + target.Name()
 }
 
 func sortPrioritySSAWideUses(uses []prioritySSAWideUse) {

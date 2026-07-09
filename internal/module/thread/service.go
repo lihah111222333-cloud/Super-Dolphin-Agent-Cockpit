@@ -68,20 +68,21 @@ type sessionGenerationRemover interface {
 }
 
 type service struct {
-	logger         *slog.Logger
-	threadStore    threadServiceStorePort
-	bindingStore   bindingServiceStorePort
-	sharedFiles    sharedFileServiceStorePort
-	sessions       SessionProvider
-	starter        SessionStarter
-	promptAssembly contract.PromptAssemblyService
-	cfg            *contract.Config
-	toolRegistry   contract.ToolRegistry
-	mcpServers     contract.MCPServerConfigProvider
-	turns          contract.TurnThreadCleaner
-	orchestration  OrchestrationFacade
-	tracing        *platformobs.Service
-	bus            *event.Dispatcher
+	logger                  *slog.Logger
+	threadStore             threadServiceStorePort
+	bindingStore            bindingServiceStorePort
+	sharedFiles             sharedFileServiceStorePort
+	sessions                SessionProvider
+	starter                 SessionStarter
+	promptAssembly          contract.PromptAssemblyService
+	cfg                     *contract.Config
+	toolRegistry            contract.ToolRegistry
+	mcpServers              contract.MCPServerConfigProvider
+	turns                   contract.TurnThreadCleaner
+	orchestration           OrchestrationFacade
+	sessionGenerationBinder SessionGenerationBinder
+	tracing                 *platformobs.Service
+	bus                     *event.Dispatcher
 
 	emitStarted      func(threaddto.Started)
 	emitStopped      func(threaddto.Stopped)

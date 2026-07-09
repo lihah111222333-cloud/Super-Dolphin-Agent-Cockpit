@@ -127,21 +127,25 @@ func TestMCPOrchOrchestrationFacadeConstructorInjectsDependencyConfig(t *testing
 }
 
 func TestMCPOrchOrchestrationFacadeFXGraphInjectsDependencyConfig(t *testing.T) {
-	var facade thread.OrchestrationFacade
+	var binder thread.SessionGenerationBinder
 	app := fxtest.New(t,
 		fx.Provide(
 			newToolbridgeHandlerRef,
 			func() contract.DependencyConfig {
 				return contract.DependencyConfig{Profile: contract.DependencyProfileDesktopHost}
 			},
-			fx.Annotate(newMCPOrchOrchestrationFacade, fx.As(new(thread.OrchestrationFacade))),
+			fx.Annotate(
+				newMCPOrchOrchestrationFacade,
+				fx.As(new(thread.OrchestrationFacade)),
+				fx.As(new(thread.SessionGenerationBinder)),
+			),
 		),
-		fx.Populate(&facade),
+		fx.Populate(&binder),
 	)
 	app.RequireStart()
 	t.Cleanup(func() { app.RequireStop() })
 
-	err := facade.BindSessionGeneration(context.Background(), "agent-1", 7)
+	err := binder.BindSessionGeneration(context.Background(), "agent-1", 7)
 	if !contract.IsDependencyModeError(
 		err,
 		"thread.bind_session_generation",

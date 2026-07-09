@@ -122,10 +122,11 @@ func TestThreadLifecycleProductionRequiresOrchestrationAndSessionGenerationProvi
 
 func TestThreadLifecycleProductionRequiresSessionGenerationProvider(t *testing.T) {
 	svc := &service{
-		cfg:           &contract.Config{Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileProduction}},
-		logger:        lifecycleBindLogger(new(bytes.Buffer)),
-		sessions:      bindGenerationSessionProviderWithoutGeneration{},
-		orchestration: bindGenerationOrchestration{},
+		cfg:                     &contract.Config{Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileProduction}},
+		logger:                  lifecycleBindLogger(new(bytes.Buffer)),
+		sessions:                bindGenerationSessionProviderWithoutGeneration{},
+		orchestration:           bindGenerationOrchestration{},
+		sessionGenerationBinder: bindGenerationOrchestration{},
 	}
 
 	if err := svc.bindSessionGeneration(context.Background(), "agent-1"); err == nil {
@@ -135,10 +136,11 @@ func TestThreadLifecycleProductionRequiresSessionGenerationProvider(t *testing.T
 
 func TestThreadLifecycleFailsEmptyDependencyProfile(t *testing.T) {
 	svc := &service{
-		cfg:           &contract.Config{Dependency: contract.DependencyConfig{}},
-		logger:        lifecycleBindLogger(new(bytes.Buffer)),
-		sessions:      bindGenerationSessionProvider{generation: 7},
-		orchestration: bindGenerationOrchestration{},
+		cfg:                     &contract.Config{Dependency: contract.DependencyConfig{}},
+		logger:                  lifecycleBindLogger(new(bytes.Buffer)),
+		sessions:                bindGenerationSessionProvider{generation: 7},
+		orchestration:           bindGenerationOrchestration{},
+		sessionGenerationBinder: bindGenerationOrchestration{},
 	}
 
 	err := svc.bindSessionGeneration(context.Background(), "agent-1")
@@ -179,10 +181,11 @@ func TestThreadLifecycleProductionRequiresOrchestrationWhenConfigNil(t *testing.
 func TestThreadLifecycleDesktopMissingSessionGenerationProviderRecordsTypedUnsupported(t *testing.T) {
 	logs := new(bytes.Buffer)
 	svc := &service{
-		cfg:           &contract.Config{Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileDesktopHost}},
-		logger:        lifecycleBindLogger(logs),
-		sessions:      bindGenerationSessionProviderWithoutGeneration{},
-		orchestration: bindGenerationOrchestration{},
+		cfg:                     &contract.Config{Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileDesktopHost}},
+		logger:                  lifecycleBindLogger(logs),
+		sessions:                bindGenerationSessionProviderWithoutGeneration{},
+		orchestration:           bindGenerationOrchestration{},
+		sessionGenerationBinder: bindGenerationOrchestration{},
 	}
 
 	if err := svc.bindSessionGeneration(context.Background(), "agent-1"); err != nil {
@@ -211,10 +214,11 @@ func TestBindSessionGenerationStatusRecorderRequiresCompleteRecord(t *testing.T)
 func lifecycleBindServiceForTest(profile contract.DependencyProfile, bindErr error) (*service, *bytes.Buffer) {
 	logs := new(bytes.Buffer)
 	return &service{
-		cfg:           &contract.Config{Dependency: contract.DependencyConfig{Profile: profile}},
-		logger:        lifecycleBindLogger(logs),
-		sessions:      bindGenerationSessionProvider{generation: 7},
-		orchestration: bindGenerationOrchestration{err: bindErr},
+		cfg:                     &contract.Config{Dependency: contract.DependencyConfig{Profile: profile}},
+		logger:                  lifecycleBindLogger(logs),
+		sessions:                bindGenerationSessionProvider{generation: 7},
+		orchestration:           bindGenerationOrchestration{err: bindErr},
+		sessionGenerationBinder: bindGenerationOrchestration{err: bindErr},
 	}, logs
 }
 

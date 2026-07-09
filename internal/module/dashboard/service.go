@@ -31,6 +31,7 @@ var (
 // 日志 reader 缺失会在对应读取入口 fail-fast，避免装配漂移被空列表掩盖。
 type service struct {
 	orchestration  OrchestrationReader
+	reports        OrchestrationReportReader
 	dagRuntime     contract.DAGRuntime
 	agentStatuses  AgentStatusReader
 	systemLogs     SystemLogReader
@@ -55,6 +56,7 @@ var _ Service = (*service)(nil)
 // 构造阶段只保存依赖，不访问 store；具体读取入口按能力要求校验依赖是否存在。
 func NewService(
 	orchestrationReader OrchestrationReader,
+	reportReader OrchestrationReportReader,
 	agentStatuses AgentStatusReader,
 	systemLogs SystemLogReader,
 	auditLogs AuditLogReader,
@@ -68,6 +70,7 @@ func NewService(
 ) Service {
 	return &service{
 		orchestration:  orchestrationReader,
+		reports:        reportReader,
 		agentStatuses:  agentStatuses,
 		systemLogs:     systemLogs,
 		auditLogs:      auditLogs,
@@ -87,6 +90,7 @@ func NewService(
 // 当 runtime 为 nil 时 DAG 入口 fail-fast，避免读侧编排端口重新膨胀为完整 runtime。
 func newServiceWithDAGRuntime(
 	orchestrationReader OrchestrationReader,
+	reportReader OrchestrationReportReader,
 	dagRuntime contract.DAGRuntime,
 	agentStatuses AgentStatusReader,
 	systemLogs SystemLogReader,
@@ -101,6 +105,7 @@ func newServiceWithDAGRuntime(
 ) Service {
 	svc := NewService(
 		orchestrationReader,
+		reportReader,
 		agentStatuses,
 		systemLogs,
 		auditLogs,
@@ -160,7 +165,7 @@ func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
 // GetAgentDetail 并发读取 agent 快照和报告。
 // orchestration 未配置或 agentID 为空时 fail-fast，避免详情页展示错 agent。
 func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error) {
-	if s.orchestration == nil {
+	if s.orchestration == nil || s.reports == nil {
 		return nil, errors.New("dashboard: orchestration service is not configured")
 	}
 	id := strings.TrimSpace(agentID)
@@ -179,7 +184,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 		return err
 	})
 	group.Go(func() error {
-		reportResp, reportErr = s.orchestration.GetReport(groupCtx, id)
+		reportResp, reportErr = s.reports.GetReport(groupCtx, id)
 		if reportErr != nil {
 			return reportErr
 		}

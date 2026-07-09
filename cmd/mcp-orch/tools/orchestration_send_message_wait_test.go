@@ -20,7 +20,7 @@ func TestSendMessageWaitReportReturnsNewReportAfterSubmit(t *testing.T) {
 		Report:    "old report",
 		ReportSeq: 3,
 	})
-	handler := HandleSendMessage(&golden.OrchestrationStub{
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{AgentID: agentID, ThreadID: "thread-b", State: "idle"}, nil
 		},
@@ -75,7 +75,7 @@ func TestSendMessageWaitReportRequiresIdleAgent(t *testing.T) {
 	}
 	for _, state := range states {
 		t.Run(state, func(t *testing.T) {
-			handler := HandleSendMessage(&golden.OrchestrationStub{
+			handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 				SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 					return contract.AgentSnapshot{AgentID: agentID, State: state}, nil
 				},
@@ -102,7 +102,7 @@ func TestSendMessageWaitReportRequiresIdleAgent(t *testing.T) {
 
 func TestSendMessageWaitFalseKeepsOriginalSubmissionBehavior(t *testing.T) {
 	var got contract.TurnSubmission
-	handler := HandleSendMessage(&golden.OrchestrationStub{
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{AgentID: agentID, ThreadID: "thread-running", State: "turn_running"}, nil
 		},
@@ -136,7 +136,7 @@ func TestSendMessageWaitFalseKeepsOriginalSubmissionBehavior(t *testing.T) {
 
 func TestSendMessageWaitReportSubmitFailureDoesNotWait(t *testing.T) {
 	getReportCalls := 0
-	handler := HandleSendMessage(&golden.OrchestrationStub{
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
 		},
@@ -164,7 +164,7 @@ func TestSendMessageWaitReportSubmitFailureDoesNotWait(t *testing.T) {
 }
 
 func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
-	handler := HandleSendMessage(&golden.OrchestrationStub{
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
 		},
@@ -206,7 +206,7 @@ func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
 }
 
 func TestSendMessageWaitReportTimeoutMentionsAgentAndSeq(t *testing.T) {
-	handler := HandleSendMessage(&golden.OrchestrationStub{
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
 		},

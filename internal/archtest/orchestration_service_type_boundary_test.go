@@ -14,7 +14,6 @@ import (
 )
 
 const superAgentModulePath = "github.com/anthropic-ai/super-agent-v3"
-const orchestrationServiceContractPackagePath = superAgentModulePath + "/internal/contract"
 
 type orchestrationServiceTypeUse struct {
 	relPath string
@@ -26,6 +25,7 @@ type orchestrationServiceTypeUse struct {
 
 type orchestrationServiceTypeGuardFixture struct {
 	name         string
+	importPath   string
 	files        map[string]string
 	wantContains []string
 }
@@ -34,14 +34,9 @@ func TestOrchestrationServiceTypeConsumersUseNarrowPorts(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	target := mustLoadOrchestrationServiceTypeObject(t, root)
-	pkgs := loadOrchestrationServiceTypeGuardPackages(t, root, target.Pkg())
 	var violations []string
-	for _, pkg := range pkgs {
-		if !isOrchestrationServiceTypeGuardProductionPackage(pkg) {
-			continue
-		}
-		for _, use := range collectOrchestrationServiceTypeUses(pkg, target) {
+	for _, pkg := range loadWideOrchestrationTypeGuardPackages(t, root) {
+		for _, use := range collectOrchestrationServiceTypeUses(pkg, nil) {
 			if isAllowedOrchestrationServiceTypeUse(use) {
 				continue
 			}
@@ -55,13 +50,15 @@ func TestOrchestrationServiceTypeConsumersUseNarrowPorts(t *testing.T) {
 func TestOrchestrationServiceTypeGuardFixtures(t *testing.T) {
 	t.Parallel()
 
-	target := mustLoadOrchestrationServiceTypeObject(t, repoRoot(t))
 	for _, tt := range orchestrationServiceTypeGuardFixtures() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pkg := typeCheckOrchestrationServiceFixturePackage(t, target.Pkg(), tt.files)
-			got := orchestrationServiceTypeUseMessages(collectOrchestrationServiceTypeUses(pkg, target))
+			pkg := typeCheckWideOrchestrationFixturePackage(t, tt.importPath, tt.files)
+			got := orchestrationServiceTypeUseMessages(collectOrchestrationServiceTypeUses(pkg, nil))
+			if len(tt.wantContains) == 0 && len(got) > 0 {
+				t.Fatalf("unexpected violations:\n%s", strings.Join(got, "\n"))
+			}
 			for _, want := range tt.wantContains {
 				if !containsViolation(got, want) {
 					t.Fatalf("missing violation containing %q; got:\n%s", want, strings.Join(got, "\n"))
@@ -72,67 +69,161 @@ func TestOrchestrationServiceTypeGuardFixtures(t *testing.T) {
 }
 
 func orchestrationServiceTypeGuardFixtures() []orchestrationServiceTypeGuardFixture {
+	fixtures := []orchestrationServiceTypeGuardFixture{
+		{
+			name:       "public contract wide interface",
+			importPath: superAgentModulePath + "/internal/contract",
+			files: map[string]string{
+				"internal/contract/wide.go": `package contract
+
+type PublicWide interface {
+	LaunchAgent()
+	GetReport()
+}
+`,
+			},
+			wantContains: []string{
+				"internal/contract/wide.go:3 type declaration PublicWide uses full orchestration service",
+			},
+		},
+	}
+	fixtures = append(fixtures, orchestrationServiceTypeGuardPropagationFixtures()...)
+	return append(fixtures, orchestrationServiceTypeGuardAllowedFixtures()...)
+}
+
+func orchestrationServiceTypeGuardPropagationFixtures() []orchestrationServiceTypeGuardFixture {
 	return []orchestrationServiceTypeGuardFixture{
 		{
-			name: "cross-file alias parameter",
+			name:       "anonymous composite parameter",
+			importPath: superAgentModulePath + "/internal/module/dashboard",
 			files: map[string]string{
-				"cmd/mcp-orch/orchestration/alias.go": `package orchestration
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-type Service = contract.OrchestrationService
-`,
-				"cmd/mcp-orch/orchestration/consumer.go": `package orchestration
-
-func use(svc Service) {}
-`,
-			},
-			wantContains: []string{
-				"cmd/mcp-orch/orchestration/alias.go:5 type alias Service uses full orchestration service",
-				"cmd/mcp-orch/orchestration/consumer.go:3 parameter svc uses full orchestration service",
-			},
-		},
-		{
-			name: "cross-file alias generic constraint",
-			files: map[string]string{
-				"internal/module/dashboard/alias.go": `package dashboard
-
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-
-type Service = contract.OrchestrationService
-`,
 				"internal/module/dashboard/consumer.go": `package dashboard
 
-type holder[T Service] struct{}
+func use(svc interface {
+	interface { LaunchAgent() }
+	interface { GetReport() }
+}) {}
 `,
 			},
 			wantContains: []string{
-				"internal/module/dashboard/consumer.go:3 type parameter T uses full orchestration service",
+				"internal/module/dashboard/consumer.go:3 parameter svc uses full orchestration service",
 			},
 		},
 		{
-			name: "cross-file alias method expression initializer",
+			name:       "parameter propagation",
+			importPath: superAgentModulePath + "/internal/module/dashboard",
 			files: map[string]string{
-				"internal/platform/mcpcontrol/alias.go": `package mcpcontrol
+				"internal/module/dashboard/consumer.go": `package dashboard
 
-import contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
 
-type Service = contract.OrchestrationService
-`,
-				"internal/platform/mcpcontrol/consumer.go": `package mcpcontrol
-
-var submit = Service.SubmitTurn
+func use(svc wide) {}
 `,
 			},
 			wantContains: []string{
-				"internal/platform/mcpcontrol/consumer.go:3 method expression submit uses full orchestration service",
+				"internal/module/dashboard/consumer.go:3 type declaration wide uses full orchestration service",
+				"internal/module/dashboard/consumer.go:8 parameter svc uses full orchestration service",
+			},
+		},
+		{
+			name:       "field propagation",
+			importPath: superAgentModulePath + "/internal/provider/codexapp",
+			files: map[string]string{
+				"internal/provider/codexapp/consumer.go": `package codexapp
+
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
+
+type holder struct { service wide }
+`,
+			},
+			wantContains: []string{
+				"internal/provider/codexapp/consumer.go:3 type declaration wide uses full orchestration service",
+				"internal/provider/codexapp/consumer.go:8 field service uses full orchestration service",
+			},
+		},
+		{
+			name:       "return propagation",
+			importPath: superAgentModulePath + "/internal/platform/toolbridge",
+			files: map[string]string{
+				"internal/platform/toolbridge/consumer.go": `package toolbridge
+
+type wide interface {
+	LaunchAgent()
+	GetReport()
+}
+
+func use() wide { return nil }
+`,
+			},
+			wantContains: []string{
+				"internal/platform/toolbridge/consumer.go:3 type declaration wide uses full orchestration service",
+				"internal/platform/toolbridge/consumer.go:8 return value (anonymous) uses full orchestration service",
+			},
+		},
+	}
+}
+
+func orchestrationServiceTypeGuardAllowedFixtures() []orchestrationServiceTypeGuardFixture {
+	return []orchestrationServiceTypeGuardFixture{
+		{
+			name:       "legal separated ports struct",
+			importPath: superAgentModulePath + "/cmd/mcp-orch/tools",
+			files: map[string]string{
+				"cmd/mcp-orch/tools/ports.go": `package tools
+
+type lifecycle interface { LaunchAgent() }
+type reports interface { GetReport() }
+
+type ToolPorts struct {
+	Lifecycle lifecycle
+	Reports reports
+}
+`,
+			},
+		},
+		{
+			name:       "legal fx in and runtime ports",
+			importPath: superAgentModulePath + "/cmd/mcp-orch",
+			files: map[string]string{
+				"cmd/mcp-orch/runtime.go": `package main
+
+import "go.uber.org/fx"
+
+type lifecycle interface { LaunchAgent() }
+type reports interface { GetReport() }
+type turns interface { SubmitTurn() }
+
+type agentMessengerPorts struct {
+	Lifecycle lifecycle
+	Reports reports
+	Turns turns
+}
+
+type agentListPorts struct {
+	Lifecycle lifecycle
+	Reports reports
+}
+
+type runtimeParams struct {
+	fx.In
+	Lifecycle lifecycle
+	Reports reports
+	Turns turns
+}
+`,
 			},
 		},
 	}
 }
 
 func collectOrchestrationServiceTypeUses(pkg *orchestrationServiceCheckedPackage, target *types.TypeName) []orchestrationServiceTypeUse {
-	if pkg == nil || pkg.typesInfo == nil || target == nil {
+	if pkg == nil || pkg.typesInfo == nil {
 		return nil
 	}
 
@@ -362,8 +453,11 @@ func orchestrationServiceObjectUsesTarget(obj types.Object, target *types.TypeNa
 }
 
 func orchestrationServiceTypeUsesTarget(typ types.Type, target *types.TypeName) bool {
-	if typ == nil || target == nil {
+	if typ == nil {
 		return false
+	}
+	if target == nil {
+		return wideOrchestrationType(typ)
 	}
 	unaliased := types.Unalias(typ)
 	switch typed := unaliased.(type) {
@@ -448,8 +542,8 @@ func orchestrationServiceNodeString(fset *token.FileSet, node any) string {
 	return buf.String()
 }
 
-func isAllowedOrchestrationServiceTypeUse(_ orchestrationServiceTypeUse) bool {
-	return false
+func isAllowedOrchestrationServiceTypeUse(use orchestrationServiceTypeUse) bool {
+	return isAllowedWideOrchestrationFacadeUse(use.relPath, use.kind, use.name)
 }
 
 func orchestrationServiceTypeUseMessages(uses []orchestrationServiceTypeUse) []string {

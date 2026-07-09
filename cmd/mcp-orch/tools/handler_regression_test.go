@@ -41,7 +41,7 @@ func TestHandleListDAGsReturnsWrappedDAGs(t *testing.T) {
 }
 
 func TestHandleListAgentsEnvelopeKeepsLegacyArrayDefault(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
+	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{{AgentID: "agent-1", State: "idle"}}, nil
 		},
@@ -518,11 +518,11 @@ func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 		input   string
 	}{
 		{name: "launch", handler: HandleLaunchAgent(nil), input: `{}`},
-		{name: "send", handler: HandleSendMessage(nil), input: `{}`},
+		{name: "send", handler: HandleSendMessage(SendMessagePorts{}), input: `{}`},
 		{name: "stop", handler: HandleStopAgent(nil), input: `{}`},
 		{name: "recover", handler: HandleRecoverAgent(nil), input: `{}`},
 		{name: "interrupt", handler: HandleInterruptAgent(nil), input: `{}`},
-		{name: "list", handler: HandleListAgents(nil), input: `{}`},
+		{name: "list", handler: HandleListAgents(AgentListPorts{}), input: `{}`},
 		{name: "report", handler: HandleGetAgentReport(nil), input: `{}`},
 		{name: "create_dag", handler: HandleCreateDAG(nil), input: `{}`},
 		{name: "list_dags", handler: HandleListDAGs(nil), input: `{}`},

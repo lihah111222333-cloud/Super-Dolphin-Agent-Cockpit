@@ -59,8 +59,10 @@ var Module = fx.Options(
 	fx.Provide(pidregistry.New),
 	fx.Provide(
 		provideDashboardOrchestrationReaderPort,
+		provideDashboardOrchestrationReportReaderPort,
 		provideUIStateAgentLister,
 		newDashboardOrchestrationReader,
+		newDashboardOrchestrationReportReader,
 	),
 	config.Module,
 	db.Module,
@@ -111,7 +113,11 @@ var Module = fx.Options(
 		AsRPCRunner,
 		newToolbridgeHandlerRef,
 		fx.Annotate(newMCPOrchDAGRuntime, fx.As(new(contract.DAGRuntime))),
-		fx.Annotate(newMCPOrchOrchestrationFacade, fx.As(new(thread.OrchestrationFacade))),
+		fx.Annotate(
+			newMCPOrchOrchestrationFacade,
+			fx.As(new(thread.OrchestrationFacade)),
+			fx.As(new(thread.SessionGenerationBinder)),
+		),
 		provideRuntimeUpdater,
 		newRuntimeReporter,
 		thread.NewSessionLifecyclePort,

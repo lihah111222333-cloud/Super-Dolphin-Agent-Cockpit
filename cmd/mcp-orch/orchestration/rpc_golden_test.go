@@ -30,7 +30,7 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 		},
 	}
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(ProvideRPCFacade(svc).Handlers)
+	server.Register(ProvideRPCFacade(testRPCFacadeParams(svc)).Handlers)
 
 	launchRequest := map[string]any{
 		"id":          "agent-launch-1",
