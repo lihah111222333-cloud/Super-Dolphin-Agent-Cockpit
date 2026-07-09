@@ -1,6 +1,7 @@
 // Package orchestration 实现 agent 生命周期管理、DAG 任务编排和 wakeup 投递。
-// 核心结构是 service，负责 agent 状态机、turn 队列、进程守护和 DAG run 控制；
-// 通过 AgentLauncher 抽象本地进程和远端 Codex 两种启动模式。
+// service 只保留 RPC/fx 门面和控制器委派；agentRegistry、lifecycleController、
+// dagController、turnController 和 reportController 分别拥有运行态、生命周期、DAG、
+// turn 与报告职责。AgentLauncher 抽象本地进程和远端 Codex 两种启动模式。
 package orchestration
 
 import (

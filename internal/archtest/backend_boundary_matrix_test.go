@@ -310,7 +310,6 @@ func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
 		prefix string
 		reason string
 	}{
-		{"internal/platform/db", "LSP sidecar reuses MCP bootstrap DB lifecycle for sidecar readiness"},
 		{"internal/platform/discovery", "LSP sidecar discovers language server workspace capabilities"},
 		{"internal/platform/metrics", "LSP sidecar exposes language-server runtime metrics"},
 	})
@@ -318,7 +317,6 @@ func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
 		prefix string
 		reason string
 	}{
-		{"internal/platform/db", "IDA sidecar reuses MCP bootstrap DB lifecycle for sidecar readiness"},
 		{"internal/platform/metrics", "IDA sidecar exposes analysis runtime metrics"},
 	})
 	return out

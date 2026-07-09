@@ -5,13 +5,13 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4232,
+  "files": 4235,
   "domains": {
-    "docs-agent": 864,
+    "docs-agent": 866,
     "other": 502,
     "app-ui": 426,
     "platform-provider": 1005,
-    "orchestration": 411,
+    "orchestration": 412,
     "modules": 717,
     "store-sql": 307
   },
@@ -29,8 +29,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 411,
-        "size_kb": 92.1,
+        "file_count": 412,
+        "size_kb": 92.3,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -57,8 +57,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 864,
-        "size_kb": 153.6,
+        "file_count": 866,
+        "size_kb": 154,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
@@ -72,8 +72,8 @@
   },
   "module_counts": {
     "(root)": 7,
-    "cmd": 648,
-    "docs": 861,
+    "cmd": 649,
+    "docs": 863,
     "frontend-app": 424,
     "internal": 1997,
     "migrations": 112,

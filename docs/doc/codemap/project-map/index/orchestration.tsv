@@ -1,14 +1,14 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/mcp-orch/dag_cron_runner_test.go	cmd	orchestration	go-test	4200	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,dag,cron,runner,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/dag_cron_runner.go	cmd	orchestration	go-source	3769	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,dag,cron,runner,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
-cmd/mcp-orch/fx_test.go	cmd	orchestration	go-test	15825	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
-cmd/mcp-orch/fx.go	cmd	orchestration	go-source	12905	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
+cmd/mcp-orch/fx_test.go	cmd	orchestration	go-test	16648	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
+cmd/mcp-orch/fx.go	cmd	orchestration	go-source	13091	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/fxadapter/dag_cron_store_test.go	cmd	orchestration	go-test	2627	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fxadapter,dag,cron,store,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/fxadapter/dag_cron_store.go	cmd	orchestration	go-source	6082	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fxadapter,dag,cron,store,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/fxadapter/node_spawn_recorder.go	cmd	orchestration	go-source	1239	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fxadapter,node,spawn,recorder,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/hook_subscription.go	cmd	orchestration	go-source	1570	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,hook,subscription,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/http_runner_test.go	cmd	orchestration	go-test	1689	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,http,runner,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
-cmd/mcp-orch/http_runner.go	cmd	orchestration	go-source	2859	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,http,runner,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
+cmd/mcp-orch/http_runner.go	cmd	orchestration	go-source	2936	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,http,runner,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/main.go	cmd	orchestration	go-source	1535	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,main,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/notify/dispatch_retry_alert_test.go	cmd	orchestration	go-test	5057	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,notify,dispatch,retry,alert,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar
 cmd/mcp-orch/notify/dispatch_retry_alert.go	cmd	orchestration	go-source	4664	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,notify,dispatch,retry,alert,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
@@ -158,7 +158,7 @@ cmd/mcp-orch/orchestration/scheduler_test.go	cmd	orchestration	go-test	2388	agen
 cmd/mcp-orch/orchestration/service_facade_test_helpers_test.go	cmd	orchestration	go-test	2030	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,service,facade,test,helpers,agent,生命周期,turn,队列,DAG,wakeup,report,与
 cmd/mcp-orch/orchestration/service_launcher_bridge_test.go	cmd	orchestration	go-test	25784	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,service,launcher,bridge,test,agent,生命周期,turn,队列,DAG,wakeup,report,与
 cmd/mcp-orch/orchestration/service_launcher_bridge.go	cmd	orchestration	go-source	32870	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,service,launcher,bridge,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
-cmd/mcp-orch/orchestration/service.go	cmd	orchestration	go-source	23591	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,service,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
+cmd/mcp-orch/orchestration/service.go	cmd	orchestration	go-source	23700	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,service,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/sharedfile_adapter_security_test.go	cmd	orchestration	go-test	1015	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,sharedfile,adapter,security,test,agent,生命周期,turn,队列,DAG,wakeup,report,与
 cmd/mcp-orch/orchestration/sharedfile_adapter_test.go	cmd	orchestration	go-test	1909	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,sharedfile,adapter,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/sharedfile_adapter.go	cmd	orchestration	go-source	3942	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,sharedfile,adapter,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
@@ -198,7 +198,7 @@ cmd/mcp-orch/runtime_memory_test.go	cmd	orchestration	go-test	671	orchestration 
 cmd/mcp-orch/runtime_registry_initerr_test.go	cmd	orchestration	go-test	1063	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,runtime,registry,initerr,test,orchestration,MCP,peer,bootstrap,store,与,sidecar,入口
 cmd/mcp-orch/runtime_stdio_test.go	cmd	orchestration	go-test	796	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,runtime,stdio,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/runtime_test.go	cmd	orchestration	go-test	10133	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,runtime,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
-cmd/mcp-orch/runtime.go	cmd	orchestration	go-source	15382	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,runtime,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
+cmd/mcp-orch/runtime.go	cmd	orchestration	go-source	15455	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,runtime,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/sidecar_runtime_inheritance_test.go	cmd	orchestration	go-test	2190	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,sidecar,runtime,inheritance,test,orchestration,MCP,peer,bootstrap,registry,store,与,入口
 cmd/mcp-orch/sql/queries/command_card.sql	cmd	orchestration	sql	2682	mcp-orch SQL query 源文件	cmd,mcp,orch,sql,queries,command,card,mcp-orch,SQL,query,源文件
 cmd/mcp-orch/sql/queries/prompt_template.sql	cmd	orchestration	sql	4093	mcp-orch SQL query 源文件	cmd,mcp,orch,sql,queries,prompt,template,mcp-orch,SQL,query,源文件
@@ -324,9 +324,10 @@ cmd/mcp-orch/test_goroutine_group_test.go	cmd	orchestration	go-test	361	orchestr
 cmd/mcp-orch/tools/av_merge_tools_test.go	cmd	orchestration	go-test	1937	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,av,merge,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/av_merge_tools.go	cmd	orchestration	go-source	3000	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,av,merge,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/command_tools.go	cmd	orchestration	go-source	5827	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,command,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/create_dag_contract_test.go	cmd	orchestration	go-test	6331	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,create,dag,contract,test,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/create_dag_contract_test.go	cmd	orchestration	go-test	6375	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,create,dag,contract,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/enum_validation_test.go	cmd	orchestration	go-test	11806	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,enum,validation,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/envelope_assertions_test.go	cmd	orchestration	go-test	514	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,envelope,assertions,test,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/error_classifier_test.go	cmd	orchestration	go-test	1027	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,error,classifier,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/factory_test.go	cmd	orchestration	go-test	2145	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,factory,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/factory.go	cmd	orchestration	go-source	11463	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,factory,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/handler_regression_test.go	cmd	orchestration	go-test	19421	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,handler,regression,test,mcp-orch,MCP,tool,schema,registry,与
@@ -354,7 +355,7 @@ cmd/mcp-orch/tools/orchestration_stop_agent_wait.go	cmd	orchestration	go-source	
 cmd/mcp-orch/tools/orchestration_tool_definitions.go	cmd	orchestration	go-source	10625	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,tool,definitions,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/orchestration_tools_forked_test.go	cmd	orchestration	go-test	2578	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,forked,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/orchestration_tools_launch_handler_test.go	cmd	orchestration	go-test	12401	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,launch,handler,test,mcp-orch,MCP,tool,schema,registry,与
-cmd/mcp-orch/tools/orchestration_tools_test.go	cmd	orchestration	go-test	28486	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,test,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/orchestration_tools_test.go	cmd	orchestration	go-test	28324	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/orchestration_tools.go	cmd	orchestration	go-source	28183	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,orchestration,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/parity_v2_test.go	cmd	orchestration	go-test	24127	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,parity,v2,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/pos_test.go	cmd	orchestration	go-test	18755	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,pos,test,mcp-orch,MCP,tool,schema,registry,与,handler
@@ -382,7 +383,7 @@ cmd/mcp-orch/tools/task_schemas.go	cmd	orchestration	go-source	28450	mcp-orch MC
 cmd/mcp-orch/tools/task_tool_definitions.go	cmd	orchestration	go-source	13281	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,definitions,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/task_tool_descriptions_test.go	cmd	orchestration	go-test	1051	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,descriptions,test,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/task_tool_legacy_guidance_test.go	cmd	orchestration	go-test	370	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,tool,legacy,guidance,test,mcp-orch,MCP,schema,registry,与,handler
-cmd/mcp-orch/tools/task_tools.go	cmd	orchestration	go-source	20610	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/task_tools.go	cmd	orchestration	go-source	21309	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/test_goroutine_group_test.go	cmd	orchestration	go-test	489	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,test,goroutine,group,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/tool_metadata_test.go	cmd	orchestration	go-test	2816	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,tool,metadata,test,mcp-orch,MCP,schema,registry,与,handler
 cmd/mcp-orch/tools/tts_tools.go	cmd	orchestration	go-source	2749	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,tts,mcp-orch,MCP,tool,schema,registry,与,handler

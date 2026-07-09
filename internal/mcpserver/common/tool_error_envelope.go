@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 // ToolErrorEnvelope 是工具 handler 已选定后由 tools/call 返回的机器可读错误载荷。
@@ -200,6 +199,18 @@ func NewPanicToolError(recovered any) error {
 	}
 }
 
+// ToolErrorClassification 是调用方拥有的工具错误分类结果。
+// sidecar 可在本地识别领域错误，而不让 common 依赖具体持久化或运行时包。
+type ToolErrorClassification struct {
+	Code      string
+	Retryable bool
+	Hint      string
+	Meta      map[string]any
+}
+
+// ToolErrorClassifier 在调用方能识别工具错误时返回分类；false 表示回落到 common 默认规则。
+type ToolErrorClassifier func(toolName string, err error) (ToolErrorClassification, bool)
+
 // NewToolErrorEnvelope 使用默认 meta 创建工具错误 envelope。
 func NewToolErrorEnvelope(toolName string, err error) ToolErrorEnvelope {
 	return NewToolErrorEnvelopeWithMeta(toolName, "", err, nil)
@@ -207,7 +218,13 @@ func NewToolErrorEnvelope(toolName string, err error) ToolErrorEnvelope {
 
 // NewToolErrorEnvelopeWithMeta 分类错误并合并语言、分类器和调用方传入的 meta。
 func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraMeta map[string]any) ToolErrorEnvelope {
-	code, retryable, hint, codedMeta := ClassifyToolError(toolName, err)
+	return NewToolErrorEnvelopeWithClassifier(toolName, languageID, err, extraMeta, nil)
+}
+
+// NewToolErrorEnvelopeWithClassifier 先应用调用方分类器，再回落到 common 默认分类。
+// CodedToolError 仍是最高优先级，避免显式错误码被侧向规则覆盖。
+func NewToolErrorEnvelopeWithClassifier(toolName, languageID string, err error, extraMeta map[string]any, classifier ToolErrorClassifier) ToolErrorEnvelope {
+	code, retryable, hint, codedMeta := ClassifyToolErrorWithClassifier(toolName, err, classifier)
 	meta := map[string]any{"tool": strings.TrimSpace(toolName)}
 	if languageID = normalizeEnvelopeLanguageID(languageID); languageID != "" {
 		meta["language_id"] = languageID
@@ -234,12 +251,22 @@ func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraM
 
 // ClassifyToolError 分类工具错误。
 func ClassifyToolError(toolName string, err error) (code string, retryable bool, hint string, meta map[string]any) {
+	return ClassifyToolErrorWithClassifier(toolName, err, nil)
+}
+
+// ClassifyToolErrorWithClassifier 分类工具错误，并允许调用方注入 sidecar 局部规则。
+func ClassifyToolErrorWithClassifier(toolName string, err error, classifier ToolErrorClassifier) (code string, retryable bool, hint string, meta map[string]any) {
 	if err == nil {
 		return "unknown", false, "next: inspect tool call arguments and retry with a concrete error", nil
 	}
 	var coded *CodedToolError
 	if errors.As(err, &coded) && coded != nil {
 		return firstNonEmptyString(coded.Code, "unknown"), coded.Retryable, coded.Hint, coded.Meta
+	}
+	if classifier != nil {
+		if classification, ok := classifier(toolName, err); ok {
+			return firstNonEmptyString(classification.Code, "tool_error"), classification.Retryable, classification.Hint, classification.Meta
+		}
 	}
 	message := strings.ToLower(err.Error())
 	normalizedTool := strings.ToLower(strings.TrimSpace(toolName))
@@ -357,13 +384,6 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		hint: staticToolHint("next: fix launch_agent arguments and retry with non-empty required fields and supported enum values"),
 		match: func(_ error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && isLaunchRequestInvalidMessage(message)
-		},
-	},
-	{
-		code: "invalid_input",
-		hint: staticToolHint("next: choose a new dag_key or update the existing DAG with task_dag_apply_ops"),
-		match: func(err error, _ string, toolName string) bool {
-			return isTaskCreateDAGTool(toolName) && platformdb.IsConflict(err)
 		},
 	},
 	{
@@ -523,11 +543,6 @@ func isEditTool(toolName string) bool {
 // isTaskUpdateNodeTool 判断工具名是否为 task_update_node。
 func isTaskUpdateNodeTool(toolName string) bool {
 	return strings.ToLower(strings.TrimSpace(toolName)) == "task_update_node"
-}
-
-// isTaskCreateDAGTool 判断工具名是否为 task_create_dag。
-func isTaskCreateDAGTool(toolName string) bool {
-	return strings.ToLower(strings.TrimSpace(toolName)) == "task_create_dag"
 }
 
 // firstNonEmptyString 返回首个非空字符串，用于 coded error 字段兜齐。

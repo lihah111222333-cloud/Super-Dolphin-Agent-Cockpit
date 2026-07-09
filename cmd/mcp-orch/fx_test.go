@@ -21,6 +21,7 @@ import (
 	orchtools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -352,6 +353,24 @@ func TestHandleScopedToolsCallWithCallerWrapsSelectedToolErrors(t *testing.T) {
 	}
 	if envelope.Success || envelope.Error != toolErr.Error() {
 		t.Fatalf("envelope = %+v, want failed tool envelope", envelope)
+	}
+}
+
+func TestHandleScopedToolsCallWithCallerUsesOrchestrationClassifier(t *testing.T) {
+	params := json.RawMessage(`{"name":"task_create_dag","arguments":{},"_agentId":"agent-1"}`)
+
+	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, platformdb.ErrConflict
+	})
+	if err != nil {
+		t.Fatalf("handleScopedToolsCallWithCaller() error = %v", err)
+	}
+	envelope := decodeScopedToolEnvelope(t, result)
+	if envelope.Code != "invalid_input" {
+		t.Fatalf("Code = %q, want invalid_input", envelope.Code)
+	}
+	if envelope.Hint != "next: choose a new dag_key or update the existing DAG with task_dag_apply_ops" {
+		t.Fatalf("Hint = %q", envelope.Hint)
 	}
 }
 

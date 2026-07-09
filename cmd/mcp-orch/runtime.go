@@ -258,7 +258,13 @@ func newStdioServer(registry tools.Registry) (*common.Server, error) {
 		return nil, fmt.Errorf("mcp-orch: mcpStdout not initialized; program assembly order is broken")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
-	return common.NewServer("mcp-orch", "dev", transport, registryToolProvider{registry: registry}), nil
+	return common.NewServer(
+		"mcp-orch",
+		"dev",
+		transport,
+		registryToolProvider{registry: registry},
+		common.WithToolErrorClassifier(tools.ToolErrorClassifier),
+	), nil
 }
 
 // newStdioRunner 将 stdio MCP server 适配为 run group runner。

@@ -280,6 +280,35 @@ func TestToolsCallReturnsStructuredToolError(t *testing.T) {
 	}
 }
 
+func TestToolsCallUsesInjectedToolErrorClassifier(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, errors.New("domain conflict")
+	}}
+	classifier := func(toolName string, err error) (ToolErrorClassification, bool) {
+		if toolName != "demo_tool" || err == nil {
+			return ToolErrorClassification{}, false
+		}
+		return ToolErrorClassification{
+			Code: "domain_conflict",
+			Hint: "next: choose a different domain key",
+		}, true
+	}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider, WithToolErrorClassifier(classifier))
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, output.Bytes())
+	if envelope.Code != "domain_conflict" {
+		t.Fatalf("envelope code = %q, want domain_conflict; output=%s", envelope.Code, output.String())
+	}
+	if envelope.Hint != "next: choose a different domain key" {
+		t.Fatalf("envelope hint = %q", envelope.Hint)
+	}
+}
+
 func TestToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
 	const message = "context_mode=focused requires non-empty context field"
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":28,"method":"tools/call","params":{"name":"launch_agent","arguments":{}}}`)
@@ -326,6 +355,37 @@ func TestHTTPToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
 	}
 	if envelope.Code != "launch_request_invalid" {
 		t.Fatalf("envelope code = %q, want launch_request_invalid; body=%s", envelope.Code, rec.Body.String())
+	}
+}
+
+func TestHTTPToolsCallUsesInjectedToolErrorClassifier(t *testing.T) {
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, errors.New("domain conflict")
+	}}
+	classifier := func(toolName string, err error) (ToolErrorClassification, bool) {
+		if toolName != "demo_tool" || err == nil {
+			return ToolErrorClassification{}, false
+		}
+		return ToolErrorClassification{
+			Code: "domain_conflict",
+			Hint: "next: choose a different domain key",
+		}, true
+	}
+	server := NewHTTPServer("test", "dev", provider, WithHTTPToolErrorClassifier(classifier))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`))
+
+	server.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, rec.Body.Bytes())
+	if envelope.Code != "domain_conflict" {
+		t.Fatalf("envelope code = %q, want domain_conflict; body=%s", envelope.Code, rec.Body.String())
+	}
+	if envelope.Hint != "next: choose a different domain key" {
+		t.Fatalf("envelope hint = %q", envelope.Hint)
 	}
 }
 

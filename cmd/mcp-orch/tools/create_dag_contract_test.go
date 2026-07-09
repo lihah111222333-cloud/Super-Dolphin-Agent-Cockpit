@@ -103,7 +103,7 @@ func TestCreateDAGRequestRejectsFlatScheduleConflictWithStableCode(t *testing.T)
 }
 
 func TestTaskCreateDAGEnvelopeClassifiesDuplicateDagKeyAsInvalidInput(t *testing.T) {
-	env := mcpcommon.NewToolErrorEnvelope("task_create_dag", platformdb.ErrConflict)
+	env := mcpcommon.NewToolErrorEnvelopeWithClassifier("task_create_dag", "", platformdb.ErrConflict, nil, ToolErrorClassifier)
 	if env.Code != "invalid_input" {
 		t.Fatalf("tool error code = %q, want invalid_input", env.Code)
 	}

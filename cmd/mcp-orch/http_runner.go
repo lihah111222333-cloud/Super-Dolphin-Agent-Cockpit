@@ -54,7 +54,13 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errOrchHTTPSessionTokenRequired
 	}
-	srv := common.NewHTTPServer(httpBinaryName, "dev", r.tools, common.WithBearerToken(r.bearerToken))
+	srv := common.NewHTTPServer(
+		httpBinaryName,
+		"dev",
+		r.tools,
+		common.WithBearerToken(r.bearerToken),
+		common.WithHTTPToolErrorClassifier(tools.ToolErrorClassifier),
+	)
 	addr, err := srv.Start(ctx, "127.0.0.1:0")
 	if err != nil {
 		pkglogger.Warn("mcp-orch http: start failed", "error", err)

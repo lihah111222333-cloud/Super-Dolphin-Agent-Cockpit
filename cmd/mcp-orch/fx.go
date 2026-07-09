@@ -146,7 +146,7 @@ func handleScopedToolsCallWithCaller(
 	ctx = common.WithToolScope(ctx, scope)
 	result, err := call(ctx, req.Name, req.Arguments)
 	if err != nil {
-		result = common.NewToolErrorEnvelope(req.Name, err)
+		result = newOrchToolErrorEnvelope(req.Name, err)
 	}
 	return wrapScopedToolResult(result)
 }
@@ -258,6 +258,10 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 		))
 	}
 	return options
+}
+
+func newOrchToolErrorEnvelope(toolName string, err error) common.ToolErrorEnvelope {
+	return common.NewToolErrorEnvelopeWithClassifier(toolName, "", err, nil, tools.ToolErrorClassifier)
 }
 
 func provideAgentThreadLookup(store orchestration.AgentThreadStore) orchestration.AgentThreadLookup {

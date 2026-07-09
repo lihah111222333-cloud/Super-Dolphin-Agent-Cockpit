@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 // 下列枚举切片同时驱动 schema 和 handler 层校验。
@@ -162,6 +163,21 @@ func HandleCreateDAG(svc contract.DAGCreateRuntime) ToolHandler {
 		}
 		return svc.CreateDAG(ctx, req)
 	})
+}
+
+// ToolErrorClassifier 分类编排工具的领域错误，避免 common 包依赖编排侧数据库实现。
+func ToolErrorClassifier(toolName string, err error) (mcpcommon.ToolErrorClassification, bool) {
+	if !isTaskCreateDAGName(toolName) || !platformdb.IsConflict(err) {
+		return mcpcommon.ToolErrorClassification{}, false
+	}
+	return mcpcommon.ToolErrorClassification{
+		Code: "invalid_input",
+		Hint: "next: choose a new dag_key or update the existing DAG with task_dag_apply_ops",
+	}, true
+}
+
+func isTaskCreateDAGName(toolName string) bool {
+	return strings.EqualFold(strings.TrimSpace(toolName), "task_create_dag")
 }
 
 // validateAutomationCommandNodesForCreate 在工具创建入口拦截不可执行的 automation command 配置。

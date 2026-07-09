@@ -126,11 +126,22 @@ type MCPTool = mcpdto.MCPTool
 
 // Server 实现 stdio MCP JSON-RPC 服务端，负责初始化、工具列表和工具调用分发。
 type Server struct {
-	name      string
-	version   string
-	transport *StdioTransport
-	tools     ToolProvider
-	ready     chan struct{} // closed when Run enters its read loop
+	name                string
+	version             string
+	transport           *StdioTransport
+	tools               ToolProvider
+	toolErrorClassifier ToolErrorClassifier
+	ready               chan struct{} // closed when Run enters its read loop
+}
+
+// ServerOption configures the stdio MCP server.
+type ServerOption func(*Server)
+
+// WithToolErrorClassifier 安装 sidecar 本地工具错误分类器，避免 common 扩张领域依赖。
+func WithToolErrorClassifier(classifier ToolErrorClassifier) ServerOption {
+	return func(s *Server) {
+		s.toolErrorClassifier = classifier
+	}
 }
 
 // jsonRPCRequest 是 stdio/HTTP 共用的 JSON-RPC 请求结构。
@@ -176,14 +187,20 @@ type readResult struct {
 }
 
 // NewServer 创建 stdio MCP 服务端，并补齐空 name/version 的开发默认值。
-func NewServer(name, version string, transport *StdioTransport, tools ToolProvider) *Server {
+func NewServer(name, version string, transport *StdioTransport, tools ToolProvider, opts ...ServerOption) *Server {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
 	}
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
-	return &Server{name: name, version: version, transport: transport, tools: tools, ready: make(chan struct{})}
+	s := &Server{name: name, version: version, transport: transport, tools: tools, ready: make(chan struct{})}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	return s
 }
 
 // Ready 返回在 stdio server 进入读循环后关闭的通道。
@@ -375,7 +392,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		errorAttrs = append(errorAttrs, toolPayloadAttrs("error_payload", errorPayload)...)
 		pkglogger.Warn("mcp: tools/call error", errorAttrs...)
 		if isNilToolResult(value) {
-			value = NewToolErrorEnvelope(params.Name, err)
+			value = NewToolErrorEnvelopeWithClassifier(params.Name, "", err, nil, s.toolErrorClassifier)
 		}
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)

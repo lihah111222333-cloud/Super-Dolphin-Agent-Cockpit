@@ -19,14 +19,12 @@ import (
 const maxHTTPBodyBytes = 10 * 1024 * 1024
 
 // HTTPServerOption 配置 legacy Streamable HTTP MCP transport。
-//
-// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 type HTTPServerOption func(*HTTPServer)
 
 // WithBearerToken configures bearer-token authentication for the deprecated
 // Streamable HTTP MCP transport.
-//
-// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // WithBearerToken 设置bearer令牌。
 func WithBearerToken(token string) HTTPServerOption {
 	return func(h *HTTPServer) {
@@ -34,21 +32,27 @@ func WithBearerToken(token string) HTTPServerOption {
 	}
 }
 
+// WithHTTPToolErrorClassifier 安装 legacy HTTP tools/call 的 sidecar 本地错误分类器。
+func WithHTTPToolErrorClassifier(classifier ToolErrorClassifier) HTTPServerOption {
+	return func(h *HTTPServer) {
+		h.toolErrorClassifier = classifier
+	}
+}
+
 // HTTPServer 通过 legacy Streamable HTTP 暴露 MCP JSON-RPC 协议（POST /mcp）。
 // 多个旧 Claude CLI 实例可共用同一 endpoint；当前工具执行路径应使用 stdio sidecar Server。
-//
-// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 type HTTPServer struct {
-	name        string
-	version     string
-	tools       ToolProvider
-	server      *http.Server
-	bearerToken string
+	name                string
+	version             string
+	tools               ToolProvider
+	server              *http.Server
+	bearerToken         string
+	toolErrorClassifier ToolErrorClassifier
 }
 
 // NewHTTPServer 创建使用 Streamable HTTP transport 的 legacy MCP server。
-//
-// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // NewHTTPServer 创建 legacy HTTP MCP 服务端，并应用可选鉴权配置。
 func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerOption) *HTTPServer {
 	if strings.TrimSpace(name) == "" {
@@ -68,8 +72,7 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 
 // Start binds to listenAddr (use "127.0.0.1:0" for dynamic port) and begins
 // serving. Returns the actual address (including port) on success.
-//
-// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // Start 绑定 HTTP 监听地址并启动 /mcp endpoint，返回实际监听地址。
 func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, error) {
 	if listenAddr == "" {
@@ -107,8 +110,7 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 }
 
 // Stop gracefully shuts down the HTTP server.
-//
-// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // Stop 优雅关闭 legacy HTTP server；未启动时直接返回 nil。
 func (h *HTTPServer) Stop(ctx context.Context) error {
 	if h.server == nil {
@@ -277,7 +279,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 		errorAttrs = append(errorAttrs, toolPayloadAttrs("error_payload", errorPayload)...)
 		pkglogger.Warn("mcp http: tools/call error", errorAttrs...)
 		if isNilToolResult(value) {
-			value = NewToolErrorEnvelope(params.Name, err)
+			value = NewToolErrorEnvelopeWithClassifier(params.Name, "", err, nil, h.toolErrorClassifier)
 		}
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)

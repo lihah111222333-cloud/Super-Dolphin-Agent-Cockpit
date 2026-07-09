@@ -201,7 +201,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | 类型 / 接口 | 位置 | 职责 |
 |---|---|---|
-| `type service struct` | `orchestration/service.go` | 编排核心；持有 `agents`、`dagStore`、`launcher`、事件总线、状态机配置。 |
+| `type service struct` | `orchestration/service.go` | 编排门面；只持有 logger/eventBus 与 `agentRegistry`、`lifecycleController`、`dagController`、`turnController`、`reportController` 委派入口。 |
 | `type agentRuntime struct` | `orchestration/service.go` | 单个 agent 的内存态：state、thread/turn、runtime port/provider、queue、`exec.Cmd`、报告与错误信息。 |
 | `type AgentLauncher interface` | `orchestration/launcher.go` | 抽象 agent 的 `Launch/Stop/SubmitTurn/IsRunning`。 |
 | `type localLauncher` | `orchestration/launcher.go` | 本地进程模式，直接 `exec.Command` 启动命令。 |
