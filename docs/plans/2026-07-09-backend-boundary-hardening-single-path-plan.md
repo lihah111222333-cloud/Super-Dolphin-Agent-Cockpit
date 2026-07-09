@@ -1,6 +1,6 @@
 # Backend Boundary Hardening Single-Path Implementation Plan
 
-> **Status (2026-07-09 current HEAD):** This document is no longer safe to execute verbatim. Task 3's sidecar DB-boundary repair has already been implemented with one common classifier hook plus an mcp-orch-owned classifier in `cmd/mcp-orch/tools/task_tools.go`; do not create another `error_classifier.go`, do not add another classifier API, and do not re-add LSP/IDA DB allowlist entries. AI workers must first compare this plan against current code and then execute only the remaining unfixed items.
+> **Status (2026-07-10 current HEAD): Completed.** Task 1 landed in `6a72a88ab` (`contract.RequireDependency` constructor absence guard), Task 2 landed in `4c9acf8be` / `99b240683` (AI visual hotspot ratchet and file splits), and Task 3 landed in `3c76d8cde` (sidecar DB-boundary repair). Do not execute this plan again as an active checklist; use it as historical implementation notes only.
 
 > **For agentic workers:** 强制使用 `superpowers:子代理驱动开发` 执行本计划。每个 Task 使用一个新子代理，主会话在 Task 间审查 diff 和验证输出；不得切换执行流程，不得把步骤改写成宽松建议。Steps use checkbox (`- [ ]`) syntax for tracking.
 
