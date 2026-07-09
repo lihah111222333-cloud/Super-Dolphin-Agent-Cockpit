@@ -13,7 +13,7 @@ func TestOrchestrationServiceConsumersUseNarrowPorts(t *testing.T) {
 	failIfViolations(t, collectWideOrchestrationProductionViolationMessages(t, root))
 }
 
-func isAllowedWideOrchestrationFacadeUse(relPath, kind, name string) bool {
+func isAllowedWideOrchestrationFacadeUse(_, _, _ string) bool {
 	return false
 }
 
