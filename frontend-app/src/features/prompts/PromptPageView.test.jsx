@@ -139,6 +139,18 @@ describe('PromptPageView module', () => {
     expect(screen.queryByLabelText('match_when JSON')).not.toBeInTheDocument();
   });
 
+  it('closes the editor through React Aria modal dismissal', async () => {
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '编辑提示词' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '编辑提示词' })).not.toBeInTheDocument();
+    });
+  });
+
   it('loads and saves personalization profile', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
