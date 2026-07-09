@@ -59,6 +59,6 @@ func TestForkedChildKeepsDefaultDisabledDelegationTools(t *testing.T) {
 	}, "/tmp/agent-terminal")
 	require.NoError(t, err)
 	require.Equal(t, "forked", req.ContextMode)
-	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, expectedLaunchAgentDefaultDisabledTools(t), launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
 	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }

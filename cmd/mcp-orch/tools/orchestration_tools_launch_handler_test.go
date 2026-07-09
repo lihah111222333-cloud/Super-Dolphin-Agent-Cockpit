@@ -59,7 +59,7 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 		require.Equal(t, "project", got.MemoryScope)
 		require.Equal(t, []string{"/tmp/mcp-orch"}, got.Command)
 		require.Equal(t, "codex", launchEnvValue(got.Env, "AGENT_PROVIDER"))
-		require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(got.Env, "AGENT_DISABLED_TOOLS"))
+		require.Equal(t, expectedLaunchAgentDefaultDisabledTools(t), launchEnvValue(got.Env, "AGENT_DISABLED_TOOLS"))
 		require.Equal(t, "spawn_agent", launchEnvValue(got.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 	case <-time.After(5 * time.Second):
 		t.Fatal("async LaunchAgent was not called within 5s")

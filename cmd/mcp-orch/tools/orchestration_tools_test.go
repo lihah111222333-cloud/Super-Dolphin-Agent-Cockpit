@@ -38,7 +38,7 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	require.Equal(t, "local", req.MemoryScope)
 	require.Equal(t, []string{"/tmp/agent-terminal"}, req.Command)
 	require.Equal(t, "codex", launchEnvValue(req.Env, "AGENT_PROVIDER"))
-	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, expectedLaunchAgentDefaultDisabledTools(t), launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
 	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }
 
@@ -289,7 +289,7 @@ func TestLaunchRequestFromExecutableDefaultsProviderToCodex(t *testing.T) {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
 	}
 	require.Equal(t, "codex", launchEnvValue(req.Env, "AGENT_PROVIDER"))
-	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, expectedLaunchAgentDefaultDisabledTools(t), launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
 	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }
 
@@ -300,7 +300,7 @@ func TestLaunchRequestFromExecutableMergesDefaultDisabledTools(t *testing.T) {
 		DisabledTools: " shell , spawn_agent, browser , launch_agent ",
 	}, "/tmp/agent-terminal")
 	require.NoError(t, err)
-	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent,shell,browser", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, expectedLaunchAgentDefaultDisabledTools(t, "shell", "browser"), launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
 	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }
 
@@ -324,14 +324,9 @@ func TestLaunchRequestFromExecutableAppliesReviewerDisabledToolsForReadOnlyAgent
 			require.NoError(t, err)
 
 			disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
-			for _, tool := range []string{
-				"launch_agent",
-				"orchestration_launch_agent",
-				"spawn_agent",
-				"edit",
-				"lsp_edit",
-				"task_start_dag",
-			} {
+			defaults, err := defaultLaunchAgentDisabledTools()
+			require.NoError(t, err)
+			for _, tool := range append(defaults, "edit", "lsp_edit", "task_start_dag") {
 				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
 			}
 			for _, tool := range reviewerDenied {
@@ -414,8 +409,10 @@ func TestLaunchRequestFromExecutableDoesNotApplyReviewerDisabledToolsToWorker(t 
 	require.NoError(t, err)
 
 	disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
-	require.Len(t, disabled, 3)
-	for _, tool := range []string{"launch_agent", "orchestration_launch_agent", "spawn_agent"} {
+	defaults, err := defaultLaunchAgentDisabledTools()
+	require.NoError(t, err)
+	require.Len(t, disabled, len(defaults))
+	for _, tool := range defaults {
 		require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
 	}
 	for _, tool := range []string{"edit", "lsp_edit", "task_start_dag"} {
@@ -449,7 +446,7 @@ func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 		"AGENT_PROVIDER=claude":           true,
 		"AGENT_MODEL=claude-opus-4-7[1m]": true,
 		"AGENT_EFFORT=max":                true,
-		"AGENT_DISABLED_TOOLS=launch_agent,orchestration_launch_agent,spawn_agent": true,
+		"AGENT_DISABLED_TOOLS=" + expectedLaunchAgentDefaultDisabledTools(t): true,
 	}
 	if len(req.Env) != len(want) {
 		t.Fatalf("launch request env = %#v, want %v", req.Env, want)
@@ -468,7 +465,7 @@ func TestLaunchRequestFromExecutableAllowsClaudeRootAgent(t *testing.T) {
 	}, "/tmp/agent-terminal")
 	require.NoError(t, err)
 	require.Equal(t, "claude", launchEnvValue(req.Env, "AGENT_PROVIDER"))
-	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, expectedLaunchAgentDefaultDisabledTools(t), launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
 	require.Empty(t, launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }
 
@@ -522,7 +519,7 @@ func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
 	if got := launchEnvValue(req.Env, "AGENT_PROVIDER"); got != "claude" {
 		t.Fatalf("AGENT_PROVIDER = %q, want claude; env=%#v", got, req.Env)
 	}
-	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != "launch_agent,orchestration_launch_agent,spawn_agent" {
+	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != expectedLaunchAgentDefaultDisabledTools(t) {
 		t.Fatalf("AGENT_DISABLED_TOOLS = %q, want default child delegation deny list; env=%#v", got, req.Env)
 	}
 	if got := launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"); got != "" {
@@ -538,6 +535,14 @@ func launchEnvValue(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func expectedLaunchAgentDefaultDisabledTools(t testing.TB, extra ...string) string {
+	t.Helper()
+
+	defaults, err := defaultLaunchAgentDisabledTools()
+	require.NoError(t, err)
+	return joinUniqueCSV(defaults, strings.Join(extra, ","))
 }
 
 func disabledToolCounts(csv string) map[string]int {

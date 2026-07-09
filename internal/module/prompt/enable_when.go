@@ -144,13 +144,22 @@ func canonicalPromptToolName(name string) string {
 		return "edit"
 	case "lsp_completion":
 		return "completion"
-	case "orchestration_launch_agent":
-		return "launch_agent"
-	case "orchestration_get_agent_report":
-		return "get_agent_report"
 	default:
+		if canonical, ok := canonicalPromptOrchestrationToolName(name); ok {
+			return canonical
+		}
 		return strings.TrimSpace(name)
 	}
+}
+
+func canonicalPromptOrchestrationToolName(name string) (string, bool) {
+	trimmed := strings.TrimSpace(name)
+	for _, alias := range contract.OrchestrationToolAliases() {
+		if trimmed == alias.Canonical || trimmed == alias.LegacyPeerRealName {
+			return alias.Canonical, true
+		}
+	}
+	return "", false
 }
 
 // canonicalPromptLSPTools 从启用工具列表中提取规范化的 LSP 工具名。
@@ -207,8 +216,7 @@ func matchSectionTagsHas(want any, userPrompt string) bool {
 
 // resolveEnableWhenField 返回 BuildCtx 中的运行时字段；未知 key 返回 false 让上层 fail-closed。
 func resolveEnableWhenField(key string, c contract.BuildCtx) (any, bool) {
-	if strings.HasPrefix(key, "sessionFlags.") {
-		name := strings.TrimPrefix(key, "sessionFlags.")
+	if name, ok := strings.CutPrefix(key, "sessionFlags."); ok {
 		if name == "" {
 			return nil, false
 		}
@@ -277,6 +285,7 @@ func enableWhenValueEquals(got, want any) bool {
 //
 // 模板 match_when 和 section enable_when 都读 BuildCtx，但分别发生在路由与组装阶段。
 func EvaluateMatchWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string) bool {
+	_ = userPrompt
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
 		return false
@@ -299,6 +308,7 @@ func EvaluateMatchWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string
 // matchWhenKeyMatches 处理单个 match_when 字段。
 // cwd_glob/cwd_prefix 走路径匹配，其余字段复用 BuildCtx 等值表；未知字段 fail-closed。
 func matchWhenKeyMatches(key string, want any, buildCtx contract.BuildCtx, userPrompt string) bool {
+	_ = userPrompt
 	switch key {
 	case "cwd_glob":
 		return matchCWDGlob(matchWhenStringValue(want), buildCtx.CWD)

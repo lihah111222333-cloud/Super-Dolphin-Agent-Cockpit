@@ -133,10 +133,14 @@ const (
 
 const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn further agents (delegation depth limit)."
 
-var (
-	launchAgentDefaultDisabledTools = []string{"launch_agent", "orchestration_launch_agent", "spawn_agent"}
-	launchAgentCodexNativeDenyTools = []string{contract.CodexNativeToolSpawnAgent}
-)
+func defaultLaunchAgentDisabledTools() ([]string, error) {
+	tools, err := contract.OrchestrationLaunchDefaultDisabledTools()
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, "spawn_agent")
+	return tools, nil
+}
 
 // HandleLaunchAgent 注册 launch_agent 工具处理器，默认使用当前可执行文件重启子进程。
 func HandleLaunchAgent(svc agentLaunchPort) ToolHandler {
@@ -573,7 +577,11 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Language:    strings.TrimSpace(in.Language),
 	}
 	readOnlyToolSurface := launchReadOnlyToolSurface(in)
-	if dt := mergeLaunchDisabledTools(readOnlyToolSurface, in.DisabledTools); dt != "" {
+	dt, err := mergeLaunchDisabledTools(readOnlyToolSurface, in.DisabledTools)
+	if err != nil {
+		return contract.LaunchRequest{}, err
+	}
+	if dt != "" {
 		req.Env = append(req.Env, "AGENT_DISABLED_TOOLS="+dt)
 	}
 	if strings.EqualFold(provider, "codex") {
@@ -583,19 +591,22 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 }
 
 // mergeLaunchDisabledTools 合并 launch 默认禁用项、只读 agent 工具面禁用项和用户指定的额外禁用工具。
-func mergeLaunchDisabledTools(readOnlyToolSurface bool, userValue string) string {
-	defaults := append([]string(nil), launchAgentDefaultDisabledTools...)
+func mergeLaunchDisabledTools(readOnlyToolSurface bool, userValue string) (string, error) {
+	defaults, err := defaultLaunchAgentDisabledTools()
+	if err != nil {
+		return "", err
+	}
 	if readOnlyToolSurface {
 		defaults = append(defaults, contract.ReadOnlyAgentDeniedTools()...)
 	}
-	return joinUniqueCSV(defaults, userValue)
+	return joinUniqueCSV(defaults, userValue), nil
 }
 
 func launchCodexNativeDisabledTools(readOnlyToolSurface bool) []string {
 	if readOnlyToolSurface {
 		return contract.ReadOnlyCodexNativeDeniedTools()
 	}
-	return append([]string(nil), launchAgentCodexNativeDenyTools...)
+	return []string{contract.CodexNativeToolSpawnAgent}
 }
 
 func launchReadOnlyToolSurface(in LaunchAgentInput) bool {

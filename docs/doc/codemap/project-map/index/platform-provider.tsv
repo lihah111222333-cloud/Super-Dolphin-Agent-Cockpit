@@ -975,8 +975,8 @@ internal/provider/shared/provider_home_test.go	internal	platform-provider	go-tes
 internal/provider/shared/provider_home.go	internal	platform-provider	go-source	18731	provider home、配置和共享 helpers	internal,provider,shared,home,配置和共享,helpers
 internal/provider/shared/proxy_env_test.go	internal	platform-provider	go-test	924	provider home、配置和共享 helpers	internal,provider,shared,proxy,env,test,home,配置和共享,helpers
 internal/provider/shared/proxy_env.go	internal	platform-provider	go-source	1766	provider home、配置和共享 helpers	internal,provider,shared,proxy,env,home,配置和共享,helpers
-internal/provider/toolfilter/presets_test.go	internal	platform-provider	go-test	7766	AI provider 集成层	internal,provider,toolfilter,presets,test,AI,集成层
-internal/provider/toolfilter/presets.go	internal	platform-provider	go-source	3509	AI provider 集成层	internal,provider,toolfilter,presets,AI,集成层
+internal/provider/toolfilter/presets_test.go	internal	platform-provider	go-test	6105	AI provider 集成层	internal,provider,toolfilter,presets,test,AI,集成层
+internal/provider/toolfilter/presets.go	internal	platform-provider	go-source	3436	AI provider 集成层	internal,provider,toolfilter,presets,AI,集成层
 internal/provider/unified/client_test.go	internal	platform-provider	go-test	4453	统一 provider 会话解析与 manifest	internal,provider,unified,client,test,统一,会话解析与,manifest
 internal/provider/unified/client.go	internal	platform-provider	go-source	3184	统一 provider 会话解析与 manifest	internal,provider,unified,client,统一,会话解析与,manifest
 internal/provider/unified/contract_test.go	internal	platform-provider	go-test	7430	统一 provider 会话解析与 manifest	internal,provider,unified,contract,test,统一,会话解析与,manifest

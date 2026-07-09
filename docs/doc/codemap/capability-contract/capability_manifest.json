@@ -9,12 +9,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2237,
+    "total_functions": 2238,
     "total_methods": 1062,
     "total_interfaces": 159,
     "total_interface_methods": 333,
     "total_exported": 1227,
-    "total_unexported": 2808,
+    "total_unexported": 2809,
     "total_structs": 577
   },
   "packages": [
@@ -22546,6 +22546,14 @@
           ]
         },
         {
+          "name": "defaultLaunchAgentDisabledTools",
+          "exported": false,
+          "returns": [
+            "[]string",
+            "error"
+          ]
+        },
+        {
           "name": "defaultSharedMediaOutput",
           "exported": false,
           "params": [
@@ -24243,7 +24251,8 @@
             }
           ],
           "returns": [
-            "string"
+            "string",
+            "error"
           ]
         },
         {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 )
 
@@ -176,10 +177,9 @@ func normalizeToolName(name string) string {
 	if s == "" {
 		return ""
 	}
-	if strings.HasPrefix(s, "mcp__") {
-		rest := strings.TrimPrefix(s, "mcp__")
-		if i := strings.Index(rest, "__"); i >= 0 {
-			return canonicalLSPToolName(rest[i+2:])
+	if rest, ok := strings.CutPrefix(s, "mcp__"); ok {
+		if _, tool, ok := strings.Cut(rest, "__"); ok {
+			return canonicalLSPToolName(tool)
 		}
 	}
 	return canonicalLSPToolName(s)
@@ -220,23 +220,44 @@ func isLSPActivityTool(name string) bool {
 }
 
 func classifyToolActivity(toolName string) string {
-	switch normalizeToolName(toolName) {
+	name := normalizeToolName(toolName)
+	switch name {
 	case "spawn_agent",
 		"wait_agent",
 		"send_input",
 		"resume_agent",
-		"close_agent",
-		"orchestration_launch_agent",
-		"orchestration_send_message",
-		"orchestration_stop_agent",
-		"orchestration_get_agent_report",
-		"orchestration_list_agents":
+		"close_agent":
 		return "collab"
 	case "":
 		return ""
 	default:
+		if isOrchestrationCollabTool(name) {
+			return "collab"
+		}
 		return "tool"
 	}
+}
+
+func isOrchestrationCollabTool(name string) bool {
+	switch canonicalOrchestrationToolName(name) {
+	case "launch_agent", "send_message", "stop_agent", "get_agent_report", "list_agents":
+		return true
+	default:
+		return false
+	}
+}
+
+func canonicalOrchestrationToolName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if canonical, ok := contract.OrchestrationCanonicalToolName(trimmed); ok {
+		return canonical
+	}
+	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
+		if trimmed == canonical {
+			return canonical
+		}
+	}
+	return trimmed
 }
 
 func hasApprovalActivity(rt *threadActivity) bool {

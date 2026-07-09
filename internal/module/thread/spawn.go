@@ -475,7 +475,6 @@ func publishPendingSpawnLaunched(
 
 const (
 	temporarySubagentTool = "spawn_agent"
-	managedSubagentTool   = "orchestration_launch_agent"
 )
 
 func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
@@ -503,12 +502,9 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 	hasManaged := false
 	hasSpawn := false
 	for _, tool := range enabledTools {
-		switch strings.TrimSpace(tool) {
-		case managedSubagentTool:
-			hasManaged = true
-		case temporarySubagentTool:
-			hasSpawn = true
-		}
+		managed, spawn := subagentToolPolicyFlags(tool)
+		hasManaged = hasManaged || managed
+		hasSpawn = hasSpawn || spawn
 	}
 	if !hasManaged || !hasSpawn {
 		return enabledTools
@@ -521,6 +517,24 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 		filtered = append(filtered, tool)
 	}
 	return filtered
+}
+
+func subagentToolPolicyFlags(tool string) (managed, spawn bool) {
+	switch strings.TrimSpace(tool) {
+	case temporarySubagentTool:
+		return false, true
+	default:
+		return isManagedSubagentTool(tool), false
+	}
+}
+
+func isManagedSubagentTool(tool string) bool {
+	trimmed := strings.TrimSpace(tool)
+	if trimmed == "launch_agent" {
+		return true
+	}
+	legacy, ok := contract.OrchestrationLegacyPeerRealName("launch_agent")
+	return ok && trimmed == legacy
 }
 
 // applyTitleExtractionFallback 在默认标题下尝试从首轮 prompt 提取展示名。

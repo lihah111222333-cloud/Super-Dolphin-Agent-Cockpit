@@ -3,7 +3,6 @@ package toolfilter
 import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolpolicy"
 )
 
@@ -67,7 +66,7 @@ func reviewerDeniedTools() []string {
 }
 
 func workerDeniedTools() []string {
-	return toolbridge.OrchestrationToolAliasDenylist()
+	return contract.OrchestrationToolAliasDenylist()
 }
 
 func trustedReadOnlyTool(name string) reviewerToolCandidate {

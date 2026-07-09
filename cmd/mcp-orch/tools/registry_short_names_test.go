@@ -1,6 +1,10 @@
 package tools
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+)
 
 func TestRegistryAdvertisesShortOrchestrationNames(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
@@ -13,14 +17,12 @@ func TestRegistryAdvertisesShortOrchestrationNames(t *testing.T) {
 		got[tool.Name] = true
 	}
 
-	for _, want := range []string{"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent", "list_agents", "get_agent_report"} {
-		if !got[want] {
-			t.Fatalf("registry.List() missing short orchestration tool %q; got %#v", want, got)
+	for _, alias := range contract.OrchestrationToolAliases() {
+		if !got[alias.Canonical] {
+			t.Fatalf("registry.List() missing short orchestration tool %q; got %#v", alias.Canonical, got)
 		}
-	}
-	for _, legacy := range []string{"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent", "orchestration_recover_agent", "orchestration_interrupt_agent", "orchestration_list_agents", "orchestration_get_agent_report"} {
-		if got[legacy] {
-			t.Fatalf("registry.List() exposed legacy orchestration alias %q; got %#v", legacy, got)
+		if got[alias.LegacyPeerRealName] {
+			t.Fatalf("registry.List() exposed legacy orchestration alias %q; got %#v", alias.LegacyPeerRealName, got)
 		}
 	}
 }
@@ -57,25 +59,16 @@ func TestRegistryExposesOnlyVideoWithAudioGeneration(t *testing.T) {
 func TestRegistryLookupRejectsLegacyOrchestrationAliases(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 
-	tests := map[string]string{
-		"orchestration_launch_agent":     "launch_agent",
-		"orchestration_send_message":     "send_message",
-		"orchestration_stop_agent":       "stop_agent",
-		"orchestration_recover_agent":    "recover_agent",
-		"orchestration_interrupt_agent":  "interrupt_agent",
-		"orchestration_list_agents":      "list_agents",
-		"orchestration_get_agent_report": "get_agent_report",
-	}
-	for legacy, canonical := range tests {
-		if _, ok := registry.Lookup(legacy); ok {
-			t.Fatalf("registry.Lookup(%q) = true, want false", legacy)
+	for _, alias := range contract.OrchestrationToolAliases() {
+		if _, ok := registry.Lookup(alias.LegacyPeerRealName); ok {
+			t.Fatalf("registry.Lookup(%q) = true, want false", alias.LegacyPeerRealName)
 		}
-		canonicalTool, ok := registry.Lookup(canonical)
+		canonicalTool, ok := registry.Lookup(alias.Canonical)
 		if !ok {
-			t.Fatalf("registry.Lookup(%q) = false, want true", canonical)
+			t.Fatalf("registry.Lookup(%q) = false, want true", alias.Canonical)
 		}
-		if canonicalTool.Name != canonical {
-			t.Fatalf("registry.Lookup(%q).Name = %q, want %q", canonical, canonicalTool.Name, canonical)
+		if canonicalTool.Name != alias.Canonical {
+			t.Fatalf("registry.Lookup(%q).Name = %q, want %q", alias.Canonical, canonicalTool.Name, alias.Canonical)
 		}
 	}
 }

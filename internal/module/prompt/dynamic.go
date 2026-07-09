@@ -173,7 +173,7 @@ func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool)
 // sessionGuidanceAgentItems 根据子代理工具和 flag 生成委派/验证说明，避免在不可用工具上注入 guidance。
 func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]bool) []string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
-	hasManaged := sessionGuidanceToolEnabled(enabled, "launch_agent", "orchestration_launch_agent")
+	hasManaged := sessionGuidanceOrchestrationToolEnabled(enabled, "launch_agent")
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
 		hasSpawn = false
 	}
@@ -193,7 +193,7 @@ func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]boo
 // sessionGuidanceAgentDelegationItem 选择当前会话适用的子代理委派说明，fork 与持久子代理模式互斥。
 func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[string]bool) string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
-	hasManaged := sessionGuidanceToolEnabled(enabled, "launch_agent", "orchestration_launch_agent")
+	hasManaged := sessionGuidanceOrchestrationToolEnabled(enabled, "launch_agent")
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
 		hasSpawn = false
 	}
@@ -221,8 +221,8 @@ func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) stri
 		"The child agent is a leaf worker and must not delegate again.",
 		"Claude child-agent orchestration is not supported in this version; do not request it.",
 	}
-	hasSingleReport := sessionGuidanceToolEnabled(enabled, "get_agent_report", "orchestration_get_agent_report")
-	hasBatchReport := sessionGuidanceToolEnabled(enabled, "get_agent_reports", "orchestration_get_agent_reports")
+	hasSingleReport := sessionGuidanceOrchestrationToolEnabled(enabled, "get_agent_report")
+	hasBatchReport := sessionGuidanceOrchestrationToolEnabled(enabled, "get_agent_reports")
 	if hasSingleReport || hasBatchReport {
 		waitGuidance := "After launch, use `get_agent_report(wait=true)` with the returned agent_id before reporting that the child is finished."
 		if hasSingleReport && hasBatchReport {
@@ -236,16 +236,16 @@ func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) stri
 			"Verify key claims and integrate the report instead of copying it verbatim to the user.",
 		)
 	}
-	if sessionGuidanceToolEnabled(enabled, "send_message", "orchestration_send_message") {
+	if sessionGuidanceOrchestrationToolEnabled(enabled, "send_message") {
 		parts = append(parts, "Use `send_message(wait_report=true)` only for targeted follow-up to an idle child when you need a new report.")
 	}
-	if sessionGuidanceToolEnabled(enabled, "interrupt_agent", "orchestration_interrupt_agent") {
+	if sessionGuidanceOrchestrationToolEnabled(enabled, "interrupt_agent") {
 		parts = append(parts, "Use `interrupt_agent` to cancel the currently running turn.")
 	}
-	if sessionGuidanceToolEnabled(enabled, "recover_agent", "orchestration_recover_agent") {
+	if sessionGuidanceOrchestrationToolEnabled(enabled, "recover_agent") {
 		parts = append(parts, "Use `recover_agent` only after a stopped or failed child must continue.")
 	}
-	if sessionGuidanceToolEnabled(enabled, "stop_agent", "orchestration_stop_agent") {
+	if sessionGuidanceOrchestrationToolEnabled(enabled, "stop_agent") {
 		parts = append(parts, "Use `stop_agent(wait=true)` when ending and archiving a child so stop state settlement is confirmed.")
 	}
 	return strings.Join(parts, " ")
@@ -328,6 +328,15 @@ func sessionGuidanceToolEnabled(enabled map[string]struct{}, names ...string) bo
 		}
 	}
 	return false
+}
+
+func sessionGuidanceOrchestrationToolEnabled(enabled map[string]struct{}, canonical string) bool {
+	canonical = strings.TrimSpace(canonical)
+	names := []string{canonical}
+	if legacy, ok := contract.OrchestrationLegacyPeerRealName(canonical); ok {
+		names = append(names, legacy)
+	}
+	return sessionGuidanceToolEnabled(enabled, names...)
 }
 
 // sessionGuidanceFlagEnabled 支持 snake/camel 等历史 flag 名，避免旧会话元数据失效。

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolpolicy"
 )
@@ -27,22 +28,7 @@ func TestReviewerPreset_AllowsReadOnlyTools(t *testing.T) {
 func TestReviewerPreset_DeniesWriteTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	want := []string{
-		"edit", "lsp_edit", "shared_file_write", "memory_write",
-		"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
-		"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
-		"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
-		"workflow_template_save", "workflow_template_rollback",
-		"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
-		"multi_agent", "multi_tool_use.parallel", "spawn_agent", "send_input",
-		"resume_agent", "wait_agent", "close_agent",
-		"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
-		"list_agents", "get_agent_report", "get_agent_reports",
-		"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent",
-		"orchestration_recover_agent", "orchestration_interrupt_agent", "orchestration_list_agents",
-		"orchestration_get_agent_report", "orchestration_get_agent_reports",
-		"connect_tool_source",
-	}
+	want := contract.ReadOnlyAgentDeniedTools()
 	if !slices.Equal(got.DeniedTools, want) {
 		t.Fatalf("denied = %#v, want %#v", got.DeniedTools, want)
 	}
@@ -52,10 +38,8 @@ func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
 
-	deniedNames := []string{
+	deniedNames := append([]string{
 		"shared_file_write",
-		"orchestration_launch_agent",
-		"orchestration_stop_agent",
 		"lsp_edit",
 		"memory_write",
 		"task_create_dag",
@@ -85,22 +69,8 @@ func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 		"resume_agent",
 		"wait_agent",
 		"close_agent",
-		"launch_agent",
-		"send_message",
-		"stop_agent",
-		"recover_agent",
-		"interrupt_agent",
-		"list_agents",
-		"get_agent_report",
-		"get_agent_reports",
-		"orchestration_send_message",
-		"orchestration_recover_agent",
-		"orchestration_interrupt_agent",
-		"orchestration_list_agents",
-		"orchestration_get_agent_report",
-		"orchestration_get_agent_reports",
 		"connect_tool_source",
-	}
+	}, contract.OrchestrationToolAliasDenylist()...)
 	for _, name := range deniedNames {
 		if slices.Contains(got.AllowedTools, name) {
 			t.Fatalf("allowed unexpectedly contains %s: %#v", name, got.AllowedTools)
@@ -225,11 +195,5 @@ func TestFullAccessPreset_NoRestrictions(t *testing.T) {
 }
 
 func orchestrationAliasDenylistForTest() []string {
-	return []string{
-		"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
-		"list_agents", "get_agent_report", "get_agent_reports",
-		"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent",
-		"orchestration_recover_agent", "orchestration_interrupt_agent", "orchestration_list_agents",
-		"orchestration_get_agent_report", "orchestration_get_agent_reports",
-	}
+	return contract.OrchestrationToolAliasDenylist()
 }

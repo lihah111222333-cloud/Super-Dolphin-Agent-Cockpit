@@ -276,12 +276,9 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 	hasManaged := false
 	hasSpawn := false
 	for _, tool := range enabledTools {
-		switch strings.TrimSpace(tool) {
-		case "orchestration_launch_agent":
-			hasManaged = true
-		case "spawn_agent":
-			hasSpawn = true
-		}
+		managed, spawn := subagentToolPolicyFlags(tool)
+		hasManaged = hasManaged || managed
+		hasSpawn = hasSpawn || spawn
 	}
 	if !hasManaged || !hasSpawn {
 		return enabledTools
@@ -294,6 +291,24 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 		filtered = append(filtered, tool)
 	}
 	return filtered
+}
+
+func subagentToolPolicyFlags(tool string) (managed, spawn bool) {
+	switch strings.TrimSpace(tool) {
+	case "spawn_agent":
+		return false, true
+	default:
+		return isManagedSubagentTool(tool), false
+	}
+}
+
+func isManagedSubagentTool(tool string) bool {
+	trimmed := strings.TrimSpace(tool)
+	if trimmed == "launch_agent" {
+		return true
+	}
+	legacy, ok := contract.OrchestrationLegacyPeerRealName("launch_agent")
+	return ok && trimmed == legacy
 }
 
 // persistentSubagentDefaultEnabled 兼容多个历史 flag 名，判断 UI 是否要求托管子代理入口优先。
