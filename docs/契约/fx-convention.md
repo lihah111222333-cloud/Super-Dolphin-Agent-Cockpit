@@ -28,19 +28,19 @@ import (
 )
 
 type Config struct {
-	DSN string
+	DBPath string
 }
 
 type Store struct {
-	dsn string
+	dbPath string
 }
 
 func NewConfig() Config {
-	return Config{DSN: "postgres://agent"}
+	return Config{DBPath: ".super-dolphin/super-dolphin.db"}
 }
 
 func NewStore(lc fx.Lifecycle, cfg Config) *Store {
-	store := &Store{dsn: cfg.DSN}
+	store := &Store{dbPath: cfg.DBPath}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error { return nil },
 		OnStop:  func(context.Context) error { return nil },

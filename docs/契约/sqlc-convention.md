@@ -108,7 +108,7 @@ make sqlc-verify
 
 ```bash
 python3 scripts/validate_super_agent_skills.py
-git diff --check -- docs/契约/sqlc-convention.md .agent/skills scripts/validate_super_agent_skills.py
+git diff --check -- docs/契约/sqlc-convention.md .agents/skills scripts/validate_super_agent_skills.py
 ```
 
 任何 `sqlc.yaml`、migration 或生成代码 diff 都要在最终报告中单独说明。

@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2240,
+    "total_functions": 2234,
     "total_methods": 1062,
     "total_interfaces": 159,
     "total_interface_methods": 333,
-    "total_exported": 1229,
+    "total_exported": 1222,
     "total_unexported": 2809,
-    "total_structs": 577
+    "total_structs": 576
   },
   "packages": [
     {
@@ -29653,61 +29653,11 @@
           ]
         },
         {
-          "name": "OrchestrationCanonicalToolName",
-          "exported": true,
-          "params": [
-            {
-              "name": "legacyPeerRealName",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
-            "bool"
-          ]
-        },
-        {
           "name": "OrchestrationLaunchDefaultDisabledTools",
           "exported": true,
           "returns": [
             "[]string",
             "error"
-          ]
-        },
-        {
-          "name": "OrchestrationLaunchLegacyPeerRealName",
-          "exported": true,
-          "returns": [
-            "string",
-            "bool"
-          ]
-        },
-        {
-          "name": "OrchestrationLegacyPeerRealName",
-          "exported": true,
-          "params": [
-            {
-              "name": "canonical",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
-            "bool"
-          ]
-        },
-        {
-          "name": "OrchestrationToolAliasDenylist",
-          "exported": true,
-          "returns": [
-            "[]string"
-          ]
-        },
-        {
-          "name": "OrchestrationToolAliases",
-          "exported": true,
-          "returns": [
-            "[]OrchestrationToolAlias"
           ]
         },
         {
@@ -29718,14 +29668,7 @@
           ]
         },
         {
-          "name": "OrchestrationToolHiddenAliases",
-          "exported": true,
-          "returns": [
-            "[]string"
-          ]
-        },
-        {
-          "name": "OrchestrationToolLegacyPeerRealNames",
+          "name": "OrchestrationToolDenylist",
           "exported": true,
           "returns": [
             "[]string"
@@ -30489,7 +30432,7 @@
           ]
         },
         {
-          "name": "orchestrationToolAliasByCanonical",
+          "name": "orchestrationToolCanonicalExists",
           "exported": false,
           "params": [
             {
@@ -30498,7 +30441,6 @@
             }
           ],
           "returns": [
-            "OrchestrationToolAlias",
             "bool"
           ]
         },
@@ -35744,10 +35686,6 @@
         },
         {
           "name": "NotifyRequest",
-          "exported": true
-        },
-        {
-          "name": "OrchestrationToolAlias",
           "exported": true
         },
         {

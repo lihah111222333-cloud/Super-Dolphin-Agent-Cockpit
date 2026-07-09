@@ -48,7 +48,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 - 每个模块只注册自己拥有的方法名。
 - 不在模块外追加第二套路由表。
 - 共享横切逻辑放在 `internal/platform/rpc` 的 handler/middleware/helper 中。
-- 方法名仍使用 `domain/action`，例如 `thread/start`、`turn/submit`、`mcpServer/postgres/start`。
+- 方法名仍使用 `domain/action`，例如 `thread/start`、`turn/submit`、`ctl/register`。
 
 ---
 

@@ -17,15 +17,15 @@
 - `event@v1.5.2` 本机模块元数据时间为 `2025-05-29`
 - 对比项 `looplab/fsm@v1.0.3` 与 `asaskevich/EventBus@v0.0.0-20200907212545-49d423059eef` 按 `2026-03-19` 本机拉取结果核对
 
-V2 现状核对结论：
+V2 历史参照核对结论：
 
 - `AgentManager` 生命周期逻辑分散在 `go-agent-v2/internal/runner/manager.go`、`go-agent-v2/internal/runner/manager_event.go`、`go-agent-v2/internal/runner/manager_recover.go`、`go-agent-v2/internal/runner/manager_lifecycle.go`
 - `effectiveState()` 在 `manager.go` 里把 `proc.State` 再加工成“外部可见状态”，形成双重状态表示
 - `allowlistWindow` 叠加在主状态机之外，形成隐式侧状态机
 - `triggerRecoverAsync()` 在 `manager_event.go` 里直接 `go func()` 触发恢复副作用
-- 当前工作树中的 `go-agent-v2/internal/apiserver/server_event_handler.go` 为 `557` 行
-- 当前工作树中的 `go-agent-v2/internal/guards/state_matrix_snapshot.json` 已覆盖 `5` 个状态、`81` 个事件夹具，说明“矩阵”已经存在，但作者权威不是状态表，而是散落代码
-- 当前工作树中的 `go-agent-v2/internal/bus/bus.go` 暴露了 `46` 个 `Msg*` 常量和 `16` 个 `Topic*` 常量；即使你此前口径是“35 个 topic 常量”，本质问题仍然是命名空间膨胀和未收敛
+- 历史 `go-agent-v2/internal/apiserver/server_event_handler.go` 为 `557` 行
+- 历史 `go-agent-v2/internal/guards/state_matrix_snapshot.json` 已覆盖 `5` 个状态、`81` 个事件夹具，说明“矩阵”已经存在，但作者权威不是状态表，而是散落代码
+- 历史 `go-agent-v2/internal/bus/bus.go` 暴露了 `46` 个 `Msg*` 常量和 `16` 个 `Topic*` 常量；即使你此前口径是“35 个 topic 常量”，本质问题仍然是命名空间膨胀和未收敛
 
 ## 先纠正 4 个 API 口径
 
@@ -1138,7 +1138,7 @@ internal/agentflow/
 - `asaskevich/EventBus` README: <https://github.com/asaskevich/EventBus/blob/49d423059eef/README.md>
 - `asaskevich/EventBus` 实现: <https://github.com/asaskevich/EventBus/blob/49d423059eef/event_bus.go>
 
-本地 V2 参照文件：
+历史 V2 参照文件：
 
 - `go-agent-v2/internal/runner/manager.go`
 - `go-agent-v2/internal/runner/manager_event.go`
