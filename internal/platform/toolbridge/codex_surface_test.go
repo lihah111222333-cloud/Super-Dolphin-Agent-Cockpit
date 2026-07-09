@@ -795,10 +795,21 @@ func TestCodexToolSurfaceLookupDoesNotFallbackFromStaleThreadToAgent(t *testing.
 
 func TestCodexToolSurfaceLegacyNamesFailClosedWhenSurfaceMissing(t *testing.T) {
 	h := &Handler{}
-	for _, name := range []string{"lsp_grep", "mcp__lsp__lsp_grep", "mcp__lsp__grep", "orchestration_launch_agent", "mcp__orch__orchestration_launch_agent"} {
+	for _, name := range []string{
+		"lsp_grep",
+		"mcp__lsp__lsp_grep",
+		"mcp__lsp__grep",
+		"orchestration_launch_agent",
+		"mcp__orch__orchestration_launch_agent",
+		"orchestration_unknown",
+		"mcp__orch__orchestration_unknown",
+	} {
 		_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: legacyScopedToolCallParams(name)})
 		if err == nil {
 			t.Fatalf("HandleToolCall(%s) error = nil, want missing surface failure", name)
+		}
+		if !strings.Contains(err.Error(), "codex tool surface is not prepared") {
+			t.Fatalf("HandleToolCall(%s) error = %v, want missing surface failure", name, err)
 		}
 	}
 }

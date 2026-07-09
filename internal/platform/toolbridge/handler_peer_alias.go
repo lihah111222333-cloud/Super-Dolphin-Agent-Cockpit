@@ -2,30 +2,34 @@ package toolbridge
 
 import "strings"
 
-type toolAlias struct {
-	Canonical string
-	Legacy    string
+const legacyOrchSurfacePrefix = "orchestration_"
+
+type orchestrationLegacyAlias struct {
+	Canonical          string
+	LegacyPeerRealName string
 }
 
-var orchestrationToolAliasRegistry = []toolAlias{
-	{Canonical: "launch_agent", Legacy: "orchestration_launch_agent"},
-	{Canonical: "send_message", Legacy: "orchestration_send_message"},
-	{Canonical: "stop_agent", Legacy: "orchestration_stop_agent"},
-	{Canonical: "recover_agent", Legacy: "orchestration_recover_agent"},
-	{Canonical: "interrupt_agent", Legacy: "orchestration_interrupt_agent"},
-	{Canonical: "list_agents", Legacy: "orchestration_list_agents"},
-	{Canonical: "get_agent_report", Legacy: "orchestration_get_agent_report"},
-	{Canonical: "get_agent_reports", Legacy: "orchestration_get_agent_reports"},
+// legacyOrchestrationToolAliases 是 legacy orchestration 名称的唯一事实源。
+// 旧名只用于 peer realName、deny 配置匹配和 hidden lifecycle 直连拒绝；不能作为 Codex callable alias 发布。
+var legacyOrchestrationToolAliases = []orchestrationLegacyAlias{
+	{Canonical: "launch_agent", LegacyPeerRealName: "orchestration_launch_agent"},
+	{Canonical: "send_message", LegacyPeerRealName: "orchestration_send_message"},
+	{Canonical: "stop_agent", LegacyPeerRealName: "orchestration_stop_agent"},
+	{Canonical: "recover_agent", LegacyPeerRealName: "orchestration_recover_agent"},
+	{Canonical: "interrupt_agent", LegacyPeerRealName: "orchestration_interrupt_agent"},
+	{Canonical: "list_agents", LegacyPeerRealName: "orchestration_list_agents"},
+	{Canonical: "get_agent_report", LegacyPeerRealName: "orchestration_get_agent_report"},
+	{Canonical: "get_agent_reports", LegacyPeerRealName: "orchestration_get_agent_reports"},
 }
 
-// OrchestrationToolAliasDenylist 返回 orchestration 控制面的 canonical 和 legacy 名。
+// OrchestrationToolAliasDenylist 返回 orchestration 控制面的 canonical 和 legacy peer 名。
 func OrchestrationToolAliasDenylist() []string {
-	names := make([]string, 0, len(orchestrationToolAliasRegistry)*2)
-	for _, alias := range orchestrationToolAliasRegistry {
+	names := make([]string, 0, len(legacyOrchestrationToolAliases)*2)
+	for _, alias := range legacyOrchestrationToolAliases {
 		names = append(names, alias.Canonical)
 	}
-	for _, alias := range orchestrationToolAliasRegistry {
-		names = append(names, alias.Legacy)
+	for _, alias := range legacyOrchestrationToolAliases {
+		names = append(names, alias.LegacyPeerRealName)
 	}
 	return nonEmptyUnique(names...)
 }
@@ -40,23 +44,36 @@ func legacyLSPName(canonical string) string {
 	return ""
 }
 
-// legacyOrchName 返回 orchestration 短名对应的旧版 orchestration_* 名称。
-func legacyOrchName(canonical string) string {
+// legacyOrchPeerRealName 返回 orchestration 短名对应的旧 peer realName。
+func legacyOrchPeerRealName(canonical string) string {
 	canonical = strings.TrimSpace(canonical)
-	for _, alias := range orchestrationToolAliasRegistry {
+	for _, alias := range legacyOrchestrationToolAliases {
 		if alias.Canonical == canonical {
-			return alias.Legacy
+			return alias.LegacyPeerRealName
 		}
 	}
 	return ""
 }
 
-func canonicalOrchName(name string) string {
+func legacyManagedLaunchPeerRealName() string {
+	return legacyOrchPeerRealName("launch_agent")
+}
+
+func canonicalOrchSurfaceName(name string) string {
 	name = strings.TrimSpace(name)
-	for _, alias := range orchestrationToolAliasRegistry {
-		if alias.Legacy == name {
+	for _, alias := range legacyOrchestrationToolAliases {
+		if alias.LegacyPeerRealName == name {
 			return alias.Canonical
 		}
 	}
 	return name
+}
+
+func isLegacyOrchPeerRealName(name string) bool {
+	name = strings.TrimSpace(name)
+	return name != "" && canonicalOrchSurfaceName(name) != name
+}
+
+func requiresLegacyOrchSurfaceName(name string) bool {
+	return strings.HasPrefix(strings.TrimSpace(name), legacyOrchSurfacePrefix)
 }
