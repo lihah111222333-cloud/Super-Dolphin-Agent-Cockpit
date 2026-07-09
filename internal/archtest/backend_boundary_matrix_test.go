@@ -93,6 +93,21 @@ func TestBackendBoundaryMatrixRejectsUnauditedAllowlist(t *testing.T) {
 	}
 }
 
+func TestBackendBoundaryMatrixRejectsGenericStatefulSidecarAllowlist(t *testing.T) {
+	matrix := defaultBackendBoundaryMatrix()
+	matrix.Rules[2].AllowedImportPrefixes = append(matrix.Rules[2].AllowedImportPrefixes, backendBoundaryImportAllowance{
+		Owner:        "mcp_sidecar_boundary",
+		FilePattern:  "cmd/mcp-lsp/**/*.go",
+		ImportPrefix: "internal/platform/db",
+		Reason:       "SQLite lifecycle primitives shared by sidecars",
+	})
+
+	violations := strings.Join(validateBackendBoundaryMatrix(matrix), "\n")
+	if !strings.Contains(violations, "stateful sidecar allowance must name its sidecar") {
+		t.Fatalf("validateBackendBoundaryMatrix() did not reject generic stateful sidecar reason:\n%s", violations)
+	}
+}
+
 func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -140,6 +155,14 @@ func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 				"cmd/mcp-lsp": {internalPrefix("internal/platform/notify")},
 			},
 			wantHits: []string{"cmd/mcp-lsp depends on", "internal/platform/notify"},
+		},
+		{
+			name:   "mcp_ida_lsp_only_platform_dependency",
+			ruleID: "mcp_sidecar_narrow_import_surface",
+			deps: map[string][]string{
+				"cmd/mcp-ida": {internalPrefix("internal/platform/discovery")},
+			},
+			wantHits: []string{"cmd/mcp-ida depends on", "internal/platform/discovery"},
 		},
 	}
 
@@ -255,8 +278,6 @@ func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
 		{"internal/dto", "pure transport DTOs shared across sidecars"},
 		{"internal/mcpserver/common", "shared MCP stdio/bootstrap protocol helpers"},
 		{"internal/platform/config", "configuration primitives used by sidecar boot"},
-		{"internal/platform/db", "SQLite lifecycle primitives for sidecar-owned stores"},
-		{"internal/platform/metrics", "metrics registry primitives"},
 		{"internal/platform/rlimit", "process resource-limit primitives"},
 		{"internal/platform/runner", "run-group lifecycle primitives"},
 		{"internal/platform/runtimeenv", "runtime environment probes"},
@@ -274,8 +295,10 @@ func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
 		reason string
 	}{
 		{"internal/platform/bus", "orchestration sidecar publishes typed runtime events"},
+		{"internal/platform/db", "orchestration sidecar owns task DAG and shared-file SQLite stores"},
 		{"internal/platform/discovery", "orchestration sidecar discovers runtime peers and workspaces"},
 		{"internal/platform/eventsurface", "orchestration sidecar exposes event-surface adapters"},
+		{"internal/platform/metrics", "orchestration sidecar exports runtime and task metrics"},
 		{"internal/platform/notify", "orchestration sidecar emits user-visible notifications"},
 		{"internal/platform/rpc", "orchestration sidecar uses RPC client-side protocol primitives only; host symbols are guarded separately"},
 		{"internal/platform/sharedfilefs", "orchestration sidecar owns shared-file filesystem access"},
@@ -287,7 +310,16 @@ func mcpSidecarImportAllowances() []backendBoundaryImportAllowance {
 		prefix string
 		reason string
 	}{
+		{"internal/platform/db", "LSP sidecar reuses MCP bootstrap DB lifecycle for sidecar readiness"},
 		{"internal/platform/discovery", "LSP sidecar discovers language server workspace capabilities"},
+		{"internal/platform/metrics", "LSP sidecar exposes language-server runtime metrics"},
+	})
+	out = appendBackendBoundaryImportAllowances(out, "cmd/mcp-ida/**/*.go", []struct {
+		prefix string
+		reason string
+	}{
+		{"internal/platform/db", "IDA sidecar reuses MCP bootstrap DB lifecycle for sidecar readiness"},
+		{"internal/platform/metrics", "IDA sidecar exposes analysis runtime metrics"},
 	})
 	return out
 }
@@ -635,8 +667,34 @@ func validateBackendBoundaryImportAllowances(label string, allowances []backendB
 		if strings.TrimSpace(allowance.ImportPrefix) == "" {
 			violations = append(violations, item+" import_prefix is empty")
 		}
+		if backendBoundaryStatefulSidecarAllowanceIsGeneric(allowance) {
+			violations = append(violations, item+" stateful sidecar allowance must name its sidecar")
+		}
 	}
 	return violations
+}
+
+func backendBoundaryStatefulSidecarAllowanceIsGeneric(allowance backendBoundaryImportAllowance) bool {
+	if !backendBoundaryAllowancePrefixMatches(allowance.ImportPrefix, "internal/platform/db") &&
+		!backendBoundaryAllowancePrefixMatches(allowance.ImportPrefix, "internal/platform/metrics") {
+		return false
+	}
+	if !strings.HasPrefix(allowance.FilePattern, "cmd/mcp-") {
+		return false
+	}
+	sidecar := strings.TrimSuffix(strings.TrimPrefix(allowance.FilePattern, "cmd/mcp-"), "/**/*.go")
+	return !strings.Contains(strings.ToLower(allowance.Reason), backendBoundarySidecarReasonName(sidecar)+" sidecar")
+}
+
+func backendBoundaryAllowancePrefixMatches(got, want string) bool {
+	return got == want || strings.HasPrefix(got, want+"/")
+}
+
+func backendBoundarySidecarReasonName(sidecar string) string {
+	if sidecar == "orch" {
+		return "orchestration"
+	}
+	return sidecar
 }
 
 func validateBackendBoundaryFileAllowances(label string, allowances []backendBoundaryFileAllowance, owners map[string]bool) []string {
