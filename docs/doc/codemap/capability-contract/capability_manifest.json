@@ -9,12 +9,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2230,
+    "total_functions": 2237,
     "total_methods": 1062,
     "total_interfaces": 159,
     "total_interface_methods": 333,
-    "total_exported": 1221,
-    "total_unexported": 2807,
+    "total_exported": 1227,
+    "total_unexported": 2808,
     "total_structs": 577
   },
   "packages": [
@@ -29631,6 +29631,42 @@
           ]
         },
         {
+          "name": "OrchestrationCanonicalToolName",
+          "exported": true,
+          "params": [
+            {
+              "name": "legacyPeerRealName",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
+          "name": "OrchestrationLaunchDefaultDisabledTools",
+          "exported": true,
+          "returns": [
+            "[]string",
+            "error"
+          ]
+        },
+        {
+          "name": "OrchestrationLegacyPeerRealName",
+          "exported": true,
+          "params": [
+            {
+              "name": "canonical",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
           "name": "OrchestrationToolAliasDenylist",
           "exported": true,
           "returns": [
@@ -29642,6 +29678,27 @@
           "exported": true,
           "returns": [
             "[]OrchestrationToolAlias"
+          ]
+        },
+        {
+          "name": "OrchestrationToolCanonicalNames",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "OrchestrationToolHiddenAliases",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "OrchestrationToolLegacyPeerRealNames",
+          "exported": true,
+          "returns": [
+            "[]string"
           ]
         },
         {
@@ -30399,6 +30456,20 @@
           ],
           "returns": [
             "map[string]string"
+          ]
+        },
+        {
+          "name": "orchestrationToolAliasByCanonical",
+          "exported": false,
+          "params": [
+            {
+              "name": "canonical",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "OrchestrationToolAlias",
+            "bool"
           ]
         },
         {

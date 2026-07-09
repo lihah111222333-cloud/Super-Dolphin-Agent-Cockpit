@@ -19,6 +19,9 @@ var (
 	// 启动 cwd 校验错误哨兵，供 launch 工具区分缺参和非法路径。
 	ErrLaunchCWDRequired = errors.New("launch cwd is required")
 	ErrLaunchCWDInvalid  = errors.New("launch cwd is invalid")
+
+	// ErrOrchestrationToolAliasMissing 表示 contract registry 缺少必需的 orchestration 工具别名。
+	ErrOrchestrationToolAliasMissing = errors.New("orchestration tool alias is missing")
 )
 
 // OrchestrationToolAlias 描述 orchestration 控制面工具的短名和 legacy peer realName。
@@ -26,6 +29,11 @@ type OrchestrationToolAlias struct {
 	Canonical          string
 	LegacyPeerRealName string
 }
+
+const (
+	orchestrationMCPOrchPrefix   = "mcp__orch__"
+	orchestrationLaunchCanonical = "launch_agent"
+)
 
 var orchestrationToolAliases = []OrchestrationToolAlias{
 	{Canonical: "launch_agent", LegacyPeerRealName: "orchestration_launch_agent"},
@@ -43,16 +51,88 @@ func OrchestrationToolAliases() []OrchestrationToolAlias {
 	return append([]OrchestrationToolAlias(nil), orchestrationToolAliases...)
 }
 
-// OrchestrationToolAliasDenylist 返回 orchestration 控制面的 canonical 和 legacy peer 名。
-func OrchestrationToolAliasDenylist() []string {
-	names := make([]string, 0, len(orchestrationToolAliases)*2)
+// OrchestrationToolCanonicalNames 返回 orchestration 控制面的 canonical 短工具名副本。
+func OrchestrationToolCanonicalNames() []string {
+	names := make([]string, 0, len(orchestrationToolAliases))
 	for _, alias := range orchestrationToolAliases {
 		names = append(names, alias.Canonical)
 	}
+	return names
+}
+
+// OrchestrationToolLegacyPeerRealNames 返回 orchestration 控制面的 legacy peer realName 副本。
+func OrchestrationToolLegacyPeerRealNames() []string {
+	names := make([]string, 0, len(orchestrationToolAliases))
 	for _, alias := range orchestrationToolAliases {
 		names = append(names, alias.LegacyPeerRealName)
 	}
 	return names
+}
+
+// OrchestrationToolHiddenAliases 返回 orchestration legacy peer realName 的 namespaced deny/hidden alias 副本。
+func OrchestrationToolHiddenAliases() []string {
+	names := make([]string, 0, len(orchestrationToolAliases))
+	for _, alias := range orchestrationToolAliases {
+		names = append(names, orchestrationMCPOrchPrefix+alias.LegacyPeerRealName)
+	}
+	return names
+}
+
+// OrchestrationToolAliasDenylist 返回 orchestration 控制面的 canonical 和 legacy peer 名。
+func OrchestrationToolAliasDenylist() []string {
+	names := OrchestrationToolCanonicalNames()
+	names = append(names, OrchestrationToolLegacyPeerRealNames()...)
+	return names
+}
+
+// OrchestrationLegacyPeerRealName 根据 canonical 短工具名查询 legacy peer realName。
+func OrchestrationLegacyPeerRealName(canonical string) (string, bool) {
+	alias, ok := orchestrationToolAliasByCanonical(canonical)
+	if !ok {
+		return "", false
+	}
+	return alias.LegacyPeerRealName, true
+}
+
+// OrchestrationCanonicalToolName 根据 legacy peer realName 查询 canonical 短工具名。
+func OrchestrationCanonicalToolName(legacyPeerRealName string) (string, bool) {
+	legacyPeerRealName = strings.TrimSpace(legacyPeerRealName)
+	if legacyPeerRealName == "" {
+		return "", false
+	}
+	for _, alias := range orchestrationToolAliases {
+		if alias.LegacyPeerRealName == legacyPeerRealName {
+			return alias.Canonical, true
+		}
+	}
+	return "", false
+}
+
+// OrchestrationLaunchDefaultDisabledTools 返回默认禁用 launch_agent 时必须一起阻断的所有 orchestration 名称。
+func OrchestrationLaunchDefaultDisabledTools() ([]string, error) {
+	alias, ok := orchestrationToolAliasByCanonical(orchestrationLaunchCanonical)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrOrchestrationToolAliasMissing, orchestrationLaunchCanonical)
+	}
+	return []string{
+		alias.Canonical,
+		orchestrationMCPOrchPrefix + alias.Canonical,
+		alias.LegacyPeerRealName,
+		orchestrationMCPOrchPrefix + alias.LegacyPeerRealName,
+	}, nil
+}
+
+func orchestrationToolAliasByCanonical(canonical string) (OrchestrationToolAlias, bool) {
+	canonical = strings.TrimSpace(canonical)
+	if canonical == "" {
+		return OrchestrationToolAlias{}, false
+	}
+	for _, alias := range orchestrationToolAliases {
+		if alias.Canonical == canonical {
+			return alias, true
+		}
+	}
+	return OrchestrationToolAlias{}, false
 }
 
 // ValidateLaunchCWD 校验启动工作目录。
