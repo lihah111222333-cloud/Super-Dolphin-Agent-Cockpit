@@ -153,7 +153,7 @@ func (s *service) forceIdleAfterTurnTerminalLocked(
 	}
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	if kind.recover != nil {
-		if err := kind.recover(ctx, s, agent); err != nil {
+		if err := kind.recover(ctx, turnRecoveryOwner(s), agent); err != nil {
 			return false, err
 		}
 	}

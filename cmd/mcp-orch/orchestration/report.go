@@ -46,6 +46,10 @@ type reportController struct {
 	logger       *slog.Logger
 }
 
+type reportApplier interface {
+	applyReportEventLocked(ctx context.Context, agent *agentRuntime, eventType string, data json.RawMessage, report string) (ReportEventResult, error)
+}
+
 func newReportController(deps reportControllerDeps) *reportController {
 	return &reportController{
 		registry:     deps.registry,
@@ -90,6 +94,10 @@ func (s *service) configuredReportController() (*reportController, error) {
 		s.reports.agentThreads = s.lifecycle.agentThreads
 	}
 	return s.reports, nil
+}
+
+func (s *service) configuredReportApplier() (reportApplier, error) {
+	return s.configuredReportController()
 }
 
 func (s *service) setStateChangedFallbackReportLocked(ctx context.Context, agent *agentRuntime, nextState string) {
