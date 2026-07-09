@@ -1,5 +1,7 @@
 # Orchestration Boundary 9 Plus Repair Plan
 
+> **Status (2026-07-09 current HEAD): Historical / completed shape. Do not execute this plan as-is.** The core controller split has already landed: `service` is now a facade over `agentRegistry`, `lifecycleController`, `dagController`, `turnController`, and `reportController`; `node_router.go` no longer holds `*service`; `stopSpawnedAgentSink` no longer exists. Pure-AI maintenance must treat the unchecked tasks below as historical implementation notes, not active work. Current follow-up work should be tracked in a new short plan that starts from the present code and current failing gates.
+
 > **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. In super-agent-v3, subagents may use platform-native dispatch directly; use mcp-orch DAG runs and nodes (`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`) only when persistent orchestration records are needed. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 将 `cmd/mcp-orch/orchestration` 从“外部边界已硬化、内部仍是大容器”推进到 9/10 以上的内部模块边界。
