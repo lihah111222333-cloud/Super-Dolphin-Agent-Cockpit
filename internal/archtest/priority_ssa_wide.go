@@ -466,7 +466,7 @@ func prioritySSATypeUsesTarget(typ types.Type, target *types.TypeName) bool {
 	unaliased := types.Unalias(typ)
 	switch typed := unaliased.(type) {
 	case *types.Named:
-		return typed.Obj() == target
+		return prioritySSATypeNameMatches(typed.Obj(), target)
 	case *types.TypeParam:
 		return prioritySSATypeUsesTarget(typed.Constraint(), target)
 	case *types.Interface:
@@ -478,6 +478,19 @@ func prioritySSATypeUsesTarget(typ types.Type, target *types.TypeName) bool {
 	default:
 		return prioritySSAContainerTypeUsesTarget(unaliased, target)
 	}
+}
+
+// prioritySSATypeNameMatches 按对象或 package path/name 判断类型名是否指向同一宽端口目标。
+func prioritySSATypeNameMatches(got *types.TypeName, target *types.TypeName) bool {
+	if got == nil || target == nil || got.Name() != target.Name() {
+		return false
+	}
+	if got == target {
+		return true
+	}
+	gotPkg := got.Pkg()
+	targetPkg := target.Pkg()
+	return gotPkg != nil && targetPkg != nil && gotPkg.Path() == targetPkg.Path()
 }
 
 // prioritySSAInterfaceUsesTarget 检查接口嵌入和显式方法是否携带目标宽端口。

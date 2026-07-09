@@ -15,6 +15,7 @@ type PrioritySSARule string
 const (
 	PrioritySSAWidePortRule      PrioritySSARule = "priority_ssa_wide_port"
 	PrioritySSAIgnoredReturnRule PrioritySSARule = "priority_ssa_ignored_return"
+	PrioritySSAContextCancelRule PrioritySSARule = "priority_ssa_context_cancel"
 	PrioritySSARawSQLRule        PrioritySSARule = "priority_ssa_raw_sql"
 	PrioritySSAErrorStringRule   PrioritySSARule = "priority_ssa_error_string"
 	PrioritySSAFXInvokeRule      PrioritySSARule = "priority_ssa_fx_invoke_side_effect"

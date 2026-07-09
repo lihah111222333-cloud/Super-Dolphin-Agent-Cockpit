@@ -26,11 +26,11 @@ func TestPrioritySSABaselineFlagsNewSSAThenFreezeAccepts(t *testing.T) {
 		t.Fatalf("save empty priority SSA baseline: %v", err)
 	}
 
-	result, want := assertPrioritySSANewViolation(t, fixture)
-	assertPrioritySSAFreezeAccepts(t, fixture, result, want)
+	result, wants := assertPrioritySSANewViolation(t, fixture)
+	assertPrioritySSAFreezeAccepts(t, fixture, result, wants...)
 }
 
-func assertPrioritySSANewViolation(t *testing.T, fixture prioritySSABaselineFixture) (PrioritySSABaselineResult, PrioritySSAViolation) {
+func assertPrioritySSANewViolation(t *testing.T, fixture prioritySSABaselineFixture) (PrioritySSABaselineResult, []PrioritySSAViolation) {
 	t.Helper()
 	result, err := CheckPrioritySSABaseline(fixture.opts, fixture.baselinePath)
 	if err != nil {
@@ -46,14 +46,28 @@ func assertPrioritySSANewViolation(t *testing.T, fixture prioritySSABaselineFixt
 		Detail: "error string match strings.Contains",
 	}
 	assertPrioritySSAContains(t, result.New, want)
-	return result, want
+	cancel := PrioritySSAViolation{
+		Rule:   PrioritySSAContextCancelRule,
+		File:   "internal/risk/context_cancel.go",
+		Line:   6,
+		Detail: "ignored cancel func from context.WithCancel",
+	}
+	assertPrioritySSAContains(t, result.New, cancel)
+	orchestration := PrioritySSAViolation{
+		Rule:   PrioritySSAWidePortRule,
+		File:   "internal/risk/orchestration.go",
+		Line:   9,
+		Detail: "parameter service in pass uses broad port contract.OrchestrationService",
+	}
+	assertPrioritySSAContains(t, result.New, orchestration)
+	return result, []PrioritySSAViolation{want, cancel, orchestration}
 }
 
 func assertPrioritySSAFreezeAccepts(
 	t *testing.T,
 	fixture prioritySSABaselineFixture,
 	result PrioritySSABaselineResult,
-	want PrioritySSAViolation,
+	wants ...PrioritySSAViolation,
 ) {
 	t.Helper()
 	if err := SavePrioritySSABaseline(fixture.baselinePath, result.Current); err != nil {
@@ -63,12 +77,14 @@ func assertPrioritySSAFreezeAccepts(
 	if err != nil {
 		t.Fatalf("load frozen priority SSA baseline: %v", err)
 	}
-	frozen, ok := info.Data[want.Key()]
-	if !ok {
-		t.Fatalf("frozen baseline missing %q; got keys %#v", want.Key(), info.Data)
-	}
-	if frozen.Rule != want.Rule || frozen.Detail == "" {
-		t.Fatalf("frozen violation lost rule/detail metadata: %#v", frozen)
+	for _, want := range wants {
+		frozen, ok := info.Data[want.Key()]
+		if !ok {
+			t.Fatalf("frozen baseline missing %q; got keys %#v", want.Key(), info.Data)
+		}
+		if frozen.Rule != want.Rule || frozen.Detail == "" {
+			t.Fatalf("frozen violation lost rule/detail metadata: %#v", frozen)
+		}
 	}
 
 	result, err = CheckPrioritySSABaseline(fixture.opts, fixture.baselinePath)
@@ -97,6 +113,24 @@ type Service interface {
 	Run()
 }
 `)
+	writePrioritySSAFile(t, root, "internal/contract/orchestration.go", `package contract
+
+type OrchestrationService interface {
+	Launch()
+}
+`)
+	writePrioritySSAFile(t, root, "internal/risk/orchestration.go", `package risk
+
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+type holder struct {
+	service contract.OrchestrationService
+}
+
+func pass(service contract.OrchestrationService) contract.OrchestrationService {
+	return service
+}
+`)
 	writePrioritySSAFile(t, root, "internal/risk/error_string.go", `package risk
 
 import "strings"
@@ -104,6 +138,15 @@ import "strings"
 func bad(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "missing")
+}
+`)
+	writePrioritySSAFile(t, root, "internal/risk/context_cancel.go", `package risk
+
+import "context"
+
+func leak(parent context.Context) context.Context {
+	ctx, _ := context.WithCancel(parent)
+	return ctx
 }
 `)
 	return root

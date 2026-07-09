@@ -131,10 +131,7 @@ func prioritySSAWidePortTargets(pkgs []*prioritySSAPackage) ([]*types.TypeName, 
 	for _, pkg := range pkgs {
 		byPath[pkg.pkgPath] = pkg
 	}
-	specs := []prioritySSATargetSpec{
-		{importPath: prioritySSAModulePath + "/cmd/mcp-orch/store/taskdag", name: "Store"},
-		{importPath: prioritySSAModulePath + "/internal/module/skill", name: "Service"},
-	}
+	specs := prioritySSABackendWidePortTargetSpecs()
 	targets := make([]*types.TypeName, 0, len(specs))
 	for _, spec := range specs {
 		target, err := prioritySSAWidePortTarget(byPath, spec)
@@ -144,6 +141,14 @@ func prioritySSAWidePortTargets(pkgs []*prioritySSAPackage) ([]*types.TypeName, 
 		targets = append(targets, target)
 	}
 	return targets, nil
+}
+
+func prioritySSABackendWidePortTargetSpecs() []prioritySSATargetSpec {
+	return []prioritySSATargetSpec{
+		{importPath: prioritySSAModulePath + "/cmd/mcp-orch/store/taskdag", name: "Store"},
+		{importPath: prioritySSAModulePath + "/internal/contract", name: "OrchestrationService"},
+		{importPath: prioritySSAModulePath + "/internal/module/skill", name: "Service"},
+	}
 }
 
 func prioritySSAWidePortTarget(byPath map[string]*prioritySSAPackage, spec prioritySSATargetSpec) (*types.TypeName, error) {
@@ -190,6 +195,7 @@ func collectPrioritySSAPackageViolations(
 	}
 	for _, fn := range prioritySSAFunctions(ssaPkg) {
 		violations = append(violations, collectPrioritySSAIgnoredReturnViolations(pkg, fn)...)
+		violations = append(violations, collectPrioritySSAContextCancelViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSARawSQLViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSAErrorStringViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSAFXInvokeViolations(pkg, fn)...)
