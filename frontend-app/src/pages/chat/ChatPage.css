@@ -220,3 +220,13 @@
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+@media (max-width: 760px) {
+  .conversation {
+    border-right: 0;
+  }
+
+  .timeline {
+    padding-bottom: clamp(104px, 18vh, 156px);
+  }
+}

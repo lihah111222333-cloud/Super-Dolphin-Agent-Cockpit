@@ -503,6 +503,7 @@ describe('theme-aware component styles', () => {
   describe('suiyuan design tokens', () => {
     it('maps the light theme to exported DESIGN.md tokens', () => {
       const light = declarationsFor('.sa-window[data-theme="light"]');
+      const lightSpecific = declarationsFor('.sa-window[data-theme="light"].sa-window');
 
       expect(light['--bg']).toBe('#fbf9f2');
       expect(light['--bg-elevated']).toBe('#fbf9f3');
@@ -514,6 +515,11 @@ describe('theme-aware component styles', () => {
       expect(light['--text-pri']).toBe('#1b1c18');
       expect(light['--text-sec']).toBe('#584238');
       expect(light['--text-muted']).toBe('#8b7268');
+      expect(lightSpecific['--bg']).toBe('#fbf9f2');
+      expect(lightSpecific['--bg-elevated']).toBe('#fbf9f3');
+      expect(lightSpecific['--surface-2']).toBe('#f5f4ed');
+      expect(lightSpecific['--surface-3']).toBe('#f0eee7');
+      expect(lightSpecific['--text-sec']).toBe('#584238');
     });
 
     it('keeps the Suiyuan workbench aliases available for shell and chat surfaces', () => {
@@ -853,6 +859,18 @@ describe('suiyuan chat canvas', () => {
     expect(assistantMessage['box-shadow']).toBe('var(--suiyuan-card-shadow)');
     expect(userMessage.background).toBe('var(--surface-3)');
     expect(markdownPre.background).toBe('var(--surface-code)');
+  });
+});
+
+describe('suiyuan responsive chat workbench', () => {
+  it('collapses side surfaces before the message canvas becomes unreadable', () => {
+    const narrowConversation = mediaDeclarationFor('(max-width: 760px)', '.conversation', 'border-right');
+    const narrowFloatingComposer = mediaDeclarationFor('(max-width: 760px)', '.composer--floating', 'width');
+    const narrowTimeline = mediaDeclarationFor('(max-width: 760px)', '.timeline', 'padding-bottom');
+
+    expect(narrowConversation['border-right']).toBe('0');
+    expect(narrowFloatingComposer.width).toBe('calc(100% - 24px)');
+    expect(narrowTimeline['padding-bottom']).toBe('clamp(104px, 18vh, 156px)');
   });
 });
 

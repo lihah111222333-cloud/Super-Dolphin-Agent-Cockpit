@@ -502,6 +502,22 @@
   font-size: 12px;
 }
 
+@media (max-width: 760px) {
+  .composer--floating {
+    width: calc(100% - 24px);
+  }
+
+  .composer--floating textarea {
+    padding: 18px 18px 10px;
+    font-size: 16px;
+  }
+
+  .composer--floating .composer-meta {
+    gap: 8px;
+    padding: 0 16px 14px;
+  }
+}
+
 .fork-draft-submit {
   border-color: color-mix(in srgb, var(--info) 44%, var(--border));
   background: color-mix(in srgb, var(--info) 16%, var(--surface-3));

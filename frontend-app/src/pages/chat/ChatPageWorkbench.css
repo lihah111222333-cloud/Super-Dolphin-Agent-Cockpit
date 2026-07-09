@@ -783,23 +783,23 @@
   }
 }
 
-/* Specificity override for premium warm-beige theme */
+/* Keep the high-specificity light override aligned with exported Suiyuan tokens. */
 .sa-window[data-theme="light"].sa-window {
-  --bg: #fbf9f4;
-  --bg-elevated: #f3efe9;
-  --app-bg: #fbf9f4;
+  --bg: #fbf9f2;
+  --bg-elevated: #fbf9f3;
+  --app-bg: #fbf9f2;
   --surface: #ffffff;
-  --surface-2: #f7f4ed;
-  --surface-3: #ede9de;
-  --surface-code: #f3efe9;
-  --overlay: color-mix(in srgb, var(--text-pri) 42%, transparent);
-  --border: rgba(28, 27, 24, 0.08);
-  --border-strong: rgba(28, 27, 24, 0.16);
-  --text-pri: #1c1b18;
-  --text-sec: #59564d;
-  --text-muted: #8a8579;
-  --text-subtle: #a4a196;
-  --shadow: 0 22px 70px rgba(28, 27, 24, 0.08);
+  --surface-2: #f5f4ed;
+  --surface-3: #f0eee7;
+  --surface-code: #f5f4ed;
+  --overlay: color-mix(in srgb, var(--text-pri) 36%, transparent);
+  --border: rgba(224, 192, 179, 0.62);
+  --border-strong: rgba(139, 114, 104, 0.42);
+  --text-pri: #1b1c18;
+  --text-sec: #584238;
+  --text-muted: #8b7268;
+  --text-subtle: #6f5b52;
+  --shadow: 0 22px 70px rgba(88, 66, 56, 0.14);
 }
 
 /* ==========================================================================
