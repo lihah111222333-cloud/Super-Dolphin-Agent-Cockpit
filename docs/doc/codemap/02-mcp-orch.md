@@ -395,7 +395,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func run() error` | 创建 Fx app，启动所有 runner；当前 provider 列表不装配 mcp-orch memory service。 |
 | `func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config` | 配置 bootstrap 注册、工具代理、能力声明、hook 回调；`OnToolsList` / `OnToolsCall` 直接复用 `registryToolProvider`，其中 `OnToolsCall` 会把 tool 返回值再包装成 text content。P22 P4 §278：bootstrap 的 after-hook 入口已退成 `contract.BootstrapHookAfterHandler` 函数型，不再 import `orchestration.HookConsumer`。 |
 | `func buildOrchestrationOptions(remoteAddr string) []fx.Option` | 根据是否存在 `GO_AGENT_CTL_RPC_ADDR` 选择 launch backend，并在本地模式注入 `runnerActor`。 |
-| `func buildLauncher(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher` | 选择 `localLauncher` 或 `remoteLauncher`。 |
+| `func buildLauncher(lc fx.Lifecycle, turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher` | 选择 `localLauncher` 或 `remoteLauncher`。 |
 | `func newRegistry(p newRegistryParams) tools.Registry` | 构造运行时 registry；通过 `ToolPorts` 只把各 tool 需要的窄端口传给 `tools.NewRegistry()`，不装配 memory tools。 |
 | `func newStdioRunner(registry tools.Registry) platformrunner.Runner` | 用 stdio 启动 MCP server。 |
 | `func newHTTPRunner(registry tools.Registry) platformrunner.Runner` | peer 模式启 HTTP MCP；否则返回阻塞 runner。 |
@@ -410,7 +410,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | 签名 | 作用 |
 |---|---|
-| `func NewService(logger *slog.Logger, eventBus *event.Dispatcher, launcher AgentLauncher, sessionCleaner SessionCleaner, turnStarter TurnStarter, dagStore taskdag.OrchestrationStore) *service` | 创建编排核心服务，初始化状态机配置和 agent map；编排层只消费 `taskdag.OrchestrationStore` 窄端口。 |
+| `func NewService(logger *slog.Logger, eventBus *event.Dispatcher, launcher AgentLauncher, sessionCleaner contract.OrchestrationSessionCleaner, turnStarter contract.OrchestrationTurnStarter, dagStore taskdag.OrchestrationStore) *service` | 创建编排核心服务，初始化状态机配置和 agent map；编排层只消费 `taskdag.OrchestrationStore` 窄端口。 |
 | `func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error` | 统一入口：发起 agent 启动。 |
 | `func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error` | 统一入口：提交 turn。 |
 | `func (s *service) StopAgent(ctx context.Context, agentID string) error` | 统一入口：停止 agent。 |
