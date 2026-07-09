@@ -26,15 +26,17 @@ typescript
 zod
 ```
 
-LSP evidence collected before writing this plan:
+LSP evidence collected against the `origin/main` worktree before implementation:
 
 ```text
 grep: ImageLightbox references are in MarkdownImagePreview.jsx and MermaidDiagram.jsx.
-definition/xref: useSettingsRuntime is internal to SettingsPage.jsx.
+grep: frontend-code-size-guard.mjs and its tests are present in frontend-app/scripts.
+definition/xref: useSettingsRuntime is in settingsRuntimeHook.js and used by SettingsPage.jsx.
+definition/xref: useProviderPreferences is in settingsProviderPreferencesRuntime.js and used by SettingsPage.jsx.
 definition/xref: usePromptRefreshEffects is internal to PromptPageView.jsx.
-definition/xref: scheduleStateFromCron is internal to WorkflowPage.jsx.
+definition/xref: scheduleStateFromCron is in workflowScheduleModel.js and used by WorkflowNodeEditorPanels.jsx and workflowDagModel.js.
 definition/xref: RuntimeActivityPanel is consumed by RuntimePanel.jsx and RuntimePanelComponents.test.jsx.
-read_file: parseCronScheduleParts currently hand-parses five cron fields in WorkflowPage.jsx.
+read_file: parseCronScheduleParts currently hand-parses five cron fields in workflowScheduleModel.js.
 read_file: ImageLightbox currently uses createPortal + native <dialog open>.
 read_file: RuntimeActivityPanel currently owns manual outside-click/Escape popup dismissal.
 read_file: normalizeDatasourceDocument currently hand-validates datasource rows.
@@ -45,30 +47,37 @@ diagnostics: touched candidate files returned no LSP diagnostics before this pla
 Important path corrections for this code tree:
 
 ```text
-frontend-app/src/pages/chat/components/ImageLightbox.jsx
-frontend-app/src/pages/chat/components/RuntimeActivityPanel.jsx
+frontend-app/src/pages/chat/markdown/ImageLightbox.jsx
+frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx
+frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx
+frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx
 frontend-app/src/features/prompts/PromptPageView.jsx
 frontend-app/src/pages/settings/SettingsPage.jsx
+frontend-app/src/pages/settings/settingsRuntimeHook.js
+frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js
 frontend-app/src/pages/workflows/WorkflowPage.jsx
+frontend-app/src/pages/workflows/services/workflowScheduleModel.js
 frontend-app/src/pages/skills/SkillsPage.jsx
 frontend-app/scripts/rpc-contract-audit.mjs
+frontend-app/scripts/frontend-code-size-guard.mjs
 ```
 
-`frontend-app/scripts/frontend-code-size-guard.mjs` is not present in this tree. Do not invent a new frontend script under that name in this wave. The code-size guard candidate is recorded under “Completion-Gated Follow-Up” and must start from the actual existing guard path if a later scan finds one.
+The root working tree may be older than this detached worktree. Use `.worktrees/frontend-mature-remaining-wave-20260709` as the implementation truth source for this wave.
 
 ## Wave Order
 
 This wave can be implemented by parallel agents, but integration must be serial:
 
 1. Plan review arbitration.
-2. Workflow cron model extraction and `cron-parser` replacement.
+2. Workflow cron `cron-parser` replacement in the existing schedule model.
 3. Image lightbox React Aria Modal replacement.
 4. Prompt focus refresh cleanup.
 5. Skills datasource DTO zod normalization.
 6. Runtime activity popovers React Aria replacement.
 7. Settings runtime/preferences Query migration.
 8. `rpc-contract-audit` frontend JS AST parsing.
-9. Full frontend validation and remote sync.
+9. `frontend-code-size-guard` AST shadow metrics.
+10. Full frontend validation and remote sync.
 
 The first four implementation stages are low-risk enough to run in parallel because they touch disjoint files. Stages 5-8 should still use independent agents, but main-session integration must inspect diffs before staging because Settings/Skills/Guard changes have broader behavior implications.
 
@@ -77,10 +86,10 @@ The first four implementation stages are low-risk enough to run in parallel beca
 Before editing implementation files, dispatch review-only agents with these scopes:
 
 ```text
-Agent A: Workflow cron extraction and cron-parser semantics.
+Agent A: Workflow cron model and cron-parser semantics.
 Agent B: ImageLightbox and RuntimeActivityPanel React Aria migration risks.
 Agent C: Prompt focus and Settings Query semantics.
-Agent D: Skills datasource zod boundary and rpc-contract-audit AST parsing.
+Agent D: Skills datasource zod boundary, rpc-contract-audit AST parsing, and frontend-code-size-guard AST shadow parsing.
 ```
 
 Each agent must return:
@@ -98,12 +107,12 @@ The main session updates this plan if any agent finds a real blocker. If an agen
 
 ---
 
-## Task 1: Extract Workflow Schedule Model And Use cron-parser
+## Task 1: Use cron-parser In Existing Workflow Schedule Model
 
 **Files:**
-- Create: `frontend-app/src/pages/workflows/services/workflowScheduleModel.js`
-- Create: `frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js`
-- Modify: `frontend-app/src/pages/workflows/WorkflowPage.jsx`
+- Modify: `frontend-app/src/pages/workflows/services/workflowScheduleModel.js`
+- Test: `frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx`
+- Test: `frontend-app/src/pages/workflows/WorkflowPage.runtime.test.jsx`
 - Test: `frontend-app/src/pages/workflows/WorkflowPage.test.jsx`
 
 **Side effects to preserve:**
@@ -112,9 +121,9 @@ The main session updates this plan if any agent finds a real blocker. If an agen
 - Keep unsupported but syntactically valid ranges such as `*/15 9 * * 1-5` as range-warning UI state, not as a selected preset.
 - Do not call `parser.next()` in page rendering; the page only needs shape validation and readable schedule state.
 
-- [ ] **Step 1: Write pure model tests**
+- [ ] **Step 1: Add pure model tests through existing workflow suites**
 
-Create `frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js`:
+There is no standalone `workflowScheduleModel.test.js` in this tree. Add direct model assertions to the smallest existing workflow test file that already covers schedule behavior, preferably `frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx` if it already imports pure helpers, otherwise create `frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js` and keep it model-only:
 
 ```js
 import { describe, expect, it } from 'vitest';
@@ -171,42 +180,18 @@ describe('workflowScheduleModel', () => {
 ```bash
 cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
-  src/pages/workflows/services/workflowScheduleModel.test.js
+  src/pages/workflows/services/workflowScheduleModel.test.js \
+  src/pages/workflows/WorkflowPage.runtime.test.jsx
 ```
 
-Expected: FAIL because `workflowScheduleModel.js` does not exist.
+Expected: FAIL until `cron-parser` syntax validation is wired into the existing model, or PASS for already-covered legacy cases and FAIL for the new complex-cron cases.
 
-- [ ] **Step 3: Move pure schedule helpers out of WorkflowPage**
+- [ ] **Step 3: Add cron-parser validation to the existing model**
 
-Create `frontend-app/src/pages/workflows/services/workflowScheduleModel.js` and move the schedule constants/functions out of `WorkflowPage.jsx`:
+In `frontend-app/src/pages/workflows/services/workflowScheduleModel.js`, import `cron-parser` without moving the model again:
 
 ```js
 import parser from 'cron-parser';
-
-const MAX_SCHEDULE_HOUR = 23;
-const MAX_SCHEDULE_MINUTE = 59;
-const DAYS_IN_MONTH = 31;
-const DAG_SCHEDULE_TIMEZONE = 'Asia/Shanghai';
-const DAG_SCHEDULE_CRON_TZ_PREFIX = `CRON_TZ=${DAG_SCHEDULE_TIMEZONE}`;
-const DAG_SCHEDULE_FORMAT_WARNING = '当前计划使用了暂不支持的 cron 格式，请重新选择运行频率。';
-const DAG_SCHEDULE_RANGE_WARNING = '当前计划使用了暂不支持的 cron 范围，请重新选择运行频率。';
-
-const DEFAULT_DAG_SCHEDULE = Object.freeze({
-  preset: 'daily',
-  time: '09:00',
-  weekday: '1',
-  monthDay: '1',
-});
-
-const DAG_WEEKDAY_LABELS = Object.freeze({
-  0: '周日',
-  1: '周一',
-  2: '周二',
-  3: '周三',
-  4: '周四',
-  5: '周五',
-  6: '周六',
-});
 ```
 
 Use `parser.parseExpression(cronText, { tz: timezone })` only to validate syntax after stripping `CRON_TZ=...`. Keep the existing preset matching rules for supported UI states:
@@ -226,40 +211,13 @@ function parseCronScheduleParts(cronExpr) {
   const hour = Number(hourText);
   const minute = Number(minuteText);
   if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > MAX_SCHEDULE_HOUR || minute < 0 || minute > MAX_SCHEDULE_MINUTE) {
-    return { error: DAG_SCHEDULE_RANGE_WARNING };
+    return { error: DAG_SCHEDULE_FORMAT_WARNING };
   }
   return { minute, hour, dayOfMonth, month, dayOfWeek, time: `${twoDigits(hour)}:${twoDigits(minute)}`, timezone };
 }
 ```
 
-Export only the functions needed by `WorkflowPage.jsx` and tests:
-
-```js
-export {
-  DAG_SCHEDULE_TIMEZONE,
-  DEFAULT_DAG_SCHEDULE,
-  cronExprFromSchedule,
-  scheduleLabelFromCron,
-  scheduleLabelFromDag,
-  scheduleStateFromCron,
-};
-```
-
-- [ ] **Step 4: Import the model from WorkflowPage**
-
-In `frontend-app/src/pages/workflows/WorkflowPage.jsx`, remove the moved schedule constants/functions and add:
-
-```js
-import {
-  DEFAULT_DAG_SCHEDULE,
-  cronExprFromSchedule,
-  scheduleLabelFromCron,
-  scheduleLabelFromDag,
-  scheduleStateFromCron,
-} from './services/workflowScheduleModel.js';
-```
-
-Keep page-level calls unchanged.
+Keep existing exports intact. Do not move helpers back into `WorkflowPage.jsx`.
 
 - [ ] **Step 5: Run focused workflow tests**
 
@@ -267,6 +225,8 @@ Keep page-level calls unchanged.
 cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
   src/pages/workflows/services/workflowScheduleModel.test.js \
+  src/pages/workflows/WorkflowPage.runtime.test.jsx \
+  src/pages/workflows/WorkflowPage.edge.test.jsx \
   src/pages/workflows/WorkflowPage.test.jsx
 ```
 
@@ -278,7 +238,7 @@ Run diagnostics for:
 
 ```text
 frontend-app/src/pages/workflows/services/workflowScheduleModel.js
-frontend-app/src/pages/workflows/WorkflowPage.jsx
+frontend-app/src/pages/workflows/components/WorkflowNodeEditorPanels.jsx
 ```
 
 Fix every Error, Warning, Information, and Hint.
@@ -288,7 +248,8 @@ Fix every Error, Warning, Information, and Hint.
 ```bash
 git add frontend-app/src/pages/workflows/services/workflowScheduleModel.js \
   frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js \
-  frontend-app/src/pages/workflows/WorkflowPage.jsx \
+  frontend-app/src/pages/workflows/WorkflowPage.runtime.test.jsx \
+  frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx \
   frontend-app/src/pages/workflows/WorkflowPage.test.jsx
 git commit -m "refactor(frontend): 用 cron-parser 收敛工作流计划解析"
 ```
@@ -298,10 +259,10 @@ git commit -m "refactor(frontend): 用 cron-parser 收敛工作流计划解析"
 ## Task 2: Replace ImageLightbox Native dialog With React Aria Modal
 
 **Files:**
-- Modify: `frontend-app/src/pages/chat/components/ImageLightbox.jsx`
-- Modify: `frontend-app/src/pages/chat/components/MarkdownMessage.test.jsx`
-- Modify: `frontend-app/src/pages/chat/components/MermaidDiagram.test.jsx`
-- Test: `frontend-app/src/pages/chat/components/TimelineMessage.test.jsx`
+- Modify: `frontend-app/src/pages/chat/markdown/ImageLightbox.jsx`
+- Modify: `frontend-app/src/pages/chat/markdown/MarkdownMessage.test.jsx`
+- Modify: `frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx`
+- Test: `frontend-app/src/pages/chat/thread/TimelineMessage.test.jsx`
 
 **Side effects to preserve:**
 - `onClose` fires when the backdrop, close button, or Escape closes the lightbox.
@@ -339,8 +300,8 @@ expect(screen.queryByRole('dialog', { name: /图片预览/ })).not.toBeInTheDocu
 ```bash
 cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
-  src/pages/chat/components/MarkdownMessage.test.jsx \
-  src/pages/chat/components/MermaidDiagram.test.jsx
+  src/pages/chat/markdown/MarkdownMessage.test.jsx \
+  src/pages/chat/markdown/MermaidDiagram.test.jsx
 ```
 
 Expected: the new focus-return assertion may fail against the native `<dialog open>` implementation.
@@ -394,9 +355,9 @@ Adjust CSS selectors only if the current `.image-lightbox > .image-lightbox-pane
 ```bash
 cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
-  src/pages/chat/components/MarkdownMessage.test.jsx \
-  src/pages/chat/components/MermaidDiagram.test.jsx \
-  src/pages/chat/components/TimelineMessage.test.jsx
+  src/pages/chat/markdown/MarkdownMessage.test.jsx \
+  src/pages/chat/markdown/MermaidDiagram.test.jsx \
+  src/pages/chat/thread/TimelineMessage.test.jsx
 ```
 
 Expected: PASS.
@@ -406,17 +367,17 @@ Expected: PASS.
 Run diagnostics for:
 
 ```text
-frontend-app/src/pages/chat/components/ImageLightbox.jsx
-frontend-app/src/pages/chat/components/MarkdownImagePreview.jsx
-frontend-app/src/pages/chat/components/MermaidDiagram.jsx
+frontend-app/src/pages/chat/markdown/ImageLightbox.jsx
+frontend-app/src/pages/chat/markdown/MarkdownImagePreview.jsx
+frontend-app/src/pages/chat/markdown/MermaidDiagram.jsx
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend-app/src/pages/chat/components/ImageLightbox.jsx \
-  frontend-app/src/pages/chat/components/MarkdownMessage.test.jsx \
-  frontend-app/src/pages/chat/components/MermaidDiagram.test.jsx
+git add frontend-app/src/pages/chat/markdown/ImageLightbox.jsx \
+  frontend-app/src/pages/chat/markdown/MarkdownMessage.test.jsx \
+  frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx
 git commit -m "refactor(frontend): 用 React Aria 托管图片预览弹窗"
 ```
 
@@ -733,9 +694,9 @@ git commit -m "refactor(frontend): 用 zod 收敛数据源 DTO"
 ## Task 5: Replace Runtime Activity Popovers With React Aria
 
 **Files:**
-- Modify: `frontend-app/src/pages/chat/components/RuntimeActivityPanel.jsx`
-- Modify: `frontend-app/src/pages/chat/components/RuntimeActivityStats.jsx`
-- Modify: `frontend-app/src/pages/chat/components/RuntimeActivityLog.jsx`
+- Modify: `frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx`
+- Modify: `frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx`
+- Modify: `frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx`
 - Modify: `frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx`
 
 **Side effects to preserve:**
@@ -829,7 +790,7 @@ Preserve the existing redacted content builders; do not move redaction into Reac
 cd frontend-app
 npx vitest run --no-file-parallelism --maxWorkers=1 \
   src/pages/chat/components/RuntimePanelComponents.test.jsx \
-  src/pages/chat/components/RuntimePanelSlot.test.jsx
+  src/pages/chat/runtime/RuntimePanelSlot.test.jsx
 ```
 
 Expected: PASS.
@@ -839,17 +800,17 @@ Expected: PASS.
 Run diagnostics for:
 
 ```text
-frontend-app/src/pages/chat/components/RuntimeActivityPanel.jsx
-frontend-app/src/pages/chat/components/RuntimeActivityStats.jsx
-frontend-app/src/pages/chat/components/RuntimeActivityLog.jsx
+frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx
+frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx
+frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend-app/src/pages/chat/components/RuntimeActivityPanel.jsx \
-  frontend-app/src/pages/chat/components/RuntimeActivityStats.jsx \
-  frontend-app/src/pages/chat/components/RuntimeActivityLog.jsx \
+git add frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx \
+  frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx \
+  frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx \
   frontend-app/src/pages/chat/components/RuntimePanelComponents.test.jsx
 git commit -m "refactor(frontend): 用 React Aria 托管运行面板弹层"
 ```
@@ -859,7 +820,9 @@ git commit -m "refactor(frontend): 用 React Aria 托管运行面板弹层"
 ## Task 6: Move Settings Runtime Preferences To TanStack Query
 
 **Files:**
-- Modify: `frontend-app/src/pages/settings/SettingsPage.jsx`
+- Modify: `frontend-app/src/pages/settings/settingsRuntimeHook.js`
+- Modify: `frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js`
+- Modify: `frontend-app/src/pages/settings/SettingsPage.jsx` only if hook signatures change.
 - Modify: `frontend-app/src/pages/settings/SettingsPage.test.jsx`
 
 **Side effects to preserve:**
@@ -908,7 +871,7 @@ Expected: FAIL until runtime preferences use explicit Query options or until the
 
 - [ ] **Step 3: Add runtime preference query keys**
 
-In `SettingsPage.jsx`, import Query hooks:
+In `settingsRuntimeHook.js` and `settingsProviderPreferencesRuntime.js`, import Query hooks where they are needed:
 
 ```js
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -928,7 +891,7 @@ function settingsProviderPreferencesQueryKey(cwd, provider) {
 
 - [ ] **Step 4: Replace request sequence for runtime preferences**
 
-Inside `useSettingsRuntime`, replace `preferenceRequestSeq`, `nextPreferenceRequest`, and `useEffect(() => { void loadPreferences(); }, ...)` with:
+Inside `useSettingsRuntime` in `settingsRuntimeHook.js`, replace `preferenceRequestSeq`, `nextPreferenceRequest`, and `useEffect(() => { void loadPreferences(); }, ...)` with:
 
 ```js
 const runtimePreferencesQuery = useQuery({
@@ -998,13 +961,17 @@ Run diagnostics for:
 
 ```text
 frontend-app/src/pages/settings/SettingsPage.jsx
+frontend-app/src/pages/settings/settingsRuntimeHook.js
+frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js
 frontend-app/src/pages/settings/SettingsPage.test.jsx
 ```
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add frontend-app/src/pages/settings/SettingsPage.jsx \
+git add frontend-app/src/pages/settings/settingsRuntimeHook.js \
+  frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js \
+  frontend-app/src/pages/settings/SettingsPage.jsx \
   frontend-app/src/pages/settings/SettingsPage.test.jsx
 git commit -m "refactor(frontend): 用 Query 管理设置偏好读取"
 ```
@@ -1171,7 +1138,118 @@ git commit -m "refactor(frontend): 用 AST 收敛 RPC 契约审计"
 
 ---
 
-## Task 8: Full Wave Validation And Remote Sync
+## Task 8: Add frontend-code-size-guard AST Shadow Metrics
+
+**Files:**
+- Modify: `frontend-app/scripts/frontend-code-size-guard.mjs`
+- Modify: `frontend-app/scripts/frontend-code-size-guard.test.mjs`
+
+**Side effects to preserve:**
+- Do not change frozen baseline files in this task.
+- Do not change the default pass/fail decision until AST and current metrics match on representative fixtures.
+- Keep line-length, effective-line, and comment-marker checks text-based if the current guard intentionally measures text.
+- Report any AST/current mismatch as a test failure in fixtures, not as a production guard failure against the full repo until parity is established.
+
+- [ ] **Step 1: Add AST parity fixtures**
+
+Extend `frontend-code-size-guard.test.mjs` with fixtures for cases the current regex/brace scanner can misread:
+
+```js
+it('keeps AST shadow metrics aligned for nested callbacks and template braces', () => {
+  const lines = [
+    'export function outer(value) {',
+    '  const text = `literal ${value ? \"{\" : \"}\"}`;',
+    '  return [value].map((item) => ({ item, text }));',
+    '}',
+  ];
+  const current = measureFileForTest(lines, { useAstShadow: false });
+  const shadow = measureFileForTest(lines, { useAstShadow: true });
+  expect(shadow.functions.map((item) => item.name)).toContain('outer');
+  expect(shadow.maxNesting).toBe(current.maxNesting);
+});
+
+it('counts destructured and rest params through AST shadow parsing', () => {
+  const lines = [
+    'function acceptsMany({ a, b }, ...rest) {',
+    '  return rest.length + a + b;',
+    '}',
+  ];
+  const shadow = measureFileForTest(lines, { useAstShadow: true });
+  expect(shadow.maxParams).toBe(2);
+});
+```
+
+Use actual exported helper names from the test file. If no measurement helper exists, export a test-only helper from the guard script rather than testing the CLI through temp files for every fixture.
+
+- [ ] **Step 2: Run RED guard tests**
+
+```bash
+cd frontend-app
+npx vitest run --no-file-parallelism --maxWorkers=1 \
+  scripts/frontend-code-size-guard.test.mjs
+```
+
+Expected: FAIL until AST shadow helpers are available.
+
+- [ ] **Step 3: Add AST parser helpers**
+
+Use the existing `typescript` dev dependency:
+
+```js
+import ts from 'typescript';
+
+function parseSourceFileForMetrics(source, fileName = 'source.js') {
+  return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
+}
+```
+
+Add shadow functions for:
+
+```text
+extractFunctions
+measureMaxNesting
+countFunctionParams
+countExports
+console usage / any usage / empty function checks only where AST improves correctness
+```
+
+Keep current functions in place. The production guard should call both implementations on touched fixture paths or under a test-only option first.
+
+- [ ] **Step 4: Add parity assertions**
+
+In tests, compare current and AST shadow metrics for representative source snippets and at least one real small frontend file. Fail fast on mismatches with the file path and metric name.
+
+- [ ] **Step 5: Run focused tests**
+
+```bash
+cd frontend-app
+npx vitest run --no-file-parallelism --maxWorkers=1 \
+  scripts/frontend-code-size-guard.test.mjs
+node scripts/frontend-code-size-guard.mjs --check
+```
+
+Expected: PASS without changing any baseline/freeze files.
+
+- [ ] **Step 6: LSP diagnostics**
+
+Run diagnostics for:
+
+```text
+frontend-app/scripts/frontend-code-size-guard.mjs
+frontend-app/scripts/frontend-code-size-guard.test.mjs
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add frontend-app/scripts/frontend-code-size-guard.mjs \
+  frontend-app/scripts/frontend-code-size-guard.test.mjs
+git commit -m "refactor(frontend): 为代码尺寸守卫加入 AST 影子指标"
+```
+
+---
+
+## Task 9: Full Wave Validation And Remote Sync
 
 **Files:**
 - No source edits unless validation exposes a regression.
@@ -1230,13 +1308,10 @@ These are intentionally not mixed into this wave:
 1. **Skill tools DTO zod normalization**
    - Current safe subset is datasource-only. Tools DTO should wait until `listSkillTools` UI reachability and tests are explicit.
 
-2. **Frontend code-size guard AST metrics**
-   - `frontend-app/scripts/frontend-code-size-guard.mjs` is absent in this tree. A later scan must first identify the real guard path. If the target is `internal/guards/code_size_guard_test.go`, that is a Go guard task, not a frontend script refactor.
+2. **Settings prompt/runtime hook extraction**
+   - Task 6 uses the existing `settingsRuntimeHook.js` and `settingsProviderPreferencesRuntime.js` files. Further hook/file reshaping should wait until Query migration tests pass.
 
-3. **Settings prompt/runtime hook extraction**
-   - Task 6 keeps changes inside `SettingsPage.jsx` to avoid broad file movement. Extract hooks only after Query migration tests pass.
-
-4. **RPC contract Go-side AST parsing**
+3. **RPC contract Go-side AST parsing**
    - Task 7 only replaces frontend JS parsing. Go handler and struct parsing should be planned separately with Go/LSP evidence.
 
 ## Atomic Commit Ledger
@@ -1252,6 +1327,7 @@ refactor(frontend): 用 zod 收敛数据源 DTO
 refactor(frontend): 用 React Aria 托管运行面板弹层
 refactor(frontend): 用 Query 管理设置偏好读取
 refactor(frontend): 用 AST 收敛 RPC 契约审计
+refactor(frontend): 为代码尺寸守卫加入 AST 影子指标
 ```
 
 Do not squash these commits. If any stage requires unrelated repair work, create a separate fix commit before continuing the next stage.
