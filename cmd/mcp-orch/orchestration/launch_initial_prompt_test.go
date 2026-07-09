@@ -202,7 +202,7 @@ func TestService_LaunchWithRemoteSubmitsInitialPrompt(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	agent := svc.agents["remote-1"]
+	agent := svc.registry.agents["remote-1"]
 	rawInput, _ := json.Marshal(turnReq["input"])
 	if turnReq["thread_id"] != "thread-1" || !strings.Contains(string(rawInput), "please inspect the launch path") {
 		t.Fatalf("turn/start request = %#v", turnReq)
@@ -239,7 +239,7 @@ func TestForkedLaunchSubmitsInitialPromptToForkedThread(t *testing.T) {
 	parent.threadID = "thread-parent"
 	parent.remoteThreadID = "thread-parent"
 	parent.remoteAgentID = "agent-parent"
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 
 	snapshot, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{
 		AgentID:     "agent-child",
@@ -287,7 +287,7 @@ func TestForkedLaunchRejectsMissingParentThread(t *testing.T) {
 			setupParent: func(svc *service) {
 				parent := svc.newAgentLocked("agent-parent")
 				parent.state = agentdto.StateIdle
-				svc.agents[parent.id] = parent
+				svc.registry.agents[parent.id] = parent
 			},
 			wantErr: "remote thread id",
 		},

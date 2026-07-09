@@ -44,11 +44,12 @@ func (s *service) removeSession(agent *agentRuntime) {
 // claimTurnWork 从各 agent 队列领取可执行 turn，并在锁内先推进状态。
 // 状态推进失败时会把 turn 放回队头，避免任务在并发状态变更中丢失。
 func (s *service) claimTurnWork(ctx context.Context) []turnWork {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	registry := s.agentRegistry()
+	registry.lock()
+	defer registry.unlock()
 
-	work := make([]turnWork, 0, len(s.agents))
-	for _, agent := range s.agents {
+	work := make([]turnWork, 0, len(registry.agents))
+	for _, agent := range registry.agents {
 		s.reconcileReadyStateLocked(ctx, agent)
 		if !s.agentRunningLocked(ctx, agent) || agent.stopRequested || agent.state != agentdto.StateTurnQueued {
 			continue
@@ -82,13 +83,14 @@ func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 // launchSeq 是进程生命周期围栏：旧进程、重复事件或合成退出只能命中一次；有效退出会清理 active turn，
 // 按退出原因推进 stopped/failed，并在终态缺 report 时尝试持久化兜底报告，持久化失败只记日志不重入状态机。
 func (s *service) handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error) {
-	s.mu.Lock()
+	registry := s.agentRegistry()
+	registry.lock()
 
-	agent, lookupErr := lookupAgentBySeqLocked(s.agents, agentID, launchSeq)
+	agent, lookupErr := registry.lookupAgentBySeqLocked(agentID, launchSeq)
 	if lookupErr != nil {
 		s.logger.Warn("orchestration: process exit ignored (stale seq)",
 			"agent_id", agentID, "launch_seq", launchSeq, "error", err)
-		s.mu.Unlock()
+		registry.unlock()
 		return
 	}
 	// exactly-once 围栏：同一 launchSeq 的进程退出一旦处理过，
@@ -97,7 +99,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 		s.logger.Debug("orchestration: duplicate process exit ignored (seq already drained)",
 			"agent_id", agentID, "launch_seq", launchSeq,
 			"last_exited_seq", agent.lastExitedSeq)
-		s.mu.Unlock()
+		registry.unlock()
 		return
 	}
 	stateBefore := agent.state
@@ -123,7 +125,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	}
 	s.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
 	clearAgentStopReasonLocked(agent)
-	s.mu.Unlock()
+	registry.unlock()
 	s.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
 }
 
@@ -163,10 +165,11 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 	defer ticker.Stop()
 
 	for {
-		s.mu.RLock()
-		agent, err := lookupAgentBySeqLocked(s.agents, agentID, launchSeq)
+		registry := s.agentRegistry()
+		registry.rLock()
+		agent, err := registry.lookupAgentBySeqLocked(agentID, launchSeq)
 		exited := err == nil && agent.lastExitedSeq >= launchSeq
-		s.mu.RUnlock()
+		registry.rUnlock()
 		if exited {
 			return nil
 		}
@@ -187,13 +190,14 @@ func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
 		cmd   *exec.Cmd
 		guard *processctl.Guard
 	)
-	s.mu.RLock()
-	if agent, err := lookupAgentBySeqLocked(s.agents, agentID, launchSeq); err == nil &&
+	registry := s.agentRegistry()
+	registry.rLock()
+	if agent, err := registry.lookupAgentBySeqLocked(agentID, launchSeq); err == nil &&
 		agent.lastExitedSeq < launchSeq && agent.cmd != nil {
 		cmd = agent.cmd
 		guard = agent.processGuard
 	}
-	s.mu.RUnlock()
+	registry.rUnlock()
 	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
 		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q; no live process handle", agentID)
 	}

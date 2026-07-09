@@ -72,7 +72,7 @@ func TestServiceStartProcessLockedScrubsDatabaseEnvFromParentAndAgent(t *testing
 	if err := svc.LaunchAgent(context.Background(), req); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	agent := svc.agents["agent-1"]
+	agent := svc.registry.agents["agent-1"]
 	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 
 	requireDatabaseEnvAbsent(t, agent.cmd.Env)

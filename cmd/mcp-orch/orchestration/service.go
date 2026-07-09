@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/contextlock"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -65,25 +64,22 @@ var (
 )
 
 type service struct {
-	logger                   *slog.Logger
-	eventBus                 *event.Dispatcher
-	launcher                 AgentLauncher
-	sessionCleaner           contract.OrchestrationSessionCleaner
-	turnStarter              contract.OrchestrationTurnStarter
-	dagStore                 taskdag.OrchestrationStore
-	runStore                 taskdag.RunStore
-	scheduledStartStore      taskdag.ScheduledStartStore
-	dispatchStore            taskdag.DispatchNodeStore
-	recoveryStore            recoveryTurnStore
-	agentThreads             AgentThreadStore
-	agentBindings            AgentBindingStore
-	machineCfg               platformstatemachine.Config
-	processExitWaitTimeout   time.Duration
-	exitMonitor              *exitmonitor.Monitor
-	mu                       contextlock.RWMutex
-	agents                   map[string]*agentRuntime
-	suppressedStoppedThreads sync.Map
-	nextTurnSeq              int64
+	logger                 *slog.Logger
+	eventBus               *event.Dispatcher
+	launcher               AgentLauncher
+	sessionCleaner         contract.OrchestrationSessionCleaner
+	turnStarter            contract.OrchestrationTurnStarter
+	dagStore               taskdag.OrchestrationStore
+	runStore               taskdag.RunStore
+	scheduledStartStore    taskdag.ScheduledStartStore
+	dispatchStore          taskdag.DispatchNodeStore
+	recoveryStore          recoveryTurnStore
+	agentThreads           AgentThreadStore
+	agentBindings          AgentBindingStore
+	machineCfg             platformstatemachine.Config
+	processExitWaitTimeout time.Duration
+	exitMonitor            *exitmonitor.Monitor
+	registry               *agentRegistry
 
 	asyncCtx    context.Context
 	asyncCancel context.CancelFunc
@@ -112,7 +108,7 @@ type recoveryTurnStore interface {
 	taskdag.RecoveryStore
 }
 
-// agentRuntime 持有单个 agent 实例的完整运行时状态，由 service.mu 保护读写。
+// agentRuntime 持有单个 agent 实例的完整运行时状态，由 agentRegistry.mu 保护读写。
 type agentRuntime struct {
 	id, name, prompt, instructions, parentID, agentType, agentKey, memoryScope, language, cwd string
 	command, env                                                                              []string
@@ -177,7 +173,7 @@ func NewService(
 		},
 		processExitWaitTimeout: 30 * time.Second,
 		exitMonitor:            exitmonitor.New(logger),
-		agents:                 make(map[string]*agentRuntime),
+		registry:               newAgentRegistry(),
 		asyncCtx:               asyncCtx,
 		asyncCancel:            asyncCancel,
 	}
@@ -382,12 +378,7 @@ func (s *service) StopAllAgents(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s.mu.RLock()
-	ids := make([]string, 0, len(s.agents))
-	for agentID := range s.agents {
-		ids = append(ids, agentID)
-	}
-	s.mu.RUnlock()
+	ids := s.agentRegistry().agentIDs()
 	sort.Strings(ids)
 	for _, agentID := range ids {
 		if err := s.stopAgentViaLauncher(ctx, agentID, "shutdown"); err != nil &&

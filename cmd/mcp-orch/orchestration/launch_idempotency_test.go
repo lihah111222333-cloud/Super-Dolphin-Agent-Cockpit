@@ -24,7 +24,6 @@ func TestService_LaunchAgentRejectsActiveExplicitIDWithoutClearingRemoteIdentity
 		{name: "running", state: agentdto.StateTurnRunning, launchSeq: 1, lastExitedSeq: 0},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var startCalls atomic.Int64
@@ -41,7 +40,7 @@ func TestService_LaunchAgentRejectsActiveExplicitIDWithoutClearingRemoteIdentity
 			agent.threadID = "thread-active"
 			agent.remoteThreadID = "thread-active"
 			agent.remoteAgentID = "remote-active"
-			svc.agents[agent.id] = agent
+			svc.registry.agents[agent.id] = agent
 
 			err := svc.LaunchAgent(context.Background(), LaunchRequest{
 				AgentID: "agent-active",
@@ -77,7 +76,7 @@ func TestService_LaunchAgentRetriesInactiveExplicitIDWithStaleRemoteIdentity(t *
 	agent.state = agentdto.StateFailed
 	agent.remoteThreadID = "thread-stale"
 	agent.remoteAgentID = "remote-stale"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID: "agent-retry",
@@ -107,7 +106,7 @@ func TestService_LaunchAgentRejectsActiveRequestedAliasAfterRemoteRekey(t *testi
 	agent.requestedAgentID = "agent-requested"
 	agent.remoteThreadID = "thread-final"
 	agent.remoteAgentID = "remote-final"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID: "agent-requested",
@@ -137,7 +136,7 @@ func TestService_LaunchAgentDoesNotReuseInactiveRemoteIdentityForExplicitID(t *t
 	existing.state = agentdto.StateFailed
 	existing.remoteThreadID = "thread-old"
 	existing.remoteAgentID = "remote-alias"
-	svc.agents[existing.id] = existing
+	svc.registry.agents[existing.id] = existing
 
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID: "remote-alias",
@@ -153,7 +152,7 @@ func TestService_LaunchAgentDoesNotReuseInactiveRemoteIdentityForExplicitID(t *t
 	if existing.remoteAgentID != "remote-alias" || existing.remoteThreadID != "thread-old" {
 		t.Fatalf("inactive remote identity was mutated = thread:%q agent:%q", existing.remoteThreadID, existing.remoteAgentID)
 	}
-	launched := svc.agents["remote-new"]
+	launched := svc.registry.agents["remote-new"]
 	if launched == nil || launched.requestedAgentID != "remote-alias" {
 		t.Fatalf("launched runtime = %#v, want remote-new with requested alias remote-alias", launched)
 	}

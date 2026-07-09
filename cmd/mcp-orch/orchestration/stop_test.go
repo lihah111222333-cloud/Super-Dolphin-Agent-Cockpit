@@ -50,7 +50,7 @@ func TestStopAgentPublishesStoppedAfterObservedExit(t *testing.T) {
 	agent.threadID = "thread-1"
 	agent.launchSeq = 1
 	agent.sessionGeneration = 7
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	waitDone := make(chan struct{})
 	goroutines := newTestGoroutineGroup(t)
@@ -105,7 +105,7 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
 	agent.sessionGeneration = 9
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	waitDone := make(chan struct{})
 	goroutines := newTestGoroutineGroup(t)
@@ -143,7 +143,7 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 	agent.cmd = cmd
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	done := make(chan struct{})
 	goroutines := newTestGoroutineGroup(t)
@@ -189,7 +189,7 @@ func TestWaitForProcessExitReturnsErrorWhenForceKillFails(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{Process: &os.Process{Pid: -1}}
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.waitForProcessExit(context.Background(), agent.id, agent.launchSeq); err == nil {
 		t.Fatal("waitForProcessExit() error = nil, want force-kill failure")
@@ -220,7 +220,7 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
 	agent.sessionGeneration = 13
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	// 本测试手动构造 cmd 和 agentRuntime，绕过 startProcessLocked。
 	// 生产路径会在 startProcessLocked 内 arm exit monitor；这里必须镜像该动作，runner 才能观察 cmd.Wait。
 	svc.exitMonitor.Arm(exitmonitor.Target{
@@ -245,9 +245,9 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	requireRunnerStoppedAfterCancel(t, runDone)
 	requireStopTestEvent(t, stopped, "shutdown", "")
 
-	svc.mu.RLock()
-	exited := svc.agents[agent.id].lastExitedSeq >= 1
-	svc.mu.RUnlock()
+	svc.registry.mu.RLock()
+	exited := svc.registry.agents[agent.id].lastExitedSeq >= 1
+	svc.registry.mu.RUnlock()
 	if !exited {
 		t.Fatal("lastExitedSeq was not observed after runner shutdown")
 	}
@@ -301,7 +301,7 @@ func TestRequestAgentStopKeepsOriginalReasonOnRepeat(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if _, err := svc.requestAgentStop(context.Background(), agent.id, "shutdown"); err != nil {
 		t.Fatalf("requestAgentStop(first) error = %v", err)
@@ -347,7 +347,7 @@ func TestHandleProcessExitClearsRuntimeState(t *testing.T) {
 	agent.launchSeq = 2
 	agent.runtimePort = 9090
 	agent.runtimeProvider = "claude"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	svc.handleProcessExit(context.Background(), agent.id, 2, nil)
 
@@ -371,10 +371,10 @@ func waitForAgentMonitor(t *testing.T, svc *service, agentID string, launchSeq u
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		svc.mu.RLock()
-		agent, ok := svc.agents[agentID]
+		svc.registry.mu.RLock()
+		agent, ok := svc.registry.agents[agentID]
 		ready := ok && agent.monitoredSeq >= launchSeq
-		svc.mu.RUnlock()
+		svc.registry.mu.RUnlock()
 		if ready {
 			return
 		}

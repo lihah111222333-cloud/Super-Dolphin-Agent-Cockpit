@@ -135,7 +135,7 @@ func TestRecoveringOldThreadStoppedSkipsDAGFallback(t *testing.T) {
 	agent.state = agentdto.StateRecovering
 	agent.threadID = "thread-old"
 	agent.remoteThreadID = "thread-old"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	hc := newHookConsumerInternal(svc, silentLogger(), nil, lookup, flow)
 
 	hc.handleThreadStopped(context.Background(), threaddto.Stopped{

@@ -10,11 +10,11 @@ import (
 )
 
 func TestListAgentsReturnsWhenContextExpiresWhileWaitingForReadLock(t *testing.T) {
-	svc := &service{agents: map[string]*agentRuntime{
+	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
 		"agent-1": {id: "agent-1", state: agentdto.StateIdle},
-	}}
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
+	}}}
+	svc.registry.mu.Lock()
+	defer svc.registry.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()

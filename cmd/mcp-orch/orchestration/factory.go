@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -287,36 +286,6 @@ func recoveryLaunchRequest(agent *agentRuntime) LaunchRequest {
 	}
 }
 
-// agentIdentityKind 区分普通 API 按本地 agentID 查找和可信 hook 反查远端标识的入口。
-type agentIdentityKind int
-
-const (
-	agentIdentityLocalOnly agentIdentityKind = iota
-	agentIdentityAny
-)
-
-// lookupAgentByIDLocked 面向可信 hook/event 入口，允许用远端 agent/thread id 反查本地 runtime。
-func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
-	return lookupAgentByIdentityLocked(agents, agentID, agentIdentityAny)
-}
-
-// lookupAgentByIdentityLocked 按调用方声明的信任范围查找 agent。
-func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, kind agentIdentityKind) (*agentState, error) {
-	agentID = strings.TrimSpace(agentID)
-	if agent, ok := agents[agentID]; ok {
-		return agent, nil
-	}
-	if kind == agentIdentityLocalOnly {
-		return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
-	}
-	for _, candidate := range agents {
-		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
-			return candidate, nil
-		}
-	}
-	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
-}
-
 func applyLaunchRequestLocked(agent *agentRuntime, req LaunchRequest) {
 	agent.requestedAgentID, agent.name = req.AgentID, managedAgentLaunchDisplayName(req.Name)
 	agent.prompt, agent.instructions, agent.parentID = req.Prompt, req.Instructions, req.ParentID
@@ -443,27 +412,15 @@ func (s *service) syncStateChangedHookLocked(ctx context.Context, agent *agentRu
 }
 
 func (s *service) suppressStoppedHookThreadLocked(threadID string) {
-	if threadID = strings.TrimSpace(threadID); threadID != "" {
-		s.suppressedStoppedThreads.Store(threadID, stoppedHookSuppression{permanent: true})
-	}
+	s.agentRegistry().suppressStoppedHookThreadLocked(threadID)
 }
 
 func (s *service) suppressStoppedHookThreadUntilLocked(threadID string, beforeOrAt time.Time) {
-	if threadID = strings.TrimSpace(threadID); threadID != "" {
-		s.suppressedStoppedThreads.Store(threadID, stoppedHookSuppression{beforeOrAt: beforeOrAt})
-	}
+	s.agentRegistry().suppressStoppedHookThreadUntilLocked(threadID, beforeOrAt)
 }
 
 func (s *service) stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool {
-	raw, ok := s.suppressedStoppedThreads.Load(strings.TrimSpace(threadID))
-	if !ok {
-		return false
-	}
-	suppression, ok := raw.(stoppedHookSuppression)
-	if !ok || suppression.permanent {
-		return true
-	}
-	return !timestamp.IsZero() && !timestamp.After(suppression.beforeOrAt)
+	return s.agentRegistry().stoppedHookThreadSuppressed(threadID, timestamp)
 }
 
 func bindStateChangedHookThreadLocked(agent *agentRuntime, threadID, nextState string) bool {

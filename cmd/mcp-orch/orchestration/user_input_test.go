@@ -19,7 +19,7 @@ func TestHandleToolApprovalRequestedEventMarksAwaitingUserInput(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	handleToolApprovalRequestedEvent(svc, silentLogger(), approvalRequestedEvent("agent-1", "turn-1"))
 
@@ -35,7 +35,7 @@ func TestHandleToolApprovalRequestedEventMarksAwaitingUserInputForToolKind(t *te
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	ev := approvalRequestedEvent("agent-1", "turn-1")
 	ev.Kind = "tool"
@@ -53,7 +53,7 @@ func TestHandleToolApprovalResolvedEventReturnsToTurnRunning(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateAwaitingUserInput
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	handleToolApprovalResolvedEvent(svc, silentLogger(), approvalResolvedEvent("agent-1", "turn-1"))
 
@@ -81,7 +81,7 @@ func TestHandleToolApprovalResolvedEventClosesAwaitingUserInputOnTimeoutOrCancel
 			agent := svc.newAgentLocked("agent-1")
 			agent.state = agentdto.StateAwaitingUserInput
 			agent.activeTurnID = "turn-1"
-			svc.agents[agent.id] = agent
+			svc.registry.agents[agent.id] = agent
 
 			handleToolApprovalResolvedEvent(svc, silentLogger(), approvalResolvedEventWithDecision("agent-1", "turn-1", false, tc.decision))
 
@@ -99,7 +99,7 @@ func TestForceIdleAfterCompletionErrorRecoversAwaitingUserInput(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateAwaitingUserInput
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	recovered, err := svc.forceIdleAfterCompletionError(withEventTime(context.Background(), time.Now()), "agent-1", "turn-1", true, "")
 	if err != nil {

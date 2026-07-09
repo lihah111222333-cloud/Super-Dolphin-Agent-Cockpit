@@ -98,7 +98,7 @@ func newInterruptAgentService(launcher *interruptAgentLauncher, state agentdto.A
 	agent.threadID = "thread-1"
 	agent.remoteThreadID = "thread-1"
 	agent.activeTurnID = activeTurnID
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	return svc
 }
 

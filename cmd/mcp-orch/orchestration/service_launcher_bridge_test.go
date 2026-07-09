@@ -173,7 +173,7 @@ func TestDAGAgentExecutorLocalLauncherFailsFastWithRemoteLauncherDiagnostic(t *t
 	if strings.Contains(out.ErrorSummary, "command is required") {
 		t.Fatalf("ErrorSummary = %q, must not expose generic command validation", out.ErrorSummary)
 	}
-	if got := len(svc.agents); got != 0 {
+	if got := len(svc.registry.agents); got != 0 {
 		t.Fatalf("service created %d agents before local DAG-agent fail-fast, want 0", got)
 	}
 }
@@ -223,7 +223,7 @@ func TestForkedLaunchRejectsPayloadParentThreadID(t *testing.T) {
 	parent.threadID = "thread-parent-trusted"
 	parent.remoteThreadID = "thread-parent-trusted"
 	parent.launchSeq = 1
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:        "agent-child",
@@ -284,7 +284,7 @@ func TestForkedLaunchRequiresTrustedParentBinding(t *testing.T) {
 	if got := named[launcherwire.ParamThreadID]; got != "thread-child" {
 		t.Fatalf("thread/name/set thread_id = %#v, want thread-child", got)
 	}
-	agent := svc.agents["remote-child"]
+	agent := svc.registry.agents["remote-child"]
 	if agent == nil || agent.remoteThreadID != "thread-child" || agent.state != agentdto.StateIdle {
 		t.Fatalf("launched agent = %#v, want idle remote-child on thread-child", agent)
 	}
@@ -298,7 +298,7 @@ func TestSubmitRemoteTurnPermanentAuthFailureStopsAgent(t *testing.T) {
 	agent.threadID = "thread-remote"
 	agent.remoteThreadID = "thread-remote"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.submitTurnViaLauncher(context.Background(), TurnSubmission{
 		AgentID:  agent.id,
@@ -325,7 +325,7 @@ func TestSubmitRemoteTurnClaudeAPIConnectionRefusedStopsAgent(t *testing.T) {
 	agent.threadID = "thread-remote"
 	agent.remoteThreadID = "thread-remote"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.submitTurnViaLauncher(context.Background(), TurnSubmission{
 		AgentID:  agent.id,
@@ -352,7 +352,7 @@ func TestSubmitRemoteTurnClaudeModelUnavailableStopsAgent(t *testing.T) {
 	agent.threadID = "thread-remote"
 	agent.remoteThreadID = "thread-remote"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.submitTurnViaLauncher(context.Background(), TurnSubmission{
 		AgentID:  agent.id,
@@ -379,7 +379,7 @@ func TestStopAgentViaLauncherSettlesRemoteStopWithoutRunner(t *testing.T) {
 	agent.threadID = "thread-remote"
 	agent.remoteThreadID = "thread-remote"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.stopAgentViaLauncher(context.Background(), agent.id, "test_stop"); err != nil {
 		t.Fatalf("stopAgentViaLauncher() error = %v", err)
@@ -468,7 +468,7 @@ func TestStopAgentViaLauncherSettlesNonSettledLauncherAfterStopReturns(t *testin
 	agent.threadID = "thread-remote"
 	agent.remoteThreadID = "thread-remote"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.stopAgentViaLauncher(context.Background(), agent.id, "test_stop"); err != nil {
 		t.Fatalf("stopAgentViaLauncher() error = %v", err)

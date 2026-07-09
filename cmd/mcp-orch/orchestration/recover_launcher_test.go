@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -115,9 +116,9 @@ func TestLauncherRecoveryStopsSuccessfulStaleLaunch(t *testing.T) {
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 	launcher.afterLaunch = func() {
-		svc.mu.Lock()
+		svc.registry.mu.Lock()
 		agent.launchSeq++
-		svc.mu.Unlock()
+		svc.registry.mu.Unlock()
 	}
 
 	err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
@@ -428,7 +429,6 @@ func TestRecoveringAgentTerminalStateChangedForNewThreadWritesFallback(t *testin
 	t.Parallel()
 
 	for _, nextState := range []agentdto.AgentState{agentdto.StateFailed, agentdto.StateStopped} {
-		nextState := nextState
 		t.Run(string(nextState), func(t *testing.T) {
 			t.Parallel()
 			svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
@@ -569,7 +569,7 @@ func launcherRecoveryAgent(svc *service, agentID string) *agentRuntime {
 	agent.remoteThreadID = "thread-remote"
 	agent.activeTurnID = "turn-active"
 	agent.updatedAt = time.Now().Add(-time.Minute)
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	return agent
 }
 
@@ -599,12 +599,7 @@ func mustReplayPayload(agentID string) []byte {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func assertFailedRecoveryFallback(t *testing.T, agent *agentRuntime, wantDetail string) {

@@ -43,7 +43,7 @@ func TestServiceLocalLauncherStopReapsViaExitEventStream(t *testing.T) {
 	if err := svc.LaunchAgent(context.Background(), req); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	agent := svc.agents["agent-local-stream"]
+	agent := svc.registry.agents["agent-local-stream"]
 	if agent == nil || agent.cmd == nil {
 		t.Fatalf("launched agent = %#v, want live local process", agent)
 	}
@@ -68,10 +68,10 @@ func requireLocalLauncherReaped(t *testing.T, svc *service, agentID string, laun
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		svc.mu.RLock()
-		agent := svc.agents[agentID]
+		svc.registry.mu.RLock()
+		agent := svc.registry.agents[agentID]
 		reaped := agent != nil && agent.lastExitedSeq >= launchSeq && agent.cmd == nil
-		svc.mu.RUnlock()
+		svc.registry.mu.RUnlock()
 		if reaped {
 			return
 		}

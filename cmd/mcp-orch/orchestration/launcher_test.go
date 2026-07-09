@@ -295,7 +295,7 @@ func TestNamePolicy_SubmitTurnNeverAutoRenames(t *testing.T) {
 			}), nil, nil, nil)
 			agent := svc.newAgentLocked("agent-" + name)
 			agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", name
-			svc.agents[agent.id] = agent
+			svc.registry.agents[agent.id] = agent
 			if err := svc.SubmitTurn(context.Background(), TurnSubmission{
 				AgentID: agent.id,
 				Inputs:  []shareddto.InputItem{{Type: "text", Content: "调研任务：定位 DAG runtime 路径，并输出 file:line 证据"}},
@@ -394,7 +394,7 @@ func TestService_LaunchWithLocal(t *testing.T) {
 	if err := svc.LaunchAgent(context.Background(), req); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	agent := svc.agents["agent-1"]
+	agent := svc.registry.agents["agent-1"]
 	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 	if agent.cmd == nil || agent.remoteThreadID != "" || agent.state != agentdto.StateIdle {
 		t.Fatalf("agent = %#v", agent)
@@ -410,7 +410,7 @@ func TestService_LaunchWithRemote(t *testing.T) {
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{AgentID: "agent-1", Cwd: t.TempDir(), Command: []string{"ignored"}}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	agent := svc.agents["remote-1"]
+	agent := svc.registry.agents["remote-1"]
 	if agent == nil || agent.cmd != nil || agent.remoteThreadID != "thread-1" || agent.remoteAgentID != "remote-1" || agent.state != agentdto.StateIdle {
 		t.Fatalf("agent = %#v", agent)
 	}
@@ -430,7 +430,7 @@ func TestService_SubmitTurnRemoteMode(t *testing.T) {
 	}), nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", "worker-agent"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "请负责定位登录回调 500 根因，并给出最小修复方案"}}}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
 	}
@@ -461,7 +461,7 @@ func TestService_SubmitTurnRemoteModeDoesNotHoldServiceLockDuringRPC(t *testing.
 	}), nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", "worker-agent"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	submitDone := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
@@ -518,7 +518,7 @@ func TestService_LaunchWithRemoteStoresExplicitDisplayName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	agent := svc.agents["remote-1"]
+	agent := svc.registry.agents["remote-1"]
 	if agent == nil || agent.name != "worker-agent" || started["name"] != "worker-agent" {
 		t.Fatalf("agent=%#v started=%#v", agent, started)
 	}
@@ -529,7 +529,7 @@ func TestService_SubmitTurnLocalMode(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), NewLocalLauncher(starter, silentLogger()), nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state, agent.cmd = agentdto.StateIdle, &exec.Cmd{}
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, ThreadID: "thread-1"}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
 	}
@@ -569,7 +569,7 @@ func TestService_LaunchAgent_InheritsParentCwdWhenChildOmits(t *testing.T) {
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("parent-1")
 	parent.cwd = parentCWD
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
 		ParentID: "parent-1",
@@ -594,7 +594,7 @@ func TestService_LaunchAgent_RespectsExplicitChildCwd(t *testing.T) {
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("parent-1")
 	parent.cwd = parentCWD
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
 		ParentID: "parent-1",
@@ -619,7 +619,7 @@ func TestService_LaunchAgentSnapshot_InheritsParentCwdWhenChildOmits(t *testing.
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("parent-1")
 	parent.cwd = parentCWD
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 	if _, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
 		ParentID: "parent-1",

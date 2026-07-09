@@ -117,7 +117,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	agent.cmd = cmd
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agent.id, LaunchSeq: agent.launchSeq, Cmd: cmd})
 	agent.monitoredSeq = agent.launchSeq
 	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
@@ -154,14 +154,14 @@ func assertArchivePersistedUpdates(t *testing.T, threads *archiveAgentThreadStor
 func assertArchiveRuntimeStopped(t *testing.T, svc *service, agentID string) {
 	t.Helper()
 
-	svc.mu.RLock()
-	agentAfter := svc.agents[agentID]
+	svc.registry.mu.RLock()
+	agentAfter := svc.registry.agents[agentID]
 	cmdCleared := agentAfter != nil && agentAfter.cmd == nil
 	lastExitedSeq := uint64(0)
 	if agentAfter != nil {
 		lastExitedSeq = agentAfter.lastExitedSeq
 	}
-	svc.mu.RUnlock()
+	svc.registry.mu.RUnlock()
 	if !cmdCleared || lastExitedSeq < 1 {
 		t.Fatalf("local runtime not stopped: cmd_cleared=%v last_exited_seq=%d", cmdCleared, lastExitedSeq)
 	}
@@ -195,7 +195,7 @@ func TestArchiveAgentArchivesOwningRuntimeWhenCalledWithProviderThreadID(t *test
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if _, err := svc.ArchiveAgent(context.Background(), "provider-thread-1"); err != nil {
 		t.Fatalf("ArchiveAgent(provider thread) error = %v", err)
@@ -230,7 +230,7 @@ func TestArchiveAgentInvokesLauncherArchiveNotStop(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
@@ -256,7 +256,7 @@ func TestArchiveAgentViaLauncherSettlesNonSettledLauncherWithoutExitMonitorEvent
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	archived, err := svc.archiveAgentViaLauncher(context.Background(), "agent-1", "archived")
 	if err != nil || !archived {
@@ -287,7 +287,7 @@ func TestArchiveAgentViaLauncherPublishesStoppedAfterArchiveReturns(t *testing.T
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	archived, err := svc.archiveAgentViaLauncher(context.Background(), "agent-1", "archived")
 	if err != nil || !archived {
@@ -314,7 +314,7 @@ func TestArchiveAgentViaLauncherSettledArchivePublishesStoppedOnce(t *testing.T)
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	archived, err := svc.archiveAgentViaLauncher(context.Background(), "agent-1", "archived")
 	if err != nil || !archived {

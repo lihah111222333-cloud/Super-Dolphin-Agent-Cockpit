@@ -117,7 +117,7 @@ func TestThreadStoppedHookDoesNotRepublishAlreadyStoppedAgent(t *testing.T) {
 	agent.state = agentdto.StateStopped
 	agent.threadID = "thread-1"
 	agent.remoteThreadID = "thread-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	hc.handleThreadStopped(context.Background(), threaddto.Stopped{ThreadID: "thread-1", AgentID: "agent-1", Reason: "remote_stopped"})
 

@@ -13,9 +13,9 @@ import (
 )
 
 func TestTerminalReportEventWithoutBodyWritesFallbackReport(t *testing.T) {
-	svc := &service{agents: map[string]*agentRuntime{
+	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
 		"agent-1": {id: "agent-1", state: agentdto.StateTurnRunning},
-	}}
+	}}}
 
 	if _, err := svc.HandleReportEvent(context.Background(), ReportEvent{AgentID: "agent-1", EventType: "completion"}); err != nil {
 		t.Fatalf("HandleReportEvent() error = %v", err)
@@ -36,9 +36,9 @@ func TestTerminalReportEventWithoutBodyWritesFallbackReport(t *testing.T) {
 func TestReportEventIncrementsReportSeq(t *testing.T) {
 	firstAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
 	secondAt := firstAt.Add(time.Minute)
-	svc := &service{agents: map[string]*agentRuntime{
+	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
 		"agent-1": {id: "agent-1", state: agentdto.StateTurnRunning},
-	}}
+	}}}
 
 	first, err := svc.HandleReportEvent(withEventTime(context.Background(), firstAt), ReportEvent{
 		AgentID:   "agent-1",
@@ -74,7 +74,7 @@ func TestProcessExitFailureWithoutReportWritesFallbackReport(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	svc.handleProcessExit(context.Background(), agent.id, 1, errors.New("process crashed"))
 
@@ -106,7 +106,7 @@ func TestHandleReportEventRunsConservativeReportGC(t *testing.T) {
 		{ThreadID: "active-agent", AgentID: "active-agent", Name: "old active", Cwd: cwd, Status: "created"},
 		{ThreadID: "recent-agent", AgentID: "recent-agent", Name: "recent done", Cwd: cwd, Status: "stopped"},
 	}}
-	svc.agents["trigger-agent"] = &agentRuntime{id: "trigger-agent", name: "trigger", cwd: cwd}
+	svc.registry.agents["trigger-agent"] = &agentRuntime{id: "trigger-agent", name: "trigger", cwd: cwd}
 
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
 		AgentID:   "trigger-agent",

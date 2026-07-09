@@ -20,7 +20,7 @@ func TestTerminateDAG_CancelsRunningRun(t *testing.T) {
 			Status: "running",
 		},
 	}
-	svc := &service{runStore: runStore}
+	svc := &service{registry: newAgentRegistry(), runStore: runStore}
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{
 		DagKey: " dag-1 ",
@@ -51,7 +51,7 @@ func TestTerminateDAG_TerminalRunIsIdempotent(t *testing.T) {
 			Status: "cancelled",
 		},
 	}
-	svc := &service{runStore: runStore}
+	svc := &service{registry: newAgentRegistry(), runStore: runStore}
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err != nil {
@@ -67,7 +67,7 @@ func TestTerminateDAG_ConcurrentTerminalRunIsIdempotent(t *testing.T) {
 		getRunReply:     &taskdag.Run{ID: 77, RunKey: "dag-1#run-1", DagKey: "dag-1", Status: "running"},
 		terminateRunErr: platformdb.ErrNotFound,
 	}
-	svc := &service{runStore: runStore}
+	svc := &service{registry: newAgentRegistry(), runStore: runStore}
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err != nil {
@@ -87,7 +87,7 @@ func TestTerminateDAG_RejectsDagKeyMismatch(t *testing.T) {
 			Status: "running",
 		},
 	}
-	svc := &service{runStore: runStore}
+	svc := &service{registry: newAgentRegistry(), runStore: runStore}
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "other", RunKey: "dag-1#run-1"})
 	if err == nil || !strings.Contains(err.Error(), "does not belong") {
@@ -106,7 +106,7 @@ func TestTerminateDAG_PropagatesTerminateStoreFailure(t *testing.T) {
 		},
 		terminateRunErr: boom,
 	}
-	svc := &service{runStore: runStore}
+	svc := &service{registry: newAgentRegistry(), runStore: runStore}
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if !errors.Is(err, boom) {
@@ -136,12 +136,12 @@ func TestTerminateDAG_CancelsRunBeforeStoppingSpawnedAgents(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thr-running"
 	agent.launchSeq = 3
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	readyAgent := svc.newAgentLocked("agent-ready")
 	readyAgent.state = agentdto.StateIdle
 	readyAgent.remoteThreadID = "thr-ready"
 	readyAgent.launchSeq = 3
-	svc.agents[readyAgent.id] = readyAgent
+	svc.registry.agents[readyAgent.id] = readyAgent
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{
 		DagKey: "dag-1",
@@ -184,7 +184,7 @@ func TestTerminateDAG_ReturnsStopFailureAfterCancellingRun(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thr-running"
 	agent.launchSeq = 3
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{
 		DagKey: "dag-1",
@@ -222,7 +222,7 @@ func TestTerminateDAG_RetriesSpawnedAgentStopAfterCancelledRun(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = threadID
 	agent.launchSeq = 3
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{
 		DagKey: "dag-1",
@@ -260,7 +260,7 @@ func TestTerminateDAG_ReturnsSpawnedThreadLookupMissAfterCancellingRun(t *testin
 		},
 		terminateRunResult: taskdag.TerminateRunResult{SpawnedThreadIDs: []string{"thr-missing"}},
 	}
-	svc := &service{runStore: runStore, agentThreads: fakeAgentThreadStore{}}
+	svc := &service{registry: newAgentRegistry(), runStore: runStore, agentThreads: fakeAgentThreadStore{}}
 
 	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-1", RunKey: "dag-1#run-1"})
 	if err == nil || !strings.Contains(err.Error(), "skipped_no_thread_id") {
@@ -282,6 +282,7 @@ func TestTerminateDAG_ReturnsSpawnedBindingMissingAfterCancellingRun(t *testing.
 		terminateRunResult: taskdag.TerminateRunResult{SpawnedThreadIDs: []string{"thr-no-binding"}},
 	}
 	svc := &service{
+		registry:     newAgentRegistry(),
 		runStore:     runStore,
 		agentThreads: fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: "thr-no-binding"}}},
 	}

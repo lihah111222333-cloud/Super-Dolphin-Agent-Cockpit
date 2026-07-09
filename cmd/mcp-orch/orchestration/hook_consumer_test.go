@@ -545,11 +545,11 @@ func TestHookConsumerAfter_UnknownAgentIsIgnored(t *testing.T) {
 func addHookTestAgent(t *testing.T, svc *service, agentID string) *agentRuntime {
 	t.Helper()
 
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
+	svc.registry.mu.Lock()
+	defer svc.registry.mu.Unlock()
 
 	agent := svc.newAgentLocked(agentID)
-	svc.agents[agentID] = agent
+	svc.registry.agents[agentID] = agent
 	return agent
 }
 

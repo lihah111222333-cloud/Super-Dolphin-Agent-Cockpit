@@ -27,7 +27,7 @@ func TestClaimTurnWorkStartsQueuedSubmission(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{
 		AgentID:  "agent-1",
@@ -66,7 +66,7 @@ func TestSubmitTurnWaitsForSessionReadyWhenIdle(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
@@ -94,7 +94,7 @@ func TestSubmitTurnReturnsSessionWaitError(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"})
 	if !errors.Is(err, want) {
@@ -114,7 +114,7 @@ func TestSubmitTurnSkipsSessionWaitWhenBusy(t *testing.T) {
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
@@ -136,7 +136,7 @@ func TestStartTurnExecutionWaitsForSessionReadyAfterBusySubmit(t *testing.T) {
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-active"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
@@ -183,7 +183,7 @@ func TestStartTurnExecutionReturnsSessionWaitErrorAfterSubmitWait(t *testing.T) 
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)

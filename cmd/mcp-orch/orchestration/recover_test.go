@@ -91,7 +91,7 @@ func newRecoverReplayService(t *testing.T) (*service, *agentRuntime) {
 		ThreadID: "thread-1",
 		Inputs:   []shareddto.InputItem{{Type: "text", Content: "queued work"}},
 	})
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() { cleanupAgentProcess(agent) })
 	return svc, agent
 }
@@ -160,7 +160,7 @@ func TestRecoverPublishesTurnResumedForRecoveredTurn(t *testing.T) {
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-active"
 	agent.updatedAt = time.Unix(1710000000, 0).UTC()
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() {
 		if agent.cmd != nil {
 			_ = stopProcess(agent.cmd)
@@ -197,7 +197,7 @@ func TestRecoverWithoutActiveTurnDoesNotPublishTurnResumed(t *testing.T) {
 	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() {
 		if agent.cmd != nil {
 			_ = stopProcess(agent.cmd)
@@ -225,7 +225,7 @@ func TestRecoverWithoutReplayWritesFallbackReport(t *testing.T) {
 	agent.activeTurnID = "turn-active"
 	agent.reportRequesters = []string{"agent-parent"}
 	agent.lastError = "process crashed"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() { cleanupAgentProcess(agent) })
 
 	if err := svc.Recover(context.Background(), agent.id); err != nil {
@@ -264,7 +264,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-active"
 	agent.updatedAt = time.Now().Add(-time.Minute)
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() { cleanupAgentProcess(agent) })
 
 	actor := &runnerActor{logger: silentLogger(), service: svc}
@@ -306,7 +306,7 @@ func TestRecoverStalledAgentsRestartsLauncherOwnedAgent(t *testing.T) {
 	agent.remoteThreadID = "thread-remote"
 	agent.activeTurnID = "turn-remote"
 	agent.updatedAt = oldUpdatedAt
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	actor := &runnerActor{logger: silentLogger(), service: svc}
 	detector := &StallDetector{threshold: 30 * time.Second, logger: silentLogger()}
@@ -342,7 +342,7 @@ func TestHandleProcessExitErrorAutoRecoversLocalAgent(t *testing.T) {
 	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() { cleanupAgentProcess(agent) })
 
 	svc.handleProcessExit(context.Background(), agent.id, 1, errors.New("process crashed"))
@@ -359,7 +359,7 @@ func TestProcessExitAutoRecoveryStopsAtRetryLimit(t *testing.T) {
 	agent := svc.newAgentLocked("agent-local")
 	agent.command = longRunningTestCommandLine()
 
-	for i := 0; i < maxProcessExitAutoRecoveries; i++ {
+	for i := range maxProcessExitAutoRecoveries {
 		if !shouldAutoRecoverProcessExitLocked(svc, agent, errors.New("process crashed")) {
 			t.Fatalf("shouldAutoRecoverProcessExitLocked() attempt %d = false, want true before limit", i+1)
 		}

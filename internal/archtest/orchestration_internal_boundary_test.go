@@ -32,6 +32,7 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 	nonDebt := map[string]struct{}{
 		"logger":   {},
 		"eventBus": {},
+		"registry": {},
 	}
 	debtFields := []string{
 		"launcher",
@@ -47,10 +48,6 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 		"machineCfg",
 		"processExitWaitTimeout",
 		"exitMonitor",
-		"mu",
-		"agents",
-		"suppressedStoppedThreads",
-		"nextTurnSeq",
 		"asyncCtx",
 		"asyncCancel",
 		"asyncWg",
@@ -58,6 +55,24 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 	debt := orchestrationInternalBoundarySet(debtFields)
 
 	failIfViolations(t, orchestrationInternalBoundaryServiceFieldViolations(relPath, actualFields, actual, nonDebt, debtFields, debt))
+}
+
+func TestOrchestrationAgentRegistryOwnsRuntimeAgentMapAndLock(t *testing.T) {
+	t.Parallel()
+
+	const allowedRelPath = "cmd/mcp-orch/orchestration/agent_registry.go"
+	root := repoRoot(t)
+	files := orchestrationInternalBoundaryGoFiles(t, root, "cmd/mcp-orch/orchestration")
+
+	var violations []string
+	for _, relPath := range files {
+		if strings.HasSuffix(relPath, "_test.go") {
+			continue
+		}
+		fset, file := orchestrationInternalBoundaryParseFile(t, root, relPath)
+		violations = append(violations, orchestrationInternalBoundaryRuntimeAgentRegistryFieldViolations(fset, file, relPath, allowedRelPath)...)
+	}
+	failIfViolations(t, violations)
 }
 
 func TestNodeRouterDoesNotGrowServiceAgentLauncherDebt(t *testing.T) {
@@ -84,6 +99,35 @@ func TestOrchestrationDoesNotGrowDuplicateStopperInterfaces(t *testing.T) {
 		violations = append(violations, "cmd/mcp-orch/orchestration/stop_helper.go:35 StopAgentService not found; duplicate stopper guard has no canonical reuse target")
 	}
 	failIfViolations(t, violations)
+}
+
+func orchestrationInternalBoundaryRuntimeAgentRegistryFieldViolations(fset *token.FileSet, file *ast.File, relPath, allowedRelPath string) []string {
+	var violations []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		field, ok := node.(*ast.Field)
+		if !ok {
+			return true
+		}
+		typeName := orchestrationInternalBoundaryRuntimeAgentFieldTypeString(field.Type)
+		if typeName != "map[string]*agentRuntime" && typeName != "contextlock.RWMutex" {
+			return true
+		}
+		if relPath == allowedRelPath {
+			return true
+		}
+		violations = append(violations, fmt.Sprintf("%s:%d runtime agent registry field %s must live in %s", relPath, fset.Position(field.Pos()).Line, typeName, allowedRelPath))
+		return true
+	})
+	return violations
+}
+
+func orchestrationInternalBoundaryRuntimeAgentFieldTypeString(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.MapType:
+		return "map[" + exprTypeString(e.Key) + "]" + exprTypeString(e.Value)
+	default:
+		return exprTypeString(expr)
+	}
 }
 
 func orchestrationInternalBoundaryStructFieldNames(st *ast.StructType) []string {

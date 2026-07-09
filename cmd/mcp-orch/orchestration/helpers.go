@@ -18,7 +18,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
@@ -342,7 +341,7 @@ func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state str
 }
 
 // fireAndPublishLocked 触发状态机并发布 StateChanged 事件。
-// 调用方持有 s.mu；当前事件库异步扇出，订阅者即使回调 service 也不会在同一 goroutine 抢锁。
+// 调用方持有 agentRegistry.mu；当前事件库异步扇出，订阅者即使回调 service 也不会在同一 goroutine 抢锁。
 // 注意：当前 kelindar/event 发布会异步扇出，所以持锁发布不会回调抢锁。
 // 如果事件库改为同步派发，这里必须迁到锁外或改成 trigger channel，避免死锁。
 func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
@@ -355,19 +354,12 @@ func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime,
 	return nil
 }
 
-func (s *service) listAgents() []agentRuntime {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *service) agentRegistry() *agentRegistry {
+	return s.registry
+}
 
-	agents := make([]agentRuntime, 0, len(s.agents))
-	for _, agent := range s.agents {
-		snapshot := *agent
-		snapshot.queue = nil
-		snapshot.sm = nil
-		snapshot.exitedAt = shared.CloneTime(agent.exitedAt)
-		agents = append(agents, snapshot)
-	}
-	return agents
+func (s *service) listAgents() []agentRuntime {
+	return s.agentRegistry().listAgents()
 }
 
 // discardStaleSuccessfulLaunch 处理恢复/启动竞争中已经成功但判定过期的 runtime。
@@ -380,66 +372,19 @@ func (s *service) discardStaleSuccessfulLaunch(ctx context.Context, launching *a
 }
 
 func (s *service) withAgentLocked(agentID string, fn func(*agentState) error) error {
-	if s == nil {
-		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := lookupAgentByIDLocked(s.agents, agentID)
-	if err != nil {
-		return err
-	}
-	return fn(agent)
+	return s.agentRegistry().withAgentLocked(agentID, fn)
 }
 
 func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error) error {
-	if s == nil {
-		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	agent, err := lookupAgentByIDLocked(s.agents, agentID)
-	if err != nil {
-		return err
-	}
-	return fn(agent)
+	return s.agentRegistry().withAgentReadLocked(agentID, fn)
 }
 
 func (s *service) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {
-	if s == nil {
-		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
-	}
-	if err := s.lockRead(ctx); err != nil {
-		return err
-	}
-	defer s.mu.RUnlock()
-
-	agent, err := lookupAgentByIdentityLocked(s.agents, agentID, agentIdentityLocalOnly)
-	if err != nil {
-		return err
-	}
-	return fn(agent)
-}
-
-func (s *service) lockRead(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return s.mu.RLockCtx(ctx)
+	return s.agentRegistry().withAgentReadLockedByAgentID(ctx, agentID, fn)
 }
 
 func (s *service) runtimeAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
-	if err := s.lockRead(ctx); err != nil {
-		return nil, err
-	}
-	defer s.mu.RUnlock()
-	snapshots := make([]AgentSnapshot, 0, len(s.agents))
-	for _, agent := range s.agents {
-		snapshots = append(snapshots, s.snapshotLocked(ctx, agent))
-	}
-	return snapshots, nil
+	return s.agentRegistry().runtimeAgentSnapshots(ctx, s.snapshotLocked)
 }
 
 func agentSessionFenceOK(agent *agentState, evSessionID string) bool {
@@ -451,21 +396,6 @@ func agentSessionFenceOK(agent *agentState, evSessionID string) bool {
 		return true
 	}
 	return ev == agentSessionID(agent)
-}
-
-func lookupAgentBySeqLocked(
-	agents map[string]*agentState,
-	agentID string,
-	launchSeq uint64,
-) (*agentState, error) {
-	agent, err := lookupAgentByIDLocked(agents, agentID)
-	if err != nil {
-		return nil, err
-	}
-	if agent.launchSeq != launchSeq {
-		return nil, fmt.Errorf("%w: %s/%d", errAgentNotFound, strings.TrimSpace(agentID), launchSeq)
-	}
-	return agent, nil
 }
 
 func (s *service) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {

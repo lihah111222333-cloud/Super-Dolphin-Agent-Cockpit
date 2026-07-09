@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,7 +23,7 @@ import (
 
 func TestRemoteLauncher_RegistersBeforeThreadStart(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
-	var registered int32
+	var registered atomic.Int32
 	registerReq := make(chan mcpdto.RegisterRequest, 1)
 	addr, _ := startRPCServer(t, handler.Map{
 		mcpdto.MethodRegister: handler.New(func(_ context.Context, req mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {
@@ -30,11 +31,11 @@ func TestRemoteLauncher_RegistersBeforeThreadStart(t *testing.T) {
 			if req.SessionToken != "session-secret" {
 				return mcpdto.RegisterResponse{}, jrpc2.Errorf(jrpc2.Code(-31002), "control rpc unauthorized: invalid session token")
 			}
-			atomic.StoreInt32(&registered, 1)
+			registered.Store(1)
 			return launcherRegisterResponse(req, 60000), nil
 		}),
 		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
-			if atomic.LoadInt32(&registered) == 0 {
+			if registered.Load() == 0 {
 				return nil, jrpc2.Errorf(jrpc2.Code(-31002), "control rpc unauthorized: register with a valid session token first")
 			}
 			return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
@@ -101,12 +102,12 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 	require.True(t, ok)
 	t.Cleanup(func() { _ = remote.Close() })
 
-	svc.mu.Lock()
+	svc.registry.mu.Lock()
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thread-1"
-	svc.agents[agent.id] = agent
-	svc.mu.Unlock()
+	svc.registry.agents[agent.id] = agent
+	svc.registry.mu.Unlock()
 
 	err := svc.SubmitTurn(context.Background(), TurnSubmission{
 		AgentID: "agent-1",
@@ -149,7 +150,7 @@ func TestRemoteTerminalRequiresTurnID(t *testing.T) {
 	agent.threadID = "thread-1"
 	agent.remoteThreadID = "thread-1"
 	agent.activeTurnID = "remote-turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	svc.handleRemoteTurnCompleted(context.Background(), turndto.TurnCompleted{
 		TurnHeader: shareddto.TurnHeader{
 			AgentHeader: shareddto.AgentHeader{
@@ -176,7 +177,7 @@ func TestService_SubmitTurnRemoteModeDeadlineFailureClearsBusyState(t *testing.T
 	}), nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", "worker-agent"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -194,9 +195,7 @@ func TestService_SubmitTurnRemoteModeDeadlineFailureClearsBusyState(t *testing.T
 
 func withLauncherControlMethods(methods handler.Map) handler.Map {
 	out := make(handler.Map, len(methods)+2)
-	for name, method := range methods {
-		out[name] = method
-	}
+	maps.Copy(out, methods)
 	if _, ok := out[mcpdto.MethodRegister]; !ok {
 		out[mcpdto.MethodRegister] = handler.New(func(_ context.Context, req mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {
 			return launcherRegisterResponse(req, 60000), nil

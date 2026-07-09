@@ -53,7 +53,7 @@ func TestListAgentsOverlaysRuntimeOnPersistedIdentity(t *testing.T) {
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "renamed", Cwd: "/db", Status: "created", UpdatedAt: 1710000100},
 	}}
 	now := time.Unix(1710000200, 0)
-	svc.agents["agent-1"] = &agentRuntime{
+	svc.registry.agents["agent-1"] = &agentRuntime{
 		id:        "agent-1",
 		name:      "launch name",
 		cwd:       "/runtime",
@@ -216,8 +216,8 @@ func TestListAgentsSortsNewestCreatedFirst(t *testing.T) {
 func TestListAgentsHonorsContextWhileRuntimeLockHeld(t *testing.T) {
 	t.Parallel()
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
+	svc.registry.mu.Lock()
+	defer svc.registry.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	done := make(chan error, 1)
@@ -321,7 +321,7 @@ func TestSubmitTurnRehydratesPersistedReportSeq(t *testing.T) {
 
 func TestGetReportRejectsRemoteThreadID(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agents["agent-1"] = &agentRuntime{
+	svc.registry.agents["agent-1"] = &agentRuntime{
 		id:             "agent-1",
 		remoteThreadID: "provider-thread-1",
 		lastReport:     "done",
@@ -480,7 +480,7 @@ func TestHandleReportEventPersistsReportWhenRuntimeMissing(t *testing.T) {
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
-	// svc.agents is empty: the in-memory runtime was lost on restart.
+	// svc.registry.agents is empty: the in-memory runtime was lost on restart.
 
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
 		AgentID:   "agent-1",
@@ -509,7 +509,7 @@ func TestHandleReportEventStopsPersistedThreadWhenAbortedRuntimeMissing(t *testi
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 	svc.agentThreads = threads
-	// svc.agents is empty: the runtime was lost before the abort event arrived.
+	// svc.registry.agents is empty: the runtime was lost before the abort event arrived.
 
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
 		AgentID:   "agent-1",

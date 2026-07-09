@@ -42,7 +42,7 @@ func TestHandleTurnCompletedEventLogsSettlement(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	handleTurnCompletedEvent(svc, logger, completedEvent("agent-1", "thread-1", "turn-1", true, ""))
 
@@ -71,7 +71,7 @@ func TestHandleTurnInterruptedEventLogsSettlement(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	handleTurnInterruptedEvent(svc, logger, interruptedEventAt("agent-1", "thread-1", "turn-1", "cancelled", time.Unix(1710000000, 0).UTC()))
 
@@ -97,7 +97,7 @@ func TestForceIdleAfterCompletionErrorKeepsDifferentActiveTurn(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-active"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	recovered, err := svc.forceIdleAfterCompletionError(
 		withEventTime(context.TODO(), time.Now()),
@@ -129,7 +129,7 @@ func TestHandleTurnCompletedEventSettlesProviderTurnIDMismatch(t *testing.T) {
 	agent.threadID = "agent-1"
 	agent.activeTurnID = "turn_1781685566961_2c3add7bb73076e1"
 	agent.reportRequesters = []string{"parent-1"}
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	ev := completedEventAt(
 		"agent-1",
@@ -170,7 +170,7 @@ func TestRegisterTurnLifecycleHandlesTurnInterrupted(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	interruptAt := time.Unix(1710000000, 0).UTC()
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", interruptAt))
@@ -196,7 +196,7 @@ func TestApprovalLifecycleIgnoresQueuedEventsAfterStop(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	lc := &stubLifecycle{}
 	RegisterApprovalLifecycle(lc, dispatcher, svc, silentLogger())
@@ -235,7 +235,7 @@ func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	firstInterruptAt := time.Unix(1710000000, 0).UTC()
 	secondInterruptAt := firstInterruptAt.Add(time.Minute)
@@ -266,7 +266,7 @@ func TestRemoteTurnInterruptedAuthErrorStopsAgentAndWritesReport(t *testing.T) {
 	agent.threadID = "thread-auth"
 	agent.remoteThreadID = "thread-auth"
 	agent.activeTurnID = "turn-auth"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
 		"agent-remote",
@@ -302,7 +302,7 @@ func TestRemoteTurnInterruptedClaudeAPIConnectionRefusedStopsAgent(t *testing.T)
 	agent.remoteThreadID = "thread-claude"
 	agent.activeTurnID = "turn-claude"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
 		"agent-remote",
@@ -338,7 +338,7 @@ func TestRemoteTurnInterruptedClaudeModelUnavailableStopsAgent(t *testing.T) {
 	agent.remoteThreadID = "thread-claude"
 	agent.activeTurnID = "turn-claude"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
 	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
@@ -375,7 +375,7 @@ func TestRemoteTurnInterruptedClaudeModelUnavailableFinalStateVisibleAsStopped(t
 	agent.remoteThreadID = "thread-claude"
 	agent.activeTurnID = "turn-claude"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
 	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
@@ -411,7 +411,7 @@ func TestRemoteTurnCompletedClaudeModelUnavailableFinalStateVisibleAsStopped(t *
 	agent.remoteThreadID = "thread-claude"
 	agent.activeTurnID = "turn-claude"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
 	svc.handleRemoteTurnCompleted(context.Background(), completedEventAt(
@@ -449,7 +449,7 @@ func TestHookTurnCompletedClaudeModelUnavailableFinalStateVisibleAsStopped(t *te
 	agent.remoteThreadID = "thread-claude"
 	agent.activeTurnID = "turn-claude"
 	agent.launchSeq = 1
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
 	consumer.handleTurnCompleted(context.Background(), completedEventAt("agent-remote", "thread-claude", "turn-claude", false, reason, time.Unix(1710000000, 0).UTC()))
@@ -476,7 +476,7 @@ func TestRemoteTurnInterruptedEmptyReasonWritesTerminalFallbackReport(t *testing
 	agent.threadID = "thread-empty"
 	agent.remoteThreadID = "thread-empty"
 	agent.activeTurnID = "turn-empty"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
 		"agent-remote",
@@ -510,7 +510,7 @@ func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-1"
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	interruptAt := time.Unix(1710000000, 0).UTC()
 	completedAt := interruptAt.Add(time.Minute)

@@ -51,10 +51,10 @@ func TestHookConsumerStateChangeRespectsSessionFence(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 			agent := addHookTestAgent(t, svc, "agent-1")
-			svc.mu.Lock()
+			svc.registry.mu.Lock()
 			agent.state = agentdto.StateIdle
 			agent.launchSeq = tc.agentSeq
-			svc.mu.Unlock()
+			svc.registry.mu.Unlock()
 
 			consumer := newHookConsumer(svc, silentLogger())
 			stateChanged := agentdto.StateChanged{

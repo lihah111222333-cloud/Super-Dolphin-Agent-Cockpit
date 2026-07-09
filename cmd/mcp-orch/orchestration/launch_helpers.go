@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -84,17 +83,7 @@ func (q *SubmissionQueue) Clear() {
 }
 
 func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
-	agent, err := lookupAgentByIdentityLocked(s.agents, req.AgentID, agentIdentityLocalOnly)
-	if errors.Is(err, errAgentNotFound) {
-		agent = s.newAgentLocked(req.AgentID)
-		s.agents[req.AgentID] = agent
-	}
-	applyLaunchRequestLocked(agent, req)
-	resetRuntimeStateLocked(agent)
-	clearAgentLifecycleErrorLocked(agent)
-	clearAgentStopReasonLocked(agent)
-	clearAgentAutoRecoveryLocked(agent)
-	return agent
+	return s.agentRegistry().agentForLaunchLocked(req, s.newAgentLocked)
 }
 
 func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRuntime) error {
@@ -136,18 +125,7 @@ func (s *service) normalizeLaunchStateLocked(ctx context.Context, agent *agentRu
 }
 
 func (s *service) turnIDFor(sub TurnSubmission) string {
-	if turnID := strings.TrimSpace(sub.ExpectedTurnID); turnID != "" {
-		return turnID
-	}
-	baseID := strings.TrimSpace(sub.ThreadID)
-	if baseID == "" {
-		baseID = strings.TrimSpace(sub.AgentID)
-	}
-	if baseID == "" {
-		baseID = "turn"
-	}
-	s.nextTurnSeq++
-	return fmt.Sprintf("%s-turn-%d", baseID, s.nextTurnSeq)
+	return s.agentRegistry().turnIDFor(sub)
 }
 
 func launchPort(req LaunchRequest) int {

@@ -155,7 +155,7 @@ func assertRuntimeReportedEvent(t *testing.T, reported <-chan agentdto.AgentRunt
 func newRuntimeTestService(logger *slog.Logger, agent *agentRuntime) (*service, <-chan agentdto.AgentRuntimeReported, func()) {
 	dispatcher := event.NewDispatcher()
 	svc := NewService(logger, dispatcher, nil, nil, nil, nil)
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	reported := make(chan agentdto.AgentRuntimeReported, 4)
 	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentRuntimeReported) {
 		reported <- ev

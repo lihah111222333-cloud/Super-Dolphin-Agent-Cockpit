@@ -282,9 +282,10 @@ type launcherRecoveryAttempt struct {
 
 // canRecoverAgentViaLauncher 判断当前 agent 是否由 launcher 管理且仍可远端恢复。
 func (s *service) canRecoverAgentViaLauncher(ctx context.Context, agentID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	registry := s.agentRegistry()
+	registry.rLock()
+	defer registry.rUnlock()
+	agent, err := registry.lookupAgentByIDLocked(agentID)
 	return err == nil && shouldRecoverViaLauncher(ctx, s, agent)
 }
 
@@ -337,27 +338,29 @@ func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason s
 
 // commitLauncherRecoveryFailure 在恢复启动失败时写入失败状态和 no-report fallback。
 func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt launcherRecoveryAttempt, launchErr error) error {
-	s.mu.Lock()
-	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
+	registry := s.agentRegistry()
+	registry.lock()
+	agent, err := registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
 	if err != nil {
-		s.mu.Unlock()
+		registry.unlock()
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
 	err = s.commitLaunchFailureLocked(ctx, agent, launchErr)
 	if fallbackErr := s.setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
 		err = errors.Join(err, fallbackErr)
 	}
-	s.mu.Unlock()
+	registry.unlock()
 	return err
 }
 
 // commitLauncherRecoverySuccess 在 seq fence 命中时采用新 launcher 状态并完成恢复。
 // rekey 或持久化失败会主动停止新 runtime，避免留下孤儿远端 agent。
 func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt launcherRecoveryAttempt, result LaunchResult) error {
-	s.mu.Lock()
-	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
+	registry := s.agentRegistry()
+	registry.lock()
+	agent, err := registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
 	if err != nil || agent.state != agentdto.StateRecovering || agent.stopRequested {
-		s.mu.Unlock()
+		registry.unlock()
 		return s.discardStaleSuccessfulLaunch(ctx, &attempt.launching, err)
 	}
 	adoptLaunchStateLocked(agent, &attempt.launching)
@@ -366,7 +369,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 	agent.stopRequested = false
 	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
-		s.mu.Unlock()
+		registry.unlock()
 		if stopErr := s.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
 			s.logger.Warn("orchestration: recovery rekey failure cleanup stop failed", "agent_id", attempt.launching.id, "error", stopErr)
 		}
@@ -377,17 +380,17 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 		agent.cmd = nil
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
-		s.mu.Unlock()
+		registry.unlock()
 		if stopErr := s.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
 			s.logger.Warn("orchestration: recovery success cleanup stop failed", "agent_id", attempt.launching.id, "error", stopErr)
 		}
 		return err
 	}
 	if err := s.finishLauncherRecoveryTurnLocked(ctx, agent, attempt); err != nil {
-		s.mu.Unlock()
+		registry.unlock()
 		return err
 	}
-	s.mu.Unlock()
+	registry.unlock()
 	return nil
 }
 

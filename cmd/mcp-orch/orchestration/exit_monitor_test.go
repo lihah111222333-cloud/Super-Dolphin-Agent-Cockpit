@@ -19,7 +19,7 @@ import (
 // -----------------------------------------------------------------------------
 
 // newP3TestService 构造仅包含 dispatcher 和 session cleaner 的最小 service。
-// 每次调用都返回独立实例，测试可并行注入 svc.agents 后验证 runner actor。
+// 每次调用都返回独立实例，测试可并行注入 svc.registry.agents 后验证 runner actor。
 func newP3TestService(t *testing.T) (*service, *event.Dispatcher, *stopTestSessionCleaner) {
 	t.Helper()
 	dispatcher := event.NewDispatcher()
@@ -41,7 +41,7 @@ func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = launchSeq
 	agent.sessionGeneration = 42
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agentID, LaunchSeq: launchSeq, Cmd: cmd})
 	agent.monitoredSeq = launchSeq
 	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
@@ -59,7 +59,7 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 5
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	// 第一次 Emit 应触发状态迁移。
 	svc.exitMonitor.Emit("agent-1", 5, nil)
@@ -70,9 +70,9 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 		t.Fatal("first Emit did not publish exit event")
 	}
 
-	svc.mu.RLock()
+	svc.registry.mu.RLock()
 	lastExited := agent.lastExitedSeq
-	svc.mu.RUnlock()
+	svc.registry.mu.RUnlock()
 	if lastExited != 5 {
 		t.Fatalf("lastExitedSeq after first Emit = %d, want 5", lastExited)
 	}
@@ -87,9 +87,9 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 
 	// 即使调用方绕过 monitor 直接传入同一 seq，handleProcessExit 的 agent 级栅栏也会挡住重复迁移。
 	svc.handleProcessExit(context.Background(), "agent-1", 5, errors.New("bypass"))
-	svc.mu.RLock()
+	svc.registry.mu.RLock()
 	lastExitedAfter := agent.lastExitedSeq
-	svc.mu.RUnlock()
+	svc.registry.mu.RUnlock()
 	if lastExitedAfter != 5 {
 		t.Fatalf("lastExitedSeq after duplicate handleProcessExit = %d, want 5", lastExitedAfter)
 	}
@@ -106,7 +106,7 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 	agent := svc.newAgentLocked("agent-2")
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 7
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	// 第一次：模拟 launcher stop 发布退出事件。
 	svc.exitMonitor.Emit("agent-2", 7, nil)
@@ -125,9 +125,9 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	svc.mu.RLock()
+	svc.registry.mu.RLock()
 	lastExited := agent.lastExitedSeq
-	svc.mu.RUnlock()
+	svc.registry.mu.RUnlock()
 	if lastExited != 7 {
 		t.Fatalf("lastExitedSeq = %d, want 7", lastExited)
 	}
@@ -200,17 +200,17 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	// 等待 monitor 投递退出事件并推进 lastExitedSeq。
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		svc.mu.RLock()
-		seq := svc.agents["agent-4"].lastExitedSeq
-		svc.mu.RUnlock()
+		svc.registry.mu.RLock()
+		seq := svc.registry.agents["agent-4"].lastExitedSeq
+		svc.registry.mu.RUnlock()
 		if seq >= 3 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	svc.mu.RLock()
-	finalSeq := svc.agents["agent-4"].lastExitedSeq
-	svc.mu.RUnlock()
+	svc.registry.mu.RLock()
+	finalSeq := svc.registry.agents["agent-4"].lastExitedSeq
+	svc.registry.mu.RUnlock()
 	if finalSeq != 3 {
 		t.Fatalf("lastExitedSeq = %d, want 3 (single exit event)", finalSeq)
 	}
@@ -241,14 +241,14 @@ func TestProcessExitStateMachine(t *testing.T) {
 	agent := svc.newAgentLocked("agent-5")
 	agent.launchSeq = 9
 	agent.sessionGeneration = 17
-	svc.agents[agent.id] = agent
+	svc.registry.agents[agent.id] = agent
 
 	svc.handleProcessExit(context.Background(), "agent-5", 9, errors.New("boom"))
-	svc.mu.RLock()
+	svc.registry.mu.RLock()
 	lastExited := agent.lastExitedSeq
 	exitedAt := agent.exitedAt
 	cmdNil := agent.cmd == nil
-	svc.mu.RUnlock()
+	svc.registry.mu.RUnlock()
 	if lastExited != 9 {
 		t.Fatalf("lastExitedSeq = %d, want 9", lastExited)
 	}
@@ -268,9 +268,9 @@ func TestProcessExitStateMachine(t *testing.T) {
 	if len(cleaner.removeGeneration) != 1 {
 		t.Fatalf("session cleanup calls after duplicate = %d, want 1 (fence broken)", len(cleaner.removeGeneration))
 	}
-	svc.mu.RLock()
+	svc.registry.mu.RLock()
 	dupSeq := agent.lastExitedSeq
-	svc.mu.RUnlock()
+	svc.registry.mu.RUnlock()
 	if dupSeq != 9 {
 		t.Fatalf("lastExitedSeq after duplicate = %d, want 9", dupSeq)
 	}

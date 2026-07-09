@@ -7,21 +7,21 @@ import (
 	"testing"
 )
 
-// TestOrchestrationReverseLookupConfinedToFactory enforces the P4
+// TestOrchestrationReverseLookupConfinedToAgentRegistry enforces the P4
 // plan's identity fence (§63 / §121 / §282): the reverse-lookup that
 // treats a remote agent/thread id as equivalent to the orchestration
 // local agent name must live in a single authoritative function
-// (lookupAgentByIdentityLocked in factory.go), not scattered across
+// (lookupAgentByIdentityLocked in agent_registry.go), not scattered across
 // the subpackage.
 //
 // Concretely, the literals `remoteAgentID ==` and `remoteThreadID ==`
-// may only appear in factory.go. Any other non-test .go file under
+// may only appear in agent_registry.go. Any other non-test .go file under
 // cmd/mcp-orch/orchestration re-implementing that reverse-lookup
 // fails this guard before it can drift into a second trust boundary.
-func TestOrchestrationReverseLookupConfinedToFactory(t *testing.T) {
+func TestOrchestrationReverseLookupConfinedToAgentRegistry(t *testing.T) {
 	const (
 		dir   = "../../cmd/mcp-orch/orchestration"
-		owner = "factory.go"
+		owner = "agent_registry.go"
 	)
 
 	// Narrow tokens: only flag the reverse-lookup shape that compares

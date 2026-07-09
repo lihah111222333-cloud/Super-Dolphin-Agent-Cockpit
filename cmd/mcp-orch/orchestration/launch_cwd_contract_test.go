@@ -13,9 +13,9 @@ import (
 
 func assertAgentAbsent(t *testing.T, svc *service, agentID string) {
 	t.Helper()
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	if _, ok := svc.agents[agentID]; ok {
+	svc.registry.mu.Lock()
+	defer svc.registry.mu.Unlock()
+	if _, ok := svc.registry.agents[agentID]; ok {
 		t.Fatalf("agent %q was created despite rejected launch", agentID)
 	}
 }
@@ -83,7 +83,7 @@ func TestService_LaunchAgent_RejectsMissingCwdWhenParentHasNoCwd(t *testing.T) {
 	svc, called := launchServiceRejectingThreadStart(t)
 	parent := svc.newAgentLocked("parent-1")
 	parent.cwd = ""
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
 		ParentID: "parent-1",
@@ -102,7 +102,7 @@ func TestService_LaunchAgent_RejectsWhitespaceCwdWithoutParentFallback(t *testin
 	svc, called := launchServiceRejectingThreadStart(t)
 	parent := svc.newAgentLocked("parent-1")
 	parent.cwd = "/repo/parent"
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
 		ParentID: "parent-1",
@@ -174,7 +174,7 @@ func TestService_LaunchAgent_InheritsRuntimeParentCwd(t *testing.T) {
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("agent-parent")
 	parent.cwd = parentCWD
-	svc.agents[parent.id] = parent
+	svc.registry.agents[parent.id] = parent
 
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "agent-child",

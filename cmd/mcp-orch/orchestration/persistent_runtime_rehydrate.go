@@ -80,20 +80,11 @@ func persistedRuntimeRehydrateLogLevel(err error) string {
 }
 
 func (s *service) addRehydratedRuntimeAgent(agent *agentRuntime) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := lookupAgentByIDLocked(s.agents, agent.id); err == nil {
-		return false
-	}
-	s.agents[agent.id] = agent
-	return true
+	return s.agentRegistry().addRehydratedRuntimeAgent(agent)
 }
 
 func (s *service) hasRuntimeAgent(agentID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, err := lookupAgentByIDLocked(s.agents, agentID)
-	return err == nil
+	return s.agentRegistry().hasRuntimeAgent(agentID)
 }
 
 // buildRuntimeFromPersistedBinding 从绑定、线程和 report 文件重建可继续提交 turn 的 runtime。
