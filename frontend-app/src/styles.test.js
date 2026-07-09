@@ -481,6 +481,33 @@ describe('composer layout styles', () => {
 });
 
 describe('theme-aware component styles', () => {
+  describe('suiyuan design tokens', () => {
+    it('maps the light theme to exported DESIGN.md tokens', () => {
+      const light = declarationsFor('.sa-window[data-theme="light"]');
+
+      expect(light['--bg']).toBe('#fbf9f2');
+      expect(light['--bg-elevated']).toBe('#fbf9f3');
+      expect(light['--surface']).toBe('#ffffff');
+      expect(light['--surface-2']).toBe('#f5f4ed');
+      expect(light['--surface-3']).toBe('#f0eee7');
+      expect(light['--primary']).toBe('#a03b00');
+      expect(light['--primary-2']).toBe('#792b00');
+      expect(light['--text-pri']).toBe('#1b1c18');
+      expect(light['--text-sec']).toBe('#584238');
+      expect(light['--text-muted']).toBe('#8b7268');
+    });
+
+    it('keeps the Suiyuan workbench aliases available for shell and chat surfaces', () => {
+      const rootTokens = declarationsFor(':root');
+
+      expect(rootTokens['--suiyuan-sidebar-width']).toBe('280px');
+      expect(rootTokens['--suiyuan-content-max-width']).toBe('1100px');
+      expect(rootTokens['--suiyuan-gutter']).toBe('24px');
+      expect(rootTokens['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.05)');
+      expect(rootTokens['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.04)');
+    });
+  });
+
   it('uses theme-aware colors for skill filter active buttons', () => {
     const active = declarationsFor('.skill-filter .active');
 
@@ -1247,8 +1274,8 @@ describe('light theme baseline usability', () => {
     const inlineCode = declarationsFor('.sa-window[data-theme="light"] .message-markdown code');
     const codeBlock = declarationsFor('.sa-window[data-theme="light"] .message-markdown pre');
 
-    expect(lightTheme['--bg']).toBe('#f6f8fc');
-    expect(lightTheme['--text-sec']).toBe('#2f3a52');
+    expect(lightTheme['--bg']).toBe('#fbf9f2');
+    expect(lightTheme['--text-sec']).toBe('#584238');
     expect(markdown.color).toBe('var(--text-sec)');
     expect(assistantMarkdown.color).toBe('var(--text-sec)');
     expect(inlineCode.color).toBe('var(--text-pri)');
@@ -1403,7 +1430,7 @@ describe('card layout styles', () => {
   });
 });
 
-describe('blue-purple theme contract', () => {
+describe('suiyuan theme contract', () => {
   it('keeps the retired late visual layers out of the stylesheet', () => {
     const retiredFragments = [
       'Purple-blue luminous direction',
@@ -1444,14 +1471,14 @@ describe('blue-purple theme contract', () => {
     expect(dark['--accent-2']).toBe('var(--primary-2)');
     expect(dark['--green']).toBe('var(--success)');
     expect(dark['--blue']).toBe('var(--info)');
-    expect(light['--bg']).toBe('#f6f8fc');
-    expect(light['--primary']).toBe('#6d28d9');
-    expect(light['--primary-2']).toBe('#0284c7');
+    expect(light['--bg']).toBe('#fbf9f2');
+    expect(light['--primary']).toBe('#a03b00');
+    expect(light['--primary-2']).toBe('#792b00');
     expect(light['--accent']).toBe('var(--primary)');
     expect(light['--accent-2']).toBe('var(--primary-2)');
   });
 
-  it('uses the blue-purple primary action treatment in both themes', () => {
+  it('uses the Suiyuan primary action treatment in light mode', () => {
     const tokens = declarationsFor(':root');
     const light = declarationsFor('.sa-window[data-theme="light"]');
     const primary = declarationsFor('.btn-primary');
@@ -1461,8 +1488,8 @@ describe('blue-purple theme contract', () => {
 
     expect(tokens['--primary-action-bg']).toContain('#9b6cff');
     expect(tokens['--primary-action-bg']).toContain('#22d3ee');
-    expect(light['--primary-action-bg']).toContain('#6d28d9');
-    expect(light['--primary-action-bg']).toContain('#0284c7');
+    expect(light['--primary-action-bg']).toContain('#a03b00');
+    expect(light['--primary-action-bg']).toContain('#792b00');
     expect(primary.background).toBe('var(--primary-action-bg)');
     expect(primary.color).toBe('var(--primary-action-text)');
     expect(primary['white-space']).toBe('nowrap');
