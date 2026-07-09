@@ -365,6 +365,18 @@ describe('SkillsPage backend migration', () => {
     });
   });
 
+  it('fails fast when a datasource list response documents field is malformed', async () => {
+    backend.listDatasourceDocuments.mockResolvedValueOnce({ documents: {} });
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '操作失败：datasourceV2/list response.documents must be an array',
+    );
+    expect(backend.listDatasourceDocuments).toHaveBeenCalledWith({ limit: 200 });
+  });
+
   it('fails fast when a datasource chunk page reports hasMore without chunks', async () => {
     backend.getDatasourceDocument.mockResolvedValueOnce({
       document: {
