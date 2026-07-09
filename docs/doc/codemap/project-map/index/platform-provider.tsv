@@ -253,7 +253,7 @@ internal/mcpserver/common/stdio.go	internal	platform-provider	go-source	7127	MCP
 internal/mcpserver/common/structured_content_test.go	internal	platform-provider	go-test	4320	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,structured,content,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/structured_content.go	internal	platform-provider	go-source	1352	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,structured,content,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_error_envelope_test.go	internal	platform-provider	go-test	8090	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,test,MCP,server,公共框架,bootstrap,与,transport
-internal/mcpserver/common/tool_error_envelope.go	internal	platform-provider	go-source	20755	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,MCP,server,公共框架,bootstrap,与,transport
+internal/mcpserver/common/tool_error_envelope.go	internal	platform-provider	go-source	20659	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_payload_log_test.go	internal	platform-provider	go-test	10370	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_payload_log.go	internal	platform-provider	go-source	12660	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	3260	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,result,MCP,server,公共框架,bootstrap,与,transport
@@ -895,8 +895,8 @@ internal/provider/codexapp/session_approval.go	internal	platform-provider	go-sou
 internal/provider/codexapp/session_config_test.go	internal	platform-provider	go-test	1774	Codex app/server provider 集成	internal,provider,codexapp,session,config,test,Codex,app,server,集成
 internal/provider/codexapp/session_dispatch_context_window_test.go	internal	platform-provider	go-test	2831	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,context,window,test,Codex,app,server,集成
 internal/provider/codexapp/session_dispatch.go	internal	platform-provider	go-source	19949	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,Codex,app,server,集成
-internal/provider/codexapp/session_enrich_test.go	internal	platform-provider	go-test	10503	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,test,Codex,app,server,集成
-internal/provider/codexapp/session_enrich.go	internal	platform-provider	go-source	15380	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,Codex,app,server,集成
+internal/provider/codexapp/session_enrich_test.go	internal	platform-provider	go-test	11222	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,test,Codex,app,server,集成
+internal/provider/codexapp/session_enrich.go	internal	platform-provider	go-source	15510	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,Codex,app,server,集成
 internal/provider/codexapp/session_history.go	internal	platform-provider	go-source	4073	Codex app/server provider 集成	internal,provider,codexapp,session,history,Codex,app,server,集成
 internal/provider/codexapp/session_interrupt_test.go	internal	platform-provider	go-test	2696	Codex app/server provider 集成	internal,provider,codexapp,session,interrupt,test,Codex,app,server,集成
 internal/provider/codexapp/session_rollout_events.go	internal	platform-provider	go-source	10181	Codex app/server provider 集成	internal,provider,codexapp,session,rollout,events,Codex,app,server,集成

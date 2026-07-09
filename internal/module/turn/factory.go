@@ -298,17 +298,8 @@ func subagentToolPolicyFlags(tool string) (managed, spawn bool) {
 	case "spawn_agent":
 		return false, true
 	default:
-		return isManagedSubagentTool(tool), false
+		return contract.IsOrchestrationLaunchTool(tool), false
 	}
-}
-
-func isManagedSubagentTool(tool string) bool {
-	trimmed := strings.TrimSpace(tool)
-	if trimmed == "launch_agent" {
-		return true
-	}
-	legacy, ok := contract.OrchestrationLegacyPeerRealName("launch_agent")
-	return ok && trimmed == legacy
 }
 
 // persistentSubagentDefaultEnabled 兼容多个历史 flag 名，判断 UI 是否要求托管子代理入口优先。

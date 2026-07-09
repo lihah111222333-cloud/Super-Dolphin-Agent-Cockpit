@@ -108,6 +108,21 @@ func OrchestrationCanonicalToolName(legacyPeerRealName string) (string, bool) {
 	return "", false
 }
 
+// OrchestrationLaunchLegacyPeerRealName 返回 launch_agent 的 legacy peer realName。
+func OrchestrationLaunchLegacyPeerRealName() (string, bool) {
+	return OrchestrationLegacyPeerRealName(orchestrationLaunchCanonical)
+}
+
+// IsOrchestrationLaunchTool 判断工具名是否是 launch_agent 或其 legacy peer realName。
+func IsOrchestrationLaunchTool(toolName string) bool {
+	toolName = strings.ToLower(strings.TrimSpace(toolName))
+	if toolName == orchestrationLaunchCanonical {
+		return true
+	}
+	legacy, ok := OrchestrationLaunchLegacyPeerRealName()
+	return ok && toolName == legacy
+}
+
 // OrchestrationLaunchDefaultDisabledTools 返回默认禁用 launch_agent 时必须一起阻断的所有 orchestration 名称。
 func OrchestrationLaunchDefaultDisabledTools() ([]string, error) {
 	alias, ok := orchestrationToolAliasByCanonical(orchestrationLaunchCanonical)

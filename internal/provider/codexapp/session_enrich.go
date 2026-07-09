@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
@@ -89,9 +90,10 @@ func injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd str
 
 func shouldWarnToolCWDTrace(toolName string) bool {
 	toolName = strings.TrimSpace(toolName)
+	legacyLaunchTool, ok := contract.OrchestrationLaunchLegacyPeerRealName()
 	return strings.HasPrefix(toolName, "lsp_") ||
 		strings.HasPrefix(toolName, "code_") ||
-		toolName == "orchestration_launch_agent"
+		(ok && toolName == legacyLaunchTool)
 }
 
 type preparedToolCall struct {

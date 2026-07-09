@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // TestLegacyOrchestrationStringsStayInToolbridgeAliasIsolation 防止旧 orch 名重新散落到 toolbridge 生产代码。
@@ -68,6 +70,34 @@ func TestProductionCodeDoesNotDefineLegacyOrchestrationLiteralLists(t *testing.T
 	}
 }
 
+func TestProductionCodeDoesNotOwnLegacyOrchestrationStringLiterals(t *testing.T) {
+	t.Parallel()
+
+	root := repoRootForGuardTests(t)
+	forbidden := legacyOrchestrationForbiddenLiteralNames()
+	var violations []legacyOrchestrationLiteralListViolation
+	for _, relPath := range []string{"internal", "cmd"} {
+		paths := legacyOrchestrationLiteralListSourceFiles(t, root, relPath)
+		for _, path := range paths {
+			if legacyOrchestrationLiteralAllowedSource(root, path) {
+				continue
+			}
+			fileViolations, err := legacyOrchestrationStringLiteralViolations(path, forbidden)
+			if err != nil {
+				t.Fatalf("scan legacy orchestration literals in %s: %v", path, err)
+			}
+			violations = append(violations, fileViolations...)
+		}
+	}
+	if len(violations) == 0 {
+		return
+	}
+	for _, violation := range violations {
+		t.Errorf("%s:%d owns legacy orchestration literal(s) %v; consume internal/contract orchestration registry helpers instead",
+			violation.relPath, violation.line, violation.names)
+	}
+}
+
 func TestLegacyOrchestrationLiteralListGuardCatchesDuplicateFactSource(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +111,25 @@ var tools = []string{"launch_agent", "orchestration_launch_agent"}
 	}
 	if len(violations) != 1 {
 		t.Fatalf("violations = %#v, want one duplicate fact source violation", violations)
+	}
+	if violations[0].line != 3 || !sameStringSet(violations[0].names, []string{"orchestration_launch_agent"}) {
+		t.Fatalf("violation = %#v, want line 3 orchestration_launch_agent", violations[0])
+	}
+}
+
+func TestLegacyOrchestrationLiteralGuardCatchesSingleFactSource(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+var launch = "orchestration_launch_agent"
+`
+	violations, err := legacyOrchestrationStringLiteralViolationsFromSource("internal/provider/fixture.go", []byte(src), legacyOrchestrationForbiddenLiteralNames())
+	if err != nil {
+		t.Fatalf("scan fixture: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("violations = %#v, want one single literal violation", violations)
 	}
 	if violations[0].line != 3 || !sameStringSet(violations[0].names, []string{"orchestration_launch_agent"}) {
 		t.Fatalf("violation = %#v, want line 3 orchestration_launch_agent", violations[0])
@@ -197,6 +246,65 @@ func legacyOrchestrationLiteralListViolationsFromSource(path string, data []byte
 			relPath: filepath.ToSlash(path),
 			line:    fset.Position(lit.Pos()).Line,
 			names:   names,
+		})
+		return true
+	})
+	return violations, nil
+}
+
+func legacyOrchestrationForbiddenLiteralNames() map[string]struct{} {
+	names := append(contract.OrchestrationToolLegacyPeerRealNames(), contract.OrchestrationToolHiddenAliases()...)
+	forbidden := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		forbidden[name] = struct{}{}
+	}
+	return forbidden
+}
+
+func legacyOrchestrationLiteralAllowedSource(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	switch filepath.ToSlash(rel) {
+	case "internal/contract/orchestration.go":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyOrchestrationStringLiteralViolations(path string, forbidden map[string]struct{}) ([]legacyOrchestrationLiteralListViolation, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return legacyOrchestrationStringLiteralViolationsFromSource(path, data, forbidden)
+}
+
+func legacyOrchestrationStringLiteralViolationsFromSource(path string, data []byte, forbidden map[string]struct{}) ([]legacyOrchestrationLiteralListViolation, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, data, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+	var violations []legacyOrchestrationLiteralListViolation
+	ast.Inspect(file, func(node ast.Node) bool {
+		basic, ok := node.(*ast.BasicLit)
+		if !ok || basic.Kind != token.STRING {
+			return true
+		}
+		value, err := strconv.Unquote(basic.Value)
+		if err != nil {
+			return true
+		}
+		if _, ok := forbidden[value]; !ok {
+			return true
+		}
+		violations = append(violations, legacyOrchestrationLiteralListViolation{
+			relPath: filepath.ToSlash(path),
+			line:    fset.Position(basic.Pos()).Line,
+			names:   []string{value},
 		})
 		return true
 	})

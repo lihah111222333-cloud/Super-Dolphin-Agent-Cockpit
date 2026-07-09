@@ -94,6 +94,11 @@ func TestOrchestrationToolAliasLookups(t *testing.T) {
 		t.Fatalf("OrchestrationLegacyPeerRealName() = %q, %v", legacy, ok)
 	}
 
+	legacy, ok = OrchestrationLaunchLegacyPeerRealName()
+	if !ok || legacy != "orchestration_launch_agent" {
+		t.Fatalf("OrchestrationLaunchLegacyPeerRealName() = %q, %v", legacy, ok)
+	}
+
 	canonical, ok := OrchestrationCanonicalToolName(" orchestration_send_message ")
 	if !ok || canonical != "send_message" {
 		t.Fatalf("OrchestrationCanonicalToolName() = %q, %v", canonical, ok)
@@ -110,6 +115,19 @@ func TestOrchestrationToolAliasLookupsReturnFalseForUnknownNames(t *testing.T) {
 	for _, legacy := range []string{"", "unknown", "launch_agent", "mcp__orch__orchestration_launch_agent"} {
 		if canonical, ok := OrchestrationCanonicalToolName(legacy); ok || canonical != "" {
 			t.Fatalf("OrchestrationCanonicalToolName(%q) = %q, %v; want empty, false", legacy, canonical, ok)
+		}
+	}
+}
+
+func TestIsOrchestrationLaunchToolUsesRegistry(t *testing.T) {
+	for _, name := range []string{"launch_agent", " launch_agent ", "orchestration_launch_agent", "ORCHESTRATION_LAUNCH_AGENT"} {
+		if !IsOrchestrationLaunchTool(name) {
+			t.Fatalf("IsOrchestrationLaunchTool(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"", "send_message", "orchestration_send_message", "mcp__orch__orchestration_launch_agent"} {
+		if IsOrchestrationLaunchTool(name) {
+			t.Fatalf("IsOrchestrationLaunchTool(%q) = true, want false", name)
 		}
 	}
 }

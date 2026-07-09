@@ -96,7 +96,7 @@ internal/archtest/identifier_guard_test.go	internal	other	go-test	1539	架构守
 internal/archtest/ignored_return_guard_test.go	internal	other	go-test	3768	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ignored,return,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/interface_isolation_guard_test.go	internal	other	go-test	10721	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/jrpc2_error_guard_test.go	internal	other	go-test	1009	架构守卫、baseline ratchet 与冻结规则	internal,archtest,jrpc2,error,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/legacy_orchestration_alias_guard_test.go	internal	other	go-test	7120	架构守卫、baseline ratchet 与冻结规则	internal,archtest,legacy,orchestration,alias,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/legacy_orchestration_alias_guard_test.go	internal	other	go-test	10628	架构守卫、baseline ratchet 与冻结规则	internal,archtest,legacy,orchestration,alias,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/lifecycle_onstart_guard_test.go	internal	other	go-test	7801	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lifecycle,onstart,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/lsp_tool_guard_test.go	internal	other	go-test	1985	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lsp,tool,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/mcp_family_isolation_test.go	internal	other	go-test	1105	架构守卫、baseline ratchet 与冻结规则	internal,archtest,mcp,family,isolation,test,架构守卫,baseline,ratchet,与冻结规则
@@ -198,9 +198,9 @@ internal/contract/mcp_control_test.go	internal	other	go-test	1303	跨模块稳�
 internal/contract/mcp_control.go	internal	other	go-source	23286	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
 internal/contract/memory.go	internal	other	go-source	7763	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
 internal/contract/message_notifier.go	internal	other	go-source	1872	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
-internal/contract/orchestration_tool_alias_test.go	internal	other	go-test	5651	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,tool,alias,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/orchestration_tool_alias_test.go	internal	other	go-test	6386	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,tool,alias,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration_workbench_test.go	internal	other	go-test	1783	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,workbench,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/orchestration.go	internal	other	go-source	35743	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
+internal/contract/orchestration.go	internal	other	go-source	36332	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
 internal/contract/pending_launch_spawner.go	internal	other	go-source	1028	跨模块稳定接口、事件和 DTO 边界	internal,contract,pending,launch,spawner,跨模块稳定接口,事件和,DTO,边界
 internal/contract/prompt_attachment.go	internal	other	go-source	3872	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,attachment,跨模块稳定接口,事件和,DTO,边界
 internal/contract/prompt.go	internal	other	go-source	29030	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,跨模块稳定接口,事件和,DTO,边界

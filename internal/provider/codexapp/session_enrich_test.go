@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
@@ -101,6 +102,28 @@ func TestEnrichToolCallParams_PreservesOtherFields(t *testing.T) {
 	out := enrichToolCallParams(msg, "agent-99", "")
 	if !strings.Contains(string(out.Params), `"anchor":"Usage"`) {
 		t.Fatalf("arguments lost: %s", out.Params)
+	}
+}
+
+func TestShouldWarnToolCWDTraceUsesOrchestrationContractRegistry(t *testing.T) {
+	legacyLaunchTool, ok := contract.OrchestrationLaunchLegacyPeerRealName()
+	if !ok {
+		t.Fatal("launch_agent legacy tool missing from orchestration contract registry")
+	}
+
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{name: "lsp_file", want: true},
+		{name: "code_execute", want: true},
+		{name: legacyLaunchTool, want: true},
+		{name: "launch_agent", want: false},
+		{name: "send_message", want: false},
+	} {
+		if got := shouldWarnToolCWDTrace(tc.name); got != tc.want {
+			t.Fatalf("shouldWarnToolCWDTrace(%q) = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 

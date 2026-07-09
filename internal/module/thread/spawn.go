@@ -524,17 +524,8 @@ func subagentToolPolicyFlags(tool string) (managed, spawn bool) {
 	case temporarySubagentTool:
 		return false, true
 	default:
-		return isManagedSubagentTool(tool), false
+		return contract.IsOrchestrationLaunchTool(tool), false
 	}
-}
-
-func isManagedSubagentTool(tool string) bool {
-	trimmed := strings.TrimSpace(tool)
-	if trimmed == "launch_agent" {
-		return true
-	}
-	legacy, ok := contract.OrchestrationLegacyPeerRealName("launch_agent")
-	return ok && trimmed == legacy
 }
 
 // applyTitleExtractionFallback 在默认标题下尝试从首轮 prompt 提取展示名。

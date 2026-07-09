@@ -507,12 +507,7 @@ func isTaskTool(toolName string) bool {
 
 // isLaunchAgentTool 判断工具名是否是启动 agent 的入口。
 func isLaunchAgentTool(toolName string) bool {
-	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "launch_agent", "orchestration_launch_agent":
-		return true
-	default:
-		return false
-	}
+	return contract.IsOrchestrationLaunchTool(toolName)
 }
 
 // isEditTool 判断工具名是否是 LSP edit 或通用 edit。
