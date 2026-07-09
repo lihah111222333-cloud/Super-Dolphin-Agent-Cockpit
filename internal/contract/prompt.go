@@ -737,7 +737,7 @@ var readOnlyAgentDeniedTools = []string{
 // 返回副本避免调用方修改共享 deny list，launch env 和 reviewer preset 共用这份名单。
 func ReadOnlyAgentDeniedTools() []string {
 	denied := append([]string(nil), readOnlyAgentDeniedTools...)
-	denied = append(denied, OrchestrationToolAliasDenylist()...)
+	denied = append(denied, OrchestrationToolDenylist()...)
 	denied = append(denied, "connect_tool_source")
 	return denied
 }

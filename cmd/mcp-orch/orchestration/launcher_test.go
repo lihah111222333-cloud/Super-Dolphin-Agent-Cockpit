@@ -542,10 +542,10 @@ func TestService_SubmitTurnLocalMode(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Regression guard: child agents spawned via orchestration_launch_agent must
+// Regression guard: child agents spawned via launch_agent must
 // inherit cwd from their parent when the tool call omits it.
 //
-// Root cause (2026-05-15, bug "纯抽奖"): the orchestration_launch_agent tool
+// Root cause (2026-05-15, bug "纯抽奖"): the launch_agent tool
 // schema makes cwd optional, and parent LLMs typically omit it. Without
 // inheritance, req.Cwd reaches the launcher as "", propagates through
 // thread/start to agent_threads.cwd, and the sidebar snapshot omits the cwd

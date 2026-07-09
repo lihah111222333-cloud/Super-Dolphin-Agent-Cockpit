@@ -87,19 +87,19 @@ func TestResolveRoutedPrompt_MainDefaultOrchestratorSectionsGateIndependently(t 
 		},
 		{
 			name:    "launch only",
-			tools:   []string{"orchestration_launch_agent"},
+			tools:   []string{"launch_agent"},
 			want:    []string{"orchestrator_launch_context"},
 			notWant: []string{"orchestrator_report_context"},
 		},
 		{
 			name:    "report only",
-			tools:   []string{"orchestration_get_agent_report"},
+			tools:   []string{"get_agent_report"},
 			want:    []string{"orchestrator_report_context"},
 			notWant: []string{"orchestrator_launch_context"},
 		},
 		{
 			name:  "both tools",
-			tools: []string{"orchestration_launch_agent", "orchestration_get_agent_report"},
+			tools: []string{"launch_agent", "get_agent_report"},
 			want:  []string{"orchestrator_launch_context", "orchestrator_report_context"},
 		},
 	}

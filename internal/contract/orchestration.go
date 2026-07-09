@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,134 +21,53 @@ var (
 	ErrLaunchCWDRequired = errors.New("launch cwd is required")
 	ErrLaunchCWDInvalid  = errors.New("launch cwd is invalid")
 
-	// ErrOrchestrationToolAliasMissing 表示 contract registry 缺少必需的 orchestration 工具别名。
-	ErrOrchestrationToolAliasMissing = errors.New("orchestration tool alias is missing")
+	// ErrOrchestrationToolMissing 表示 contract registry 缺少必需的 orchestration 工具名。
+	ErrOrchestrationToolMissing = errors.New("orchestration tool is missing")
 )
-
-// OrchestrationToolAlias 描述 orchestration 控制面工具的短名和 legacy peer realName。
-type OrchestrationToolAlias struct {
-	Canonical          string
-	LegacyPeerRealName string
-}
 
 const (
 	orchestrationMCPOrchPrefix   = "mcp__orch__"
 	orchestrationLaunchCanonical = "launch_agent"
 )
 
-var orchestrationToolAliases = []OrchestrationToolAlias{
-	{Canonical: "launch_agent", LegacyPeerRealName: "orchestration_launch_agent"},
-	{Canonical: "send_message", LegacyPeerRealName: "orchestration_send_message"},
-	{Canonical: "stop_agent", LegacyPeerRealName: "orchestration_stop_agent"},
-	{Canonical: "recover_agent", LegacyPeerRealName: "orchestration_recover_agent"},
-	{Canonical: "interrupt_agent", LegacyPeerRealName: "orchestration_interrupt_agent"},
-	{Canonical: "list_agents", LegacyPeerRealName: "orchestration_list_agents"},
-	{Canonical: "get_agent_report", LegacyPeerRealName: "orchestration_get_agent_report"},
-	{Canonical: "get_agent_reports", LegacyPeerRealName: "orchestration_get_agent_reports"},
-}
-
-// OrchestrationToolAliases 返回 orchestration 控制面的短名和 legacy peer realName 映射副本。
-func OrchestrationToolAliases() []OrchestrationToolAlias {
-	return append([]OrchestrationToolAlias(nil), orchestrationToolAliases...)
+var orchestrationToolCanonicalNames = []string{
+	"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
+	"list_agents", "get_agent_report", "get_agent_reports",
 }
 
 // OrchestrationToolCanonicalNames 返回 orchestration 控制面的 canonical 短工具名副本。
 func OrchestrationToolCanonicalNames() []string {
-	names := make([]string, 0, len(orchestrationToolAliases))
-	for _, alias := range orchestrationToolAliases {
-		names = append(names, alias.Canonical)
-	}
-	return names
+	return append([]string(nil), orchestrationToolCanonicalNames...)
 }
 
-// OrchestrationToolLegacyPeerRealNames 返回 orchestration 控制面的 legacy peer realName 副本。
-func OrchestrationToolLegacyPeerRealNames() []string {
-	names := make([]string, 0, len(orchestrationToolAliases))
-	for _, alias := range orchestrationToolAliases {
-		names = append(names, alias.LegacyPeerRealName)
-	}
-	return names
+// OrchestrationToolDenylist 返回 orchestration 控制面的 canonical 工具名。
+func OrchestrationToolDenylist() []string {
+	return OrchestrationToolCanonicalNames()
 }
 
-// OrchestrationToolHiddenAliases 返回 orchestration legacy peer realName 的 namespaced deny/hidden alias 副本。
-func OrchestrationToolHiddenAliases() []string {
-	names := make([]string, 0, len(orchestrationToolAliases))
-	for _, alias := range orchestrationToolAliases {
-		names = append(names, orchestrationMCPOrchPrefix+alias.LegacyPeerRealName)
-	}
-	return names
-}
-
-// OrchestrationToolAliasDenylist 返回 orchestration 控制面的 canonical 和 legacy peer 名。
-func OrchestrationToolAliasDenylist() []string {
-	names := OrchestrationToolCanonicalNames()
-	names = append(names, OrchestrationToolLegacyPeerRealNames()...)
-	return names
-}
-
-// OrchestrationLegacyPeerRealName 根据 canonical 短工具名查询 legacy peer realName。
-func OrchestrationLegacyPeerRealName(canonical string) (string, bool) {
-	alias, ok := orchestrationToolAliasByCanonical(canonical)
-	if !ok {
-		return "", false
-	}
-	return alias.LegacyPeerRealName, true
-}
-
-// OrchestrationCanonicalToolName 根据 legacy peer realName 查询 canonical 短工具名。
-func OrchestrationCanonicalToolName(legacyPeerRealName string) (string, bool) {
-	legacyPeerRealName = strings.TrimSpace(legacyPeerRealName)
-	if legacyPeerRealName == "" {
-		return "", false
-	}
-	for _, alias := range orchestrationToolAliases {
-		if alias.LegacyPeerRealName == legacyPeerRealName {
-			return alias.Canonical, true
-		}
-	}
-	return "", false
-}
-
-// OrchestrationLaunchLegacyPeerRealName 返回 launch_agent 的 legacy peer realName。
-func OrchestrationLaunchLegacyPeerRealName() (string, bool) {
-	return OrchestrationLegacyPeerRealName(orchestrationLaunchCanonical)
-}
-
-// IsOrchestrationLaunchTool 判断工具名是否是 launch_agent 或其 legacy peer realName。
+// IsOrchestrationLaunchTool 判断工具名是否是 launch_agent。
 func IsOrchestrationLaunchTool(toolName string) bool {
 	toolName = strings.ToLower(strings.TrimSpace(toolName))
-	if toolName == orchestrationLaunchCanonical {
-		return true
-	}
-	legacy, ok := OrchestrationLaunchLegacyPeerRealName()
-	return ok && toolName == legacy
+	return toolName == orchestrationLaunchCanonical
 }
 
 // OrchestrationLaunchDefaultDisabledTools 返回默认禁用 launch_agent 时必须一起阻断的所有 orchestration 名称。
 func OrchestrationLaunchDefaultDisabledTools() ([]string, error) {
-	alias, ok := orchestrationToolAliasByCanonical(orchestrationLaunchCanonical)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrOrchestrationToolAliasMissing, orchestrationLaunchCanonical)
+	if !orchestrationToolCanonicalExists(orchestrationLaunchCanonical) {
+		return nil, fmt.Errorf("%w: %s", ErrOrchestrationToolMissing, orchestrationLaunchCanonical)
 	}
 	return []string{
-		alias.Canonical,
-		orchestrationMCPOrchPrefix + alias.Canonical,
-		alias.LegacyPeerRealName,
-		orchestrationMCPOrchPrefix + alias.LegacyPeerRealName,
+		orchestrationLaunchCanonical,
+		orchestrationMCPOrchPrefix + orchestrationLaunchCanonical,
 	}, nil
 }
 
-func orchestrationToolAliasByCanonical(canonical string) (OrchestrationToolAlias, bool) {
+func orchestrationToolCanonicalExists(canonical string) bool {
 	canonical = strings.TrimSpace(canonical)
 	if canonical == "" {
-		return OrchestrationToolAlias{}, false
+		return false
 	}
-	for _, alias := range orchestrationToolAliases {
-		if alias.Canonical == canonical {
-			return alias, true
-		}
-	}
-	return OrchestrationToolAlias{}, false
+	return slices.Contains(orchestrationToolCanonicalNames, canonical)
 }
 
 // ValidateLaunchCWD 校验启动工作目录。

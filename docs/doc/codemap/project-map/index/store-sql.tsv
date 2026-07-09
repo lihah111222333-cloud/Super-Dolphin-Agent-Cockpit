@@ -271,6 +271,7 @@ migrations/0107_prompt_template_expert_consolidation.sql	migrations	store-sql	sq
 migrations/0108_refresh_dag_designer_prompt_final_node_key.sql	migrations	store-sql	sql	10921	数据库 migration	migrations,0108,refresh,dag,designer,prompt,final,node,key,数据库,migration
 migrations/0109_refresh_dag_designer_prompt_agent_cwd.sql	migrations	store-sql	sql	412	数据库 migration	migrations,0109,refresh,dag,designer,prompt,agent,cwd,数据库,migration
 migrations/0110_datasource_v2_documents.sql	migrations	store-sql	sql	1511	数据库 migration	migrations,0110,datasource,v2,documents,数据库,migration
+migrations/0111_refresh_orchestration_short_tool_names.sql	migrations	store-sql	sql	843	数据库 migration	migrations,0111,refresh,orchestration,short,tool,names,数据库,migration
 migrations/dev-data/README.md	migrations	store-sql	doc	845	数据库 migration	migrations,dev,data,README,数据库,migration
 migrations/migration_checklist.json	migrations	store-sql	json	8810	数据库 migration	migrations,migration,checklist,数据库
 migrations/ROLLBACK.md	migrations	store-sql	doc	44100	数据库 migration	migrations,ROLLBACK,数据库,migration

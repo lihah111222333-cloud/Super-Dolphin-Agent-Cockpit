@@ -73,6 +73,23 @@ func TestRegistryBackedSystemSeedRowsAreDisabledAfterCutover(t *testing.T) {
 	}
 }
 
+func TestDAGDesignerSystemSeedRowsAreDisabledForRegistryShortToolNames(t *testing.T) {
+	content := readPromptMigration(t, "0111_refresh_orchestration_short_tool_names.sql")
+	for _, marker := range []string{
+		"('main/dag_designer_zh')",
+		"('main/dag_designer_en')",
+		"SET enabled = FALSE",
+		"updated_by = 'migration:0111'",
+		"t.created_by IN ('system.seed', 'seed')",
+		"OR t.updated_by LIKE 'migration:%'",
+		"t.manually_edited = FALSE",
+	} {
+		if !strings.Contains(content, marker) {
+			t.Fatalf("0111 missing registry-backed DAG designer disable marker %q", marker)
+		}
+	}
+}
+
 func TestPromptBuiltinMigrationBodyDetectorRejectsInlinePromptBodies(t *testing.T) {
 	t.Parallel()
 

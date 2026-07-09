@@ -5,15 +5,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4219,
+  "files": 4220,
   "domains": {
     "docs-agent": 858,
-    "other": 500,
+    "other": 501,
     "app-ui": 425,
-    "platform-provider": 1007,
+    "platform-provider": 1006,
     "orchestration": 406,
     "modules": 717,
-    "store-sql": 306
+    "store-sql": 307
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -43,15 +43,15 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1007,
-        "size_kb": 185.6,
+        "file_count": 1006,
+        "size_kb": 185.4,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 306,
-        "size_kb": 45.5,
+        "file_count": 307,
+        "size_kb": 45.7,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 500,
-        "size_kb": 95.2,
+        "file_count": 501,
+        "size_kb": 95.4,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -76,7 +76,7 @@
     "docs": 855,
     "frontend-app": 423,
     "internal": 1997,
-    "migrations": 111,
+    "migrations": 112,
     "pkg": 25,
     "scripts": 109,
     "sql": 30,

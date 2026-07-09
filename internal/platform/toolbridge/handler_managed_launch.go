@@ -41,7 +41,7 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
-		h.warn("toolbridge: "+legacyManagedLaunchPeerRealName()+" context injection failed",
+		h.warn("toolbridge: launch_agent context injection failed",
 			"agent_id", binding.AgentID,
 			"error", err)
 		return req
@@ -62,14 +62,14 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 		"has_codex_instance_key", strings.TrimSpace(binding.CodexInstanceKey) != "",
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
-	h.warn("toolbridge: "+legacyManagedLaunchPeerRealName()+" inherited context", fields...)
+	h.warn("toolbridge: launch_agent inherited context", fields...)
 	return req
 }
 
 // isManagedLaunchToolName 判断工具名是否为单 agent 启动入口。
 func isManagedLaunchToolName(name string) bool {
 	name = strings.TrimSpace(name)
-	return name == "launch_agent" || name == legacyManagedLaunchPeerRealName()
+	return name == "launch_agent"
 }
 
 // resolveManagedLaunchDefaults 按 UI 偏好和父线程 runtime 计算子 agent 默认启动参数。
@@ -220,14 +220,14 @@ func firstNonEmptyString(values ...string) string {
 
 // warnManagedLaunchConfigTrace 记录 launch_agent 参数继承的调试信息。
 func (h *Handler) warnManagedLaunchConfigTrace(ctx context.Context, req ToolCallRequest) {
-	if strings.TrimSpace(req.Name) != legacyManagedLaunchPeerRealName() {
+	if strings.TrimSpace(req.Name) != "launch_agent" {
 		return
 	}
 	args := decodeToolArguments(req.Arguments)
 	threadID, _ := h.resolveToolCallThreadID(ctx, req)
 	stored, ok := h.readStoredThreadRuntime(ctx, threadID)
 	runtime := stored.Runtime
-	h.debug("toolbridge: "+legacyManagedLaunchPeerRealName()+" config trace",
+	h.debug("toolbridge: launch_agent config trace",
 		"agent_id", strings.TrimSpace(req.AgentID),
 		"thread_id", threadID,
 		"args_provider", mapString(args, "provider"),

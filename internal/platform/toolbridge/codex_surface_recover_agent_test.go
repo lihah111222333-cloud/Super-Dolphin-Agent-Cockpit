@@ -12,7 +12,7 @@ import (
 
 func TestCodexSurfaceExposesRecoverAgentShortName(t *testing.T) {
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{
-		Name:        "orchestration_recover_agent",
+		Name:        "recover_agent",
 		Description: "recover agent",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}}}
@@ -42,8 +42,8 @@ func TestCodexSurfaceExposesRecoverAgentShortName(t *testing.T) {
 	if result == nil {
 		t.Fatal("HandleToolCall(recover_agent) result = nil")
 	}
-	if !orch.calledWith("orchestration_recover_agent") {
-		t.Fatalf("orch calls = %#v, want orchestration_recover_agent", orch.calls)
+	if !orch.calledWith("recover_agent") {
+		t.Fatalf("orch calls = %#v, want recover_agent", orch.calls)
 	}
 }
 

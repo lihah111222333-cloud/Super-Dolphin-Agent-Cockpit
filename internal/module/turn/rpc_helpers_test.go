@@ -104,7 +104,7 @@ func expandedPrepareInputSession() *rpcHelperSession {
 			"language":                     "Chinese",
 			"enabledTools":                 []string{"lsp_file", "spawn_agent"},
 			"additionalWorkingDirectories": []string{"/repo/runtime-extra"},
-			"mcpTools":                     []string{"mcp__orch__orchestration_send_message"},
+			"mcpTools":                     []string{"mcp__orch__send_message"},
 			"mcpInstructions":              map[string]any{"orch": "Use orchestration runtime fallback."},
 			"sessionFlags":                 map[string]any{"runtime_only": true},
 		},
@@ -205,12 +205,12 @@ func TestBuildPrepareInputFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t 
 
 	input := buildPrepareInput(prepareInputSpec{
 		ThreadRuntimeConfig: map[string]any{
-			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+			"enabledTools": []string{"spawn_agent", "launch_agent", "request_user_input"},
 			"sessionFlags": map[string]any{"persistent_subagent_default": true},
 		},
 	}, prepareSkillSpec{}, nil)
 
-	if got := input.EnabledTools; len(got) != 2 || got[0] != "orchestration_launch_agent" || got[1] != "request_user_input" {
+	if got := input.EnabledTools; len(got) != 2 || got[0] != "launch_agent" || got[1] != "request_user_input" {
 		t.Fatalf("EnabledTools = %#v, want managed-only child-agent tools", input.EnabledTools)
 	}
 }

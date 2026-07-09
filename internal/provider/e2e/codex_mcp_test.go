@@ -102,7 +102,7 @@ func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *
 	t.Cleanup(func() { _ = session.Close(context.Background()) })
 
 	params := recorder.threadStartParamsSnapshot()
-	assertDynamicToolNames(t, params, []string{toolbridge.ToolNameMemoryRead, "orchestration_launch_agent", "lsp_hover"})
+	assertDynamicToolNames(t, params, []string{toolbridge.ToolNameMemoryRead, "launch_agent", "lsp_hover"})
 	tools := dynamicToolsFromParams(t, params)
 	if countDynamicToolName(tools, toolbridge.ToolNameMemoryRead) != 1 {
 		t.Fatalf("dynamicTools = %#v, want exactly one memory_read", tools)
@@ -162,7 +162,7 @@ func newCodexToolBridgeRegistry() codexToolBridgeRegistry {
 		mcpdto.ClientKindOrch: {
 			codexToolInstance(mcpdto.ClientKindOrch, codexListToolsPeer([]mcpdto.MCPTool{
 				{Name: toolbridge.ToolNameMemoryRead, Description: "peer memory read must be filtered", InputSchema: json.RawMessage(`{"type":"object","properties":{"peer":{"type":"boolean"}}}`)},
-				{Name: "orchestration_launch_agent", Description: "peer orch", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				{Name: "launch_agent", Description: "peer orch", InputSchema: json.RawMessage(`{"type":"object"}`)},
 			})),
 		},
 		mcpdto.ClientKindLSP: {

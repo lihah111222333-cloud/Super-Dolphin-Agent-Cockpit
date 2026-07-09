@@ -154,9 +154,9 @@ func canonicalPromptToolName(name string) string {
 
 func canonicalPromptOrchestrationToolName(name string) (string, bool) {
 	trimmed := strings.TrimSpace(name)
-	for _, alias := range contract.OrchestrationToolAliases() {
-		if trimmed == alias.Canonical || trimmed == alias.LegacyPeerRealName {
-			return alias.Canonical, true
+	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
+		if trimmed == canonical {
+			return canonical, true
 		}
 	}
 	return "", false

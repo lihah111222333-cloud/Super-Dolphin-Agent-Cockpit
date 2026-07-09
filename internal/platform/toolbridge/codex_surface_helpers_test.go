@@ -93,31 +93,19 @@ func jsonEscape(value string) string {
 	return string(data[1 : len(data)-1])
 }
 
-func orchestrationToolAliasesForTest(t *testing.T) []contract.OrchestrationToolAlias {
+func orchestrationToolNamesForTest(t *testing.T) []string {
 	t.Helper()
-	canonicals := contract.OrchestrationToolCanonicalNames()
-	aliases := make([]contract.OrchestrationToolAlias, 0, len(canonicals))
-	for _, canonical := range canonicals {
-		legacy, ok := contract.OrchestrationLegacyPeerRealName(canonical)
-		if !ok {
-			t.Fatalf("OrchestrationLegacyPeerRealName(%q) = false, want true", canonical)
-		}
-		if got, ok := contract.OrchestrationCanonicalToolName(legacy); !ok || got != canonical {
-			t.Fatalf("OrchestrationCanonicalToolName(%q) = %q, %v; want %q, true", legacy, got, ok, canonical)
-		}
-		aliases = append(aliases, contract.OrchestrationToolAlias{Canonical: canonical, LegacyPeerRealName: legacy})
-	}
-	return aliases
+	return contract.OrchestrationToolCanonicalNames()
 }
 
-func orchestrationLegacyPeerToolsForTest(t *testing.T) []mcpdto.MCPTool {
+func orchestrationToolsForTest(t *testing.T) []mcpdto.MCPTool {
 	t.Helper()
-	aliases := orchestrationToolAliasesForTest(t)
-	tools := make([]mcpdto.MCPTool, 0, len(aliases))
-	for _, alias := range aliases {
+	names := orchestrationToolNamesForTest(t)
+	tools := make([]mcpdto.MCPTool, 0, len(names))
+	for _, name := range names {
 		tools = append(tools, mcpdto.MCPTool{
-			Name:        alias.LegacyPeerRealName,
-			Description: alias.Canonical,
+			Name:        name,
+			Description: name,
 			InputSchema: strictEmptyObjectSchema(),
 		})
 	}
@@ -171,7 +159,7 @@ func assertDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, wa
 			t.Fatalf("dynamic tools advertised legacy alias %q; got %#v", legacy, got)
 		}
 	}
-	for _, legacy := range contract.OrchestrationToolLegacyPeerRealNames() {
+	for _, legacy := range []string{"orchestration_launch_agent", "orchestration_list_agents"} {
 		if got[legacy] {
 			t.Fatalf("dynamic tools advertised legacy orchestration alias %q; got %#v", legacy, got)
 		}

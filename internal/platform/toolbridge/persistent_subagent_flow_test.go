@@ -191,7 +191,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		CWD:           t.TempDir(),
 		Name:          "worker-agent",
 		ParentAgentID: "agent-main",
-		EnabledTools:  []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+		EnabledTools:  []string{"spawn_agent", "launch_agent", "request_user_input"},
 		Config: map[string]any{
 			contract.CodexHomeKey:          t.TempDir(),
 			contract.CodexInstanceKeyKey:   "default",
@@ -209,7 +209,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	if !ok {
 		t.Fatalf("StartSessionRequest.Config.enabledTools = %#v, want []string", starter.captured.Config["enabledTools"])
 	}
-	if got, want := fmt.Sprintf("%#v", startTools), `[]string{"orchestration_launch_agent", "request_user_input"}`; got != want {
+	if got, want := fmt.Sprintf("%#v", startTools), `[]string{"launch_agent", "request_user_input"}`; got != want {
 		t.Fatalf("StartSessionRequest.Config.enabledTools = %s, want %s", got, want)
 	}
 
@@ -217,7 +217,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	if err != nil {
 		t.Fatalf("decode runtime config error = %v", err)
 	}
-	if got, want := fmt.Sprintf("%#v", runtimeStrings(runtime, "enabledTools")), `[]string{"orchestration_launch_agent", "request_user_input"}`; got != want {
+	if got, want := fmt.Sprintf("%#v", runtimeStrings(runtime, "enabledTools")), `[]string{"launch_agent", "request_user_input"}`; got != want {
 		t.Fatalf("stored runtime enabledTools = %s, want %s", got, want)
 	}
 

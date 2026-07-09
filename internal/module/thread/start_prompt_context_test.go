@@ -126,13 +126,13 @@ func TestBuildStartCtxFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *tes
 
 	ctx := buildStartCtx(StartRequest{
 		Config: map[string]any{
-			"enabledTools": []any{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+			"enabledTools": []any{"spawn_agent", "launch_agent", "request_user_input"},
 		},
 	}, &contract.Config{
 		Agent: contract.AgentConfig{PersistentSubagentDefault: true},
 	}, nil)
 
-	if got := sortedStrings(ctx.EnabledTools); !slices.Equal(got, []string{"orchestration_launch_agent", "request_user_input"}) {
+	if got := sortedStrings(ctx.EnabledTools); !slices.Equal(got, []string{"launch_agent", "request_user_input"}) {
 		t.Fatalf("EnabledTools = %#v, want managed-only child-agent tools", ctx.EnabledTools)
 	}
 }

@@ -17,12 +17,14 @@ func TestRegistryAdvertisesShortOrchestrationNames(t *testing.T) {
 		got[tool.Name] = true
 	}
 
-	for _, alias := range contract.OrchestrationToolAliases() {
-		if !got[alias.Canonical] {
-			t.Fatalf("registry.List() missing short orchestration tool %q; got %#v", alias.Canonical, got)
+	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
+		if !got[canonical] {
+			t.Fatalf("registry.List() missing short orchestration tool %q; got %#v", canonical, got)
 		}
-		if got[alias.LegacyPeerRealName] {
-			t.Fatalf("registry.List() exposed legacy orchestration alias %q; got %#v", alias.LegacyPeerRealName, got)
+	}
+	for _, legacy := range []string{"orchestration_launch_agent", "orchestration_list_agents"} {
+		if got[legacy] {
+			t.Fatalf("registry.List() exposed legacy orchestration alias %q; got %#v", legacy, got)
 		}
 	}
 }
@@ -59,16 +61,18 @@ func TestRegistryExposesOnlyVideoWithAudioGeneration(t *testing.T) {
 func TestRegistryLookupRejectsLegacyOrchestrationAliases(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 
-	for _, alias := range contract.OrchestrationToolAliases() {
-		if _, ok := registry.Lookup(alias.LegacyPeerRealName); ok {
-			t.Fatalf("registry.Lookup(%q) = true, want false", alias.LegacyPeerRealName)
+	for _, legacy := range []string{"orchestration_launch_agent", "orchestration_list_agents"} {
+		if _, ok := registry.Lookup(legacy); ok {
+			t.Fatalf("registry.Lookup(%q) = true, want false", legacy)
 		}
-		canonicalTool, ok := registry.Lookup(alias.Canonical)
+	}
+	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
+		canonicalTool, ok := registry.Lookup(canonical)
 		if !ok {
-			t.Fatalf("registry.Lookup(%q) = false, want true", alias.Canonical)
+			t.Fatalf("registry.Lookup(%q) = false, want true", canonical)
 		}
-		if canonicalTool.Name != alias.Canonical {
-			t.Fatalf("registry.Lookup(%q).Name = %q, want %q", alias.Canonical, canonicalTool.Name, alias.Canonical)
+		if canonicalTool.Name != canonical {
+			t.Fatalf("registry.Lookup(%q).Name = %q, want %q", canonical, canonicalTool.Name, canonical)
 		}
 	}
 }

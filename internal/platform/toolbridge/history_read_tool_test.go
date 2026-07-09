@@ -357,7 +357,7 @@ func TestListToolsForCodex_FiltersPeerHistoryReadWhenHostUnavailable(t *testing.
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{
 			{Name: ToolNameHistoryRead, Description: "peer history"},
-			{Name: "orchestration_launch_agent", Description: "peer orch"},
+			{Name: "launch_agent", Description: "peer orch"},
 		}, nil)},
 		mcpdto.ClientKindLSP: {listToolsPeer(nil, nil)},
 	}}
@@ -370,7 +370,7 @@ func TestListToolsForCodex_FiltersPeerHistoryReadWhenHostUnavailable(t *testing.
 	if containsDynamicToolName(tools, ToolNameHistoryRead) {
 		t.Fatalf("dynamic tools = %+v, must filter peer history_read when host history is unavailable", tools)
 	}
-	if !containsDynamicToolName(tools, "orchestration_launch_agent") {
+	if !containsDynamicToolName(tools, "launch_agent") {
 		t.Fatalf("dynamic tools = %+v, want non-history peer tool preserved", tools)
 	}
 }

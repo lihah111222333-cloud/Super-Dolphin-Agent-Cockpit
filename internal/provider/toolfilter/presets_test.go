@@ -70,7 +70,7 @@ func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 		"wait_agent",
 		"close_agent",
 		"connect_tool_source",
-	}, contract.OrchestrationToolAliasDenylist()...)
+	}, contract.OrchestrationToolDenylist()...)
 	for _, name := range deniedNames {
 		if slices.Contains(got.AllowedTools, name) {
 			t.Fatalf("allowed unexpectedly contains %s: %#v", name, got.AllowedTools)
@@ -81,13 +81,13 @@ func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 	}
 }
 
-func TestReviewerPreset_DeniesOrchestrationLegacyAndShortAliases(t *testing.T) {
+func TestReviewerPreset_DeniesOrchestrationTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
 
-	for _, name := range orchestrationAliasDenylistForTest() {
+	for _, name := range orchestrationDenylistForTest() {
 		if !toolDenied(got, name) {
-			t.Fatalf("reviewer denied missing orchestration alias %q: %#v", name, got.DeniedTools)
+			t.Fatalf("reviewer denied missing orchestration tool %q: %#v", name, got.DeniedTools)
 		}
 	}
 }
@@ -148,32 +148,32 @@ func toolDenied(decision mcp.BeforeDecision, name string) bool {
 func TestWorkerPreset_DeniesOrchestration(t *testing.T) {
 	got := WorkerDecision()
 	assertAllow(t, got)
-	want := orchestrationAliasDenylistForTest()
+	want := orchestrationDenylistForTest()
 	if !slices.Equal(got.DeniedTools, want) {
 		t.Fatalf("denied = %#v, want %#v", got.DeniedTools, want)
 	}
 }
 
-func TestWorkerPreset_DeniesOrchestrationLegacyAndShortAliases(t *testing.T) {
+func TestWorkerPreset_DeniesOrchestrationTools(t *testing.T) {
 	got := WorkerDecision()
 	assertAllow(t, got)
 
-	for _, name := range orchestrationAliasDenylistForTest() {
+	for _, name := range orchestrationDenylistForTest() {
 		if !toolDenied(got, name) {
-			t.Fatalf("worker denied missing orchestration alias %q: %#v", name, got.DeniedTools)
+			t.Fatalf("worker denied missing orchestration tool %q: %#v", name, got.DeniedTools)
 		}
 	}
 }
 
-func TestWorkerPreset_OrchestrationDenylistMatchesReviewerAliases(t *testing.T) {
+func TestWorkerPreset_OrchestrationDenylistMatchesReviewer(t *testing.T) {
 	worker := WorkerDecision()
 	reviewer := ReviewerDecision()
 	assertAllow(t, worker)
 	assertAllow(t, reviewer)
 
-	for _, name := range orchestrationAliasDenylistForTest() {
+	for _, name := range orchestrationDenylistForTest() {
 		if toolDenied(reviewer, name) != toolDenied(worker, name) {
-			t.Fatalf("orchestration alias %q reviewer denied=%v worker denied=%v", name, toolDenied(reviewer, name), toolDenied(worker, name))
+			t.Fatalf("orchestration tool %q reviewer denied=%v worker denied=%v", name, toolDenied(reviewer, name), toolDenied(worker, name))
 		}
 	}
 }
@@ -194,6 +194,6 @@ func TestFullAccessPreset_NoRestrictions(t *testing.T) {
 	}
 }
 
-func orchestrationAliasDenylistForTest() []string {
-	return contract.OrchestrationToolAliasDenylist()
+func orchestrationDenylistForTest() []string {
+	return contract.OrchestrationToolDenylist()
 }

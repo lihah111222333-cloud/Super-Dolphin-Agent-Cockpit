@@ -90,10 +90,9 @@ func injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd str
 
 func shouldWarnToolCWDTrace(toolName string) bool {
 	toolName = strings.TrimSpace(toolName)
-	legacyLaunchTool, ok := contract.OrchestrationLaunchLegacyPeerRealName()
 	return strings.HasPrefix(toolName, "lsp_") ||
 		strings.HasPrefix(toolName, "code_") ||
-		(ok && toolName == legacyLaunchTool)
+		contract.IsOrchestrationLaunchTool(toolName)
 }
 
 type preparedToolCall struct {

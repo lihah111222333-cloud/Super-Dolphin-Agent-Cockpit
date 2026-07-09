@@ -62,7 +62,7 @@ func TestProvideHostToolRegistryForCodexOmitsSkillReadSectionButKeepsMemoryTools
 
 func TestListToolsForCodex_FiltersRemovedSkillToolsFromHostAndPeer(t *testing.T) {
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameLegacySkillReadResource, Description: "peer removed"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameLegacySkillReadResource, Description: "peer removed"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: ToolNameLegacySkillExpandBody, Description: "host removed"}, {Name: ToolNameMemoryRead, Description: "host memory"}}}
@@ -77,7 +77,7 @@ func TestListToolsForCodex_FiltersRemovedSkillToolsFromHostAndPeer(t *testing.T)
 			t.Fatalf("dynamic tools = %+v, must not include removed skill tool %s", tools, removed)
 		}
 	}
-	if !containsDynamicToolName(tools, ToolNameMemoryRead) || !containsDynamicToolName(tools, "orchestration_launch_agent") {
+	if !containsDynamicToolName(tools, ToolNameMemoryRead) || !containsDynamicToolName(tools, "launch_agent") {
 		t.Fatalf("dynamic tools = %+v, want memory and peer tools preserved", tools)
 	}
 }
@@ -134,7 +134,7 @@ func TestCodexRemovedLegacySkillToolsDoNotFallbackToPeer(t *testing.T) {
 
 func TestListToolsForCodex_FiltersPeerMemoryReadWhenReaderUnavailable(t *testing.T) {
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
 	h := &Handler{registry: registry}
@@ -145,7 +145,7 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenReaderUnavailable(t *testing
 	if containsDynamicToolName(tools, ToolNameMemoryRead) {
 		t.Fatalf("dynamic tools = %+v, must filter peer memory_read when host reader is unavailable", tools)
 	}
-	if !containsDynamicToolName(tools, "orchestration_launch_agent") {
+	if !containsDynamicToolName(tools, "launch_agent") {
 		t.Fatalf("dynamic tools = %+v, want non-memory peer tool preserved", tools)
 	}
 }
@@ -154,7 +154,7 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *t
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
@@ -165,7 +165,7 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *t
 	if containsDynamicToolName(tools, ToolNameMemoryRead) {
 		t.Fatalf("dynamic tools = %+v, must filter peer memory_read when memory_read tools are disabled", tools)
 	}
-	if !containsDynamicToolName(tools, "orchestration_launch_agent") {
+	if !containsDynamicToolName(tools, "launch_agent") {
 		t.Fatalf("dynamic tools = %+v, want non-memory peer tool preserved", tools)
 	}
 }

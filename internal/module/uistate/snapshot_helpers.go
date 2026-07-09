@@ -249,9 +249,6 @@ func isOrchestrationCollabTool(name string) bool {
 
 func canonicalOrchestrationToolName(name string) string {
 	trimmed := strings.TrimSpace(name)
-	if canonical, ok := contract.OrchestrationCanonicalToolName(trimmed); ok {
-		return canonical
-	}
 	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
 		if trimmed == canonical {
 			return canonical

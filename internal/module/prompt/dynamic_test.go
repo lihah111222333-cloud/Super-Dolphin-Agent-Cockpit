@@ -178,8 +178,8 @@ func sessionGuidanceCases() []sessionGuidanceCase {
 			},
 		},
 		{
-			name:         "persistent_child_agents_with_legacy_surface_still_teaches_short_names",
-			enabledTools: []string{"orchestration_launch_agent", "orchestration_get_agent_report", "orchestration_interrupt_agent", "orchestration_recover_agent"},
+			name:         "persistent_child_agents_teaches_short_names",
+			enabledTools: []string{"launch_agent", "get_agent_report", "interrupt_agent", "recover_agent"},
 			flags:        map[string]bool{"non_interactive": true, "persistent_subagent_default": true},
 			want:         []string{"`launch_agent`", "`get_agent_report(wait=true)`", "After launch", "`context_mode=\"minimal\"`", "`context_mode=\"focused\"`", "`context_mode=\"forked\"`", "`interrupt_agent`", "`recover_agent`"},
 			absent:       []string{"`spawn_agent`", "orchestration_launch_agent", "orchestration_get_agent_report", "orchestration_interrupt_agent", "orchestration_recover_agent"},

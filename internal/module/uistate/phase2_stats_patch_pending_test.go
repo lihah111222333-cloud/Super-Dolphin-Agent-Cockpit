@@ -227,7 +227,7 @@ func TestNormalizeToolName(t *testing.T) {
 		{"format preview", "format_preview", "format_preview"},
 		{"legacy format preview", "lsp_format_preview", "format_preview"},
 		{"mcp format preview", "mcp__lsp__lsp_format_preview", "format_preview"},
-		{"mcp orch namespaced", "mcp__orch__orchestration_launch_agent", "orchestration_launch_agent"},
+		{"mcp orch namespaced", "mcp__orch__launch_agent", "launch_agent"},
 		{"mcp playwright namespaced", "mcp__playwright__browser_click", "browser_click"},
 		{"mcp prefix without server", "mcp__", "mcp__"},
 		{"mcp prefix only", "mcp__lsp", "mcp__lsp"},
@@ -254,8 +254,8 @@ func TestClassifyToolActivity_HandlesMCPNamespace(t *testing.T) {
 		want string
 	}{
 		{"empty", "", ""},
-		{"bare collab tool", "orchestration_launch_agent", "collab"},
-		{"mcp namespaced collab tool", "mcp__orch__orchestration_launch_agent", "collab"},
+		{"bare collab tool", "launch_agent", "collab"},
+		{"mcp namespaced collab tool", "mcp__orch__launch_agent", "collab"},
 		{"mcp namespaced collab tool uppercase", "MCP__ORCH__SPAWN_AGENT", "collab"},
 		{"mcp namespaced regular tool", "mcp__lsp__grep", "tool"},
 		{"non-collab bare tool", "shell_exec", "tool"},

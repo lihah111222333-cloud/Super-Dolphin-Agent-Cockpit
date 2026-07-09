@@ -13,7 +13,7 @@ func TestMergePrepareInputRuntimeUsesRuntimeConfigKeyAliases(t *testing.T) {
 		"git_root":                       "/repo",
 		"is_worktree":                    true,
 		"language":                       "zh-CN",
-		"enabled_tools":                  []any{"lsp_file", "orchestration_launch_agent"},
+		"enabled_tools":                  []any{"lsp_file", "launch_agent"},
 		"additional_working_directories": []any{"/repo/packages/api"},
 		"session_flags":                  map[string]any{"persistent_subagent_default": true},
 		"output_style_config": map[string]any{
@@ -49,7 +49,7 @@ func assertRuntimeConfigRepositoryFields(t *testing.T, input PrepareInput) {
 func assertRuntimeConfigToolFields(t *testing.T, input PrepareInput) {
 	t.Helper()
 
-	if got := input.EnabledTools; len(got) != 2 || got[0] != "lsp_file" || got[1] != "orchestration_launch_agent" {
+	if got := input.EnabledTools; len(got) != 2 || got[0] != "lsp_file" || got[1] != "launch_agent" {
 		t.Fatalf("EnabledTools = %#v", got)
 	}
 	if got := input.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/packages/api" {

@@ -26,7 +26,7 @@ func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *tes
 	}}})
 	raw := mustRawJSON(t, map[string]any{
 		"runtime": map[string]any{
-			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"enabledTools": []string{"spawn_agent", "launch_agent"},
 			"sessionFlags": map[string]any{"persistent_subagent_default": true},
 		},
 	})
@@ -108,7 +108,7 @@ func TestPersistentSubagentAllowsExplicitRuntimeFlagFalse(t *testing.T) {
 	h, registry := newHandlerForTest(newToolCallPeer(t, "spawn_agent", args, "spawned", nil))
 	raw := mustRawJSON(t, map[string]any{
 		"runtime": map[string]any{
-			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"enabledTools": []string{"spawn_agent", "launch_agent"},
 			"sessionFlags": map[string]any{"persistent_subagent_default": false},
 		},
 	})
@@ -136,7 +136,7 @@ func TestPersistentSubagentRequiresExplicitRuntimeFlag(t *testing.T) {
 	}}})
 	raw := mustRawJSON(t, map[string]any{
 		"runtime": map[string]any{
-			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"enabledTools": []string{"spawn_agent", "launch_agent"},
 		},
 	})
 	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-missing-flag", ConfigOverride: raw}}
@@ -168,7 +168,7 @@ func TestPersistentSubagentAllowsLegacyOptInFallback(t *testing.T) {
 	h.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	raw := mustRawJSON(t, map[string]any{
 		"runtime": map[string]any{
-			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"enabledTools": []string{"spawn_agent", "launch_agent"},
 		},
 	})
 	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-legacy-fallback", ConfigOverride: raw}}
@@ -202,7 +202,7 @@ func TestProxyMapsPersistentSubagentFlagRequired(t *testing.T) {
 	}}})
 	raw := mustRawJSON(t, map[string]any{
 		"runtime": map[string]any{
-			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"enabledTools": []string{"spawn_agent", "launch_agent"},
 		},
 	})
 	h.bindingStore = &toolCallBindingStoreStub{threadID: "thread-proxy-missing-flag"}

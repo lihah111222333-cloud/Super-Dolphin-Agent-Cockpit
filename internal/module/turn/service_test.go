@@ -216,7 +216,7 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 			"language":                     "Chinese",
 			"enabledTools":                 []string{"spawn_agent"},
 			"additionalWorkingDirectories": []string{"/repo/runtime-extra"},
-			"mcpTools":                     []string{"mcp__orch__orchestration_send_message"},
+			"mcpTools":                     []string{"mcp__orch__send_message"},
 			"mcpInstructions":              map[string]any{"orch": "Use orchestration runtime fallback."},
 			"sessionFlags":                 map[string]any{"runtime_only": true},
 		},

@@ -313,12 +313,12 @@ func TestBuildStartSessionConfigMergesLaunchToolSurfaceConfig(t *testing.T) {
 
 func TestBuildStartSessionConfigFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *testing.T) {
 	cfg := buildStartSessionConfig(StartRequest{}, contract.StartInput{
-		EnabledTools: []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+		EnabledTools: []string{"spawn_agent", "launch_agent", "request_user_input"},
 		SessionFlags: map[string]bool{"persistent_subagent_default": true},
 	}, contract.StartAssembly{})
 
 	got, ok := cfg["enabledTools"].([]string)
-	if !ok || len(got) != 2 || got[0] != "orchestration_launch_agent" || got[1] != "request_user_input" {
+	if !ok || len(got) != 2 || got[0] != "launch_agent" || got[1] != "request_user_input" {
 		t.Fatalf("buildStartSessionConfig() enabledTools = %#v, want managed-only child-agent tools", cfg["enabledTools"])
 	}
 }

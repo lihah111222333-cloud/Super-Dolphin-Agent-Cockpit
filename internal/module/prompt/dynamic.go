@@ -332,11 +332,7 @@ func sessionGuidanceToolEnabled(enabled map[string]struct{}, names ...string) bo
 
 func sessionGuidanceOrchestrationToolEnabled(enabled map[string]struct{}, canonical string) bool {
 	canonical = strings.TrimSpace(canonical)
-	names := []string{canonical}
-	if legacy, ok := contract.OrchestrationLegacyPeerRealName(canonical); ok {
-		names = append(names, legacy)
-	}
-	return sessionGuidanceToolEnabled(enabled, names...)
+	return sessionGuidanceToolEnabled(enabled, canonical)
 }
 
 // sessionGuidanceFlagEnabled 支持 snake/camel 等历史 flag 名，避免旧会话元数据失效。

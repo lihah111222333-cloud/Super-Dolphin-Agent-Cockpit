@@ -272,7 +272,7 @@ func TestFxStoresAllProvided(t *testing.T) {
 }
 
 func TestHandleScopedToolsCallWithCallerUsesTrustedScope(t *testing.T) {
-	params := json.RawMessage(`{"name":"orchestration_list_agents","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"agent-1","_threadId":"thread-1","_callId":"call-1","_cwd":"/trusted/orch"}`)
+	params := json.RawMessage(`{"name":"list_agents","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"agent-1","_threadId":"thread-1","_callId":"call-1","_cwd":"/trusted/orch"}`)
 	called := false
 
 	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, scopedToolsCallVerifier(t, &called))
@@ -306,7 +306,7 @@ func TestHandleScopedToolsCallRejectsLegacyAliasThroughRegistryProvider(t *testi
 }
 
 func TestHandleScopedToolsCallWithCallerWrapsSelectedToolErrors(t *testing.T) {
-	params := json.RawMessage(`{"name":"orchestration_list_agents","arguments":{},"_agentId":"agent-1"}`)
+	params := json.RawMessage(`{"name":"list_agents","arguments":{},"_agentId":"agent-1"}`)
 	toolErr := errors.New("store unavailable")
 
 	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, func(context.Context, string, json.RawMessage) (any, error) {
@@ -414,8 +414,8 @@ func scopedToolsCallVerifier(t *testing.T, called *bool) func(context.Context, s
 func assertTrustedScopedToolsCall(t *testing.T, ctx context.Context, name string, args json.RawMessage) {
 	t.Helper()
 
-	if name != "orchestration_list_agents" {
-		t.Fatalf("tool name = %q, want orchestration_list_agents", name)
+	if name != "list_agents" {
+		t.Fatalf("tool name = %q, want list_agents", name)
 	}
 	scope, ok := common.ToolScopeFromContext(ctx)
 	if !ok {

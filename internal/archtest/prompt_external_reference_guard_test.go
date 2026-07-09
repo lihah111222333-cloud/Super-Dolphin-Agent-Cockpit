@@ -113,8 +113,8 @@ func TestPromptExternalReferenceGuardAllowsInternalToolsOnlyWhenGated(t *testing
 	ok := []promptSurface{
 		{
 			Source:         "main/default:orchestrator_launch_context.body",
-			Text:           "可以通过 orchestration_launch_agent 派生专家子 agent。",
-			InternalTools:  []string{"orchestration_launch_agent"},
+			Text:           "可以通过 launch_agent 派生专家子 agent。",
+			InternalTools:  []string{"launch_agent"},
 			RuntimeGated:   true,
 			AllowedToolUse: true,
 		},
@@ -159,7 +159,6 @@ func TestPromptExternalReferenceGuardRejectsPostCutoverNonExactMigrationToolLite
 			literal: "Orchestrator should call prompt_list before routing work.",
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

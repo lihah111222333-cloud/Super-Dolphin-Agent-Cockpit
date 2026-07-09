@@ -66,7 +66,7 @@ func reviewerDeniedTools() []string {
 }
 
 func workerDeniedTools() []string {
-	return contract.OrchestrationToolAliasDenylist()
+	return contract.OrchestrationToolDenylist()
 }
 
 func trustedReadOnlyTool(name string) reviewerToolCandidate {

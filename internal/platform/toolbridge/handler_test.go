@@ -344,7 +344,7 @@ func TestToolBridge_OrchestrationLaunchInjectsOnlyParentIDFromProviderLookup(t *
 		"parent_id":            "agent-parent",
 		"provider":             "codex",
 	})
-	h, registry := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, registry := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByProvider: map[string]toolCallBinding{
 		"codex:provider-thread-parent": {
 			AgentID:            "agent-parent",
@@ -359,7 +359,7 @@ func TestToolBridge_OrchestrationLaunchInjectsOnlyParentIDFromProviderLookup(t *
 	}}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		ThreadID:  "provider-thread-parent",
 	})
@@ -384,7 +384,7 @@ func TestToolBridge_OrchestrationLaunchInheritsParentModelEffort(t *testing.T) {
 		"parent_id": "agent-parent",
 		"provider":  "codex",
 	})
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID: "agent-parent",
@@ -397,7 +397,7 @@ func TestToolBridge_OrchestrationLaunchInheritsParentModelEffort(t *testing.T) {
 	}}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 	})
@@ -419,7 +419,7 @@ func TestToolBridge_OrchestrationLaunchExplicitProviderDoesNotInheritMismatchedP
 		"parent_id": "agent-parent",
 		"provider":  "claude",
 	})
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID:  "agent-parent",
@@ -434,7 +434,7 @@ func TestToolBridge_OrchestrationLaunchExplicitProviderDoesNotInheritMismatchedP
 	h.preferences = &stubUIPreferenceReader{}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 	})
@@ -460,7 +460,7 @@ func TestToolBridge_OrchestrationLaunchFallsBackToUIPreferences(t *testing.T) {
 		"settings.provider.codex.model":  "gpt-5.4",
 		"settings.provider.codex.effort": "high",
 	}}
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID: "agent-parent",
@@ -471,7 +471,7 @@ func TestToolBridge_OrchestrationLaunchFallsBackToUIPreferences(t *testing.T) {
 	h.preferences = prefs
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 	})
@@ -500,7 +500,7 @@ func TestToolBridge_OrchestrationLaunchFillsMissingProviderFromUIPreferences(t *
 		"settings.provider.claude.model":  "sonnet",
 		"settings.provider.claude.effort": "high",
 	}}
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID:  "agent-parent",
@@ -512,7 +512,7 @@ func TestToolBridge_OrchestrationLaunchFillsMissingProviderFromUIPreferences(t *
 	h.preferences = prefs
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 	})
@@ -534,7 +534,7 @@ func TestToolBridge_OrchestrationLaunchUsesProviderDefaultsWhenUIPreferencesUnse
 		"parent_id": "agent-parent",
 		"provider":  "codex",
 	})
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID: "agent-parent",
@@ -545,7 +545,7 @@ func TestToolBridge_OrchestrationLaunchUsesProviderDefaultsWhenUIPreferencesUnse
 	h.preferences = &stubUIPreferenceReader{}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 	})
@@ -564,7 +564,7 @@ func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing
 		"parent_id": "agent-explicit",
 		"provider":  "codex",
 	})
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", args, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", args, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID: "agent-parent",
@@ -581,7 +581,7 @@ func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing
 	}}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 	})
@@ -601,7 +601,7 @@ func TestToolBridge_OrchestrationLaunchDoesNotInjectCurrentCWDOverParent(t *test
 		"parent_id": "agent-parent",
 		"provider":  "codex",
 	})
-	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
 			AgentID: "agent-parent",
@@ -610,7 +610,7 @@ func TestToolBridge_OrchestrationLaunchDoesNotInjectCurrentCWDOverParent(t *test
 	}}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "orchestration_launch_agent",
+		Name:      "launch_agent",
 		Arguments: args,
 		AgentID:   "agent-parent",
 		CWD:       "/repo/current",

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -203,10 +204,16 @@ func hasEnableWhen(raw []byte) bool {
 }
 
 func internalToolsIn(text string) []string {
-	internalTools := []string{
+	internalTools := append([]string{}, contract.OrchestrationToolCanonicalNames()...)
+	internalTools = append(internalTools,
 		"orchestration_launch_agent",
 		"orchestration_get_agent_report",
+		"orchestration_get_agent_reports",
 		"orchestration_send_message",
+		"orchestration_stop_agent",
+		"orchestration_recover_agent",
+		"orchestration_interrupt_agent",
+		"orchestration_list_agents",
 		"list_models",
 		"task_create_dag",
 		"task_dag_apply_ops",
@@ -218,7 +225,7 @@ func internalToolsIn(text string) []string {
 		"shared_file_list",
 		"shared_file_read",
 		"shared_file_write",
-	}
+	)
 	var found []string
 	for _, tool := range internalTools {
 		if strings.Contains(text, tool) {
@@ -245,12 +252,7 @@ func is0108DAGDesignerPromptTextReplacementLiteral(name, literal string) bool {
 	if !strings.HasPrefix(name, "0108_refresh_dag_designer_prompt_final_node_key.sql") {
 		return false
 	}
-	for _, allowed := range dagDesigner0108PromptTextReplacementLiterals() {
-		if literal == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(dagDesigner0108PromptTextReplacementLiterals(), literal)
 }
 
 func dagDesigner0108PromptTextReplacementLiterals() []string {
@@ -486,23 +488,18 @@ func readRollback0105Blocks(t *testing.T) string {
 		t.Fatalf("read migrations/ROLLBACK.md: %v", err)
 	}
 	content := string(data)
-	start := strings.Index(content, "## 0105 — delete unused builtin prompt seeds")
-	if start < 0 {
+	const marker = "## 0105 — delete unused builtin prompt seeds"
+	_, rest, ok := strings.Cut(content, marker)
+	if !ok {
 		return ""
 	}
-	rest := content[start+len("## 0105 — delete unused builtin prompt seeds"):]
-	end := strings.Index(rest, "\n## ")
-	if end < 0 {
-		return rest
+	block, _, ok := strings.Cut(rest, "\n## ")
+	if ok {
+		return block
 	}
-	return rest[:end]
+	return rest
 }
 
 func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }

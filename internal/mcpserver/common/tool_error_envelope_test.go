@@ -12,7 +12,7 @@ import (
 
 func TestClassifyToolErrorLaunchCWDRequired(t *testing.T) {
 	err := fmt.Errorf("%w: launch_agent cwd is required", contract.ErrLaunchCWDRequired)
-	for _, name := range []string{"launch_agent", "orchestration_launch_agent"} {
+	for _, name := range []string{"launch_agent", "launch_agent"} {
 		env := NewToolErrorEnvelope(name, err)
 		assertLaunchToolError(t, env, "cwd_required")
 	}
@@ -48,14 +48,14 @@ func TestClassifyToolErrorHistoricalCWDRequiredString(t *testing.T) {
 }
 
 func TestClassifyToolErrorLaunchProviderRequired(t *testing.T) {
-	for _, name := range []string{"launch_agent", "orchestration_launch_agent"} {
+	for _, name := range []string{"launch_agent", "launch_agent"} {
 		env := NewToolErrorEnvelope(name, errors.New("provider is required"))
 		assertLaunchToolError(t, env, "provider_required")
 	}
 }
 
 func TestClassifyToolErrorLaunchProviderInvalid(t *testing.T) {
-	for _, name := range []string{"launch_agent", "orchestration_launch_agent"} {
+	for _, name := range []string{"launch_agent", "launch_agent"} {
 		env := NewToolErrorEnvelope(name, errors.New(`invalid provider "openai"`))
 		assertLaunchToolError(t, env, "provider_invalid")
 	}

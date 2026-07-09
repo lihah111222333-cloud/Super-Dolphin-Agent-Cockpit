@@ -13,9 +13,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// TestLegacyOrchestrationStringsStayInToolbridgeAliasIsolation 防止旧 orch 名重新散落到 toolbridge 生产代码。
-// toolbridge 只能通过 handler_peer_alias.go 包装 contract 里的 legacy peer realName / deny-only 名称。
-func TestLegacyOrchestrationStringsStayInToolbridgeAliasIsolation(t *testing.T) {
+// TestLegacyOrchestrationStringsStayOutOfToolbridgeProduction 防止旧 orch 名重新散落到 toolbridge 生产代码。
+// toolbridge 只保留当前短名入口；旧 orchestration_* 名称只能出现在负例测试中。
+func TestLegacyOrchestrationStringsStayOutOfToolbridgeProduction(t *testing.T) {
 	t.Parallel()
 
 	root := repoRootForGuardTests(t)
@@ -37,7 +37,7 @@ func TestLegacyOrchestrationStringsStayInToolbridgeAliasIsolation(t *testing.T) 
 			t.Fatalf("read %s: %v", path, err)
 		}
 		if strings.Contains(string(data), "orchestration_") {
-			t.Errorf("%s contains legacy orchestration literal; route it through handler_peer_alias.go", path)
+			t.Errorf("%s contains legacy orchestration literal; use short orchestration tool names", path)
 		}
 	}
 }
@@ -65,7 +65,7 @@ func TestProductionCodeDoesNotDefineLegacyOrchestrationLiteralLists(t *testing.T
 		return
 	}
 	for _, violation := range violations {
-		t.Errorf("%s:%d defines legacy orchestration literal list %v (owner=%s reason=%s); use contract OrchestrationToolCanonicalNames/OrchestrationToolLegacyPeerRealNames/OrchestrationToolHiddenAliases helpers instead",
+		t.Errorf("%s:%d defines legacy orchestration literal list %v (owner=%s reason=%s); use contract OrchestrationToolCanonicalNames instead",
 			violation.relPath, violation.line, violation.names, violation.owner, violation.reason)
 	}
 }
@@ -253,7 +253,11 @@ func legacyOrchestrationLiteralListViolationsFromSource(path string, data []byte
 }
 
 func legacyOrchestrationForbiddenLiteralNames() map[string]struct{} {
-	names := append(contract.OrchestrationToolLegacyPeerRealNames(), contract.OrchestrationToolHiddenAliases()...)
+	names := make([]string, 0, len(contract.OrchestrationToolCanonicalNames())*2)
+	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
+		legacy := "orchestration_" + canonical
+		names = append(names, legacy, "mcp__orch__"+legacy)
+	}
 	forbidden := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		forbidden[name] = struct{}{}

@@ -349,7 +349,7 @@ func canonicalCodexToolName(family, name string) string {
 
 // canonicalOrchestrationToolName 将 legacy orchestration peer 名映射为短工具名。
 func canonicalOrchestrationToolName(name string) string {
-	return canonicalOrchSurfaceName(name)
+	return strings.TrimSpace(name)
 }
 
 // callableLegacyCodexToolAliases 只返回仍允许作为调用入口的 legacy alias。
@@ -364,28 +364,12 @@ func callableLegacyCodexToolAliases(family, canonical string) []string {
 }
 
 // mcpSurfaceDenyAndHiddenAliases 返回 direct-call deny/hidden 识别需要的别名。
-// legacy orchestration peer 名只能走这里，不能进入 prepared surface 的 callable alias 表。
 func mcpSurfaceDenyAndHiddenAliases(family, canonical string) []string {
 	switch strings.TrimSpace(family) {
 	case mcpdto.ClientKindLSP:
 		return callableLegacyCodexToolAliases(family, canonical)
-	case mcpdto.ClientKindOrch:
-		if legacy := legacyOrchPeerRealName(canonical); legacy != "" {
-			return []string{legacy, "mcp__orch__" + legacy}
-		}
 	}
 	return nil
-}
-
-func isLegacyOrchestrationSurfaceName(family, name string) bool {
-	if strings.TrimSpace(family) != mcpdto.ClientKindOrch {
-		return false
-	}
-	name = strings.TrimSpace(name)
-	if !isLegacyOrchPeerRealName(name) {
-		return false
-	}
-	return legacyOrchPeerRealName(canonicalOrchestrationToolName(name)) == name
 }
 
 // codexSurfaceKeys 生成 surface 可被查找的所有作用域 key。

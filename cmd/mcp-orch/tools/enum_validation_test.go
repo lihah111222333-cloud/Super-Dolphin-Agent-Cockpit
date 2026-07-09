@@ -49,7 +49,7 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 			fromVar:    recoveryActionEnum,
 		},
 		{
-			name:       "orchestration_launch_agent.provider",
+			name:       "launch_agent.provider",
 			fromSchema: enumValuesFromToolSchema(t, orchestrationToolDefinitions(ToolPorts{}), "launch_agent", "provider"),
 			fromVar:    launchAgentProviderEnum,
 		},

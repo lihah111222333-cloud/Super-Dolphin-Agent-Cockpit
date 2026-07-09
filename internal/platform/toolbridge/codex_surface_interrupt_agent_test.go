@@ -12,7 +12,7 @@ import (
 
 func TestCodexSurfaceExposesInterruptAgentShortName(t *testing.T) {
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{
-		Name:        "orchestration_interrupt_agent",
+		Name:        "interrupt_agent",
 		Description: "interrupt agent",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}}}
@@ -42,8 +42,8 @@ func TestCodexSurfaceExposesInterruptAgentShortName(t *testing.T) {
 	if result == nil {
 		t.Fatal("HandleToolCall(interrupt_agent) result = nil")
 	}
-	if !orch.calledWith("orchestration_interrupt_agent") {
-		t.Fatalf("orch calls = %#v, want orchestration_interrupt_agent", orch.calls)
+	if !orch.calledWith("interrupt_agent") {
+		t.Fatalf("orch calls = %#v, want interrupt_agent", orch.calls)
 	}
 }
 

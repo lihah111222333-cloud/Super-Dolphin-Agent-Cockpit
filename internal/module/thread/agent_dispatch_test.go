@@ -36,7 +36,7 @@ func (d *dispatchRecorder) Invalidate(context.Context, contract.InvalidateReason
 }
 
 // TestDispatchPromptAssembly_ExploreRoutesToAgentPath 验证 Explore/Plan 类型会走 agent prompt 装配路径。
-// orchestration_launch_agent 传入 Claude AgentType 时必须调用 AssembleAgent，
+// launch_agent 传入 Claude AgentType 时必须调用 AssembleAgent，
 // 不能退回普通 thread start 的 AssembleStart。
 func TestDispatchPromptAssembly_ExploreRoutesToAgentPath(t *testing.T) {
 	recorder := &dispatchRecorder{}

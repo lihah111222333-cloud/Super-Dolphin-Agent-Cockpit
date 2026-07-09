@@ -47,7 +47,7 @@ func TestListToolsForCodexFiltersDisabledPeerToolsAfterBackfill(t *testing.T) {
 	owner.setDecision(root, mcpdto.ClientKindLSP, "grep", contract.MCPToolLifecycleDisabled, "disabled for test")
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "orchestration_launch_agent"}}, nil)},
+			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "launch_agent"}}, nil)},
 			mcpdto.ClientKindLSP:  {listToolsPeer([]mcpdto.MCPTool{{Name: "grep"}}, nil)},
 		}},
 		lifecycle:       owner,
@@ -60,7 +60,7 @@ func TestListToolsForCodexFiltersDisabledPeerToolsAfterBackfill(t *testing.T) {
 	}
 
 	assertNoDynamicToolName(t, tools, "grep")
-	assertHasDynamicToolName(t, tools, "orchestration_launch_agent")
+	assertHasDynamicToolName(t, tools, "launch_agent")
 	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindLSP, "grep")
 	assertLifecyclePolicyRequest(t, owner.policyRequests, root, mcpdto.ClientKindLSP, "grep")
 }
@@ -103,7 +103,7 @@ func TestMCPToolLifecyclePolicyMissingOwnerFailsClosed(t *testing.T) {
 	owner.skipBackfillRows = true
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "orchestration_launch_agent"}}, nil)},
+			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "launch_agent"}}, nil)},
 			mcpdto.ClientKindLSP:  {listToolsPeer([]mcpdto.MCPTool{{Name: "grep"}}, nil)},
 		}},
 		lifecycle:       owner,
@@ -122,7 +122,7 @@ func TestMCPToolLifecycleBackfillReadinessFiltersAfterBackfill(t *testing.T) {
 	owner := newFakeMCPToolLifecycleOwner()
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "orchestration_launch_agent"}}, nil)},
+			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "launch_agent"}}, nil)},
 			mcpdto.ClientKindLSP:  {listToolsPeer([]mcpdto.MCPTool{{Name: "grep"}}, nil)},
 		}},
 		lifecycle:       owner,
@@ -135,7 +135,7 @@ func TestMCPToolLifecycleBackfillReadinessFiltersAfterBackfill(t *testing.T) {
 	}
 
 	assertHasDynamicToolName(t, tools, "grep")
-	assertHasDynamicToolName(t, tools, "orchestration_launch_agent")
+	assertHasDynamicToolName(t, tools, "launch_agent")
 	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindLSP, "grep")
 	assertLifecyclePolicyRequest(t, owner.policyRequests, root, mcpdto.ClientKindLSP, "grep")
 }
@@ -247,12 +247,12 @@ func TestCodexSurfaceToolCallDeniesHiddenDisabledLifecycleAliases(t *testing.T) 
 	}
 }
 
-func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T) {
+func TestCodexSurfaceToolCallDeniesDisabledOrchShortNames(t *testing.T) {
 	root := t.TempDir()
-	client := &fakeMCPClient{tools: orchestrationLegacyPeerToolsForTest(t)}
+	client := &fakeMCPClient{tools: orchestrationToolsForTest(t)}
 	owner := newFakeMCPToolLifecycleOwner()
-	for _, alias := range orchestrationToolAliasesForTest(t) {
-		owner.setDecision(root, mcpdto.ClientKindOrch, alias.LegacyPeerRealName, contract.MCPToolLifecycleDisabled, "blocked before prepare")
+	for _, canonical := range orchestrationToolNamesForTest(t) {
+		owner.setDecision(root, mcpdto.ClientKindOrch, canonical, contract.MCPToolLifecycleDisabled, "blocked before prepare")
 	}
 	h := &Handler{
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: client}),
@@ -271,13 +271,11 @@ func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
 
-	for _, alias := range orchestrationToolAliasesForTest(t) {
-		assertNoDynamicToolName(t, tools, alias.Canonical)
+	for _, canonical := range orchestrationToolNamesForTest(t) {
+		assertNoDynamicToolName(t, tools, canonical)
 		for _, name := range []string{
-			alias.Canonical,
-			wrappedMCPToolName(mcpdto.ClientKindOrch, alias.Canonical),
-			alias.LegacyPeerRealName,
-			wrappedMCPToolName(mcpdto.ClientKindOrch, alias.LegacyPeerRealName),
+			canonical,
+			wrappedMCPToolName(mcpdto.ClientKindOrch, canonical),
 		} {
 			t.Run(name, func(t *testing.T) {
 				result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
@@ -295,7 +293,7 @@ func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T
 				if !ok {
 					t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
 				}
-				assertLifecycleDeniedResult(t, got, mcpdto.ClientKindOrch, alias.LegacyPeerRealName, contract.MCPToolLifecycleDenyCodeDisabled)
+				assertLifecycleDeniedResult(t, got, mcpdto.ClientKindOrch, canonical, contract.MCPToolLifecycleDenyCodeDisabled)
 			})
 		}
 	}
@@ -307,13 +305,8 @@ func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T
 func TestPeerToolCallDeniesDisabledLifecycleAliasesBeforePeerSelection(t *testing.T) {
 	root := t.TempDir()
 	owner := newFakeMCPToolLifecycleOwner()
-	for _, toolName := range []string{"grep", "orchestration_launch_agent"} {
-		serverName := mcpdto.ClientKindLSP
-		if strings.HasPrefix(toolName, "orchestration_") {
-			serverName = mcpdto.ClientKindOrch
-		}
-		owner.setDecision(root, serverName, toolName, contract.MCPToolLifecycleDisabled, "blocked")
-	}
+	owner.setDecision(root, mcpdto.ClientKindLSP, "grep", contract.MCPToolLifecycleDisabled, "blocked")
+	owner.setDecision(root, mcpdto.ClientKindOrch, "launch_agent", contract.MCPToolLifecycleDisabled, "blocked")
 	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, _ string, _ any, _ any) error {
 		t.Fatal("disabled lifecycle call reached peer")
 		return nil
@@ -329,10 +322,8 @@ func TestPeerToolCallDeniesDisabledLifecycleAliasesBeforePeerSelection(t *testin
 		{name: "lsp_grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
 		{name: "mcp__lsp__grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
 		{name: "mcp__lsp__lsp_grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
-		{name: "launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
-		{name: "mcp__orch__launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
-		{name: "orchestration_launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
-		{name: "mcp__orch__orchestration_launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "orchestration_launch_agent"},
+		{name: "launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "launch_agent"},
+		{name: "mcp__orch__launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "launch_agent"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

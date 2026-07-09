@@ -23,7 +23,7 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 		{Name: "lsp_grep", Description: "grep source", InputSchema: lspInputSchema, OutputSchema: lspOutputSchema},
 		{Name: "lsp_format_preview", Description: "preview formatting", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	}}
-	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "launch_agent", Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
 
@@ -67,59 +67,55 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 }
 
 func TestPrepareCodexToolSurfaceRejectsLegacyOrchestrationAliases(t *testing.T) {
-	for _, realName := range []string{"list_agents", "orchestration_list_agents"} {
-		t.Run(realName, func(t *testing.T) {
-			orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: realName, Description: "list", InputSchema: strictEmptyObjectSchema()}}}
-			h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
+	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "list_agents", Description: "list", InputSchema: strictEmptyObjectSchema()}}}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
 
-			tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
-				AgentID:          "agent-legacy-deny",
-				ProviderThreadID: "provider-thread-legacy-deny",
-				CWD:              "/repo",
-				Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
-					{Name: mcpdto.ClientKindOrch, Command: []string{"mcp-orch"}},
-				}},
-			})
-			if err != nil {
-				t.Fatalf("PrepareCodexToolSurface() error = %v", err)
-			}
-			assertDynamicToolNames(t, tools, []string{"list_agents"})
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-legacy-deny",
+		ProviderThreadID: "provider-thread-legacy-deny",
+		CWD:              "/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+			{Name: mcpdto.ClientKindOrch, Command: []string{"mcp-orch"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	assertDynamicToolNames(t, tools, []string{"list_agents"})
 
-			for _, legacy := range []string{"orchestration_list_agents", "mcp__orch__orchestration_list_agents"} {
-				_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
-					"name":      legacy,
-					"arguments": map[string]any{},
-					"_agentId":  "agent-legacy-deny",
-					"_threadId": "provider-thread-legacy-deny",
-					"_callId":   "call-" + legacy,
-					"_cwd":      "/repo",
-				})})
-				if err == nil || !strings.Contains(err.Error(), "unknown codex surface tool") {
-					t.Fatalf("HandleToolCall(%q) error = %v, want unknown codex surface tool", legacy, err)
-				}
-			}
-			if len(orch.calls) != 0 {
-				t.Fatalf("legacy alias calls reached orch client: %#v", orch.calls)
-			}
+	for _, legacy := range []string{"orchestration_list_agents", "mcp__orch__orchestration_list_agents"} {
+		_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+			"name":      legacy,
+			"arguments": map[string]any{},
+			"_agentId":  "agent-legacy-deny",
+			"_threadId": "provider-thread-legacy-deny",
+			"_callId":   "call-" + legacy,
+			"_cwd":      "/repo",
+		})})
+		if err == nil || !strings.Contains(err.Error(), "unknown codex surface tool") {
+			t.Fatalf("HandleToolCall(%q) error = %v, want unknown codex surface tool", legacy, err)
+		}
+	}
+	if len(orch.calls) != 0 {
+		t.Fatalf("legacy alias calls reached orch client: %#v", orch.calls)
+	}
 
-			result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
-				"name":      "list_agents",
-				"arguments": map[string]any{},
-				"_agentId":  "agent-legacy-deny",
-				"_threadId": "provider-thread-legacy-deny",
-				"_callId":   "call-list-agents",
-				"_cwd":      "/repo",
-			})})
-			if err != nil {
-				t.Fatalf("HandleToolCall(list_agents) error = %v", err)
-			}
-			if result == nil {
-				t.Fatal("HandleToolCall(list_agents) result = nil")
-			}
-			if !orch.calledWith(realName) {
-				t.Fatalf("orch calls = %#v, want %s", orch.calls, realName)
-			}
-		})
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name":      "list_agents",
+		"arguments": map[string]any{},
+		"_agentId":  "agent-legacy-deny",
+		"_threadId": "provider-thread-legacy-deny",
+		"_callId":   "call-list-agents",
+		"_cwd":      "/repo",
+	})})
+	if err != nil {
+		t.Fatalf("HandleToolCall(list_agents) error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("HandleToolCall(list_agents) result = nil")
+	}
+	if !orch.calledWith("list_agents") {
+		t.Fatalf("orch calls = %#v, want list_agents", orch.calls)
 	}
 }
 
@@ -132,7 +128,7 @@ func TestPrepareCodexToolSurfaceFiltersDisabledToolsAndRejectsStaleCalls(t *test
 	skills := &fakeSkillToolProvider{
 		tools: []contract.SkillToolSurfaceTool{{Name: "skill_write_note", Description: "skill writer", InputSchema: strictEmptyObjectSchema()}},
 	}
-	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", Description: "launch", InputSchema: strictEmptyObjectSchema()}}}
+	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "launch_agent", Description: "launch", InputSchema: strictEmptyObjectSchema()}}}
 	external := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "connect_tool_source", Description: "connect source", InputSchema: strictEmptyObjectSchema()}}}
 	h := &Handler{
 		hostTools:          host,
@@ -160,7 +156,7 @@ func assertDisabledCodexSurfaceTools(
 ) {
 	t.Helper()
 
-	disabledNames := []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "mcp__orch__launch_agent", "orchestration_launch_agent", "connect_tool_source"}
+	disabledNames := []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "mcp__orch__launch_agent", "launch_agent", "connect_tool_source"}
 	disabledTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-deny",
 		ProviderThreadID: "provider-thread-deny",
@@ -265,7 +261,7 @@ func assertAllowedCodexSurfaceCallsReachedBackends(
 	if len(skills.calls) != 1 {
 		t.Fatalf("allowed skill calls = %#v, want one call", skills.calls)
 	}
-	if !orch.calledWith("orchestration_launch_agent") {
+	if !orch.calledWith("launch_agent") {
 		t.Fatalf("allowed launch_agent did not reach orchestration client: %#v", orch.calls)
 	}
 	if !external.calledWith("connect_tool_source") {
@@ -355,7 +351,7 @@ func TestPrepareCodexToolSurfaceAdvertisesSkillToolsAndReturnsSkillText(t *testi
 }
 
 func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
-	for _, realName := range []string{"launch_agent", "orchestration_launch_agent"} {
+	for _, realName := range []string{"launch_agent", "launch_agent"} {
 		t.Run(realName, func(t *testing.T) {
 			orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: realName, Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 			h := &Handler{
@@ -447,7 +443,7 @@ func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
 		listRelease:     release,
 	}
 	orch := &fakeMCPClient{
-		tools:           []mcpdto.MCPTool{{Name: "orchestration_launch_agent", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		tools:           []mcpdto.MCPTool{{Name: "launch_agent", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		listStarted:     started,
 		listStartedName: "orch",
 		listRelease:     release,
@@ -799,10 +795,8 @@ func TestCodexToolSurfaceLegacyNamesFailClosedWhenSurfaceMissing(t *testing.T) {
 		"lsp_grep",
 		"mcp__lsp__lsp_grep",
 		"mcp__lsp__grep",
-		"orchestration_launch_agent",
-		"mcp__orch__orchestration_launch_agent",
-		"orchestration_unknown",
-		"mcp__orch__orchestration_unknown",
+		"launch_agent",
+		"mcp__orch__launch_agent",
 	} {
 		_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: legacyScopedToolCallParams(name)})
 		if err == nil {

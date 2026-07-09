@@ -81,7 +81,7 @@ func TestObservabilityTraceHostOnlyRouteDoesNotFallBackToPeer(t *testing.T) {
 
 func TestObservabilityTraceHostOnlyToolFiltersPeerList(t *testing.T) {
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		mcp.ClientKindOrch: {listToolsPeer([]mcp.MCPTool{{Name: ToolNameObservabilityTraceGet, Description: "peer trace"}, {Name: "orchestration_launch_agent", Description: "launch"}}, nil)},
+		mcp.ClientKindOrch: {listToolsPeer([]mcp.MCPTool{{Name: ToolNameObservabilityTraceGet, Description: "peer trace"}, {Name: "launch_agent", Description: "launch"}}, nil)},
 		mcp.ClientKindLSP:  {listToolsPeer([]mcp.MCPTool{{Name: "grep", Description: "grep"}}, nil)},
 	}}
 	h := &Handler{registry: registry}

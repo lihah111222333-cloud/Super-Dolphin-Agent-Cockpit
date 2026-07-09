@@ -276,9 +276,6 @@ func requiresCodexToolSurface(name string) bool {
 		_, ok := legacyLSPToolAliases[name]
 		return ok
 	}
-	if requiresLegacyOrchSurfaceName(name) {
-		return true
-	}
 	return requiresCanonicalCodexSurfaceTool(name)
 }
 
@@ -287,9 +284,6 @@ func requiresCodexSurfaceFamilyTool(family, name string) bool {
 	case mcpdto.ClientKindLSP:
 		return requiresCanonicalCodexSurfaceTool(canonicalToolName(name))
 	case mcpdto.ClientKindOrch:
-		if requiresLegacyOrchSurfaceName(name) {
-			return true
-		}
 		return requiresCanonicalCodexSurfaceTool(canonicalOrchestrationToolName(name))
 	default:
 		return strings.TrimSpace(name) != ""
@@ -621,11 +615,7 @@ func mcpToolLifecycleCanonicalToolName(serverName string, toolName string) strin
 	case mcpdto.ClientKindLSP:
 		return canonicalToolName(toolName)
 	case mcpdto.ClientKindOrch:
-		canonical := canonicalOrchestrationToolName(toolName)
-		if legacy := legacyOrchPeerRealName(canonical); legacy != "" {
-			return legacy
-		}
-		return canonical
+		return canonicalOrchestrationToolName(toolName)
 	default:
 		return toolName
 	}
