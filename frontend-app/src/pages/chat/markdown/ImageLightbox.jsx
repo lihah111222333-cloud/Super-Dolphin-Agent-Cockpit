@@ -1,5 +1,5 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
+import { Button as AriaButton, Dialog, Modal, ModalOverlay } from 'react-aria-components';
 import { X } from 'lucide-react';
 import { firstTrimmedText } from './markdownMessageModel.js';
 
@@ -9,20 +9,27 @@ const CLOSE_LABEL = '\u5173\u95ed\u56fe\u7247\u9884\u89c8';
 
 function ImageLightbox({ label, onClose, children }) {
   const displayLabel = firstTrimmedText(label, PREVIEW_LABEL);
-  return createPortal(
-    <dialog className="image-lightbox" open aria-label={`${LIGHTBOX_LABEL_PREFIX}${displayLabel}`}>
-      <button type="button" className="image-lightbox-backdrop" aria-label={CLOSE_LABEL} onClick={onClose} />
-      <section className="image-lightbox-panel">
-        <header>
-          <strong>{displayLabel}</strong>
-          <div>
-            <button type="button" aria-label={CLOSE_LABEL} onClick={onClose}><X size={16} /></button>
-          </div>
-        </header>
-        {children}
-      </section>
-    </dialog>,
-    document.body,
+  return (
+    <ModalOverlay
+      className="image-lightbox"
+      isDismissable
+      isOpen
+      onOpenChange={(isOpen) => {
+        if (!isOpen) onClose();
+      }}
+    >
+      <Modal className="image-lightbox-panel">
+        <Dialog className="image-lightbox-dialog" aria-label={`${LIGHTBOX_LABEL_PREFIX}${displayLabel}`}>
+          <header>
+            <strong>{displayLabel}</strong>
+            <div>
+              <AriaButton slot="close" type="button" aria-label={CLOSE_LABEL}><X size={16} /></AriaButton>
+            </div>
+          </header>
+          {children}
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }
 

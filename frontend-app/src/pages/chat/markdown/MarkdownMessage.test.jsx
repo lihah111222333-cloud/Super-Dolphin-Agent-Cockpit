@@ -1,6 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { ImageLightbox } from './ImageLightbox.jsx';
 import { CodePreviewMarkdown, MarkdownImagePreview, MessageContent } from './MarkdownMessage.jsx';
 
 describe('MarkdownMessage', () => {
@@ -195,16 +196,47 @@ describe('MarkdownMessage', () => {
     expect(screen.queryByRole('img', { name: 'svg' })).not.toBeInTheDocument();
   });
 
-  it('opens and closes local image previews in a lightbox', () => {
+  it('opens and closes local image previews in a lightbox', async () => {
     render(<MarkdownImagePreview src="data:image/png;base64,AA==" label="sample.png" />);
 
     fireEvent.click(screen.getByRole('button', { name: /sample\.png/ }));
 
-    expect(screen.getByRole('dialog', { name: /sample\.png/ })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: /sample\.png/ });
+    expect(dialog).toBeInTheDocument();
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement));
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(screen.queryByRole('dialog', { name: /sample\.png/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /sample\.png/ }));
+
+    expect(screen.getByRole('dialog', { name: /sample\.png/ })).toBeInTheDocument();
+    const overlay = document.body.querySelector('.image-lightbox');
+    expect(overlay).not.toBeNull();
+    fireEvent.mouseDown(overlay);
+    fireEvent.mouseUp(overlay);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /sample\.png/ })).not.toBeInTheDocument();
+    });
+  });
+
+  it('lets the shared lightbox handle Escape through React Aria', async () => {
+    const onClose = vi.fn();
+
+    render(
+      <ImageLightbox label="sample.png" onClose={onClose}>
+        <img src="data:image/png;base64,AA==" alt="sample.png" />
+      </ImageLightbox>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: /sample\.png/ });
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement));
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('opens bare generated image path previews from markdown paragraphs', () => {
