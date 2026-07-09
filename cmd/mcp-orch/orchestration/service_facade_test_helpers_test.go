@@ -60,12 +60,14 @@ func newHookConsumerInternal(
 	opts ...hookConsumerOption,
 ) *hookConsumer {
 	var reports HookReportPort
+	var suppression HookSuppressionLookup
 	var eventBus EventBus
 	if svc != nil {
 		reports = svc
+		suppression = svc.registry
 		eventBus = svc.eventBus
 	}
-	return newHookConsumerWithPorts(svc, reports, eventBus, logger, tap, fallbackLookup, fallbackFlow, opts...)
+	return newHookConsumerWithPorts(svc, reports, suppression, eventBus, logger, tap, fallbackLookup, fallbackFlow, opts...)
 }
 
 func newRunnerActorForTest(logger *slog.Logger, svc *service) platformrunner.Runner {

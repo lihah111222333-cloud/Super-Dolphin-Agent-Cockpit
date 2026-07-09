@@ -52,6 +52,11 @@ type NotifyTap interface {
 	OnThreadStopped(ctx context.Context, ev threaddto.Stopped)
 }
 
+// HookSuppressionLookup 是 stopped hook 抑制状态的只读端口，由 agentRegistry 提供。
+type HookSuppressionLookup interface {
+	stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool
+}
+
 // HookConsumerRuntime 是 hook consumer 同步 agent runtime 所需的窄端口。
 type HookConsumerRuntime interface {
 	turnLifecycleRuntime
@@ -59,7 +64,6 @@ type HookConsumerRuntime interface {
 	mutateHookAgentLocked(agentID string, fn func(*agentRuntime) error) error
 	syncStateChangedHookLocked(ctx context.Context, agent *agentRuntime, nextState string) error
 	hookSyncForceStoppedLocked(ctx context.Context, agent *agentRuntime) error
-	stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool
 	publishAgentRuntimeReported(agent *agentRuntime)
 }
 
@@ -71,11 +75,12 @@ type HookReportPort interface {
 }
 
 type hookConsumer struct {
-	runtime   HookConsumerRuntime
-	reports   HookReportPort
-	eventBus  *event.Dispatcher
-	logger    *slog.Logger
-	notifyTap NotifyTap
+	runtime     HookConsumerRuntime
+	reports     HookReportPort
+	suppression HookSuppressionLookup
+	eventBus    *event.Dispatcher
+	logger      *slog.Logger
+	notifyTap   NotifyTap
 
 	dagFallbackLookup taskdag.NodeSpawningThreadLookup
 	dagFallbackFlow   taskdag.NodeFlowStore
@@ -102,6 +107,7 @@ type HookAfterHandlerParams struct {
 
 	Runtime           HookConsumerRuntime
 	Reports           HookReportPort
+	Suppression       HookSuppressionLookup
 	Logger            *slog.Logger                     `optional:"true"`
 	NotifyTap         NotifyTap                        `optional:"true"`
 	DAGFallbackLookup taskdag.NodeSpawningThreadLookup `optional:"true"`
@@ -121,6 +127,7 @@ func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAft
 	return newHookConsumerWithPorts(
 		p.Runtime,
 		p.Reports,
+		p.Suppression,
 		p.EventBus,
 		p.Logger,
 		p.NotifyTap,
@@ -151,6 +158,7 @@ func withHookTurnCompletedDAGDeps(deps DAGSubscriberDeps) hookConsumerOption {
 func newHookConsumerWithPorts(
 	runtime HookConsumerRuntime,
 	reports HookReportPort,
+	suppression HookSuppressionLookup,
 	eventBus *event.Dispatcher,
 	logger *slog.Logger,
 	tap NotifyTap,
@@ -161,6 +169,7 @@ func newHookConsumerWithPorts(
 	c := &hookConsumer{
 		runtime:           runtime,
 		reports:           reports,
+		suppression:       suppression,
 		eventBus:          eventBus,
 		logger:            loggerOrDefault(logger),
 		notifyTap:         tap,
@@ -344,7 +353,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		stoppedAccepted, err = c.applyThreadStoppedLocked(ctx, ev, agent)
 		return err
 	})
-	if errors.Is(err, errAgentNotFound) && c.runtime.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
+	if errors.Is(err, errAgentNotFound) && c.suppression.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
 		return
 	}
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
@@ -365,7 +374,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 func (c *hookConsumer) applyThreadStoppedLocked(ctx context.Context, ev threaddto.Stopped, agent *agentRuntime) (bool, error) {
 	before := string(agent.state)
 	threadID := strings.TrimSpace(ev.ThreadID)
-	if c.runtime.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
+	if c.suppression.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
 		recoveringOldThreadHook(agent, threadID) || !bindStoppedHookThreadLocked(agent, threadID) {
 		return false, nil
 	}

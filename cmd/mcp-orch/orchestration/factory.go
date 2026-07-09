@@ -334,18 +334,6 @@ func (s *service) syncStateChangedHookLocked(ctx context.Context, agent *agentRu
 	return s.hookSyncFireLocked(ctx, agent, nextState)
 }
 
-func (s *service) suppressStoppedHookThreadLocked(threadID string) {
-	s.registry.suppressStoppedHookThreadLocked(threadID)
-}
-
-func (s *service) suppressStoppedHookThreadUntilLocked(threadID string, beforeOrAt time.Time) {
-	s.registry.suppressStoppedHookThreadUntilLocked(threadID, beforeOrAt)
-}
-
-func (s *service) stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool {
-	return s.registry.stoppedHookThreadSuppressed(threadID, timestamp)
-}
-
 func bindStateChangedHookThreadLocked(agent *agentRuntime, threadID, nextState string) bool {
 	threadID = strings.TrimSpace(threadID)
 	if recoveringOldThreadHook(agent, threadID) {

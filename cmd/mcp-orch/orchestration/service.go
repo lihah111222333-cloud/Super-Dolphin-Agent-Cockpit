@@ -267,6 +267,32 @@ type serviceParams struct {
 	DispatchStore  taskdag.DispatchNodeStore `optional:"true"`
 }
 
+type serviceResult struct {
+	fx.Out
+
+	Service             *service
+	AgentLifecycle      contract.AgentLifecyclePort
+	AgentRuntime        contract.AgentRuntimePort
+	AgentReport         contract.AgentReportPort
+	TurnSubmission      contract.TurnSubmissionPort
+	DAGCreate           contract.DAGCreateRuntime
+	DAGRuntime          contract.DAGRuntime
+	DAGDelete           contract.DAGDeleteRuntime
+	DAGNodeStatus       contract.DAGNodeStatusRuntime
+	DAGNodeDispatch     contract.DAGNodeDispatchRuntime
+	ScheduledDAGStart   ScheduledDAGStartService
+	WakeupLauncher      WakeupLauncher
+	HookConsumerRuntime HookConsumerRuntime
+	HookReport          HookReportPort
+	HookSuppression     HookSuppressionLookup
+	AgentLaunchSnapshot AgentLaunchSnapshotter
+	StopAgent           StopAgentService
+	RunnerLifecycle     RunnerLifecyclePort
+	RunnerRuntime       RunnerRuntimePort
+	TurnLifecycle       TurnLifecyclePort
+	ApprovalLifecycle   ApprovalLifecyclePort
+}
+
 // recoveryTurnStore 是 recoveryTurnStore 接口的本地类型别名，用于内部断言。
 type recoveryTurnStore interface {
 	taskdag.RecoveryStore
@@ -386,6 +412,34 @@ func ProvideService(p serviceParams) *service {
 		SvcStopper:          svc,
 	})
 	return svc
+}
+
+// ProvideServiceResult 为 fx 根装配一次性产出 service 与其窄端口。
+func ProvideServiceResult(p serviceParams) serviceResult {
+	svc := ProvideService(p)
+	return serviceResult{
+		Service:             svc,
+		AgentLifecycle:      svc,
+		AgentRuntime:        svc,
+		AgentReport:         svc,
+		TurnSubmission:      svc,
+		DAGCreate:           svc,
+		DAGRuntime:          svc,
+		DAGDelete:           svc,
+		DAGNodeStatus:       svc,
+		DAGNodeDispatch:     svc,
+		ScheduledDAGStart:   svc,
+		WakeupLauncher:      svc,
+		HookConsumerRuntime: svc,
+		HookReport:          svc,
+		HookSuppression:     svc.registry,
+		AgentLaunchSnapshot: svc,
+		StopAgent:           svc,
+		RunnerLifecycle:     svc,
+		RunnerRuntime:       svc,
+		TurnLifecycle:       svc,
+		ApprovalLifecycle:   svc,
+	}
 }
 
 // RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
