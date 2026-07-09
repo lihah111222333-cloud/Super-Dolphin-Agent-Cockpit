@@ -21,6 +21,40 @@ var (
 	ErrLaunchCWDInvalid  = errors.New("launch cwd is invalid")
 )
 
+// OrchestrationToolAlias 描述 orchestration 控制面工具的短名和 legacy peer realName。
+type OrchestrationToolAlias struct {
+	Canonical          string
+	LegacyPeerRealName string
+}
+
+var orchestrationToolAliases = []OrchestrationToolAlias{
+	{Canonical: "launch_agent", LegacyPeerRealName: "orchestration_launch_agent"},
+	{Canonical: "send_message", LegacyPeerRealName: "orchestration_send_message"},
+	{Canonical: "stop_agent", LegacyPeerRealName: "orchestration_stop_agent"},
+	{Canonical: "recover_agent", LegacyPeerRealName: "orchestration_recover_agent"},
+	{Canonical: "interrupt_agent", LegacyPeerRealName: "orchestration_interrupt_agent"},
+	{Canonical: "list_agents", LegacyPeerRealName: "orchestration_list_agents"},
+	{Canonical: "get_agent_report", LegacyPeerRealName: "orchestration_get_agent_report"},
+	{Canonical: "get_agent_reports", LegacyPeerRealName: "orchestration_get_agent_reports"},
+}
+
+// OrchestrationToolAliases 返回 orchestration 控制面的短名和 legacy peer realName 映射副本。
+func OrchestrationToolAliases() []OrchestrationToolAlias {
+	return append([]OrchestrationToolAlias(nil), orchestrationToolAliases...)
+}
+
+// OrchestrationToolAliasDenylist 返回 orchestration 控制面的 canonical 和 legacy peer 名。
+func OrchestrationToolAliasDenylist() []string {
+	names := make([]string, 0, len(orchestrationToolAliases)*2)
+	for _, alias := range orchestrationToolAliases {
+		names = append(names, alias.Canonical)
+	}
+	for _, alias := range orchestrationToolAliases {
+		names = append(names, alias.LegacyPeerRealName)
+	}
+	return names
+}
+
 // ValidateLaunchCWD 校验启动工作目录。
 func ValidateLaunchCWD(cwd, parentID string) error {
 	trimmedCWD := strings.TrimSpace(cwd)

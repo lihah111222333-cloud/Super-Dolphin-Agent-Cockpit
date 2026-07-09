@@ -8,7 +8,7 @@ import (
 )
 
 // TestLegacyOrchestrationStringsStayInToolbridgeAliasIsolation 防止旧 orch 名重新散落到 toolbridge 生产代码。
-// handler_peer_alias.go 是唯一允许声明 legacy peer realName / deny-only 名称的隔离层。
+// toolbridge 只能通过 handler_peer_alias.go 包装 contract 里的 legacy peer realName / deny-only 名称。
 func TestLegacyOrchestrationStringsStayInToolbridgeAliasIsolation(t *testing.T) {
 	t.Parallel()
 

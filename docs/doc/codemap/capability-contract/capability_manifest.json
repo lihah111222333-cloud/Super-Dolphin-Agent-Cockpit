@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2228,
+    "total_functions": 2230,
     "total_methods": 1062,
     "total_interfaces": 159,
     "total_interface_methods": 333,
-    "total_exported": 1218,
+    "total_exported": 1221,
     "total_unexported": 2807,
-    "total_structs": 576
+    "total_structs": 577
   },
   "packages": [
     {
@@ -29631,6 +29631,20 @@
           ]
         },
         {
+          "name": "OrchestrationToolAliasDenylist",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "OrchestrationToolAliases",
+          "exported": true,
+          "returns": [
+            "[]OrchestrationToolAlias"
+          ]
+        },
+        {
           "name": "PackagedRuntimeFromEnv",
           "exported": true,
           "returns": [
@@ -35629,6 +35643,10 @@
         },
         {
           "name": "NotifyRequest",
+          "exported": true
+        },
+        {
+          "name": "OrchestrationToolAlias",
           "exported": true
         },
         {
