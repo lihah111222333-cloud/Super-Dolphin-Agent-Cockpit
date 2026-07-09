@@ -99,7 +99,7 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, e
 	}
 	if !shouldReplay {
 		if shouldWriteRecoveryNoReplayFallback(agent, activeTurnID) {
-			return false, s.reportController().setNoReportFallbackLocked(ctx, agent)
+			return false, s.reports.setNoReportFallbackLocked(ctx, agent)
 		}
 		return false, nil
 	}
@@ -148,7 +148,7 @@ func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRu
 
 // findReplayWakeup 查找当前 agent 下仍绑定 active turn 的可重放 wakeup。
 func findReplayWakeup(ctx context.Context, s *service, agent *agentRuntime, activeTurnID string) (*taskdag.Wakeup, error) {
-	nodes, err := s.recoveryStore.ListRunningNodesByAssignee(ctx, agent.id)
+	nodes, err := s.lifecycle.recoveryStore.ListRunningNodesByAssignee(ctx, agent.id)
 	if err != nil {
 		return nil, fmt.Errorf("recover replay: list running nodes for %q: %w", agent.id, err)
 	}
@@ -177,7 +177,7 @@ func loadReplayWakeup(ctx context.Context, s *service, node taskdag.Node, active
 	if node.ActiveWakeupID == nil || *node.ActiveWakeupID <= 0 {
 		return nil, fmt.Errorf("recover replay: node %s/%s missing active wakeup for turn %q", node.DagKey, node.NodeKey, activeTurnID)
 	}
-	wakeup, err := s.recoveryStore.GetWakeup(ctx, *node.ActiveWakeupID)
+	wakeup, err := s.lifecycle.recoveryStore.GetWakeup(ctx, *node.ActiveWakeupID)
 	if err != nil {
 		return nil, fmt.Errorf("recover replay: load wakeup %d for turn %q: %w", *node.ActiveWakeupID, activeTurnID, err)
 	}
@@ -199,7 +199,7 @@ func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
 		return "", false
 	}
 	activeTurnID := strings.TrimSpace(agent.activeTurnID)
-	if activeTurnID == "" || s.recoveryStore == nil {
+	if activeTurnID == "" || s.lifecycle.recoveryStore == nil {
 		return "", false
 	}
 	return activeTurnID, true
@@ -300,10 +300,10 @@ func (s *service) recoverLauncherWithReason(ctx context.Context, agentID, reason
 		return s.commitLauncherRecoveryFailure(ctx, attempt, err)
 	}
 	attempt.replay, attempt.shouldReplay = replay, shouldReplay
-	if err := s.launcher.Stop(ctx, &attempt.launching); err != nil {
+	if err := s.lifecycle.launcher.Stop(ctx, &attempt.launching); err != nil {
 		return s.commitLauncherRecoveryFailure(ctx, attempt, err)
 	}
-	result, err := s.launcher.Launch(ctx, &attempt.launching, attempt.req)
+	result, err := s.lifecycle.launcher.Launch(ctx, &attempt.launching, attempt.req)
 	if err != nil {
 		return s.commitLauncherRecoveryFailure(ctx, attempt, err)
 	}
@@ -346,7 +346,7 @@ func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt lau
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
 	err = s.commitLaunchFailureLocked(ctx, agent, launchErr)
-	if fallbackErr := s.reportController().setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
+	if fallbackErr := s.reports.setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
 		err = errors.Join(err, fallbackErr)
 	}
 	registry.unlock()
@@ -370,7 +370,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
 		registry.unlock()
-		if stopErr := s.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
+		if stopErr := s.lifecycle.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
 			s.logger.Warn("orchestration: recovery rekey failure cleanup stop failed", "agent_id", attempt.launching.id, "error", stopErr)
 		}
 		return commitErr
@@ -381,7 +381,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
 		registry.unlock()
-		if stopErr := s.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
+		if stopErr := s.lifecycle.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
 			s.logger.Warn("orchestration: recovery success cleanup stop failed", "agent_id", attempt.launching.id, "error", stopErr)
 		}
 		return err
@@ -398,7 +398,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 func (s *service) finishLauncherRecoveryTurnLocked(ctx context.Context, agent *agentRuntime, attempt launcherRecoveryAttempt) error {
 	if !attempt.shouldReplay {
 		if shouldWriteRecoveryNoReplayFallback(agent, attempt.turnID) {
-			return s.reportController().setNoReportFallbackLocked(ctx, agent)
+			return s.reports.setNoReportFallbackLocked(ctx, agent)
 		}
 		return nil
 	}
@@ -416,7 +416,7 @@ func (s *service) notifyRecoveryFailure(ctx context.Context, agentID string, rec
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if strings.TrimSpace(agent.lastReport) == "" {
 			agent.lastError = strings.TrimSpace(recoverErr.Error())
-			return s.reportController().setNoReportFallbackLocked(ctx, agent)
+			return s.reports.setNoReportFallbackLocked(ctx, agent)
 		}
 		return nil
 	})

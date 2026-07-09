@@ -19,8 +19,8 @@ func TestArchiveAgentMarksPersistedThreadAndBindingArchivedWhenRuntimeMissing(t 
 		"agent-1": {AgentID: "agent-1", Provider: "codex", CodexThreadID: "provider-thread-1"},
 	}}
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 
 	if _, err := svc.ArchiveAgent(context.Background(), " agent-1 "); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
@@ -41,8 +41,8 @@ func TestArchiveAgentAcceptsProviderThreadIDAndArchivesOwningAgent(t *testing.T)
 		"agent-1": {AgentID: "agent-1", Provider: "codex", CodexThreadID: "provider-thread-1"},
 	}}
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 
 	if _, err := svc.ArchiveAgent(context.Background(), "provider-thread-1"); err != nil {
 		t.Fatalf("ArchiveAgent(provider thread) error = %v", err)
@@ -60,8 +60,8 @@ func TestArchiveAgentMissingReturnsNotFound(t *testing.T) {
 	threads := &archiveAgentThreadStore{}
 	bindings := &archiveAgentBindingStore{bindings: map[string]PersistedBinding{}}
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 	if _, err := svc.ArchiveAgent(context.Background(), "missing-agent"); !errors.Is(err, errAgentNotFound) {
 		t.Fatalf("ArchiveAgent() error = %v, want errAgentNotFound", err)
 	}
@@ -76,8 +76,8 @@ func TestArchiveAgentArchivesPersistedThreadViaSettledLauncherWhenRuntimeMissing
 	}}
 	launcher := &archiveAgentSettledLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 
 	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
@@ -104,9 +104,9 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 		"agent-1": {AgentID: "agent-1", Provider: "codex", CodexThreadID: "provider-thread-1"},
 	}}
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.processExitWaitTimeout = 2 * time.Second
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.processExitWaitTimeout = 2 * time.Second
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 
 	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
@@ -118,7 +118,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
 	svc.registry.agents[agent.id] = agent
-	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agent.id, LaunchSeq: agent.launchSeq, Cmd: cmd})
+	svc.lifecycle.exitMonitor.Arm(exitmonitor.Target{AgentID: agent.id, LaunchSeq: agent.launchSeq, Cmd: cmd})
 	agent.monitoredSeq = agent.launchSeq
 	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 
@@ -126,7 +126,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	defer cancelRunner()
 	runDone := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
-	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(runCtx) })
+	goroutines.Go(func() { runDone <- newRunnerActorForTest(silentLogger(), svc).Run(runCtx) })
 	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
 
 	if _, err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
@@ -189,8 +189,8 @@ func TestArchiveAgentArchivesOwningRuntimeWhenCalledWithProviderThreadID(t *test
 	}}
 	launcher := &archiveAgentLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
@@ -224,8 +224,8 @@ func TestArchiveAgentInvokesLauncherArchiveNotStop(t *testing.T) {
 	}}
 	launcher := &archiveAgentLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentThreads = threads
-	svc.agentBindings = bindings
+	svc.lifecycle.agentThreads = threads
+	svc.lifecycle.agentBindings = bindings
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "provider-thread-1"
@@ -263,7 +263,7 @@ func TestArchiveAgentViaLauncherSettlesNonSettledLauncherWithoutExitMonitorEvent
 		t.Fatalf("archiveAgentViaLauncher() = (%v, %v), want archived nil", archived, err)
 	}
 	select {
-	case ev := <-svc.exitMonitor.ExitEvents():
+	case ev := <-svc.lifecycle.exitMonitor.ExitEvents():
 		t.Fatalf("unexpected synthetic exit event for non-settled archive launcher: %#v", ev)
 	default:
 	}

@@ -53,13 +53,13 @@ func (s *service) canRehydratePersistedRuntime(agentID string) bool {
 	if agentID == "" {
 		return false
 	}
-	if s.launcher == nil {
+	if s.lifecycle.launcher == nil {
 		return false
 	}
-	if s.agentBindings == nil {
+	if s.lifecycle.agentBindings == nil {
 		return false
 	}
-	if !launcherSupportsPersistedRuntimeRehydrate(s.launcher) {
+	if !launcherSupportsPersistedRuntimeRehydrate(s.lifecycle.launcher) {
 		return false
 	}
 	return !s.hasRuntimeAgent(agentID)
@@ -118,7 +118,7 @@ type persistedRuntimeSource struct {
 
 // loadPersistedRuntimeSource 加载persisted运行时source。
 func (s *service) loadPersistedRuntimeSource(ctx context.Context, agentID string) (persistedRuntimeSource, string, error) {
-	binding, err := s.agentBindings.GetByAgentID(ctx, agentID)
+	binding, err := s.lifecycle.agentBindings.GetByAgentID(ctx, agentID)
 	if err != nil {
 		return persistedRuntimeSource{}, "binding_lookup_failed", err
 	}
@@ -211,7 +211,7 @@ func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRunti
 		launchSeq:           1,
 		queue:               &SubmissionQueue{},
 	}
-	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
+	agent.sm = platformstatemachine.New(s.lifecycle.machineCfg, func() string {
 		return string(agent.state)
 	}, func(next string) {
 		agent.state = agentdto.AgentState(next)
@@ -238,15 +238,15 @@ func persistedRuntimeReport(agentID string, source persistedRuntimeSource, threa
 // persistedThreadForBinding 根据 provider thread 或 agentID 找到持久化线程。
 // provider thread 优先，兼容旧数据时再回退到 agentID。
 func (s *service) persistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*PersistedThread, error) {
-	if s.agentThreads == nil {
+	if s.lifecycle.agentThreads == nil {
 		return nil, platformdb.ErrNotFound
 	}
-	if thread, err := s.agentThreads.GetByThreadID(ctx, remoteThreadID); err == nil && thread != nil {
+	if thread, err := s.lifecycle.agentThreads.GetByThreadID(ctx, remoteThreadID); err == nil && thread != nil {
 		return thread, nil
 	} else if err != nil && !platformdb.IsNotFound(err) {
 		return nil, err
 	}
-	if thread, err := s.agentThreads.GetByThreadID(ctx, agentID); err == nil && thread != nil {
+	if thread, err := s.lifecycle.agentThreads.GetByThreadID(ctx, agentID); err == nil && thread != nil {
 		return thread, nil
 	} else if err != nil {
 		return nil, err

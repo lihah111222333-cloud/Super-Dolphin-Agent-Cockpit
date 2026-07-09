@@ -64,23 +64,56 @@ var (
 )
 
 type service struct {
-	logger                 *slog.Logger
-	eventBus               *event.Dispatcher
+	logger    *slog.Logger
+	eventBus  *event.Dispatcher
+	registry  *agentRegistry
+	lifecycle *lifecycleController
+	dags      *dagController
+	turns     *turnController
+	reports   *reportController
+}
+
+// lifecycleController owns agent launch/stop/process-exit state and service-scoped async bookkeeping.
+type lifecycleController struct {
 	launcher               AgentLauncher
 	sessionCleaner         contract.OrchestrationSessionCleaner
-	turnStarter            contract.OrchestrationTurnStarter
-	dagController          *dagController
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
 	machineCfg             platformstatemachine.Config
 	processExitWaitTimeout time.Duration
 	exitMonitor            *exitmonitor.Monitor
-	registry               *agentRegistry
+	asyncCtx               context.Context
+	asyncCancel            context.CancelFunc
+	asyncWg                sync.WaitGroup
+}
 
-	asyncCtx    context.Context
-	asyncCancel context.CancelFunc
-	asyncWg     sync.WaitGroup
+type lifecycleControllerParams struct {
+	logger         *slog.Logger
+	launcher       AgentLauncher
+	sessionCleaner contract.OrchestrationSessionCleaner
+	dagStore       taskdag.OrchestrationStore
+}
+
+func newLifecycleController(p lifecycleControllerParams) *lifecycleController {
+	var recoveryStore recoveryTurnStore
+	if store, ok := p.dagStore.(recoveryTurnStore); ok {
+		recoveryStore = store
+	}
+	asyncCtx, asyncCancel := context.WithCancel(context.Background())
+	return &lifecycleController{
+		launcher:       p.launcher,
+		sessionCleaner: p.sessionCleaner,
+		recoveryStore:  recoveryStore,
+		machineCfg: platformstatemachine.Config{
+			Initial: string(agentdto.StateProvisioning),
+			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
+		},
+		processExitWaitTimeout: 30 * time.Second,
+		exitMonitor:            exitmonitor.New(p.logger),
+		asyncCtx:               asyncCtx,
+		asyncCancel:            asyncCancel,
+	}
 }
 
 type turnStatePort interface {
@@ -128,21 +161,6 @@ func newTurnController(deps turnControllerDeps) *turnController {
 		stopper:     deps.stopper,
 		logger:      deps.logger,
 	}
-}
-
-func (s *service) turnController() *turnController {
-	if s == nil {
-		return newTurnController(turnControllerDeps{})
-	}
-	return newTurnController(turnControllerDeps{
-		registry:    s.agentRegistry(),
-		launcher:    s.launcher,
-		turnStarter: s.turnStarter,
-		state:       s,
-		rehydrator:  s,
-		stopper:     s,
-		logger:      s.logger,
-	})
 }
 
 func (c *turnController) agentRunningLocked(ctx context.Context, agent *agentRuntime) bool {
@@ -272,37 +290,41 @@ func NewService(
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	var recoveryStore recoveryTurnStore
-	if store, ok := dagStore.(recoveryTurnStore); ok {
-		recoveryStore = store
-	}
-	asyncCtx, asyncCancel := context.WithCancel(context.Background())
-	svc := &service{
+	registry := newAgentRegistry()
+	lifecycle := newLifecycleController(lifecycleControllerParams{
 		logger:         logger,
-		eventBus:       eventBus,
 		launcher:       launcher,
 		sessionCleaner: sessionCleaner,
-		turnStarter:    turnStarter,
-		recoveryStore:  recoveryStore,
-		machineCfg: platformstatemachine.Config{
-			Initial: string(agentdto.StateProvisioning),
-			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
-		},
-		processExitWaitTimeout: 30 * time.Second,
-		exitMonitor:            exitmonitor.New(logger),
-		registry:               newAgentRegistry(),
-		asyncCtx:               asyncCtx,
-		asyncCancel:            asyncCancel,
+		dagStore:       dagStore,
+	})
+	svc := &service{
+		logger:    logger,
+		eventBus:  eventBus,
+		registry:  registry,
+		lifecycle: lifecycle,
 	}
-	svc.dagController = newDAGController(dagControllerParams{
+	svc.dags = newDAGController(dagControllerParams{
 		Logger:     logger,
 		EventBus:   eventBus,
 		DAGStore:   dagStore,
 		SvcStopper: svc,
 	})
+	svc.turns = newTurnController(turnControllerDeps{
+		registry:    registry,
+		launcher:    lifecycle.launcher,
+		turnStarter: turnStarter,
+		state:       svc,
+		rehydrator:  svc,
+		stopper:     svc,
+		logger:      logger,
+	})
+	svc.reports = newReportController(reportControllerDeps{
+		registry: registry,
+		logger:   logger,
+	})
 	bindRemoteLauncherEventSink(launcher, svc)
 	if local, ok := launcher.(*localLauncher); ok {
-		local.exitMonitor = svc.exitMonitor
+		local.exitMonitor = lifecycle.exitMonitor
 	}
 	return svc
 }
@@ -310,9 +332,10 @@ func NewService(
 // ProvideService 从 fx 参数创建 service，并挂接可选 store 依赖。
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
-	svc.agentThreads = p.AgentThreads
-	svc.agentBindings = p.AgentBindings
-	svc.dagController = newDAGController(dagControllerParams{
+	svc.lifecycle.agentThreads = p.AgentThreads
+	svc.lifecycle.agentBindings = p.AgentBindings
+	svc.reports.agentThreads = p.AgentThreads
+	svc.dags = newDAGController(dagControllerParams{
 		Logger:              svc.logger,
 		EventBus:            svc.eventBus,
 		DAGStore:            p.DAGStore,
@@ -327,7 +350,7 @@ func ProvideService(p serviceParams) *service {
 
 // RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
 // 订阅在 fx OnStop 时取消，避免 service 停止后继续推进状态机。
-func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
+func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtime TurnLifecyclePort, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -346,7 +369,7 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 					return
 				}
 				ctx := withEventTime(lifecycleCtx, ev.Timestamp)
-				if err := svc.BindActiveTurnID(ctx, ev.AgentID, ev.TurnID); err != nil && !errors.Is(err, errAgentNotFound) && !errors.Is(err, errTurnNotActive) {
+				if err := runtime.BindActiveTurnID(ctx, ev.AgentID, ev.TurnID); err != nil && !errors.Is(err, errAgentNotFound) && !errors.Is(err, errTurnNotActive) {
 					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
 				}
 			}, logger)
@@ -355,14 +378,14 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleTurnCompletedEventWithCtx(svc, logger, ev, lifecycleCtx)
+				handleTurnCompletedEventWithCtx(runtime, logger, ev, lifecycleCtx)
 			}, logger)
 			// interruption 事件同样直接推进状态机；失败只记录，终态修复逻辑在 handler 内完成。
 			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleTurnInterruptedEventWithCtx(svc, logger, ev, lifecycleCtx)
+				handleTurnInterruptedEventWithCtx(runtime, logger, ev, lifecycleCtx)
 			}, logger)
 			return nil
 		},
@@ -380,7 +403,7 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 
 // RegisterApprovalLifecycle 注册 tool approval 事件订阅，用于驱动 awaiting_user_input 状态。
 // 导出给 cmd/mcp-orch/fx.go 通过 fx.Invoke 接线。
-func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
+func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtime ApprovalLifecyclePort, logger *slog.Logger) {
 	requestedCancel := func() {}
 	resolvedCancel := func() {}
 	lifecycleCtx := context.Background()
@@ -393,14 +416,14 @@ func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, sv
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
+				handleToolApprovalRequestedEvent(runtime, loggerOrDefault(logger), ev)
 			}, logger)
 			// approval resolved 事件解除 awaiting_user_input；重复完成会被下游视为幂等。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)
+				handleToolApprovalResolvedEvent(runtime, loggerOrDefault(logger), ev)
 			}, logger)
 			return nil
 		},
@@ -426,9 +449,9 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
-	Store   taskdag.Store `optional:"true"`
-	Service *service
-	Logger  *slog.Logger `optional:"true"`
+	Store    taskdag.Store `optional:"true"`
+	Launcher WakeupLauncher
+	Logger   *slog.Logger `optional:"true"`
 }
 
 // ProvideWakeupDispatcher 创建共享 wakeup dispatcher；未注入 Store 时返回 nil。
@@ -442,7 +465,7 @@ func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatc
 		logger.Info("orchestration: wakeup dispatcher disabled (no taskdag store provided)")
 		return nil, nil
 	}
-	return NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
+	return NewWakeupDispatcher(in.Store, in.Launcher, logger, WakeupDispatcherConfig{})
 }
 
 // ProvideWakeupDispatcherRunner 将可选 dispatcher 适配为 runner。
@@ -525,13 +548,15 @@ func (s *service) DrainAsync(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if s.asyncCancel != nil {
-		s.asyncCancel()
+	if s.lifecycle != nil && s.lifecycle.asyncCancel != nil {
+		s.lifecycle.asyncCancel()
 	}
 	done := make(chan struct{})
 	runtimesafe.SafeGo(ctx, s.logger, "orchestration.drainAsync", func(context.Context) {
 		defer close(done)
-		s.asyncWg.Wait()
+		if s.lifecycle != nil {
+			s.lifecycle.asyncWg.Wait()
+		}
 	})
 	select {
 	case <-done:
@@ -542,7 +567,10 @@ func (s *service) DrainAsync(ctx context.Context) {
 
 // SubmitTurn 提交一次 turn，远端 agent 优先走 launcher，其他 agent 进入本地队列。
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
-	return s.turnController().SubmitTurn(ctx, req)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.SubmitTurn(ctx, req)
 }
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。
@@ -551,7 +579,7 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.agentThreads != nil {
+	if s.lifecycle != nil && s.lifecycle.agentThreads != nil {
 		persisted, err := s.listPersistedAgentSnapshots(ctx)
 		if err != nil {
 			return nil, err
@@ -586,5 +614,8 @@ func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 
 // CompleteTurn 根据 provider 终态事件完成或中止当前 active turn。
 func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
-	return s.turnController().CompleteTurn(ctx, agentID, turnID, success, errMsg)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.CompleteTurn(ctx, agentID, turnID, success, errMsg)
 }

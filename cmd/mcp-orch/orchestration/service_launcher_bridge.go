@@ -12,29 +12,45 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"time"
+
+	"go.uber.org/fx"
 )
 
-type agentLaunchSnapshotter interface {
+// AgentLaunchSnapshotter 是 DAG launcher 创建 agent snapshot 所需的窄端口。
+type AgentLaunchSnapshotter interface {
 	launchAgentSnapshot(ctx context.Context, req LaunchRequest, beforeInitialPrompt func(agentID string, result LaunchResult) error) (AgentSnapshot, error)
 }
 
 type agentLifecycleController struct {
-	launchSnapshots agentLaunchSnapshotter
+	launchSnapshots AgentLaunchSnapshotter
 	launcher        AgentLauncher
 	threads         AgentThreadLookup
 	stopper         StopAgentService
 }
 
-// ProvideAgentLifecycleController 将 service 生命周期能力复制到 DAG agent launcher 所需的窄口。
-func ProvideAgentLifecycleController(svc *service) (*agentLifecycleController, error) {
-	if svc == nil {
-		return nil, errors.New("agent lifecycle controller: service is nil")
+// AgentLifecycleControllerParams 汇总 DAG agent lifecycle controller 的 fx 端口。
+type AgentLifecycleControllerParams struct {
+	fx.In
+
+	LaunchSnapshots AgentLaunchSnapshotter
+	Launcher        AgentLauncher
+	Threads         AgentThreadLookup `optional:"true"`
+	Stopper         StopAgentService
+}
+
+// ProvideAgentLifecycleController 汇总 DAG agent launcher 所需的窄口。
+func ProvideAgentLifecycleController(p AgentLifecycleControllerParams) (*agentLifecycleController, error) {
+	if p.LaunchSnapshots == nil {
+		return nil, errors.New("agent lifecycle controller: launch snapshotter is nil")
+	}
+	if p.Stopper == nil {
+		return nil, errors.New("agent lifecycle controller: stop service is nil")
 	}
 	return &agentLifecycleController{
-		launchSnapshots: svc,
-		launcher:        svc.launcher,
-		threads:         svc.agentThreads,
-		stopper:         svc,
+		launchSnapshots: p.LaunchSnapshots,
+		launcher:        p.Launcher,
+		threads:         p.Threads,
+		stopper:         p.Stopper,
 	}, nil
 }
 
@@ -152,9 +168,9 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 // startLauncherAttempt 根据 context mode 选择普通 launch 或 fork launch。
 func (s *service) startLauncherAttempt(ctx context.Context, attempt *launcherLaunchAttempt, req LaunchRequest) (LaunchResult, error) {
 	if strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
-		return s.launcher.Fork(ctx, &attempt.forkParent, &attempt.launching, req)
+		return s.lifecycle.launcher.Fork(ctx, &attempt.forkParent, &attempt.launching, req)
 	}
-	return s.launcher.Launch(ctx, &attempt.launching, req)
+	return s.lifecycle.launcher.Launch(ctx, &attempt.launching, req)
 }
 
 // submitInitialLaunchPrompt 在启动成功后把 launch prompt 自动提交为第一轮 turn。
@@ -190,7 +206,7 @@ func (s *service) submitInitialLaunchPromptOrStop(ctx context.Context, agentID s
 
 // prepareLauncherLaunch 校验请求参数、检测重复启动，并在锁内准备 launch attempt。
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
-	if err := validateLaunchRequestForLauncher(req, s.launcher); err != nil {
+	if err := validateLaunchRequestForLauncher(req, s.lifecycle.launcher); err != nil {
 		pkglogger.Warn("orchestration: launch rejected: validation failed", "agent_id", req.AgentID, "name", req.Name, "error", err)
 		return launcherLaunchAttempt{}, true, err
 	}
@@ -215,7 +231,7 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 		pkglogger.Warn("orchestration: launch rejected: prepare failed", "agent_id", agent.id, "state", agent.state, "error", err)
 		return launcherLaunchAttempt{}, true, err
 	}
-	if s.launcher == nil {
+	if s.lifecycle.launcher == nil {
 		return launcherLaunchAttempt{}, true, s.startProcessLocked(ctx, agent)
 	}
 	agent.launchSeq++
@@ -270,7 +286,7 @@ func (s *service) runtimeForkParentForLaunch(parentID string) (agentRuntime, boo
 
 // persistedForkParentForLaunch 从持久化 binding 和 active thread 证明父 agent 归属并组装 fork 父快照。
 func (s *service) persistedForkParentForLaunch(ctx context.Context, parentID string) (agentRuntime, error) {
-	if s == nil || s.agentBindings == nil {
+	if s == nil || s.lifecycle == nil || s.lifecycle.agentBindings == nil {
 		return agentRuntime{}, fmt.Errorf("trusted parent binding for forked launch %q is required", parentID)
 	}
 	source, reason, err := s.loadPersistedRuntimeSource(ctx, parentID)
@@ -340,7 +356,7 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 // discardStaleLaunchResult 停止已过期但实际启动成功的 launcher runtime。
 func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agentRuntime, launchErr error) error {
 	if launchErr == nil {
-		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: discard stale launch stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 	}
@@ -355,8 +371,8 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 	}
 	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, lastErr)
 	s.agentRegistry().unlock()
-	if launching != nil && s.launcher != nil {
-		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+	if launching != nil && s.lifecycle.launcher != nil {
+		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: fail launch cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 	}
@@ -370,7 +386,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
 		s.agentRegistry().unlock()
-		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: rekey failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 		return commitErr
@@ -381,7 +397,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
 		s.agentRegistry().unlock()
-		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: commit success failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 		return err
@@ -411,7 +427,7 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	if agent == nil {
 		return nil
 	}
-	if err := s.launcher.Stop(ctx, agent); err != nil {
+	if err := s.lifecycle.launcher.Stop(ctx, agent); err != nil {
 		return err
 	}
 	s.handleProcessExit(ctx, agentID, launchSeq, nil)
@@ -437,7 +453,7 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	if agent == nil {
 		return false, nil
 	}
-	if err := s.launcher.Archive(ctx, agent); err != nil {
+	if err := s.lifecycle.launcher.Archive(ctx, agent); err != nil {
 		return false, err
 	}
 	s.handleProcessExit(ctx, agentID, launchSeq, nil)
@@ -462,8 +478,8 @@ func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
 	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		if s.launcher != nil && agent.cmd == nil {
-			shouldStop = s.launcher.IsRunning(ctx, agent)
+		if s.lifecycle.launcher != nil && agent.cmd == nil {
+			shouldStop = s.lifecycle.launcher.IsRunning(ctx, agent)
 		}
 		return nil
 	}); err != nil {
@@ -497,7 +513,10 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 
 // submitTurnViaLauncher 优先提交到远端 launcher，无法远端处理时回落到本地队列。
 func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
-	return s.turnController().SubmitTurn(ctx, req)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.SubmitTurn(ctx, req)
 }
 
 // remoteTurnSubmitAttempt 保存远端 turn 提交的 active turn fence 和请求副本。
@@ -510,7 +529,10 @@ type remoteTurnSubmitAttempt struct {
 
 // InterruptAgent 请求远程 Codex 子 agent 中断当前 turn，并等待状态收口。
 func (s *service) InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error) {
-	return s.turnController().InterruptAgent(ctx, agentID, source)
+	if s == nil || s.turns == nil {
+		return AgentStateResult{}, errors.New("turn controller is not configured")
+	}
+	return s.turns.InterruptAgent(ctx, agentID, source)
 }
 
 // SubmitTurn 统一处理 turn 提交：远端 launcher 优先，无法远端处理时进入本地队列。
@@ -722,8 +744,8 @@ func (s *service) agentRunningLocked(ctx context.Context, agent *agentRuntime) b
 	if agent == nil {
 		return false
 	}
-	if s.launcher != nil {
-		return s.launcher.IsRunning(ctx, agent)
+	if s.lifecycle.launcher != nil {
+		return s.lifecycle.launcher.IsRunning(ctx, agent)
 	}
 	return agent.cmd != nil
 }

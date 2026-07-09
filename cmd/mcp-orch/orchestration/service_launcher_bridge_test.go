@@ -142,22 +142,27 @@ func TestClassifyLaunchError(t *testing.T) {
 	}
 }
 
-func TestProvideAgentLifecycleControllerNilServiceFailsFast(t *testing.T) {
-	lifecycle, err := ProvideAgentLifecycleController(nil)
+func TestProvideAgentLifecycleControllerMissingPortsFailsFast(t *testing.T) {
+	lifecycle, err := ProvideAgentLifecycleController(AgentLifecycleControllerParams{})
 	if err == nil {
-		t.Fatalf("ProvideAgentLifecycleController(nil) error = nil, want fail-fast")
+		t.Fatalf("ProvideAgentLifecycleController(empty params) error = nil, want fail-fast")
 	}
 	if lifecycle != nil {
-		t.Fatalf("ProvideAgentLifecycleController(nil) lifecycle = %T, want nil", lifecycle)
+		t.Fatalf("ProvideAgentLifecycleController(empty params) lifecycle = %T, want nil", lifecycle)
 	}
-	if !strings.Contains(err.Error(), "service is nil") {
-		t.Fatalf("ProvideAgentLifecycleController(nil) error = %q, want service context", err)
+	if !strings.Contains(err.Error(), "launch snapshotter is nil") {
+		t.Fatalf("ProvideAgentLifecycleController(empty params) error = %q, want launch snapshotter context", err)
 	}
 }
 
 func mustAgentLifecycleController(t *testing.T, svc *service) *agentLifecycleController {
 	t.Helper()
-	lifecycle, err := ProvideAgentLifecycleController(svc)
+	lifecycle, err := ProvideAgentLifecycleController(AgentLifecycleControllerParams{
+		LaunchSnapshots: svc,
+		Launcher:        svc.lifecycle.launcher,
+		Threads:         svc.lifecycle.agentThreads,
+		Stopper:         svc,
+	})
 	if err != nil {
 		t.Fatalf("ProvideAgentLifecycleController() error = %v", err)
 	}
@@ -277,13 +282,13 @@ func TestForkedLaunchRequiresTrustedParentBinding(t *testing.T) {
 			return struct{}{}, nil
 		}),
 	}), nil, nil, nil)
-	svc.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+	svc.lifecycle.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
 		AgentID:       "agent-parent",
 		Provider:      "codex",
 		CodexThreadID: "thread-parent-trusted",
 		Cwd:           t.TempDir(),
 	}}
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{
 		ThreadID: "thread-parent-trusted",
 		AgentID:  "agent-parent",
 		Status:   "running",

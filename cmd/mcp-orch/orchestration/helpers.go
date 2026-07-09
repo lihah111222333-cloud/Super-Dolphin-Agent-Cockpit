@@ -44,7 +44,10 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 
 // BindActiveTurnID 把当前活跃 turn 绑定到 provider 返回的真实 turn ID。
 func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
-	return s.turnController().BindActiveTurnID(ctx, agentID, turnID)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.BindActiveTurnID(ctx, agentID, turnID)
 }
 
 // BindActiveTurnID 把当前 active turn 绑定到 provider 返回的真实 turn ID。
@@ -90,7 +93,11 @@ func (c *turnController) reconcileReadyStateLocked(ctx context.Context, agent *a
 
 // startTurnExecution 等待 session 可提交后，把排队的 turn 交给 provider 执行。
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
-	s.turnController().startTurnExecution(ctx, work)
+	if s == nil || s.turns == nil {
+		pkglogger.FromContext(ctx).Warn("orchestration: turn controller is not configured", "agent_id", work.agentID, "turn_id", work.turnID)
+		return
+	}
+	s.turns.startTurnExecution(ctx, work)
 }
 
 // startTurnExecution 等待 session 可提交后，把已领取的 turn 交给 provider 执行。
@@ -236,13 +243,16 @@ func (c *turnController) submitAgentReadyState(ctx context.Context, agentID stri
 
 // waitForSubmitSessionReady 在提交 turn 前等待 provider session 完成启动。
 func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
-	return s.turnController().waitForSubmitSessionReady(ctx, agentID)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.waitForSubmitSessionReady(ctx, agentID)
 }
 
 // waitForSubmitSessionReady 在提交 turn 前等待 provider session 完成启动。
 func (c *turnController) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
 	if c == nil || c.turnStarter == nil {
-		return nil
+		return errors.New("turn starter is not configured")
 	}
 	startedAt := time.Now()
 	logger := pkglogger.FromContext(ctx)
@@ -277,7 +287,7 @@ func (c *turnController) waitForSubmitSessionReady(ctx context.Context, agentID 
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	nextSeq := agent.launchSeq + 1
 	cmd, guard, err := exitmonitor.StartMonitoredCommand(
-		s.exitMonitor, s.logger,
+		s.lifecycle.exitMonitor, s.logger,
 		exitmonitor.Target{AgentID: agent.id, LaunchSeq: nextSeq},
 		agent.command, agent.cwd,
 		append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...),
@@ -379,7 +389,7 @@ func (s *service) listAgents() []agentRuntime {
 // discardStaleSuccessfulLaunch 处理恢复/启动竞争中已经成功但判定过期的 runtime。
 // 它会先停止新启动的 agent，再把原错误返回给调用方，避免泄漏不再归属当前状态机的线程。
 func (s *service) discardStaleSuccessfulLaunch(ctx context.Context, launching *agentRuntime, staleErr error) error {
-	if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+	if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 		s.logger.Warn("orchestration: discard stale successful launch stop failed", "agent_id", launching.id, "error", stopErr)
 	}
 	return staleErr

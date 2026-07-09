@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
@@ -51,8 +52,28 @@ type NotifyTap interface {
 	OnThreadStopped(ctx context.Context, ev threaddto.Stopped)
 }
 
+// HookConsumerRuntime 是 hook consumer 同步 agent runtime 所需的窄端口。
+type HookConsumerRuntime interface {
+	turnLifecycleRuntime
+
+	withAgentLocked(agentID string, fn func(*agentRuntime) error) error
+	syncStateChangedHookLocked(ctx context.Context, agent *agentRuntime, nextState string) error
+	hookSyncForceStoppedLocked(ctx context.Context, agent *agentRuntime) error
+	stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool
+	publishAgentRuntimeReported(agent *agentRuntime)
+}
+
+// HookReportPort 是 hook consumer 写入 report 和兜底 report 所需的窄端口。
+type HookReportPort interface {
+	HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
+	setStateChangedFallbackReportLocked(ctx context.Context, agent *agentRuntime, nextState string)
+	setStoppedFallbackReportLocked(ctx context.Context, agent *agentRuntime)
+}
+
 type hookConsumer struct {
-	svc       *service
+	runtime   HookConsumerRuntime
+	reports   HookReportPort
+	eventBus  *event.Dispatcher
 	logger    *slog.Logger
 	notifyTap NotifyTap
 
@@ -67,16 +88,13 @@ type hookContextEnvelope struct {
 	Event json.RawMessage
 }
 
-func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
-	return newHookConsumerInternal(svc, logger, nil, nil, nil)
-}
-
 // HookAfterHandlerParams 汇总 provider hook 后处理所需的 fx 依赖。
 // 可选端口只开启对应桥接能力，缺失时不得静默改写核心 agent 状态流。
 type HookAfterHandlerParams struct {
 	fx.In
 
-	Service           *service
+	Runtime           HookConsumerRuntime
+	Reports           HookReportPort
 	Logger            *slog.Logger                     `optional:"true"`
 	NotifyTap         NotifyTap                        `optional:"true"`
 	DAGFallbackLookup taskdag.NodeSpawningThreadLookup `optional:"true"`
@@ -93,8 +111,10 @@ type HookAfterHandlerParams struct {
 // ProvideHookAfterHandler 把 provider hook 事件接入 orchestration 状态同步。
 // 可选 DAG 端口只影响 DAG fallback 和 TurnCompleted 桥接，不影响普通 agent hook。
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
-	return newHookConsumerInternal(
-		p.Service,
+	return newHookConsumerWithPorts(
+		p.Runtime,
+		p.Reports,
+		p.EventBus,
 		p.Logger,
 		p.NotifyTap,
 		p.DAGFallbackLookup,
@@ -121,8 +141,10 @@ func withHookTurnCompletedDAGDeps(deps DAGSubscriberDeps) hookConsumerOption {
 	}
 }
 
-func newHookConsumerInternal(
-	svc *service,
+func newHookConsumerWithPorts(
+	runtime HookConsumerRuntime,
+	reports HookReportPort,
+	eventBus *event.Dispatcher,
 	logger *slog.Logger,
 	tap NotifyTap,
 	fallbackLookup taskdag.NodeSpawningThreadLookup,
@@ -130,7 +152,9 @@ func newHookConsumerInternal(
 	opts ...hookConsumerOption,
 ) *hookConsumer {
 	c := &hookConsumer{
-		svc:               svc,
+		runtime:           runtime,
+		reports:           reports,
+		eventBus:          eventBus,
 		logger:            loggerOrDefault(logger),
 		notifyTap:         tap,
 		dagFallbackLookup: fallbackLookup,
@@ -148,7 +172,7 @@ func newHookConsumerInternal(
 // 解码失败只批准并跳过，hook 不能阻断 provider 主流程。
 func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 	decision := mcp.AfterDecision{Decision: mcp.HookDecisionApprove}
-	if c == nil || c.svc == nil {
+	if c == nil || c.runtime == nil {
 		return decision, nil
 	}
 	envelope, ok := decodeHookContextEnvelope(c.logger, payload.Context)
@@ -218,7 +242,7 @@ func (c *hookConsumer) handleProcessExitTopic(ctx context.Context, envelope hook
 // provisioning/recovering 期间的线程归属由 pending launch 逻辑接管，避免旧线程覆盖新会话。
 func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Started) {
 	provider := normalizeRuntimeProvider(ev.Provider)
-	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" && launchOwnsHookThreadBinding(agent.state) {
 			recordPendingLaunchThreadLocked(agent, threadID, ev.Timestamp)
@@ -230,7 +254,7 @@ func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Sta
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		afterProvider, afterProviderSource := snapshotProvider(agent)
 		if beforeProvider != afterProvider || beforeProviderSource != afterProviderSource {
-			c.svc.publishAgentRuntimeReported(agent)
+			c.runtime.publishAgentRuntimeReported(agent)
 		}
 		return nil
 	})
@@ -254,7 +278,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		c.logger.Warn("orchestration: ignoring unknown mirrored agent state", "agent_id", ev.AgentID, "thread_id", ev.ThreadID, "state", nextState)
 		return
 	}
-	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		// session fence 防止旧进程/旧线程的状态事件写入当前会话。
 		// 空 SessionID 来自早期 provider 事件，仍按兼容输入处理。
 		if !agentSessionFenceOK(agent, ev.SessionID) {
@@ -284,7 +308,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		}
 		clearTerminalActiveTurnLocked(agent, nextState)
 		if before != nextState {
-			if err := c.svc.syncStateChangedHookLocked(ctx, agent, nextState); err != nil {
+			if err := c.runtime.syncStateChangedHookLocked(ctx, agent, nextState); err != nil {
 				c.logger.Warn("orchestration: hook state sync fire failed",
 					"agent_id", agent.id,
 					"from", before,
@@ -293,7 +317,11 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 				)
 			}
 		}
-		c.svc.reportController().setStateChangedFallbackReportLocked(ctx, agent, nextState)
+		if reports, err := c.requireReports(); err != nil {
+			return err
+		} else {
+			reports.setStateChangedFallbackReportLocked(ctx, agent, nextState)
+		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
 	})
@@ -304,23 +332,12 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 // 被抑制或不属于当前会话的 stopped 事件只记录为跳过，不再推进状态。
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	stoppedAccepted := true
-	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
-		before := string(agent.state)
-		if threadID := strings.TrimSpace(ev.ThreadID); c.svc.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
-			recoveringOldThreadHook(agent, threadID) || !bindStoppedHookThreadLocked(agent, threadID) {
-			stoppedAccepted = false
-			return nil
-		}
-		agent.activeTurnID, agent.stopReason = "", strings.TrimSpace(ev.Reason)
-		if err := c.svc.hookSyncForceStoppedLocked(ctx, agent); err != nil {
-			c.logger.Warn("orchestration: hook sync force stopped failed", "agent_id", agent.id, "from", before, "error", err)
-		}
-		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-		c.svc.reportController().setStoppedFallbackReportLocked(ctx, agent)
-		emitEvent(c.svc.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, ev.Reason)
-		return nil
+	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+		var err error
+		stoppedAccepted, err = c.applyThreadStoppedLocked(ctx, ev, agent)
+		return err
 	})
-	if errors.Is(err, errAgentNotFound) && c.svc.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
+	if errors.Is(err, errAgentNotFound) && c.runtime.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
 		return
 	}
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
@@ -337,19 +354,46 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 	}
 }
 
+// applyThreadStoppedLocked 在持锁状态下把 thread stopped hook 合并进 agent runtime。
+func (c *hookConsumer) applyThreadStoppedLocked(ctx context.Context, ev threaddto.Stopped, agent *agentRuntime) (bool, error) {
+	before := string(agent.state)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	if c.runtime.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
+		recoveringOldThreadHook(agent, threadID) || !bindStoppedHookThreadLocked(agent, threadID) {
+		return false, nil
+	}
+	agent.activeTurnID, agent.stopReason = "", strings.TrimSpace(ev.Reason)
+	if err := c.runtime.hookSyncForceStoppedLocked(ctx, agent); err != nil {
+		c.logger.Warn("orchestration: hook sync force stopped failed", "agent_id", agent.id, "from", before, "error", err)
+	}
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+	reports, err := c.requireReports()
+	if err != nil {
+		return true, err
+	}
+	reports.setStoppedFallbackReportLocked(ctx, agent)
+	emitEvent(c.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, ev.Reason)
+	return true, nil
+}
+
 func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
-	if c == nil || c.svc == nil {
+	if c == nil || c.runtime == nil {
 		return
 	}
 	report := turnCompletedReportText(ev)
-	_, err := c.svc.reportController().HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
-		AgentID:   strings.TrimSpace(ev.AgentID),
-		Report:    report,
-		EventType: "turn/completed",
-		EventData: mustMarshalHookReportEvent(ev),
-	})
+	var err error
+	if reports, reportErr := c.requireReports(); reportErr != nil {
+		err = reportErr
+	} else {
+		_, err = reports.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
+			AgentID:   strings.TrimSpace(ev.AgentID),
+			Report:    report,
+			EventType: "turn/completed",
+			EventData: mustMarshalHookReportEvent(ev),
+		})
+	}
 	c.logUnexpectedHookError("turn completed report", ev.AgentID, ev.ThreadID, err)
-	handleTurnCompletedEvent(c.svc, c.logger, ev)
+	handleTurnCompletedEvent(c.runtime, c.logger, ev)
 	c.handleDAGTurnCompletedFromHook(ctx, ev)
 	if c.notifyTap != nil {
 		c.notifyTap.OnTurnCompleted(ctx, ev)
@@ -364,7 +408,10 @@ func (c *hookConsumer) handleDAGTurnCompletedFromHook(ctx context.Context, ev tu
 }
 
 func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
-	handleTurnInterruptedEvent(c.svc, c.logger, ev)
+	if c == nil || c.runtime == nil {
+		return
+	}
+	handleTurnInterruptedEvent(c.runtime, c.logger, ev)
 	c.handleDAGTurnInterruptedFromHook(ctx, ev)
 	if c.notifyTap != nil {
 		c.notifyTap.OnTurnInterrupted(ctx, ev)
@@ -387,15 +434,27 @@ func (c *hookConsumer) handleDAGTurnInterruptedFromHook(ctx context.Context, ev 
 }
 
 func (c *hookConsumer) handleItemCompleted(ctx context.Context, ev turndto.ItemCompleted) {
-	if c == nil || c.svc == nil || !isFinalAnswerItem(ev) {
+	if c == nil || c.runtime == nil || !isFinalAnswerItem(ev) {
 		return
 	}
-	_, err := c.svc.reportController().HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
-		AgentID:   strings.TrimSpace(ev.AgentID),
-		EventType: strings.TrimSpace(platformshared.FirstTrimmed(ev.RawType, "item/completed")),
-		EventData: append(json.RawMessage(nil), ev.Payload...),
-	})
+	var err error
+	if reports, reportErr := c.requireReports(); reportErr != nil {
+		err = reportErr
+	} else {
+		_, err = reports.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
+			AgentID:   strings.TrimSpace(ev.AgentID),
+			EventType: strings.TrimSpace(platformshared.FirstTrimmed(ev.RawType, "item/completed")),
+			EventData: append(json.RawMessage(nil), ev.Payload...),
+		})
+	}
 	c.logUnexpectedHookError("turn item completed", ev.AgentID, ev.ThreadID, err)
+}
+
+func (c *hookConsumer) requireReports() (HookReportPort, error) {
+	if c == nil || c.reports == nil {
+		return nil, errors.New("hook consumer report controller is not configured")
+	}
+	return c.reports, nil
 }
 
 func (c *hookConsumer) logUnexpectedHookError(action, agentID, threadID string, err error) {

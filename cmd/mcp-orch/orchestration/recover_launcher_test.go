@@ -49,7 +49,7 @@ func TestLauncherRecoveryRekeysAndReplaysActiveTurn(t *testing.T) {
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	launcher := &recordingStallLauncher{remoteAgentID: "agent-remote-new"}
 	svc := NewService(silentLogger(), dispatcher, launcher, nil, nil, nil)
-	svc.recoveryStore = launcherReplayStore(t, "agent-remote")
+	svc.lifecycle.recoveryStore = launcherReplayStore(t, "agent-remote")
 	resumedEvents := make(chan turndto.TurnResumed, 1)
 	cancel := event.Subscribe(dispatcher, func(ev turndto.TurnResumed) { resumedEvents <- ev })
 	t.Cleanup(cancel)
@@ -135,7 +135,7 @@ func TestLauncherRecoveryReplayLoadFailureWritesFallback(t *testing.T) {
 
 	launcher := &recordingStallLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.recoveryStore = stubRecoveryTurnStore{listErr: errors.New("recovery store unavailable")}
+	svc.lifecycle.recoveryStore = stubRecoveryTurnStore{listErr: errors.New("recovery store unavailable")}
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 	agent.reportRequesters = []string{"agent-parent"}
 
@@ -175,7 +175,7 @@ func TestRecoverStalledAgentsFailureWritesFallback(t *testing.T) {
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 	agent.updatedAt = time.Now().Add(-time.Minute)
 	agent.reportRequesters = []string{"agent-parent"}
-	actor := &runnerActor{logger: silentLogger(), service: svc}
+	actor := &runnerActor{logger: silentLogger(), lifecycle: svc.lifecycle, runtime: svc}
 
 	actor.recoverStalledAgents(context.Background(), &StallDetector{
 		threshold: 30 * time.Second,

@@ -13,9 +13,7 @@ import (
 )
 
 func TestTerminalReportEventWithoutBodyWritesFallbackReport(t *testing.T) {
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
-		"agent-1": {id: "agent-1", state: agentdto.StateTurnRunning},
-	}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{id: "agent-1", state: agentdto.StateTurnRunning})
 
 	if _, err := svc.HandleReportEvent(context.Background(), ReportEvent{AgentID: "agent-1", EventType: "completion"}); err != nil {
 		t.Fatalf("HandleReportEvent() error = %v", err)
@@ -36,9 +34,7 @@ func TestTerminalReportEventWithoutBodyWritesFallbackReport(t *testing.T) {
 func TestReportEventIncrementsReportSeq(t *testing.T) {
 	firstAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
 	secondAt := firstAt.Add(time.Minute)
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
-		"agent-1": {id: "agent-1", state: agentdto.StateTurnRunning},
-	}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{id: "agent-1", state: agentdto.StateTurnRunning})
 
 	first, err := svc.HandleReportEvent(withEventTime(context.Background(), firstAt), ReportEvent{
 		AgentID:   "agent-1",
@@ -99,13 +95,13 @@ func TestHandleReportEventRunsConservativeReportGC(t *testing.T) {
 	recentStopped := mustWriteReportFileWithModTime(t, cwd, "recent-agent", "recent done", "recent stopped", recentTime)
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	setTestAgentThreads(svc, fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "trigger-agent", AgentID: "trigger-agent", Name: "trigger", Cwd: cwd, Status: "created"},
 		{ThreadID: "stopped-agent", AgentID: "stopped-agent", Name: "old done", Cwd: cwd, Status: "stopped"},
 		{ThreadID: "archived-agent", AgentID: "archived-agent", Name: "old archived", Cwd: cwd, Status: "archived"},
 		{ThreadID: "active-agent", AgentID: "active-agent", Name: "old active", Cwd: cwd, Status: "created"},
 		{ThreadID: "recent-agent", AgentID: "recent-agent", Name: "recent done", Cwd: cwd, Status: "stopped"},
-	}}
+	}})
 	svc.registry.agents["trigger-agent"] = &agentRuntime{id: "trigger-agent", name: "trigger", cwd: cwd}
 
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{

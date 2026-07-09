@@ -16,7 +16,7 @@ import (
 
 func TestListAgentsIncludesPersistedAgentIDAndNameWhenRuntimeEmpty(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{
 			ThreadID:  "agent-1",
 			AgentID:   "agent-1",
@@ -49,7 +49,7 @@ func TestListAgentsIncludesPersistedAgentIDAndNameWhenRuntimeEmpty(t *testing.T)
 
 func TestListAgentsOverlaysRuntimeOnPersistedIdentity(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "renamed", Cwd: "/db", Status: "created", UpdatedAt: 1710000100},
 	}}
 	now := time.Unix(1710000200, 0)
@@ -80,7 +80,7 @@ func TestGetReportReadsPersistedReportWhenRuntimeMissingByAgentID(t *testing.T) 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：持久化\n\n修复：回读")
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 
@@ -98,7 +98,7 @@ func TestGetReportReadsPersistedReportWhenRuntimeMissingByAgentID(t *testing.T) 
 
 func TestGetReportFailsFastWhenPersistedReportBodyMissing(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: t.TempDir(), Status: "created"},
 	}}
 
@@ -111,7 +111,7 @@ func TestGetReportFallsBackToListWhenThreadIDLookupReturnsStoreNotFound(t *testi
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：persisted")
-	svc.agentThreads = fakeAgentThreadStore{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{
 		getErr:  platformdb.ErrNotFound,
 		threads: []PersistedThread{{ThreadID: "thread-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"}},
 	}
@@ -129,7 +129,7 @@ func TestGetReportReadsPersistedReportAfterDisplayNameChanged(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "old name", "结论：old filename")
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "new name", Cwd: cwd, Status: "created"},
 	}}
 
@@ -149,7 +149,7 @@ func TestListAgentsOmitsPersistedReportBody(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：persisted\nbody")
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 
@@ -167,7 +167,7 @@ func TestListAgentsOmitsPersistedReportBody(t *testing.T) {
 
 func TestListAgentsNormalizesPersistedMillisecondTimestampsForJSON(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{
 			ThreadID:  "agent-1",
 			AgentID:   "agent-1",
@@ -196,7 +196,7 @@ func TestListAgentsNormalizesPersistedMillisecondTimestampsForJSON(t *testing.T)
 
 func TestListAgentsSortsNewestCreatedFirst(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Status: "created", CreatedAt: 1710000000, UpdatedAt: 1710000000},
 		{ThreadID: "thread-child", AgentID: "agent-child", Name: "child", Status: "created", CreatedAt: 1710000100, UpdatedAt: 1710000100},
 	}}
@@ -236,7 +236,7 @@ func TestListAgentsHonorsContextWhileRuntimeLockHeld(t *testing.T) {
 func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T) {
 	launcher := &persistedRuntimeTestLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+	svc.lifecycle.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
 		AgentID:       "agent-1",
 		Provider:      "codex",
 		CodexThreadID: "provider-thread-1",
@@ -244,7 +244,7 @@ func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T)
 		CreatedAt:     1710000000,
 		UpdatedAt:     1710000100,
 	}}
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{
 			ThreadID:  "provider-thread-1",
 			AgentID:   "agent-1",
@@ -276,7 +276,7 @@ func TestSubmitTurnRehydratesPersistedReportSeq(t *testing.T) {
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWriteVersionedPersistedAgentReportFile(t, cwd, "agent-1", "display one", 7, "old report")
-	svc.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+	svc.lifecycle.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
 		AgentID:       "agent-1",
 		Provider:      "codex",
 		CodexThreadID: "provider-thread-1",
@@ -284,7 +284,7 @@ func TestSubmitTurnRehydratesPersistedReportSeq(t *testing.T) {
 		CreatedAt:     1710000000,
 		UpdatedAt:     1710000100,
 	}}
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{
 			ThreadID:  "provider-thread-1",
 			AgentID:   "agent-1",
@@ -477,7 +477,7 @@ func (l *persistedRuntimeTestLauncher) SupportsPersistedRuntimeRehydrate() bool 
 func TestHandleReportEventPersistsReportWhenRuntimeMissing(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 	// svc.registry.agents is empty: the in-memory runtime was lost on restart.
@@ -508,7 +508,7 @@ func TestHandleReportEventStopsPersistedThreadWhenAbortedRuntimeMissing(t *testi
 	threads := &recordingAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
-	svc.agentThreads = threads
+	svc.lifecycle.agentThreads = threads
 	// svc.registry.agents is empty: the runtime was lost before the abort event arrived.
 
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
@@ -535,7 +535,7 @@ func TestHandleReportEventStopsPersistedThreadWhenRuntimeLossStopEventHasNoRepor
 	threads := &recordingAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Status: "created"},
 	}}
-	svc.agentThreads = threads
+	svc.lifecycle.agentThreads = threads
 	// connection.dead often arrives without a final report body; it still means
 	// the persisted UI thread must stop when the runtime is already gone.
 
@@ -564,7 +564,7 @@ func TestHandleReportEventDoesNotStopPersistedThreadWhenCompletedRuntimeMissing(
 	threads := &recordingAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
-	svc.agentThreads = threads
+	svc.lifecycle.agentThreads = threads
 	// A completed turn can leave a reusable session idle; do not collapse it to stopped.
 
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{

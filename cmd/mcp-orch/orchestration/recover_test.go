@@ -61,7 +61,7 @@ func TestRecoveredReplayCurrentThreadStoppedWritesFallback(t *testing.T) {
 func newRecoverReplayService(t *testing.T) (*service, *agentRuntime) {
 	t.Helper()
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.recoveryStore = stubRecoveryTurnStore{
+	svc.lifecycle.recoveryStore = stubRecoveryTurnStore{
 		nodes: []taskdag.Node{{
 			DagKey:         "dag-1",
 			NodeKey:        "node-1",
@@ -148,7 +148,7 @@ func TestRecoverPublishesTurnResumedForRecoveredTurn(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
-	svc.recoveryStore = replayableRecoveryTurnStore()
+	svc.lifecycle.recoveryStore = replayableRecoveryTurnStore()
 	resumedEvents := make(chan turndto.TurnResumed, 1)
 	cancel := event.Subscribe(dispatcher, func(ev turndto.TurnResumed) {
 		resumedEvents <- ev
@@ -246,7 +246,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	t.Cleanup(func() { _ = dispatcher.Close() })
 
 	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
-	svc.recoveryStore = replayableRecoveryTurnStore()
+	svc.lifecycle.recoveryStore = replayableRecoveryTurnStore()
 	stalledEvents := make(chan turndto.TurnStalled, 1)
 	resumedEvents := make(chan turndto.TurnResumed, 1)
 	stalledCancel := event.Subscribe(dispatcher, func(ev turndto.TurnStalled) {
@@ -267,7 +267,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	svc.registry.agents[agent.id] = agent
 	t.Cleanup(func() { cleanupAgentProcess(agent) })
 
-	actor := &runnerActor{logger: silentLogger(), service: svc}
+	actor := &runnerActor{logger: silentLogger(), lifecycle: svc.lifecycle, runtime: svc}
 	actor.recoverStalledAgents(context.Background(), &StallDetector{
 		threshold: 30 * time.Second,
 		logger:    silentLogger(),
@@ -308,7 +308,7 @@ func TestRecoverStalledAgentsRestartsLauncherOwnedAgent(t *testing.T) {
 	agent.updatedAt = oldUpdatedAt
 	svc.registry.agents[agent.id] = agent
 
-	actor := &runnerActor{logger: silentLogger(), service: svc}
+	actor := &runnerActor{logger: silentLogger(), lifecycle: svc.lifecycle, runtime: svc}
 	detector := &StallDetector{threshold: 30 * time.Second, logger: silentLogger()}
 	actor.recoverStalledAgents(context.Background(), detector)
 
@@ -426,7 +426,7 @@ func TestLoadRecoveredTurnSubmissionSkipsReclaimedWakeup(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.recoveryStore = stubRecoveryTurnStore{
+	svc.lifecycle.recoveryStore = stubRecoveryTurnStore{
 		nodes: []taskdag.Node{{
 			DagKey:         "dag-1",
 			NodeKey:        "node-1",

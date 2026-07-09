@@ -120,7 +120,7 @@ func TestService_LaunchAgent_RejectsWhitespaceCwdWithoutParentFallback(t *testin
 
 func TestService_LaunchAgent_RejectsMissingCwdWhenPersistedParentHasNoCwd(t *testing.T) {
 	svc, called := launchServiceRejectingThreadStart(t)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Status: "created"},
 	}}
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
@@ -146,7 +146,7 @@ func TestService_LaunchAgent_InheritsPersistedParentCwdWhenRuntimeMissing(t *tes
 			return map[string]any{"thread": map[string]any{"id": "thread-child"}, "agentId": "remote-child"}, nil
 		}),
 	}), nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Cwd: parentCWD, Status: "created"},
 	}}
 
@@ -198,7 +198,7 @@ func TestService_LaunchAgentSnapshot_InheritsPersistedParentCwdWhenRuntimeMissin
 			return map[string]any{"thread": map[string]any{"id": "thread-child"}, "agentId": "remote-child"}, nil
 		}),
 	}), nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Cwd: parentCWD, Status: "created"},
 	}}
 

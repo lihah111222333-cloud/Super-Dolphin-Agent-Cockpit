@@ -132,7 +132,7 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.processExitWaitTimeout = 25 * time.Millisecond
+	svc.lifecycle.processExitWaitTimeout = 25 * time.Millisecond
 	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
@@ -164,10 +164,10 @@ func TestStopAllAgentsHonorsTotalShutdownDeadline(t *testing.T) {
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	blocker := make(chan struct{})
-	svc.asyncWg.Add(1)
+	svc.lifecycle.asyncWg.Add(1)
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
-		defer svc.asyncWg.Done()
+		defer svc.lifecycle.asyncWg.Done()
 		<-blocker
 	})
 	defer close(blocker)
@@ -185,7 +185,7 @@ func TestWaitForProcessExitReturnsErrorWhenForceKillFails(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.processExitWaitTimeout = 25 * time.Millisecond
+	svc.lifecycle.processExitWaitTimeout = 25 * time.Millisecond
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{Process: &os.Process{Pid: -1}}
 	agent.launchSeq = 1
@@ -223,7 +223,7 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	svc.registry.agents[agent.id] = agent
 	// 本测试手动构造 cmd 和 agentRuntime，绕过 startProcessLocked。
 	// 生产路径会在 startProcessLocked 内 arm exit monitor；这里必须镜像该动作，runner 才能观察 cmd.Wait。
-	svc.exitMonitor.Arm(exitmonitor.Target{
+	svc.lifecycle.exitMonitor.Arm(exitmonitor.Target{
 		AgentID:   agent.id,
 		LaunchSeq: agent.launchSeq,
 		Cmd:       cmd,
@@ -236,7 +236,7 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	runDone := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
-		runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx)
+		runDone <- newRunnerActorForTest(silentLogger(), svc).Run(ctx)
 	})
 
 	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)

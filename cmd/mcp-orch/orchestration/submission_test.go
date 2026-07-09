@@ -228,7 +228,7 @@ func assertUniqueResults(t *testing.T, results <-chan string, want int) {
 func TestHandleReportEventRequiresEventType(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{"agent-1": {id: "agent-1"}}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{id: "agent-1"})
 	_, err := svc.HandleReportEvent(context.Background(), ReportEvent{AgentID: "agent-1"})
 	if err == nil || !strings.Contains(err.Error(), "event type is required") {
 		t.Fatalf("HandleReportEvent() error = %v, want event type validation", err)
@@ -238,11 +238,11 @@ func TestHandleReportEventRequiresEventType(t *testing.T) {
 func TestHandleReportEventTreatsCompletionAsTerminal(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{"agent-1": {
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{
 		id:               "agent-1",
 		lastReport:       "done",
 		reportRequesters: []string{"req-1"},
-	}}}}
+	})
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{AgentID: "agent-1", EventType: "completion"})
 	if err != nil {
 		t.Fatalf("HandleReportEvent() error = %v", err)
@@ -258,7 +258,7 @@ func TestHandleReportEventTreatsCompletionAsTerminal(t *testing.T) {
 func TestHandleReportEventExtractsNestedItemText(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{"agent-1": {id: "agent-1"}}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{id: "agent-1"})
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
 		AgentID:   "agent-1",
 		EventType: "item/completed",
@@ -276,11 +276,11 @@ func TestHandleReportEventPersistsReportToAgentCWD(t *testing.T) {
 	t.Parallel()
 
 	cwd := t.TempDir()
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{"agent-1": {
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{
 		id:   "agent-1",
 		name: "display one",
 		cwd:  cwd,
-	}}}}
+	})
 	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
 		AgentID:   "agent-1",
 		EventType: "item/completed",
@@ -305,9 +305,10 @@ func TestHandleReportEventPersistsReportToAgentCWD(t *testing.T) {
 func TestGetReportNormalizesSimpleMultiLineDisplay(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
-		"agent-1": {id: "agent-1", lastReport: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"},
-	}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{
+		id:         "agent-1",
+		lastReport: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10",
+	})
 	got, err := svc.GetReport(context.Background(), "agent-1")
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
@@ -320,9 +321,10 @@ func TestGetReportNormalizesSimpleMultiLineDisplay(t *testing.T) {
 func TestGetReportPreservesStructuredParagraphs(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
-		"agent-1": {id: "agent-1", lastReport: "结论：配置缺失\n\n修复：补齐 FOO=bar"},
-	}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{
+		id:         "agent-1",
+		lastReport: "结论：配置缺失\n\n修复：补齐 FOO=bar",
+	})
 	got, err := svc.GetReport(context.Background(), "agent-1")
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)

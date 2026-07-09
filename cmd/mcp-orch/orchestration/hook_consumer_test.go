@@ -369,7 +369,12 @@ func TestHookConsumerAfter_ArtifactTargetUsesFxInjectedImporter(t *testing.T) {
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(
-			func() *service { return svc },
+			fx.Annotate(
+				func() *service { return svc },
+				fx.As(fx.Self()),
+				fx.As(new(HookConsumerRuntime)),
+				fx.As(new(HookReportPort)),
+			),
 			func() taskdag.NodeSpawningThreadLookup { return lookup },
 			func() taskdag.NodeFlowStore { return flow },
 			func() sharedfile.Importer { return importer },

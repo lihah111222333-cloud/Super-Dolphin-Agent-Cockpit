@@ -270,9 +270,6 @@ type ScheduledDAGStartService interface {
 	StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error
 }
 
-// ProvideScheduledDAGStartService 为 fx 提供计划 DAG 启动服务。
-func ProvideScheduledDAGStartService(s *service) ScheduledDAGStartService { return s }
-
 // validateStartDAGPrereq 校验计划启动 DAG 前必须存在的依赖。
 func (c *dagController) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
 	if c == nil || c.dagStore == nil {

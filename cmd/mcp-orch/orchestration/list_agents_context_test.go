@@ -10,9 +10,7 @@ import (
 )
 
 func TestListAgentsReturnsWhenContextExpiresWhileWaitingForReadLock(t *testing.T) {
-	svc := &service{registry: &agentRegistry{agents: map[string]*agentRuntime{
-		"agent-1": {id: "agent-1", state: agentdto.StateIdle},
-	}}}
+	svc := newTestFacadeServiceWithAgents(&agentRuntime{id: "agent-1", state: agentdto.StateIdle})
 	svc.registry.mu.Lock()
 	defer svc.registry.mu.Unlock()
 

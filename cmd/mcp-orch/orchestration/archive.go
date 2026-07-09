@@ -105,14 +105,14 @@ func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string
 	if archived || err != nil {
 		return archived, err
 	}
-	settler, ok := s.launcher.(interface{ StopSettlesAgent() bool })
+	settler, ok := s.lifecycle.launcher.(interface{ StopSettlesAgent() bool })
 	remoteThreadID := strings.TrimSpace(target.threadID)
 	archiveAgentID := platformshared.FirstTrimmed(target.agentID, stopAgentID)
-	if s.launcher == nil || !ok || !settler.StopSettlesAgent() || remoteThreadID == "" || archiveAgentID == "" {
+	if s.lifecycle.launcher == nil || !ok || !settler.StopSettlesAgent() || remoteThreadID == "" || archiveAgentID == "" {
 		return false, nil
 	}
 	agent := &agentRuntime{id: archiveAgentID, requestedAgentID: archiveAgentID, threadID: remoteThreadID, remoteThreadID: remoteThreadID, remoteAgentID: archiveAgentID}
-	return true, s.launcher.Archive(ctx, agent)
+	return true, s.lifecycle.launcher.Archive(ctx, agent)
 }
 
 // archivePersistedArchiveTarget 同步归档持久化 thread 和 provider binding。
@@ -125,11 +125,11 @@ func (s *service) archivePersistedArchiveTarget(ctx context.Context, target pers
 		return outcome, nil
 	}
 	now := time.Now().Unix()
-	if target.threadID != "" && s.agentThreads != nil {
+	if target.threadID != "" && s.lifecycle.agentThreads != nil {
 		pkglogger.Info("archive: marking thread archived",
 			"thread_id", target.threadID,
 			"agent_id", target.agentID)
-		if err := s.agentThreads.UpdateStatus(ctx, PersistedThreadStatusUpdate{
+		if err := s.lifecycle.agentThreads.UpdateStatus(ctx, PersistedThreadStatusUpdate{
 			ThreadID:  target.threadID,
 			Status:    persistedThreadStatusArchived,
 			UpdatedAt: now,
@@ -142,10 +142,10 @@ func (s *service) archivePersistedArchiveTarget(ctx context.Context, target pers
 		}
 		outcome.ThreadArchived = true
 	}
-	if target.bindingFound && target.agentID != "" && s.agentBindings != nil {
+	if target.bindingFound && target.agentID != "" && s.lifecycle.agentBindings != nil {
 		pkglogger.Info("archive: marking binding archived",
 			"agent_id", target.agentID)
-		if err := s.agentBindings.SetArchived(ctx, PersistedBindingArchiveUpdate{
+		if err := s.lifecycle.agentBindings.SetArchived(ctx, PersistedBindingArchiveUpdate{
 			AgentID:   target.agentID,
 			Archived:  true,
 			UpdatedAt: now,
@@ -199,17 +199,15 @@ func (s *service) resolvePersistedArchiveTarget(ctx context.Context, agentID str
 
 // lookupPersistedArchiveBinding 按 agentID 查 provider binding；未找到按空结果处理。
 func (s *service) lookupPersistedArchiveBinding(ctx context.Context, agentID string) (*PersistedBinding, error) {
-	if s == nil || s.agentBindings == nil || strings.TrimSpace(agentID) == "" {
-		if s != nil && s.agentBindings == nil && strings.TrimSpace(agentID) != "" {
-			pkglogger.Warn("archive: agentBindings store unavailable (fx optional injection nil); cannot mark archived",
-				"agent_id", strings.TrimSpace(agentID))
-		}
+	agentID = strings.TrimSpace(agentID)
+	store, ok := s.persistedArchiveBindingStore(agentID)
+	if !ok {
 		return nil, nil
 	}
-	binding, err := s.agentBindings.GetByAgentID(ctx, strings.TrimSpace(agentID))
+	binding, err := store.GetByAgentID(ctx, agentID)
 	if archiveLookupNotFound(err) {
 		pkglogger.Warn("archive: binding lookup not found",
-			"agent_id", strings.TrimSpace(agentID))
+			"agent_id", agentID)
 		return nil, nil
 	}
 	if err != nil {
@@ -218,9 +216,21 @@ func (s *service) lookupPersistedArchiveBinding(ctx context.Context, agentID str
 	return binding, nil
 }
 
+func (s *service) persistedArchiveBindingStore(agentID string) (AgentBindingStore, bool) {
+	if agentID == "" || s == nil || s.lifecycle == nil {
+		return nil, false
+	}
+	if s.lifecycle.agentBindings == nil {
+		pkglogger.Warn("archive: agentBindings store unavailable (fx optional injection nil); cannot mark archived",
+			"agent_id", agentID)
+		return nil, false
+	}
+	return s.lifecycle.agentBindings, true
+}
+
 // lookupPersistedArchiveThread 先按候选 ID 查线程，失败后再退到全量列表匹配。
 func (s *service) lookupPersistedArchiveThread(ctx context.Context, agentID, hintedThreadID string) (*PersistedThread, error) {
-	if s == nil || s.agentThreads == nil {
+	if s == nil || s.lifecycle == nil || s.lifecycle.agentThreads == nil {
 		pkglogger.Warn("archive: agentThreads store unavailable (fx optional injection nil); cannot update thread status",
 			"agent_id", agentID)
 		return nil, nil
@@ -244,7 +254,7 @@ func (s *service) lookupPersistedArchiveThreadByIDs(ctx context.Context, candida
 
 // lookupPersistedArchiveThreadByList 在历史数据缺少直接绑定时扫描线程列表匹配 agentID。
 func (s *service) lookupPersistedArchiveThreadByList(ctx context.Context, agentID string) (*PersistedThread, error) {
-	threads, err := s.agentThreads.ListAll(ctx)
+	threads, err := s.lifecycle.agentThreads.ListAll(ctx)
 	if archiveLookupNotFound(err) {
 		return nil, nil
 	}
@@ -288,10 +298,10 @@ func archiveThreadCandidateExists(candidates []string, candidate string) bool {
 // getPersistedArchiveThread 按 threadID 读取持久化线程；未找到返回 nil。
 func (s *service) getPersistedArchiveThread(ctx context.Context, threadID string) (*PersistedThread, error) {
 	threadID = strings.TrimSpace(threadID)
-	if s == nil || s.agentThreads == nil || threadID == "" {
+	if s == nil || s.lifecycle == nil || s.lifecycle.agentThreads == nil || threadID == "" {
 		return nil, nil
 	}
-	thread, err := s.agentThreads.GetByThreadID(ctx, threadID)
+	thread, err := s.lifecycle.agentThreads.GetByThreadID(ctx, threadID)
 	if archiveLookupNotFound(err) {
 		return nil, nil
 	}

@@ -206,7 +206,7 @@ func shouldAutoRecoverProcessExitLocked(s *service, agent *agentRuntime, err err
 // processExitAutoRecoverable 判断进程退出后是否还能由本地命令或 launcher 恢复。
 func processExitAutoRecoverable(s *service, agent *agentRuntime, err error) bool {
 	return s != nil && agent != nil && err != nil && !agent.stopRequested &&
-		(len(agent.command) > 0 || s.launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
+		(len(agent.command) > 0 || s.lifecycle.launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
 }
 
 func resetProcessExitAutoRecoverWindowLocked(agent *agentRuntime, now time.Time) {
@@ -221,10 +221,10 @@ func clearAgentAutoRecoveryLocked(agent *agentRuntime) {
 
 // shouldRecoverViaLauncher 判断 agent 是否应通过 launcher 而非本地进程恢复。
 func shouldRecoverViaLauncher(ctx context.Context, s *service, agent *agentRuntime) bool {
-	if s == nil || s.launcher == nil || agent == nil || agent.cmd != nil {
+	if s == nil || s.lifecycle == nil || s.lifecycle.launcher == nil || agent == nil || agent.cmd != nil {
 		return false
 	}
-	if s.launcher.IsRunning(ctx, agent) {
+	if s.lifecycle.launcher.IsRunning(ctx, agent) {
 		return true
 	}
 	return stoppedCodexAgentRecoverableViaLauncher(agent)

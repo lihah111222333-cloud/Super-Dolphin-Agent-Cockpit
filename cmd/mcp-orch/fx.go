@@ -194,16 +194,24 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 					fx.As(new(contract.DAGDeleteRuntime)),
 					fx.As(new(contract.DAGNodeStatusRuntime)),
 					fx.As(new(contract.DAGNodeDispatchRuntime)),
+					fx.As(new(orchestration.ScheduledDAGStartService)),
+					fx.As(new(orchestration.WakeupLauncher)),
+					fx.As(new(orchestration.HookConsumerRuntime)),
+					fx.As(new(orchestration.HookReportPort)),
+					fx.As(new(orchestration.AgentLaunchSnapshotter)),
+					fx.As(new(orchestration.StopAgentService)),
+					fx.As(new(orchestration.RunnerLifecyclePort)),
+					fx.As(new(orchestration.RunnerRuntimePort)),
+					fx.As(new(orchestration.TurnLifecyclePort)),
+					fx.As(new(orchestration.ApprovalLifecyclePort)),
 				),
-				orchestration.ProvideScheduledDAGStartService,
 				orchestration.ProvideHookAfterHandler,
 				orchestration.ProvideRPCFacade,
 				provideSQLDAGScheduleStore,
 				provideSQLiteRuntimeLocker,
+				provideAgentThreadLookup,
 				// 为 DAG turn.completed subscriber 提供窄端口，避免订阅器依赖完整 store/service。
 				orchestration.ProvideDAGSubscriberNodeFlowStore,
-				orchestration.ProvideDAGSubscriberStopAgentService,
-				orchestration.ProvideDAGSubscriberAgentThreadLookup,
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),
@@ -250,6 +258,10 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 		))
 	}
 	return options
+}
+
+func provideAgentThreadLookup(store orchestration.AgentThreadStore) orchestration.AgentThreadLookup {
+	return store
 }
 
 type automationCommandGetter struct {

@@ -33,7 +33,7 @@ func TestLocalLauncher_LaunchStop(t *testing.T) {
 
 func TestServiceLocalLauncherStopReapsViaExitEventStream(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), NewLocalLauncher(nil, silentLogger()), nil, nil, nil)
-	svc.processExitWaitTimeout = 25 * time.Millisecond
+	svc.lifecycle.processExitWaitTimeout = 25 * time.Millisecond
 	req := LaunchRequest{
 		AgentID: "agent-local-stream",
 		Cwd:     t.TempDir(),
@@ -52,7 +52,7 @@ func TestServiceLocalLauncherStopReapsViaExitEventStream(t *testing.T) {
 	defer cancel()
 	runDone := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
-	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) })
+	goroutines.Go(func() { runDone <- newRunnerActorForTest(silentLogger(), svc).Run(ctx) })
 
 	if err := svc.StopAgent(context.Background(), agent.id); err != nil {
 		t.Fatalf("StopAgent() error = %v", err)

@@ -46,18 +46,18 @@ func (r *recordingNotifyTap) OnThreadStopped(_ context.Context, ev threaddto.Sto
 // hookConsumerWithTap builds a hookConsumer with the supplied tap using
 // the same service + logger wiring the rest of hook_consumer_test.go
 // uses. Tap may be nil — tests cover both paths.
-func hookConsumerWithTap(t *testing.T, tap NotifyTap) *hookConsumer {
+func hookConsumerWithTap(t *testing.T, tap NotifyTap) (*hookConsumer, *service) {
 	t.Helper()
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
-	return newHookConsumerInternal(svc, silentLogger(), tap, nil, nil)
+	return newHookConsumerInternal(svc, silentLogger(), tap, nil, nil), svc
 }
 
 // TestHookConsumerFiresTapOnTurnCompleted verifies the post-handler
 // tap path runs and carries the original event payload through.
 func TestHookConsumerFiresTapOnTurnCompleted(t *testing.T) {
 	tap := &recordingNotifyTap{}
-	hc := hookConsumerWithTap(t, tap)
-	addHookTestAgent(t, hc.svc, "agent-1")
+	hc, svc := hookConsumerWithTap(t, tap)
+	addHookTestAgent(t, svc, "agent-1")
 	ev := turndto.TurnCompleted{
 		TurnHeader: shareddto.TurnHeader{
 			AgentHeader:  shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
@@ -77,8 +77,8 @@ func TestHookConsumerFiresTapOnTurnCompleted(t *testing.T) {
 
 func TestHookConsumerFiresTapOnTurnInterrupted(t *testing.T) {
 	tap := &recordingNotifyTap{}
-	hc := hookConsumerWithTap(t, tap)
-	addHookTestAgent(t, hc.svc, "agent-1")
+	hc, svc := hookConsumerWithTap(t, tap)
+	addHookTestAgent(t, svc, "agent-1")
 	ev := turndto.TurnInterrupted{
 		TurnHeader: shareddto.TurnHeader{
 			AgentHeader:  shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
@@ -94,8 +94,8 @@ func TestHookConsumerFiresTapOnTurnInterrupted(t *testing.T) {
 
 func TestHookConsumerFiresTapOnThreadStopped(t *testing.T) {
 	tap := &recordingNotifyTap{}
-	hc := hookConsumerWithTap(t, tap)
-	addHookTestAgent(t, hc.svc, "agent-1")
+	hc, svc := hookConsumerWithTap(t, tap)
+	addHookTestAgent(t, svc, "agent-1")
 	ev := threaddto.Stopped{ThreadID: "thread-1", AgentID: "agent-1", Reason: "process_exit"}
 	hc.handleThreadStopped(context.Background(), ev)
 	if len(tap.stopped) != 1 {
@@ -132,8 +132,8 @@ func TestThreadStoppedHookDoesNotRepublishAlreadyStoppedAgent(t *testing.T) {
 // wired; the consumer must still complete its primary work without
 // panicking.
 func TestHookConsumerNilTapIsNoop(t *testing.T) {
-	hc := hookConsumerWithTap(t, nil)
-	addHookTestAgent(t, hc.svc, "agent-1")
+	hc, svc := hookConsumerWithTap(t, nil)
+	addHookTestAgent(t, svc, "agent-1")
 	hc.handleTurnCompleted(context.Background(), turndto.TurnCompleted{
 		TurnHeader: shareddto.TurnHeader{
 			AgentHeader:  shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},

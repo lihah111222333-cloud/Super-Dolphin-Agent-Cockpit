@@ -54,30 +54,62 @@ func newReportController(deps reportControllerDeps) *reportController {
 	}
 }
 
-func (s *service) reportController() *reportController {
-	if s == nil {
-		return newReportController(reportControllerDeps{})
-	}
-	return newReportController(reportControllerDeps{
-		registry:     s.agentRegistry(),
-		agentThreads: s.agentThreads,
-		logger:       s.logger,
-	})
-}
-
 // GetReport 返回 agent 最新 report；runtime 缺失时读取磁盘持久化 report。
 func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error) {
-	return s.reportController().GetReport(ctx, agentID)
+	reports, err := s.configuredReportController()
+	if err != nil {
+		return AgentReportResult{}, err
+	}
+	return reports.GetReport(ctx, agentID)
 }
 
 // RememberReportRequest 记录哪个 agent 请求了目标 agent 的最终 report。
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
-	return s.reportController().RememberReportRequest(ctx, req)
+	reports, err := s.configuredReportController()
+	if err != nil {
+		return RememberReportRequestResult{}, err
+	}
+	return reports.RememberReportRequest(ctx, req)
 }
 
 // HandleReportEvent 接收 provider/hook report 事件并更新 runtime 或持久化 fallback。
 func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
-	return s.reportController().HandleReportEvent(ctx, event)
+	reports, err := s.configuredReportController()
+	if err != nil {
+		return ReportEventResult{}, err
+	}
+	return reports.HandleReportEvent(ctx, event)
+}
+
+// configuredReportController 返回已接线的 report controller，缺失时立即报错。
+func (s *service) configuredReportController() (*reportController, error) {
+	if s == nil || s.reports == nil {
+		return nil, errors.New("report controller is not configured")
+	}
+	if s.lifecycle != nil && s.reports.agentThreads == nil && s.lifecycle.agentThreads != nil {
+		s.reports.agentThreads = s.lifecycle.agentThreads
+	}
+	return s.reports, nil
+}
+
+func (s *service) setStateChangedFallbackReportLocked(ctx context.Context, agent *agentRuntime, nextState string) {
+	reports, err := s.configuredReportController()
+	if err != nil {
+		loggerOrDefault(nil).Warn("orchestration: state-change fallback report controller unavailable",
+			"agent_id", eventAgentID(agent), "state", nextState, "error", err)
+		return
+	}
+	reports.setStateChangedFallbackReportLocked(ctx, agent, nextState)
+}
+
+func (s *service) setStoppedFallbackReportLocked(ctx context.Context, agent *agentRuntime) {
+	reports, err := s.configuredReportController()
+	if err != nil {
+		loggerOrDefault(nil).Warn("orchestration: stopped fallback report controller unavailable",
+			"agent_id", eventAgentID(agent), "error", err)
+		return
+	}
+	reports.setStoppedFallbackReportLocked(ctx, agent)
 }
 
 // GetReport 读取内存 runtime report；runtime 缺失时只按 agent_id 回读持久化 report 文件。

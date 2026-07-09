@@ -22,22 +22,6 @@ func ProvideDAGSubscriberNodeFlowStore(store taskdag.Store) taskdag.NodeFlowStor
 	return store
 }
 
-// ProvideDAGSubscriberStopAgentService 把 *service 收窄为 DAG subscriber 停止子 agent 所需端口。
-// fx 按声明类型解析接口，显式 provider 能保持订阅器只看到 StopAgentService 的单方法边界。
-func ProvideDAGSubscriberStopAgentService(s *service) StopAgentService {
-	return s
-}
-
-// ProvideDAGSubscriberAgentThreadLookup 把 service 内部 agentThreads 适配为 subscriber 的查询端口。
-// service 未接入 agentThreads 时返回 nil；当前 StopSpawnedAgent 预检会把 nil 视为 lookup skipped，
-// 新增消费者必须继续显式处理 nil，不能直接解引用该端口。
-func ProvideDAGSubscriberAgentThreadLookup(s *service) AgentThreadLookup {
-	if s == nil || s.agentThreads == nil {
-		return nil
-	}
-	return s.agentThreads
-}
-
 // DAGSubscriberMetrics 是 DAG turn.completed subscriber 的计数器快照。
 type DAGSubscriberMetrics struct {
 	CompleteDone, CompleteFailed, IdempotentSkipped, LookupNoNode, LookupDirtyData, LookupFailed int64

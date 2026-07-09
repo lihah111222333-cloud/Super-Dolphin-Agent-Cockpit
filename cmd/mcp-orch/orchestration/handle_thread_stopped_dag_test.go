@@ -155,7 +155,7 @@ func TestRecoveringOldThreadStoppedSkipsDAGFallback(t *testing.T) {
 func TestRecoveredReplayOldThreadStoppedSkipsDAGFallbackAfterRekey(t *testing.T) {
 	launcher := &recordingStallLauncher{remoteAgentID: "agent-remote-new"}
 	svc := NewService(silentLogger(), event.NewDispatcher(), launcher, nil, nil, nil)
-	svc.recoveryStore = launcherReplayStore(t, "agent-remote")
+	svc.lifecycle.recoveryStore = launcherReplayStore(t, "agent-remote")
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 	lookup := &fakeFallbackLookup{nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7102), Status: "running"}}}
 	flow := &fakeFallbackFlow{}

@@ -29,29 +29,18 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 
 	actualFields := orchestrationInternalBoundaryStructFieldNames(serviceStruct)
 	actual := orchestrationInternalBoundarySet(actualFields)
-	nonDebt := map[string]struct{}{
-		"logger":        {},
-		"eventBus":      {},
-		"dagController": {},
-		"registry":      {},
+	expectedFields := []string{
+		"logger",
+		"eventBus",
+		"registry",
+		"lifecycle",
+		"dags",
+		"turns",
+		"reports",
 	}
-	debtFields := []string{
-		"launcher",
-		"sessionCleaner",
-		"turnStarter",
-		"recoveryStore",
-		"agentThreads",
-		"agentBindings",
-		"machineCfg",
-		"processExitWaitTimeout",
-		"exitMonitor",
-		"asyncCtx",
-		"asyncCancel",
-		"asyncWg",
-	}
-	debt := orchestrationInternalBoundarySet(debtFields)
+	expected := orchestrationInternalBoundarySet(expectedFields)
 
-	failIfViolations(t, orchestrationInternalBoundaryServiceFieldViolations(relPath, actualFields, actual, nonDebt, debtFields, debt))
+	failIfViolations(t, orchestrationInternalBoundaryExactServiceFieldViolations(relPath, actualFields, actual, expectedFields, expected))
 }
 
 func TestOrchestrationDAGControllerDoesNotOwnServiceOrRuntimeAgentState(t *testing.T) {
@@ -70,6 +59,41 @@ func TestOrchestrationDAGControllerDoesNotOwnServiceOrRuntimeAgentState(t *testi
 	}
 
 	failIfViolations(t, orchestrationInternalBoundaryDAGControllerStateViolations(relPath, controllerStruct))
+}
+
+func TestOrchestrationLifecycleControllerStateOwnershipRatchet(t *testing.T) {
+	t.Parallel()
+
+	const relPath = "cmd/mcp-orch/orchestration/service.go"
+	root := repoRoot(t)
+	file := parseGoFileForInterfaceGuard(t, root, relPath)
+	typeSpec, ok := findTypeSpec(file, "lifecycleController")
+	if !ok {
+		t.Fatalf("%s: type lifecycleController struct not found", relPath)
+	}
+	lifecycleStruct, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		t.Fatalf("%s: type lifecycleController is %T, want *ast.StructType", relPath, typeSpec.Type)
+	}
+
+	actualFields := orchestrationInternalBoundaryStructFieldNames(lifecycleStruct)
+	actual := orchestrationInternalBoundarySet(actualFields)
+	expectedFields := []string{
+		"launcher",
+		"sessionCleaner",
+		"recoveryStore",
+		"agentThreads",
+		"agentBindings",
+		"machineCfg",
+		"processExitWaitTimeout",
+		"exitMonitor",
+		"asyncCtx",
+		"asyncCancel",
+		"asyncWg",
+	}
+	expected := orchestrationInternalBoundarySet(expectedFields)
+
+	failIfViolations(t, orchestrationInternalBoundaryExactStructFieldViolations(relPath, "lifecycleController", actualFields, actual, expectedFields, expected))
 }
 
 func TestOrchestrationAgentRegistryOwnsRuntimeAgentMapAndLock(t *testing.T) {
@@ -101,6 +125,42 @@ func TestNodeRouterDoesNotGrowServiceAgentLauncherDebt(t *testing.T) {
 	violations = append(violations, orchestrationInternalBoundaryServicePointerDebt(fset, file, relPath)...)
 	violations = append(violations, orchestrationInternalBoundarySvcSelectorDebt(fset, file, relPath)...)
 	violations = append(violations, orchestrationInternalBoundaryStopSpawnedAgentDebt(fset, file, relPath)...)
+	failIfViolations(t, violations)
+}
+
+func TestOrchestrationAdaptersDoNotHoldFullService(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	files := orchestrationInternalBoundaryGoFiles(t, root, "cmd/mcp-orch/orchestration")
+
+	var violations []string
+	for _, relPath := range files {
+		if strings.HasSuffix(relPath, "_test.go") {
+			continue
+		}
+		fset, file := orchestrationInternalBoundaryParseFile(t, root, relPath)
+		violations = append(violations, orchestrationInternalBoundaryFullServiceStructFieldViolations(fset, file, relPath)...)
+		violations = append(violations, orchestrationInternalBoundaryFullServiceProviderParamViolations(fset, file, relPath)...)
+	}
+	failIfViolations(t, violations)
+}
+
+func TestOrchestrationDAGFilesDoNotReadRuntimeAgentMap(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	files := orchestrationInternalBoundaryGoFiles(t, root, "cmd/mcp-orch/orchestration")
+
+	var violations []string
+	for _, relPath := range files {
+		base := filepath.Base(relPath)
+		if strings.HasSuffix(relPath, "_test.go") || !strings.HasPrefix(base, "dag") {
+			continue
+		}
+		fset, file := orchestrationInternalBoundaryParseFile(t, root, relPath)
+		violations = append(violations, orchestrationInternalBoundaryDAGRuntimeMapAccessViolations(fset, file, relPath)...)
+	}
 	failIfViolations(t, violations)
 }
 
@@ -185,51 +245,24 @@ func orchestrationInternalBoundarySet(values []string) map[string]struct{} {
 	return out
 }
 
-func orchestrationInternalBoundaryServiceFieldViolations(relPath string, actualFields []string, actual, nonDebt map[string]struct{}, debtFields []string, debt map[string]struct{}) []string {
-	var violations []string
-	violations = append(violations, orchestrationInternalBoundaryMissingDebtFieldViolations(relPath, actual, debtFields)...)
-	violations = append(violations, orchestrationInternalBoundaryMissingNonDebtFieldViolations(relPath, actual, nonDebt)...)
-	violations = append(violations, orchestrationInternalBoundaryUnregisteredServiceFieldViolations(relPath, actualFields, nonDebt, debt)...)
-	return violations
+func orchestrationInternalBoundaryExactServiceFieldViolations(relPath string, actualFields []string, actual map[string]struct{}, expectedFields []string, expected map[string]struct{}) []string {
+	return orchestrationInternalBoundaryExactStructFieldViolations(relPath, "service", actualFields, actual, expectedFields, expected)
 }
 
-func orchestrationInternalBoundaryMissingDebtFieldViolations(relPath string, actual map[string]struct{}, debtFields []string) []string {
+func orchestrationInternalBoundaryExactStructFieldViolations(relPath, typeName string, actualFields []string, actual map[string]struct{}, expectedFields []string, expected map[string]struct{}) []string {
 	var violations []string
-	for _, field := range debtFields {
+	for _, field := range expectedFields {
 		if _, ok := actual[field]; !ok {
-			violations = append(violations, fmt.Sprintf("%s: service.%s is registered as current state/container debt but no longer exists; remove the allowance when ownership moves out", relPath, field))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s missing from approved field set", relPath, typeName, field))
 		}
 	}
-	return violations
-}
-
-func orchestrationInternalBoundaryMissingNonDebtFieldViolations(relPath string, actual, nonDebt map[string]struct{}) []string {
-	var violations []string
-	for field := range nonDebt {
-		if _, ok := actual[field]; !ok {
-			violations = append(violations, fmt.Sprintf("%s: service.%s is registered as non-debt constructor dependency but no longer exists; update TestOrchestrationServiceStateOwnershipRatchet", relPath, field))
-		}
-	}
-	return violations
-}
-
-func orchestrationInternalBoundaryUnregisteredServiceFieldViolations(relPath string, actualFields []string, nonDebt, debt map[string]struct{}) []string {
-	var violations []string
 	for _, field := range actualFields {
-		if orchestrationInternalBoundaryFieldRegistered(field, nonDebt, debt) {
+		if _, ok := expected[field]; ok {
 			continue
 		}
-		violations = append(violations, fmt.Sprintf("%s: service.%s is a new unregistered service container field; move ownership to a narrower owner or explicitly classify the debt in TestOrchestrationServiceStateOwnershipRatchet", relPath, field))
+		violations = append(violations, fmt.Sprintf("%s: %s.%s must not be added without an explicit owner-boundary update", relPath, typeName, field))
 	}
 	return violations
-}
-
-func orchestrationInternalBoundaryFieldRegistered(field string, nonDebt, debt map[string]struct{}) bool {
-	if _, ok := nonDebt[field]; ok {
-		return true
-	}
-	_, ok := debt[field]
-	return ok
 }
 
 func orchestrationInternalBoundaryParseFile(t *testing.T, root, relPath string) (*token.FileSet, *ast.File) {
@@ -241,6 +274,109 @@ func orchestrationInternalBoundaryParseFile(t *testing.T, root, relPath string) 
 		t.Fatalf("parse %s: %v", relPath, err)
 	}
 	return fset, file
+}
+
+func orchestrationInternalBoundaryFullServiceStructFieldViolations(fset *token.FileSet, file *ast.File, relPath string) []string {
+	var violations []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			violations = append(violations, orchestrationInternalBoundaryFullServiceTypeFieldViolations(fset, spec, relPath)...)
+		}
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryFullServiceTypeFieldViolations(fset *token.FileSet, spec ast.Spec, relPath string) []string {
+	typeSpec, ok := spec.(*ast.TypeSpec)
+	if !ok {
+		return nil
+	}
+	st, ok := typeSpec.Type.(*ast.StructType)
+	if !ok || !orchestrationInternalBoundaryFullServiceFieldOwner(typeSpec.Name.Name, st) {
+		return nil
+	}
+	var violations []string
+	for _, field := range st.Fields.List {
+		if _, ok := orchestrationInternalBoundaryServiceStar(field.Type); !ok {
+			continue
+		}
+		violations = append(violations, orchestrationInternalBoundaryFullServiceFieldViolation(fset, field, relPath, typeSpec.Name.Name))
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryFullServiceFieldViolation(fset *token.FileSet, field *ast.Field, relPath, typeName string) string {
+	fieldName := "<embedded>"
+	if len(field.Names) > 0 {
+		fieldName = field.Names[0].Name
+	}
+	return fmt.Sprintf("%s:%d %s.%s must not hold *service; use a narrow port/controller owner", relPath, fset.Position(field.Pos()).Line, typeName, fieldName)
+}
+
+func orchestrationInternalBoundaryFullServiceProviderParamViolations(fset *token.FileSet, file *ast.File, relPath string) []string {
+	var violations []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Type == nil || fn.Type.Params == nil || !orchestrationInternalBoundaryProviderLikeFunction(fn.Name.Name) {
+			continue
+		}
+		for _, field := range fn.Type.Params.List {
+			if _, ok := orchestrationInternalBoundaryServiceStar(field.Type); !ok {
+				continue
+			}
+			violations = append(violations, fmt.Sprintf("%s:%d %s must not take *service; expose a narrow port through fx.As or a typed params struct", relPath, fset.Position(field.Pos()).Line, fn.Name.Name))
+		}
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryProviderLikeFunction(name string) bool {
+	return strings.HasPrefix(name, "Provide") ||
+		strings.HasPrefix(name, "New") ||
+		strings.Contains(name, "HookConsumer")
+}
+
+func orchestrationInternalBoundaryFullServiceFieldOwner(typeName string, st *ast.StructType) bool {
+	lower := strings.ToLower(typeName)
+	if strings.Contains(lower, "controller") ||
+		strings.Contains(lower, "adapter") ||
+		strings.Contains(lower, "actor") ||
+		strings.Contains(lower, "consumer") {
+		return true
+	}
+	return orchestrationInternalBoundaryStructEmbedsFxIn(st)
+}
+
+func orchestrationInternalBoundaryStructEmbedsFxIn(st *ast.StructType) bool {
+	for _, field := range st.Fields.List {
+		if len(field.Names) == 0 && exprTypeString(field.Type) == "fx.In" {
+			return true
+		}
+	}
+	return false
+}
+
+func orchestrationInternalBoundaryDAGRuntimeMapAccessViolations(fset *token.FileSet, file *ast.File, relPath string) []string {
+	var violations []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.Field:
+			typeName := orchestrationInternalBoundaryRuntimeAgentFieldTypeString(n.Type)
+			if typeName == "map[string]*agentRuntime" || typeName == "contextlock.RWMutex" || typeName == "agentRegistry" || typeName == "*agentRegistry" {
+				violations = append(violations, fmt.Sprintf("%s:%d DAG files must not define runtime agent registry state (%s)", relPath, fset.Position(n.Pos()).Line, typeName))
+			}
+		case *ast.SelectorExpr:
+			if n.Sel.Name == "agents" {
+				violations = append(violations, fmt.Sprintf("%s:%d DAG files must not directly access agent runtime map selector %s", relPath, fset.Position(n.Pos()).Line, strings.Join(orchestrationInternalBoundarySelectorParts(n), ".")))
+			}
+		}
+		return true
+	})
+	return violations
 }
 
 func orchestrationInternalBoundaryServicePointerDebt(fset *token.FileSet, file *ast.File, relPath string) []string {
@@ -368,8 +504,27 @@ func orchestrationInternalBoundaryStopperInterfaceViolations(t *testing.T, root 
 			}
 			violations = append(violations, fmt.Sprintf("%s: interface %s duplicates StopAgent(ctx context.Context, agentID string) error; reuse cmd/mcp-orch/orchestration/stop_helper.go:35 StopAgentService", relPath, typeSpec.Name.Name))
 		}
+		violations = append(violations, orchestrationInternalBoundaryStopAgentServiceNameViolations(file, relPath)...)
 	}
 	return foundCanonical, violations
+}
+
+func orchestrationInternalBoundaryStopAgentServiceNameViolations(file *ast.File, relPath string) []string {
+	var violations []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != "StopAgentService" || orchestrationInternalBoundaryIsCanonicalStopper(relPath, typeSpec.Name.Name) {
+				continue
+			}
+			violations = append(violations, fmt.Sprintf("%s: StopAgentService must only be defined in cmd/mcp-orch/orchestration/stop_helper.go", relPath))
+		}
+	}
+	return violations
 }
 
 func orchestrationInternalBoundaryStopAgentOnlyInterfaces(file *ast.File) []*ast.TypeSpec {

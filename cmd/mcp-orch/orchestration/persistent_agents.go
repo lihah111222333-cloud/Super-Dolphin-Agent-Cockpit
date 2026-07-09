@@ -81,7 +81,7 @@ func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnaps
 	if s == nil {
 		return nil, nil
 	}
-	return listPersistedAgentSnapshotsFromStore(ctx, s.agentThreads)
+	return listPersistedAgentSnapshotsFromStore(ctx, s.lifecycle.agentThreads)
 }
 
 // listPersistedAgentSnapshotsFromStore 从 thread store 恢复可展示快照，供 service 与 report fallback 共用。
@@ -115,7 +115,7 @@ func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (A
 	if s == nil {
 		return AgentSnapshot{}, fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
 	}
-	return persistedAgentSnapshotFromStore(ctx, s.agentThreads, agentID)
+	return persistedAgentSnapshotFromStore(ctx, s.lifecycle.agentThreads, agentID)
 }
 
 // persistedAgentSnapshotFromStore 按 agent_id 精确恢复持久化快照，禁止用 display name 误命中旧 report。

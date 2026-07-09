@@ -133,12 +133,12 @@ func TestTerminateDAG_CancelsRunBeforeStoppingSpawnedAgents(t *testing.T) {
 	}
 	launcher := &terminateLauncherSpy{runStore: runStore}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "thr-running", AgentID: "agent-running"},
 		{ThreadID: "thr-ready", AgentID: "agent-ready"},
 		{ThreadID: "thr-done", AgentID: "agent-done"},
 	}}
-	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.agentThreads})
+	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.lifecycle.agentThreads})
 	agent := svc.newAgentLocked("agent-running")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thr-running"
@@ -185,8 +185,8 @@ func TestTerminateDAG_ReturnsStopFailureAfterCancellingRun(t *testing.T) {
 	}
 	launcher := &terminateLauncherSpy{stopErr: stopErr, runStore: runStore}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: "thr-running", AgentID: "agent-running"}}}
-	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.agentThreads})
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: "thr-running", AgentID: "agent-running"}}}
+	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.lifecycle.agentThreads})
 	agent := svc.newAgentLocked("agent-running")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thr-running"
@@ -223,8 +223,8 @@ func TestTerminateDAG_RetriesSpawnedAgentStopAfterCancelledRun(t *testing.T) {
 	}
 	launcher := &terminateLauncherSpy{stopErr: stopErr, runStore: runStore}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: threadID, AgentID: "agent-running"}}}
-	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.agentThreads})
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: threadID, AgentID: "agent-running"}}}
+	attachDAGTestController(svc, dagControllerParams{RunStore: runStore, AgentThreads: svc.lifecycle.agentThreads})
 	agent := svc.newAgentLocked("agent-running")
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = threadID

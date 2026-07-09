@@ -42,7 +42,7 @@ func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64
 	agent.launchSeq = launchSeq
 	agent.sessionGeneration = 42
 	svc.registry.agents[agent.id] = agent
-	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agentID, LaunchSeq: launchSeq, Cmd: cmd})
+	svc.lifecycle.exitMonitor.Arm(exitmonitor.Target{AgentID: agentID, LaunchSeq: launchSeq, Cmd: cmd})
 	agent.monitoredSeq = launchSeq
 	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 	return cmd
@@ -62,9 +62,9 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 	svc.registry.agents[agent.id] = agent
 
 	// 第一次 Emit 应触发状态迁移。
-	svc.exitMonitor.Emit("agent-1", 5, nil)
+	svc.lifecycle.exitMonitor.Emit("agent-1", 5, nil)
 	select {
-	case result := <-svc.exitMonitor.ExitEvents():
+	case result := <-svc.lifecycle.exitMonitor.ExitEvents():
 		svc.handleProcessExit(context.Background(), result.AgentID, result.LaunchSeq, result.Err)
 	case <-time.After(time.Second):
 		t.Fatal("first Emit did not publish exit event")
@@ -78,9 +78,9 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 	}
 
 	// 同一 (agentID, launchSeq) 的第二次 Emit 会被 monitor 栅栏吞掉，事件通道保持为空。
-	svc.exitMonitor.Emit("agent-1", 5, errors.New("duplicate"))
+	svc.lifecycle.exitMonitor.Emit("agent-1", 5, errors.New("duplicate"))
 	select {
-	case ev := <-svc.exitMonitor.ExitEvents():
+	case ev := <-svc.lifecycle.exitMonitor.ExitEvents():
 		t.Fatalf("second Emit should have been coalesced, got event: %+v", ev)
 	case <-time.After(50 * time.Millisecond):
 	}
@@ -109,18 +109,18 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 	svc.registry.agents[agent.id] = agent
 
 	// 第一次：模拟 launcher stop 发布退出事件。
-	svc.exitMonitor.Emit("agent-2", 7, nil)
+	svc.lifecycle.exitMonitor.Emit("agent-2", 7, nil)
 	select {
-	case result := <-svc.exitMonitor.ExitEvents():
+	case result := <-svc.lifecycle.exitMonitor.ExitEvents():
 		svc.handleProcessExit(context.Background(), result.AgentID, result.LaunchSeq, result.Err)
 	case <-time.After(time.Second):
 		t.Fatal("synthetic Emit did not publish")
 	}
 
 	// 第二次：模拟并发 cmd.Wait 送达同一 (agentID, seq)，栅栏和 exactly-once 通道必须吞掉它。
-	svc.exitMonitor.Emit("agent-2", 7, errors.New("cmd.Wait race"))
+	svc.lifecycle.exitMonitor.Emit("agent-2", 7, errors.New("cmd.Wait race"))
 	select {
-	case ev := <-svc.exitMonitor.ExitEvents():
+	case ev := <-svc.lifecycle.exitMonitor.ExitEvents():
 		t.Fatalf("expected no further events, got %+v", ev)
 	case <-time.After(50 * time.Millisecond):
 	}
@@ -147,7 +147,7 @@ func TestShutdownDrainWaitOwner(t *testing.T) {
 
 	runDone := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
-	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) })
+	goroutines.Go(func() { runDone <- newRunnerActorForTest(silentLogger(), svc).Run(ctx) })
 	waitForAgentMonitor(t, svc, "agent-3", 1)
 
 	// 取消 runner ctx 后，drainOnStop 必须先 Drain monitor 再让 Run 返回。
@@ -167,7 +167,7 @@ func TestShutdownDrainWaitOwner(t *testing.T) {
 	// 此时 Drain 应已等待所有 Arm goroutine 退出；第二次 Drain 必须幂等并立即返回。
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer drainCancel()
-	if err := svc.exitMonitor.Drain(drainCtx); err != nil {
+	if err := svc.lifecycle.exitMonitor.Drain(drainCtx); err != nil {
 		t.Fatalf("post-shutdown Drain returned %v; expected quiescent monitor", err)
 	}
 }
@@ -182,14 +182,14 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	spawnP3TestCmd(t, svc, "agent-4", 3)
 
 	// 缩短等待窗口，让 waitForProcessExit 快速进入强杀分支并验证崩溃窗口只发布一次退出事件。
-	svc.processExitWaitTimeout = 50 * time.Millisecond
+	svc.lifecycle.processExitWaitTimeout = 50 * time.Millisecond
 
 	// 启动 actor 消费退出事件；进程会保持存活，直到 waitForProcessExit 的 forceKill 触发。
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runDone := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
-	goroutines.Go(func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) })
+	goroutines.Go(func() { runDone <- newRunnerActorForTest(silentLogger(), svc).Run(ctx) })
 	waitForAgentMonitor(t, svc, "agent-4", 3)
 
 	if err := svc.waitForProcessExit(context.Background(), "agent-4", 3); err != nil {
@@ -216,9 +216,9 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	}
 
 	// 同一 seq 的额外合成 Emit 必须被 monitor 与 handleProcessExit 的双重栅栏吞掉。
-	svc.exitMonitor.Emit("agent-4", 3, errors.New("duplicate after kill"))
+	svc.lifecycle.exitMonitor.Emit("agent-4", 3, errors.New("duplicate after kill"))
 	select {
-	case ev := <-svc.exitMonitor.ExitEvents():
+	case ev := <-svc.lifecycle.exitMonitor.ExitEvents():
 		t.Fatalf("unexpected duplicate event after kill: %+v", ev)
 	case <-time.After(50 * time.Millisecond):
 	}

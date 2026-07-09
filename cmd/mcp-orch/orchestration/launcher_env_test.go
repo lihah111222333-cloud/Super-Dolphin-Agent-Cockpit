@@ -111,7 +111,7 @@ func stopAndDrainLocalLauncherTestAgent(t *testing.T, launcher *localLauncher, a
 
 func stopAndDrainServiceTestAgent(t *testing.T, svc *service, agent *agentRuntime) {
 	t.Helper()
-	if svc == nil || svc.exitMonitor == nil {
+	if svc == nil || svc.lifecycle.exitMonitor == nil {
 		return
 	}
 	if agent != nil && agent.cmd != nil {
@@ -119,7 +119,7 @@ func stopAndDrainServiceTestAgent(t *testing.T, svc *service, agent *agentRuntim
 	}
 	drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := svc.exitMonitor.Drain(drainCtx); err != nil {
+	if err := svc.lifecycle.exitMonitor.Drain(drainCtx); err != nil {
 		t.Fatalf("drain exit monitor: %v", err)
 	}
 }

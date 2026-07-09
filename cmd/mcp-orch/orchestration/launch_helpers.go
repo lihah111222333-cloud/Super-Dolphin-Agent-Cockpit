@@ -106,7 +106,7 @@ func (s *service) newAgentLocked(agentID string) *agentRuntime {
 		updatedAt: time.Now(),
 		queue:     &SubmissionQueue{},
 	}
-	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
+	agent.sm = platformstatemachine.New(s.lifecycle.machineCfg, func() string {
 		return string(agent.state)
 	}, func(next string) {
 		// 后续状态转换都由状态机通过这个 sink 写回 agent.state。

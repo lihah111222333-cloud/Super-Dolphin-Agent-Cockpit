@@ -48,7 +48,7 @@ func (s *service) dagFacade() *dagController {
 	if s == nil {
 		return nil
 	}
-	return s.dagController
+	return s.dags
 }
 
 func (c *dagController) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {

@@ -17,31 +17,53 @@ import (
 
 // turn lifecycle 事件处理函数。
 
+type turnLifecycleRuntime interface {
+	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
+	interruptTurn(ctx context.Context, agentID, turnID, reason string) error
+	forceIdleAfterCompletionError(ctx context.Context, agentID string, turnID string, success bool, errMsg string) (bool, error)
+	forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error)
+	forceIdleAfterInterruptionError(ctx context.Context, agentID string, turnID string, reason string) (bool, error)
+	stopAgentAfterPermanentTurnFailure(agentID, threadID, source string)
+	withAgentReadLocked(agentID string, fn func(*agentRuntime) error) error
+}
+
+// TurnLifecyclePort is the narrow runtime consumed by fx turn lifecycle hooks.
+type TurnLifecyclePort interface {
+	turnLifecycleRuntime
+	BindActiveTurnID(ctx context.Context, agentID, turnID string) error
+}
+
+// ApprovalLifecyclePort is the narrow runtime consumed by fx approval lifecycle hooks.
+type ApprovalLifecyclePort interface {
+	markAwaitingUserInput(ctx context.Context, agentID, turnID string) error
+	resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error
+}
+
 // handleTurnCompletedEvent 使用 background context 处理 turn.completed 事件。
-func handleTurnCompletedEvent(svc *service, logger *slog.Logger, ev turndto.TurnCompleted) {
-	handleTurnCompletedEventWithCtx(svc, logger, ev, context.Background())
+func handleTurnCompletedEvent(runtime turnLifecycleRuntime, logger *slog.Logger, ev turndto.TurnCompleted) {
+	handleTurnCompletedEventWithCtx(runtime, logger, ev, context.Background())
 }
 
 // handleTurnCompletedEventWithCtx 处理 turn.completed，并在常规完成失败时尝试强制收口状态。
-func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, parent context.Context) {
-	if svc == nil {
+func handleTurnCompletedEventWithCtx(runtime turnLifecycleRuntime, logger *slog.Logger, ev turndto.TurnCompleted, parent context.Context) {
+	if runtime == nil {
 		return
 	}
 	ctx, logger, startedAt, ok := prepareTurnCompletedEvent(parent, logger, ev)
 	if !ok {
 		return
 	}
-	err := svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
-	if settleIgnoredTurnCompletion(svc, logger, ev, startedAt, err) {
+	err := runtime.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
+	if settleIgnoredTurnCompletion(runtime, logger, ev, startedAt, err) {
 		return
 	}
 	if ctx.Err() != nil {
 		return
 	}
-	if settleProviderTurnCompletionMismatch(svc, logger, ev, startedAt, ctx) {
+	if settleProviderTurnCompletionMismatch(runtime, logger, ev, startedAt, ctx) {
 		return
 	}
-	recovered, recoverErr := svc.forceIdleAfterCompletionError(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
+	recovered, recoverErr := runtime.forceIdleAfterCompletionError(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
 	logTurnTerminalProgress(logger, "orchestration: turn completed event recovery attempted",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, recoverErr)
 	logTurnCompletionFailure(logger, ev, err, recovered, recoverErr)
@@ -63,40 +85,40 @@ func prepareTurnCompletedEvent(parent context.Context, logger *slog.Logger, ev t
 }
 
 // settleIgnoredTurnCompletion 处理已经收口过的 completion，保持终态事件幂等。
-func settleIgnoredTurnCompletion(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, startedAt time.Time, err error) bool {
-	if !shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+func settleIgnoredTurnCompletion(runtime turnLifecycleRuntime, logger *slog.Logger, ev turndto.TurnCompleted, startedAt time.Time, err error) bool {
+	if !shouldIgnoreTurnLifecycleErr(runtime, ev.AgentID, ev.TurnID, err) {
 		return false
 	}
 	logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
 	if detail := turnCompletedReportText(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
-		svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
+		runtime.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
 	}
 	return true
 }
 
 // settleProviderTurnCompletionMismatch 处理 provider turn id 与本地 active turn id 不一致但线程匹配的完成事件。
-func settleProviderTurnCompletionMismatch(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, startedAt time.Time, ctx context.Context) bool {
-	recovered, recoverErr := svc.forceIdleAfterProviderTurnCompletion(ctx, ev)
+func settleProviderTurnCompletionMismatch(runtime turnLifecycleRuntime, logger *slog.Logger, ev turndto.TurnCompleted, startedAt time.Time, ctx context.Context) bool {
+	recovered, recoverErr := runtime.forceIdleAfterProviderTurnCompletion(ctx, ev)
 	if recoverErr != nil || !recovered {
 		return false
 	}
 	logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
 	if detail := turnCompletedReportText(ev); !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
-		svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
+		runtime.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
 	}
 	return true
 }
 
 // handleTurnInterruptedEvent 使用 background context 处理 turn.interrupted 事件。
-func handleTurnInterruptedEvent(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted) {
-	handleTurnInterruptedEventWithCtx(svc, logger, ev, context.Background())
+func handleTurnInterruptedEvent(runtime turnLifecycleRuntime, logger *slog.Logger, ev turndto.TurnInterrupted) {
+	handleTurnInterruptedEventWithCtx(runtime, logger, ev, context.Background())
 }
 
 // handleTurnInterruptedEventWithCtx 处理 turn.interrupted，并在状态漂移时尝试强制 idle。
-func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted, parent context.Context) {
-	if svc == nil {
+func handleTurnInterruptedEventWithCtx(runtime turnLifecycleRuntime, logger *slog.Logger, ev turndto.TurnInterrupted, parent context.Context) {
+	if runtime == nil {
 		return
 	}
 	if parent == nil {
@@ -109,19 +131,19 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 	ctx := withEventTime(parent, ev.Timestamp)
 	logger = userInputLogger(logger)
 	logTurnInterruptedEventReceived(logger, ev)
-	err := svc.interruptTurn(ctx, ev.AgentID, ev.TurnID, ev.Reason)
-	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+	err := runtime.interruptTurn(ctx, ev.AgentID, ev.TurnID, ev.Reason)
+	if shouldIgnoreTurnLifecycleErr(runtime, ev.AgentID, ev.TurnID, err) {
 		logTurnTerminalProgress(logger, "orchestration: turn interrupted event settled",
 			ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
 		if reason := strings.TrimSpace(ev.Reason); !errors.Is(err, errAgentNotFound) && reason != "" && launcherrors.Classify(errors.New(reason)) == launcherrors.ClassPermanent {
-			svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_interrupted_permanent")
+			runtime.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_interrupted_permanent")
 		}
 		return
 	}
 	if ctx.Err() != nil {
 		return
 	}
-	recovered, recoverErr := svc.forceIdleAfterInterruptionError(ctx, ev.AgentID, ev.TurnID, ev.Reason)
+	recovered, recoverErr := runtime.forceIdleAfterInterruptionError(ctx, ev.AgentID, ev.TurnID, ev.Reason)
 	logTurnTerminalProgress(logger, "orchestration: turn interrupted event recovery attempted",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, recoverErr)
 	logTurnInterruptedFailure(logger, ev, err, recovered, recoverErr)
@@ -129,12 +151,18 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 
 // markAwaitingUserInput 将 active turn 推进到 awaiting_user_input。
 func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
-	return s.turnController().markAwaitingUserInput(ctx, agentID, turnID)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.markAwaitingUserInput(ctx, agentID, turnID)
 }
 
 // resolveAwaitingUserInput 将 awaiting_user_input 恢复为 turn_running，重复 resolved 视为幂等。
 func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
-	return s.turnController().resolveAwaitingUserInput(ctx, agentID, turnID, reason)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.resolveAwaitingUserInput(ctx, agentID, turnID, reason)
 }
 
 // CompleteTurn 根据 provider 终态事件完成或中止当前 active turn。
@@ -217,11 +245,11 @@ func userInputMatchesActiveTurn(agent *agentRuntime, turnID string) bool {
 }
 
 // handleToolApprovalRequestedEvent 将 request_user_input/tool approval 事件映射为 awaiting_user_input。
-func handleToolApprovalRequestedEvent(svc *service, logger *slog.Logger, ev tooldto.ToolApprovalRequested) {
-	if svc == nil || !isRequestUserInputEvent(ev.Kind) {
+func handleToolApprovalRequestedEvent(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalRequested) {
+	if runtime == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := svc.markAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
+	if err := runtime.markAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to mark awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
@@ -229,11 +257,11 @@ func handleToolApprovalRequestedEvent(svc *service, logger *slog.Logger, ev tool
 }
 
 // handleToolApprovalResolvedEvent 将 approval resolved 事件映射为用户输入已解决。
-func handleToolApprovalResolvedEvent(svc *service, logger *slog.Logger, ev tooldto.ToolApprovalResolved) {
-	if svc == nil || !isRequestUserInputEvent(ev.Kind) {
+func handleToolApprovalResolvedEvent(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalResolved) {
+	if runtime == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := svc.resolveAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
+	if err := runtime.resolveAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to resolve awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
@@ -277,7 +305,10 @@ func userInputLogger(logger *slog.Logger) *slog.Logger {
 
 // interruptTurn 在 service 锁内中止当前 active turn。
 func (s *service) interruptTurn(ctx context.Context, agentID, turnID, reason string) error {
-	return s.turnController().interruptTurn(ctx, agentID, turnID, reason)
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	return s.turns.interruptTurn(ctx, agentID, turnID, reason)
 }
 
 // interruptTurn 在 registry 锁内中止当前 active turn。
@@ -320,11 +351,14 @@ func (s *service) forceIdleAfterCompletionError(
 // forceIdleAfterProviderTurnCompletion 在确认 agent/thread 匹配后落 report 并强制收口当前 turn。
 func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error) {
 	recovered := false
+	if s == nil || s.reports == nil {
+		return false, errors.New("report controller is not configured")
+	}
 	err := s.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		if !canRecoverProviderTurnCompletion(agent, ev) {
 			return errTurnNotActive
 		}
-		if _, err := s.reportController().applyReportEventLocked(
+		if _, err := s.reports.applyReportEventLocked(
 			ctx,
 			agent,
 			"turn/completed",
@@ -385,7 +419,10 @@ func (s *service) recoverTurnInterruptionStateLocked(ctx context.Context, agent 
 	if agent == nil || agent.state == agentdto.StateIdle {
 		return nil
 	}
-	if err := s.turnController().ensureTurnAbortableLocked(ctx, agent); err != nil {
+	if s == nil || s.turns == nil {
+		return errors.New("turn controller is not configured")
+	}
+	if err := s.turns.ensureTurnAbortableLocked(ctx, agent); err != nil {
 		return err
 	}
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAborted)
@@ -474,17 +511,17 @@ func turnCompletedEventMatchesAgentThread(agent *agentRuntime, threadID string) 
 }
 
 // shouldIgnoreTurnLifecycleErr 判断终态事件错误是否可以视为已幂等收口。
-func shouldIgnoreTurnLifecycleErr(svc *service, agentID, turnID string, err error) bool {
-	return err == nil || errors.Is(err, errTurnNotActive) && turnTerminalConverged(svc, agentID, turnID)
+func shouldIgnoreTurnLifecycleErr(runtime turnLifecycleRuntime, agentID, turnID string, err error) bool {
+	return err == nil || errors.Is(err, errTurnNotActive) && turnTerminalConverged(runtime, agentID, turnID)
 }
 
 // turnTerminalConverged 检查 agent 是否已经没有 active turn 且回到 idle。
-func turnTerminalConverged(svc *service, agentID, turnID string) bool {
-	if svc == nil {
+func turnTerminalConverged(runtime turnLifecycleRuntime, agentID, turnID string) bool {
+	if runtime == nil {
 		return false
 	}
 	converged := false
-	if err := svc.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	if err := runtime.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
 		converged = turnTerminalConvergedLocked(agent, turnID)
 		return nil
 	}); err != nil {

@@ -17,6 +17,6 @@ func attachDAGTestController(svc *service, p dagControllerParams) *service {
 	if p.SvcStopper == nil {
 		p.SvcStopper = svc
 	}
-	svc.dagController = newDAGController(p)
+	svc.dags = newDAGController(p)
 	return svc
 }
