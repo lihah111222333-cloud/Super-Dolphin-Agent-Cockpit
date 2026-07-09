@@ -32,10 +32,23 @@
   gap: 14px;
   max-width: var(--conversation-content-width);
   margin: 18px var(--conversation-content-right-gutter) 18px var(--conversation-content-left-gutter);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--suiyuan-card-shadow);
+}
+
+.message.assistant {
+  background: var(--surface);
+  color: var(--text-pri);
+  box-shadow: var(--suiyuan-card-shadow);
 }
 
 .message.user {
   flex-direction: row-reverse;
+  background: var(--surface-3);
+  color: var(--text-pri);
+  box-shadow: none;
 }
 
 .message.user .bubble {
@@ -275,7 +288,7 @@ button.user-attachment-file-pill:focus-visible {
 .message-markdown {
   min-width: 0;
   max-width: 100%;
-  color: var(--text-sec);
+  color: var(--text-pri);
   font-size: 14px;
   line-height: 1.62;
   white-space: normal;
@@ -284,7 +297,7 @@ button.user-attachment-file-pill:focus-visible {
 }
 
 .message.assistant .message-markdown {
-  color: var(--text-sec);
+  color: var(--text-pri);
 }
 
 .assistant-thinking-status {
@@ -324,7 +337,7 @@ button.user-attachment-file-pill:focus-visible {
 .message-markdown h4,
 .message-markdown h5,
 .message-markdown h6 {
-  color: var(--ink);
+  color: var(--text-pri);
   font-weight: 700;
   line-height: 1.35;
   margin: 18px 0 10px;
@@ -580,7 +593,7 @@ button.user-attachment-file-pill:focus-visible {
 }
 
 .message-markdown th {
-  color: var(--ink);
+  color: var(--text-pri);
   background: color-mix(in srgb, var(--surface-3) 62%, var(--surface));
   font-weight: 700;
 }
@@ -588,7 +601,7 @@ button.user-attachment-file-pill:focus-visible {
 .message-markdown code {
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: color-mix(in srgb, var(--surface-3) 62%, var(--surface));
+  background: var(--surface-2);
   padding: 1px 5px;
   font: 0.95em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -599,8 +612,8 @@ button.user-attachment-file-pill:focus-visible {
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--surface-code);
   padding: 12px;
 }

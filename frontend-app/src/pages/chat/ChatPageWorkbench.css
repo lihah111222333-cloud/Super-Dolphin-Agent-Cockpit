@@ -184,9 +184,9 @@
 }
 
 .conversation {
-  --conversation-content-width: min(900px, max(0px, calc(100% - clamp(24px, 7vw, 104px))));
+  --conversation-content-width: min(var(--suiyuan-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))));
   min-width: 0;
-  background: var(--workbench-bg);
+  background: var(--bg);
 }
 
 .conversation--intro {
@@ -225,7 +225,7 @@
 .conversation:not(.conversation--intro) .timeline {
   height: 100%;
   overflow-y: auto;
-  padding-bottom: clamp(112px, 16vh, 172px);
+  padding: 24px 0 clamp(112px, 16vh, 172px);
 }
 
 .conversation--intro .timeline-shell {
@@ -303,8 +303,8 @@
   margin-left: auto;
   border: 0;
   border-radius: 20px 0 20px 20px;
-  background: var(--message-user-bg, var(--workbench-ink, var(--accent-2)));
-  color: var(--message-user-text, var(--on-accent));
+  background: var(--surface-3);
+  color: var(--text-pri);
   box-shadow: none;
 }
 

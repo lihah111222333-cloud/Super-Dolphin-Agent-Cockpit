@@ -64,9 +64,10 @@
   box-sizing: border-box;
   width: 100%;
   margin-top: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text-pri);
 }
 
 .reasoning-trace-status {
@@ -272,13 +273,13 @@
 
 .message-output {
   max-width: 100%;
-  color: var(--text-sec);
+  color: var(--text-pri);
   font-size: 14px;
   line-height: 1.6;
 }
 
 .message.assistant .message-output {
-  color: var(--text-sec);
+  color: var(--text-pri);
 }
 
 .message-output pre {
@@ -287,8 +288,8 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--surface-code);
   padding: 12px;
 }

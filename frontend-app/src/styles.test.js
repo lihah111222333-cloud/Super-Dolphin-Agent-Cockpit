@@ -298,7 +298,7 @@ describe('composer layout styles', () => {
     expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
     expect(textarea['overflow-y']).toBe('auto');
     expect(activeTimelineShell['grid-row']).toBe('2');
-    expect(activeTimeline['padding-bottom']).toBe('clamp(112px, 16vh, 172px)');
+    expect(activeTimeline.padding).toBe('24px 0 clamp(112px, 16vh, 172px)');
     expect(activeComposer['grid-row']).toBe('3');
   });
 
@@ -703,7 +703,7 @@ describe('reasoning trace styles', () => {
     expect(stepList.overflow).toBe('auto');
     expect(stepList.padding).toBe('8px 10px');
     expect(stepList['max-height']).toBe('min(240px, 34vh)');
-    expect(openStepList.border).toBe('1px solid var(--border)');
+    expect(openStepList.border).toBe('1px solid var(--line)');
     expect(openStepList['box-sizing']).toBe('border-box');
     expect(openStepList.width).toBe('100%');
     expect(stepMarkdown['font-size']).toBe('14px');
@@ -817,8 +817,27 @@ describe('conversation grid styles', () => {
   });
 });
 
+describe('suiyuan chat canvas', () => {
+  it('centers the chat canvas and renders message surfaces as warm cards', () => {
+    const conversation = declarationsFor('.conversation');
+    const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
+    const timeline = declarationsFor('.timeline');
+    const assistantMessage = declarationsFor('.message.assistant');
+    const userMessage = declarationsFor('.message.user');
+    const markdownPre = declarationsFor('.message-markdown pre');
+
+    expect(conversation.background).toBe('var(--bg)');
+    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
+    expect(timeline['align-items']).toBe('center');
+    expect(assistantMessage.background).toBe('var(--surface)');
+    expect(assistantMessage['box-shadow']).toBe('var(--suiyuan-card-shadow)');
+    expect(userMessage.background).toBe('var(--surface-3)');
+    expect(markdownPre.background).toBe('var(--surface-code)');
+  });
+});
+
 describe('conversation content column styles', () => {
-  it('keeps timeline messages left-biased while the docked composer fills the footer frame', () => {
+  it('keeps timeline messages centered while the docked composer fills the footer frame', () => {
     const conversation = declarationsFor('.conversation');
     const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
     const activeTimelineShell = declarationsFor('.conversation:not(.conversation--intro) .timeline-shell');
@@ -836,7 +855,7 @@ describe('conversation content column styles', () => {
     const headerTool = declarationsFor('.chat-header-tool');
     const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
 
-    expect(conversation['--conversation-content-width']).toBe('min(900px, max(0px, calc(100% - clamp(24px, 7vw, 104px))))');
+    expect(conversation['--conversation-content-width']).toBe('min(var(--suiyuan-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))))');
     expect(activeConversation.display).toBe('grid');
     expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
     expect(activeConversation.overflow).toBe('hidden');
@@ -855,14 +874,14 @@ describe('conversation content column styles', () => {
     expect(disabledHeaderTool.opacity).toBe('1');
     expect(timeline.display).toBe('flex');
     expect(timeline['flex-direction']).toBe('column');
-    expect(timeline['align-items']).toBe('flex-start');
+    expect(timeline['align-items']).toBe('center');
     expect(message.width).toBe('var(--conversation-content-width)');
     expect(message.margin).toBe('18px auto');
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
     expect(userBubble['margin-left']).toBe('auto');
-    expect(userBubble.background).toBe('var(--message-user-bg, var(--workbench-ink, var(--accent-2)))');
-    expect(userBubble.color).toBe('var(--message-user-text, var(--on-accent))');
+    expect(userBubble.background).toBe('var(--surface-3)');
+    expect(userBubble.color).toBe('var(--text-pri)');
     expect(composer.width).toBe('min(900px, max(0px, calc(100% - clamp(24px, 6vw, 96px))))');
     expect(dockedComposer.padding).toBe('0');
     expect(dockedComposer['border-top']).toBe('0');
