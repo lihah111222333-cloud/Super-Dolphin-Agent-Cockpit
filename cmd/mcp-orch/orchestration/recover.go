@@ -524,9 +524,19 @@ func (c *recoveryController) commitLauncherRecoverySuccess(ctx context.Context, 
 	}
 	c.registry.lock()
 	agent, err := c.registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
-	if err != nil || agent.state != agentdto.StateRecovering || agent.stopRequested {
+	if err != nil {
 		c.registry.unlock()
 		return c.discardStaleSuccessfulLaunch(ctx, &attempt.launching, err)
+	}
+	if agent.state != agentdto.StateRecovering {
+		staleErr := fmt.Errorf("recovery launch state changed: agent %s state=%s", attempt.agentID, agent.state)
+		c.registry.unlock()
+		return c.discardStaleSuccessfulLaunch(ctx, &attempt.launching, staleErr)
+	}
+	if agent.stopRequested {
+		staleErr := fmt.Errorf("recovery launch stop requested: agent %s", attempt.agentID)
+		c.registry.unlock()
+		return c.discardStaleSuccessfulLaunch(ctx, &attempt.launching, staleErr)
 	}
 	adoptLaunchStateLocked(agent, &attempt.launching)
 	bindLaunchResult(agent, result)

@@ -130,6 +130,48 @@ func TestLauncherRecoveryStopsSuccessfulStaleLaunch(t *testing.T) {
 	}
 }
 
+func TestLauncherRecoveryReturnsErrorWhenSuccessfulLaunchStateChanged(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingStallLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := launcherRecoveryAgent(svc, "agent-remote")
+	launcher.afterLaunch = func() {
+		svc.registry.mu.Lock()
+		agent.state = agentdto.StateIdle
+		svc.registry.mu.Unlock()
+	}
+
+	err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
+	if err == nil || !strings.Contains(err.Error(), "state changed") {
+		t.Fatalf("recoverWithReason() error = %v, want state changed stale recovery error", err)
+	}
+	if launcher.stopCalls != 2 || !containsString(launcher.stopThreads, "thread-recovered") {
+		t.Fatalf("launcher stop calls=%d stopThreads=%v, want old stop plus stale launched thread cleanup", launcher.stopCalls, launcher.stopThreads)
+	}
+}
+
+func TestLauncherRecoveryReturnsErrorWhenSuccessfulLaunchStopRequested(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingStallLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := launcherRecoveryAgent(svc, "agent-remote")
+	launcher.afterLaunch = func() {
+		svc.registry.mu.Lock()
+		agent.stopRequested = true
+		svc.registry.mu.Unlock()
+	}
+
+	err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
+	if err == nil || !strings.Contains(err.Error(), "stop requested") {
+		t.Fatalf("recoverWithReason() error = %v, want stop requested stale recovery error", err)
+	}
+	if launcher.stopCalls != 2 || !containsString(launcher.stopThreads, "thread-recovered") {
+		t.Fatalf("launcher stop calls=%d stopThreads=%v, want old stop plus stale launched thread cleanup", launcher.stopCalls, launcher.stopThreads)
+	}
+}
+
 func TestLauncherRecoveryReplayLoadFailureWritesFallback(t *testing.T) {
 	t.Parallel()
 
