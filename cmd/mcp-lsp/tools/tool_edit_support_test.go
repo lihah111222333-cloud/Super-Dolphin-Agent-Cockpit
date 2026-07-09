@@ -165,6 +165,7 @@ func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText,
 	}
 	handler := NewEditHandler(&structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",
@@ -212,6 +213,7 @@ func TestReplaceRangeRejectsPathOutsideWorkspaceRoot(t *testing.T) {
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: outside,
 		Patch:    "@@\n-old\n+new\n",
 	})
@@ -245,6 +247,7 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: link,
 		Patch:    "@@\n-old\n+new\n",
 	})
@@ -307,6 +310,7 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",
@@ -334,7 +338,7 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 		t.Fatalf("failure.Success = true, want false")
 	}
 	assertDeadClientRollbackState(t, path, original, manager)
-	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
+	envelope := newToolErrorEnvelope("patch_edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
 	if !envelope.Retryable || envelope.Code != "lsp_client_closed" {
 		t.Fatalf("dead-client envelope = %#v, want retryable lsp_client_closed", envelope)
 	}
@@ -382,6 +386,7 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",
@@ -412,7 +417,7 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 }
 
 func replaceFileWithDirectoryForRollbackTest(path string) (lastErr error) {
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			lastErr = err
 		} else if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
@@ -460,6 +465,7 @@ func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T)
 	manager := &editBlockingSyncManager{started: make(chan struct{})}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",
@@ -502,6 +508,7 @@ func TestReplaceRangeReturnsAppliedWhenFunctionLookupBlocksAfterSync(t *testing.
 	manager := &editBlockingFunctionLookupManager{started: make(chan struct{})}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch: strings.Join([]string{
 			"@@",
@@ -597,6 +604,7 @@ func TestEditPureInsertionHunk(t *testing.T) {
 
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch:    " import (\n+\t\"fmt\"\n )\n",
 	})
@@ -626,6 +634,7 @@ func TestEditPureInsertionEOF(t *testing.T) {
 
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
 		FilePath: path,
 		Patch:    " }\n+\n+func helper() {}\n",
 	})

@@ -16,9 +16,9 @@ const (
 	replaceRangeFuncBodyMax = 8 * 1024
 )
 
-var errEditManagerNil = errors.New("edit requires LSP manager; ensure language server is running for this file type")
+var errEditManagerNil = errors.New("patch_edit requires LSP manager; ensure language server is running for this file type")
 
-// EditRequest 是 edit 工具的入参结构体，包含动作、路径、补丁和版本信息。
+// EditRequest 是 patch_edit 工具的入参结构体，包含动作、路径、补丁和版本信息。
 type EditRequest struct {
 	Action     string   `json:"action"`
 	FilePath   string   `json:"file_path,omitempty"`
@@ -36,7 +36,7 @@ type EditHandler struct {
 	root     string
 }
 
-// editEnvelope 是 edit 工具的通用响应信封，包含状态、计数和持久化标记。
+// editEnvelope 是 patch_edit 工具的通用响应信封，包含状态、计数和持久化标记。
 type editEnvelope struct {
 	Status               string `json:"status"`
 	Message              string `json:"message,omitempty"`
@@ -48,16 +48,16 @@ type editEnvelope struct {
 	DiagnosticGeneration uint64 `json:"diagnostic_generation,omitempty"`
 }
 
-// NewEditHandler 注册 edit 工具处理器。
+// NewEditHandler 注册 patch_edit 工具处理器。
 // 默认不绑定额外根目录，路径解析依赖调用上下文中的可信 workspace。
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
+	return wrapToolHandler("patch_edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
 }
 
-// NewEditHandlerWithRoot 注册绑定固定根目录的 edit 工具处理器。
+// NewEditHandlerWithRoot 注册绑定固定根目录的 patch_edit 工具处理器。
 // 该入口用于 sidecar 初始化已知根目录的场景，所有写入仍需通过后续路径校验。
 func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
+	return wrapToolHandler("patch_edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
 }
 
 // HandleEdit 是旧版函数式入口，转交给 EditHandler 以复用统一校验和响应信封。
@@ -72,11 +72,11 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	}
 	req, err := decodeToolParams[EditRequest](params, decodeLenient)
 	if err != nil {
-		return nil, fmt.Errorf("decode edit request: %w", err)
+		return nil, fmt.Errorf("decode patch_edit request: %w", err)
 	}
 	action := strings.TrimSpace(req.Action)
 	if action == "" {
-		action = "replace_range"
+		return nil, fmt.Errorf("patch_edit requires action (valid: replace_range, rename, code_action, format)")
 	}
 	switch action {
 	case "replace_range":
@@ -94,7 +94,7 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	case "format":
 		return h.handleFormat(ctx, req)
 	default:
-		return nil, fmt.Errorf("unsupported edit action %q (valid: replace_range, rename, code_action, format)", action)
+		return nil, fmt.Errorf("unsupported patch_edit action %q (valid: replace_range, rename, code_action, format)", action)
 	}
 }
 
@@ -109,9 +109,9 @@ func normalizeEditVersion(version int) int {
 // ToPlainText 渲染为纯文本。
 func (e editEnvelope) ToPlainText() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Edit Status: %s\n", editStatusText(e)))
+	fmt.Fprintf(&sb, "Edit Status: %s\n", editStatusText(e))
 	if e.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", e.Message))
+		fmt.Fprintf(&sb, "Message: %s\n", e.Message)
 	}
 	appendEditApplyStatus(&sb, e)
 	appendEditWarnings(&sb, e)
@@ -136,7 +136,7 @@ func editStatusText(e editEnvelope) string {
 func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 	switch strings.ToLower(strings.TrimSpace(e.Status)) {
 	case "applied":
-		sb.WriteString(fmt.Sprintf("Applied: true (%d replacements", e.AppliedCount))
+		fmt.Fprintf(sb, "Applied: true (%d replacements", e.AppliedCount)
 		if e.Persisted {
 			sb.WriteString(", persisted to disk")
 		}
@@ -149,7 +149,7 @@ func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 		sb.WriteString("Applied: false (patch matched but normalised away - current file already equals the requested NewText; verify your intended diff)\n")
 		return
 	case "failed":
-		sb.WriteString("Applied: false (edit failed)\n")
+		sb.WriteString("Applied: false (patch_edit failed)\n")
 	}
 }
 
@@ -166,7 +166,7 @@ func appendMatchedByNotice(sb *strings.Builder, matchedBy string) {
 // appendEditWarnings 把 warning 和后续操作提示追加到输出。
 func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	if e.Warning != "" {
-		sb.WriteString(fmt.Sprintf("Warning: %s\n", e.Warning))
+		fmt.Fprintf(sb, "Warning: %s\n", e.Warning)
 	}
 	status := strings.ToLower(strings.TrimSpace(e.Status))
 	if (status == "applied" || status == "no_change") && e.FilePath != "" {

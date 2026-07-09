@@ -114,7 +114,7 @@ func TestEditRejectsAppManagedPathWithoutWriteCapability(t *testing.T) {
 	workspace := t.TempDir()
 	handler := NewEditHandlerWithRoot(workspace, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
-	req, err := json.Marshal(EditRequest{FilePath: appFile, Patch: "@@\n-old\n+new\n"})
+	req, err := json.Marshal(EditRequest{Action: "replace_range", FilePath: appFile, Patch: "@@\n-old\n+new\n"})
 	if err != nil {
 		t.Fatalf("marshal edit request: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestEditAllowsAppManagedPathWithWriteCapability(t *testing.T) {
 	handler := NewEditHandlerWithRoot(workspace, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
 	ctx = WithAppManagedWriteCapability(ctx)
-	req, err := json.Marshal(EditRequest{FilePath: appFile, Patch: "@@\n-old\n+new\n"})
+	req, err := json.Marshal(EditRequest{Action: "replace_range", FilePath: appFile, Patch: "@@\n-old\n+new\n"})
 	if err != nil {
 		t.Fatalf("marshal edit request: %v", err)
 	}

@@ -61,7 +61,7 @@ func TestToolErrorEnvelopeLanguageAgnostic(t *testing.T) {
 func TestStructuredToolErrorEnvelopeIsLanguageAgnosticForGoPythonAndTypeScript(t *testing.T) {
 	var baseline ToolErrorEnvelope
 	for idx, languageID := range []string{"go", "python", "typescript"} {
-		envelope := newToolErrorEnvelope("lsp_inspect", languageID, fmt.Errorf("%s route: %w", languageID, lspmanager.ErrUnsupportedLanguage))
+		envelope := newToolErrorEnvelope("inspect", languageID, fmt.Errorf("%s route: %w", languageID, lspmanager.ErrUnsupportedLanguage))
 		requireUnsupportedLanguageEnvelope(t, envelope, languageID)
 		if idx == 0 {
 			baseline = envelope

@@ -45,7 +45,7 @@ tool call: file action=diagnostics file_path=<worktree>/.tmp-lsp-shell-diagnosti
 - `README.md`：项目入口列出 `cmd/mcp-lsp` 为 “MCP generic multi-language LSP peer”。
 - `docs/doc/codemap/README.md`：第 03 卷覆盖 `cmd/mcp-lsp` / `cmd/mcp-ida`。
 - `docs/doc/codemap/03-mcp-lsp-ida.md`：
-  - `mcp-lsp` 工具面是 `file`、`inspect`、`xref`、`grep`、`structure`、`edit`、`completion`。
+  - `mcp-lsp` 工具面是 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion`。
   - 首个依赖语言服务器的工具调用会走 `registry.GetManagerForFile/GetManagerForLanguage`。
   - 注意：该代码地图对 `file.diagnostics` 的旧摘要已不够精确；当前源码顺序是 URI 收集 → `existingDiagnosticURIs` → `bootstrapDiagnostics/reactiveBootstrap` → `registry.BootstrapDocument` → `waitDiagnosticsWithStartupRecovery/WaitDiagnosticsStable` → `registry.Diagnostics`，不是“空结果后才 reactive bootstrap”。
 

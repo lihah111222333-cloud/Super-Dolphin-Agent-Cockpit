@@ -228,7 +228,7 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 // routeToolCall 是非 Codex surface 调用进入 toolbridge 后的分流边界。
 // host-direct 保留工具先在本进程执行，已下线 skill 工具返回明确失败；其余调用经过
 // 本地策略拦截后才选择 scoped peer。proxy 入口和直接入口共用这里的错误语义，
-// peer 错误转模型文本、edit diff 归因则交给 callPeerTool 统一处理。
+// peer 错误转模型文本、patch_edit diff 归因则交给 callPeerTool 统一处理。
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
 	req = normalizeToolCallRequest(req)
 	if result, handled, err := h.routeReservedHostOnlyToolCall(ctx, req); handled || err != nil {
@@ -365,7 +365,7 @@ func (h *Handler) findActiveToolPeers(scope mcpcontrol.ToolScope) []*mcpcontrol.
 	return h.registry.FindActiveByKind(scope.Family)
 }
 
-// callPeerTool 向选中的 MCP peer 发起 tools/call，并在 edit 调用前后记录 diff。
+// callPeerTool 向选中的 MCP peer 发起 tools/call，并在 patch_edit 调用前后记录 diff。
 // 这里会注入 managed launch 上下文与解析后的 cwd，保证 peer 收到的是完整调用元数据。
 func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req ToolCallRequest) (*ToolCallResult, error) {
 	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)

@@ -11,8 +11,8 @@ import (
 )
 
 func TestSessionStartRequestCoversThreadStartRequestFields(t *testing.T) {
-	startType := reflect.TypeOf(StartRequest{})
-	sessionType := reflect.TypeOf(contract.SessionStartRequest{})
+	startType := reflect.TypeFor[StartRequest]()
+	sessionType := reflect.TypeFor[contract.SessionStartRequest]()
 	exemptions := map[string]string{
 		"PromptAssemblyRef": "injected by thread service before prompt assembly",
 		"PromptVersionID":   "materialized by thread service after prompt routing",
@@ -74,7 +74,7 @@ func sessionStartRequestFixture() contract.SessionStartRequest {
 		GitRoot:               "/repo",
 		IsWorktree:            true,
 		ToolSurfaceMode:       "chat",
-		EnabledTools:          []string{"grep", "edit"},
+		EnabledTools:          []string{"grep", "patch_edit"},
 		AdditionalWorkingDirectories: []string{
 			"/repo/extra",
 		},

@@ -3,8 +3,8 @@ AGENTS.md	(root)	docs-agent	doc	7418	仓库根级配置、入口或说明文件	
 CLAUDE.md	(root)	docs-agent	doc	7930	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
-docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11811	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
-docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16906	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
+docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11837	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
+docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16954	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
 docs/ai01-docs/agent-implementation-plan.md	docs	docs-agent	doc	8571	项目文档体系	docs,ai01,agent,implementation,plan,项目文档体系
 docs/ai01-docs/agent-manus-like-spec.md	docs	docs-agent	doc	23793	项目文档体系	docs,ai01,agent,manus,like,spec,项目文档体系
 docs/ai01-docs/frontend-backend-interface-audit-2026-06-12.md	docs	docs-agent	doc	14309	项目文档体系	docs,ai01,frontend,backend,interface,audit,2026,06,12,项目文档体系
@@ -200,7 +200,7 @@ docs/cc/dag创建失败/dags/04-agent首轮输入缺失修正.md	docs	docs-agent
 docs/cc/dag创建失败/README.md	docs	docs-agent	doc	8911	项目文档体系	docs,cc,dag创建失败,README,项目文档体系
 docs/cc/desktop-agent-launch-e2e-structured-output-design-20260702.md	docs	docs-agent	doc	13271	项目文档体系	docs,cc,desktop,agent,launch,e2e,structured,output,design,20260702,项目文档体系
 docs/cc/lsp-shell-diagnostics-review-findings-20260604.md	docs	docs-agent	doc	6983	项目文档体系	docs,cc,lsp,shell,diagnostics,review,findings,20260604,项目文档体系
-docs/cc/lsp-shell-diagnostics-root-cause-20260604.md	docs	docs-agent	doc	10571	项目文档体系	docs,cc,lsp,shell,diagnostics,root,cause,20260604,项目文档体系
+docs/cc/lsp-shell-diagnostics-root-cause-20260604.md	docs	docs-agent	doc	10577	项目文档体系	docs,cc,lsp,shell,diagnostics,root,cause,20260604,项目文档体系
 docs/cc/lsp-shell-tdd-packaged-evidence-20260604.md	docs	docs-agent	doc	9380	项目文档体系	docs,cc,lsp,shell,tdd,packaged,evidence,20260604,项目文档体系
 docs/cc/lsp-shell-tdd-runtime-evidence-20260604.md	docs	docs-agent	doc	4500	项目文档体系	docs,cc,lsp,shell,tdd,runtime,evidence,20260604,项目文档体系
 docs/cc/lsp-shellcheck-runtime-diagnostics-fix-20260605.md	docs	docs-agent	doc	6422	项目文档体系	docs,cc,lsp,shellcheck,runtime,diagnostics,fix,20260605,项目文档体系
@@ -319,26 +319,26 @@ docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25338	手写代码地�
 docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	3872	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3962	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
 docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68250	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
-docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25484	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
-docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	64335	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
-docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67037	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
-docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	38168	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
-docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27559	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
+docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25444	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
+docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	64331	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
+docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67005	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
+docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	38126	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
+docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27543	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	37736	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6108	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
-docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54974	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
-docs/doc/codemap/09-provider.md	docs	docs-agent	doc	81706	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
-docs/doc/codemap/10-store.md	docs	docs-agent	doc	62448	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
+docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54954	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
+docs/doc/codemap/09-provider.md	docs	docs-agent	doc	81696	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
+docs/doc/codemap/10-store.md	docs	docs-agent	doc	62444	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
-docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59144	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
+docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1374843	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3030	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
-docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2271	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
-docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2271	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
+docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2283	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
+docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2283	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/internal-notes/RPC能力E2E覆盖矩阵.md	docs	docs-agent	doc	10735	内部提示词与工程方法记录	docs,internal,notes,RPC能力E2E覆盖矩阵,内部提示词与工程方法记录
 docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	65302	项目文档体系	docs,li,2026,06,27,reasonix,architecture,absorption,plan,项目文档体系
 docs/li/reasonix-absorption-spikes/event-wire-methods.md	docs	docs-agent	doc	1078	项目文档体系	docs,li,reasonix,absorption,spikes,event,wire,methods,项目文档体系
@@ -815,7 +815,7 @@ docs/superpowers/README.md	docs	docs-agent	doc	484	项目文档体系	docs,super
 docs/superpowers/specs/2026-04-29-skill-refactor-design-appendix-cli-test.md	docs	docs-agent	doc	20809	项目文档体系	docs,superpowers,specs,2026,04,29,skill,refactor,design,appendix,cli,test,项目文档体系
 docs/superpowers/specs/2026-04-29-skill-refactor-design.md	docs	docs-agent	doc	31040	项目文档体系	docs,superpowers,specs,2026,04,29,skill,refactor,design,项目文档体系
 docs/superpowers/specs/2026-05-03-host-direct-memory-write-design.md	docs	docs-agent	doc	23857	项目文档体系	docs,superpowers,specs,2026,05,03,host,direct,memory,write,design,项目文档体系
-docs/superpowers/specs/2026-05-03-prompt-based-tool-filter-design.md	docs	docs-agent	doc	10665	项目文档体系	docs,superpowers,specs,2026,05,03,prompt,based,tool,filter,design,项目文档体系
+docs/superpowers/specs/2026-05-03-prompt-based-tool-filter-design.md	docs	docs-agent	doc	10649	项目文档体系	docs,superpowers,specs,2026,05,03,prompt,based,tool,filter,design,项目文档体系
 docs/superpowers/specs/2026-05-04-thread-auto-naming-design.md	docs	docs-agent	doc	3783	项目文档体系	docs,superpowers,specs,2026,05,04,thread,auto,naming,design,项目文档体系
 docs/superpowers/specs/2026-05-14-thread-auto-naming-design.md	docs	docs-agent	doc	3754	项目文档体系	docs,superpowers,specs,2026,05,14,thread,auto,naming,design,项目文档体系
 docs/superpowers/specs/2026-05-31-frontend-ui-theme-redesign.md	docs	docs-agent	doc	6015	项目文档体系	docs,superpowers,specs,2026,05,31,frontend,ui,theme,redesign,项目文档体系

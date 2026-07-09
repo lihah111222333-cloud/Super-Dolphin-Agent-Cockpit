@@ -263,7 +263,7 @@ type toolErrorClassifier struct {
 var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code: "patch_no_match",
-		hint: staticToolHint("next: file action=read_file pos=<file>:<line> limit=<n>, then retry edit action=replace_range with literal patch context"),
+		hint: staticToolHint("next: file action=read_file pos=<file>:<line> limit=<n>, then retry patch_edit action=replace_range with literal patch context"),
 		match: func(_ error, message string, toolName string) bool {
 			return isEditTool(toolName) && (strings.Contains(message, "sequence not found") ||
 				strings.Contains(message, "no candidate matched the patch context"))
@@ -271,7 +271,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "patch_ambiguous",
-		hint: staticToolHint("next: edit action=replace_range patch=\"...\" with 1-2 extra space-prefixed context lines; inspect meta.candidate_locations"),
+		hint: staticToolHint("next: patch_edit action=replace_range patch=\"...\" with 1-2 extra space-prefixed context lines; inspect meta.candidate_locations"),
 		match: func(_ error, message string, toolName string) bool {
 			if !isEditTool(toolName) {
 				return false
@@ -442,7 +442,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code: "position_invalid",
 		hint: func(toolName, _ string) string {
-			if toolName == "edit" || toolName == "lsp_edit" {
+			if toolName == "patch_edit" {
 				return "next: use 1-based line/column inputs; for replace_range coordinate errors, prefer patch or edits"
 			}
 			return "next: use 1-based line and column inputs with the cursor on an identifier"
@@ -510,10 +510,10 @@ func isLaunchAgentTool(toolName string) bool {
 	return contract.IsOrchestrationLaunchTool(toolName)
 }
 
-// isEditTool 判断工具名是否是 LSP edit 或通用 edit。
+// isEditTool 判断工具名是否是 LSP patch_edit。
 func isEditTool(toolName string) bool {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "edit", "lsp_edit":
+	case "patch_edit":
 		return true
 	default:
 		return false

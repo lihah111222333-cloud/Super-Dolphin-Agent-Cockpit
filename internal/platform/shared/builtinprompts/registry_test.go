@@ -288,7 +288,7 @@ func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
 		require.Contains(t, body, "当前契约", name)
 		require.Contains(t, body, "每个任务至少组合 4 种 LSP 工具", name)
 		require.Contains(t, body, "不要只用 `grep + file`", name)
-		require.Contains(t, body, "`grep`、`file`、`structure`、`inspect`、`xref`、`edit`、`completion`", name)
+		require.Contains(t, body, "`grep`、`file`、`structure`、`inspect`、`xref`、`patch_edit`、`completion`", name)
 		require.Contains(t, body, "`grep(ast_search)`", name)
 		require.Contains(t, body, "`file(read_file)`", name)
 		require.Contains(t, body, "file(action=read_file, pos=<file>:<func_start>", name)
@@ -307,13 +307,6 @@ func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
 	for _, stale := range []string{
 		"11 个仓库感知工具",
 		"7 个仓库感知 LSP 工具",
-		"lsp_file",
-		"lsp_grep",
-		"lsp_inspect",
-		"lsp_xref",
-		"lsp_structure",
-		"lsp_edit",
-		"lsp_completion",
 		"verbosity",
 		"offset=",
 		"line/end_line",
@@ -324,8 +317,8 @@ func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
 		"code_action",
 		"folding_range",
 		"semantic_tokens",
-		"`edit(rename)",
-		"`edit(format)",
+		"`patch_edit(rename)",
+		"`patch_edit(format)",
 	} {
 		require.NotContains(t, body, stale)
 	}
@@ -643,37 +636,10 @@ func requireNoHostAssumptions(t *testing.T, promptKey, body string) {
 
 func nonBlankLineCount(body string) int {
 	count := 0
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.TrimSpace(line) != "" {
 			count++
 		}
-	}
-	return count
-}
-
-func sharedNonBlankLineCount(a, b string) int {
-	lines := map[string]struct{}{}
-	for _, line := range strings.Split(a, "\n") {
-		normalized := strings.Join(strings.Fields(line), " ")
-		if normalized != "" {
-			lines[normalized] = struct{}{}
-		}
-	}
-	count := 0
-	seen := map[string]struct{}{}
-	for _, line := range strings.Split(b, "\n") {
-		normalized := strings.Join(strings.Fields(line), " ")
-		if normalized == "" {
-			continue
-		}
-		if _, ok := lines[normalized]; !ok {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		count++
 	}
 	return count
 }

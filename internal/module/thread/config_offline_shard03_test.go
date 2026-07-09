@@ -43,9 +43,9 @@ func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
 			"gitRoot":                      "/repo",
 			"isWorktree":                   true,
 			"language":                     "Chinese",
-			"enabledTools":                 []any{"lsp_file", "lsp_grep"},
+			"enabledTools":                 []any{"file", "grep"},
 			"additionalWorkingDirectories": []any{"/repo/extra"},
-			"mcpTools":                     []any{"mcp__lsp__lsp_grep"},
+			"mcpTools":                     []any{"mcp__lsp__grep"},
 			"mcpInstructions":              map[string]any{"lsp": "Use the LSP thread fallback."},
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		}}),
@@ -101,34 +101,6 @@ func TestSetConfigFailsFastWithoutSession(t *testing.T) {
 	}
 	if threads.thread.Model != "o4-mini" || len(threads.thread.ConfigOverride) != 0 {
 		t.Fatalf("thread config mutated despite failed SetConfig: %#v", threads.thread)
-	}
-}
-
-func assertOfflineSetConfigOverride(t *testing.T, got dto.ThreadConfig, model string, effort string) {
-	t.Helper()
-	if got.Override.Model != model {
-		t.Fatalf("Override.Model = %q, want %q", got.Override.Model, model)
-	}
-	if got.Override.Effort != effort {
-		t.Fatalf("Override.Effort = %q, want %q", got.Override.Effort, effort)
-	}
-}
-
-func assertOfflineSetConfigStored(t *testing.T, threads *stubThreadStore, model string, effort string) {
-	t.Helper()
-	stored := mustDecodeStoredThreadConfig(t, threads.thread.ConfigOverride)
-	if stored.Model != model || stored.Effort != effort {
-		t.Fatalf("stored override = %#v, want model=%q effort=%q", stored, model, effort)
-	}
-	if threads.thread.Model != model {
-		t.Fatalf("stored thread model = %q, want %q", threads.thread.Model, model)
-	}
-}
-
-func assertOfflineSetConfigReadback(t *testing.T, offlineCfg dto.ThreadConfig, model string, effort string) {
-	t.Helper()
-	if offlineCfg.Override.Model != model || offlineCfg.Override.Effort != effort {
-		t.Fatalf("offline readback = %#v", offlineCfg)
 	}
 }
 

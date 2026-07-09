@@ -359,8 +359,8 @@ func TestToolCallEnd_CompactsLongStructuredPreviewForSummary(t *testing.T) {
 	defer cleanup()
 	header := shared.ToolCallHeader{
 		TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
-		CallID:     "call-format-preview",
-		ToolName:   "format_preview",
+		CallID:     "call-patch-edit",
+		ToolName:   "patch_edit",
 	}
 	event.Publish(dispatcher, tooldto.ToolCallBegin{ToolCallHeader: header})
 	event.Publish(dispatcher, tooldto.ToolCallEnd{

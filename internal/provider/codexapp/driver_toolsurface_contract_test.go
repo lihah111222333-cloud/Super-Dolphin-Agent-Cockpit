@@ -17,7 +17,7 @@ func TestCodexToolSurfaceScopeUsesRuntimeConfigAliases(t *testing.T) {
 		"env": map[string]any{
 			"SUPER_DOLPHIN_TEST_FLAG": "1",
 		},
-		"auto_approve": []any{"mcp__lsp__lsp_grep"},
+		"auto_approve": []any{"mcp__lsp__grep"},
 	})
 	if err != nil {
 		t.Fatalf("codexToolSurfaceScope() error = %v", err)
@@ -31,7 +31,7 @@ func TestCodexToolSurfaceScopeUsesRuntimeConfigAliases(t *testing.T) {
 	if first.Env["SUPER_DOLPHIN_TEST_FLAG"] != "1" {
 		t.Fatalf("manifest env = %#v, want SUPER_DOLPHIN_TEST_FLAG", first.Env)
 	}
-	if got := first.AutoApprove; len(got) != 1 || got[0] != "mcp__lsp__lsp_grep" {
+	if got := first.AutoApprove; len(got) != 1 || got[0] != "mcp__lsp__grep" {
 		t.Fatalf("AutoApprove = %#v, want aliased auto approve", got)
 	}
 	var roots []string

@@ -264,9 +264,9 @@ func sessionGuidanceDirectedSearchTools(enabled map[string]struct{}) string {
 		display string
 		aliases []string
 	}{
-		{display: "grep", aliases: []string{"grep", "lsp_grep"}},
-		{display: "file", aliases: []string{"file", "lsp_file"}},
-		{display: "inspect", aliases: []string{"inspect", "lsp_inspect"}},
+		{display: "grep", aliases: []string{"grep", "grep"}},
+		{display: "file", aliases: []string{"file", "file"}},
+		{display: "inspect", aliases: []string{"inspect", "inspect"}},
 	} {
 		for _, name := range entry.aliases {
 			if sessionGuidanceToolEnabled(enabled, name) {

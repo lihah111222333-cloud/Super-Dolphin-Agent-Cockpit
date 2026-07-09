@@ -48,18 +48,18 @@ func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T
 }
 
 func TestPrepareCodexToolSurfaceFailsOnNonReservedAliasConflict(t *testing.T) {
-	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{
+	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{
 		{Name: "foo", Description: "first", InputSchema: json.RawMessage(`{"type":"object"}`)},
-		{Name: "mcp__lsp__foo", Description: "alias collision", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "mcp__orch__foo", Description: "alias collision", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	}}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
 
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:  "agent-1",
 		CWD:      "/repo",
-		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "lsp", Command: []string{"mcp-lsp"}}}},
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: mcpdto.ClientKindOrch, Command: []string{"mcp-orch"}}}},
 	})
-	if err == nil || !strings.Contains(err.Error(), `codex surface alias "mcp__lsp__foo"`) {
+	if err == nil || !strings.Contains(err.Error(), `codex surface alias "mcp__orch__foo"`) {
 		t.Fatalf("PrepareCodexToolSurface() error = %v, want alias conflict failure", err)
 	}
 }

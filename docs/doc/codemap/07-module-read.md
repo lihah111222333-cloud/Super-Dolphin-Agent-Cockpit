@@ -144,7 +144,7 @@ sequenceDiagram
 
 ### 2.4 `dashboard/prompts` 的 `{cwd}` 过滤接线
 
-这条链是 p20.15 补通的重点，当前 prod caller 已由 `lsp_xref(references)` 核实：
+这条链是 p20.15 补通的重点，当前 prod caller 已由 `xref(references)` 核实：
 
 - `service.go:86-91` `withDashboardPromptScopeCWD(ctx, cwd)`
 - **prod callers 现有 3 个**：`rpc.go:85-87`（`ui/dashboard/get`）、`rpc.go:102-108`（`dashboard/prompts`）、`rpc.go:113-115`（`dashboard/skills`）
@@ -245,8 +245,8 @@ flowchart TD
 截至 2026-04-20，本仓 **没有** `internal/module/lspgui/`：
 
 - `find internal/module -maxdepth 2 -type d | grep lsp` → 空
-- `lsp_grep path=. query="package lspgui"` → 0 命中
-- `lsp_grep path=. query="lsp/gui_" glob="**/*.go"` → 0 命中
+- `grep path=. query="package lspgui"` → 0 命中
+- `grep path=. query="lsp/gui_" glob="**/*.go"` → 0 命中
 
 ### 3.2 对 codemap 的影响
 
@@ -319,7 +319,7 @@ DTO / caller 链补充：
 - `skill/list` 只暴露 `name/summary/description/trust/content_hash/disable_model_invocation`
 - `skills/list` 继续返回完整 `SkillInfo` 数组（原形态不变）
 
-`skill/list` 的 prod caller / 消费者可由 `lsp_xref(references)` 追到：
+`skill/list` 的 prod caller / 消费者可由 `xref(references)` 追到：
 
 - `dashboard/ui_page.go:158-162`：技能页通过 `skillmodule.SkillLister.ListSkills` 读取元数据
 - `turn/service.go:80-95` + `turn/skills.go:201-241,326-339`：hydrate 手动 skill ref 通过 `skillpkg.SkillHydrationSource` 调 `ListSkills` / `ReadLocal`

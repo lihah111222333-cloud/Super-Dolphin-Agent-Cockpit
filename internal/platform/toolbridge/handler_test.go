@@ -292,23 +292,23 @@ func newInboundSession(t *testing.T) unsafe.Pointer {
 
 func TestToolBridge_FreshSession_ToolCallForward(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{"line": 1})
-	h, registry := newHandlerForTest(newToolCallPeer(t, "lsp_hover", args, "fresh ok", nil))
+	h, registry := newHandlerForTest(newToolCallPeer(t, "inspect", args, "fresh ok", nil))
 
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "lsp_hover", Arguments: args})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "inspect", Arguments: args})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != classifyTool("lsp_hover") {
-		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, classifyTool("lsp_hover"))
+	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != classifyTool("inspect") {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, classifyTool("inspect"))
 	}
 	assertSingleTextItem(t, got, "fresh ok", true)
 }
 
 func TestToolBridge_Resume_ToolCallStillWorks(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{"symbol": "x"})
-	h, registry := newHandlerForTest(newToolCallPeer(t, "lsp_definition", args, "resume ok", nil))
+	h, registry := newHandlerForTest(newToolCallPeer(t, "inspect", args, "resume ok", nil))
 	msg := contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
-		"name":      "lsp_definition",
+		"name":      "inspect",
 		"arguments": json.RawMessage(args),
 		"agentId":   "agent-1",
 		"threadId":  "thread-1",
@@ -323,8 +323,8 @@ func TestToolBridge_Resume_ToolCallStillWorks(t *testing.T) {
 	if !ok {
 		t.Fatalf("HandleToolCall() result type = %T, want *ToolCallResult", result)
 	}
-	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != classifyTool("lsp_definition") {
-		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, classifyTool("lsp_definition"))
+	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != classifyTool("inspect") {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, classifyTool("inspect"))
 	}
 	assertSingleTextItem(t, got, "resume ok", true)
 }

@@ -40,7 +40,7 @@ func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
 		"threadID":"thread-1",
 		"gitRoot":"/repo",
 		"isWorktree":true,
-		"enabledTools":["lsp_file"],
+		"enabledTools":["file"],
 		"additionalWorkingDirectories":["/repo/extra"],
 		"sessionFlags":{"verification_required":true}
 	}`), &params)
@@ -50,8 +50,8 @@ func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
 	if params.ThreadID != "thread-1" || params.GitRoot != "/repo" || !params.IsWorktree {
 		t.Fatalf("turnStartParams identity/runtime = %#v", params)
 	}
-	if len(params.EnabledTools) != 1 || params.EnabledTools[0] != "lsp_file" {
-		t.Fatalf("EnabledTools = %#v, want lsp_file", params.EnabledTools)
+	if len(params.EnabledTools) != 1 || params.EnabledTools[0] != "file" {
+		t.Fatalf("EnabledTools = %#v, want file", params.EnabledTools)
 	}
 	if len(params.AdditionalWorkingDirectories) != 1 || params.AdditionalWorkingDirectories[0] != "/repo/extra" {
 		t.Fatalf("AdditionalWorkingDirectories = %#v", params.AdditionalWorkingDirectories)
@@ -81,7 +81,6 @@ func TestTurnStartParamsRejectsConflictingBoolAliases(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var params turnStartParams
@@ -113,7 +112,6 @@ func TestTurnStartParamsRejectsInvalidBoolAliases(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var params turnStartParams
@@ -145,7 +143,6 @@ func TestTurnSteerParamsRejectsConflictingBoolAliases(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var params turnSteerParams
@@ -177,7 +174,6 @@ func TestTurnSteerParamsRejectsInvalidBoolAliases(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var params turnSteerParams
@@ -212,7 +208,6 @@ func TestTurnThreadScopedParamsRejectUnknownFields(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := json.Unmarshal([]byte(tt.payload), tt.newTarget())

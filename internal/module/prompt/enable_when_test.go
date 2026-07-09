@@ -139,13 +139,13 @@ func TestEnableWhen_TagsHas(t *testing.T) {
 func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	t.Parallel()
 	withLsp := contract.BuildCtx{EnabledTools: []string{"exec_command", "grep", "file"}}
-	withLegacyLsp := contract.BuildCtx{EnabledTools: []string{"exec_command", "lsp_grep", "lsp_file"}}
+	withLegacyLsp := contract.BuildCtx{EnabledTools: []string{"exec_command", "grep", "file"}}
 	noLsp := contract.BuildCtx{EnabledTools: []string{"exec_command"}}
 	noTools := contract.BuildCtx{}
 
 	// Single string hit / miss.
 	assertEnableWhen(t, "enabled tool direct hit", []byte(`{"enabled_tools_has":"grep"}`), withLsp, "", true)
-	assertEnableWhen(t, "enabled tool legacy want", []byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "", true)
+	assertEnableWhen(t, "enabled tool legacy want", []byte(`{"enabled_tools_has":"grep"}`), withLsp, "", true)
 	assertEnableWhen(t, "enabled tool canonical want", []byte(`{"enabled_tools_has":"grep"}`), withLegacyLsp, "", true)
 	assertEnableWhen(t, "enabled orchestration launch legacy runtime name",
 		[]byte(`{"enabled_tools_has":"launch_agent"}`),

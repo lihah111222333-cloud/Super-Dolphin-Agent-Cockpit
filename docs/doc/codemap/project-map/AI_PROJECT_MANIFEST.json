@@ -5,12 +5,12 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4229,
+  "files": 4228,
   "domains": {
     "docs-agent": 864,
     "other": 501,
     "app-ui": 426,
-    "platform-provider": 1006,
+    "platform-provider": 1005,
     "orchestration": 408,
     "modules": 717,
     "store-sql": 307
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1006,
-        "size_kb": 185.4,
+        "file_count": 1005,
+        "size_kb": 185.2,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -75,7 +75,7 @@
     "cmd": 645,
     "docs": 861,
     "frontend-app": 424,
-    "internal": 1997,
+    "internal": 1996,
     "migrations": 112,
     "pkg": 25,
     "scripts": 109,

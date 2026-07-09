@@ -86,7 +86,7 @@
 
 | 主题 | 真相 | 锚点 |
 |---|---|---|
-| `resolveTurnPromptAssembly` | 仓内无此符号；真实入口是 `turn.prepareTurnAssembly()` | `lsp_grep internal resolveTurnPromptAssembly = 0`；`internal/module/turn/prompt_assembly.go:13-43` |
+| `resolveTurnPromptAssembly` | 仓内无此符号；真实入口是 `turn.prepareTurnAssembly()` | `grep internal resolveTurnPromptAssembly = 0`；`internal/module/turn/prompt_assembly.go:13-43` |
 | `resume.go` | thread 包无独立实现文件；resume 逻辑拆在 `rpc.go + lifecycle.go + start_session.go + prompt_snapshot.go` | `find internal/module/thread ...` 文件树；`internal/module/thread/rpc.go:308-333` |
 | 旧独立 skill-catalog fx 文件 | 已删除；当前承载点并入 `prompt/module.go:14-26` | `internal/module/prompt/module.go:14-26` |
 
@@ -248,7 +248,7 @@
 
 这条一定要记：
 
-- `lsp_grep internal resolveTurnPromptAssembly = 0`。
+- `grep internal resolveTurnPromptAssembly = 0`。
 - turn 侧真实入口在 `internal/module/turn/prompt_assembly.go:13-43`。
 
 真实链路是：
@@ -1333,9 +1333,9 @@ flowchart LR
 
 验证：
 
-- `lsp_grep internal/module/prompt dynamicSectionSpecs`
-- `lsp_grep internal/module/prompt mustRegisterDynamicProvider`
-- `lsp_grep internal/module/prompt RegisterDynamicProvider`
+- `grep internal/module/prompt dynamicSectionSpecs`
+- `grep internal/module/prompt mustRegisterDynamicProvider`
+- `grep internal/module/prompt RegisterDynamicProvider`
 
 ### 12.2 新增一条 memory -> prompt 通道
 
@@ -1354,9 +1354,9 @@ flowchart LR
 
 验证：
 
-- `lsp_grep internal/module/memory registerPromptProviders`
-- `lsp_xref references memory/rules_provider.go:465`
-- `lsp_grep internal/module/memory TurnCompleted`
+- `grep internal/module/memory registerPromptProviders`
+- `xref references memory/rules_provider.go:465`
+- `grep internal/module/memory TurnCompleted`
 
 ### 12.3 扩展 snapshot / resume / fork 字段
 
@@ -1384,10 +1384,10 @@ flowchart LR
 
 验证：
 
-- `lsp_grep internal/module/thread PromptSnapshot`
-- `lsp_grep internal/store/thread SavePromptSnapshot`
-- `lsp_grep internal/provider/codexapp PromptSnapshot`
-- `lsp_grep internal/provider/claudecli PromptSnapshot`
+- `grep internal/module/thread PromptSnapshot`
+- `grep internal/store/thread SavePromptSnapshot`
+- `grep internal/provider/codexapp PromptSnapshot`
+- `grep internal/provider/claudecli PromptSnapshot`
 
 ## 13. 审核 checklist
 

@@ -187,8 +187,8 @@ func TestRecentListRPCLimitCountsTraceRowsAfterFiltering(t *testing.T) {
 	tail := platformobs.QueryTailReaderFunc(func(_ context.Context, query platformobs.Query) (platformobs.QueryResult, error) {
 		seenTailLimit = query.Limit
 		events := make([]platformobs.TraceEvent, 0, 120)
-		for trace := 0; trace < 60; trace++ {
-			for span := 0; span < 2; span++ {
+		for trace := range 60 {
+			for span := range 2 {
 				events = append(events, platformobs.TraceEvent{
 					Timestamp: base.Add(time.Duration(trace*10+span) * time.Millisecond),
 					TraceID:   fmt.Sprintf("trace-%02d", trace),
@@ -237,7 +237,7 @@ func TestRecentListRPCPushesSparseUIFiltersBeforeTailLimit(t *testing.T) {
 		Status:    platformobs.StatusError,
 		Metadata:  map[string]any{"note": "needle"},
 	}}
-	for n := 0; n < maxQueryLimit; n++ {
+	for n := range maxQueryLimit {
 		tailEvents = append(tailEvents, platformobs.TraceEvent{
 			Timestamp: base.Add(time.Duration(n+1) * time.Millisecond),
 			TraceID:   fmt.Sprintf("trace-common-%03d", n),
@@ -509,7 +509,7 @@ func seedTraceEvents(t *testing.T, svc *platformobs.Service) {
 	base := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
 	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base, TraceID: "trace-1", SpanID: "span-ui", Kind: "wails", Method: "ui.call", ThreadID: "thread-1", DurationMS: 5, Status: platformobs.StatusOK})
 	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base.Add(5 * time.Millisecond), TraceID: "trace-1", SpanID: "span-rpc", Kind: "rpc", Method: "rpc.dispatch", ThreadID: "thread-1", DurationMS: 120, Status: platformobs.StatusSlow, Code: platformobs.NewCodeAnchor("internal/platform/rpc/server.go", "(*Server).Dispatch", 270)})
-	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base.Add(130 * time.Millisecond), TraceID: "trace-1", SpanID: "span-tool", Kind: "tool", Method: "tool.call.end", ThreadID: "thread-1", CallID: "call-1", ToolName: "lsp_file", DurationMS: 15, Status: platformobs.StatusError, Error: "tool call failed", Stack: []platformobs.StackFrame{{File: "internal/platform/toolbridge/handler.go", Function: "(*Handler).HandleToolCall", Line: 99}}})
+	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base.Add(130 * time.Millisecond), TraceID: "trace-1", SpanID: "span-tool", Kind: "tool", Method: "tool.call.end", ThreadID: "thread-1", CallID: "call-1", ToolName: "file", DurationMS: 15, Status: platformobs.StatusError, Error: "tool call failed", Stack: []platformobs.StackFrame{{File: "internal/platform/toolbridge/handler.go", Function: "(*Handler).HandleToolCall", Line: 99}}})
 }
 
 func recordTrace(t *testing.T, svc *platformobs.Service, event platformobs.TraceEvent) {

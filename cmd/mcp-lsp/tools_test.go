@@ -16,30 +16,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLSPToolManifestsExposeCodexSafeNames(t *testing.T) {
+func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 	got := make([]string, 0, len(lspToolManifests))
 	for _, manifest := range lspToolManifests {
 		got = append(got, manifest.Name)
 	}
-	want := []string{"file", "inspect", "xref", "grep", "structure", "lsp_edit", "lsp_completion"}
+	want := []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest names = %#v, want %#v", got, want)
 	}
 }
 
-func TestLSPToolManifestsAvoidCodexReservedShortNames(t *testing.T) {
+func TestLSPToolManifestsAvoidCodexReservedEditName(t *testing.T) {
 	got := make(map[string]bool, len(lspToolManifests))
 	for _, manifest := range lspToolManifests {
 		got[manifest.Name] = true
 	}
-	for _, reserved := range []string{"edit", "completion"} {
-		if got[reserved] {
-			t.Fatalf("manifest exposes Codex-reserved LSP tool name %q; got %#v", reserved, got)
-		}
+	if got["edit"] {
+		t.Fatalf("manifest exposes Codex-reserved LSP tool name %q; got %#v", "edit", got)
 	}
-	for _, want := range []string{"lsp_edit", "lsp_completion"} {
+	for _, want := range []string{"patch_edit", "completion"} {
 		if !got[want] {
-			t.Fatalf("manifest missing Codex-safe LSP tool name %q; got %#v", want, got)
+			t.Fatalf("manifest missing short LSP tool name %q; got %#v", want, got)
 		}
 	}
 }
@@ -59,12 +57,12 @@ func TestToolsListExposesShortLSPNamesWhenSemanticLSPIsAvailable(t *testing.T) {
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "lsp_edit", "lsp_completion"} {
+	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"} {
 		if !got[want] {
 			t.Fatalf("tools/list missing Codex-safe LSP tool %q; got %#v", want, got)
 		}
 	}
-	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure"} {
+	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
 		if got[legacy] {
 			t.Fatalf("tools/list exposed legacy alias %q; got %#v", legacy, got)
 		}
@@ -83,7 +81,7 @@ func TestToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable(t *testing
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, hidden := range []string{"inspect", "xref", "structure", "lsp_edit", "lsp_completion"} {
+	for _, hidden := range []string{"inspect", "xref", "structure", "patch_edit", "completion"} {
 		if got[hidden] {
 			t.Fatalf("tools/list exposed semantic LSP tool %q without a language server; got %#v", hidden, got)
 		}
@@ -193,7 +191,7 @@ func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *test
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "lsp_edit", "lsp_completion"} {
+	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"} {
 		if !got[want] {
 			t.Fatalf("tools/list missing Codex-safe LSP tool %q for standard packaged bundle; got %#v", want, got)
 		}
@@ -221,38 +219,37 @@ func TestToolsListPackagedInvalidManifestFailsFast(t *testing.T) {
 	}
 }
 
-func TestHandleToolCallAcceptsLegacyLSPAlias(t *testing.T) {
+func TestHandleToolCallRejectsLegacyLSPAlias(t *testing.T) {
 	defs := toolDefinitions(ToolHandlers{
 		"file": func(context.Context, json.RawMessage) (any, error) {
 			return map[string]any{"ok": true}, nil
 		},
 	})
 
-	result, err := handleToolCall(context.Background(), defs, "lsp_file", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("handleToolCall(lsp_file) error = %v", err)
-	}
-	payload, ok := result.(map[string]any)
-	if !ok || payload["ok"] != true {
-		t.Fatalf("handleToolCall(lsp_file) result = %#v, want ok payload", result)
+	_, err := handleToolCall(context.Background(), defs, "lsp_file", json.RawMessage(`{}`))
+	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("handleToolCall(lsp_file) error = %v, want unknown tool", err)
 	}
 }
 
-func TestToolsCallAcceptsShortAndLegacyLSPNames(t *testing.T) {
+func TestToolsCallAcceptsShortLSPNamesOnly(t *testing.T) {
 	defs := toolDefinitions(ToolHandlers{
 		"file": func(_ context.Context, _ json.RawMessage) (any, error) {
 			return map[string]any{"tool": "file"}, nil
 		},
 	})
-	for _, name := range []string{"file", "lsp_file"} {
-		result, err := handleToolCall(context.Background(), defs, name, json.RawMessage(`{}`))
-		if err != nil {
-			t.Fatalf("handleToolCall(%q) error = %v", name, err)
-		}
-		payload, ok := result.(map[string]any)
-		if !ok || payload["tool"] != "file" {
-			t.Fatalf("handleToolCall(%q) result = %#v, want file payload", name, result)
-		}
+
+	result, err := handleToolCall(context.Background(), defs, "file", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("handleToolCall(file) error = %v", err)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok || payload["tool"] != "file" {
+		t.Fatalf("handleToolCall(file) result = %#v, want file payload", result)
+	}
+	_, err = handleToolCall(context.Background(), defs, "lsp_file", json.RawMessage(`{}`))
+	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("handleToolCall(lsp_file) error = %v, want unknown tool", err)
 	}
 }
 
@@ -318,16 +315,17 @@ func TestHandleScopedToolsCallPreservesStructuredErrorResult(t *testing.T) {
 	}
 	handler := lsptools.NewEditHandlerWithRoot(root, lspmanager.NewRegistry(nil))
 	defs := []toolDefinition{{
-		Manifest: ToolManifest{Name: "edit"},
+		Manifest: ToolManifest{Name: "patch_edit"},
 		Handler:  ToolHandler(handler),
 	}}
 	args, err := json.Marshal(map[string]any{
+		"action":    "replace_range",
 		"file_path": target,
 		"patch":     "@@\n-same\n+changed\n",
 	})
 	require.NoError(t, err)
 	params, err := json.Marshal(map[string]any{
-		"name":            "edit",
+		"name":            "patch_edit",
 		"arguments":       json.RawMessage(args),
 		"_cwd":            root,
 		"_workspaceRoots": []string{root},

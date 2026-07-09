@@ -125,7 +125,7 @@ func (r replaceRangeResult) ToPlainText() string {
 // 失败时优先给出 hint、候选位置和下一步 read_file 命令，不直接倾倒整文件。
 func (r replaceRangeFailure) ToPlainText() string {
 	var sb strings.Builder
-	header := "Tool error in \"edit\""
+	header := "Tool error in \"patch_edit\""
 	if r.Code != "" {
 		fmt.Fprintf(&sb, "%s [%s]: %s\n", header, r.Code, strings.TrimSpace(r.Error))
 	} else {
@@ -305,7 +305,7 @@ func (h EditHandler) replaceRangeManager(ctx context.Context, path string, langu
 
 func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error, log *editStageLogger) replaceRangeFailure {
 	functionCtx := h.lookupFunctionContextWithLog(ctx, manager, path, line, content, log)
-	envelope := newToolErrorEnvelope("edit", "", err)
+	envelope := newToolErrorEnvelope("patch_edit", "", err)
 	meta := envelope.Meta
 	if meta == nil {
 		meta = map[string]any{}
@@ -403,7 +403,7 @@ func managerDiagnosticGeneration(manager lspmanager.Manager) uint64 {
 
 func buildReplacePlan(content string, req EditRequest) (replacePlan, error) {
 	if strings.TrimSpace(req.Patch) == "" {
-		return replacePlan{}, errors.New("edit requires patch")
+		return replacePlan{}, errors.New("patch_edit requires patch")
 	}
 	return buildPatchReplacePlan(content, req.Patch)
 }

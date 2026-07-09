@@ -1,6 +1,6 @@
 # LSP 高级工具链使用指南（子 Agent 必读）
 
-> 当前契约：`grep`、`file`、`structure`、`inspect`、`xref`、`edit`、`completion` + `exec_command`。
+> 当前契约：`grep`、`file`、`structure`、`inspect`、`xref`、`patch_edit`、`completion` + `exec_command`。
 > 每个任务至少组合 4 种 LSP 工具；不要只用 `grep + file`。
 > `exec_command` 只用于构建、测试、脚本和必要 shell，不替代 LSP 导航、读取、诊断和编辑。
 
@@ -18,7 +18,7 @@
 
 审查类：`grep` 定位 -> `inspect` 理解 -> `xref` 影响面 -> `file(read_file)` 精读 -> 输出判定。
 
-修复类：`grep` 定位 -> `xref` 影响面 -> `file(read_file)` 读取 -> `edit` 修改 -> `file(diagnostics)` 检查 -> `exec_command` 验证。
+修复类：`grep` 定位 -> `xref` 影响面 -> `file(read_file)` 读取 -> `patch_edit` 修改 -> `file(diagnostics)` 检查 -> `exec_command` 验证。
 
 ## 三、最新契约要点
 

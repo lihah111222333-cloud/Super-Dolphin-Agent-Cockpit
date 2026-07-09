@@ -1,6 +1,6 @@
 # 09 Provider 集成层代码地图
 
-> 覆盖 `internal/provider/unified/`、`internal/provider/claudecli/`、`internal/provider/codexapp/`。本文所有锚点均为 `lsp_grep` 校验后的 **1-based** 行号。
+> 覆盖 `internal/provider/unified/`、`internal/provider/claudecli/`、`internal/provider/codexapp/`。本文所有锚点均为 `grep` 校验后的 **1-based** 行号。
 
 ## 0. 结论速记
 
@@ -602,7 +602,7 @@ sequenceDiagram
 
 #### 关键类型 / 流程
 
-- `ReviewerDecision()`：允许只读 LSP/共享文件读；显式禁止 `lsp_edit / orchestration_launch_agent` 等会改变系统状态的工具。锚点：`internal/provider/toolfilter/presets.go:26-32`。
+- `ReviewerDecision()`：允许只读 LSP/共享文件读；显式禁止 `patch_edit / orchestration_launch_agent` 等会改变系统状态的工具。锚点：`internal/provider/toolfilter/presets.go:26-32`。
 - `WorkerDecision()`：保留大部分能力，但封锁 orchestration 系列，防止 worker 自己再拉起/操作 agent。锚点：`internal/provider/toolfilter/presets.go:35-40`。
 - `FullAccessDecision()`：只回 `HookDecisionAllow`，不附加 allow/deny 列表。锚点：`internal/provider/toolfilter/presets.go:43-45`。
 
@@ -714,6 +714,6 @@ sequenceDiagram
 
 ### 14.3 推荐核对顺序（按 §10.21 / §10.25 执行）
 
-1. 先 `lsp_grep` 核对文中关键函数/测试名真存在，尤其是 `driver.start`、`attemptRecovery`、`handleApprovalRequest`、`buildThreadStartParams`、`TestSessionContract_StartTurn`。
-2. 再 `lsp_grep` 核对“旧说法已失真”的反例字符串：`thread/config/set` 只应出现在注释/否定语境，Claude `--model` 与 summary/personality 必须真实命中。
+1. 先 `grep` 核对文中关键函数/测试名真存在，尤其是 `driver.start`、`attemptRecovery`、`handleApprovalRequest`、`buildThreadStartParams`、`TestSessionContract_StartTurn`。
+2. 再 `grep` 核对“旧说法已失真”的反例字符串：`thread/config/set` 只应出现在注释/否定语境，Claude `--model` 与 summary/personality 必须真实命中。
 3. 最后 `wc -l` 确认本卷已从瘦身态恢复到可读深度。

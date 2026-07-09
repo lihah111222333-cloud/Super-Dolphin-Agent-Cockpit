@@ -74,9 +74,9 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 			"gitRoot":                      "/thread-repo",
 			"isWorktree":                   true,
 			"language":                     "Japanese",
-			"enabledTools":                 []any{"lsp_file", "lsp_grep"},
+			"enabledTools":                 []any{"file", "grep"},
 			"additionalWorkingDirectories": []any{"/repo/thread-extra"},
-			"mcpTools":                     []any{"mcp__lsp__lsp_grep"},
+			"mcpTools":                     []any{"mcp__lsp__grep"},
 			"mcpInstructions":              map[string]any{"lsp": "Use the LSP thread fallback."},
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		}},
@@ -89,7 +89,7 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 	require.Equal(t, "/thread-repo", assembly.lastTurnInput.GitRoot)
 	require.True(t, assembly.lastTurnInput.IsWorktree)
 	require.Equal(t, "Japanese", assembly.lastTurnInput.Language)
-	require.Equal(t, []string{"lsp_file", "lsp_grep"}, assembly.lastTurnInput.EnabledTools)
+	require.Equal(t, []string{"file", "grep"}, assembly.lastTurnInput.EnabledTools)
 	require.Equal(t, []string{"/repo/thread-extra"}, assembly.lastTurnInput.AdditionalWorkingDirectories)
 	require.Equal(t, "Use the LSP thread fallback.", assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"])
 	require.True(t, assembly.lastTurnInput.SessionFlags["verification_required"])

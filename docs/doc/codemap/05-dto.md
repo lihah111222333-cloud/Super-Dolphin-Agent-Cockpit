@@ -2,7 +2,7 @@
 
 > 扫描范围：`internal/dto/{agent,mcp,provider,shared,task,thread,tool,turn,ui}`
 >
-> 校验方式：`lsp_structure` 遍历 9 个子包；`lsp_grep` 校对 DTO/锚点；`lsp_xref(references)` 核对核心 DTO 的生产/消费两侧；`lsp_file` 精读定义。
+> 校验方式：`structure` 遍历 9 个子包；`grep` 校对 DTO/锚点；`xref(references)` 核对核心 DTO 的生产/消费两侧；`file` 精读定义。
 >
 > 当前快照：**9 个子包 / 29 个生产 Go 文件 / 2 个 DTO 合约测试**。
 >
@@ -716,7 +716,7 @@ graph TD
 
 ### 8.10 逐文件补充锚点（31/31 文件覆盖，显式列出 120+ 条 `file.go:line`）
 
-> 下表全部锚点都已按 `lsp_grep` 的 1-based 行号口径复核。
+> 下表全部锚点都已按 `grep` 的 1-based 行号口径复核。
 
 | 包 | 文件 | 可 grep 锚点（1-based） | 覆盖说明 |
 |---|---|---|---|
@@ -762,6 +762,6 @@ graph TD
 
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|---|
-| typed event | 新增强类型事件 | 1) 在对应 `internal/dto/<pkg>` 定义 struct；2) 如需总线分发，同步补 `shared.EventType*` 与 `Type()`；3) 生产侧补 emitter / translator | `EventTypeUIThreadPatch@internal/dto/shared/event.go:48` | `lsp_grep "EventType..."` + `Type()` |
-| session 字段 | start / resume 扩字段 | 1) 改 `StartSessionRequest` / `ResumeSessionRequest`；2) 改 thread snapshot / prompt assembly 构造；3) 对齐 driver 消费 | `type StartSessionRequest struct@internal/dto/provider/session.go:55` | `lsp_grep` 三层字段透传 |
-| turn / ui 字段 | 输入或 patch additive 扩展 | 1) 改 `turn/model.go` 或 `ui/event.go`；2) 同步 producer / consumer；3) 必要时补前端 reducer | `type TurnSubmission struct@internal/dto/turn/model.go:11` | `lsp_grep` DTO + producer + consumer |
+| typed event | 新增强类型事件 | 1) 在对应 `internal/dto/<pkg>` 定义 struct；2) 如需总线分发，同步补 `shared.EventType*` 与 `Type()`；3) 生产侧补 emitter / translator | `EventTypeUIThreadPatch@internal/dto/shared/event.go:48` | `grep "EventType..."` + `Type()` |
+| session 字段 | start / resume 扩字段 | 1) 改 `StartSessionRequest` / `ResumeSessionRequest`；2) 改 thread snapshot / prompt assembly 构造；3) 对齐 driver 消费 | `type StartSessionRequest struct@internal/dto/provider/session.go:55` | `grep` 三层字段透传 |
+| turn / ui 字段 | 输入或 patch additive 扩展 | 1) 改 `turn/model.go` 或 `ui/event.go`；2) 同步 producer / consumer；3) 必要时补前端 reducer | `type TurnSubmission struct@internal/dto/turn/model.go:11` | `grep` DTO + producer + consumer |

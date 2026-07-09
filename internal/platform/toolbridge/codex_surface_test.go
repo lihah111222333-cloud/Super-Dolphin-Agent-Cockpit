@@ -20,8 +20,8 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	lspInputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"search query"}}}`)
 	lspOutputSchema := json.RawMessage(`{"type":"object","properties":{"files":{"type":"object","description":"matches by file"}}}`)
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{
-		{Name: "lsp_grep", Description: "grep source", InputSchema: lspInputSchema, OutputSchema: lspOutputSchema},
-		{Name: "lsp_format_preview", Description: "preview formatting", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "grep", Description: "grep source", InputSchema: lspInputSchema, OutputSchema: lspOutputSchema},
+		{Name: "completion", Description: "complete source", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	}}
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "launch_agent", Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 
@@ -39,18 +39,18 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
-	assertDynamicToolNames(t, tools, []string{"grep", "format_preview", "launch_agent"})
+	assertDynamicToolNames(t, tools, []string{"grep", "completion", "launch_agent"})
 	assertDynamicToolSchema(t, tools, "grep", "Recommended tool: grep. Why: grep source", lspInputSchema, lspOutputSchema)
 
-	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"format_preview","arguments":{"file_path":"smoke.go"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"completion","arguments":{"pos":"smoke.go:1:1"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
 	if err != nil {
-		t.Fatalf("HandleToolCall(format_preview) error = %v", err)
+		t.Fatalf("HandleToolCall(completion) error = %v", err)
 	}
-	if !lsp.calledWith("lsp_format_preview") {
-		t.Fatalf("lsp calls = %#v, want real legacy name lsp_format_preview", lsp.calls)
+	if !lsp.calledWith("completion") {
+		t.Fatalf("lsp calls = %#v, want real name completion", lsp.calls)
 	}
 	if result == nil {
-		t.Fatal("HandleToolCall(format_preview) result = nil")
+		t.Fatal("HandleToolCall(completion) result = nil")
 	}
 
 	result, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"grep","arguments":{"query":"x"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-2","_cwd":"/repo"}`)})
@@ -58,11 +58,32 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	if err != nil {
 		t.Fatalf("HandleToolCall(short) error = %v", err)
 	}
-	if !lsp.calledWith("lsp_grep") {
-		t.Fatalf("lsp calls = %#v, want real legacy name lsp_grep", lsp.calls)
+	if !lsp.calledWith("grep") {
+		t.Fatalf("lsp calls = %#v, want real name grep", lsp.calls)
 	}
 	if result == nil {
 		t.Fatal("HandleToolCall(short) result = nil")
+	}
+}
+
+func TestPrepareCodexToolSurfaceRejectsStaleLSPToolNames(t *testing.T) {
+	for _, stale := range []string{"lsp_grep", "lsp_edit", "lsp_completion", "format_preview"} {
+		t.Run(stale, func(t *testing.T) {
+			lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: stale, Description: "stale", InputSchema: strictEmptyObjectSchema()}}}
+			h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
+
+			_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+				AgentID:          "agent-stale-lsp",
+				ProviderThreadID: "provider-thread-stale-lsp",
+				CWD:              "/repo",
+				Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+					{Name: "lsp", Command: []string{"mcp-lsp"}},
+				}},
+			})
+			if err == nil || !strings.Contains(err.Error(), "LSP peer returned unsupported tool") {
+				t.Fatalf("PrepareCodexToolSurface(%q) error = %v, want unsupported LSP tool", stale, err)
+			}
+		})
 	}
 }
 
@@ -410,7 +431,7 @@ func assertCodexSurfaceLaunchInjectedArgs(t *testing.T, arguments []json.RawMess
 	}
 }
 
-func TestCodexToolSurfaceAcceptsLegacyAliasWithoutAdvertisingIt(t *testing.T) {
+func TestCodexToolSurfaceAcceptsShortLSPName(t *testing.T) {
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
@@ -424,12 +445,20 @@ func TestCodexToolSurfaceAcceptsLegacyAliasWithoutAdvertisingIt(t *testing.T) {
 	}
 	assertDynamicToolNames(t, tools, []string{"grep"})
 
-	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"lsp_grep","arguments":{},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"grep","arguments":{},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
 	if err != nil {
-		t.Fatalf("HandleToolCall(legacy alias) error = %v", err)
+		t.Fatalf("HandleToolCall(short name) error = %v", err)
 	}
 	if !lsp.calledWith("grep") {
 		t.Fatalf("lsp calls = %#v, want canonical real name grep", lsp.calls)
+	}
+
+	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"lsp_grep","arguments":{},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-legacy","_cwd":"/repo"}`)})
+	if err == nil || !strings.Contains(err.Error(), "unknown codex surface tool") {
+		t.Fatalf("HandleToolCall(lsp_grep) error = %v, want unknown codex surface tool", err)
+	}
+	if lsp.calledWith("lsp_grep") {
+		t.Fatalf("legacy lsp_grep reached LSP client: %#v", lsp.calls)
 	}
 }
 
@@ -484,7 +513,7 @@ func TestCodexToolSurfacePublishesLifecycleEvents(t *testing.T) {
 	cancelEnd := event.Subscribe(dispatcher, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	t.Cleanup(cancelEnd)
 
-	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{
 		dispatcher:         dispatcher,
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
@@ -527,7 +556,7 @@ func TestCodexToolSurfaceSkipsLifecycleWhenCallerAlreadyPublishes(t *testing.T) 
 	cancelEnd := event.Subscribe(dispatcher, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	t.Cleanup(cancelEnd)
 
-	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{
 		dispatcher:         dispatcher,
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
@@ -792,8 +821,8 @@ func TestCodexToolSurfaceLookupDoesNotFallbackFromStaleThreadToAgent(t *testing.
 func TestCodexToolSurfaceLegacyNamesFailClosedWhenSurfaceMissing(t *testing.T) {
 	h := &Handler{}
 	for _, name := range []string{
-		"lsp_grep",
-		"mcp__lsp__lsp_grep",
+		"grep",
+		"mcp__lsp__grep",
 		"mcp__lsp__grep",
 		"launch_agent",
 		"mcp__orch__launch_agent",

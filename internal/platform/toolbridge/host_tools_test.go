@@ -463,7 +463,7 @@ func TestListToolsForCodexFailsWhenOrchPeerMissing(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
-		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "lsp"}}, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
 
@@ -483,7 +483,7 @@ func TestListToolsForCodexFailClosedDoesNotReturnPartialPeerList(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
-		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "lsp"}}, nil)},
 	}}
 	var logs bytes.Buffer
 	h := &Handler{
@@ -600,7 +600,7 @@ func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "dupe", Description: "host wins"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
-		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "lsp"}}, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
 
@@ -608,7 +608,7 @@ func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 2 || got[0].Name != "dupe" || got[0].Description != "host wins" || got[1].Name != "lsp_hover" {
+	if len(got) != 2 || got[0].Name != "dupe" || got[0].Description != "host wins" || got[1].Name != "inspect" {
 		t.Fatalf("tools = %+v, want host duplicate first and lsp second", got)
 	}
 }
@@ -633,7 +633,7 @@ func TestListToolsForCodex_LogsShadowedPeerTool(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "dupe", Description: "host wins"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
-		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "lsp"}}, nil)},
 	}}
 	var logs bytes.Buffer
 	h := &Handler{
@@ -662,7 +662,7 @@ func TestListToolsForCodex_PeerWaitIsConcurrent(t *testing.T) {
 	release := make(chan struct{})
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {blockingListToolsPeer(dto.ClientKindOrch, []dto.MCPTool{{Name: "spawn_agent"}}, started, release)},
-		dto.ClientKindLSP:  {blockingListToolsPeer(dto.ClientKindLSP, []dto.MCPTool{{Name: "lsp_hover"}}, started, release)},
+		dto.ClientKindLSP:  {blockingListToolsPeer(dto.ClientKindLSP, []dto.MCPTool{{Name: "inspect"}}, started, release)},
 	}}
 	h := &Handler{registry: registry}
 	type result struct {

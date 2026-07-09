@@ -21,11 +21,11 @@ func TestShouldTrackDiff(t *testing.T) {
 		arguments json.RawMessage
 		want      bool
 	}{
-		{name: "edit patch", toolName: "edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: true},
-		{name: "legacy alias edit patch", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: true},
-		{name: "edit without patch", toolName: "edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go"}), want: false},
-		{name: "legacy action no longer drives diff", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"action": "replace_range"}), want: false},
-		{name: "other tool", toolName: "lsp_hover", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: false},
+		{name: "patch_edit patch", toolName: "patch_edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: true},
+		{name: "edit no longer drives diff", toolName: "edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: false},
+		{name: "patch_edit without patch", toolName: "patch_edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go"}), want: false},
+		{name: "patch_edit action without patch", toolName: "patch_edit", arguments: mustRawJSON(t, map[string]any{"action": "replace_range"}), want: false},
+		{name: "other tool", toolName: "inspect", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestToolBridge_RouteToolCall_ForwardsCodexMetadata(t *testing.T) {
 	h, _ := newHandlerForTest(peer)
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_hover",
+		Name:      "inspect",
 		Arguments: args,
 		AgentID:   "agent-7",
 		ThreadID:  "thread-7",
@@ -84,7 +84,7 @@ func TestToolBridgeSelectsPeerByScope(t *testing.T) {
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_file",
+		Name:      "file",
 		Arguments: args,
 		AgentID:   "agent-29",
 		ThreadID:  "thread-29",
@@ -197,24 +197,6 @@ func assertForgedArgumentsPreserved(t *testing.T, payload map[string]any) {
 	}
 }
 
-func scopedLSPToolCall(t *testing.T, args json.RawMessage, root string) contract.ToolCallRawMessage {
-	t.Helper()
-	return contract.ToolCallRawMessage{
-		ID:     json.RawMessage(`29`),
-		Method: "item/tool/call",
-		Params: mustRawJSON(t, map[string]any{
-			"name":       "lsp_file",
-			"arguments":  args,
-			"_agentId":   "agent-29",
-			"_threadId":  "thread-29",
-			"_callId":    "call-29",
-			"_cwd":       root,
-			"sessionId":  "top-level-forged-session",
-			"session_id": "top-level-forged-session",
-		}),
-	}
-}
-
 func requireToolCallResult(t *testing.T, got any) *ToolCallResult {
 	t.Helper()
 	result, ok := got.(*ToolCallResult)
@@ -246,7 +228,7 @@ func TestToolBridgeAmbiguousWithoutScope(t *testing.T) {
 		ID:     json.RawMessage(`30`),
 		Method: "item/tool/call",
 		Params: mustRawJSON(t, map[string]any{
-			"name": "lsp_file",
+			"name": "file",
 			"arguments": map[string]any{
 				"action":    "read_file",
 				"file_path": "go.mod",
@@ -288,7 +270,7 @@ func assertFamilyOnlyScopedLookup(t *testing.T, registry *stubRegistry) {
 	}
 }
 
-func TestToolBridge_RouteToolCall_EmitsDiffForTrackedLspEdit(t *testing.T) {
+func TestToolBridge_RouteToolCall_EmitsDiffForTrackedPatchEdit(t *testing.T) {
 	repo := initGitRepo(t, map[string]string{"tracked.txt": "before\n"})
 	args := mustRawJSON(t, map[string]any{"file_path": "tracked.txt", "patch": "@@\n-before\n+after\n"})
 	peer := trackedDiffPeer(t, repo)
@@ -303,7 +285,7 @@ func TestToolBridge_RouteToolCall_EmitsDiffForTrackedLspEdit(t *testing.T) {
 	}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_edit",
+		Name:      "patch_edit",
 		Arguments: args,
 		AgentID:   "agent-9",
 		ThreadID:  "thread-9",
@@ -349,8 +331,8 @@ func assertTrackedDiffMetadata(t *testing.T, diff difftracker.DiffResult) {
 	if diff.AgentID != "agent-9" || diff.ThreadID != "thread-9" || diff.CallID != "call-9" {
 		t.Fatalf("emitted metadata = %+v, want agent/thread/call ids", diff)
 	}
-	if diff.ToolName != "lsp_edit" {
-		t.Fatalf("emitted ToolName = %q, want %q", diff.ToolName, "lsp_edit")
+	if diff.ToolName != "patch_edit" {
+		t.Fatalf("emitted ToolName = %q, want %q", diff.ToolName, "patch_edit")
 	}
 	if len(diff.Files) != 1 || diff.Files[0] != "tracked.txt" {
 		t.Fatalf("emitted Files = %#v, want [tracked.txt]", diff.Files)
@@ -394,7 +376,7 @@ func TestToolBridge_RouteToolCall_EmitsDiffWithInjectedCWD(t *testing.T) {
 	}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "lsp_edit",
+		Name:      "patch_edit",
 		Arguments: args,
 		AgentID:   "agent-9",
 		ThreadID:  "thread-9",

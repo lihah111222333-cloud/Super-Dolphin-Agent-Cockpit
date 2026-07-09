@@ -124,7 +124,7 @@ func argumentObject(payload map[string]any) map[string]any {
 
 func isFileRead(toolName string, args map[string]any) bool {
 	tool := strings.ToLower(strings.TrimSpace(toolName))
-	if tool != "file" && tool != "lsp_file" && !strings.HasSuffix(tool, "__file") {
+	if tool != "file" && !strings.HasSuffix(tool, "__file") {
 		return false
 	}
 	switch strings.ToLower(stringValue(args, "action", "operation", "op")) {

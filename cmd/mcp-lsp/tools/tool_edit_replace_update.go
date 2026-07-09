@@ -43,7 +43,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 	syncCtx, cancelSync := platformconfig.WithTimeout(ctx, editLSPSyncTimeout)
 	syncC := make(chan replaceSyncResult, 1)
 	diffC := make(chan editDiskConfirmResult, 1)
-	safego.Go(syncCtx, nil, "mcp-lsp.edit.lsp-sync", func(context.Context) {
+	safego.Go(syncCtx, nil, "mcp-lsp.patch_edit.lsp-sync", func(context.Context) {
 		stage := log.Started("lsp_sync", "timeout_ms", editLSPSyncTimeout.Milliseconds(), "version", version, "content_bytes", len(updatedContent))
 		lspSync, warning, err := h.syncDocument(syncCtx, manager, path, updatedContent, version)
 		if err != nil {
@@ -53,7 +53,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 		}
 		syncC <- replaceSyncResult{lspSync: lspSync, warning: warning, err: err}
 	})
-	safego.Go(ctx, nil, "mcp-lsp.edit.disk-confirm", func(context.Context) {
+	safego.Go(ctx, nil, "mcp-lsp.patch_edit.disk-confirm", func(context.Context) {
 		stage := log.Started("disk_confirm", "timeout_ms", editDiskConfirmTimeout.Milliseconds())
 		result := confirmEditDiskWriteWithGitDiff(path, updatedContent)
 		if result.confirmed {

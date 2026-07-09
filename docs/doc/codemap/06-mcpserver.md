@@ -340,21 +340,21 @@ sequenceDiagram
   - 参数解码策略：`decodeRaw / decodeLenient / decodeStrict`。
   - `wrapToolHandler()` 只挂 `Recovery + Logging + Timeout`。
 - `tool_file.go`
-  - `lsp_file`：`open_file / read_file / diagnostics`。
+  - `file`：`open_file / read_file / diagnostics`。
 - `tool_diagnostics.go`
   - diagnostics 子流程：稳定等待、reactive bootstrap、表格化输出。
 - `tool_grep.go`
-  - `lsp_grep`：`text_search / ast_search`。
+  - `grep`：`text_search / ast_search`。
 - `tool_inspect.go`
-  - `lsp_inspect`：`hover / definition / implementation / type_definition / signature_help`。
+  - `inspect`：`hover / definition / implementation / type_definition / signature_help`。
 - `tool_xref.go`
-  - `lsp_xref`：`references / call_hierarchy / type_hierarchy`。
+  - `xref`：`references / call_hierarchy / type_hierarchy`。
 - `tool_structure.go`
-  - `lsp_structure`：`document_symbol / workspace_symbol / folding_range / semantic_tokens`。
+  - `structure`：`document_symbol / workspace_symbol / folding_range / semantic_tokens`。
 - `tool_completion.go`
-  - `lsp_completion`。
+  - `completion`。
 - `tool_edit.go`
-  - `lsp_edit`：`rename / code_action / format / replace_range` 总入口。
+  - `patch_edit`：`rename / code_action / format / replace_range` 总入口。
 - `tool_edit_replace.go`
   - replace_range 计划生成、写盘、回滚、LSP 同步、函数上下文回显。
 - `tool_edit_support.go`
@@ -440,8 +440,8 @@ sequenceDiagram
   - `decodeStrict`：同样容忍空 / `null`，但会 `DisallowUnknownFields`，并拒绝 trailing JSON
 - `wrapToolHandler()`：统一挂载 `Recovery -> Logging -> Timeout`。
 - **注意：`budget.go` 不在默认链里。**
-  - `lsp_file`、`lsp_grep` 额外挂了 `WithOutputBudget()`。
-  - `lsp_edit` 也没有走 `newManagerTool()`，而是保留了自定义 handler 以支持多文件 apply/rollback 流程。
+  - `file`、`grep` 额外挂了 `WithOutputBudget()`。
+  - `patch_edit` 也没有走 `newManagerTool()`，而是保留了自定义 handler 以支持多文件 apply/rollback 流程。
 
 > 实际 MCP tool name / schema / handler 注册在 `cmd/mcp-lsp/tools.go`；`cmd/mcp-lsp/tools` 负责“工具逻辑”，装配层负责“把逻辑暴露成 MCP tool”。
 
@@ -675,7 +675,7 @@ graph TD
 5. **`multilsp/` 实际上是通用 LSP 进程管理层，不只服务 Go。**
 6. **`markdown/json/yaml` 的 fallback 能力存在于 `multilsp` manager 内部**，但当前 `cmd/mcp-lsp/runtime.go` 未注册这些语言；要触发 fallback 需要装配层显式把这些语言路由到该 manager。
 7. **`replace_range` 是本层最复杂的写路径**：匹配、落盘、LSP 同步、回滚、函数上下文回显都在这里收束。
-8. **Output Budget 不是默认全局中间件**，当前仅 `lsp_file` / `lsp_grep` 使用。
+8. **Output Budget 不是默认全局中间件**，当前仅 `file` / `grep` 使用。
 9. **`ManagerPool` / `recycler` 基础设施已经存在，但当前仍明显偏 primary-manager 模式。**
 
 ---
@@ -705,9 +705,9 @@ graph TD
    - `ctl/register` 的实际字段、`AgentID` 当前不入注册请求的事实，已按源码写明
 6. **已更正中间件链描述**：`wrapToolHandler()` 默认只挂 `Recovery + Logging + Timeout`；`Budget` 是工具级 opt-in，不是全局默认链。
 7. **已补齐工具细节遗漏**：
-    - `lsp_file diagnostics` 支持“不传路径时读取所有当前 diagnostics”
-    - `lsp_grep` 的 `text_search` 与 `ast_search` 过滤边界并不相同；前者走 Go-side 文件筛选，后者主要委托给 `sg`
-    - `lsp_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
+    - `file diagnostics` 支持“不传路径时读取所有当前 diagnostics”
+    - `grep` 的 `text_search` 与 `ast_search` 过滤边界并不相同；前者走 Go-side 文件筛选，后者主要委托给 `sg`
+    - `patch_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
     - `replace_range` 的匹配策略已按 `seeksequence.go + patchmatch.go` 更正，补上了 `substring_exact` fallback 与多候选歧义行为
 8. **已补齐 `multilsp` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入，并注明当前 runtime 尚未注册 markdown/json/yaml manager。
 9. **保留一条实现观察**：`ManagerPool.snapshotManagers()` 当前只返回 primary manager；`recycler` 的重建路径也仍带明显 Go-centric 痕迹，说明池化/回收基础设施仍在演进中。

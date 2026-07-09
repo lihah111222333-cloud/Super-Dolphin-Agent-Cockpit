@@ -172,7 +172,7 @@ func TestCodexSurfaceToolCallDeniesNonEnabledLifecycleStates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			owner.setDecision(root, mcpdto.ClientKindLSP, "grep", tt.state, "blocked")
-			for _, name := range []string{"grep", "lsp_grep", "mcp__lsp__grep", "mcp__lsp__lsp_grep"} {
+			for _, name := range []string{"grep", "mcp__lsp__grep"} {
 				t.Run(name, func(t *testing.T) {
 					result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
 						Params: mustRawJSON(t, map[string]any{
@@ -222,7 +222,7 @@ func TestCodexSurfaceToolCallDeniesHiddenDisabledLifecycleAliases(t *testing.T) 
 	}
 	assertNoDynamicToolName(t, tools, "grep")
 
-	for _, name := range []string{"grep", "lsp_grep", "mcp__lsp__grep"} {
+	for _, name := range []string{"grep", "mcp__lsp__grep"} {
 		t.Run(name, func(t *testing.T) {
 			result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
 				Params: mustRawJSON(t, map[string]any{
@@ -319,9 +319,9 @@ func TestPeerToolCallDeniesDisabledLifecycleAliasesBeforePeerSelection(t *testin
 		wantTool   string
 	}{
 		{name: "grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
-		{name: "lsp_grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
+		{name: "grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
 		{name: "mcp__lsp__grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
-		{name: "mcp__lsp__lsp_grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
+		{name: "mcp__lsp__grep", wantServer: mcpdto.ClientKindLSP, wantTool: "grep"},
 		{name: "launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "launch_agent"},
 		{name: "mcp__orch__launch_agent", wantServer: mcpdto.ClientKindOrch, wantTool: "launch_agent"},
 	}

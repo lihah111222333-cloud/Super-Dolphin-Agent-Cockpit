@@ -29,7 +29,7 @@ func unsupportedCapabilityEmptyResult(capability string, languageIDs ...string) 
 // unsupportedCapabilityMessage 构建不支持能力的消息，markdown 语言有特殊降级提示。
 func unsupportedCapabilityMessage(capability string, languageIDs ...string) string {
 	if languageID := limitedDocumentFallbackLanguage(languageIDs...); languageID != "" {
-		return fmt.Sprintf("%s is not available for %s. %s support is limited to document_symbol fallback; use lsp_structure action=document_symbol file_path=<%s file> or lsp_grep action=text_search.", capability, languageID, languageID, languageID)
+		return fmt.Sprintf("%s is not available for %s. %s support is limited to document_symbol fallback; use structure action=document_symbol file_path=<%s file> or grep action=text_search.", capability, languageID, languageID, languageID)
 	}
 	return fmt.Sprintf("%s unsupported by current language server", capability)
 }

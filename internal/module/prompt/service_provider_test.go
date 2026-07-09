@@ -23,7 +23,7 @@ func TestNewServiceRegistersBuiltInDynamicProviders(t *testing.T) {
 		GitRoot:  "/repo",
 		Language: "Chinese",
 		EnabledTools: []string{
-			"lsp_file",
+			"file",
 			"request_user_input",
 			"spawn_agent",
 		},

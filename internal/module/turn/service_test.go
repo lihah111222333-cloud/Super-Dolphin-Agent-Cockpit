@@ -237,9 +237,9 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 			"gitRoot":                      "/thread-repo",
 			"isWorktree":                   true,
 			"language":                     "Japanese",
-			"enabledTools":                 []string{"lsp_file", "lsp_grep"},
+			"enabledTools":                 []string{"file", "grep"},
 			"additionalWorkingDirectories": []string{"/repo/thread-extra"},
-			"mcpTools":                     []string{"mcp__lsp__lsp_grep"},
+			"mcpTools":                     []string{"mcp__lsp__grep"},
 			"mcpInstructions":              map[string]any{"lsp": "Use LSP thread fallback."},
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		},
@@ -278,10 +278,10 @@ func assertPrepareTurnAssemblyInput(t *testing.T, req dto.TurnRequest, assembly 
 	require.Equal(t, "/thread-repo", assembly.lastTurnInput.GitRoot)
 	require.True(t, assembly.lastTurnInput.IsWorktree)
 	require.Equal(t, "Japanese", assembly.lastTurnInput.Language)
-	require.Equal(t, []string{"lsp_file", "lsp_grep"}, assembly.lastTurnInput.EnabledTools)
+	require.Equal(t, []string{"file", "grep"}, assembly.lastTurnInput.EnabledTools)
 	require.Equal(t, []string{"/repo/thread-extra"}, assembly.lastTurnInput.AdditionalWorkingDirectories)
 	require.NotEmpty(t, assembly.lastTurnInput.MCPSnapshot.Servers)
-	require.True(t, slices.Contains(assembly.lastTurnInput.MCPSnapshot.Tools, "mcp__lsp__lsp_grep"))
+	require.True(t, slices.Contains(assembly.lastTurnInput.MCPSnapshot.Tools, "mcp__lsp__grep"))
 	require.Equal(t, "Use LSP thread fallback.", assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"])
 	require.True(t, assembly.lastTurnInput.SessionFlags["verification_required"])
 	require.False(t, assembly.lastTurnInput.SessionFlags["runtime_only"])

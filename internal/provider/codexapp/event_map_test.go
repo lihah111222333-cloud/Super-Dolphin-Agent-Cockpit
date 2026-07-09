@@ -242,7 +242,7 @@ func TestTranslateToolEventUsesNameFieldForDynamicToolEnd(t *testing.T) {
 			"threadId": "provider-thread-1",
 			"turnId":   "turn-1",
 			"callId":   "call-1",
-			"name":     "format_preview",
+			"name":     "patch_edit",
 			"success":  true,
 			"result":   map[string]any{"success": true, "text_edit_count": 2},
 		},
@@ -255,8 +255,8 @@ func TestTranslateToolEventUsesNameFieldForDynamicToolEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
 	}
-	if end.ToolName != "format_preview" || !end.Success {
-		t.Fatalf("ToolCallEnd = %+v, want successful format_preview end", end)
+	if end.ToolName != "patch_edit" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful patch_edit end", end)
 	}
 }
 
@@ -363,11 +363,11 @@ func TestTranslateCodexRolloutMCPToolCallEndPublishesToolCallEnd(t *testing.T) {
 			"threadId": "provider-thread-1",
 			"turnId":   "turn-1",
 			"type":     "mcp_tool_call_end",
-			"call_id":  "call-format",
+			"call_id":  "call-patch-edit",
 			"invocation": map[string]any{
 				"server":    "lsp",
-				"tool":      "format_preview",
-				"arguments": map[string]any{"file_path": "smoke.go"},
+				"tool":      "patch_edit",
+				"arguments": map[string]any{"action": "replace_range", "file_path": "smoke.go"},
 			},
 			"duration": map[string]any{"secs": float64(0), "nanos": float64(4349125)},
 			"result": map[string]any{
@@ -390,8 +390,8 @@ func TestTranslateCodexRolloutMCPToolCallEndPublishesToolCallEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
 	}
-	if end.CallID != "call-format" || end.ToolName != "mcp__lsp__format_preview" || !end.Success {
-		t.Fatalf("ToolCallEnd = %+v, want successful format_preview end", end)
+	if end.CallID != "call-patch-edit" || end.ToolName != "mcp__lsp__patch_edit" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful patch_edit end", end)
 	}
 	if !strings.Contains(end.Result, `"text_edit_count":1`) {
 		t.Fatalf("Result = %q, want tool result preview", end.Result)

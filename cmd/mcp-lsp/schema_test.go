@@ -6,9 +6,9 @@ import (
 )
 
 func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
-	props, ok := lspEditSchema["properties"].(map[string]any)
+	props, ok := patchEditSchema["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
+		t.Fatalf("patch_edit schema properties type = %T", patchEditSchema["properties"])
 	}
 	for _, field := range []string{"action", "file_path", "patch", "pos", "new_name", "only"} {
 		if _, ok := props[field]; !ok {
@@ -20,9 +20,9 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 			t.Fatalf("edit schema exposes removed legacy field %q", field)
 		}
 	}
-	required, ok := lspEditSchema["required"].([]string)
+	required, ok := patchEditSchema["required"].([]string)
 	if !ok {
-		t.Fatalf("edit schema required type = %T", lspEditSchema["required"])
+		t.Fatalf("patch_edit schema required type = %T", patchEditSchema["required"])
 	}
 	if !reflect.DeepEqual(required, []string{"action"}) {
 		t.Fatalf("edit schema required = %#v, want [action]", required)

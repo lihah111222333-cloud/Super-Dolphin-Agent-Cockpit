@@ -17,7 +17,7 @@ var defaultToolBudgets = map[string]int{
 	"inspect":    8 * 1024,
 	"xref":       16 * 1024,
 	"structure":  16 * 1024,
-	"edit":       32 * 1024,
+	"patch_edit": 32 * 1024,
 	"completion": 16 * 1024,
 }
 
@@ -101,7 +101,7 @@ func budgetTextBytes(value any) ([]byte, int, error) {
 // structuredOverflow 根据工具类型选择合适的溢出包装格式。
 func structuredOverflow(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
 	switch toolName {
-	case "edit":
+	case "patch_edit":
 		return editOverflowEnvelope(toolName, payload, actualBytes, budgetBytes)
 	default:
 		hint := lookupHint(toolName)

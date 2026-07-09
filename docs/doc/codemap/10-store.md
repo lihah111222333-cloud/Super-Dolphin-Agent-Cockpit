@@ -893,7 +893,7 @@ var Module = fx.Module("store",
 
 | 场景 | 最小步骤 | 源码锚点 | 最小验证 |
 | --- | --- | --- | --- |
-| 新增子 store | 1) 建 `contract.go/store.go/module.go`；2) 在 `sql/queries/` 补 SQL；3) 把子模块接入 `internal/store/module.go` | `internal/store/module.go` 的 `var Module = fx.Module("store",` | `lsp_grep "var Module = fx.Module(\"store\"" internal/store/module.go` |
+| 新增子 store | 1) 建 `contract.go/store.go/module.go`；2) 在 `sql/queries/` 补 SQL；3) 把子模块接入 `internal/store/module.go` | `internal/store/module.go` 的 `var Module = fx.Module("store",` | `grep "var Module = fx.Module(\"store\"" internal/store/module.go` |
 | 给已有 store 增读写 SQL | 1) 改 `sql/queries/*.sql` 新 query；2) 重新生成 `internal/store/sqlc/*.sql.go`；3) 在 `store.go` 做 DTO 映射 + `WrapStoreError` | `sql/queries/prompt_template.sql` 的 `UpsertPromptTemplate`，以及 `internal/store/prompt/store.go` 对应映射 | `internal/store/prompt/store_test.go` |
 | 新增 prompt snapshot / 其它持久化字段 | 1) 迁移 + `sqlc.yaml` schema 列表一起更新；2) 在 `sql/queries/agent_thread_prompt_snapshot.sql` 增 load/save；3) `internal/store/thread/store.go` 与 `internal/module/thread/prompt_snapshot.go` 同步桥接 store/runtime DTO | `UpdateAgentThreadPromptSnapshot` + `toStoredPromptSnapshot(...)` | `internal/store/thread/{store_test,snapshot_test}.go` |
 

@@ -11,7 +11,7 @@
 ## 1. 先看结论
 
 - `mcp-lsp` 是完整 MCP 工具服务：**stdio MCP server 始终开启**，**HTTP MCP server 仅在 peer mode 开启**。
-- `mcp-lsp` 的工具面固定为 7 个 LSP 工具：`file`、`inspect`、`xref`、`grep`、`structure`、`edit`、`completion`；执行命令和测试走独立 CLI/命令工具，不在 `mcp-lsp` 暴露。
+- `mcp-lsp` 的工具面固定为 7 个 LSP 工具：`file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion`；执行命令和测试走独立 CLI/命令工具，不在 `mcp-lsp` 暴露。
 - `mcp-lsp` 的真正 handler 全在 `cmd/mcp-lsp/tools/*`；传输层统一落在 `internal/mcpserver/common/server.go:92` 与 `internal/mcpserver/common/http_transport.go:40`。
 - **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `multilsp.Manager.EnsureClient`（`ClientEnsurer`）→ `client.Initialize` / `initialized`。
 - `mcp-ida` 当前只有 `tools/ida` bootstrap 能力，没有本地 `tools/list` / `tools/call`、没有 schema / manifest / handler 映射，也没有 stdio/HTTP MCP tool server。
@@ -74,7 +74,7 @@ flowchart LR
 | 二进制入口 | `cmd/mcp-lsp/main.go:20` / `cmd/mcp-ida/main.go:10` | `mcp-lsp` 抢占 `stdout` 作为 MCP 通道；`mcp-ida` 只做极简错误退出。 |
 | Fx 装配 | `cmd/mcp-lsp/fx.go:37` / `cmd/mcp-ida/fx.go:30` | 装配 bootstrap runner、stdio runner、HTTP runner（仅 LSP）并托管生命周期。 |
 | LSP runtime | `cmd/mcp-lsp/runtime.go:24` | 生成 registry、installer、6 个通用 LSP manager、10 个 language ID 注册。 |
-| MCP tool manifest | `cmd/mcp-lsp/tools.go:27` | 声明 9 个工具的 manifest 文案。 |
+| MCP tool manifest | `cmd/mcp-lsp/tools.go:27` | 声明 7 个工具的 manifest 文案。 |
 | MCP tool handler 绑定 | `cmd/mcp-lsp/tools.go:39` | 把 tool 名绑定到 `cmd/mcp-lsp/tools/*` 的具体 handler。 |
 | stdio transport | `internal/mcpserver/common/server.go:92` | 循环读取 stdio JSON-RPC，处理 `initialize/ping/shutdown/tools/*`。 |
 | HTTP transport | `internal/mcpserver/common/http_transport.go:40` | peer mode 下监听 `POST /mcp`，同样处理 `initialize/ping/shutdown/tools/*`。 |
@@ -200,15 +200,15 @@ sequenceDiagram
 
 | LSP 工具 | manifest | handler 绑定 | 实际入口 |
 |---|---|---|---|
-| `lsp_file` | `cmd/mcp-lsp/tools.go:28` | `cmd/mcp-lsp/tools.go:53` | `cmd/mcp-lsp/tools/tool_file.go:90` |
-| `lsp_inspect` | `cmd/mcp-lsp/tools.go:29` | `cmd/mcp-lsp/tools.go:54` | `cmd/mcp-lsp/tools/tool_inspect.go:26` |
-| `lsp_xref` | `cmd/mcp-lsp/tools.go:30` | `cmd/mcp-lsp/tools.go:55` | `cmd/mcp-lsp/tools/tool_xref.go:26` |
-| `lsp_grep` | `cmd/mcp-lsp/tools.go:31` | `cmd/mcp-lsp/tools.go:56` | `cmd/mcp-lsp/tools/tool_grep.go:50` |
-| `lsp_structure` | `cmd/mcp-lsp/tools.go:32` | `cmd/mcp-lsp/tools.go:57` | `cmd/mcp-lsp/tools/tool_structure.go:25` |
-| `lsp_edit` | `cmd/mcp-lsp/tools.go:33` | `cmd/mcp-lsp/tools.go:58` | `cmd/mcp-lsp/tools/tool_edit.go:65` |
-| `lsp_completion` | `cmd/mcp-lsp/tools.go:34` | `cmd/mcp-lsp/tools.go:59` | `cmd/mcp-lsp/tools/tool_completion.go:20` |
+| `file` | `cmd/mcp-lsp/tools.go:28` | `cmd/mcp-lsp/tools.go:53` | `cmd/mcp-lsp/tools/tool_file.go:90` |
+| `inspect` | `cmd/mcp-lsp/tools.go:29` | `cmd/mcp-lsp/tools.go:54` | `cmd/mcp-lsp/tools/tool_inspect.go:26` |
+| `xref` | `cmd/mcp-lsp/tools.go:30` | `cmd/mcp-lsp/tools.go:55` | `cmd/mcp-lsp/tools/tool_xref.go:26` |
+| `grep` | `cmd/mcp-lsp/tools.go:31` | `cmd/mcp-lsp/tools.go:56` | `cmd/mcp-lsp/tools/tool_grep.go:50` |
+| `structure` | `cmd/mcp-lsp/tools.go:32` | `cmd/mcp-lsp/tools.go:57` | `cmd/mcp-lsp/tools/tool_structure.go:25` |
+| `patch_edit` | `cmd/mcp-lsp/tools.go:33` | `cmd/mcp-lsp/tools.go:58` | `cmd/mcp-lsp/tools/tool_edit.go:65` |
+| `completion` | `cmd/mcp-lsp/tools.go:34` | `cmd/mcp-lsp/tools.go:59` | `cmd/mcp-lsp/tools/tool_completion.go:20` |
 
-调用链实测（由 `lsp_xref` 反查）：
+调用链实测（由 `xref` 反查）：
 
 1. `common.Server` / `common.HTTPServer` 的 `tools/call` 最终调用 `registryToolProvider.CallTool`：`internal/mcpserver/common/server.go:221`、`internal/mcpserver/common/http_transport.go:161`、`cmd/mcp-lsp/fx.go:136`。
 2. `registryToolProvider.CallTool` 只做名字分发，核心逻辑在 `handleToolCall`：`cmd/mcp-lsp/fx.go:151`。
@@ -226,8 +226,8 @@ sequenceDiagram
 | language → manager | `GetManagerForLanguage()` 只 lower-case + trim，再查已注册 manager；如果没注册，直接 `ErrUnsupportedLanguage`，不会进入安装。 | `cmd/mcp-lsp/manager/registry.go:96`、`cmd/mcp-lsp/manager/registry.go:103` |
 | manager 二次检测 | 进入 multilsp manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `cmd/mcp-lsp/multilsp/manager.go:151`、`:180`、`:193` |
 | 惰性 client 初始化 | `multilsp.Manager` 先由 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` 组合出对外端口；`EnsureClient()` → `ensureClientForFile/ensureClientForLanguage()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `cmd/mcp-lsp/multilsp/manager.go:36`、`:42`、`:46`、`cmd/mcp-lsp/multilsp/manager_lifecycle.go:30`、`:105`、`:117`、`:231`、`:260`、`cmd/mcp-lsp/multilsp/client.go:98`、`:119` |
-| workspace symbol 特例 | `lsp_structure.workspace_symbol` 是唯一可直接走 `language` 的 tool action：`resolveWorkspaceSymbolManager()` 强制 `file_path` 与 `language` 二选一；language 模式走 `GetManagerForLanguage()`，file 模式仍会经 `DetectLanguageID()`。 | `cmd/mcp-lsp/tools/tool_structure.go:68`、`cmd/mcp-lsp/tools/tool_structure.go:75`、`cmd/mcp-lsp/tools/tool_structure.go:84`、`cmd/mcp-lsp/tools/tool_structure.go:91` |
-| 非 registry 旁路 | `lsp_grep.text_search` / `ast_search` 都是搜索子系统直连：前者本地 walk，后者 `sg`，不经过 `manager.Registry`。 | `cmd/mcp-lsp/tools/tool_grep.go:73`、`cmd/mcp-lsp/search/searchutil.go:64`、`cmd/mcp-lsp/search/searchutil.go:84` |
+| workspace symbol 特例 | `structure.workspace_symbol` 是唯一可直接走 `language` 的 tool action：`resolveWorkspaceSymbolManager()` 强制 `file_path` 与 `language` 二选一；language 模式走 `GetManagerForLanguage()`，file 模式仍会经 `DetectLanguageID()`。 | `cmd/mcp-lsp/tools/tool_structure.go:68`、`cmd/mcp-lsp/tools/tool_structure.go:75`、`cmd/mcp-lsp/tools/tool_structure.go:84`、`cmd/mcp-lsp/tools/tool_structure.go:91` |
+| 非 registry 旁路 | `grep.text_search` / `ast_search` 都是搜索子系统直连：前者本地 walk，后者 `sg`，不经过 `manager.Registry`。 | `cmd/mcp-lsp/tools/tool_grep.go:73`、`cmd/mcp-lsp/search/searchutil.go:64`、`cmd/mcp-lsp/search/searchutil.go:84` |
 
 | action | 参数 | 内部动作 | 返回字段 |
 |---|---|---|---|
@@ -243,7 +243,7 @@ sequenceDiagram
 | 能力 | 实现锚点 | 与语言服务器关系 | 说明 |
 |---|---|---|---|
 | 文本搜索 | `cmd/mcp-lsp/search/searchutil.go:64` | **独立于** LSP server | 纯本地扫描，适合 grep/批量验真。 |
-| AST 搜索 | `cmd/mcp-lsp/search/searchutil.go:84` | **独立于** LSP server，但依赖 `sg` | `lsp_grep.ast_search` 不走 `manager.Registry`。 |
+| AST 搜索 | `cmd/mcp-lsp/search/searchutil.go:84` | **独立于** LSP server，但依赖 `sg` | `grep.ast_search` 不走 `manager.Registry`。 |
 | semantic tokens | `cmd/mcp-lsp/tools/tool_structure.go:160` | **依赖** LSP server | 由具体语言服务器返回 token data。 |
 | markdown/json/yaml 文档符号 fallback | `cmd/mcp-lsp/multilsp/manager_symbols_fallback.go:33` | **不依赖** 外部 LSP server | 能力存在于 manager 基座，但当前 cmd 层未把这些 language ID 注册进 registry。 |
 
@@ -292,7 +292,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | `tools/call` 外层 envelope 解码失败 | `toolCallParams` 反序列化失败 | `-32602` | 这是 transport 层错误，尚未进入具体 tool handler。 | `internal/mcpserver/common/server.go:221`、`internal/mcpserver/common/http_transport.go:161` |
 | tool 内部严格参数校验失败 | `decodeStrictToolParams` / `requireFilePath` / `requirePosition` / `unsupported <tool> action` | `-32000` | 已进入具体 handler，因此统一由 `tools/call` 包装成 tool call error。 | `cmd/mcp-lsp/tools/factory.go:92`、`cmd/mcp-lsp/tools/factory.go:120`、`cmd/mcp-lsp/tools/factory.go:144`、`cmd/mcp-lsp/tools/factory.go:152`、`internal/mcpserver/common/server.go:233` |
-| path 越界 / symlink / binary / file too large | `search.ResolvePath` / `readValidatedFile` | `-32000` | 常见于 `lsp_file` 与 `lsp_grep`。 | `cmd/mcp-lsp/search/fileutil.go:112`、`cmd/mcp-lsp/search/fileutil.go:147`、`cmd/mcp-lsp/search/fileutil.go:156`、`cmd/mcp-lsp/search/fileutil.go:162`、`cmd/mcp-lsp/search/fileutil.go:169` |
+| path 越界 / symlink / binary / file too large | `search.ResolvePath` / `readValidatedFile` | `-32000` | 常见于 `file` 与 `grep`。 | `cmd/mcp-lsp/search/fileutil.go:112`、`cmd/mcp-lsp/search/fileutil.go:147`、`cmd/mcp-lsp/search/fileutil.go:156`、`cmd/mcp-lsp/search/fileutil.go:162`、`cmd/mcp-lsp/search/fileutil.go:169` |
 | registry 未注册语言 | `ErrUnsupportedLanguage` | `-32000` | registry 直接拒绝；不会进入 auto-install。 | `cmd/mcp-lsp/manager/registry.go:14`、`cmd/mcp-lsp/manager/registry.go:83`、`cmd/mcp-lsp/manager/registry.go:103` |
 | LSP binary 缺失且安装失败 | `installer.EnsureInstalled` | `-32000` | LookPath 失败后尝试安装；安装失败同样按 tool error 上抛。 | `cmd/mcp-lsp/installer/installer.go:44`、`cmd/mcp-lsp/installer/installer.go:65`、`cmd/mcp-lsp/installer/installer.go:70` |
 | bootstrap lease 被拒绝 | jrpc2 error `4101/4102` | `4101` / `4102` | `mcp-lsp` / `mcp-ida` 本地不制造该码，但 heartbeat 会识别并走重连。 | `internal/dto/mcp/errors.go:7`、`internal/dto/mcp/errors.go:8`、`internal/mcpserver/common/bootstrap/heartbeat.go:172` |

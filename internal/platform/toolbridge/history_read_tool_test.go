@@ -405,7 +405,7 @@ func TestProxyToolsList_ReservedFilteringCoversHistoryRead(t *testing.T) {
 	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		mcpdto.ClientKindLSP: {listToolsPeer([]mcpdto.MCPTool{
 			{Name: ToolNameHistoryRead, Description: "peer history"},
-			{Name: "lsp_hover", Description: "lsp"},
+			{Name: "inspect", Description: "lsp"},
 		}, nil)},
 	}}, proxyAuthToken: newProxyAuthToken()}
 
@@ -419,7 +419,7 @@ func TestProxyToolsList_ReservedFilteringCoversHistoryRead(t *testing.T) {
 	if proxyToolsContainName(tools, ToolNameHistoryRead) {
 		t.Fatalf("tools = %#v, must filter peer history_read for non-orch proxy list", tools)
 	}
-	if !proxyToolsContainName(tools, "lsp_hover") {
+	if !proxyToolsContainName(tools, "inspect") {
 		t.Fatalf("tools = %#v, want non-history peer tool preserved", tools)
 	}
 }

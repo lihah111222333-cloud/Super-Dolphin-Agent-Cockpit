@@ -600,7 +600,7 @@
 **实现要点**
 
 - `decodeToolCallRequest()` 会兼容多种字段别名，并能从嵌套 `item` / `thread` 结构里补出 `name/threadId/callId`
-- `classifyTool()` 目前把 7 个 LSP 短名及 `lsp_*` legacy 名称路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
+- `classifyTool()` 目前把 7 个 LSP 短名路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
 - Codex 生产 host-direct 只保留 memory tools：`routeToolCall()` 顶层 switch 拦截 `memory_read`/`memory_write` → `routeHostOnlyToolCall()`（只走 host，绝不 fallback peer）
 - `skill_read_section` 已退出 Codex 动态工具主链；若历史请求仍命中，`routeToolCall()` 顶层 switch 返回不可用结果，不应把它当成当前 skill 读取链路
 - `CompositeHostToolRegistry` 聚合当前生产 registry：`MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`
@@ -609,7 +609,7 @@
 - `ListToolsForCodex()` 先加入 memory host tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
 - `tools/call` peer callback 的 timeout 是 `toolCallTimeout = 120s`
 - peer 侧 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 peer `tools/call` 则要求同类 peer 唯一；memory host tools 不参与 peer 唯一性判定
-- Phase 1 只有 `lsp_edit(rename/replace_range)` 会在调用前进入 `beginToolDiffSnapshot()`；`edit` 的 bus 侧 fallback 负责补发未捕获 diff
+- Phase 1 只有 `patch_edit(rename/replace_range)` 会在调用前进入 `beginToolDiffSnapshot()`；`patch_edit` 的 bus 侧 fallback 负责补发未捕获 diff
 - `emitToolDiff()` 成功发出 `ToolDiffUpdated` 后会 `MarkSeen(callID)`，避免 fallback 重复补发
 - `diffFallbackTracker.handleToolCallEnd()` 会在 `ToolCallEnd` 上检查 `shouldFallbackDiffTool()`，命中时走 `difftracker.EmitCurrentGitDiff()`
 - `toolbridge.Module` 会额外装配 `provideHostToolRegistry()`、`provideDiffEmitter()`、`bindCodexHandlers()`、`registerDiffFallbackLifecycle()`、`registerProxyLifecycle()`
@@ -901,7 +901,7 @@ Codex session 收到 inbound tool request
         ├─ routePrePeerToolCall()
         │   └─ non-host tool continues to peer route
         └─ peer route: classifyTool() -> FindActiveByKind() -> callPeerTool()
-  -> beginToolDiffSnapshot() [仅 `lsp_edit(rename/replace_range)`]
+  -> beginToolDiffSnapshot() [仅 `patch_edit(rename/replace_range)`]
   -> mcpcontrol.ToolRegistry.FindActiveByKind()
   -> 选中 MCP peer，发起 peer.Callback("tools/call")
   -> adaptMCPResponse()
@@ -962,10 +962,10 @@ Codex session 收到 inbound tool request
 
 ### 6.4 与 difftracker 的耦合
 
-- Phase 1 先走 `emitToolDiff()`：前提是 `beginToolDiffSnapshot()` 成功拿到 snapshot，且当前调用命中 `lsp_edit(rename/replace_range)`
+- Phase 1 先走 `emitToolDiff()`：前提是 `beginToolDiffSnapshot()` 成功拿到 snapshot，且当前调用命中 `patch_edit(rename/replace_range)`
 - `emitToolDiff()` 内部调用 `difftracker.EmitGitDiff()`，成功后经 `provideDiffEmitter()` 发布 `ToolDiffUpdated`
 - Phase 1 未命中时，不再依赖任何旧 sentinel；而是由 `diffFallbackTracker` + `shouldFallbackDiffTool()` 在 `ToolCallEnd` 后做 git diff fallback
-- fallback 覆盖 `lsp_edit` / `edit`；内部改走 `difftracker.EmitCurrentGitDiff()`
+- fallback 覆盖 `patch_edit`；内部改走 `difftracker.EmitCurrentGitDiff()`
 - `MarkSeen(callID)` 会在 Phase 1 与 fallback 之间做去重，防止同一次工具调用重复推送 diff
 
 ### 6.5 错误语义

@@ -12,7 +12,7 @@ import (
 )
 
 // diffFallbackTracker 兜住主快照链路未能发布 diff 的工具结束事件。
-// 只会在 edit 调用、callID 未标记已发布、agent cwd 可解析且当前 git diff 非空时补发；
+// 只会在 patch_edit 调用、callID 未标记已发布、agent cwd 可解析且当前 git diff 非空时补发；
 // 其它情况直接跳过，避免无关工具或未知工作区产生误报。
 type diffFallbackTracker struct {
 	emitter         difftracker.DiffEmitter
@@ -116,10 +116,10 @@ func (t *diffFallbackTracker) currentGitDiff(ctx context.Context, cwd string) (s
 }
 
 // shouldFallbackDiffTool 收窄允许触发补发的工具集合。
-// 当前只允许 canonical edit，后续扩展到其它写文件工具时必须确认其事件与 diff 归因边界。
+// 当前只允许 canonical patch_edit，后续扩展到其它写文件工具时必须确认其事件与 diff 归因边界。
 func shouldFallbackDiffTool(toolName string) bool {
 	switch canonicalToolName(toolName) {
-	case "edit":
+	case "patch_edit":
 		return true
 	default:
 		return false

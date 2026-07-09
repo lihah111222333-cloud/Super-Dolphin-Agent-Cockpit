@@ -173,7 +173,7 @@ func TestWrapperRejectsLegacyAgentIDInArguments(t *testing.T) {
 }
 
 func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
-	envelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("line must be >= 1"))
+	envelope := newToolErrorEnvelope("patch_edit", "go", errors.New("line must be >= 1"))
 	if envelope.Success {
 		t.Fatalf("envelope success = true, want false")
 	}
@@ -184,7 +184,7 @@ func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 		t.Fatalf("envelope hint = %q, want one-based cursor guidance", envelope.Hint)
 	}
 
-	replaceEnvelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("column is out of range"))
+	replaceEnvelope := newToolErrorEnvelope("patch_edit", "go", errors.New("column is out of range"))
 	if !strings.Contains(strings.ToLower(replaceEnvelope.Hint), "patch") {
 		t.Fatalf("replace_range-style cursor hint = %q, want patch guidance", replaceEnvelope.Hint)
 	}

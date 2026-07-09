@@ -17,7 +17,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 			IsWorktree:                   true,
 			Provider:                     "codex",
 			Model:                        "gpt-5.5",
-			EnabledTools:                 []string{"exec_command", "file", "grep", "lsp_file"},
+			EnabledTools:                 []string{"exec_command", "file", "grep", "file"},
 			AdditionalWorkingDirectories: []string{"/repo/extra", " /repo/extra-two ", "/repo/extra"},
 		},
 	})

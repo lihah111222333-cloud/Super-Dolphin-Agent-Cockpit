@@ -36,13 +36,13 @@ func logEditDiskConfirmation(path string, diffBytes int, syncErr error) {
 		DiffBytes: diffBytes,
 		SyncError: syncError,
 	}
-	pkglogger.Warn("mcp-lsp edit disk write confirmed before LSP sync returned",
+	pkglogger.Warn("mcp-lsp patch_edit disk write confirmed before LSP sync returned",
 		"file_path", path,
 		"diff_bytes", diffBytes,
 		"sync_error", syncError,
 	)
 	if err := appendEditRecoveryLog(entry); err != nil {
-		pkglogger.Warn("mcp-lsp edit recovery log write failed", "error", err)
+		pkglogger.Warn("mcp-lsp patch_edit recovery log write failed", "error", err)
 	}
 }
 

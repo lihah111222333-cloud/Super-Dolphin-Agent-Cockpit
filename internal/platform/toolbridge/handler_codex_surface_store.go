@@ -41,9 +41,7 @@ func (s codexDisabledToolSet) match(names ...string) (string, bool) {
 }
 
 func mcpSurfaceToolAliases(family, realName, canonical string) []string {
-	aliases := []string{canonical, realName, wrappedMCPToolName(family, realName)}
-	aliases = append(aliases, mcpSurfaceDenyAndHiddenAliases(family, canonical)...)
-	return aliases
+	return []string{canonical, realName, wrappedMCPToolName(family, realName)}
 }
 
 // addSingleMCPToolToSurface 处理一个 MCP 工具的可见性、禁用别名和可调用入口。
@@ -58,6 +56,9 @@ func addSingleMCPToolToSurface(
 ) error {
 	if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
 		return nil
+	}
+	if err := validateCurrentLSPPeerToolName(family, tool.Name); err != nil {
+		return err
 	}
 	canonical := canonicalCodexToolName(family, tool.Name)
 	if shouldNamespaceExternalMCPTool(surface, family, canonical) {
@@ -74,11 +75,6 @@ func addSingleMCPToolToSurface(
 	if err := addCallableMCPToolAliases(surface, family, tool.Name, canonical); err != nil {
 		return err
 	}
-	for _, alias := range callableLegacyCodexToolAliases(family, canonical) {
-		if err := addSurfaceAlias(surface, alias, canonical); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -87,6 +83,16 @@ func addCallableMCPToolAliases(surface *codexToolSurface, family, realName, cano
 		return err
 	}
 	return addSurfaceAlias(surface, wrappedMCPToolName(family, realName), canonical)
+}
+
+func validateCurrentLSPPeerToolName(family, name string) error {
+	if strings.TrimSpace(family) != mcpdto.ClientKindLSP {
+		return nil
+	}
+	if isCurrentLSPToolName(name) {
+		return nil
+	}
+	return fmt.Errorf("toolbridge: LSP peer returned unsupported tool %q; expected current short-name contract", strings.TrimSpace(name))
 }
 
 // addDisabledSurfaceToolAliases 记录被 session config 禁用的工具别名。

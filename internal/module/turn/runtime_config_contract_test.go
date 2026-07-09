@@ -13,7 +13,7 @@ func TestMergePrepareInputRuntimeUsesRuntimeConfigKeyAliases(t *testing.T) {
 		"git_root":                       "/repo",
 		"is_worktree":                    true,
 		"language":                       "zh-CN",
-		"enabled_tools":                  []any{"lsp_file", "launch_agent"},
+		"enabled_tools":                  []any{"file", "launch_agent"},
 		"additional_working_directories": []any{"/repo/packages/api"},
 		"session_flags":                  map[string]any{"persistent_subagent_default": true},
 		"output_style_config": map[string]any{
@@ -24,7 +24,7 @@ func TestMergePrepareInputRuntimeUsesRuntimeConfigKeyAliases(t *testing.T) {
 		"frc_config": map[string]any{
 			"enabled": true,
 		},
-		"mcp_tools":                      []any{"mcp__lsp__lsp_grep"},
+		"mcp_tools":                      []any{"mcp__lsp__grep"},
 		"mcp_instructions":               map[string]any{"lsp": "Use LSP first."},
 		"disable_provider_native_skills": true,
 	})
@@ -49,7 +49,7 @@ func assertRuntimeConfigRepositoryFields(t *testing.T, input PrepareInput) {
 func assertRuntimeConfigToolFields(t *testing.T, input PrepareInput) {
 	t.Helper()
 
-	if got := input.EnabledTools; len(got) != 2 || got[0] != "lsp_file" || got[1] != "launch_agent" {
+	if got := input.EnabledTools; len(got) != 2 || got[0] != "file" || got[1] != "launch_agent" {
 		t.Fatalf("EnabledTools = %#v", got)
 	}
 	if got := input.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/packages/api" {
@@ -77,7 +77,7 @@ func assertRuntimeConfigPromptFields(t *testing.T, input PrepareInput) {
 func assertRuntimeConfigMCPFields(t *testing.T, input PrepareInput) {
 	t.Helper()
 
-	if got := input.MCPSnapshot.Tools; len(got) != 1 || got[0] != "mcp__lsp__lsp_grep" {
+	if got := input.MCPSnapshot.Tools; len(got) != 1 || got[0] != "mcp__lsp__grep" {
 		t.Fatalf("MCPSnapshot.Tools = %#v", got)
 	}
 	if input.MCPSnapshot.Instructions["lsp"] != "Use LSP first." {

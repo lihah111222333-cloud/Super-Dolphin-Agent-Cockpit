@@ -55,8 +55,8 @@ func TestReplaceRangeEmitsStageLogsWithoutPatchContent(t *testing.T) {
 
 	text := logs.String()
 	for _, want := range []string{
-		`"msg":"mcp-lsp edit stage started"`,
-		`"msg":"mcp-lsp edit stage completed"`,
+		`"msg":"mcp-lsp patch_edit stage started"`,
+		`"msg":"mcp-lsp patch_edit stage completed"`,
 		`"stage":"workspace_roots"`,
 		`"stage":"file_lock"`,
 		`"stage":"read_file"`,
