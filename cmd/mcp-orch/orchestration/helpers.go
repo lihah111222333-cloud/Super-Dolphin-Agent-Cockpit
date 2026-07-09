@@ -382,15 +382,6 @@ func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime,
 	return nil
 }
 
-// discardStaleSuccessfulLaunch 处理恢复/启动竞争中已经成功但判定过期的 runtime。
-// 它会先停止新启动的 agent，再把原错误返回给调用方，避免泄漏不再归属当前状态机的线程。
-func (s *service) discardStaleSuccessfulLaunch(ctx context.Context, launching *agentRuntime, staleErr error) error {
-	if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
-		s.logger.Warn("orchestration: discard stale successful launch stop failed", "agent_id", launching.id, "error", stopErr)
-	}
-	return staleErr
-}
-
 // listAgents/withAgent* facades are retained for service-owned hook/recover/report/turn ports;
 // callers that already own lifecycle/registry state should call agentRegistry directly.
 func (s *service) listAgents() []agentRuntime {
