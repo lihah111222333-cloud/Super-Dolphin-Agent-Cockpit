@@ -31,3 +31,16 @@ func TestOrchestrationToolAliasRegistryDrivesCanonicalAndLegacyMapping(t *testin
 		}
 	}
 }
+
+func TestRequiresLegacyOrchSurfaceNameCoversUnknownLegacyPrefix(t *testing.T) {
+	for _, name := range []string{"orchestration_launch_agent", "orchestration_unknown"} {
+		if !requiresLegacyOrchSurfaceName(name) {
+			t.Fatalf("requiresLegacyOrchSurfaceName(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"launch_agent", "mcp__orch__launch_agent", "unknown"} {
+		if requiresLegacyOrchSurfaceName(name) {
+			t.Fatalf("requiresLegacyOrchSurfaceName(%q) = true, want false", name)
+		}
+	}
+}

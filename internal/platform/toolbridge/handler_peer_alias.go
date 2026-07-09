@@ -2,6 +2,8 @@ package toolbridge
 
 import "strings"
 
+const legacyOrchSurfacePrefix = "orchestration_"
+
 type orchestrationLegacyAlias struct {
 	Canonical          string
 	LegacyPeerRealName string
@@ -70,4 +72,8 @@ func canonicalOrchSurfaceName(name string) string {
 func isLegacyOrchPeerRealName(name string) bool {
 	name = strings.TrimSpace(name)
 	return name != "" && canonicalOrchSurfaceName(name) != name
+}
+
+func requiresLegacyOrchSurfaceName(name string) bool {
+	return strings.HasPrefix(strings.TrimSpace(name), legacyOrchSurfacePrefix)
 }
