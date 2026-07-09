@@ -39,6 +39,29 @@ func TestReadOnlyAgentDeniedToolsUsesOrchestrationDenylist(t *testing.T) {
 	}
 }
 
+func TestReadOnlyAgentDeniedToolsUsesCurrentWritableToolSurface(t *testing.T) {
+	denied := ReadOnlyAgentDeniedTools()
+	for _, name := range []string{
+		"patch_edit", "shared_file_write", "memory_write",
+		"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
+		"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
+		"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
+		"workflow_template_save", "workflow_template_rollback",
+		"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
+		"multi_agent", "multi_tool_use.parallel", "spawn_agent", "send_input",
+		"resume_agent", "wait_agent", "close_agent", "connect_tool_source",
+	} {
+		if !slices.Contains(denied, name) {
+			t.Fatalf("ReadOnlyAgentDeniedTools() missing writable tool %q", name)
+		}
+	}
+	for _, legacy := range []string{"edit", "lsp_edit"} {
+		if slices.Contains(denied, legacy) {
+			t.Fatalf("ReadOnlyAgentDeniedTools() contains retired tool name %q", legacy)
+		}
+	}
+}
+
 func TestOrchestrationToolHelpersReturnCopies(t *testing.T) {
 	tests := []struct {
 		name string
