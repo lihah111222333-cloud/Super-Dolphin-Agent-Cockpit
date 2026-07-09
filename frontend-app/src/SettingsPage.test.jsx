@@ -346,7 +346,10 @@ describe('SettingsPage provider settings', () => {
 
     await renderSettingsPage();
 
-    fireEvent.change(screen.getByLabelText('Writable Roots'), { target: { value: '/repo/app\nrelative/path' } });
+    const writableRoots = screen.getByLabelText('Writable Roots');
+    await waitFor(() => expect(writableRoots).toHaveValue('/repo/app'));
+
+    fireEvent.change(writableRoots, { target: { value: '/repo/app\nrelative/path' } });
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 
     await waitFor(() => {
@@ -426,6 +429,10 @@ describe('SettingsPage provider settings', () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
 
     await renderSettingsPage();
+
+    await waitFor(() => {
+      expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.codex.sandbox' });
+    });
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 

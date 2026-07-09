@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText } from '../shared/pageShared.js';
 import { settingsPageService } from './services/settingsPageService.js';
 import {
   changeActiveProviderPreference,
   defaultSettingsForm,
-  loadRuntimePreferences,
+  normalizeSettingsCwd,
+  readRuntimeSettingsForm,
   saveProviderRuntimePreferences,
   saveRuntimePreferences,
   settingsFormWithUpdate,
@@ -14,6 +15,10 @@ import {
 } from './settingsPageRuntime.js';
 
 const { checkAppUpdate, getBuildInfo, installLatestAppUpdate } = settingsPageService;
+
+function settingsRuntimePreferencesQueryKey(cwd) {
+  return ['settings', 'runtime-preferences', normalizeSettingsCwd(cwd)];
+}
 
 function useSettingsRuntime(cwd, copy) {
   const [buildInfo, setBuildInfo] = useState(null);
@@ -40,7 +45,13 @@ function useSettingsRuntime(cwd, copy) {
       setError(err.message || String(err));
     }
   }, [copy]);
-  const loadPreferences = useCallback(() => loadRuntimePreferences({ cwd, isCurrent: nextPreferenceRequest(), setError, setForm }), [cwd, nextPreferenceRequest]);
+  const runtimePreferencesQuery = useQuery({
+    queryKey: settingsRuntimePreferencesQueryKey(cwd),
+    queryFn: () => readRuntimeSettingsForm(cwd),
+    enabled: Boolean(normalizeSettingsCwd(cwd)),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
   const updateForm = useCallback((key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((current) => settingsFormWithUpdate(current, key, value));
@@ -94,7 +105,16 @@ function useSettingsRuntime(cwd, copy) {
     installUpdateMutation.mutate({ pendingInfo: updateInfo });
   }, [installUpdateMutation, updateInfo, updateInstalling]);
   useEffect(() => { void refreshBuildInfo(); }, [refreshBuildInfo]);
-  useEffect(() => { void loadPreferences(); }, [loadPreferences]);
+  useEffect(() => {
+    if (runtimePreferencesQuery.error) {
+      setError(runtimePreferencesQuery.error.message || String(runtimePreferencesQuery.error));
+      return;
+    }
+    if (runtimePreferencesQuery.data) {
+      setError('');
+      setForm(runtimePreferencesQuery.data);
+    }
+  }, [runtimePreferencesQuery.data, runtimePreferencesQuery.error]);
   return { buildInfo, changeActiveProvider, checkForUpdate, error, form, installUpdate, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateBusy, updateInfo, updateInstalling, updateNotice, updateForm };
 }
 
@@ -142,4 +162,4 @@ function appUpdateDisplayVersion(version) {
   return value;
 }
 
-export { appUpdateCurrentVersionLabel, useSettingsRuntime };
+export { appUpdateCurrentVersionLabel, settingsRuntimePreferencesQueryKey, useSettingsRuntime };

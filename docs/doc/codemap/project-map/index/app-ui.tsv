@@ -306,11 +306,11 @@ frontend-app/src/pages/settings/services/settingsPageService.js	frontend-app	app
 frontend-app/src/pages/settings/settingsBuiltinToolsRuntime.js	frontend-app	app-ui	js-source	6950	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsBuiltinToolsRuntime,React,页面与路由级,UI
 frontend-app/src/pages/settings/SettingsPage.css	frontend-app	app-ui	css	1237	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,React,页面与路由级,UI
 frontend-app/src/pages/settings/SettingsPage.jsx	frontend-app	app-ui	jsx	5756	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,React,页面与路由级,UI
-frontend-app/src/pages/settings/SettingsPage.test.jsx	frontend-app	app-ui	jsx	39311	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,test,React,页面与路由级,UI
-frontend-app/src/pages/settings/settingsPageRuntime.js	frontend-app	app-ui	js-source	22421	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsPageRuntime,React,页面与路由级,UI
+frontend-app/src/pages/settings/SettingsPage.test.jsx	frontend-app	app-ui	jsx	42160	React 页面与路由级 UI	frontend,app,src,pages,settings,SettingsPage,test,React,页面与路由级,UI
+frontend-app/src/pages/settings/settingsPageRuntime.js	frontend-app	app-ui	js-source	22677	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsPageRuntime,React,页面与路由级,UI
 frontend-app/src/pages/settings/settingsPromptRuntime.js	frontend-app	app-ui	js-source	8476	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsPromptRuntime,React,页面与路由级,UI
-frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js	frontend-app	app-ui	js-source	3395	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsProviderPreferencesRuntime,React,页面与路由级,UI
-frontend-app/src/pages/settings/settingsRuntimeHook.js	frontend-app	app-ui	js-source	6803	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsRuntimeHook,React,页面与路由级,UI
+frontend-app/src/pages/settings/settingsProviderPreferencesRuntime.js	frontend-app	app-ui	js-source	4504	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsProviderPreferencesRuntime,React,页面与路由级,UI
+frontend-app/src/pages/settings/settingsRuntimeHook.js	frontend-app	app-ui	js-source	7383	React 页面与路由级 UI	frontend,app,src,pages,settings,settingsRuntimeHook,React,页面与路由级,UI
 frontend-app/src/pages/shared/featureDtoGolden.test.js	frontend-app	app-ui	js-test	6409	React 页面与路由级 UI	frontend,app,src,pages,shared,featureDtoGolden,test,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.jsx	frontend-app	app-ui	jsx	1364	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,React,页面与路由级,UI
 frontend-app/src/pages/shared/pageComponents.test.jsx	frontend-app	app-ui	jsx	1393	React 页面与路由级 UI	frontend,app,src,pages,shared,pageComponents,test,React,页面与路由级,UI
@@ -362,7 +362,7 @@ frontend-app/src/services/modules/memoryService.test.js	frontend-app	app-ui	js-t
 frontend-app/src/services/modules/observabilityPage.degradation.test.jsx	frontend-app	app-ui	jsx	2077	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityPage,degradation,test,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityService.js	frontend-app	app-ui	js-source	1209	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,当前,React,Vite,前端包
 frontend-app/src/services/modules/observabilityService.test.js	frontend-app	app-ui	js-test	1997	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,test,当前,React,Vite,前端包
-frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	24743	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
+frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	25013	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
 frontend-app/src/shared/api/approvalRequestId.js	frontend-app	app-ui	js-source	546	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,approvalRequestId,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiCommon.js	frontend-app	app-ui	js-source	6298	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiCommon,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiFactoryCore.js	frontend-app	app-ui	js-source	21076	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiFactoryCore,React,前端,API,facade,与,Wails,bridge

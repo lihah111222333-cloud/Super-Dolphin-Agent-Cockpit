@@ -367,7 +367,8 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByLabelText('Writable Roots')).toHaveValue('/repo/app\n/Users/test/shared');
+    const writableRoots = await screen.findByLabelText('Writable Roots');
+    await waitFor(() => expect(writableRoots).toHaveValue('/repo/app\n/Users/test/shared'));
     expect(screen.getByLabelText('Network Access')).toBeChecked();
   });
 
@@ -383,7 +384,8 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByLabelText('Writable Roots')).toHaveValue('C:\\Users\\alice\\project\n\\\\server\\share\\repo');
+    const writableRoots = await screen.findByLabelText('Writable Roots');
+    await waitFor(() => expect(writableRoots).toHaveValue('C:\\Users\\alice\\project\n\\\\server\\share\\repo'));
     backend.setPreference.mockClear();
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
@@ -453,8 +455,81 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByTestId('provider-summary-mode-select')).toHaveValue('concise');
+    const summaryMode = await screen.findByTestId('provider-summary-mode-select');
+    await waitFor(() => expect(summaryMode).toHaveValue('concise'));
     expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('on-request');
+  });
+
+  it('does not reload runtime preferences on window focus when a runtime form is dirty', async () => {
+    const reads = [];
+    const preferences = preferenceFixture();
+    backend.getPreference.mockImplementation(({ key }) => {
+      reads.push(key);
+      return Promise.resolve(preferences[key] ?? null);
+    });
+
+    renderSettingsPage('/repo/app');
+
+    const threshold = await screen.findByLabelText('统一超时阈值');
+    await waitFor(() => expect(threshold).toHaveValue(60));
+    fireEvent.change(threshold, { target: { value: '45' } });
+    reads.length = 0;
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(threshold).toHaveValue(45));
+    expect(reads).toEqual([]);
+  });
+
+  it('does not reload provider properties on window focus when the provider form is dirty', async () => {
+    const reads = [];
+    const preferences = preferenceFixture();
+    backend.getPreference.mockImplementation(({ key }) => {
+      reads.push(key);
+      return Promise.resolve(preferences[key] ?? null);
+    });
+
+    renderSettingsPage('/repo/app');
+
+    const summaryMode = await screen.findByTestId('provider-summary-mode-select');
+    await waitFor(() => expect(summaryMode).toHaveValue('detailed'));
+    fireEvent.change(summaryMode, { target: { value: 'concise' } });
+    reads.length = 0;
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(summaryMode).toHaveValue('concise'));
+    expect(reads).toEqual([]);
+  });
+
+  it('keeps dirty provider properties when provider preferences refetch in the background', async () => {
+    const preferences = preferenceFixture();
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    const { queryClient } = renderSettingsPage('/repo/app');
+    const summaryMode = await screen.findByTestId('provider-summary-mode-select');
+    await waitFor(() => expect(summaryMode).toHaveValue('detailed'));
+    fireEvent.change(summaryMode, { target: { value: 'concise' } });
+
+    preferences['settings.provider.codex.summary'] = 'auto';
+    backend.getPreference.mockClear();
+
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === 'settings' && query.queryKey[1] === 'provider-preferences',
+      });
+    });
+
+    await waitFor(() => {
+      expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.codex.summary' });
+    });
+    expect(summaryMode).toHaveValue('concise');
   });
 
   it('keeps provider properties scoped to codex after an unsupported provider change', async () => {
