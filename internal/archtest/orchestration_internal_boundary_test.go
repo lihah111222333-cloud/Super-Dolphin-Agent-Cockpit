@@ -190,6 +190,33 @@ func TestOrchestrationAdaptersDoNotHoldFullService(t *testing.T) {
 	failIfViolations(t, violations)
 }
 
+func TestOrchestrationProviderParamsRejectNestedFuncFullService(t *testing.T) {
+	t.Parallel()
+
+	const relPath = "cmd/mcp-orch/orchestration/provider_fixture.go"
+	const source = `package orchestration
+
+type service struct{}
+
+func ProvideFixture(callback func(*service)) any {
+	return nil
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, relPath, source, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse provider fixture: %v", err)
+	}
+
+	violations := orchestrationInternalBoundaryFullServiceProviderParamViolations(fset, file, relPath)
+	if len(violations) != 1 {
+		t.Fatalf("provider-like nested func(*service) violations = %v, want exactly one", violations)
+	}
+	if !strings.Contains(violations[0], "ProvideFixture must not take *service") {
+		t.Fatalf("provider-like nested func(*service) violation = %q, want provider parameter message", violations[0])
+	}
+}
+
 func TestOrchestrationDAGFilesDoNotReadRuntimeAgentMap(t *testing.T) {
 	t.Parallel()
 
@@ -439,10 +466,9 @@ func orchestrationInternalBoundaryFullServiceProviderParamViolations(fset *token
 			continue
 		}
 		for _, field := range fn.Type.Params.List {
-			if _, ok := orchestrationInternalBoundaryServiceStar(field.Type); !ok {
-				continue
+			for _, star := range orchestrationInternalBoundaryServiceStarsInExpr(field.Type) {
+				violations = append(violations, fmt.Sprintf("%s:%d %s must not take *service; expose a narrow port through fx.As or a typed params struct", relPath, fset.Position(star.Pos()).Line, fn.Name.Name))
 			}
-			violations = append(violations, fmt.Sprintf("%s:%d %s must not take *service; expose a narrow port through fx.As or a typed params struct", relPath, fset.Position(field.Pos()).Line, fn.Name.Name))
 		}
 	}
 	return violations
