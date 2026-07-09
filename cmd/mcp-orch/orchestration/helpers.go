@@ -203,16 +203,16 @@ func (c *lifecycleController) stopAgentLocked(ctx context.Context, state lifecyc
 }
 
 func (s *service) stopAgentWithReason(ctx context.Context, agentID, reason string) error {
-	launchSeq, err := s.lifecycle.requestAgentStop(ctx, s.registry, agentID, reason, s)
+	launchSeq, err := s.lifecycle.requestAgentStop(ctx, agentID, reason, s)
 	if err != nil {
 		return err
 	}
-	return s.lifecycle.waitForProcessExit(ctx, s.registry, s.logger, strings.TrimSpace(agentID), launchSeq)
+	return s.lifecycle.waitForProcessExit(ctx, s.logger, strings.TrimSpace(agentID), launchSeq)
 }
 
-func (c *lifecycleController) requestAgentStop(ctx context.Context, registry *agentRegistry, agentID, reason string, state lifecycleStopStatePort) (uint64, error) {
+func (c *lifecycleController) requestAgentStop(ctx context.Context, agentID, reason string, state lifecycleStopStatePort) (uint64, error) {
 	launchSeq := uint64(0)
-	err := registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	err := c.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if agent.cmd != nil {
 			launchSeq = agent.launchSeq
 		}
@@ -380,24 +380,6 @@ func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime,
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	s.publishStateChanged(agent, before, string(trigger))
 	return nil
-}
-
-// listAgents/withAgent* facades are retained for service-owned hook/recover/report/turn ports;
-// callers that already own lifecycle/registry state should call agentRegistry directly.
-func (s *service) listAgents() []agentRuntime {
-	return s.registry.listAgents()
-}
-
-func (s *service) withAgentLocked(agentID string, fn func(*agentState) error) error {
-	return s.registry.withAgentLocked(agentID, fn)
-}
-
-func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error) error {
-	return s.registry.withAgentReadLocked(agentID, fn)
-}
-
-func (s *service) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {
-	return s.registry.withAgentReadLockedByAgentID(ctx, agentID, fn)
 }
 
 func agentSessionFenceOK(agent *agentState, evSessionID string) bool {

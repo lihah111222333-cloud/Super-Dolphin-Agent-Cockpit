@@ -21,7 +21,7 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	if !shouldUpdatePort(report.Port) && !shouldUpdateProvider(provider) {
 		return errors.New("runtime report must include port or provider")
 	}
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	return s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		// runtime 上报 provider 必须命中白名单；未知值直接拒绝，避免落入快照后被误认为可信来源。
 		if shouldUpdateProvider(provider) && !isKnownRuntimeProvider(provider) {
 			return fmt.Errorf(

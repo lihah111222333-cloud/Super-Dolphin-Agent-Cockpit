@@ -74,6 +74,7 @@ type service struct {
 
 // lifecycleController owns agent launch/stop/process-exit state and service-scoped async bookkeeping.
 type lifecycleController struct {
+	registry               *agentRegistry
 	launcher               AgentLauncher
 	sessionCleaner         contract.OrchestrationSessionCleaner
 	recoveryStore          recoveryTurnStore
@@ -89,6 +90,7 @@ type lifecycleController struct {
 }
 
 type lifecycleControllerParams struct {
+	registry       *agentRegistry
 	logger         *slog.Logger
 	launcher       AgentLauncher
 	sessionCleaner contract.OrchestrationSessionCleaner
@@ -102,6 +104,7 @@ func newLifecycleController(p lifecycleControllerParams) *lifecycleController {
 	}
 	asyncCtx, asyncCancel := context.WithCancel(context.Background())
 	return &lifecycleController{
+		registry:       p.registry,
 		launcher:       p.launcher,
 		sessionCleaner: p.sessionCleaner,
 		recoveryStore:  recoveryStore,
@@ -192,6 +195,24 @@ func (c *turnController) withAgentReadLocked(agentID string, fn func(*agentRunti
 		return errAgentNotFound
 	}
 	return c.registry.withAgentReadLocked(agentID, fn)
+}
+
+func (s *service) turnTerminalConverged(agentID, turnID string) bool {
+	if s == nil || s.turns == nil {
+		return false
+	}
+	return s.turns.turnTerminalConverged(agentID, turnID)
+}
+
+func (c *turnController) turnTerminalConverged(agentID, turnID string) bool {
+	converged := false
+	if err := c.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		converged = turnTerminalConvergedLocked(agent, turnID)
+		return nil
+	}); err != nil {
+		return false
+	}
+	return converged
 }
 
 func (c *turnController) turnIDFor(sub TurnSubmission) string {
@@ -299,6 +320,7 @@ func NewService(
 	}
 	registry := newAgentRegistry()
 	lifecycle := newLifecycleController(lifecycleControllerParams{
+		registry:       registry,
 		logger:         logger,
 		launcher:       launcher,
 		sessionCleaner: sessionCleaner,
@@ -546,7 +568,7 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 
 // StopAllAgents 按字母顺序停止所有运行中的 agent，并在调用方 deadline 内等待异步任务完成。
 func (s *service) StopAllAgents(ctx context.Context) {
-	s.lifecycle.stopAllAgents(ctx, s.registry, s, s.logger)
+	s.lifecycle.stopAllAgents(ctx, s, s.logger)
 }
 
 // DrainAsync 取消 service 共享异步 context，并等待已登记 goroutine 收尾。

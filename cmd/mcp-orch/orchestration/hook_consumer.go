@@ -56,7 +56,7 @@ type NotifyTap interface {
 type HookConsumerRuntime interface {
 	turnLifecycleRuntime
 
-	withAgentLocked(agentID string, fn func(*agentRuntime) error) error
+	mutateHookAgentLocked(agentID string, fn func(*agentRuntime) error) error
 	syncStateChangedHookLocked(ctx context.Context, agent *agentRuntime, nextState string) error
 	hookSyncForceStoppedLocked(ctx context.Context, agent *agentRuntime) error
 	stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool
@@ -81,6 +81,13 @@ type hookConsumer struct {
 	dagFallbackFlow   taskdag.NodeFlowStore
 
 	dagTurnCompletedDeps DAGSubscriberDeps
+}
+
+func (s *service) mutateHookAgentLocked(agentID string, fn func(*agentRuntime) error) error {
+	if s == nil || s.registry == nil {
+		return errAgentNotFound
+	}
+	return s.registry.withAgentLocked(agentID, fn)
 }
 
 type hookContextEnvelope struct {
@@ -242,7 +249,7 @@ func (c *hookConsumer) handleProcessExitTopic(ctx context.Context, envelope hook
 // provisioning/recovering 期间的线程归属由 pending launch 逻辑接管，避免旧线程覆盖新会话。
 func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Started) {
 	provider := normalizeRuntimeProvider(ev.Provider)
-	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" && launchOwnsHookThreadBinding(agent.state) {
 			recordPendingLaunchThreadLocked(agent, threadID, ev.Timestamp)
@@ -278,7 +285,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		c.logger.Warn("orchestration: ignoring unknown mirrored agent state", "agent_id", ev.AgentID, "thread_id", ev.ThreadID, "state", nextState)
 		return
 	}
-	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		// session fence 防止旧进程/旧线程的状态事件写入当前会话。
 		// 空 SessionID 来自早期 provider 事件，仍按兼容输入处理。
 		if !agentSessionFenceOK(agent, ev.SessionID) {
@@ -332,7 +339,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 // 被抑制或不属于当前会话的 stopped 事件只记录为跳过，不再推进状态。
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	stoppedAccepted := true
-	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		var err error
 		stoppedAccepted, err = c.applyThreadStoppedLocked(ctx, ev, agent)
 		return err
