@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -78,12 +79,7 @@ func (c *fakeMCPClient) Close() error {
 }
 
 func (c *fakeMCPClient) calledWith(name string) bool {
-	for _, call := range c.calls {
-		if call == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.calls, name)
 }
 
 func fakeClientFactory(clients map[string]mcpClient) func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
@@ -95,6 +91,50 @@ func fakeClientFactory(clients map[string]mcpClient) func(context.Context, provi
 func jsonEscape(value string) string {
 	data, _ := json.Marshal(value)
 	return string(data[1 : len(data)-1])
+}
+
+func orchestrationToolAliasesForTest(t *testing.T) []contract.OrchestrationToolAlias {
+	t.Helper()
+	canonicals := contract.OrchestrationToolCanonicalNames()
+	aliases := make([]contract.OrchestrationToolAlias, 0, len(canonicals))
+	for _, canonical := range canonicals {
+		legacy, ok := contract.OrchestrationLegacyPeerRealName(canonical)
+		if !ok {
+			t.Fatalf("OrchestrationLegacyPeerRealName(%q) = false, want true", canonical)
+		}
+		if got, ok := contract.OrchestrationCanonicalToolName(legacy); !ok || got != canonical {
+			t.Fatalf("OrchestrationCanonicalToolName(%q) = %q, %v; want %q, true", legacy, got, ok, canonical)
+		}
+		aliases = append(aliases, contract.OrchestrationToolAlias{Canonical: canonical, LegacyPeerRealName: legacy})
+	}
+	return aliases
+}
+
+func orchestrationLegacyPeerToolsForTest(t *testing.T) []mcpdto.MCPTool {
+	t.Helper()
+	aliases := orchestrationToolAliasesForTest(t)
+	tools := make([]mcpdto.MCPTool, 0, len(aliases))
+	for _, alias := range aliases {
+		tools = append(tools, mcpdto.MCPTool{
+			Name:        alias.LegacyPeerRealName,
+			Description: alias.Canonical,
+			InputSchema: strictEmptyObjectSchema(),
+		})
+	}
+	return tools
+}
+
+func orchestrationToolCallParamsForTest(name string) json.RawMessage {
+	payload := map[string]any{
+		"name":      name,
+		"arguments": map[string]any{},
+		"_agentId":  "agent-1",
+		"_threadId": "provider-thread-1",
+		"_callId":   "call-1",
+		"_cwd":      "/repo",
+	}
+	raw, _ := json.Marshal(payload)
+	return raw
 }
 
 func waitStartedToolLists(t *testing.T, started <-chan string, want ...string) {
@@ -126,9 +166,14 @@ func assertDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, wa
 			t.Fatalf("dynamic tools missing %q; got %#v", name, got)
 		}
 	}
-	for _, legacy := range []string{"lsp_grep", "lsp_format_preview", "orchestration_launch_agent"} {
+	for _, legacy := range []string{"lsp_grep", "lsp_format_preview"} {
 		if got[legacy] {
 			t.Fatalf("dynamic tools advertised legacy alias %q; got %#v", legacy, got)
+		}
+	}
+	for _, legacy := range contract.OrchestrationToolLegacyPeerRealNames() {
+		if got[legacy] {
+			t.Fatalf("dynamic tools advertised legacy orchestration alias %q; got %#v", legacy, got)
 		}
 	}
 }

@@ -249,9 +249,11 @@ func TestCodexSurfaceToolCallDeniesHiddenDisabledLifecycleAliases(t *testing.T) 
 
 func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T) {
 	root := t.TempDir()
-	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", InputSchema: strictEmptyObjectSchema()}}}
+	client := &fakeMCPClient{tools: orchestrationLegacyPeerToolsForTest(t)}
 	owner := newFakeMCPToolLifecycleOwner()
-	owner.setDecision(root, mcpdto.ClientKindOrch, "orchestration_launch_agent", contract.MCPToolLifecycleDisabled, "blocked before prepare")
+	for _, alias := range orchestrationToolAliasesForTest(t) {
+		owner.setDecision(root, mcpdto.ClientKindOrch, alias.LegacyPeerRealName, contract.MCPToolLifecycleDisabled, "blocked before prepare")
+	}
 	h := &Handler{
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: client}),
 		lifecycle:          owner,
@@ -268,27 +270,34 @@ func TestCodexSurfaceToolCallDeniesHiddenLegacyOrchWrappedCanonical(t *testing.T
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
-	assertNoDynamicToolName(t, tools, "launch_agent")
 
-	for _, name := range []string{"launch_agent", "mcp__orch__launch_agent", "orchestration_launch_agent", "mcp__orch__orchestration_launch_agent"} {
-		t.Run(name, func(t *testing.T) {
-			result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
-				Params: mustRawJSON(t, map[string]any{
-					"name":      name,
-					"arguments": map[string]any{"illegal": true},
-					"_agentId":  "agent-1",
-					"_cwd":      root,
-				}),
+	for _, alias := range orchestrationToolAliasesForTest(t) {
+		assertNoDynamicToolName(t, tools, alias.Canonical)
+		for _, name := range []string{
+			alias.Canonical,
+			wrappedMCPToolName(mcpdto.ClientKindOrch, alias.Canonical),
+			alias.LegacyPeerRealName,
+			wrappedMCPToolName(mcpdto.ClientKindOrch, alias.LegacyPeerRealName),
+		} {
+			t.Run(name, func(t *testing.T) {
+				result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+					Params: mustRawJSON(t, map[string]any{
+						"name":      name,
+						"arguments": map[string]any{"illegal": true},
+						"_agentId":  "agent-1",
+						"_cwd":      root,
+					}),
+				})
+				if err != nil {
+					t.Fatalf("HandleToolCall(%q) error = %v", name, err)
+				}
+				got, ok := result.(*ToolCallResult)
+				if !ok {
+					t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
+				}
+				assertLifecycleDeniedResult(t, got, mcpdto.ClientKindOrch, alias.LegacyPeerRealName, contract.MCPToolLifecycleDenyCodeDisabled)
 			})
-			if err != nil {
-				t.Fatalf("HandleToolCall(%q) error = %v", name, err)
-			}
-			got, ok := result.(*ToolCallResult)
-			if !ok {
-				t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
-			}
-			assertLifecycleDeniedResult(t, got, mcpdto.ClientKindOrch, "orchestration_launch_agent", contract.MCPToolLifecycleDenyCodeDisabled)
-		})
+		}
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("hidden disabled lifecycle call reached MCP client: calls=%#v", client.calls)

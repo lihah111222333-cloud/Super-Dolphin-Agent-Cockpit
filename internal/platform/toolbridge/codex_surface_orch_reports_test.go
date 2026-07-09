@@ -93,6 +93,77 @@ func TestPrepareCodexToolSurfaceAdvertisesThirdVersionOrchestrationShortNames(t 
 	assertNoLegacyOrchestrationTools(t, tools)
 }
 
+func TestCodexSurfaceOrchReportRegistryMapsAllShortNamesAndRejectsLegacyAliases(t *testing.T) {
+	h, orch, tools := prepareOrchReportSurfaceFromLegacyPeerNames(t)
+	assertAllOrchReportShortNamesAdvertised(t, tools)
+	for _, alias := range orchestrationToolAliasesForTest(t) {
+		assertOrchReportShortCallRoutesToLegacyPeerRealName(t, h, orch, alias)
+		assertOrchReportLegacyCallsRejectedBeforePeer(t, h, orch, alias)
+	}
+}
+
+func prepareOrchReportSurfaceFromLegacyPeerNames(t *testing.T) (*Handler, *fakeMCPClient, []contract.DynamicToolSchema) {
+	t.Helper()
+	orch := &fakeMCPClient{tools: orchestrationLegacyPeerToolsForTest(t)}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
+			Name:    mcpdto.ClientKindOrch,
+			Command: []string{"mcp-orch"},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	return h, orch, tools
+}
+
+func assertAllOrchReportShortNamesAdvertised(t *testing.T, tools []contract.DynamicToolSchema) {
+	t.Helper()
+	for _, canonical := range contract.OrchestrationToolCanonicalNames() {
+		assertDynamicToolNames(t, tools, []string{canonical})
+	}
+}
+
+func assertOrchReportShortCallRoutesToLegacyPeerRealName(t *testing.T, h *Handler, orch *fakeMCPClient, alias contract.OrchestrationToolAlias) {
+	t.Helper()
+	before := len(orch.calls)
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		Params: orchestrationToolCallParamsForTest(alias.Canonical),
+	})
+	if err != nil {
+		t.Fatalf("HandleToolCall(%q) error = %v", alias.Canonical, err)
+	}
+	if result == nil {
+		t.Fatalf("HandleToolCall(%q) result = nil", alias.Canonical)
+	}
+	if got := orch.calls[before:]; len(got) != 1 || got[0] != alias.LegacyPeerRealName {
+		t.Fatalf("orch calls after %q = %#v, want one peer realName %q", alias.Canonical, got, alias.LegacyPeerRealName)
+	}
+}
+
+func assertOrchReportLegacyCallsRejectedBeforePeer(t *testing.T, h *Handler, orch *fakeMCPClient, alias contract.OrchestrationToolAlias) {
+	t.Helper()
+	for _, legacyCall := range []string{alias.LegacyPeerRealName, wrappedMCPToolName(mcpdto.ClientKindOrch, alias.LegacyPeerRealName)} {
+		before := len(orch.calls)
+		_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+			Params: orchestrationToolCallParamsForTest(legacyCall),
+		})
+		if err == nil {
+			t.Fatalf("HandleToolCall(%q) error = nil, want legacy orchestration alias rejected", legacyCall)
+		}
+		if !strings.Contains(err.Error(), "unknown codex surface tool") {
+			t.Fatalf("HandleToolCall(%q) error = %v, want unknown codex surface tool", legacyCall, err)
+		}
+		if got := orch.calls[before:]; len(got) != 0 {
+			t.Fatalf("legacy call %q reached orchestration peer: new calls=%#v", legacyCall, got)
+		}
+	}
+}
+
 func assertNoLegacyOrchestrationTools(t *testing.T, tools []contract.DynamicToolSchema) {
 	t.Helper()
 	for _, tool := range tools {
