@@ -77,6 +77,7 @@ type lifecycleController struct {
 	launcher               AgentLauncher
 	sessionCleaner         contract.OrchestrationSessionCleaner
 	recoveryStore          recoveryTurnStore
+	recovery               *recoveryController
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
 	machineCfg             platformstatemachine.Config
@@ -113,6 +114,13 @@ func newLifecycleController(p lifecycleControllerParams) *lifecycleController {
 		asyncCtx:               asyncCtx,
 		asyncCancel:            asyncCancel,
 	}
+}
+
+func (c *lifecycleController) currentRecoveryStore() recoveryTurnStore {
+	if c == nil {
+		return nil
+	}
+	return c.recoveryStore
 }
 
 type turnStatePort interface {
@@ -320,6 +328,17 @@ func NewService(
 	svc.reports = newReportController(reportControllerDeps{
 		registry: registry,
 		logger:   logger,
+	})
+	lifecycle.recovery = newRecoveryController(recoveryControllerDeps{
+		registry:     registry,
+		launcher:     lifecycle.launcher,
+		store:        lifecycle,
+		state:        svc,
+		local:        svc,
+		launchCommit: svc,
+		reports:      svc.reports,
+		eventBus:     eventBus,
+		logger:       logger,
 	})
 	bindRemoteLauncherEventSink(launcher, svc)
 	if local, ok := launcher.(*localLauncher); ok {

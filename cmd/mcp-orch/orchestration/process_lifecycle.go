@@ -117,7 +117,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	}
 	stateBefore := agent.state
 	shouldRecover := shouldAutoRecoverProcessExitLocked(s, agent, err)
-	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, s, agent)
+	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, s.lifecycle.launcher, agent)
 	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	closeAgentProcessGuard(agent)
@@ -139,7 +139,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	s.reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
 	clearAgentStopReasonLocked(agent)
 	registry.unlock()
-	s.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
+	s.lifecycle.recovery.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
 }
 
 func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
@@ -231,8 +231,6 @@ type RunnerRuntimePort interface {
 	startTurnExecution(ctx context.Context, work turnWork)
 	listAgents() []agentRuntime
 	publishTurnStalled(agent *agentRuntime, threadID, turnID, reason string, stalledFor time.Duration, timestamp time.Time)
-	recoverWithReason(ctx context.Context, agentID, reason string) error
-	notifyRecoveryFailure(ctx context.Context, agentID string, recoverErr error) error
 	StopAllAgents(ctx context.Context)
 }
 
@@ -294,10 +292,18 @@ func NewRunnerActor(p RunnerActorParams) platformrunner.Runner {
 
 const runnerShutdownDrainGrace = 30 * time.Second
 
+func (a *runnerActor) configured() bool {
+	return a != nil &&
+		a.lifecycle != nil &&
+		a.lifecycle.exitMonitor != nil &&
+		a.lifecycle.recovery != nil &&
+		a.runtime != nil
+}
+
 // Run 是本地模式的主循环，负责消费 turn、处理退出事件并检测卡住的 agent。
 // remote 模式不注册该 actor，turn 和状态事件由 launcher notify/hooks 回传。
 func (a *runnerActor) Run(ctx context.Context) error {
-	if a == nil || a.lifecycle == nil || a.lifecycle.exitMonitor == nil || a.runtime == nil {
+	if !a.configured() {
 		return errors.New("runner actor is not configured")
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -396,9 +402,9 @@ func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *S
 			stalledFor = detectedAt.Sub(agent.updatedAt)
 		}
 		a.runtime.publishTurnStalled(&agent, agent.threadID, agent.activeTurnID, recoverReasonStall, stalledFor, detectedAt)
-		if err := a.runtime.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
+		if err := a.lifecycle.recovery.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
 			a.logger.Warn("orchestration: stalled agent recovery failed", "agent_id", agent.id, "error", err)
-			if notifyErr := a.runtime.notifyRecoveryFailure(ctx, agent.id, err); notifyErr != nil {
+			if notifyErr := a.lifecycle.recovery.notifyRecoveryFailure(ctx, agent.id, err); notifyErr != nil {
 				a.logger.Warn("orchestration: stalled recovery failure report notification failed",
 					"agent_id", agent.id, "error", notifyErr)
 			}

@@ -29,7 +29,7 @@ func TestLauncherRecoveryUsesRuntimeCopyAndPreservesLaunchRequest(t *testing.T) 
 	agent.memoryScope = "project"
 	agent.language = "zh"
 
-	if err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
+	if err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
 		t.Fatalf("recoverWithReason() error = %v", err)
 	}
 	if launcher.stopAgent == agent || launcher.launchAgent == agent {
@@ -55,7 +55,7 @@ func TestLauncherRecoveryRekeysAndReplaysActiveTurn(t *testing.T) {
 	t.Cleanup(cancel)
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 
-	if err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
+	if err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
 		t.Fatalf("recoverWithReason() error = %v", err)
 	}
 	if _, err := svc.Snapshot(context.Background(), "agent-remote"); !errors.Is(err, errAgentNotFound) {
@@ -83,7 +83,7 @@ func TestLauncherProcessExitRecoveryPreservesRetryCounter(t *testing.T) {
 	agent.autoRecoverSince = time.Now()
 	agent.autoRecoverCount = 2
 
-	if err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonProcessExit); err != nil {
+	if err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonProcessExit); err != nil {
 		t.Fatalf("recoverWithReason() error = %v", err)
 	}
 	if agent.autoRecoverCount != 2 || agent.autoRecoverSince.IsZero() {
@@ -121,7 +121,7 @@ func TestLauncherRecoveryStopsSuccessfulStaleLaunch(t *testing.T) {
 		svc.registry.mu.Unlock()
 	}
 
-	err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
+	err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
 	if !errors.Is(err, errAgentNotFound) {
 		t.Fatalf("recoverWithReason() error = %v, want stale seq error", err)
 	}
@@ -139,7 +139,7 @@ func TestLauncherRecoveryReplayLoadFailureWritesFallback(t *testing.T) {
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 	agent.reportRequesters = []string{"agent-parent"}
 
-	err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
+	err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
 	if err == nil || !strings.Contains(err.Error(), "recovery store unavailable") {
 		t.Fatalf("recoverWithReason() error = %v, want recovery store error", err)
 	}
@@ -157,7 +157,7 @@ func TestLauncherRecoveryStopFailureWritesFallback(t *testing.T) {
 	agent := launcherRecoveryAgent(svc, "agent-remote")
 	agent.reportRequesters = []string{"agent-parent"}
 
-	err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
+	err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall)
 	if err == nil || !strings.Contains(err.Error(), "remote stop failed") {
 		t.Fatalf("recoverWithReason() error = %v, want stop error", err)
 	}
@@ -197,7 +197,7 @@ func TestLauncherRecoveryWithoutReplayWritesFallbackReport(t *testing.T) {
 	agent.reportRequesters = []string{"agent-parent"}
 	agent.lastError = "remote process crashed"
 
-	if err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonProcessExit); err != nil {
+	if err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonProcessExit); err != nil {
 		t.Fatalf("recoverWithReason() error = %v", err)
 	}
 	if agent.state != agentdto.StateIdle || agent.activeTurnID != "" {

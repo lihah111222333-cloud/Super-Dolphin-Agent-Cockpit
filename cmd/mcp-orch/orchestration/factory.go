@@ -220,11 +220,11 @@ func clearAgentAutoRecoveryLocked(agent *agentRuntime) {
 }
 
 // shouldRecoverViaLauncher 判断 agent 是否应通过 launcher 而非本地进程恢复。
-func shouldRecoverViaLauncher(ctx context.Context, s *service, agent *agentRuntime) bool {
-	if s == nil || s.lifecycle == nil || s.lifecycle.launcher == nil || agent == nil || agent.cmd != nil {
+func shouldRecoverViaLauncher(ctx context.Context, launcher recoveryLauncherPort, agent *agentRuntime) bool {
+	if launcher == nil || agent == nil || agent.cmd != nil {
 		return false
 	}
-	if s.lifecycle.launcher.IsRunning(ctx, agent) {
+	if launcher.IsRunning(ctx, agent) {
 		return true
 	}
 	return stoppedCodexAgentRecoverableViaLauncher(agent)
@@ -247,20 +247,6 @@ func launchOwnsHookThreadBinding(state agentdto.AgentState) bool {
 func resetRuntimeAfterProcessExitLocked(agent *agentRuntime, recoverViaLauncher bool) {
 	if !recoverViaLauncher {
 		resetRuntimeStateLocked(agent)
-	}
-}
-
-func (s *service) recoverAfterProcessExit(ctx context.Context, agentID string, launchSeq uint64, shouldRecover bool) {
-	if !shouldRecover {
-		return
-	}
-	if recoverErr := s.recoverWithReason(ctx, agentID, recoverReasonProcessExit); recoverErr != nil {
-		s.logger.Warn("orchestration: process exit recovery failed",
-			"agent_id", agentID, "launch_seq", launchSeq, "error", recoverErr)
-		if notifyErr := s.notifyRecoveryFailure(ctx, agentID, recoverErr); notifyErr != nil {
-			s.logger.Warn("orchestration: recovery failure report notification failed",
-				"agent_id", agentID, "launch_seq", launchSeq, "error", notifyErr)
-		}
 	}
 }
 

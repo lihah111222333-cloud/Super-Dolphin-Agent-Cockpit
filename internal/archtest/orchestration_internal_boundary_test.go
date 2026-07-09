@@ -82,6 +82,7 @@ func TestOrchestrationLifecycleControllerStateOwnershipRatchet(t *testing.T) {
 		"launcher",
 		"sessionCleaner",
 		"recoveryStore",
+		"recovery",
 		"agentThreads",
 		"agentBindings",
 		"machineCfg",
@@ -94,6 +95,49 @@ func TestOrchestrationLifecycleControllerStateOwnershipRatchet(t *testing.T) {
 	expected := orchestrationInternalBoundarySet(expectedFields)
 
 	failIfViolations(t, orchestrationInternalBoundaryExactStructFieldViolations(relPath, "lifecycleController", actualFields, actual, expectedFields, expected))
+}
+
+func TestOrchestrationRecoveryControllerStateOwnershipRatchet(t *testing.T) {
+	t.Parallel()
+
+	const relPath = "cmd/mcp-orch/orchestration/recover.go"
+	root := repoRoot(t)
+	file := parseGoFileForInterfaceGuard(t, root, relPath)
+	typeSpec, ok := findTypeSpec(file, "recoveryController")
+	if !ok {
+		t.Fatalf("%s: type recoveryController struct not found", relPath)
+	}
+	recoveryStruct, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		t.Fatalf("%s: type recoveryController is %T, want *ast.StructType", relPath, typeSpec.Type)
+	}
+
+	actualFields := orchestrationInternalBoundaryStructFieldNames(recoveryStruct)
+	actual := orchestrationInternalBoundarySet(actualFields)
+	expectedFields := []string{
+		"registry",
+		"launcher",
+		"store",
+		"state",
+		"local",
+		"launchCommit",
+		"reports",
+		"eventBus",
+		"logger",
+	}
+	expected := orchestrationInternalBoundarySet(expectedFields)
+
+	failIfViolations(t, orchestrationInternalBoundaryExactStructFieldViolations(relPath, "recoveryController", actualFields, actual, expectedFields, expected))
+}
+
+func TestOrchestrationRecoveryHelpersDoNotDependOnFullService(t *testing.T) {
+	t.Parallel()
+
+	const relPath = "cmd/mcp-orch/orchestration/recover.go"
+	root := repoRoot(t)
+	fset, file := orchestrationInternalBoundaryParseFile(t, root, relPath)
+
+	failIfViolations(t, orchestrationInternalBoundaryRecoveryServicePointerViolations(fset, file, relPath))
 }
 
 func TestOrchestrationAgentRegistryOwnsRuntimeAgentMapAndLock(t *testing.T) {
@@ -220,6 +264,75 @@ func orchestrationInternalBoundaryRuntimeAgentFieldTypeString(expr ast.Expr) str
 	default:
 		return exprTypeString(expr)
 	}
+}
+
+func orchestrationInternalBoundaryRecoveryServicePointerViolations(fset *token.FileSet, file *ast.File, relPath string) []string {
+	var violations []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		violations = append(violations, orchestrationInternalBoundaryRecoveryFuncServicePointerViolations(fset, fn, relPath)...)
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryRecoveryFuncServicePointerViolations(fset *token.FileSet, fn *ast.FuncDecl, relPath string) []string {
+	violations := orchestrationInternalBoundaryRecoveryReceiverServicePointerViolations(fset, fn, relPath)
+	if fn.Type != nil && fn.Type.Params != nil {
+		violations = append(violations, orchestrationInternalBoundaryRecoveryParamServicePointerViolations(fset, fn, relPath)...)
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryRecoveryReceiverServicePointerViolations(fset *token.FileSet, fn *ast.FuncDecl, relPath string) []string {
+	if fn.Recv == nil || orchestrationInternalBoundaryAllowedRecoveryServiceReceiver(fn.Name.Name) {
+		return nil
+	}
+	return orchestrationInternalBoundaryRecoveryFieldServicePointerViolations(
+		fset,
+		fn.Recv.List,
+		relPath,
+		fn.Name.Name,
+		"receiver; delegate through recoveryController or a narrow port",
+	)
+}
+
+func orchestrationInternalBoundaryRecoveryParamServicePointerViolations(fset *token.FileSet, fn *ast.FuncDecl, relPath string) []string {
+	return orchestrationInternalBoundaryRecoveryFieldServicePointerViolations(
+		fset,
+		fn.Type.Params.List,
+		relPath,
+		fn.Name.Name,
+		"parameter; use an explicit recovery narrow port",
+	)
+}
+
+func orchestrationInternalBoundaryRecoveryFieldServicePointerViolations(
+	fset *token.FileSet,
+	fields []*ast.Field,
+	relPath string,
+	funcName string,
+	reason string,
+) []string {
+	var violations []string
+	for _, field := range fields {
+		for _, star := range orchestrationInternalBoundaryServiceStarsInExpr(field.Type) {
+			violations = append(violations, fmt.Sprintf(
+				"%s:%d recovery helper %s must not have *service %s",
+				relPath,
+				fset.Position(star.Pos()).Line,
+				funcName,
+				reason,
+			))
+		}
+	}
+	return violations
+}
+
+func orchestrationInternalBoundaryAllowedRecoveryServiceReceiver(name string) bool {
+	return name == "Recover"
 }
 
 func orchestrationInternalBoundaryStructFieldNames(st *ast.StructType) []string {
