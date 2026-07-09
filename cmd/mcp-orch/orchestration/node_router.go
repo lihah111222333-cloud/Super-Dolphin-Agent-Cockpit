@@ -651,12 +651,12 @@ func validationOutcome(summary string) nodeexec.NodeOutcome {
 }
 
 type serviceAgentLauncher struct {
-	svc *service
+	lifecycle *agentLifecycleController
 }
 
 // NewServiceAgentLauncher 创建通过 thread service 启动 DAG agent 的适配器。
-func NewServiceAgentLauncher(svc *service) nodeexec.AgentLauncher {
-	return &serviceAgentLauncher{svc: svc}
+func NewServiceAgentLauncher(lifecycle *agentLifecycleController) nodeexec.AgentLauncher {
+	return &serviceAgentLauncher{lifecycle: lifecycle}
 }
 
 // LaunchAgent 启动代理线程并返回 provider thread_id。
@@ -666,11 +666,11 @@ func (a *serviceAgentLauncher) LaunchAgent(ctx context.Context, req contract.Lau
 
 // LaunchAgentWithSpawnRecord 启动代理线程并保留 spawn 记录。
 func (a *serviceAgentLauncher) LaunchAgentWithSpawnRecord(ctx context.Context, req contract.LaunchRequest, record func(threadID string) error) (string, error) {
-	if a == nil || a.svc == nil {
+	if a == nil || a.lifecycle == nil || a.lifecycle.launchSnapshots == nil {
 		return "", errors.New("service agent launcher: nil receiver")
 	}
 	var launchedThreadID string
-	snap, err := a.svc.launchAgentSnapshot(ctx, req, func(_ string, result LaunchResult) error {
+	snap, err := a.lifecycle.launchSnapshots.launchAgentSnapshot(ctx, req, func(_ string, result LaunchResult) error {
 		launchedThreadID = strings.TrimSpace(result.ThreadID)
 		if record == nil {
 			return nil
@@ -689,11 +689,11 @@ func (a *serviceAgentLauncher) LaunchAgentWithSpawnRecord(ctx context.Context, r
 // ValidateDAGAgentLaunch 校验 DAG agent 是否具备远端 launcher 写回能力。
 // 本地 launcher 无法返回稳定 thread_id，必须在启动前 fail-fast。
 func (a *serviceAgentLauncher) ValidateDAGAgentLaunch(_ context.Context, _ contract.LaunchRequest, dagKey, nodeKey string) error {
-	if a == nil || a.svc == nil {
+	if a == nil || a.lifecycle == nil {
 		return errors.New("service agent launcher: nil receiver")
 	}
-	if a.svc.launcher != nil {
-		if _, ok := a.svc.launcher.(*localLauncher); !ok {
+	if a.lifecycle.launcher != nil {
+		if _, ok := a.lifecycle.launcher.(*localLauncher); !ok {
 			return nil
 		}
 	}
@@ -703,10 +703,10 @@ func (a *serviceAgentLauncher) ValidateDAGAgentLaunch(_ context.Context, _ contr
 
 // StopLaunchedThread 停止由 DAG 启动的线程。
 func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID string) error {
-	if a == nil || a.svc == nil {
+	if a == nil || a.lifecycle == nil || a.lifecycle.threads == nil || a.lifecycle.stopper == nil {
 		return errors.New("service agent launcher: nil receiver")
 	}
-	result, err := StopSpawnedAgent(ctx, a.svc.agentThreads, a.svc, threadID)
+	result, err := StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID)
 	if terminateStopResultError(result, err) {
 		if err == nil {
 			err = fmt.Errorf("spawned agent stop result %s", result)

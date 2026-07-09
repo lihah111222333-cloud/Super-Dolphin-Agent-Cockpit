@@ -224,7 +224,8 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			// ProvideAutomationExecutor 要 AutomationCommandRunner 接口，fx 不会自动推断。
 			func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
 			// AgentExecutor 和 NodeExecutorRouter 作为 fx 单例接入 dispatcher。
-			// serviceAgentLauncher 负责把 service 的启动能力收窄成 executor 需要的 launcher 端口。
+			// agentLifecycleController 先把 service 生命周期能力复制到窄口，再交给 DAG agent launcher。
+			orchestration.ProvideAgentLifecycleController,
 			orchestration.NewServiceAgentLauncher,
 			fxadapter.NewStoreNodeSpawnRecorder,
 			orchestration.ProvideNodeLifecycleHooks,

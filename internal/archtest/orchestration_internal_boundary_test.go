@@ -212,69 +212,7 @@ func orchestrationInternalBoundaryParseFile(t *testing.T, root, relPath string) 
 }
 
 func orchestrationInternalBoundaryServicePointerDebt(fset *token.FileSet, file *ast.File, relPath string) []string {
-	allowed, fieldAllowed, constructorParamAllowed, violations := orchestrationInternalBoundaryAllowedServicePointers(fset, file, relPath)
-	if !fieldAllowed {
-		violations = append(violations, fmt.Sprintf("%s: serviceAgentLauncher.svc *service allowance is stale; update TestNodeRouterDoesNotGrowServiceAgentLauncherDebt", relPath))
-	}
-	if !constructorParamAllowed {
-		violations = append(violations, fmt.Sprintf("%s: NewServiceAgentLauncher(svc *service) allowance is stale; update TestNodeRouterDoesNotGrowServiceAgentLauncherDebt", relPath))
-	}
-
-	return append(violations, orchestrationInternalBoundaryUnexpectedServicePointers(fset, file, relPath, allowed)...)
-}
-
-func orchestrationInternalBoundaryAllowedServicePointers(fset *token.FileSet, file *ast.File, relPath string) (map[*ast.StarExpr]struct{}, bool, bool, []string) {
-	allowed := map[*ast.StarExpr]struct{}{}
-	var violations []string
-	fieldAllowed := orchestrationInternalBoundaryAllowLauncherField(fset, file, relPath, allowed, &violations)
-	constructorParamAllowed := orchestrationInternalBoundaryAllowLauncherConstructorParam(fset, file, relPath, allowed, &violations)
-	return allowed, fieldAllowed, constructorParamAllowed, violations
-}
-
-func orchestrationInternalBoundaryAllowLauncherField(fset *token.FileSet, file *ast.File, relPath string, allowed map[*ast.StarExpr]struct{}, violations *[]string) bool {
-	typeSpec, ok := findTypeSpec(file, "serviceAgentLauncher")
-	if !ok {
-		return false
-	}
-	st, ok := typeSpec.Type.(*ast.StructType)
-	if !ok {
-		return false
-	}
-	fieldAllowed := false
-	for _, field := range st.Fields.List {
-		star, ok := orchestrationInternalBoundaryServiceStar(field.Type)
-		if !ok {
-			continue
-		}
-		if len(field.Names) == 1 && field.Names[0].Name == "svc" {
-			allowed[star] = struct{}{}
-			fieldAllowed = true
-			continue
-		}
-		*violations = append(*violations, fmt.Sprintf("%s:%d serviceAgentLauncher has extra *service field debt; only svc *service is allowed", relPath, fset.Position(field.Pos()).Line))
-	}
-	return fieldAllowed
-}
-
-func orchestrationInternalBoundaryAllowLauncherConstructorParam(fset *token.FileSet, file *ast.File, relPath string, allowed map[*ast.StarExpr]struct{}, violations *[]string) bool {
-	fn := orchestrationInternalBoundaryFindFunc(file, "NewServiceAgentLauncher")
-	if fn == nil || fn.Type.Params == nil {
-		return false
-	}
-	paramAllowed := false
-	for _, field := range fn.Type.Params.List {
-		star, ok := orchestrationInternalBoundaryServiceStar(field.Type)
-		if !ok {
-			continue
-		}
-		if len(field.Names) == 1 && field.Names[0].Name == "svc" {
-			allowed[star] = struct{}{}
-			paramAllowed = true
-			continue
-		}
-		*violations = append(*violations, fmt.Sprintf("%s:%d NewServiceAgentLauncher has extra *service parameter debt; only svc *service is allowed", relPath, fset.Position(field.Pos()).Line))
-	}
-	return paramAllowed
+	return orchestrationInternalBoundaryUnexpectedServicePointers(fset, file, relPath, nil)
 }
 
 func orchestrationInternalBoundaryUnexpectedServicePointers(fset *token.FileSet, file *ast.File, relPath string, allowed map[*ast.StarExpr]struct{}) []string {
@@ -309,33 +247,18 @@ func orchestrationInternalBoundaryServiceStar(expr ast.Expr) (*ast.StarExpr, boo
 }
 
 func orchestrationInternalBoundarySvcSelectorDebt(fset *token.FileSet, file *ast.File, relPath string) []string {
-	expected := map[string]int{
-		"agentThreads":        1,
-		"launchAgentSnapshot": 1,
-		"launcher":            2,
-	}
-	actual := make(map[string]int, len(expected))
 	var violations []string
 	ast.Inspect(file, func(node ast.Node) bool {
 		sel, ok := node.(*ast.SelectorExpr)
 		if !ok {
 			return true
 		}
-		inner, ok := sel.X.(*ast.SelectorExpr)
-		if !ok || inner.Sel.Name != "svc" {
-			return true
-		}
-		actual[sel.Sel.Name]++
-		if _, ok := expected[sel.Sel.Name]; !ok {
-			violations = append(violations, fmt.Sprintf("%s:%d unexpected .svc.%s selector; serviceAgentLauncher may only touch launchAgentSnapshot, launcher, and agentThreads until the full-service debt is removed", relPath, fset.Position(sel.Pos()).Line, sel.Sel.Name))
+		parts := orchestrationInternalBoundarySelectorParts(sel)
+		if slices.Contains(parts[1:], "svc") {
+			violations = append(violations, fmt.Sprintf("%s:%d unexpected %s selector; node_router.go must not grow serviceAgentLauncher full-service coupling", relPath, fset.Position(sel.Pos()).Line, strings.Join(parts, ".")))
 		}
 		return true
 	})
-	for name, want := range expected {
-		if got := actual[name]; got != want {
-			violations = append(violations, fmt.Sprintf("%s: a.svc.%s selector allowance got %d occurrence(s), want %d; update the ratchet when debt shrinks, and do not grow it", relPath, name, got, want))
-		}
-	}
 	return violations
 }
 
@@ -349,7 +272,7 @@ func orchestrationInternalBoundaryStopSpawnedAgentDebt(fset *token.FileSet, file
 		}
 		matches++
 		if !orchestrationInternalBoundaryIsAllowedStopSpawnedAgentCall(call) {
-			violations = append(violations, fmt.Sprintf("%s:%d StopSpawnedAgent adapter debt must remain exactly StopSpawnedAgent(ctx, a.svc.agentThreads, a.svc, threadID)", relPath, fset.Position(call.Pos()).Line))
+			violations = append(violations, fmt.Sprintf("%s:%d StopSpawnedAgent adapter must remain exactly StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID)", relPath, fset.Position(call.Pos()).Line))
 		}
 		return true
 	})
@@ -365,8 +288,8 @@ func orchestrationInternalBoundaryIsAllowedStopSpawnedAgentCall(call *ast.CallEx
 	}
 	checks := []bool{
 		orchestrationInternalBoundaryIsIdent(call.Args[0], "ctx"),
-		orchestrationInternalBoundarySelectorChain(call.Args[1], "a", "svc", "agentThreads"),
-		orchestrationInternalBoundarySelectorChain(call.Args[2], "a", "svc"),
+		orchestrationInternalBoundarySelectorChain(call.Args[1], "a", "lifecycle", "threads"),
+		orchestrationInternalBoundarySelectorChain(call.Args[2], "a", "lifecycle", "stopper"),
 		orchestrationInternalBoundaryIsIdent(call.Args[3], "threadID"),
 	}
 	return !slices.Contains(checks, false)
@@ -482,16 +405,6 @@ func orchestrationInternalBoundaryStopAgentResults(results *ast.FieldList) bool 
 func orchestrationInternalBoundaryIsIdent(expr ast.Expr, name string) bool {
 	ident, ok := expr.(*ast.Ident)
 	return ok && ident.Name == name
-}
-
-func orchestrationInternalBoundaryFindFunc(file *ast.File, name string) *ast.FuncDecl {
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == name {
-			return fn
-		}
-	}
-	return nil
 }
 
 func orchestrationInternalBoundarySelectorChain(expr ast.Expr, want ...string) bool {

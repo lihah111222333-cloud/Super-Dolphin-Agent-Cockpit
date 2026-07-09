@@ -388,8 +388,8 @@ func TestNodeExecutorRouter_MissingRunIDIsFrameworkError(t *testing.T) {
 	}
 }
 
-// TestServiceAgentLauncher_AdapterReturnsThreadIDOnSuccess 覆盖 serviceAgentLauncher
-// 的 nil service 边界，避免适配层在依赖未装配时 panic。
+// TestServiceAgentLauncher_NilReceiverSafe 覆盖 serviceAgentLauncher
+// 的 nil lifecycle 边界，避免适配层在依赖未装配时 panic。
 func TestServiceAgentLauncher_NilReceiverSafe(t *testing.T) {
 	t.Parallel()
 	adapter := NewServiceAgentLauncher(nil)
@@ -400,6 +400,24 @@ func TestServiceAgentLauncher_NilReceiverSafe(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when service nil, got nil")
 	}
+}
+
+func TestServiceAgentLauncher_StopLaunchedThreadRequiresThreadLookup(t *testing.T) {
+	t.Parallel()
+	adapter := &serviceAgentLauncher{
+		lifecycle: &agentLifecycleController{
+			stopper: noopStopAgentService{},
+		},
+	}
+	if err := adapter.StopLaunchedThread(context.Background(), "thread-1"); err == nil {
+		t.Fatalf("StopLaunchedThread() error = nil, want nil dependency guard")
+	}
+}
+
+type noopStopAgentService struct{}
+
+func (noopStopAgentService) StopAgent(context.Context, string) error {
+	return nil
 }
 
 func TestStoreNodeSpawnRecorder_NilStoreFailsFast(t *testing.T) {

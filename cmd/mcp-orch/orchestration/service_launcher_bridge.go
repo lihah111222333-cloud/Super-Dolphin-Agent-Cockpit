@@ -14,6 +14,30 @@ import (
 	"time"
 )
 
+type agentLaunchSnapshotter interface {
+	launchAgentSnapshot(ctx context.Context, req LaunchRequest, beforeInitialPrompt func(agentID string, result LaunchResult) error) (AgentSnapshot, error)
+}
+
+type agentLifecycleController struct {
+	launchSnapshots agentLaunchSnapshotter
+	launcher        AgentLauncher
+	threads         AgentThreadLookup
+	stopper         StopAgentService
+}
+
+// ProvideAgentLifecycleController 将 service 生命周期能力复制到 DAG agent launcher 所需的窄口。
+func ProvideAgentLifecycleController(svc *service) (*agentLifecycleController, error) {
+	if svc == nil {
+		return nil, errors.New("agent lifecycle controller: service is nil")
+	}
+	return &agentLifecycleController{
+		launchSnapshots: svc,
+		launcher:        svc.launcher,
+		threads:         svc.agentThreads,
+		stopper:         svc,
+	}, nil
+}
+
 // launcherLaunchAttempt 保存一次 launcher 启动跨锁执行所需的状态快照和 seq fence。
 type launcherLaunchAttempt struct {
 	agentID     string

@@ -142,9 +142,31 @@ func TestClassifyLaunchError(t *testing.T) {
 	}
 }
 
+func TestProvideAgentLifecycleControllerNilServiceFailsFast(t *testing.T) {
+	lifecycle, err := ProvideAgentLifecycleController(nil)
+	if err == nil {
+		t.Fatalf("ProvideAgentLifecycleController(nil) error = nil, want fail-fast")
+	}
+	if lifecycle != nil {
+		t.Fatalf("ProvideAgentLifecycleController(nil) lifecycle = %T, want nil", lifecycle)
+	}
+	if !strings.Contains(err.Error(), "service is nil") {
+		t.Fatalf("ProvideAgentLifecycleController(nil) error = %q, want service context", err)
+	}
+}
+
+func mustAgentLifecycleController(t *testing.T, svc *service) *agentLifecycleController {
+	t.Helper()
+	lifecycle, err := ProvideAgentLifecycleController(svc)
+	if err != nil {
+		t.Fatalf("ProvideAgentLifecycleController() error = %v", err)
+	}
+	return lifecycle
+}
+
 func TestDAGAgentExecutorLocalLauncherFailsFastWithRemoteLauncherDiagnostic(t *testing.T) {
 	svc := NewService(silentLogger(), nil, NewLocalLauncher(nil, silentLogger()), nil, nil, nil)
-	agentExec := nodeexec.NewAgentExecutor(NewServiceAgentLauncher(svc), nodeexec.WithRecorder(noopNodeSpawnRecorder{}))
+	agentExec := nodeexec.NewAgentExecutor(NewServiceAgentLauncher(mustAgentLifecycleController(t, svc)), nodeexec.WithRecorder(noopNodeSpawnRecorder{}))
 
 	out, err := agentExec.Execute(context.Background(), serviceLauncherBridgeAgentNode(t), nodeexec.RunContext{
 		DagKey:  "dag-local",
@@ -184,7 +206,7 @@ func TestDAGAgentExecutorRemoteLauncherKeepsCommandlessSpawnWritebackPath(t *tes
 	var turnStart map[string]any
 	launcher := serviceBridgeRemoteLauncher(t, &events, &turnStart)
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	agentExec := nodeexec.NewAgentExecutor(NewServiceAgentLauncher(svc), nodeexec.WithRecorder(recorder))
+	agentExec := nodeexec.NewAgentExecutor(NewServiceAgentLauncher(mustAgentLifecycleController(t, svc)), nodeexec.WithRecorder(recorder))
 
 	out, err := agentExec.Execute(context.Background(), serviceLauncherBridgeAgentNode(t), nodeexec.RunContext{
 		DagKey:  "dag-remote",
