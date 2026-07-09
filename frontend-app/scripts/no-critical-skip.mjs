@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
 
@@ -31,85 +32,89 @@ function walkTestFiles(dir) {
   return files;
 }
 
-function lineNumberAt(source, index) {
-  let line = 1;
-  for (let i = 0; i < index; i += 1) {
-    if (source.charCodeAt(i) === 10) line += 1;
-  }
-  return line;
+function scriptKindForFile(relFile) {
+  const lowerFile = relFile.toLowerCase();
+  if (lowerFile.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (lowerFile.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (/\.[cm]?ts$/.test(lowerFile)) return ts.ScriptKind.TS;
+  return ts.ScriptKind.JS;
 }
 
-function readStringLiteral(source, start) {
-  const quote = source[start];
-  if (!['"', "'", '`'].includes(quote)) return null;
-  let value = '';
-  for (let i = start + 1; i < source.length; i += 1) {
-    const char = source[i];
-    if (char === '\\') {
-      value += source[i + 1] || '';
-      i += 1;
-      continue;
-    }
-    if (char === quote) return { value, end: i + 1 };
-    if (quote === '`' && char === '$' && source[i + 1] === '{') return null;
-    value += char;
-  }
-  return null;
+function lineNumberForNode(sourceFile, node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
-function skipJSSyntaxComment(source, start) {
-  if (source.startsWith('//', start)) {
-    const end = source.indexOf('\n', start + 2);
-    return end === -1 ? source.length : end;
-  }
-  if (source.startsWith('/*', start)) {
-    const end = source.indexOf('*/', start + 2);
-    return end === -1 ? source.length : end + 2;
-  }
-  return start;
+function isTestApiIdentifier(node) {
+  return ts.isIdentifier(node) && ['describe', 'it', 'test'].includes(node.text);
 }
 
-function skipJSSyntaxTrivia(source, start) {
-  const commentEnd = skipJSSyntaxComment(source, start);
-  if (commentEnd !== start) return commentEnd;
-  const literal = readStringLiteral(source, start);
-  return literal?.end ?? start;
+function isStaticSkipProperty(node) {
+  return ts.isStringLiteralLike(node) && node.text === 'skip';
 }
 
-function isInsideJSSyntaxTrivia(source, target) {
-  for (let cursor = 0; cursor < target; cursor += 1) {
-    const skipped = skipJSSyntaxTrivia(source, cursor);
-    if (skipped === cursor) continue;
-    if (target < skipped) return true;
-    cursor = skipped - 1;
+function isSkipMemberAccess(node) {
+  if (ts.isPropertyAccessExpression(node)) {
+    return node.name.text === 'skip' && isTestApiIdentifier(node.expression);
+  }
+  if (ts.isElementAccessExpression(node)) {
+    return isStaticSkipProperty(node.argumentExpression) && isTestApiIdentifier(node.expression);
   }
   return false;
 }
 
+function isSkipEachCallExpression(node) {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = node.expression;
+  return (
+    ts.isPropertyAccessExpression(callee) &&
+    callee.name.text === 'each' &&
+    isSkipMemberAccess(callee.expression)
+  );
+}
+
+function isSkippedTestCall(node) {
+  const expression = node.expression;
+  return isSkipMemberAccess(expression) || isSkipEachCallExpression(expression);
+}
+
+function skippedTestName(node) {
+  const [nameNode] = node.arguments;
+  if (nameNode && ts.isStringLiteralLike(nameNode)) {
+    return { name: nameNode.text, parseError: false };
+  }
+  return { name: '<unparseable>', parseError: true };
+}
+
 export function skippedTestsInSource(relFile, source) {
+  const sourceFile = ts.createSourceFile(
+    relFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindForFile(relFile),
+  );
+  if (sourceFile.parseDiagnostics.length > 0) {
+    const diagnostic = sourceFile.parseDiagnostics[0];
+    const { line } = sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0);
+    throw new Error(`critical skip source parse failed: ${relFile}:${line + 1}`);
+  }
+
   const skips = [];
-  const skipPattern = /\b(?:it|test|describe)\.skip\s*\(/g;
-  let match;
-  while ((match = skipPattern.exec(source)) !== null) {
-    if (isInsideJSSyntaxTrivia(source, match.index)) continue;
-    const literalStart = skipPattern.lastIndex;
-    const literal = readStringLiteral(source, literalStart);
-    if (!literal) {
+
+  function visit(node) {
+    if (ts.isCallExpression(node) && isSkippedTestCall(node)) {
+      const { name, parseError } = skippedTestName(node);
       skips.push({
         file: relFile,
-        line: lineNumberAt(source, match.index),
-        name: '<unparseable>',
-        parseError: true,
+        line: lineNumberForNode(sourceFile, node),
+        name,
+        parseError,
       });
-      continue;
     }
-    skips.push({
-      file: relFile,
-      line: lineNumberAt(source, match.index),
-      name: literal.value,
-      parseError: false,
-    });
+    ts.forEachChild(node, visit);
   }
+
+  visit(sourceFile);
   return skips;
 }
 

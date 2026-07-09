@@ -275,13 +275,22 @@ function saveBaseline(filePath, data) {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
+function canonicalViolationSignature(signature) {
+  if (typeof signature !== 'string') return signature;
+  const [rule] = signature.split('\u0000');
+  return rule === 'file-length' ? rule : signature;
+}
+
 function violationSignature(entry) {
-  return `${entry.rule}\u0000${entry.message}`;
+  return canonicalViolationSignature(`${entry.rule}\u0000${entry.message}`);
 }
 
 function signatureBudget(signatures) {
   const budget = new Map();
-  for (const signature of Array.isArray(signatures) ? signatures : []) budget.set(signature, (budget.get(signature) || 0) + 1);
+  for (const signature of Array.isArray(signatures) ? signatures : []) {
+    const canonicalSignature = canonicalViolationSignature(signature);
+    budget.set(canonicalSignature, (budget.get(canonicalSignature) || 0) + 1);
+  }
   return budget;
 }
 
