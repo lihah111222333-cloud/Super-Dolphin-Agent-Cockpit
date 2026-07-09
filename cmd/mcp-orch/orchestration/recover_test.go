@@ -445,7 +445,7 @@ func TestLoadRecoveredTurnSubmissionSkipsReclaimedWakeup(t *testing.T) {
 	}
 	agent := &agentRuntime{id: "agent-1", threadID: "thread-1", activeTurnID: "turn-active"}
 
-	submission, shouldReplay, err := loadRecoveredTurnSubmission(context.Background(), svc, agent)
+	submission, shouldReplay, err := loadRecoveredTurnSubmission(context.Background(), svc.lifecycle.recoveryStore, agent)
 	if err != nil {
 		t.Fatalf("loadRecoveredTurnSubmission() error = %v", err)
 	}
