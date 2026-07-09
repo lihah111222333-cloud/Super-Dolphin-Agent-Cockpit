@@ -142,7 +142,11 @@ flowchart TD
 | `ToolHookCallback` | `CallbackHookBefore(...); CallbackHookCheck(...); CallbackHookAfter(...)` | Platform：`internal/platform/mcpcontrol` | `internal/platform/mcpcontrol` (`ToolRegistry`) |
 | `PeerCallback` | `CallbackBefore(...); CallbackCheck(...); CallbackAfter(...)` | Platform：`internal/platform/hooks` dispatcher | `internal/platform/mcpcontrol` (`ToolRegistry`) |
 | `ToolControlPlane` | `ToolRegistry + ToolNotifier + ToolHookCallback + PeerCallback` | 当前主要作为组合别名；无独立消费面 | `internal/platform/mcpcontrol` (`ToolRegistry`) |
-| `OrchestrationService` | `LaunchAgent(...); ListAgents(...); StopAgent(...); SubmitTurn(...); CompleteTurn(...); Recover(...); BindSessionGeneration(...); Snapshot(...); UpdateRuntime(...); GetState(...); GetReport(...); RememberReportRequest(...); HandleReportEvent(...); CreateDAG(...); GetDAG(...); ListDAGs(...); UpdateNodeStatus(...); StartDAG(ctx, StartDAGRequest) (StartDAGResponse, error); ApplyOps(ctx, ApplyOpsRequest) (ApplyOpsResponse, error); GetRun(ctx, GetRunRequest) (GetRunResponse, error); ListRuns(ctx, ListRunsRequest) (ListRunsResponse, error)` | App：`internal/app`；Module：`dashboard/uistate`；UI：`internal/ui/wails`；Platform：`mcpcontrol`；cmd：`cmd/mcp-orch/tools` | `cmd/mcp-orch/orchestration` (`service`) |
+| `AgentLifecyclePort` | `LaunchAgent(...); ListAgents(...); StopAgent(...); InterruptAgent(...); Recover(...); Snapshot(...); GetState(...)` | App/dashboard/uistate/UI/tools 只读或生命周期面 | `cmd/mcp-orch/orchestration` (`service`) |
+| `AgentRuntimePort` | `UpdateRuntime(...); BindSessionGeneration(...)` | Provider/runtime 与 thread generation 绑定 | `cmd/mcp-orch/orchestration` (`service`) |
+| `AgentReportPort` | `GetReport(...); RememberReportRequest(...); HandleReportEvent(...)` | dashboard/report tools/runtime report 请求链 | `cmd/mcp-orch/orchestration` (`service`) |
+| `TurnSubmissionPort` | `SubmitTurn(...); CompleteTurn(...)` | orchestration 与 turn 模块之间的 turn 提交/完成链 | `cmd/mcp-orch/orchestration` (`service`) |
+| `DAGRuntime` / `DAGCreateRuntime` / `DAGDeleteRuntime` / `DAGNodeStatusRuntime` / `DAGNodeDispatchRuntime` | DAG 查询、启动、创建、删除、节点状态更新与手动派发的拆分端口 | dashboard、RPC facade、mcp-orch tools 按需消费 | `cmd/mcp-orch/orchestration` (`service`) |
 | `OrchestrationSessionCleaner` | `RemoveSession(agentID string)` | cmd：`cmd/mcp-orch/orchestration` | `internal/provider/unified` (`sessionCleanerAdapter`)；standalone fallback：`cmd/mcp-orch` (`noopSessionCleaner`) |
 | `OrchestrationTurnStarter` | `StartTurn(ctx context.Context, submission TurnSubmission) (string, error)` | cmd：`cmd/mcp-orch/orchestration` | `internal/module/turn` (`orchestrationTurnStarter`)；standalone fallback：`cmd/mcp-orch` (`noopTurnStarter`) |
 | `RuntimeReporter` | `ReportRuntime(ctx context.Context, report RuntimeReport) error` | Provider：`internal/provider/{claudecli,codexapp}` | `internal/app` (`orchestrationRuntimeReporter` / `noopRuntimeReporter`)；`cmd/mcp-orch/orchestration.runtimeReporter` 仅辅类型，未导出到 app 图 |
@@ -184,7 +188,8 @@ flowchart TD
 | `MemoryService` | `memory.go` | `memory_read` 背后的只读 memory 查询 | `*cmd/mcp-orch/memory.service` | 仅在 `cmd/mcp-orch` standalone 图由 `memory.NewService` 提供；`app.Module` 当前不装它。 |
 | `AgentMemoryReader` | `memory.go` | agent 侧 memory 读取（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryReader` 导出；`toolbridge.Module` 消费。 |
 | `AgentMemoryWriter` | `memory.go` | agent 侧 memory 写入（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryWriter` 导出；`toolbridge.Module` 消费。 |
-| `OrchestrationService` | `orchestration.go` | agent 生命周期、turn、runtime、report、DAG、DAG run（StartDAG / ApplyOps / GetRun / ListRuns） | `*cmd/mcp-orch/orchestration.service` | 由 `cmd/mcp-orch/orchestration.Module` 导出；桌面态默认不内嵌该模块。StartDAG 路径 N 幂等：重复 idempotency_key 复用既有 run，达上限返 `ErrIdempotencyKeyExhausted`。 |
+| `AgentLifecyclePort` / `AgentRuntimePort` / `AgentReportPort` / `TurnSubmissionPort` | `orchestration.go` | agent 生命周期、runtime、report、turn 提交的拆分端口 | `*cmd/mcp-orch/orchestration.service` | 由 `cmd/mcp-orch/orchestration.Module` 分别导出为窄端口；生产消费侧不得重新聚合成总接口。 |
+| `DAGRuntime` / `DAGCreateRuntime` / `DAGDeleteRuntime` / `DAGNodeStatusRuntime` / `DAGNodeDispatchRuntime` | `orchestration.go` | DAG 模板、运行、节点状态和派发的拆分端口 | `*cmd/mcp-orch/orchestration.service` | StartDAG 路径 N 幂等：重复 idempotency_key 复用既有 run，达上限返 `ErrIdempotencyKeyExhausted`。 |
 | `OrchestrationSessionCleaner` | `orchestration.go` | orchestration 关闭 agent 时清理本地 session | `*internal/provider/unified.sessionCleanerAdapter`；standalone noop：`cmd/mcp-orch.noopSessionCleaner` | `app.Module` 侧由 `unified.NewSessionCleaner` 提供；`mcp-orch` standalone 图由 `newNoopSessionCleaner` 提供。`sessionCleanerAdapter` 额外实现了非契约方法 `RemoveSessionGeneration(...)`，供 orchestration 通过类型断言使用。 |
 | `OrchestrationTurnStarter` | `orchestration.go` | orchestration 触发 turn 启动 | `internal/module/turn.orchestrationTurnStarter`；standalone noop：`cmd/mcp-orch.noopTurnStarter` | `turn.Module` 直接提供返回值类型 `contract.OrchestrationTurnStarter`；当前 `app.Module` 不内嵌 `orchestration.Module`，`mcp-orch` standalone 图则使用 `newNoopTurnStarter`。 |
 | `PromptAssemblyService` | `prompt.go` | 统一组装 start / turn system prompt，并支持失效刷新 | `*internal/module/prompt.service` | `internal/module/prompt.Module` 通过 `AsPromptAssemblyService` 导出。 |
@@ -201,8 +206,9 @@ flowchart TD
 
 | 外部接口 / 约束 | `app` 中实现 | 说明 |
 | --- | --- | --- |
-| `thread.OrchestrationFacade` | `threadOrchestrationAdapter` / `noopThreadOrchestrationFacade` | 把“大而全”的 `contract.OrchestrationService` 缩减成 `thread` 模块真正需要的 4 个动作：launch / stop / recover / bindSessionGeneration。 |
-| `contract.RuntimeReporter` | `orchestrationRuntimeReporter` / `noopRuntimeReporter` | 把 `OrchestrationService.UpdateRuntime` 缩减成 provider 可消费的最小接口。 |
+| `thread.OrchestrationFacade` | `mcpOrchOrchestrationFacade` / `noopThreadOrchestrationFacade` | `thread` 模块真正需要的生命周期动作：launch / stop / recover。 |
+| `thread.SessionGenerationBinder` | `mcpOrchOrchestrationFacade` / `noopThreadOrchestrationFacade` | `thread` 绑定 provider session generation 的独立运行时端口。 |
+| `contract.RuntimeReporter` | `orchestrationRuntimeReporter` / `noopRuntimeReporter` | provider 可消费的单方法 runtime 上报接口，内部依赖 `contract.AgentRuntimePort.UpdateRuntime`。 |
 | `group:"runners"` 输出 | `AsRPCRunner(*rpc.Server)` | 这是 Fx 结果适配，不是行为适配；作用是把 `*rpc.Server` 包装进 `RunnerResult`。 |
 
 补充：除 `app` 自身桥接外，根装配图里还有一组“契约端口 → 跨模块 bridge / adapter / store-adapter”映射：
@@ -271,7 +277,7 @@ flowchart TD
 | `internal/contract` 暴露了什么稳定面？ | 接口、DTO、哨兵错误、桥接关系 | 具体 service 字段、状态机、事件翻译器不在本卷 |
 | `thread/turn/prompt/memory` 怎么实现？ | 只写“谁消费哪个 contract” | 实现细节、handler、事件、缓存，去 07 / 11 |
 | `claudecli/codexapp/unified` 怎么跑 session / turn？ | 只写 `Driver/Session/TurnHandle/RuntimeReporter` 等契约面 | driver/session/transport/event map 去 09 |
-| `cmd/mcp-orch` 为什么需要这些 contract？ | 只写 `OrchestrationService/MemoryService` 与 fallback 契约 | DAG/store/runtime/tool server 细节去 02 / 09 / 10 |
+| `cmd/mcp-orch` 为什么需要这些 contract？ | 只写 orchestration 窄端口、`MemoryService` 与 fallback 契约 | DAG/store/runtime/tool server 细节去 02 / 09 / 10 |
 
 **切线规则：**
 
@@ -400,7 +406,7 @@ provider/unified.SessionManager
 #### B. Thread / Turn / RPC 链
 
 ```text
-thread.SessionStarter + thread.SessionProvider + thread.OrchestrationFacade
+thread.SessionStarter + thread.SessionProvider + thread.OrchestrationFacade + thread.SessionGenerationBinder
         ↓
 module/thread.Service
         ├─> Start / Resume / Recover / Stop 线程生命周期
@@ -408,7 +414,7 @@ module/thread.Service
                 ↓
       thread.OrchestrationFacade.BindSessionGeneration(...)
                 ↓
-      contract.OrchestrationService.BindSessionGeneration(...)
+      contract.AgentRuntimePort.BindSessionGeneration(...)
 
 contract.SessionResolver
         ↓
@@ -440,17 +446,21 @@ platform/mcpcontrol.ToolRegistry
         ↓ as ToolRegistry / ToolNotifier / ToolHookCallback / PeerCallback / ToolControlPlane
 ```
 
-#### D. 可选 orchestration 链
+#### D. 可选 orchestration 窄端口链
 
 ```text
-[optional] contract.OrchestrationService
-        ├─> app.newRuntimeReporter ---------> contract.RuntimeReporter
-        ├─> app.newThreadOrchestrationFacade -> thread.OrchestrationFacade
-        ├─> dashboard.Module / uistate.Module / uiwails.Module（均 optional 注入）
-        └─> platform/mcpcontrol 默认 runtime/completion report handler（optional 注入）
+[optional] contract.AgentRuntimePort
+        └─> app.newRuntimeReporter ---------> contract.RuntimeReporter
+
+[optional] contract.AgentLifecyclePort
+        ├─> app dashboard/uistate readers
+        └─> uiwails.ActiveAgentCounter / lifecycle tools
+
+[optional] contract.AgentReportPort + contract.DAG*Runtime
+        └─> dashboard.Module / mcp-orch RPC facade 按需消费
 ```
 
-**重点：** 桌面 App 默认不提供 `contract.OrchestrationService`，因此依赖它的桌面侧链路必须要么 `optional:"true"`，要么通过 noop 适配器降级。
+**重点：** 桌面 App 默认不内嵌 mcp-orch 编排服务；消费侧只能声明自己需要的窄端口，并通过 `optional:"true"` / noop / toolbridge adapter 表达缺失语义。
 
 ---
 
@@ -604,24 +614,56 @@ type ToolControlPlane interface {
 #### Orchestration
 
 ```go
-type OrchestrationService interface {
+type AgentLifecyclePort interface {
     LaunchAgent(ctx context.Context, req LaunchRequest) error
     ListAgents(ctx context.Context) ([]AgentSnapshot, error)
     StopAgent(ctx context.Context, agentID string) error
-    SubmitTurn(ctx context.Context, req TurnSubmission) error
-    CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
+    InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error)
     Recover(ctx context.Context, agentID string) error
-    BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
     Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
-    UpdateRuntime(ctx context.Context, report RuntimeReport) error
     GetState(ctx context.Context, agentID string) (AgentStateResult, error)
+}
+
+type AgentRuntimePort interface {
+    UpdateRuntime(ctx context.Context, report RuntimeReport) error
+    BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
+}
+
+type AgentReportPort interface {
     GetReport(ctx context.Context, agentID string) (AgentReportResult, error)
     RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
     HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
-    CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
+}
+
+type TurnSubmissionPort interface {
+    SubmitTurn(ctx context.Context, req TurnSubmission) error
+    CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
+}
+
+type DAGRuntime interface {
     GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
     ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
+    StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
+    TerminateDAG(ctx context.Context, req TerminateDAGRequest) error
+    ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
+    GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
+    ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
+}
+
+type DAGCreateRuntime interface {
+    CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
+}
+
+type DAGDeleteRuntime interface {
+    DeleteDAG(ctx context.Context, req DeleteDAGRequest) error
+}
+
+type DAGNodeStatusRuntime interface {
     UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
+}
+
+type DAGNodeDispatchRuntime interface {
+    DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
 }
 
 type OrchestrationSessionCleaner interface {
@@ -721,10 +763,10 @@ type SessionResolver interface {
 
 | 包 | 主要引用的 contract 能力 |
 | --- | --- |
-| `internal/app` | `OrchestrationService`、`RuntimeReporter`、`LaunchRequest`、`RuntimeReport` |
+| `internal/app` | `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort`、`RuntimeReporter`、`LaunchRequest`、`RuntimeReport` |
 | `internal/platform/rpc` | `ApprovalResponder`、`ApprovalRequester`、`SessionResolver`、`ApprovalDecision` |
 | `internal/platform/hooks` | `HookManager`、`HookLifecycle`、`HookReviewStore`、`PeerCallback`、hook 错误 |
-| `internal/platform/mcpcontrol` | `ToolRegistry`、`ToolNotifier`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`ToolInstance`、`HookManager`、`HookLifecycle`、`OrchestrationService`、`AgentSnapshot`、`ApprovalDecision`、`RuntimeReport`、`ReportEvent`、hook 错误 |
+| `internal/platform/mcpcontrol` | `ToolRegistry`、`ToolNotifier`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`ToolInstance`、`HookManager`、`HookLifecycle`、`AgentSnapshot`、`ApprovalDecision`、`RuntimeReport`、`ReportEvent`、hook 错误 |
 | `internal/store/hookstore` | `HookReviewStore`、`ErrHookReviewNotFound` |
 | `internal/provider/unified` | `DriverFactory`、`Driver`、`Session`、`SessionResolver`、`OrchestrationSessionCleaner`、`ErrSessionNotFound` |
 | `internal/provider/claudecli` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`SkillMirrorReconciler` |
@@ -734,11 +776,11 @@ type SessionResolver interface {
 | `internal/module/turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter`、`PromptAssemblyService`、`ErrSessionNotFound` |
 | `internal/module/skill` | `ApprovalRequester`、`SkillMirrorReconciler`、`SkillLister`、`SkillHydrationSource` |
 | `internal/module/memory` | `PromptAssemblyService`、`ThreadMetadataStore`、`TeamMemoryManager`、`BuildCtx`、`InvalidateReason` |
-| `internal/module/dashboard` | `OrchestrationService`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail`、`Run`、`FinalOutputRef` |
-| `internal/module/uistate` | `OrchestrationService`、`AgentSnapshot` |
-| `internal/ui/wails` | `OrchestrationService` |
+| `internal/module/dashboard` | `AgentLifecyclePort` 适配后的 `OrchestrationReader`、`AgentReportPort` 适配后的 `OrchestrationReportReader`、`DAG*Runtime`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail`、`Run`、`FinalOutputRef` |
+| `internal/module/uistate` | `AgentLifecyclePort` 适配后的 agent 列表读面、`AgentSnapshot` |
+| `internal/ui/wails` | `AgentLifecyclePort` 的 `ListAgents` 读面 |
 | `internal/store/thread` | `ThreadMetadataStore` |
-| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `OrchestrationService`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`MemoryService`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
+| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort`、`TurnSubmissionPort`、`DAG*Runtime`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`MemoryService`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
 
 ### 6.2 `app.Module` 直接纳入的模块
 
@@ -793,31 +835,30 @@ type SessionResolver interface {
 
 ### 6.3 适配器模式落点（源码校对后修正）
 
-1. **`newThreadOrchestrationFacade` 是“窄门面适配器”**  
-   它把大的 `contract.OrchestrationService` 缩成 `thread` 模块只需要的 4 个动作：
+1. **`newMCPOrchOrchestrationFacade` 是 toolbridge 生命周期门面适配器**
+   它给 `thread` 模块提供 3 个生命周期动作：
    - `LaunchAgent`
    - `StopAgent`
    - `Recover`
-   - `BindSessionGeneration`
 
-   该适配器还做了字段裁剪：`thread.LaunchAgentRequest` 只映射到 `contract.LaunchRequest` 的 `AgentID / Name / ParentID / Cwd / Command / Env`，并不会传 `Prompt / Instructions`。
+   `BindSessionGeneration` 已拆为 `thread.SessionGenerationBinder` 独立端口；当前 toolbridge facade 对该能力按 dependency profile 显式返回 unsupported / fail-fast。
 
 2. **`newRuntimeReporter` 是“单方法端口适配器”**  
-   它只暴露 `ReportRuntime(...)`，内部实际转调 `OrchestrationService.UpdateRuntime(...)`；如果 orchestration service 不存在，则退化为 debug 日志 noop。
+   它只暴露 `ReportRuntime(...)`，内部实际转调 `contract.AgentRuntimePort.UpdateRuntime(...)`；如果 runtime 端口不存在，则退化为 debug 日志 noop。
 
 3. **`AsRPCRunner` 只是 Fx 结果适配，不是业务适配器**  
    它的职责只是把 `*rpc.Server` 包装为 `RunnerResult{Runner: server}`，让 RPC Server 进入 `group:"runners"`。
 
 4. **桌面态的 noop 不是“假实现业务”，而是“断开可选 orchestration 链路”**  
-   即使 `contract.OrchestrationService` 缺失，`thread.Start/Resume` 依旧会通过 `unified.Client` 启动 provider session；只是外部 orchestration 进程的 launch / stop / recover / generation bind 不再发生。
+   即使 mcp-orch 生命周期或 runtime 窄端口缺失，`thread.Start/Resume` 依旧会通过 `unified.Client` 启动 provider session；只是外部 orchestration 进程的 stop / recover / generation bind 不再发生。
 
 ### 6.4 关键依赖结论
 
 1. **`contract` 是全局横向边界层，但不是所有接口的收容所。** provider、thread、turn、rpc、hooks、mcpcontrol、dashboard、uistate、wails、`cmd/mcp-orch` 仍通过稳定契约解耦；58f19fa 后，skill/taskdag 这类 owner-local 超大端口应拆在 owning package 的窄接口里。
 2. **`app` 是根组装层，不是业务层。** 它只决定“装哪些模块、以什么生命周期运行”。  
-3. **桌面端对 orchestration 是可选依赖。** `contract.OrchestrationService` 缺失时，通过 `noopRuntimeReporter` 与 `noopThreadOrchestrationFacade` 保证 provider / thread 仍可构造。  
+3. **桌面端对 orchestration 是可选依赖。** mcp-orch 相关能力必须通过 `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort` 与 DAG runtime 窄端口声明消费面，缺失时由 noop 或 typed dependency error 表达。
 4. **provider 装配采用 `group:"drivers"`。** 新增 provider 只需追加一个 `contract.DriverFactory`，无需改 thread / turn / rpc 调用链。  
-5. **session generation 是 thread ↔ orchestration 的关键衔接点。** `SessionManager.Register()` 生成 generation；当同一 Fx 图中存在真实 `contract.OrchestrationService` 时，`thread.bindSessionGeneration()` 会上报，`mcp-orch/orchestration` 在进程退出时再用 generation-aware cleaner 做精确清理。  
+5. **session generation 是 thread ↔ orchestration 的关键衔接点。** `SessionManager.Register()` 生成 generation；当 `thread.SessionGenerationBinder` 可用时，`thread.bindSessionGeneration()` 会上报，`mcp-orch/orchestration` 在进程退出时再用 generation-aware cleaner 做精确清理。
 
 ---
 

@@ -86,6 +86,25 @@ type PublicWide interface {
 				"internal/contract/wide.go:3 type declaration PublicWide uses full orchestration service",
 			},
 		},
+		{
+			name:       "public contract wide interface through returned narrow ports",
+			importPath: superAgentModulePath + "/internal/contract",
+			files: map[string]string{
+				"internal/contract/wide.go": `package contract
+
+type LifecyclePort interface { LaunchAgent() }
+type ReportPort interface { GetReport() }
+
+type PublicPorts interface {
+	Lifecycle() LifecyclePort
+	Reports() ReportPort
+}
+`,
+			},
+			wantContains: []string{
+				"internal/contract/wide.go:6 type declaration PublicPorts uses full orchestration service",
+			},
+		},
 	}
 	fixtures = append(fixtures, orchestrationServiceTypeGuardPropagationFixtures()...)
 	return append(fixtures, orchestrationServiceTypeGuardAllowedFixtures()...)

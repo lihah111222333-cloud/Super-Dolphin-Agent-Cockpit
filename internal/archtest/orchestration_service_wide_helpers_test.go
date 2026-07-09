@@ -151,6 +151,9 @@ func wideOrchestrationInterfaceFamilies(iface *types.Interface, seen map[types.T
 		if family := wideOrchestrationMethodFamily(method.Name()); family != "" {
 			families[family] = true
 		}
+		if sig, ok := method.Type().(*types.Signature); ok {
+			mergeWideOrchestrationFamilies(families, wideOrchestrationSignatureFamilies(sig, seen))
+		}
 	}
 	for embedded := range iface.EmbeddedTypes() {
 		mergeWideOrchestrationFamilies(families, wideOrchestrationTypeFamilies(embedded, seen))

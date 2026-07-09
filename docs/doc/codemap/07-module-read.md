@@ -16,7 +16,7 @@
 flowchart LR
     UI[Frontend / RPC caller] --> DASH[dashboard]
     UI --> SKILL[skill]
-    DASH --> ORCH[contract.OrchestrationService]
+    DASH --> ORCH[contract.AgentLifecyclePort / AgentReportPort / DAG*Runtime]
     DASH --> STORES[(agentstatus/ailog/auditlog/buslog/commandcard/dbquery/prompt/sharedfile/tasktrace)]
     DASH -->|SkillLister| SKILL
     SKILL --> ROOTS[(project .agent/skills\n+ ~/.super-dolphin/skills/personal/*)]
@@ -33,7 +33,7 @@ flowchart LR
 
 ### 1.2 模块间主线关系（补）
 
-- `dashboard` 站在 UI / RPC 查询面，向下只聚合 orchestration、stores 与 `skillmodule.SkillLister`，本身不持有技能内容。
+- `dashboard` 站在 UI / RPC 查询面，向下只聚合 agent 生命周期读端口、report 读端口、DAG runtime 窄端口、stores 与 `skillmodule.SkillLister`，本身不持有技能内容。
 - `skill.Service` 现在是兼容聚合接口；`turn` 走 `SkillHydrationSource`，`dashboard` 走 `SkillLister`，provider 走 `SkillMirrorReconciler`，`toolbridge` 不再把 skill reader 暴露为 Codex 生产工具。
 - `uistate` 虽不在本卷展开，但它和 `thread` / `bus` 的 projection 链一起构成 dashboard 之外的另一条读侧 UI 面。
 
@@ -60,7 +60,7 @@ graph TD
 `dashboard` 是纯查询聚合层：
 
 - **Fx 装配**：`module.go:19-54`
-  - 注入 `contract.OrchestrationService`
+  - 注入 `dashboard.OrchestrationReader`、`dashboard.OrchestrationReportReader` 与 DAG runtime 窄端口
   - 注入 `agentstatus / ailog / auditlog / buslog / commandcard / dbquery / prompt / sharedfile / systemlog / tasktrace`
   - 注入 `skillmodule.SkillLister`（不是完整 `skill.Service`）
   - `fx.Provide(NewDashboardHandlers)` 暴露 RPC
@@ -196,7 +196,7 @@ sequenceDiagram
   - `resolveLogSource` 把 `all/system/ai` 归一成组合读取模式
   - `appendSystemLogs` / `appendAILogs` 合流后统一排序与裁剪
 - **DAG 查询**：`rpc.go:132-136` / `detail.go`
-  - `dashboard/dags` 与 `dashboard/dagDetail` 透传 `contract.OrchestrationService` 的 list/detail 能力
+  - `dashboard/dags` 与 `dashboard/dagDetail` 透传 `contract.DAGRuntime` 的 list/detail 能力
   - `dashboard/dagRuns` 走 `ListDAGRuns()`，内部 clamp limit 后调用 `orchestration.ListRuns`（`detail.go:61-80`, `rpc.go:260-266`）
 - **final_output 索引**：`ui_page.go:250-340`
   - `listDashboardFinalOutputRefs()` 先取最近 DAG，再并发取每个 DAG 最近 run，解析 `run.metadata.final_output`

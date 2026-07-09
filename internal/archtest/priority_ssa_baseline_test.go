@@ -60,7 +60,21 @@ func assertPrioritySSANewViolation(t *testing.T, fixture prioritySSABaselineFixt
 		Detail: "parameter service in pass uses broad port contract.WideOrchestration",
 	}
 	assertPrioritySSAContains(t, result.New, orchestration)
-	return result, []PrioritySSAViolation{want, cancel, orchestration}
+	signatureWide := PrioritySSAViolation{
+		Rule:   PrioritySSAWidePortRule,
+		File:   "internal/risk/orchestration.go",
+		Line:   13,
+		Detail: "parameter service in passSignatureWide uses broad port contract.SignatureWide",
+	}
+	assertPrioritySSAContains(t, result.New, signatureWide)
+	otherStore := PrioritySSAViolation{
+		Rule:   PrioritySSAWidePortRule,
+		File:   "cmd/mcp-orch/orchestration/service.go",
+		Line:   10,
+		Detail: "field Store uses broad port taskdag.Store",
+	}
+	assertPrioritySSAContains(t, result.New, otherStore)
+	return result, []PrioritySSAViolation{want, cancel, orchestration, signatureWide, otherStore}
 }
 
 func assertPrioritySSAFreezeAccepts(
@@ -115,9 +129,22 @@ type Service interface {
 `)
 	writePrioritySSAFile(t, root, "internal/contract/orchestration.go", `package contract
 
+type LifecyclePort interface {
+	LaunchAgent()
+}
+
+type ReportPort interface {
+	GetReport()
+}
+
 type WideOrchestration interface {
 	LaunchAgent()
 	GetReport()
+}
+
+type SignatureWide interface {
+	Lifecycle() LifecyclePort
+	Reports() ReportPort
 }
 `)
 	writePrioritySSAFile(t, root, "internal/risk/orchestration.go", `package risk
@@ -130,6 +157,22 @@ type holder struct {
 
 func pass(service contract.WideOrchestration) contract.WideOrchestration {
 	return service
+}
+
+func passSignatureWide(service contract.SignatureWide) contract.SignatureWide {
+	return service
+}
+`)
+	writePrioritySSAFile(t, root, "cmd/mcp-orch/orchestration/service.go", `package orchestration
+
+import "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+
+type ProvideWakeupDispatcherRunnerIn struct {
+	Store taskdag.Store
+}
+
+type otherStoreHolder struct {
+	Store taskdag.Store
 }
 `)
 	writePrioritySSAFile(t, root, "internal/risk/error_string.go", `package risk

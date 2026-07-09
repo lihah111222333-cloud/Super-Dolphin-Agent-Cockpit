@@ -51,11 +51,36 @@ func assertOrchestrationServiceSSAFixtureMessages(
 func orchestrationServiceSSAGuardFixtures() []orchestrationServiceSSAGuardFixture {
 	return []orchestrationServiceSSAGuardFixture{
 		orchestrationServiceSSASignatureFieldFixture(),
+		orchestrationServiceSSAReturnedNarrowPortsFixture(),
 		orchestrationServiceSSAConversionFixture(),
 		orchestrationServiceSSAGenericConstraintFixture(),
 		orchestrationServiceSSAMethodValueFixture(),
 		orchestrationServiceSSAMethodExpressionFixture(),
 		orchestrationServiceSSABenignFixture(),
+	}
+}
+
+func orchestrationServiceSSAReturnedNarrowPortsFixture() orchestrationServiceSSAGuardFixture {
+	return orchestrationServiceSSAGuardFixture{
+		name: "interface method signatures compose a wide orchestration port",
+		files: map[string]string{
+			"internal/ssafixture/semantic.go": `package ssafixture
+
+type lifecyclePort interface { LaunchAgent() }
+type reportPort interface { GetReport() }
+
+type publicPorts interface {
+	Lifecycle() lifecyclePort
+	Reports() reportPort
+}
+
+func accept(port publicPorts) {}
+`,
+		},
+		wantContains: []string{
+			"type declaration publicPorts uses full orchestration service",
+			"parameter port in accept uses full orchestration service",
+		},
 	}
 }
 

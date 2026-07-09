@@ -533,7 +533,7 @@ sequenceDiagram
 
 ### 4.8 依赖特点
 
-- **contract**：只直接依赖 `OrchestrationService` 初始化 agent 快照
+- **contract**：只直接依赖 `contract.AgentLifecyclePort` 的列表/快照读面初始化 agent 快照
 - **store**：`uipreference`、`binding`、`sharedfile`
 - **module**：依赖 `thread.Service` 初始化 threads；timeline 作为子包内聚在本模块里
 - **event bus**：写侧最重的消费者，也是 UI 事件生产者

@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2234,
-    "total_methods": 1062,
-    "total_interfaces": 159,
-    "total_interface_methods": 333,
-    "total_exported": 1222,
+    "total_functions": 2233,
+    "total_methods": 1064,
+    "total_interfaces": 156,
+    "total_interface_methods": 300,
+    "total_exported": 1223,
     "total_unexported": 2809,
-    "total_structs": 576
+    "total_structs": 579
   },
   "packages": [
     {
@@ -328,8 +328,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "rpcFacadeService"
+              "name": "ports",
+              "type": "RPCFacadeParams"
             }
           ],
           "returns": [
@@ -347,19 +347,6 @@
           ],
           "returns": [
             "ScheduledDAGStartService"
-          ]
-        },
-        {
-          "name": "ProvideServiceInterface",
-          "exported": true,
-          "params": [
-            {
-              "name": "s",
-              "type": "*service"
-            }
-          ],
-          "returns": [
-            "rpcFacadeService"
           ]
         },
         {
@@ -5850,8 +5837,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "rpcFacadeService"
+              "name": "snapshots",
+              "type": "contract.AgentLifecyclePort"
             },
             {
               "name": "p",
@@ -5872,8 +5859,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "rpcFacadeService"
+              "name": "snapshots",
+              "type": "contract.AgentLifecyclePort"
             },
             {
               "name": "agentID",
@@ -13395,258 +13382,6 @@
           ]
         },
         {
-          "name": "rpcFacadeService",
-          "exported": false,
-          "methods": [
-            {
-              "name": "CreateDAG",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "CreateDAGRequest"
-                }
-              ],
-              "returns": [
-                "DAGDetail",
-                "error"
-              ]
-            },
-            {
-              "name": "DeleteDAG",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "contract.DeleteDAGRequest"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "GetDAG",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "dagKey",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "DAGDetail",
-                "error"
-              ]
-            },
-            {
-              "name": "GetReport",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentReportResult",
-                "error"
-              ]
-            },
-            {
-              "name": "GetState",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentStateResult",
-                "error"
-              ]
-            },
-            {
-              "name": "HandleReportEvent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "event",
-                  "type": "ReportEvent"
-                }
-              ],
-              "returns": [
-                "ReportEventResult",
-                "error"
-              ]
-            },
-            {
-              "name": "LaunchAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "LaunchRequest"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "ListAgents",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                }
-              ],
-              "returns": [
-                "[]AgentSnapshot",
-                "error"
-              ]
-            },
-            {
-              "name": "ListDAGs",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "filter",
-                  "type": "ListDAGsFilter"
-                }
-              ],
-              "returns": [
-                "[]DAGSummary",
-                "error"
-              ]
-            },
-            {
-              "name": "RememberReportRequest",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "RememberReportRequest"
-                }
-              ],
-              "returns": [
-                "RememberReportRequestResult",
-                "error"
-              ]
-            },
-            {
-              "name": "Snapshot",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentSnapshot",
-                "error"
-              ]
-            },
-            {
-              "name": "StopAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "SubmitTurn",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "TurnSubmission"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "UpdateNodeStatus",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "UpdateNodeStatusRequest"
-                }
-              ],
-              "returns": [
-                "DAGNode",
-                "error"
-              ]
-            },
-            {
-              "name": "UpdateRuntime",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "report",
-                  "type": "RuntimeReport"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            }
-          ]
-        },
-        {
           "name": "stopSpawnedAgentSink",
           "exported": false,
           "methods": [
@@ -13713,6 +13448,10 @@
         },
         {
           "name": "ProvideWakeupDispatcherRunnerIn",
+          "exported": true
+        },
+        {
+          "name": "RPCFacadeParams",
           "exported": true
         },
         {
@@ -21315,8 +21054,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "agentListPort"
+              "name": "ports",
+              "type": "AgentListPorts"
             }
           ],
           "returns": [
@@ -21427,8 +21166,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "sendMessagePort"
+              "name": "ports",
+              "type": "SendMessagePorts"
             }
           ],
           "returns": [
@@ -23422,8 +23161,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "agentListPort"
+              "name": "reports",
+              "type": "agentListReportReader"
             },
             {
               "name": "agents",
@@ -26446,8 +26185,8 @@
               "type": "context.Context"
             },
             {
-              "name": "svc",
-              "type": "sendMessagePort"
+              "name": "ports",
+              "type": "SendMessagePorts"
             },
             {
               "name": "in",
@@ -27734,6 +27473,14 @@
           ]
         },
         {
+          "receiver": "AgentListPorts",
+          "name": "configuredDependency",
+          "exported": false,
+          "returns": [
+            "any"
+          ]
+        },
+        {
           "receiver": "Registry",
           "name": "List",
           "exported": true,
@@ -27755,6 +27502,14 @@
           "returns": [
             "ToolDefinition",
             "bool"
+          ]
+        },
+        {
+          "receiver": "SendMessagePorts",
+          "name": "configuredDependency",
+          "exported": false,
+          "returns": [
+            "any"
           ]
         },
         {
@@ -27854,7 +27609,7 @@
           ]
         },
         {
-          "name": "agentListPort",
+          "name": "agentListReportReader",
           "exported": false,
           "methods": [
             {
@@ -27872,9 +27627,6 @@
                 "error"
               ]
             }
-          ],
-          "embeds": [
-            "agentSnapshotLister"
           ]
         },
         {
@@ -28077,15 +27829,6 @@
                 "error"
               ]
             }
-          ]
-        },
-        {
-          "name": "sendMessagePort",
-          "exported": false,
-          "embeds": [
-            "sendMessageReportWaiter",
-            "sendMessageSnapshotReader",
-            "sendMessageTurnSubmitter"
           ]
         },
         {
@@ -28305,6 +28048,10 @@
           "exported": true
         },
         {
+          "name": "AgentListPorts",
+          "exported": true
+        },
+        {
           "name": "ApplyOpsInput",
           "exported": true
         },
@@ -28414,6 +28161,10 @@
         },
         {
           "name": "SendMessageInput",
+          "exported": true
+        },
+        {
+          "name": "SendMessagePorts",
           "exported": true
         },
         {
@@ -33280,331 +33031,6 @@
                 "error"
               ]
             }
-          ]
-        },
-        {
-          "name": "OrchestrationService",
-          "exported": true,
-          "methods": [
-            {
-              "name": "BindSessionGeneration",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                },
-                {
-                  "name": "generation",
-                  "type": "uint64"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "CompleteTurn",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                },
-                {
-                  "name": "turnID",
-                  "type": "string"
-                },
-                {
-                  "name": "success",
-                  "type": "bool"
-                },
-                {
-                  "name": "errMsg",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "CreateDAG",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "CreateDAGRequest"
-                }
-              ],
-              "returns": [
-                "DAGDetail",
-                "error"
-              ]
-            },
-            {
-              "name": "DispatchNode",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "DispatchNodeRequest"
-                }
-              ],
-              "returns": [
-                "DispatchNodeResponse",
-                "error"
-              ]
-            },
-            {
-              "name": "GetReport",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentReportResult",
-                "error"
-              ]
-            },
-            {
-              "name": "GetRun",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "GetRunRequest"
-                }
-              ],
-              "returns": [
-                "GetRunResponse",
-                "error"
-              ]
-            },
-            {
-              "name": "GetState",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentStateResult",
-                "error"
-              ]
-            },
-            {
-              "name": "HandleReportEvent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "event",
-                  "type": "ReportEvent"
-                }
-              ],
-              "returns": [
-                "ReportEventResult",
-                "error"
-              ]
-            },
-            {
-              "name": "InterruptAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                },
-                {
-                  "name": "source",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentStateResult",
-                "error"
-              ]
-            },
-            {
-              "name": "LaunchAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "LaunchRequest"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "ListAgents",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                }
-              ],
-              "returns": [
-                "[]AgentSnapshot",
-                "error"
-              ]
-            },
-            {
-              "name": "Recover",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "RememberReportRequest",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "RememberReportRequest"
-                }
-              ],
-              "returns": [
-                "RememberReportRequestResult",
-                "error"
-              ]
-            },
-            {
-              "name": "Snapshot",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentSnapshot",
-                "error"
-              ]
-            },
-            {
-              "name": "StopAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "SubmitTurn",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "TurnSubmission"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "UpdateNodeStatus",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "req",
-                  "type": "UpdateNodeStatusRequest"
-                }
-              ],
-              "returns": [
-                "DAGNode",
-                "error"
-              ]
-            },
-            {
-              "name": "UpdateRuntime",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "report",
-                  "type": "RuntimeReport"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            }
-          ],
-          "embeds": [
-            "DAGDeleteRuntime",
-            "DAGRuntime"
           ]
         },
         {

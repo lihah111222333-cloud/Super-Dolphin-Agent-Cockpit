@@ -87,6 +87,9 @@ func prioritySSAWideOrchestrationInterfaceFamilies(iface *types.Interface, seen 
 		if family := prioritySSAWideOrchestrationMethodFamily(method.Name()); family != "" {
 			families[family] = true
 		}
+		if sig, ok := method.Type().(*types.Signature); ok {
+			prioritySSAMergeWideOrchestrationFamilies(families, prioritySSAWideOrchestrationSignatureFamilies(sig, seen))
+		}
 	}
 	for embedded := range iface.EmbeddedTypes() {
 		prioritySSAMergeWideOrchestrationFamilies(families, prioritySSAWideOrchestrationFamilies(embedded, seen))
@@ -192,7 +195,8 @@ func prioritySSAWideUseAllowed(use prioritySSAWideUse, target *types.TypeName) b
 		target.Name() == "Store" {
 		return use.relPath == "cmd/mcp-orch/orchestration/service.go" &&
 			use.kind == "field" &&
-			use.symbol == "Store"
+			use.symbol == "Store" &&
+			use.detail == "ProvideWakeupDispatcherRunnerIn.Store"
 	}
 	return false
 }
