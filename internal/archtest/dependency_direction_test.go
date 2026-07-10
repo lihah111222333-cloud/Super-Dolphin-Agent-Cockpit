@@ -24,7 +24,6 @@ var providerAllowedExternal = map[string]bool{
 	"github.com/BurntSushi/toml":   true,
 	"github.com/gorilla/websocket": true,
 	"github.com/kelindar/event":    true,
-	"go.uber.org/fx":               true,
 	"golang.org/x/net":             true,
 	"golang.org/x/sync":            true,
 	"golang.org/x/sys":             true,
@@ -119,18 +118,24 @@ func assertProviderCannotImportPlatformDB(t *testing.T, root string) {
 func assertProviderExternalWhitelist(t *testing.T, root string) {
 	t.Helper()
 
-	dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
-	if len(dirs) == 0 {
-		t.Skip("directory not yet created")
+	if !dirExists(root, "internal/provider") {
+		t.Fatal("internal/provider production tree is missing")
 	}
+	failIfViolations(t, providerExternalWhitelistViolationsForFiles(providerProductionImportFiles(t, root)))
+}
+
+// providerProductionImportFiles 扫描整个 Provider 生产树，新子包无需额外登记。
+func providerProductionImportFiles(t *testing.T, root string) []parsedFile {
+	t.Helper()
+	return parseImportFiles(t, root, "internal/provider")
+}
+
+func providerExternalWhitelistViolationsForFiles(files []parsedFile) []string {
 	var violations []string
-	for _, file := range parseImportFiles(t, root, dirs...) {
-		if filepath.Base(file.RelPath) == "module.go" {
-			continue
-		}
+	for _, file := range files {
 		violations = append(violations, providerExternalWhitelistViolations(file)...)
 	}
-	failIfViolations(t, violations)
+	return violations
 }
 
 func providerExternalWhitelistViolations(file parsedFile) []string {
@@ -139,11 +144,60 @@ func providerExternalWhitelistViolations(file parsedFile) []string {
 		if isStdlibImport(imp) || strings.HasPrefix(imp, modulePath+"/") {
 			continue
 		}
-		if !providerAllowedExternal[externalModuleRoot(imp)] {
+		externalRoot := externalModuleRoot(imp)
+		if externalRoot == "go.uber.org/fx" {
+			if filepath.Base(file.RelPath) != "module.go" {
+				violations = append(violations, fmt.Sprintf("%s imports %s outside provider module.go Fx assembly", file.RelPath, imp))
+			}
+			continue
+		}
+		if !providerAllowedExternal[externalRoot] {
 			violations = append(violations, fmt.Sprintf("%s imports %s outside provider external whitelist", file.RelPath, imp))
 		}
 	}
 	return violations
+}
+
+func TestProviderExternalWhitelistEnforcesFXAssemblyScope(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		file parsedFile
+		want string
+	}{
+		{name: "runtime rejects Fx", file: parsedFile{RelPath: "internal/provider/shared/runtime.go", Imports: []string{"go.uber.org/fx"}}, want: "outside provider module.go"},
+		{name: "module permits Fx", file: parsedFile{RelPath: "internal/provider/shared/module.go", Imports: []string{"go.uber.org/fx"}}},
+		{name: "module still checks other externals", file: parsedFile{RelPath: "internal/provider/shared/module.go", Imports: []string{"example.com/unapproved/provider"}}, want: "outside provider external whitelist"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			violations := strings.Join(providerExternalWhitelistViolations(tc.file), "\n")
+			if tc.want == "" && violations != "" {
+				t.Fatalf("provider Fx module assembly must be allowed, got: %s", violations)
+			}
+			if tc.want != "" && !strings.Contains(violations, tc.want) {
+				t.Fatalf("provider external whitelist missing %q, got: %s", tc.want, violations)
+			}
+		})
+	}
+}
+
+func TestProviderExternalWhitelistCoversNewProductionSubtree(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "internal", "provider", "futureprovider", "runtime.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package futureprovider\n\nimport _ \"example.com/unapproved/provider\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	violations := providerExternalWhitelistViolationsForFiles(providerProductionImportFiles(t, root))
+	if !strings.Contains(strings.Join(violations, "\n"), "internal/provider/futureprovider/runtime.go") {
+		t.Fatalf("new provider subtree must enter external whitelist scan, got: %v", violations)
+	}
 }
 
 func assertPlatformCannotImportModule(t *testing.T, root string) {

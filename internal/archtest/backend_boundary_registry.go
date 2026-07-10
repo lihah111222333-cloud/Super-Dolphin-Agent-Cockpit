@@ -171,11 +171,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 	return backendBoundaryPatterns{
 		contract: []string{"internal/contract/**/*.go"},
 		module:   []string{"internal/module/**/*.go"},
-		provider: []string{
-			"internal/provider/claudecli/**/*.go",
-			"internal/provider/codexapp/**/*.go",
-			"internal/provider/unified/**/*.go",
-		},
+		provider: []string{"internal/provider/**/*.go"},
 		platform: []string{"internal/platform/**/*.go"},
 		sidecar:  []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
 		sqlc:     []string{"internal/**/*.go", "cmd/**/*.go"},

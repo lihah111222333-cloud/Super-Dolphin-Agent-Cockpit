@@ -50,6 +50,42 @@ func TestBackendBoundaryGuardsFailClosed(t *testing.T) {
 	}
 }
 
+func TestProviderBoundaryDescriptorsCoverProductionTree(t *testing.T) {
+	t.Parallel()
+
+	registry := DefaultBackendBoundaryRegistry()
+	ruleIDs := []BoundaryRuleID{"provider_no_store", "provider_no_platform_db"}
+	root := repoRootForGuardTests(t)
+	paths, err := collectBackendBoundaryGoFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerFiles := 0
+	for _, path := range paths {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("relative provider path for %s: %v", path, err)
+		}
+		rel = filepath.ToSlash(rel)
+		if !strings.HasPrefix(rel, "internal/provider/") || strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		providerFiles++
+		for _, ruleID := range ruleIDs {
+			rule, ok := registry.Rule(ruleID)
+			if !ok {
+				t.Fatalf("canonical provider boundary rule %q is missing", ruleID)
+			}
+			if !matchesAnyBackendBoundaryPattern(rule.FilePatterns, rel) {
+				t.Errorf("provider production file %q is missing from rule %q", rel, ruleID)
+			}
+		}
+	}
+	if providerFiles == 0 {
+		t.Fatal("provider production tree contains zero Go files")
+	}
+}
+
 func TestMCPSidecarBoundaryDescriptorsStayAligned(t *testing.T) {
 	t.Parallel()
 
@@ -159,6 +195,18 @@ func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 			ruleID:  "mcp_sidecar_narrow_import_surface",
 			relPath: "cmd/mcp-lsp/main.go",
 			source:  "package main\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/notify\"\n",
+		},
+		{
+			name:    "provider_shared_to_store",
+			ruleID:  "provider_no_store",
+			relPath: "internal/provider/shared/leak.go",
+			source:  "package shared\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/store\"\n",
+		},
+		{
+			name:    "provider_shared_to_platform_db",
+			ruleID:  "provider_no_platform_db",
+			relPath: "internal/provider/shared/leak.go",
+			source:  "package shared\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/db\"\n",
 		},
 	}
 
