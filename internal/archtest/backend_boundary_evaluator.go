@@ -92,12 +92,13 @@ func validateBackendBoundaryRuleHeader(label string, rule BackendBoundaryRule, o
 	return violations
 }
 
+// validateBackendBoundaryRuleRequirements 按 typed kind 要求必要的 allow 或 deny 策略。
 func validateBackendBoundaryRuleRequirements(label string, rule BackendBoundaryRule) []string {
 	var violations []string
 	if ruleRequiresDeny(rule.Kind) && len(rule.Deny) == 0 {
 		violations = append(violations, label+" must declare deny policies")
 	}
-	if rule.Kind == BoundaryRuleAllowInternalImports && len(rule.Allow) == 0 {
+	if (rule.Kind == BoundaryRuleAllowInternalImports || rule.Kind == BoundaryRuleStoreImports) && len(rule.Allow) == 0 {
 		violations = append(violations, label+" must declare allow policies")
 	}
 	return violations
@@ -105,7 +106,7 @@ func validateBackendBoundaryRuleRequirements(label string, rule BackendBoundaryR
 
 func isKnownBoundaryRuleKind(kind BoundaryRuleKind) bool {
 	switch kind {
-	case BoundaryRuleDenyImports, BoundaryRuleAllowInternalImports, BoundaryRuleModuleSiblings, BoundaryRuleScopedImport:
+	case BoundaryRuleDenyImports, BoundaryRuleAllowInternalImports, BoundaryRuleModuleSiblings, BoundaryRuleScopedImport, BoundaryRuleStoreImports:
 		return true
 	default:
 		return false
@@ -140,14 +141,18 @@ func validateBoundaryPatterns(label string, patterns []string) []string {
 	return violations
 }
 
+// isSupportedBackendBoundaryPattern 仅接受求值器明确实现的精确模式，拒绝任意 glob。
 func isSupportedBackendBoundaryPattern(pattern string) bool {
 	if !strings.ContainsAny(pattern, "*?[]") {
 		return true
 	}
-	for _, suffix := range []string{"/**/*.go", "/**"} {
+	for _, suffix := range []string{"/**/*.go", "/**/module.go", "/**"} {
 		if base, ok := strings.CutSuffix(pattern, suffix); ok {
 			return base != "" && !strings.ContainsAny(base, "*?[]")
 		}
+	}
+	if base, ok := strings.CutSuffix(pattern, "/*/*.go"); ok {
+		return base != "" && !strings.ContainsAny(base, "*?[]")
 	}
 	return false
 }
@@ -600,6 +605,7 @@ func applicableBackendBoundaryRules(rules []BackendBoundaryRule, rel string) []B
 	return applicable
 }
 
+// evaluateBackendBoundaryRule 按已验证的 typed kind 分派规则，未知 kind 仍失败关闭。
 func evaluateBackendBoundaryRule(rule BackendBoundaryRule, rel string, imports []string) []string {
 	switch rule.Kind {
 	case BoundaryRuleDenyImports:
@@ -610,6 +616,8 @@ func evaluateBackendBoundaryRule(rule BackendBoundaryRule, rel string, imports [
 		return moduleSiblingImportViolationsForRule(rule, rel, imports)
 	case BoundaryRuleScopedImport:
 		return scopedImportViolations(rule, rel, imports)
+	case BoundaryRuleStoreImports:
+		return storeImportViolationsForRule(rule, rel, imports)
 	default:
 		return []string{fmt.Sprintf("%s has unknown backend boundary rule kind %q", rule.ID, rule.Kind)}
 	}
@@ -668,6 +676,51 @@ func scopedImportViolations(rule BackendBoundaryRule, rel string, imports []stri
 	return violations
 }
 
+// storeImportViolationsForRule 保留 store 同 owner 内聚，同时拒绝 registry 未登记的横向和外部依赖。
+func storeImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []string) []string {
+	var violations []string
+	for _, imp := range imports {
+		if isBackendBoundaryStdlibImport(imp) || isSameBackendBoundaryStorePackage(rel, imp) || matchesBackendBoundaryStorePolicy(rule.Allow, rel, imp) {
+			continue
+		}
+		violations = append(violations, backendBoundaryViolation(rule, rel, imp))
+	}
+	return violations
+}
+
+// matchesBackendBoundaryStorePolicy 对仓库内端口使用前缀语义，对外部包保持既有精确许可。
+func matchesBackendBoundaryStorePolicy(policies []BoundaryImportPolicy, rel, imp string) bool {
+	for _, policy := range policies {
+		if !matchesBackendBoundaryPattern(policy.FilePattern, rel) {
+			continue
+		}
+		prefix := normalizeBackendBoundaryImportPrefix(policy.ImportPrefix)
+		if strings.HasPrefix(prefix, "internal/") || strings.HasPrefix(prefix, "cmd/") {
+			if matchesBackendBoundaryImportPrefix(imp, prefix) {
+				return true
+			}
+			continue
+		}
+		if imp == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+func isBackendBoundaryStdlibImport(imp string) bool {
+	return !strings.Contains(imp, ".")
+}
+
+func isSameBackendBoundaryStorePackage(rel, imp string) bool {
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	if dir == "internal/store" || !strings.HasPrefix(dir, "internal/store/") {
+		return false
+	}
+	prefix := backendBoundaryModulePath + "/" + dir
+	return imp == prefix || strings.HasPrefix(imp, prefix+"/")
+}
+
 func matchesBackendBoundaryPolicy(policies []BoundaryImportPolicy, rel, imp string) bool {
 	for _, policy := range policies {
 		if matchesBackendBoundaryPattern(policy.FilePattern, rel) && matchesBackendBoundaryImportPrefix(imp, policy.ImportPrefix) {
@@ -704,13 +757,23 @@ func matchesAnyBackendBoundaryPattern(patterns []string, rel string) bool {
 	return false
 }
 
+// matchesBackendBoundaryPattern 对 validator 接受的有限模式执行确定性路径匹配。
 func matchesBackendBoundaryPattern(pattern, rel string) bool {
 	pattern = filepath.ToSlash(strings.TrimPrefix(pattern, "./"))
 	rel = filepath.ToSlash(strings.TrimPrefix(rel, "./"))
 	switch {
+	case strings.HasSuffix(pattern, "/**/module.go"):
+		base := strings.TrimSuffix(pattern, "/**/module.go")
+		return strings.HasPrefix(rel, base+"/") && filepath.Base(rel) == "module.go"
 	case strings.HasSuffix(pattern, "/**/*.go"):
 		base := strings.TrimSuffix(pattern, "/**/*.go")
 		return strings.HasPrefix(rel, base+"/") && strings.HasSuffix(rel, ".go")
+	case strings.HasSuffix(pattern, "/*/*.go"):
+		base := strings.TrimSuffix(pattern, "/*/*.go")
+		if !strings.HasPrefix(rel, base+"/") || !strings.HasSuffix(rel, ".go") {
+			return false
+		}
+		return strings.Count(strings.TrimPrefix(rel, base+"/"), "/") == 1
 	case strings.HasSuffix(pattern, "/**"):
 		base := strings.TrimSuffix(pattern, "/**")
 		return rel == base || strings.HasPrefix(rel, base+"/")

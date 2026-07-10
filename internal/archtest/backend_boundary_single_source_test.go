@@ -133,6 +133,69 @@ func legacySidecarRule(t *testing.T, root string) {
 	}
 }
 
+func TestBackendBoundaryRuleFactsRejectsRenamedProceduralDependencyEvaluators(t *testing.T) {
+	cases := map[string]string{
+		"store allowlist": `package nested
+const storeRoot = "internal/" + "store"
+func inspectPersistenceImports(t *testing.T, root string) {
+	files := parseImportFiles(t, root, storeRoot)
+	allowed := []string{"internal/platform/" + "config", "internal/store/" + "sqlc"}
+	_ = files
+	_ = allowed
+}`,
+		"fx scope": `package nested
+const framework = "go.uber.org/" + "fx"
+func inspectAssemblyImports(t *testing.T, root string) {
+	files := parseImportFiles(t, root, "internal", "cmd")
+	_ = files
+	_ = framework
+}`,
+		"mcp family": `package nested
+func inspectProtocolFamily(t *testing.T, root string) {
+	target := "cmd/" + "mcp-orch"
+	forbidden := "internal/tool/" + "lsp"
+	_ = parseImportFiles(t, root, target)
+	_ = forbidden
+}`,
+		"platform isolation": `package nested
+func inspectPlatformImports(t *testing.T, root string) {
+	target := "internal/platform/" + "hooks"
+	forbidden := "internal/platform/" + "db"
+	_ = parseImportFiles(t, root, target)
+	_ = forbidden
+}`,
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			rel := "internal/archtest/nested/renamed_policy_test.go"
+			node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
+			if !strings.Contains(violations, "procedural backend dependency evaluator duplicates the canonical registry") {
+				t.Fatalf("renamed procedural evaluator must be rejected, got:\n%s", violations)
+			}
+		})
+	}
+}
+
+func TestBackendBoundaryRuleFactsAllowsOrdinaryImportFixture(t *testing.T) {
+	const source = `package nested
+func fixture(t *testing.T, root string) {
+	_ = parseImportFiles(t, root, "internal/store")
+	_ = "internal/platform/config"
+}`
+	rel := "internal/archtest/nested/import_fixture_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if violations := backendBoundaryConsumerFactViolations(rel, node); len(violations) != 0 {
+		t.Fatalf("ordinary import fixture must not be classified as a procedural evaluator: %v", violations)
+	}
+}
+
 // TestBackendBoundaryRuleFactsHaveOneSource prevents consumers from reintroducing registry policy facts.
 func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 	t.Helper()
@@ -224,6 +287,9 @@ func backendBoundaryConsumerFactViolations(rel string, node *ast.File) []string 
 func backendBoundaryFileSemanticViolations(rel string, node *ast.File) []string {
 	packageStrings := backendBoundaryPackageStringConstants(node)
 	var violations []string
+	if declaresProceduralBackendDependencyBoundary(node, packageStrings) {
+		violations = append(violations, rel+": procedural backend dependency evaluator duplicates the canonical registry")
+	}
 	for _, declaration := range node.Decls {
 		fn, ok := declaration.(*ast.FuncDecl)
 		if !ok {
@@ -237,6 +303,79 @@ func backendBoundaryFileSemanticViolations(rel string, node *ast.File) []string 
 		}
 	}
 	return violations
+}
+
+func declaresProceduralBackendDependencyBoundary(node *ast.File, packageStrings map[string]string) bool {
+	parseTargets, facts := collectProceduralBackendDependencyFacts(node, packageStrings)
+	return declaresProceduralStoreBoundary(parseTargets, facts) ||
+		declaresProceduralFXBoundary(parseTargets, facts) ||
+		declaresProceduralMCPServerFamilyBoundary(parseTargets, facts) ||
+		declaresProceduralPlatformControlBoundary(parseTargets, facts)
+}
+
+func collectProceduralBackendDependencyFacts(node *ast.File, packageStrings map[string]string) (map[string]bool, map[string]bool) {
+	parseTargets := make(map[string]bool)
+	facts := make(map[string]bool)
+	for _, value := range packageStrings {
+		facts[value] = true
+	}
+	for _, declaration := range node.Decls {
+		fn, ok := declaration.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		collectProceduralBackendFunctionFacts(fn, packageStrings, parseTargets, facts)
+	}
+	return parseTargets, facts
+}
+
+func collectProceduralBackendFunctionFacts(fn *ast.FuncDecl, packageStrings map[string]string, parseTargets, facts map[string]bool) {
+	values := backendBoundaryFunctionStringConstants(fn, packageStrings)
+	for _, value := range values {
+		facts[value] = true
+	}
+	ast.Inspect(fn.Body, func(item ast.Node) bool {
+		if expr, ok := item.(ast.Expr); ok {
+			if value, ok := backendBoundaryStringValue(expr, values); ok {
+				facts[value] = true
+			}
+		}
+		if value, ok := backendBoundaryStringLiteral(item); ok {
+			facts[value] = true
+		}
+		call, ok := item.(*ast.CallExpr)
+		if !ok || backendBoundaryCallName(call.Fun) != "parseImportFiles" {
+			return true
+		}
+		for _, arg := range call.Args {
+			if value, ok := backendBoundaryStringValue(arg, values); ok {
+				parseTargets[value] = true
+			}
+		}
+		return true
+	})
+}
+
+func declaresProceduralStoreBoundary(parseTargets, facts map[string]bool) bool {
+	return parseTargets["internal/store"] && facts["internal/platform/config"] && facts["internal/store/sqlc"]
+}
+
+func declaresProceduralFXBoundary(parseTargets, facts map[string]bool) bool {
+	return parseTargets["internal"] && parseTargets["cmd"] && facts["go.uber.org/fx"]
+}
+
+func declaresProceduralMCPServerFamilyBoundary(parseTargets, facts map[string]bool) bool {
+	orchFacts := facts["internal/tool/lsp"] || facts["internal/tool/ida"]
+	idaFacts := facts["internal/tool/lsp"] || facts["internal/tool/orchestration"]
+	orchTarget := parseTargets["internal/mcpserver/orch"] || parseTargets["cmd/mcp-orch"]
+	idaTarget := parseTargets["internal/mcpserver/ida"] || parseTargets["cmd/mcp-ida"]
+	return orchTarget && orchFacts || idaTarget && idaFacts
+}
+
+func declaresProceduralPlatformControlBoundary(parseTargets, facts map[string]bool) bool {
+	hooksFacts := facts["internal/platform/mcpcontrol"] || facts["internal/platform/db"]
+	return parseTargets["internal/platform/hooks"] && hooksFacts ||
+		parseTargets["internal/platform/mcpcontrol"] && facts["internal/platform/hooks"]
 }
 
 func backendBoundaryConsumerDeclarationViolations(rel string, declaration ast.Decl) []string {

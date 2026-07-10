@@ -21,6 +21,8 @@ const (
 	BoundaryRuleModuleSiblings BoundaryRuleKind = "module_siblings"
 	// BoundaryRuleScopedImport 只允许指定文件范围导入被拒绝前缀。
 	BoundaryRuleScopedImport BoundaryRuleKind = "scoped_import"
+	// BoundaryRuleStoreImports 限制 store 包只依赖同 owner 子包和显式注册的持久化端口。
+	BoundaryRuleStoreImports BoundaryRuleKind = "store_imports"
 )
 
 const (
@@ -28,6 +30,18 @@ const (
 	BoundaryScopeStore BoundaryScopeID = "store"
 	// BoundaryScopePlatformDB 允许平台数据库包消费受限实现。
 	BoundaryScopePlatformDB BoundaryScopeID = "platform_db"
+	// BoundaryScopeFXInternalApp 允许应用根装配层导入 Fx。
+	BoundaryScopeFXInternalApp BoundaryScopeID = "fx_internal_app"
+	// BoundaryScopeFXModuleFile 允许模块装配文件导入 Fx。
+	BoundaryScopeFXModuleFile BoundaryScopeID = "fx_module_file"
+	// BoundaryScopeFXMCPOrch 允许 orchestration sidecar 组装 Fx 图。
+	BoundaryScopeFXMCPOrch BoundaryScopeID = "fx_mcp_orch"
+	// BoundaryScopeFXMCPIDA 允许 IDA sidecar 组装 Fx 图。
+	BoundaryScopeFXMCPIDA BoundaryScopeID = "fx_mcp_ida"
+	// BoundaryScopeFXCommandEntrypoint 允许 cmd 直属入口文件导入 Fx。
+	BoundaryScopeFXCommandEntrypoint BoundaryScopeID = "fx_command_entrypoint"
+	// BoundaryScopeFXMCPLSP 只允许 mcp-lsp 的 fx.go 组装 Fx 图。
+	BoundaryScopeFXMCPLSP BoundaryScopeID = "fx_mcp_lsp"
 )
 
 // BoundaryExceptionClass 标识例外的生命周期。
@@ -132,6 +146,13 @@ func OnionBoundaryRuleIDs() []BoundaryRuleID {
 		"platform_no_module",
 		"platform_no_store",
 		"store_sqlc_store_platform_only",
+		"store_dependency_surface",
+		"fx_assembly_scope",
+		"mcpserver_orch_family",
+		"mcpserver_ida_family",
+		"hooks_no_mcpcontrol",
+		"mcpcontrol_no_hooks",
+		"hooks_no_platform_db",
 	}
 }
 
@@ -146,6 +167,13 @@ func CrossDomainBoundaryRuleIDs() []BoundaryRuleID {
 		"platform_no_module",
 		"platform_no_store",
 		"store_sqlc_store_platform_only",
+		"store_dependency_surface",
+		"fx_assembly_scope",
+		"mcpserver_orch_family",
+		"mcpserver_ida_family",
+		"hooks_no_mcpcontrol",
+		"mcpcontrol_no_hooks",
+		"hooks_no_platform_db",
 	}
 }
 
@@ -159,22 +187,38 @@ func defaultBackendBoundaryRegistry() BackendBoundaryRegistry {
 }
 
 type backendBoundaryPatterns struct {
-	contract []string
-	module   []string
-	provider []string
-	platform []string
-	sidecar  []string
-	sqlc     []string
+	contract  []string
+	module    []string
+	provider  []string
+	platform  []string
+	sidecar   []string
+	sqlc      []string
+	store     []string
+	storeMod  []string
+	storeRoot []string
+	fx        []string
+	mcpOrch   []string
+	mcpIDA    []string
+	hooks     []string
+	mcpctrl   []string
 }
 
 func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 	return backendBoundaryPatterns{
-		contract: []string{"internal/contract/**/*.go"},
-		module:   []string{"internal/module/**/*.go"},
-		provider: []string{"internal/provider/**/*.go"},
-		platform: []string{"internal/platform/**/*.go"},
-		sidecar:  []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
-		sqlc:     []string{"internal/**/*.go", "cmd/**/*.go"},
+		contract:  []string{"internal/contract/**/*.go"},
+		module:    []string{"internal/module/**/*.go"},
+		provider:  []string{"internal/provider/**/*.go"},
+		platform:  []string{"internal/platform/**/*.go"},
+		sidecar:   []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
+		sqlc:      []string{"internal/**/*.go", "cmd/**/*.go"},
+		store:     []string{"internal/store/**/*.go"},
+		storeMod:  []string{"internal/store/**/module.go"},
+		storeRoot: []string{"internal/store/module.go"},
+		fx:        []string{"internal/**/*.go", "cmd/**/*.go"},
+		mcpOrch:   []string{"cmd/mcp-orch/**/*.go"},
+		mcpIDA:    []string{"cmd/mcp-ida/**/*.go"},
+		hooks:     []string{"internal/platform/hooks/**/*.go"},
+		mcpctrl:   []string{"internal/platform/mcpcontrol/**/*.go"},
 	}
 }
 
@@ -186,6 +230,10 @@ func defaultBackendBoundaryOwners(patterns backendBoundaryPatterns) []BackendBou
 		{ID: "provider_runtime", FilePatterns: patterns.provider, Reason: "provider adapters own transport/runtime integration and must not reach into persistence internals"},
 		{ID: "platform_runtime", FilePatterns: patterns.platform, Reason: "platform packages provide infrastructure primitives and must not depend upward on business or store ownership"},
 		{ID: "sqlc_boundary", FilePatterns: patterns.sqlc, Reason: "sqlc generated code stays behind store and platform persistence boundaries"},
+		{ID: "store_dependency", FilePatterns: combineBoundaryPatterns(patterns.store, patterns.storeMod, patterns.storeRoot), Reason: "store packages are anti-corruption adapters and may only consume their own package plus registered persistence ports"},
+		{ID: "fx_assembly", FilePatterns: patterns.fx, Reason: "Fx belongs only to typed assembly scopes"},
+		{ID: "mcpserver_family", FilePatterns: combineBoundaryPatterns(patterns.mcpOrch, patterns.mcpIDA), Reason: "MCP server families must not couple to sibling tool implementations"},
+		{ID: "platform_control_boundary", FilePatterns: combineBoundaryPatterns(patterns.hooks, patterns.mcpctrl), Reason: "hooks and MCP control stay decoupled and hooks do not own database lifecycle"},
 	}
 }
 
@@ -200,6 +248,13 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultPlatformModuleRule(patterns),
 		defaultPlatformStoreRule(patterns),
 		defaultSQLCStoreRule(patterns),
+		defaultStoreDependencyRule(patterns),
+		defaultFXAssemblyRule(patterns),
+		defaultMCPServerOrchRule(patterns),
+		defaultMCPServerIDARule(patterns),
+		defaultHooksMCPControlRule(patterns),
+		defaultMCPControlHooksRule(patterns),
+		defaultHooksDatabaseRule(patterns),
 	}
 }
 
@@ -302,6 +357,89 @@ func defaultSQLCStoreRule(patterns backendBoundaryPatterns) BackendBoundaryRule 
 	}
 }
 
+// defaultStoreDependencyRule 将 store 同包内聚、共享端口和装配文件许可收敛为一条 typed 规则。
+func defaultStoreDependencyRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	owner := BoundaryOwnerID("store_dependency")
+	allow := boundaryPolicies(owner, patterns.store, []string{
+		"internal/platform/config",
+		"internal/platform/db",
+		"internal/platform/sharedfilefs",
+		"internal/platform/sharedfilegitignore",
+		"internal/platform/sharedfilepath",
+		"internal/store/sqlc",
+		"internal/contract",
+		"internal/dto",
+		"github.com/jackc/pgx/v5/pgtype",
+	}, "store packages may consume only registered persistence contracts and shared path adapters")
+	allow = append(allow, boundaryPolicies(owner, patterns.storeMod, []string{
+		"go.uber.org/fx",
+		"github.com/jackc/pgx/v5/pgxpool",
+	}, "store package module files may declare their Fx and pool constructors")...)
+	allow = append(allow, boundaryPolicies(owner, patterns.storeRoot, []string{
+		"internal/store",
+		"go.uber.org/fx",
+		"github.com/jackc/pgx/v5/pgxpool",
+	}, "the store root module is the canonical store submodule aggregator")...)
+	return BackendBoundaryRule{
+		ID:            "store_dependency_surface",
+		Owner:         owner,
+		Reason:        "store packages must depend only on their own implementation package and registered persistence ports",
+		Kind:          BoundaryRuleStoreImports,
+		FilePatterns:  combineBoundaryPatterns(patterns.store, patterns.storeMod, patterns.storeRoot),
+		Allow:         allow,
+		SkipTestFiles: true,
+	}
+}
+
+func combineBoundaryPatterns(groups ...[]string) []string {
+	var combined []string
+	for _, group := range groups {
+		combined = append(combined, group...)
+	}
+	return combined
+}
+
+func defaultFXAssemblyRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	owner := BoundaryOwnerID("fx_assembly")
+	return BackendBoundaryRule{
+		ID:           "fx_assembly_scope",
+		Owner:        owner,
+		Reason:       "Fx imports belong only to registered assembly entrypoints",
+		Kind:         BoundaryRuleScopedImport,
+		FilePatterns: patterns.fx,
+		Deny:         boundaryPolicies(owner, patterns.fx, []string{"go.uber.org/fx"}, "Fx must not leak outside assembly files"),
+		ScopeAllow: []BoundaryFilePolicy{
+			boundaryFilePolicy(owner, BoundaryScopeFXInternalApp, "internal/app owns the desktop root graph"),
+			boundaryFilePolicy(owner, BoundaryScopeFXModuleFile, "module.go files declare package-local Fx modules"),
+			boundaryFilePolicy(owner, BoundaryScopeFXMCPOrch, "mcp-orch owns its standalone Fx graph"),
+			boundaryFilePolicy(owner, BoundaryScopeFXMCPIDA, "mcp-ida owns its standalone Fx graph"),
+			boundaryFilePolicy(owner, BoundaryScopeFXCommandEntrypoint, "command entrypoints may assemble their process graph"),
+			boundaryFilePolicy(owner, BoundaryScopeFXMCPLSP, "mcp-lsp centralizes Fx assembly in fx.go"),
+		},
+		SkipTestFiles: true,
+	}
+}
+
+func defaultMCPServerOrchRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: "mcpserver_orch_family", Owner: "mcpserver_family", Reason: "orchestration MCP servers must not depend on LSP or IDA tool families", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.mcpOrch, Deny: boundaryPolicies("mcpserver_family", patterns.mcpOrch, []string{"internal/tool/lsp", "internal/tool/ida"}, "orchestration servers stay independent of sibling tool families"), SkipTestFiles: true}
+}
+
+func defaultMCPServerIDARule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: "mcpserver_ida_family", Owner: "mcpserver_family", Reason: "IDA MCP servers must not depend on LSP or orchestration tool families", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.mcpIDA, Deny: boundaryPolicies("mcpserver_family", patterns.mcpIDA, []string{"internal/tool/lsp", "internal/tool/orchestration"}, "IDA servers stay independent of sibling tool families"), SkipTestFiles: true}
+}
+
+func defaultHooksMCPControlRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: "hooks_no_mcpcontrol", Owner: "platform_control_boundary", Reason: "hooks publish contracts instead of importing MCP control implementations", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.hooks, Deny: boundaryPolicies("platform_control_boundary", patterns.hooks, []string{"internal/platform/mcpcontrol"}, "hooks must not depend on MCP control"), SkipTestFiles: true}
+}
+
+func defaultMCPControlHooksRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: "mcpcontrol_no_hooks", Owner: "platform_control_boundary", Reason: "MCP control consumes injected hook ports instead of hook implementations", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.mcpctrl, Deny: boundaryPolicies("platform_control_boundary", patterns.mcpctrl, []string{"internal/platform/hooks"}, "MCP control must not depend on hooks"), SkipTestFiles: true}
+}
+
+func defaultHooksDatabaseRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: "hooks_no_platform_db", Owner: "platform_control_boundary", Reason: "hooks must not own database lifecycle in production or test helpers", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.hooks, Deny: boundaryPolicies("platform_control_boundary", patterns.hooks, []string{"internal/platform/db"}, "hooks must consume ports instead of database lifecycle"), SkipTestFiles: false}
+}
+
 // boundaryFilePolicy 从注册范围派生文件模式，避免调用方另建宽泛白名单。
 func boundaryFilePolicy(owner BoundaryOwnerID, scope BoundaryScopeID, reason string) BoundaryFilePolicy {
 	// 未注册 scope 故意保留空 pattern，由统一 registry validator 在求值前失败关闭。
@@ -309,12 +447,25 @@ func boundaryFilePolicy(owner BoundaryOwnerID, scope BoundaryScopeID, reason str
 	return BoundaryFilePolicy{Owner: owner, Scope: scope, FilePattern: pattern, Reason: reason}
 }
 
+// boundaryScopeFilePattern 将 typed scope 映射为求值器支持的唯一文件模式。
 func boundaryScopeFilePattern(scope BoundaryScopeID) (string, bool) {
 	switch scope {
 	case BoundaryScopeStore:
 		return "internal/store/**/*.go", true
 	case BoundaryScopePlatformDB:
 		return "internal/platform/db/**/*.go", true
+	case BoundaryScopeFXInternalApp:
+		return "internal/app/**/*.go", true
+	case BoundaryScopeFXModuleFile:
+		return "internal/**/module.go", true
+	case BoundaryScopeFXMCPOrch:
+		return "cmd/mcp-orch/**/*.go", true
+	case BoundaryScopeFXMCPIDA:
+		return "cmd/mcp-ida/**/*.go", true
+	case BoundaryScopeFXCommandEntrypoint:
+		return "cmd/*/*.go", true
+	case BoundaryScopeFXMCPLSP:
+		return "cmd/mcp-lsp/fx.go", true
 	default:
 		return "", false
 	}
