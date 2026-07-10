@@ -57,7 +57,7 @@ const backend = vi.hoisted(() => {
     createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
     listMCPServers startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
     listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
-    startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
+    forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
   `.trim().split(/\s+/);
@@ -2999,7 +2999,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
       finalOutputRefs: [],
       sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     });
-    backend.startThread.mockResolvedValue({ thread: { id: 'thread-fork' } });
+    backend.forkThread.mockResolvedValue({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
+      kickoffState: 'created_only',
+    });
     backend.startTurn.mockResolvedValue({ ok: true });
 
     render(<App />);
@@ -3014,15 +3017,21 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(within(card).getByRole('button', { name: '创建继承对话' }));
 
     await waitFor(() => {
-      expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
-        name: '继承自会话：后端线程',
-        baseInstructions: expect.stringContaining('共享文件：reports/final.md'),
-      }));
+      expect(backend.forkThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     });
+    expect(backend.startThread).not.toHaveBeenCalled();
     expect(backend.startTurn).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'thread-fork',
-      input: [{ type: 'text', text: '请基于上文摘要，简要总结上次进展并提出下一步建议。' }],
+      input: [
+        { type: 'text', text: '请基于已继承的完整对话历史，简要总结当前进展并提出下一步建议。' },
+        {
+          type: 'filecontent',
+          path: 'reports/final.md',
+          name: 'reports/final.md',
+          content: 'content for reports/final.md',
+        },
+      ],
       manualSkillSelection: false,
     });
   });

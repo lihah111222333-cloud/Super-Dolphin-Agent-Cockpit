@@ -224,7 +224,7 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
   const threadData = useChatThreadData(store, activeThreadId);
   const introMode = !activeThreadId && !threadData.timelineBlocked && threadData.messages.length === 0;
   const headerFeedback = chatHeaderFeedbackForStore(store);
-  const showHeader = !introMode;
+  const showHeader = !introMode || headerFeedback?.bootstrapRecovery === true;
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
@@ -274,7 +274,7 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
       {showHeader ? (
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
-      {headerFeedback?.message ? (
+      {headerFeedback?.message && !headerFeedback?.bootstrapRecovery ? (
         <output className={`chat-action-toast is-${headerFeedback.tone || 'info'}`} role="alert" data-testid="chat-action-feedback">
           <strong>{actionFeedbackTitle(headerFeedback, copy)}</strong>
           <span>{headerFeedback.message}</span>

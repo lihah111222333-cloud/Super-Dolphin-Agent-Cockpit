@@ -18,6 +18,39 @@ describe('backend response validators', () => {
     expect(() => validate(RPC_METHODS.TURN_START, {})).toThrow('turn/start response missing turn_id or turnId');
   });
 
+  it('validates the canonical thread/fork response envelope', () => {
+    expect(validate(RPC_METHODS.THREAD_FORK, {
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+      kickoff_state: 'created_only',
+      kickoffState: 'created_only',
+    })).toEqual({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+      kickoff_state: 'created_only',
+      kickoffState: 'created_only',
+    });
+
+    expect(() => validate(RPC_METHODS.THREAD_FORK, {
+      thread: { id: '', forkedFrom: 'thread-parent' },
+      kickoffState: 'created_only',
+    })).toThrow('thread/fork response thread.id is required');
+    expect(() => validate(RPC_METHODS.THREAD_FORK, {
+      thread: { id: 'thread-fork', forkedFrom: '' },
+      kickoffState: 'created_only',
+    })).toThrow('thread/fork response thread.forkedFrom is required');
+    expect(() => validate(RPC_METHODS.THREAD_FORK, {
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+    })).toThrow('thread/fork response kickoff state is required');
+    expect(() => validate(RPC_METHODS.THREAD_FORK, {
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+      kickoff_state: 'created_only',
+      kickoffState: 'started',
+    })).toThrow('thread/fork response kickoff state fields conflict');
+    expect(() => validate(RPC_METHODS.THREAD_FORK, {
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+      kickoffState: 'automatic',
+    })).toThrow('thread/fork response unsupported kickoff state automatic');
+  });
+
   it('does not treat turn force-complete failure envelopes as success', () => {
     expect(validate(RPC_METHODS.TURN_FORCE_COMPLETE, {
       ok: false,

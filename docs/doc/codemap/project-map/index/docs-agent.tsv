@@ -316,7 +316,7 @@ docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-15.md	doc
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
 docs/dev-ui-test-mcp.md	docs	docs-agent	doc	8519	项目文档体系	docs,dev,ui,test,mcp,项目文档体系
 docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25338	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
-docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	3872	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	5640	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3962	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
 docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68316	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
 docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25444	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index

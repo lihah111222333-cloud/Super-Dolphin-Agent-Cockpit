@@ -1,7 +1,6 @@
 import { firstOptionalPresent } from '../../contractStoreModel.js';
 import {
-  buildSeedInstructionsFromSummary,
-  extractTimelineSummary,
+  buildForkKickoffInput,
   FORK_KICKOFF_PROMPT,
 } from '../threadFork.js';
 import { markForkKickoffFailedState } from '../../threadForkState.js';
@@ -90,52 +89,51 @@ function reportForkDraftSharedFilesFailure(runtime, sourceThreadId, error) {
   runtime.addWarning('warn', 'thread.fork.shared_files.failed', { threadId: sourceThreadId, error: message });
 }
 
-async function buildForkStartPayload(runtime, deps, sourceThreadId, draft) {
+async function loadForkKickoffContext(runtime, deps, sourceThreadId, draft) {
   const latest = runtime.get();
   const sourceThread = deps.forkSourceThread(latest, sourceThreadId);
-  const sourceTitle = draft.sourceTitle || deps.forkSourceTitle(sourceThread, sourceThreadId);
-  const summary = extractTimelineSummary(latest.timelinesByThread?.[sourceThreadId] || optionalUiArray());
+  const provisionalName = draft.sourceTitle || deps.forkSourceTitle(sourceThread, sourceThreadId);
   const sharedFiles = await deps.loadForkSharedFiles(latest.forkDraft.sharedFilePaths);
-  if (!summary && sharedFiles.length === 0) {
-    throw new Error('当前会话没有可用上下文，且未选择共享文件，无法创建继承对话。');
-  }
-  return {
-    sourceTitle,
-    baseInstructions: buildSeedInstructionsFromSummary(summary, { sourceTitle, sharedFiles }),
-  };
+  return { provisionalName, sharedFiles, sourceThread };
 }
 
 async function startForkThread(runtime, deps, sourceThreadId, draft) {
-  const { baseInstructions, sourceTitle } = await buildForkStartPayload(runtime, deps, sourceThreadId, draft);
+  const { provisionalName, sharedFiles, sourceThread } = await loadForkKickoffContext(
+    runtime,
+    deps,
+    sourceThreadId,
+    draft,
+  );
+  const input = buildForkKickoffInput(sharedFiles);
   const cwd = runtime.requireCwd('fork thread');
-  const launchPreferences = await deps.resolveLaunchPreferences(cwd);
-  const response = await deps.startThread({
-    cwd,
-    name: sourceTitle,
-    ...launchPreferences,
-    deferSpawn: true,
-    launchIntentId: deps.createLaunchIntentId(),
-    baseInstructions,
-  });
-  const identity = deps.normalizeThreadIdentity(response);
-  if (!identity.threadId) throw new Error('thread/start response missing threadId');
+  const response = await deps.forkThread({ threadId: sourceThreadId });
+  if (response.kickoffState !== 'created_only') {
+    throw new Error(`thread/fork unsupported kickoff state ${response.kickoffState}`);
+  }
+  const identity = deps.normalizeThreadIdentity(response.thread);
+  if (!identity.threadId) throw new Error('thread/fork response missing thread.id');
   runtime.set((current) => deps.addForkThreadState({
     state: current,
     threadId: identity.threadId,
+    sourceThreadId,
+    sourceThread,
     identity,
-    launchPreferences,
-    name: sourceTitle,
+    provisionalName,
     kickoffText: FORK_KICKOFF_PROMPT,
   }));
-  return { cwd, threadId: identity.threadId };
+  return {
+    cwd,
+    threadId: identity.threadId,
+    input,
+  };
 }
 
-async function sendForkKickoff(runtime, deps, cwd, threadId) {
+async function sendForkKickoff(runtime, deps, cwd, threadId, input) {
   try {
     await deps.startTurn({
       cwd,
       threadId,
-      input: [{ type: 'text', text: FORK_KICKOFF_PROMPT }],
+      input,
       manualSkillSelection: false,
     });
   }
@@ -208,7 +206,7 @@ function createSubmitForkThreadAction(runtime, deps) {
     try {
       const started = await startForkThread(runtime, deps, sourceThreadId, draft);
       newThreadId = started.threadId;
-      await sendForkKickoff(runtime, deps, started.cwd, started.threadId);
+      await sendForkKickoff(runtime, deps, started.cwd, started.threadId, started.input);
       return newThreadId;
     }
     catch (error) {

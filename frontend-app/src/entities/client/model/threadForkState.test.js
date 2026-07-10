@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildForkKickoffInput, FORK_KICKOFF_PROMPT } from './helpers/threadFork.js';
 import {
   buildForkThreadState,
   cachedForkSharedFiles,
@@ -9,6 +10,24 @@ import {
   normalizeForkSharedFiles } from './threadForkState.js';
 
 describe('threadForkState', () => {
+  it('builds canonical fork kickoff input from inherited history and filecontent', () => {
+    expect(buildForkKickoffInput([
+      { path: 'notes/a.md', content: '# A' },
+    ])).toEqual([
+      { type: 'text', text: FORK_KICKOFF_PROMPT },
+      { type: 'filecontent', path: 'notes/a.md', name: 'notes/a.md', content: '# A' },
+    ]);
+    expect(() => buildForkKickoffInput([{ path: 'notes/a.md', content: '' }])).toThrow(
+      'fork shared file path and content are required',
+    );
+    expect(buildForkKickoffInput([
+      { path: 'notes/indented.md', content: '  indented\n' },
+    ])[1].content).toBe('  indented\n');
+    expect(() => buildForkKickoffInput([{ path: 'notes/a.md', content: '   \n' }])).toThrow(
+      'fork shared file path and content are required',
+    );
+  });
+
   it('formats source titles from names, ids, and fallback text', () => {
     expect(forkSourceTitle({ name: ' Existing ' }, 'thread-1')).toBe('继承自会话：Existing');
     expect(forkSourceTitle({}, 'thread-1')).toBe('继承自会话：thread-1');
@@ -72,7 +91,7 @@ describe('threadForkState', () => {
     const baseState = {
       provider: 'codex',
       activityThreadAtById: { old: 1 },
-      threads: [{ id: 'thread-fork', name: 'old duplicate' }, { id: 'thread-old', name: 'old' }],
+      threads: [{ id: 'thread-old', name: 'old' }],
       timelinesByThread: { old: [{ id: 'old' }] },
     };
     const identity = { agentId: 'agent-1', providerThreadId: 'provider-1', sessionId: 'session-1' };
@@ -123,5 +142,46 @@ describe('threadForkState', () => {
         }],
       },
     });
+  });
+
+  it('preserves event-authoritative fork fields when the event arrives before the RPC response', () => {
+    const state = buildForkThreadState({
+      state: {
+        provider: 'codex',
+        activityThreadAtById: {},
+        threads: [{
+          id: 'thread-fork',
+          name: 'Parent (续)',
+          status: '空闲',
+          provider: 'codex',
+          cwd: '/repo',
+          generation: '7',
+        }],
+        timelinesByThread: { 'thread-fork': [] },
+      },
+      threadId: 'thread-fork',
+      sourceThreadId: 'thread-parent',
+      identity: { agentId: 'thread-fork', providerThreadId: '', sessionId: '' },
+      sourceThread: { id: 'thread-parent', provider: 'codex', cwd: '/repo' },
+      provisionalName: '继承自会话：Parent',
+      kickoffText: FORK_KICKOFF_PROMPT,
+      deps: {
+        actionNotice: (message, tone) => ({ message, tone }),
+        emptyForkDraft: () => ({ open: false }),
+        nowISO: () => '2026-07-10T00:00:00Z',
+        nowMillis: () => 123,
+        threadActivityTimestamp: () => 456,
+        threadMatchesIdentifier: (thread, id) => thread.id === id,
+      },
+    });
+
+    expect(state.threads).toHaveLength(1);
+    expect(state.threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-fork',
+      name: 'Parent (续)',
+      status: '空闲',
+      generation: '7',
+    }));
+    expect(state.timelinesByThread['thread-fork']).toHaveLength(1);
   });
 });

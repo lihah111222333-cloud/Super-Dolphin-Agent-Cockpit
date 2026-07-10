@@ -175,12 +175,27 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
     render(<TestChatPageWrapper store={store} projectPath="未选择项目" />);
 
     expect(screen.getByText('连接后端失败：backend unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新连接后端' })).toBeEnabled();
     expect(screen.getByText('我们应该在 燧元 中构建什么？')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
     // expect(screen.getByRole('button', { name: '请先连接后端并选择项目' })).toBeDisabled();
+  });
+
+  it('keeps composer actions disabled while a failed bootstrap retry is loading', () => {
+    const store = createFakeStore({
+      bootstrapStatus: 'loading',
+      draft: '等待重新连接',
+      error: 'backend unavailable',
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('button', { name: '正在重新连接后端' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
   });
 
   it('renders an active thread timeline, sends through the store, and opens the runtime panel', async () => {

@@ -110,6 +110,42 @@ function validateThreadStartResponse(method, response) {
  * @param {string} method
  * @param {any} response
  */
+function validateThreadForkResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const thread = value.thread;
+  if (!thread || typeof thread !== 'object' || Array.isArray(thread)) {
+    throw new TypeError(`${method} response thread must be an object`);
+  }
+  if (!normalizeString(thread.id)) {
+    throw new Error(`${method} response thread.id is required`);
+  }
+  const forkedFromCamel = normalizeString(thread.forkedFrom);
+  const forkedFromSnake = normalizeString(thread.forked_from);
+  if (forkedFromCamel && forkedFromSnake && forkedFromCamel !== forkedFromSnake) {
+    throw new Error(`${method} response thread.forkedFrom fields conflict`);
+  }
+  if (!forkedFromCamel && !forkedFromSnake) {
+    throw new Error(`${method} response thread.forkedFrom is required`);
+  }
+  const kickoffSnake = normalizeString(value.kickoff_state);
+  const kickoffCamel = normalizeString(value.kickoffState);
+  if (!kickoffSnake && !kickoffCamel) {
+    throw new Error(`${method} response kickoff state is required`);
+  }
+  if (kickoffSnake && kickoffCamel && kickoffSnake !== kickoffCamel) {
+    throw new Error(`${method} response kickoff state fields conflict`);
+  }
+  const kickoffState = kickoffCamel || kickoffSnake;
+  if (kickoffState !== 'created_only') {
+    throw new Error(`${method} response unsupported kickoff state ${kickoffState}`);
+  }
+  return value;
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
 function validateThreadMessagesResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   if (!Array.isArray(value.messages)) {
@@ -367,6 +403,7 @@ export function createBackendResponseValidators(methods) {
     [methods.UI_MEMORY_GET]: validateMemorySnapshotResponse,
     [methods.UI_SHARED_FILE_GET]: validateSharedFileDetailResponse,
     [methods.SKILLS_LOCAL_READ]: validateSkillReadResponse,
+    [methods.THREAD_FORK]: validateThreadForkResponse,
     [methods.THREAD_START]: validateThreadStartResponse,
     [methods.THREAD_MESSAGES]: validateThreadMessagesResponse,
     [methods.THREAD_RESOLVE]: validateThreadResolveResponse,

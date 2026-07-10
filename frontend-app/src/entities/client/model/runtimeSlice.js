@@ -21,13 +21,48 @@ export function createRuntimeSlice(runtime, deps) {
   };
 }
 
-function createLifecycleActions(runtime, deps) {
+async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrapAfterReconnect, generation) {
   const {
     isDagNodeStatusBridgeEvent,
     onBridgeEvent,
     onRuntimeReconnect,
   } = deps;
+  let bridgeSubscription;
+  let reconnectSubscription;
+  try {
+    if (generation !== runtime.eventInitializationGeneration) {
+      throw new Error('runtime event initialization superseded');
+    }
+    bridgeSubscription = trackRuntimeSubscription(runtime, onBridgeEvent(runtime.handleBridgeEvent, {
+      escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
+    }), 'runtime.bridge.subscribe', generation);
+    reconnectSubscription = trackRuntimeSubscription(runtime, onRuntimeReconnect(() => {
+      handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect);
+    }), 'runtime.reconnect.subscribe', generation);
+    await Promise.all([
+      bridgeSubscription.ready,
+      reconnectSubscription.ready,
+    ]);
+    if (generation !== runtime.eventInitializationGeneration) {
+      throw new Error('runtime event initialization superseded');
+    }
+    runtime.bridgeUnsubscribe = bridgeSubscription.commit();
+    runtime.reconnectUnsubscribe = reconnectSubscription.commit();
+    runtime.eventInitializationState = 'ready';
+    return true;
+  }
+  catch (error) {
+    bridgeSubscription?.unsubscribe();
+    reconnectSubscription?.unsubscribe();
+    if (generation === runtime.eventInitializationGeneration) {
+      runtime.eventInitializationGeneration += 1;
+      runtime.eventInitializationState = 'idle';
+    }
+    throw error;
+  }
+}
 
+function createLifecycleActions(runtime, deps) {
   const retryBootstrapAfterReconnect = () => {
     void runtime.get().bootstrap().catch((error) => {
       runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: error?.message || String(error) });
@@ -39,16 +74,37 @@ function createLifecycleActions(runtime, deps) {
      * bridge event 只注册一次。
      * 重连后 ready 只同步当前线程，其他状态重新 bootstrap。
      */
-    if (runtime.bridgeUnsubscribe) return;
-    trackRuntimeSubscription(runtime, 'bridgeUnsubscribe', onBridgeEvent(runtime.handleBridgeEvent, {
-        escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
-      }), 'runtime.bridge.subscribe');
-    trackRuntimeSubscription(runtime, 'reconnectUnsubscribe', onRuntimeReconnect(() => {
-      handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect);
-    }), 'runtime.reconnect.subscribe');
+    if (runtime.eventInitializationPromise) return runtime.eventInitializationPromise;
+    if (runtime.eventInitializationState === 'ready'
+      && runtime.bridgeUnsubscribe
+      && runtime.reconnectUnsubscribe) {
+      return Promise.resolve(true);
+    }
+    if (runtime.bridgeUnsubscribe || runtime.reconnectUnsubscribe) {
+      clearRuntimeUnsubscribe(runtime, 'bridgeUnsubscribe');
+      clearRuntimeUnsubscribe(runtime, 'reconnectUnsubscribe');
+    }
+    const generation = runtime.eventInitializationGeneration + 1;
+    runtime.eventInitializationGeneration = generation;
+    runtime.eventInitializationState = 'initializing';
+    const initialization = initializeRuntimeEventSubscriptions(
+      runtime,
+      deps,
+      retryBootstrapAfterReconnect,
+      generation,
+    ).finally(() => {
+      if (runtime.eventInitializationPromise === initialization) {
+        runtime.eventInitializationPromise = null;
+      }
+    });
+    runtime.eventInitializationPromise = initialization;
+    return initialization;
   };
 
   const destroy = () => {
+    runtime.eventInitializationGeneration += 1;
+    runtime.eventInitializationPromise = null;
+    runtime.eventInitializationState = 'idle';
     clearPendingRuntimeSubscriptions(runtime);
     clearRuntimeUnsubscribe(runtime, 'bridgeUnsubscribe');
     clearRuntimeUnsubscribe(runtime, 'reconnectUnsubscribe');
@@ -85,9 +141,9 @@ function createBootstrapActions(runtime, deps) {
      * bootstrap 会拿 cwd、窗口快照、项目列表和 provider。
      * cwd/provider 缺失就报错，后续页面都依赖它们。
      */
-    runtime.set({ bootstrapStatus: 'loading', error: '' });
-    void runtime.get().initializeEvents();
+    runtime.set({ bootstrapStatus: 'loading' });
     try {
+      await runtime.get().initializeEvents();
       const [config, rawWindowBootstrap] = await Promise.all([readConfig(), getWindowBootstrap()]);
       const cwd = normalizePath(config?.cwd);
       if (!cwd || cwd === '.') {
@@ -109,9 +165,9 @@ function createBootstrapActions(runtime, deps) {
       ]);
       runtime.applyProjects(projects, scopedCwd);
       runtime.cacheSidebarSnapshot(scopedCwd, sidebar);
-      runtime.applySnapshot(sidebar);
+      runtime.applySnapshot(sidebar, { preserveLiveBusyStatus: true });
       runtime.bootstrapRetryAfterReconnect = false;
-      runtime.set({ bootstrapStatus: 'ready' });
+      runtime.set({ bootstrapStatus: 'ready', error: '' });
     }
     catch (error) {
       handleBootstrapError(runtime, error);

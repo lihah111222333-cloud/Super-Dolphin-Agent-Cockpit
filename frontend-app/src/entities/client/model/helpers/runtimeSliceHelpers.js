@@ -1,55 +1,50 @@
-function subscriptionUnsubscribe(subscription, label) {
+function requiredUnsubscribe(subscription, label) {
   if (typeof subscription === 'function') return subscription;
   if (subscription && typeof subscription.unsubscribe === 'function') return subscription.unsubscribe;
   throw new Error(`${label} unsubscribe handler is required`);
 }
 
-function pendingRuntimeSubscriptions(runtime) {
-  if (!runtime.pendingRuntimeSubscriptions) runtime.pendingRuntimeSubscriptions = new Set();
-  return runtime.pendingRuntimeSubscriptions;
-}
-
-function clearRuntimeSubscriptionKey(runtime, key, unsubscribe) {
-  if (runtime[key] === unsubscribe || !runtime[key]) runtime[key] = null;
-}
-
-function handleRuntimeSubscriptionReady(runtime, key, pending, unsubscribe, ready) {
-  runtime.pendingRuntimeSubscriptions?.delete(pending);
-  if (!pending.active) return;
-  if (ready !== true) {
-    clearRuntimeSubscriptionKey(runtime, key, unsubscribe);
-    return;
-  }
-  if (runtime[key] && runtime[key] !== unsubscribe) {
+function onceUnsubscribe(unsubscribe) {
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
     unsubscribe();
-    return;
-  }
-  runtime[key] = unsubscribe;
+  };
 }
 
-function handleRuntimeSubscriptionFailure(context, error) {
-  const { runtime, key, label, pending, unsubscribe } = context;
-  runtime.pendingRuntimeSubscriptions?.delete(pending);
-  if (runtime[key] === unsubscribe) runtime[key] = null;
-  if (pending.active) runtime.addWarning('error', `${label}.failed`, { error: error?.message || String(error) });
-}
-
-export function trackRuntimeSubscription(runtime, key, subscription, label) {
-  const unsubscribe = subscriptionUnsubscribe(subscription, label);
-  if (subscription?.ready === undefined) {
-    runtime[key] = unsubscribe;
-    return;
-  }
-  if (!subscription.ready || typeof subscription.ready.then !== 'function') {
-    throw new Error(`${label} ready promise is required`);
-  }
-  const pending = { unsubscribe, active: true };
-  pendingRuntimeSubscriptions(runtime).add(pending);
-  void subscription.ready.then((ready) => {
-    handleRuntimeSubscriptionReady(runtime, key, pending, unsubscribe, ready);
-  }).catch((error) => {
-    handleRuntimeSubscriptionFailure({ runtime, key, label, pending, unsubscribe }, error);
-  });
+export function trackRuntimeSubscription(runtime, subscription, label, generation) {
+  const committedUnsubscribe = requiredUnsubscribe(subscription, label);
+  const closeNativeSubscription = onceUnsubscribe(committedUnsubscribe);
+  const pending = { generation, unsubscribe: null, active: true };
+  const cancel = () => {
+    pending.active = false;
+    runtime.pendingRuntimeSubscriptions.delete(pending);
+    closeNativeSubscription();
+  };
+  const commit = () => {
+    if (!pending.active || generation !== runtime.eventInitializationGeneration) {
+      throw new Error('runtime event initialization superseded');
+    }
+    pending.active = false;
+    runtime.pendingRuntimeSubscriptions.delete(pending);
+    return committedUnsubscribe;
+  };
+  pending.unsubscribe = cancel;
+  runtime.pendingRuntimeSubscriptions.add(pending);
+  const ready = Promise.resolve(subscription?.ready ?? true)
+    .then((value) => {
+      if (!pending.active || generation !== runtime.eventInitializationGeneration) {
+        throw new Error('runtime event initialization superseded');
+      }
+      if (value !== true) throw new Error(`${label} unavailable`);
+      return true;
+    })
+    .catch((error) => {
+      cancel();
+      throw error;
+    });
+  return { commit, ready, unsubscribe: cancel };
 }
 
 export function handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect) {

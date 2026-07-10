@@ -60,7 +60,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err := s.kickoffForkSession(ctx, state, meta, provider, cwd, displayName, newThreadID, snapshot, identity, config); err != nil {
 		return ForkResult{}, s.handleForkKickoffFailure(ctx, forkState, err)
 	}
-	return ForkResult{NewThreadID: newThreadID, ForkedFrom: bindingPublicThreadID(binding, threadID), KickoffState: ForkKickoffState("created_only")}, nil
+	return ForkResult{NewThreadID: newThreadID, ForkedFrom: bindingPublicThreadID(binding, threadID), KickoffState: ForkKickoffCreatedOnly}, nil
 }
 
 // handleForkKickoffFailure 统一处理 creating fork 的失败出口。

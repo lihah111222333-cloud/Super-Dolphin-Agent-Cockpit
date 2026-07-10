@@ -38,6 +38,7 @@ function createFakeStore(overrides = {}) {
     attachPastedImagesForComposer: vi.fn(),
     attachPathsForComposer: vi.fn(),
     attachments: [],
+    bootstrap: vi.fn().mockResolvedValue(undefined),
     bootstrapStatus: 'ready',
     chatSurfaceLoadingCwd: '',
     copyActiveThreadInfo: vi.fn(),

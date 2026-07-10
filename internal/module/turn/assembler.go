@@ -136,8 +136,8 @@ func normalizeTextItem(item shareddto.InputItem) (shareddto.InputItem, bool) {
 }
 
 func normalizeFileContentItem(item shareddto.InputItem) (shareddto.InputItem, bool) {
-	content := clampString(strings.TrimSpace(item.Content), maxTurnInputTextBytes)
-	if content == "" {
+	content := clampString(item.Content, maxTurnInputTextBytes)
+	if strings.TrimSpace(content) == "" {
 		return shareddto.InputItem{}, false
 	}
 	out := shareddto.InputItem{Type: "filecontent", Content: content}
@@ -243,9 +243,14 @@ func isAllowedExtension(target string, allowed map[string]struct{}) bool {
 }
 
 func inputKey(item shareddto.InputItem) string {
+	typ := normalizeInputType(item.Type)
+	content := strings.TrimSpace(item.Content)
+	if typ == "filecontent" {
+		content = item.Content
+	}
 	return strings.Join([]string{
-		normalizeInputType(item.Type),
-		strings.TrimSpace(item.Content),
+		typ,
+		content,
 		strings.TrimSpace(item.Path),
 		strings.TrimSpace(item.URL),
 	}, "|")

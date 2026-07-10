@@ -503,6 +503,61 @@ function guardedBackendResponse(method) {
     }), 'version must be a positive integer');
   });
 
+  it('calls canonical thread/fork with only the source thread id', async () => {
+    const callAPI = vi.fn().mockResolvedValue({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+      kickoff_state: 'created_only',
+      kickoffState: 'created_only',
+    });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.forkThread({ threadId: 'thread-parent' })).resolves.toEqual(expect.objectContaining({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-parent' },
+      kickoffState: 'created_only',
+    }));
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_FORK, { threadId: 'thread-parent' });
+  });
+
+  it('rejects non-canonical thread/fork request fields before calling the backend', () => {
+    const callAPI = vi.fn();
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.forkThread({
+      threadId: 'thread-parent',
+      cwd: '/repo/app',
+      provider: 'codex',
+      baseInstructions: 'summary fallback',
+    }), 'thread/fork: unsupported payload field');
+    expectInvalidInputDoesNotCall(callAPI, () => api.forkThread({
+      threadId: 'thread-parent',
+      thread_id: 'different-parent',
+    }), 'thread/fork: conflicting threadId values');
+  });
+
+  it('rejects thread/fork responses whose source does not match the request', async () => {
+    const callAPI = vi.fn().mockResolvedValue({
+      thread: { id: 'thread-fork', forkedFrom: 'different-parent' },
+      kickoffState: 'created_only',
+    });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.forkThread({ threadId: 'thread-parent' })).rejects.toThrow(
+      'thread/fork response thread.forkedFrom must equal thread-parent',
+    );
+  });
+
+  it('rejects thread/fork responses that reuse the source thread id', async () => {
+    const callAPI = vi.fn().mockResolvedValue({
+      thread: { id: 'thread-parent', forkedFrom: 'thread-parent' },
+      kickoffState: 'created_only',
+    });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.forkThread({ threadId: 'thread-parent' })).rejects.toThrow(
+      'thread/fork response thread.id must differ from thread-parent',
+    );
+  });
+
   it('starts a pending backend thread with the canonical thread/start payload shape', async () => {
     const response = { threadId: 'thread-123', state: 'pending' };
     const callAPI = vi.fn().mockResolvedValue(response);

@@ -184,8 +184,31 @@ function forkSourceThread(state, threadId) {
 }
 
 function addForkThreadState(options) {
-  const { state, threadId, identity, launchPreferences, name, kickoffText } = options;
-  return buildForkThreadState({ state, threadId, identity, launchPreferences, name, kickoffText, deps: { actionNotice, defaultProvider: DEFAULT_PROVIDER, emptyForkDraft, threadActivityTimestamp, threadMatchesIdentifier } });
+  const {
+    state,
+    threadId,
+    sourceThreadId,
+    sourceThread,
+    identity,
+    provisionalName,
+    kickoffText,
+  } = options;
+  return buildForkThreadState({
+    state,
+    threadId,
+    sourceThreadId,
+    sourceThread,
+    identity,
+    provisionalName,
+    kickoffText,
+    deps: {
+      actionNotice,
+      defaultProvider: DEFAULT_PROVIDER,
+      emptyForkDraft,
+      threadActivityTimestamp,
+      threadMatchesIdentifier,
+    },
+  });
 }
 
 const loadForkSharedFiles = createLoadForkSharedFiles({ readSharedFile });
@@ -195,8 +218,8 @@ const forkActionDeps = {
   addForkThreadState,
   backendThreadIdForState,
   cachedForkSharedFiles,
-  createLaunchIntentId,
   emptyForkDraft,
+  forkThread: (payload) => sessionApi.fork(payload),
   forkSourceThread,
   forkSourceTitle,
   initialForkSharedFilePaths,
@@ -206,8 +229,6 @@ const forkActionDeps = {
   normalizeForkSharedFiles,
   normalizeString,
   normalizeThreadIdentity,
-  resolveLaunchPreferences,
-  startThread: (payload) => sessionApi.start(payload),
   startTurn: (payload) => sessionApi.startTurn(payload),
 };
 

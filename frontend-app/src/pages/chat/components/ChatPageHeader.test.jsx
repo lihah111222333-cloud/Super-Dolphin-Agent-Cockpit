@@ -6,6 +6,9 @@ import { ChatPageHeader } from './ChatPageHeader.jsx';
 function createStore(overrides = {}) {
   return {
     activeThreadId: '',
+    bootstrap: vi.fn().mockResolvedValue(undefined),
+    bootstrapStatus: 'ready',
+    error: '',
     hasActiveThreadActions: () => true,
     hasInterruptibleThreadAction: () => true,
     openNewWindow: vi.fn(),
@@ -75,5 +78,54 @@ describe('ChatPageHeader', () => {
     );
 
     expect(screen.queryByTestId('chat-action-feedback')).not.toBeInTheDocument();
+  });
+
+  it('offers one explicit bootstrap retry after a connection failure', () => {
+    const store = createStore({
+      bootstrapStatus: 'failed',
+      error: 'event bridge unavailable',
+    });
+
+    render(
+      <ChatPageHeader
+        store={store}
+        projectPath="D:/project/Super-Dolphin"
+        rightPanelOpen={false}
+        setRightPanelOpen={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent(
+      '连接后端失败：event bridge unavailable',
+    );
+    fireEvent.click(screen.getByRole('button', { name: '重新连接后端' }));
+    expect(store.bootstrap).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the bootstrap retry button while reconnecting and removes it when ready', () => {
+    const store = createStore({
+      bootstrapStatus: 'loading',
+      error: 'event bridge unavailable',
+    });
+    const { rerender } = render(
+      <ChatPageHeader
+        store={store}
+        projectPath="D:/project/Super-Dolphin"
+        rightPanelOpen={false}
+        setRightPanelOpen={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: '正在重新连接后端' })).toBeDisabled();
+
+    rerender(
+      <ChatPageHeader
+        store={{ ...store, bootstrapStatus: 'ready', error: '' }}
+        projectPath="D:/project/Super-Dolphin"
+        rightPanelOpen={false}
+        setRightPanelOpen={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole('button', { name: /重新连接后端/ })).not.toBeInTheDocument();
   });
 });

@@ -51,6 +51,12 @@ function createThreadApi(callBackend) {
     deleteThread: (params) => callBackend(RPC_METHODS.THREAD_DELETE, threadIdOnlyPayload(RPC_METHODS.THREAD_DELETE, params)),
     getThreadConfig: (params) => callBackend(RPC_METHODS.THREAD_CONFIG_GET, threadIdOnlyPayload(RPC_METHODS.THREAD_CONFIG_GET, params)),
     setThreadConfig: (params) => callBackend(RPC_METHODS.THREAD_CONFIG_SET, threadConfigPayload(params)),
+    forkThread: (params) => {
+      const payload = strictThreadIdOnlyPayload(RPC_METHODS.THREAD_FORK, params);
+      return callBackend(RPC_METHODS.THREAD_FORK, payload).then((response) => (
+        normalizeForkResponseSource(RPC_METHODS.THREAD_FORK, response, payload.threadId)
+      ));
+    },
     startThread: (params) => callBackend(RPC_METHODS.THREAD_START, threadStartPayload(params)),
     startTurn: (params) => callBackend(RPC_METHODS.TURN_START, turnStartPayload(params)),
     interruptTurn: (params) => callBackend(RPC_METHODS.TURN_INTERRUPT, turnInterruptPayload(params)),
@@ -77,6 +83,31 @@ function threadIdOnlyPayload(method, params) {
   const { unused, threadId } = threadScopedPayload(method, params);
   assertNoExtraPayloadFields(method, unused);
   return { threadId };
+}
+
+function strictThreadIdOnlyPayload(method, params) {
+  const payload = assertPlainObject(method, params);
+  const threadId = resolveThreadIdAliases(method, payload);
+  const unused = { ...payload };
+  takePayloadField(unused, 'threadId');
+  takePayloadField(unused, 'thread_id');
+  assertNoExtraPayloadFields(method, unused);
+  return { threadId };
+}
+
+function normalizeForkResponseSource(method, response, sourceThreadId) {
+  const forkedFrom = normalizeString(response.thread.forkedFrom || response.thread.forked_from);
+  if (forkedFrom !== sourceThreadId) {
+    throw new Error(`${method} response thread.forkedFrom must equal ${sourceThreadId}`);
+  }
+  if (normalizeString(response.thread.id) === sourceThreadId) {
+    throw new Error(`${method} response thread.id must differ from ${sourceThreadId}`);
+  }
+  return {
+    ...response,
+    thread: { ...response.thread, forkedFrom },
+    kickoffState: normalizeString(response.kickoffState || response.kickoff_state),
+  };
 }
 
 function threadMessagesPayload(params) {

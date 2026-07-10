@@ -21,6 +21,10 @@ function createTestWebSocketClass(sockets) {
       this.url = url;
       this.readyState = TestWebSocket.CONNECTING;
       this.sent = [];
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
       sockets.push(this);
     }
 
@@ -66,6 +70,71 @@ describe('development Wails runtime shim', () => {
     const source = readFileSync(join(cwd(), 'public/wails/runtime.js'), 'utf8');
     expect(source).toContain('/wails/ws');
     expect(source).toContain('__WAILS_SHIM_DEBUG__');
+  });
+
+  it('emits wails:loaded once per reconnect cycle but not on the first normal open', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    const loaded = vi.fn();
+    const unsubscribe = runtime.Events.On('wails:loaded', loaded);
+    expect(sockets).toHaveLength(1);
+
+    sockets[0].open();
+    sockets[0].open();
+    expect(loaded).not.toHaveBeenCalled();
+
+    sockets[0].close();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(2);
+    sockets[1].open();
+    sockets[1].open();
+    expect(loaded).toHaveBeenCalledTimes(1);
+    expect(loaded).toHaveBeenLastCalledWith({ name: 'wails:loaded', data: {} });
+
+    sockets[1].close();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(3);
+    sockets[2].open();
+    expect(loaded).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+  });
+
+  it('emits wails:loaded when an initially failed connection recovers', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    const loaded = vi.fn();
+    runtime.Events.On('wails:loaded', loaded);
+    sockets[0].error(new Error('ECONNREFUSED'));
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(2);
+
+    sockets[1].open();
+    expect(loaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reconnect or emit wails:loaded after the listener unsubscribes', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    const loaded = vi.fn();
+    const unsubscribe = runtime.Events.On('wails:loaded', loaded);
+    sockets[0].open();
+    sockets[0].close();
+    unsubscribe();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(sockets).toHaveLength(1);
+    expect(loaded).not.toHaveBeenCalled();
   });
 
   it('emits pending send and settle telemetry with request correlation on resolve', async () => {
