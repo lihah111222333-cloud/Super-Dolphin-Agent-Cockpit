@@ -48,12 +48,12 @@ internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2515	�
 internal/archtest/agent_lifecycle_port_boundary_test.go	internal	other	go-test	750	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,lifecycle,port,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/archguard_ignore_test.go	internal	other	go-test	1641	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/archguard_ignore.go	internal	other	go-source	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other	go-test	7654	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,canonical,dependencies,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	33857	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other	go-test	7822	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,canonical,dependencies,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	34020	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	8251	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	6517	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	25778	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_single_source_test.go	internal	other	go-test	23913	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	25781	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_single_source_test.go	internal	other	go-test	28626	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/baseline_shrink_test.go	internal	other	go-test	4503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,test,架构守卫,ratchet,与冻结规则
 internal/archtest/baseline_shrink.go	internal	other	go-source	2465	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,架构守卫,ratchet,与冻结规则
 internal/archtest/baseline_test.go	internal	other	go-test	3209	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,test,架构守卫,ratchet,与冻结规则

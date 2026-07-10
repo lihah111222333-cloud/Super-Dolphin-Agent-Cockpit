@@ -101,6 +101,7 @@ func TestStoreDependencyRuleKeepsExternalAllowancesExact(t *testing.T) {
 	}{
 		{relPath: "internal/store/thread/module.go", imp: "go.uber.org/fx/internal"},
 		{relPath: "internal/store/thread/store.go", imp: "github.com/jackc/pgx/v5/pgtype/extra"},
+		{relPath: "internal/store/thread/store.go", imp: "corp/persistence"},
 	}
 	for _, tc := range cases {
 		path := filepath.Join(t.TempDir(), "fixture.go")
@@ -127,6 +128,7 @@ func TestFXAssemblyScopesUseTypedPathMatchers(t *testing.T) {
 	}{
 		{name: "nested module file", relPath: "internal/module/thread/module.go", wantAllow: true},
 		{name: "direct command entrypoint", relPath: "cmd/agent-terminal/main.go", wantAllow: true},
+		{name: "direct command helper", relPath: "cmd/agent-terminal/frontend.go", wantAllow: false},
 		{name: "nested non module file", relPath: "internal/module/thread/service.go", wantAllow: false},
 		{name: "nested command implementation", relPath: "cmd/agent-terminal/internal/main.go", wantAllow: false},
 	}

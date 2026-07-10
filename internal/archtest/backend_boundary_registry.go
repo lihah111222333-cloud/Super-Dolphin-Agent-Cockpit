@@ -458,7 +458,7 @@ func boundaryScopeFilePattern(scope BoundaryScopeID) (string, bool) {
 	case BoundaryScopeFXMCPIDA:
 		return "cmd/mcp-ida/**/*.go", true
 	case BoundaryScopeFXCommandEntrypoint:
-		return "cmd/*/*.go", true
+		return "cmd/*/main.go", true
 	case BoundaryScopeFXMCPLSP:
 		return "cmd/mcp-lsp/fx.go", true
 	default:

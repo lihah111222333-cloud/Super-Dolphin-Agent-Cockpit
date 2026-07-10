@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"fmt"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
@@ -151,7 +152,7 @@ func isSupportedBackendBoundaryPattern(pattern string) bool {
 			return base != "" && !strings.ContainsAny(base, "*?[]")
 		}
 	}
-	if base, ok := strings.CutSuffix(pattern, "/*/*.go"); ok {
+	if base, ok := strings.CutSuffix(pattern, "/*/main.go"); ok {
 		return base != "" && !strings.ContainsAny(base, "*?[]")
 	}
 	return false
@@ -709,7 +710,14 @@ func matchesBackendBoundaryStorePolicy(policies []BoundaryImportPolicy, rel, imp
 }
 
 func isBackendBoundaryStdlibImport(imp string) bool {
-	return !strings.Contains(imp, ".")
+	if imp == "C" {
+		return true
+	}
+	if strings.Contains(imp, ".") {
+		return false
+	}
+	pkg, err := build.Default.Import(imp, "", build.FindOnly)
+	return err == nil && pkg.Goroot
 }
 
 func isSameBackendBoundaryStorePackage(rel, imp string) bool {
@@ -768,9 +776,9 @@ func matchesBackendBoundaryPattern(pattern, rel string) bool {
 	case strings.HasSuffix(pattern, "/**/*.go"):
 		base := strings.TrimSuffix(pattern, "/**/*.go")
 		return strings.HasPrefix(rel, base+"/") && strings.HasSuffix(rel, ".go")
-	case strings.HasSuffix(pattern, "/*/*.go"):
-		base := strings.TrimSuffix(pattern, "/*/*.go")
-		if !strings.HasPrefix(rel, base+"/") || !strings.HasSuffix(rel, ".go") {
+	case strings.HasSuffix(pattern, "/*/main.go"):
+		base := strings.TrimSuffix(pattern, "/*/main.go")
+		if !strings.HasPrefix(rel, base+"/") || filepath.Base(rel) != "main.go" {
 			return false
 		}
 		return strings.Count(strings.TrimPrefix(rel, base+"/"), "/") == 1

@@ -196,6 +196,84 @@ func fixture(t *testing.T, root string) {
 	}
 }
 
+func TestBackendBoundaryRuleFactsRejectsPolicyTableHiddenInTestFunction(t *testing.T) {
+	const source = `package nested
+func TestHiddenPolicy(t *testing.T) {
+	_ = localPolicyRecord{
+		ID: "hidden_rule", Owner: "hidden_owner", Reason: "duplicate",
+		FilePatterns: []string{"internal/**/*.go"}, Deny: []string{"internal/store"},
+	}
+}`
+	rel := "internal/archtest/nested/hidden_policy_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
+	if !strings.Contains(violations, "declares local backend boundary policy facts") {
+		t.Fatalf("Test function policy table must be rejected, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsAllowsExplicitRegistryValidationFixture(t *testing.T) {
+	const source = `package archtest_test
+func TestRegistryRejectsBrokenRule(t *testing.T) {
+	_ = archtest.BackendBoundaryRule{
+		ID: "broken_rule", Owner: "fixture_owner", Reason: "fixture",
+		FilePatterns: []string{"internal/**/*.go"}, Deny: []archtest.BoundaryImportPolicy{},
+	}
+}`
+	rel := "internal/archtest/boundary_registry_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if violations := backendBoundaryConsumerFactViolations(rel, node); len(violations) != 0 {
+		t.Fatalf("explicit registry validation fixture must remain allowed: %v", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsDoNotJoinUnrelatedFunctions(t *testing.T) {
+	const source = `package nested
+func scanStore(t *testing.T, root string) {
+	_ = parseImportFiles(t, root, "internal/store")
+}
+func configFixture() { _ = "internal/platform/config" }
+func sqlcFixture() { _ = "internal/store/sqlc" }`
+	rel := "internal/archtest/nested/unrelated_facts_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if violations := backendBoundaryConsumerFactViolations(rel, node); len(violations) != 0 {
+		t.Fatalf("unrelated functions must not be joined into one evaluator: %v", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsRejectsConnectedHelperSplit(t *testing.T) {
+	const source = `package nested
+func TestStoreBoundary(t *testing.T) {
+	scanStore(t, "repo")
+	storeAllowFacts()
+}
+func scanStore(t *testing.T, root string) {
+	_ = parseImportFiles(t, root, "internal/store")
+}
+func storeAllowFacts() {
+	_ = "internal/platform/config"
+	_ = "internal/store/sqlc"
+}`
+	rel := "internal/archtest/nested/connected_facts_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
+	if !strings.Contains(violations, "procedural backend dependency evaluator duplicates the canonical registry") {
+		t.Fatalf("connected helper split must be rejected, got:\n%s", violations)
+	}
+}
+
 // TestBackendBoundaryRuleFactsHaveOneSource prevents consumers from reintroducing registry policy facts.
 func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 	t.Helper()
@@ -306,54 +384,95 @@ func backendBoundaryFileSemanticViolations(rel string, node *ast.File) []string 
 }
 
 func declaresProceduralBackendDependencyBoundary(node *ast.File, packageStrings map[string]string) bool {
-	parseTargets, facts := collectProceduralBackendDependencyFacts(node, packageStrings)
-	return declaresProceduralStoreBoundary(parseTargets, facts) ||
-		declaresProceduralFXBoundary(parseTargets, facts) ||
-		declaresProceduralMCPServerFamilyBoundary(parseTargets, facts) ||
-		declaresProceduralPlatformControlBoundary(parseTargets, facts)
+	functions := collectProceduralBackendDependencyFacts(node, packageStrings)
+	for name := range functions {
+		connected := newBackendBoundaryDependencyFacts()
+		collectConnectedBackendBoundaryFacts(name, functions, make(map[string]bool), &connected)
+		if declaresProceduralStoreBoundary(connected.parseTargets, connected.facts) ||
+			declaresProceduralFXBoundary(connected.parseTargets, connected.facts) ||
+			declaresProceduralMCPServerFamilyBoundary(connected.parseTargets, connected.facts) ||
+			declaresProceduralPlatformControlBoundary(connected.parseTargets, connected.facts) {
+			return true
+		}
+	}
+	return false
 }
 
-func collectProceduralBackendDependencyFacts(node *ast.File, packageStrings map[string]string) (map[string]bool, map[string]bool) {
-	parseTargets := make(map[string]bool)
-	facts := make(map[string]bool)
-	for _, value := range packageStrings {
-		facts[value] = true
+type backendBoundaryDependencyFacts struct {
+	parseTargets map[string]bool
+	facts        map[string]bool
+	callees      map[string]bool
+}
+
+func newBackendBoundaryDependencyFacts() backendBoundaryDependencyFacts {
+	return backendBoundaryDependencyFacts{
+		parseTargets: make(map[string]bool),
+		facts:        make(map[string]bool),
+		callees:      make(map[string]bool),
 	}
+}
+
+func collectProceduralBackendDependencyFacts(node *ast.File, packageStrings map[string]string) map[string]backendBoundaryDependencyFacts {
+	functions := make(map[string]backendBoundaryDependencyFacts)
 	for _, declaration := range node.Decls {
 		fn, ok := declaration.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
 			continue
 		}
-		collectProceduralBackendFunctionFacts(fn, packageStrings, parseTargets, facts)
+		collected := newBackendBoundaryDependencyFacts()
+		collectProceduralBackendFunctionFacts(fn, packageStrings, &collected)
+		functions[fn.Name.Name] = collected
 	}
-	return parseTargets, facts
+	return functions
 }
 
-func collectProceduralBackendFunctionFacts(fn *ast.FuncDecl, packageStrings map[string]string, parseTargets, facts map[string]bool) {
+func collectProceduralBackendFunctionFacts(fn *ast.FuncDecl, packageStrings map[string]string, collected *backendBoundaryDependencyFacts) {
 	values := backendBoundaryFunctionStringConstants(fn, packageStrings)
-	for _, value := range values {
-		facts[value] = true
-	}
 	ast.Inspect(fn.Body, func(item ast.Node) bool {
 		if expr, ok := item.(ast.Expr); ok {
 			if value, ok := backendBoundaryStringValue(expr, values); ok {
-				facts[value] = true
+				collected.facts[value] = true
 			}
 		}
-		if value, ok := backendBoundaryStringLiteral(item); ok {
-			facts[value] = true
-		}
 		call, ok := item.(*ast.CallExpr)
-		if !ok || backendBoundaryCallName(call.Fun) != "parseImportFiles" {
+		if !ok {
+			return true
+		}
+		if callee, ok := call.Fun.(*ast.Ident); ok {
+			collected.callees[callee.Name] = true
+		}
+		if backendBoundaryCallName(call.Fun) != "parseImportFiles" {
 			return true
 		}
 		for _, arg := range call.Args {
 			if value, ok := backendBoundaryStringValue(arg, values); ok {
-				parseTargets[value] = true
+				collected.parseTargets[value] = true
 			}
 		}
 		return true
 	})
+}
+
+func collectConnectedBackendBoundaryFacts(name string, functions map[string]backendBoundaryDependencyFacts, visited map[string]bool, combined *backendBoundaryDependencyFacts) {
+	if visited[name] {
+		return
+	}
+	current, ok := functions[name]
+	if !ok {
+		return
+	}
+	visited[name] = true
+	mergeBackendBoundaryFactSet(combined.parseTargets, current.parseTargets)
+	mergeBackendBoundaryFactSet(combined.facts, current.facts)
+	for callee := range current.callees {
+		collectConnectedBackendBoundaryFacts(callee, functions, visited, combined)
+	}
+}
+
+func mergeBackendBoundaryFactSet(target, source map[string]bool) {
+	for fact := range source {
+		target[fact] = true
+	}
 }
 
 func declaresProceduralStoreBoundary(parseTargets, facts map[string]bool) bool {
@@ -392,7 +511,7 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 	if violation := backendBoundarySpecialFunctionViolation(rel, fn); violation != "" {
 		return []string{violation}
 	}
-	if fn.Body == nil || strings.HasPrefix(fn.Name.Name, "Test") {
+	if fn.Body == nil || strings.HasPrefix(fn.Name.Name, "Test") && backendBoundaryAllowsTestPolicyFixture(rel) {
 		return nil
 	}
 	var violations []string
@@ -405,6 +524,10 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 		return true
 	})
 	return violations
+}
+
+func backendBoundaryAllowsTestPolicyFixture(rel string) bool {
+	return filepath.ToSlash(rel) == "internal/archtest/boundary_registry_test.go"
 }
 
 func backendBoundarySpecialFunctionViolation(rel string, fn *ast.FuncDecl) string {
@@ -677,7 +800,7 @@ func backendBoundaryConsumerRuleIDSources(rel string, node *ast.File) map[string
 	ids := map[string][]string{}
 	for _, declaration := range node.Decls {
 		fn, ok := declaration.(*ast.FuncDecl)
-		if !ok || !isBackendBoundaryDefaultRuleFunction(fn) {
+		if !ok || !isBackendBoundaryDefaultRuleFunction(rel, fn) {
 			continue
 		}
 		collectBackendBoundaryRuleIDs(rel, fn, ids)
@@ -685,9 +808,12 @@ func backendBoundaryConsumerRuleIDSources(rel string, node *ast.File) map[string
 	return ids
 }
 
-func isBackendBoundaryDefaultRuleFunction(fn *ast.FuncDecl) bool {
+func isBackendBoundaryDefaultRuleFunction(rel string, fn *ast.FuncDecl) bool {
 	name := fn.Name.Name
-	return !strings.HasPrefix(name, "Test") && (strings.Contains(name, "Rule") || strings.Contains(name, "Boundary"))
+	if strings.HasPrefix(name, "Test") {
+		return !backendBoundaryAllowsTestPolicyFixture(rel)
+	}
+	return strings.Contains(name, "Rule") || strings.Contains(name, "Boundary")
 }
 
 func collectBackendBoundaryRuleIDs(rel string, fn *ast.FuncDecl, ids map[string][]string) {
@@ -695,27 +821,34 @@ func collectBackendBoundaryRuleIDs(rel string, fn *ast.FuncDecl, ids map[string]
 		return
 	}
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		id, ok := backendBoundaryRuleIDLiteral(node)
+		literal, ok := node.(*ast.CompositeLit)
+		if !ok || !hasBackendBoundaryPolicyLiteralShape(literal) {
+			return true
+		}
+		id, ok := backendBoundaryRuleIDLiteral(literal)
 		if ok {
 			ids[id] = append(ids[id], rel+":"+fn.Name.Name)
 		}
-		return true
+		return false
 	})
 }
 
-func backendBoundaryRuleIDLiteral(node ast.Node) (string, bool) {
-	field, ok := node.(*ast.KeyValueExpr)
-	if !ok {
-		return "", false
+func backendBoundaryRuleIDLiteral(literal *ast.CompositeLit) (string, bool) {
+	for _, element := range literal.Elts {
+		field, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := field.Key.(*ast.Ident)
+		if !ok || key.Name != "ID" {
+			continue
+		}
+		value, ok := field.Value.(*ast.BasicLit)
+		if !ok || value.Kind != token.STRING {
+			return "", false
+		}
+		id, err := strconv.Unquote(value.Value)
+		return id, err == nil
 	}
-	key, ok := field.Key.(*ast.Ident)
-	if !ok || key.Name != "ID" {
-		return "", false
-	}
-	value, ok := field.Value.(*ast.BasicLit)
-	if !ok || value.Kind != token.STRING {
-		return "", false
-	}
-	id, err := strconv.Unquote(value.Value)
-	return id, err == nil
+	return "", false
 }
