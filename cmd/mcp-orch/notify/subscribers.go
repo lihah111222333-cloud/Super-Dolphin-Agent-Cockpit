@@ -54,7 +54,7 @@ type dagNotifyRequest struct {
 type DAGNotifier struct {
 	logger   *slog.Logger
 	notifier contract.MessageNotifier
-	store    taskdag.Store
+	store    taskdag.DAGDetailStore
 
 	mu            sync.Mutex
 	queue         []dagNotifyRequest
@@ -75,7 +75,7 @@ type DAGNotifier struct {
 
 // NewDAGNotifier 装配 orch 侧 DAG 通知器。
 // store 为空时仍允许启动，后续事件会记录并丢弃，避免通知模块反向阻断编排进程。
-func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store, opts ...DAGNotifierOption) *DAGNotifier {
+func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.DAGDetailStore, opts ...DAGNotifierOption) *DAGNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

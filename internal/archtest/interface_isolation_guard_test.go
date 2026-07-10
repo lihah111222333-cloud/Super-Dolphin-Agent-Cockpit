@@ -77,6 +77,50 @@ func TestTaskDAGStoreConsumersUseNarrowPort(t *testing.T) {
 	failIfViolations(t, violations)
 }
 
+func TestNotifyTaskDAGConsumersUseDAGDetailStore(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	const want = "taskdag.DAGDetailStore"
+	var violations []string
+	for _, field := range []struct {
+		relPath    string
+		structName string
+		fieldName  string
+	}{
+		{relPath: "cmd/mcp-orch/notify/dispatch_retry_alert.go", structName: "DispatchRetryAlertNotifier", fieldName: "store"},
+		{relPath: "cmd/mcp-orch/notify/subscribers.go", structName: "DAGNotifier", fieldName: "store"},
+	} {
+		actual, ok := structFieldType(t, root, field.relPath, field.structName, field.fieldName)
+		if !ok {
+			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", field.relPath, field.structName, field.fieldName))
+			continue
+		}
+		if actual != want {
+			violations = append(violations, fmt.Sprintf("%s: %s.%s must depend on %s, got %s", field.relPath, field.structName, field.fieldName, want, actual))
+		}
+	}
+	for _, param := range []struct {
+		relPath   string
+		funcName  string
+		paramName string
+	}{
+		{relPath: "cmd/mcp-orch/notify/dispatch_retry_alert.go", funcName: "NewDispatchRetryAlertNotifier", paramName: "store"},
+		{relPath: "cmd/mcp-orch/notify/dispatch_retry_alert.go", funcName: "provideDispatchRetryAlertSink", paramName: "store"},
+		{relPath: "cmd/mcp-orch/notify/subscribers.go", funcName: "NewDAGNotifier", paramName: "store"},
+	} {
+		actual, ok := functionParamType(t, root, param.relPath, param.funcName, param.paramName)
+		if !ok {
+			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", param.relPath, param.funcName, param.paramName))
+			continue
+		}
+		if actual != want {
+			violations = append(violations, fmt.Sprintf("%s: %s.%s must depend on %s, got %s", param.relPath, param.funcName, param.paramName, want, actual))
+		}
+	}
+	failIfViolations(t, violations)
+}
+
 func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	t.Parallel()
 

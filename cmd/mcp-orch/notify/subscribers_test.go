@@ -41,16 +41,15 @@ func (r *recordingMessageNotifier) len() int {
 	return len(r.reqs)
 }
 
-// fakeStore implements just enough of taskdag.Store for the DAG
-// subscriber; every other method panics so any accidental call in a
-// test shows up as a hard failure rather than a silent nil.
+// fakeStore implements taskdag.DAGDetailStore for the DAG subscriber.
 type fakeStore struct {
-	taskdag.Store
 	listNodesFn func(ctx context.Context, dagKey string) ([]taskdag.Node, error)
 	getDAGFn    func(ctx context.Context, dagKey string) (*taskdag.DAG, error)
 	listCalls   atomic.Int64
 	getDAGCalls atomic.Int64
 }
+
+var _ taskdag.DAGDetailStore = (*fakeStore)(nil)
 
 func (f *fakeStore) ListNodes(ctx context.Context, dagKey string) ([]taskdag.Node, error) {
 	f.listCalls.Add(1)

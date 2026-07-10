@@ -30,12 +30,6 @@ var providerAllowedExternal = map[string]bool{
 	"golang.org/x/sys":             true,
 }
 
-var moduleDBImportAllowlist = map[string]string{
-	"internal/module/skill/module.go":          "skill 模块启动期仍需注入 legacy tool store 的数据库句柄",
-	"internal/module/skill/service.go":         "skill service 暂时承载 tool store 构造边界",
-	"internal/module/skill/toolstore/store.go": "toolstore 是 skill_tools 表的既有持久化子包",
-}
-
 type parsedFile struct {
 	AbsPath string
 	RelPath string
@@ -114,16 +108,12 @@ func assertModuleImplsNoFX(t *testing.T, root string) {
 
 func assertProviderCannotImportStore(t *testing.T, root string) {
 	t.Helper()
-
-	rule := mustBoundaryRule(t, boundaryRuleProviderNoStore)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+	assertCanonicalBoundaryRule(t, root, "provider_no_store")
 }
 
 func assertProviderCannotImportPlatformDB(t *testing.T, root string) {
 	t.Helper()
-
-	rule := mustBoundaryRule(t, boundaryRuleProviderNoPlatformDB)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+	assertCanonicalBoundaryRule(t, root, "provider_no_platform_db")
 }
 
 func assertProviderExternalWhitelist(t *testing.T, root string) {
@@ -158,70 +148,28 @@ func providerExternalWhitelistViolations(file parsedFile) []string {
 
 func assertPlatformCannotImportModule(t *testing.T, root string) {
 	t.Helper()
-
-	rule := mustBoundaryRule(t, boundaryRulePlatformNoModule)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+	assertCanonicalBoundaryRule(t, root, "platform_no_module")
 }
 
 func assertPlatformCannotImportStore(t *testing.T, root string) {
 	t.Helper()
+	assertCanonicalBoundaryRule(t, root, "platform_no_store")
+}
 
-	rule := mustBoundaryRule(t, boundaryRulePlatformNoStore)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+func assertCanonicalBoundaryRule(t *testing.T, root string, ruleID archtest.BoundaryRuleID) {
+	t.Helper()
+	evaluation, err := archtest.EvaluateBackendBoundary(root, archtest.DefaultBackendBoundaryRegistry(), ruleID)
+	if err != nil {
+		t.Fatalf("EvaluateBackendBoundary(%s): %v", ruleID, err)
+	}
+	failIfViolations(t, evaluation.Violations)
 }
 
 func assertModuleSiblingDependencyRules(t *testing.T, root string) {
 	t.Helper()
 	t.Run("rule16_module_siblings_no_concrete_imports", func(t *testing.T) {
-		assertModuleSiblingsNoConcreteImports(t, root)
+		assertCanonicalBoundaryRule(t, root, "module_horizontal_deep_import")
 	})
-}
-
-func assertModuleSiblingsNoConcreteImports(t *testing.T, root string) {
-	t.Helper()
-
-	if !dirExists(root, "internal/module") {
-		t.Skip("directory not yet created")
-	}
-	var violations []string
-	for _, file := range parseImportFiles(t, root, "internal/module") {
-		owner, ok := moduleOwnerForImportCheck(file.RelPath)
-		if !ok {
-			continue
-		}
-		violations = append(violations, moduleSiblingImportViolations(file, owner)...)
-	}
-	failIfViolations(t, violations)
-}
-
-func moduleOwnerForImportCheck(relPath string) (string, bool) {
-	if strings.HasSuffix(relPath, "_test.go") || filepath.Base(relPath) == "module.go" {
-		return "", false
-	}
-	parts := strings.Split(filepath.ToSlash(relPath), "/")
-	if len(parts) < 3 || parts[0] != "internal" || parts[1] != "module" {
-		return "", false
-	}
-	return parts[2], true
-}
-
-func moduleSiblingImportViolations(file parsedFile, owner string) []string {
-	var violations []string
-	for _, imp := range file.Imports {
-		importModule, ok := importedModuleName(imp)
-		if ok && importModule != owner {
-			violations = append(violations, fmt.Sprintf("%s imports sibling module %s", file.RelPath, imp))
-		}
-	}
-	return violations
-}
-
-func importedModuleName(imp string) (string, bool) {
-	if !strings.HasPrefix(imp, internalPrefix("internal/module/")) {
-		return "", false
-	}
-	importRel := strings.TrimPrefix(imp, internalPrefix("internal/module/"))
-	return strings.Split(importRel, "/")[0], true
 }
 
 func assertModuleDBIsolationRules(t *testing.T, root string) {
@@ -230,13 +178,7 @@ func assertModuleDBIsolationRules(t *testing.T, root string) {
 		if !dirExists(root, "internal/module") {
 			t.Skip("directory not yet created")
 		}
-		forbidden := []string{
-			"database/sql",
-			"github.com/jackc/pgx/v5",
-			"github.com/jackc/pgx/v5/pgxpool",
-			"github.com/jackc/pgx/v5/pgconn",
-		}
-		assertModuleNoDirectDBImports(t, parseImportFiles(t, root, "internal/module"), forbidden)
+		assertModuleNoDirectDBImports(t, parseImportFiles(t, root, "internal/module"), nil)
 	})
 
 	t.Run("rule17b_module_non_assembly_cannot_import_store", func(t *testing.T) {
@@ -247,16 +189,22 @@ func assertModuleDBIsolationRules(t *testing.T, root string) {
 	})
 }
 
-// assertModuleNoDirectDBImports 拦截 module 层新增数据库依赖。
-// allowlist 只覆盖 skill/toolstore 的既有持久化边界，后续新增文件仍会失败。
-func assertModuleNoDirectDBImports(t *testing.T, files []parsedFile, prefixes []string) {
+// assertModuleNoDirectDBImports 通过 canonical registry 拦截 module 层新增数据库依赖。
+func assertModuleNoDirectDBImports(t *testing.T, files []parsedFile, _ []string) {
 	t.Helper()
+	registry := archtest.DefaultBackendBoundaryRegistry()
 	var violations []string
 	for _, file := range files {
-		if _, ok := moduleDBImportAllowlist[file.RelPath]; ok {
-			continue
+		fileViolations, err := archtest.EvaluateBackendBoundaryFile(
+			file.AbsPath,
+			file.RelPath,
+			registry,
+			"module_no_direct_db_imports",
+		)
+		if err != nil {
+			t.Fatalf("EvaluateBackendBoundaryFile(%s): %v", file.RelPath, err)
 		}
-		violations = append(violations, importPrefixViolations(file, prefixes)...)
+		violations = append(violations, fileViolations...)
 	}
 	failIfViolations(t, violations)
 }
@@ -347,7 +295,7 @@ func storePackageModuleImportAllowed(relPath, imp string) bool {
 func assertToolingRuntimeCannotImportUIStateDirectly(t *testing.T, root string) {
 	t.Helper()
 
-	dirs := existingDirs(root, "cmd/mcp-lsp", "cmd/mcp-orch", "cmd/mcp-ida", "internal/mcpserver/common")
+	dirs := existingDirs(root, "internal/mcpserver/common")
 	if len(dirs) == 0 {
 		t.Skip("tooling runtime directories not yet created")
 	}
@@ -392,25 +340,6 @@ func fxImportAllowed(relPath string) bool {
 
 func assertMCPServerDependencyRules(t *testing.T, root string) {
 	t.Helper()
-	t.Run("rule7_cmd_mcp_lsp_family", func(t *testing.T) {
-		if !dirExists(root, "cmd/mcp-lsp") {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{
-			internalPrefix("cmd/mcp-orch"),
-			internalPrefix("cmd/mcp-ida"),
-			internalPrefix("internal/app"),
-			internalPrefix("internal/ui/"),
-		})
-	})
-
-	t.Run("rule7b_cmd_mcp_lsp_cannot_import_module", func(t *testing.T) {
-		if !dirExists(root, "cmd/mcp-lsp") {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{internalPrefix("internal/module/")})
-	})
-
 	t.Run("rule8_mcpserver_orch_family", func(t *testing.T) {
 		if !dirExists(root, "internal/mcpserver/orch") {
 			t.Skip("directory not yet created")
