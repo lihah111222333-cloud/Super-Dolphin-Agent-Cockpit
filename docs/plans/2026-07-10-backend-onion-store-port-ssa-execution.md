@@ -515,6 +515,7 @@ done
 - Modify: `internal/module/thread/stop.go`
 - Modify: `internal/module/threadprompt/*.go`
 - Modify reverse-consumer test: `internal/module/prompt/service_surface_list_test.go`
+- Create reverse-consumer test adapter: `internal/module/prompt/threadprompt_port_adapter_test.go`
 - Modify reverse-consumer test: `internal/module/prompt/e2e_test.go`
 - Modify reverse-consumer test support: `internal/module/prompt/e2e_test_support_test.go`
 - Modify reverse-consumer test: `internal/platform/toolbridge/persistent_subagent_flow_test.go`
@@ -650,6 +651,8 @@ bindingstore.*Params <- thread.Binding*Update
 
 所有 adapter constructor 在必要 Store 为 nil 时返回带领域上下文的 error；只有当前 Fx 图明确标为 optional 的能力可以返回 nil。
 
+跨边界映射必须切断可变引用共享：除 `json.RawMessage`、map 和嵌套指针外，`ThreadRecord.FinishedAt`、`ThreadRecord.PromptVersionID` 等标量指针也必须复制值后返回新地址；字段覆盖测试还要断言修改 domain DTO 不会回写 Store DTO。
+
 - [ ] **Step 8: 实现 `thread_prompt_adapters.go`**
 
 Lane A 同时迁移 threadprompt。先把 private `promptListFilter` 导出为 `threadprompt.PromptListFilter` 并迁移全部消费者，否则包外 App 不可能实现 exported `PromptStore`。`threadprompt.RuntimePromptCatalog` 必须显式包含 `CanInsertPromptVersion() bool`；`NewRuntimeCatalog` 只接收 `threadprompt.PromptStore` 并返回 `threadprompt.RuntimePromptCatalog`，`RegisterProviders` 也只接收本地 typed catalog，不再暴露 `promptstore.Store` / `promptstore.RuntimePromptCatalog`。
@@ -676,12 +679,14 @@ BindingRecord store->domain
 全部 Binding update DTO domain->store
 PromptTemplate/Section store->domain
 PromptTemplateVersion domain->store
+ThreadRecord 指针字段与 Store DTO 不共享地址
 nil Store fail-fast
 CanInsertPromptVersion=false 的 builtin-only 构造成功
 read-only catalog 实际 InsertVersion 明确失败
 ThreadPageReader/LoadedThreadPageReader/ActiveThreadCounter capability 存在与缺失
 package app_test 可命名 PromptListFilter 并编译实现 threadprompt.PromptStore
 threadprompt.RuntimePromptCatalog 强制包含 CanInsertPromptVersion
+App 组合根的 fx.Invoke 实际注册 project_default_rules/available_experts/recall_catalog
 ```
 
 App adapter 测试名称固定为：
@@ -692,9 +697,12 @@ func TestThreadBindingStoreAdapterFieldCoverage(t *testing.T)
 func TestThreadPromptStoreAdapterImplementsPort(t *testing.T)
 func TestThreadPromptCatalogAdapterImplementsPort(t *testing.T)
 func TestThreadStoreOptionalCapabilities(t *testing.T)
+func TestThreadStoreAdaptersModuleRegistersPromptProvidersViaFx(t *testing.T)
 ```
 
-两个反向消费者必须随 Lane A 一起迁移并编译：`internal/module/prompt/service_surface_list_test.go` 不得继续以 `promptstore.Store` 调用 `threadprompt.NewRuntimeCatalog`；`internal/platform/toolbridge/persistent_subagent_flow_test.go` 不得继续把实现 Store DTO 的 fake 直接传入 Thread constructor。Lane B 禁止覆盖第一个文件。
+最后一条测试必须用真实 `threadStoreAdaptersModule()` 创建 `fx.App` 并观察 registrar，证明迁移到 App 后的 `fx.Invoke(registerThreadPromptProvidersFromApp)` 确实执行；`fx.ValidateApp` 只证明 DAG 闭合，不能替代该行为测试。provider 自身的注册顺序与 builtin 渲染继续由 `internal/module/threadprompt` 测试负责，不在 App 重复实现。
+
+反向消费者必须随 Lane A 一起迁移并编译：`internal/module/prompt/service_surface_list_test.go` 不得继续以 `promptstore.Store` 调用 `threadprompt.NewRuntimeCatalog`；为复用该测试既有的 Store-backed fixture，允许在 `threadprompt_port_adapter_test.go` 放置仅测试可见的 typed Port 翻译器，但生产代码不得引用它。`internal/platform/toolbridge/persistent_subagent_flow_test.go` 不得继续把实现 Store DTO 的 fake 直接传入 Thread constructor。Lane B 禁止覆盖这些文件。
 
 不得通过比较 JSON 字符串掩盖字段漏映射。必须使用反射枚举 source/target DTO exported fields 的自动字段覆盖守卫，再配合逐字段值断言；新增 Store DTO 字段未映射时测试必须自动失败。
 
@@ -707,18 +715,19 @@ set -euo pipefail
 ./scripts/test_with_guard.sh ./internal/module/thread -count=1
 ./scripts/test_with_guard.sh ./internal/module/threadprompt -count=1
 ./scripts/test_with_guard.sh ./internal/app \
-  -list '^(TestThreadStoreAdapterFieldCoverage|TestThreadBindingStoreAdapterFieldCoverage|TestThreadPromptStoreAdapterImplementsPort|TestThreadPromptCatalogAdapterImplementsPort|TestThreadStoreOptionalCapabilities)$' \
+  -list '^(TestThreadStoreAdapterFieldCoverage|TestThreadBindingStoreAdapterFieldCoverage|TestThreadPromptStoreAdapterImplementsPort|TestThreadPromptCatalogAdapterImplementsPort|TestThreadStoreOptionalCapabilities|TestThreadStoreAdaptersModuleRegistersPromptProvidersViaFx)$' \
   > /tmp/thread-app-test-list.txt
 for name in \
   TestThreadStoreAdapterFieldCoverage \
   TestThreadBindingStoreAdapterFieldCoverage \
   TestThreadPromptStoreAdapterImplementsPort \
   TestThreadPromptCatalogAdapterImplementsPort \
-  TestThreadStoreOptionalCapabilities; do
+  TestThreadStoreOptionalCapabilities \
+  TestThreadStoreAdaptersModuleRegistersPromptProvidersViaFx; do
   test "$(grep -c "^${name}$" /tmp/thread-app-test-list.txt)" -eq 1
 done
 ./scripts/test_with_guard.sh ./internal/app \
-  -run '^(TestThreadStoreAdapterFieldCoverage|TestThreadBindingStoreAdapterFieldCoverage|TestThreadPromptStoreAdapterImplementsPort|TestThreadPromptCatalogAdapterImplementsPort|TestThreadStoreOptionalCapabilities)$' \
+  -run '^(TestThreadStoreAdapterFieldCoverage|TestThreadBindingStoreAdapterFieldCoverage|TestThreadPromptStoreAdapterImplementsPort|TestThreadPromptCatalogAdapterImplementsPort|TestThreadStoreOptionalCapabilities|TestThreadStoreAdaptersModuleRegistersPromptProvidersViaFx)$' \
   -count=1
 ./scripts/test_with_guard.sh ./internal/app -run '^TestAppModuleGraphIsClosed$' -count=1
 ./scripts/test_with_guard.sh ./internal/module/prompt -count=1
