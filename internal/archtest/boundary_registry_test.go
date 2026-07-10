@@ -189,6 +189,31 @@ func TestBackendBoundaryRegistryValidation(t *testing.T) {
 	}
 }
 
+func TestBackendBoundaryRegistryRejectsGenericStatefulSidecarAllowlist(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	rule, ok := registry.Rule("mcp_sidecar_narrow_import_surface")
+	if !ok {
+		t.Fatal("mcp sidecar rule is not registered")
+	}
+	for i := range rule.Allow {
+		if rule.Allow[i].FilePattern == "cmd/mcp-orch/**/*.go" && rule.Allow[i].ImportPrefix == "internal/platform/db" {
+			rule.Allow[i].Reason = "stateful runtime primitive"
+			break
+		}
+	}
+	for i := range registry.Rules {
+		if registry.Rules[i].ID == rule.ID {
+			registry.Rules[i] = rule
+			break
+		}
+	}
+
+	violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(registry), "\n")
+	if !strings.Contains(violations, "stateful sidecar allowance must name its sidecar") {
+		t.Fatalf("generic stateful sidecar allowlist must fail validation, got:\n%s", violations)
+	}
+}
+
 func TestBackendBoundaryRegistryReturnsDeepCopy(t *testing.T) {
 	first := archtest.DefaultBackendBoundaryRegistry()
 	second := archtest.DefaultBackendBoundaryRegistry()
