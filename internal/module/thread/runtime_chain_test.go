@@ -27,7 +27,7 @@ func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
 	}
 
 	sessions := &stubSessionProvider{}
-	svc := newRuntimeChainService(store, catalog, promptAssembly, sessions, runtimeChainStarter(t, sessions))
+	svc := newRuntimeChainService(catalog, promptAssembly, sessions, runtimeChainStarter(t, sessions))
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-runtime-chain",
 		Provider: "codex",
@@ -130,7 +130,6 @@ func runtimeChainHiddenSubstrings() []string {
 }
 
 func newRuntimeChainService(
-	store *fakePromptStore,
 	catalog promptstore.RuntimePromptCatalog,
 	promptAssembly contract.PromptAssemblyService,
 	sessions *stubSessionProvider,
@@ -139,7 +138,6 @@ func newRuntimeChainService(
 	return NewServiceWithPromptAssemblyAndSharedFiles(
 		silentLogger(),
 		&stubThreadStore{},
-		nil,
 		nil,
 		sessions,
 		starter,
@@ -150,7 +148,6 @@ func newRuntimeChainService(
 		testThreadDependencyConfig(),
 		nil,
 		nil,
-		store,
 		catalog,
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,

@@ -77,7 +77,6 @@ func filterFakePromptSectionsByCWD(sections []promptstore.PromptTemplateSection,
 
 func newServiceWithRouter(store promptstore.Store) *service {
 	return &service{
-		promptStore:    store,
 		promptCatalog:  threadprompt.NewRuntimeCatalog(store, nil),
 		matchWhenEval:  promptpkg.EvaluateMatchWhen,
 		enableWhenEval: promptpkg.EvaluateEnableWhen,

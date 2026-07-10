@@ -91,7 +91,7 @@ func TestResolveRoutedPromptDoesNotDuplicateRegistryBackedSystemSeed(t *testing.
 			},
 		},
 	})
-	svc := &service{promptStore: store, promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
+	svc := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
 	req := &StartRequest{CWD: "/repo/a", Prompt: "hello"}
 
 	err := svc.resolveRoutedPrompt(context.Background(), req)

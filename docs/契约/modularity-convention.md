@@ -380,8 +380,8 @@ super-agent-v3/
 - `internal/module/*` 不可以 import `cmd/mcp-*`；这是严格单向依赖，MCP binary 只能下游复用核心层。
 - `cmd/mcp-*` 禁止调用 `New*Handlers`、禁止依赖 `rpc.go` 中的 `handler.Map`、禁止 import `Module` 做整包装配。
 - MCP 工具定义中的 schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`；核心层禁止放置这些协议面定义。
-- `cmd/mcp-*` 自身代码遵守 **2026-04-17 放宽后的默认守卫**：单文件 `<=600`、包非测试文件 `<=25`、包有效行数 `<=10000`；函数 `<=80`、CC `<=10`、嵌套 `<=4`、标识符下划线 `<=3` 不变。
-- **核心包放宽守卫（2026-04-17 后唯一有意义的差异是包文件数 30 > 默认 25）**：`module/memory` 当前实测 30 文件 / 7020 有效行，已回落至新默认额度（autofix 已删除历史冻结）；仍保留核心包包文件数 `<=30` 例外以便扩展；`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持包文件数 `<=30`、包有效行数 `<=10000`、单文件 `<=600`。当前守卫框架见 `docs/架构/skeleton-code-guard.md`；历史阈值来源可追溯到 `docs/plans/迁移/v3-code-guard-spec.md` §1 与 §1.1。
+- `cmd/mcp-*` 自身代码遵守 **2026-06-28 放宽后的默认守卫**：单文件有效行数 `<=800`、包非测试文件 `<=25`、包有效行数 `<=10000`；函数 `<=80`、CC `<=10`、嵌套 `<=4`、标识符下划线 `<=3` 不变。有效行不计空行和纯注释行。
+- **核心包放宽守卫（当前唯一有意义的差异是包文件数 30 > 默认 25）**：`module/memory` 当前实测 30 文件 / 7020 有效行，已回落至新默认额度（autofix 已删除历史冻结）；仍保留核心包包文件数 `<=30` 例外以便扩展；`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持包文件数 `<=30`、包有效行数 `<=10000`、单文件有效行数 `<=800`。当前守卫框架见 `docs/架构/skeleton-code-guard.md`；历史阈值来源可追溯到 `docs/plans/迁移/v3-code-guard-spec.md` §1 与 §1.1。
 - `cmd/mcp-orch/orchestration/*` 是当前 `mcp-orch` 本地编排 runtime owner；桌面 app 不内嵌该模块，其他层也不得反向 import 它。
 - `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 是当前 `mcp-orch` 本地数据层；运行时不得回退依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
 - 显式架构例外：`internal/store/module.go` 作为 store 层根装配器，允许 import 各 `internal/store/*` 子包并统一装配 shared store provider；该例外不计为违规，但不得向其他根包扩散。

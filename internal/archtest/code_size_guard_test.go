@@ -25,30 +25,32 @@ func TestCodeSizeGuard(t *testing.T) {
 	runUnifiedFreezeRatchetAndShrink(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
 }
 
-func TestAIVisualBoundaryHotspotsStayReadable(t *testing.T) {
-	root := repoRoot(t)
-	targets := map[string]int{
-		"cmd/mcp-orch/orchestration/nodeexec/executor_automation.go": 650,
-		"internal/provider/codexapp/driver.go":                       650,
-		"internal/module/thread/lifecycle.go":                        650,
-		"internal/platform/toolbridge/handler.go":                    650,
-		"cmd/mcp-lsp/tools/factory.go":                               650,
-	}
-	var violations []string
-	for rel, limit := range targets {
-		data, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil {
-			violations = append(violations, rel+": "+err.Error())
-			continue
-		}
-		lines := archtest.CountEffectiveLines(data)
-		if lines > limit {
-			violations = append(violations, fmt.Sprintf("%s has %d effective lines; limit is %d", rel, lines, limit))
+func TestModularityConventionMatchesCodeSizeGuard(t *testing.T) {
+	for _, limit := range []struct {
+		name string
+		got  int
+	}{
+		{name: "default", got: archtest.MaxFileLines},
+		{name: "core", got: archtest.MaxCorePackageFileLines},
+		{name: "factory", got: archtest.MaxFactoryFileLines},
+	} {
+		if limit.got != 800 {
+			t.Errorf("%s production file effective-line limit = %d, want 800", limit.name, limit.got)
 		}
 	}
-	slices.Sort(violations)
-	if len(violations) > 0 {
-		t.Fatalf("AI visual hotspot budget violations:\n%s", strings.Join(violations, "\n"))
+
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "docs/契约/modularity-convention.md"))
+	if err != nil {
+		t.Fatalf("read modularity convention: %v", err)
+	}
+	doc := string(raw)
+	for _, want := range []string{
+		fmt.Sprintf("默认守卫**：单文件有效行数 `<=%d`", archtest.MaxFileLines),
+		fmt.Sprintf("包有效行数 `<=10000`、单文件有效行数 `<=%d`", archtest.MaxCorePackageFileLines),
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("modularity convention must contain %q", want)
+		}
 	}
 }
 

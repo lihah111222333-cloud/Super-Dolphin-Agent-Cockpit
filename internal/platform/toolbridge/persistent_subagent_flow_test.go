@@ -183,7 +183,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		Agent:      platformconfig.AgentConfig{PersistentSubagentDefault: true},
 		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
 	}
-	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, persistentFlowSharedFiles{}, sessions, starter, nil, &persistentFlowOrchestration{}, nil, &persistentFlowPromptAssembly{}, cfg, nil, nil, nil, nil, nil, nil)
+	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, sessions, starter, nil, &persistentFlowOrchestration{}, nil, &persistentFlowPromptAssembly{}, cfg, nil, nil, nil, nil, nil, nil)
 
 	result, err := service.Start(ctx, threadmod.StartRequest{
 		AgentID:       "agent-child-persistent",

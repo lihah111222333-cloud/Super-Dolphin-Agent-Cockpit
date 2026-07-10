@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2233,
-    "total_methods": 1064,
-    "total_interfaces": 156,
-    "total_interface_methods": 300,
-    "total_exported": 1223,
-    "total_unexported": 2809,
-    "total_structs": 579
+    "total_functions": 2243,
+    "total_methods": 1138,
+    "total_interfaces": 184,
+    "total_interface_methods": 364,
+    "total_exported": 1258,
+    "total_unexported": 2901,
+    "total_structs": 594
   },
   "packages": [
     {
@@ -53,7 +53,7 @@
           "params": [
             {
               "name": "store",
-              "type": "taskdag.Store"
+              "type": "taskdag.DAGDetailStore"
             },
             {
               "name": "agentExec",
@@ -105,12 +105,8 @@
           "exported": true,
           "params": [
             {
-              "name": "logger",
-              "type": "*slog.Logger"
-            },
-            {
-              "name": "service",
-              "type": "*service"
+              "name": "p",
+              "type": "RunnerActorParams"
             }
           ],
           "returns": [
@@ -122,8 +118,8 @@
           "exported": true,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "lifecycle",
+              "type": "*agentLifecycleController"
             }
           ],
           "returns": [
@@ -195,7 +191,7 @@
           "params": [
             {
               "name": "store",
-              "type": "taskdag.Store"
+              "type": "taskdag.WakeupDispatchStore"
             },
             {
               "name": "launcher",
@@ -238,6 +234,20 @@
           ]
         },
         {
+          "name": "ProvideAgentLifecycleController",
+          "exported": true,
+          "params": [
+            {
+              "name": "p",
+              "type": "AgentLifecycleControllerParams"
+            }
+          ],
+          "returns": [
+            "*agentLifecycleController",
+            "error"
+          ]
+        },
+        {
           "name": "ProvideAutomationExecutor",
           "exported": true,
           "params": [
@@ -256,45 +266,6 @@
           ],
           "returns": [
             "*nodeexec.AutomationExecutor"
-          ]
-        },
-        {
-          "name": "ProvideDAGSubscriberAgentThreadLookup",
-          "exported": true,
-          "params": [
-            {
-              "name": "s",
-              "type": "*service"
-            }
-          ],
-          "returns": [
-            "AgentThreadLookup"
-          ]
-        },
-        {
-          "name": "ProvideDAGSubscriberNodeFlowStore",
-          "exported": true,
-          "params": [
-            {
-              "name": "store",
-              "type": "taskdag.Store"
-            }
-          ],
-          "returns": [
-            "taskdag.NodeFlowStore"
-          ]
-        },
-        {
-          "name": "ProvideDAGSubscriberStopAgentService",
-          "exported": true,
-          "params": [
-            {
-              "name": "s",
-              "type": "*service"
-            }
-          ],
-          "returns": [
-            "StopAgentService"
           ]
         },
         {
@@ -337,16 +308,16 @@
           ]
         },
         {
-          "name": "ProvideScheduledDAGStartService",
+          "name": "ProvideServiceResult",
           "exported": true,
           "params": [
             {
-              "name": "s",
-              "type": "*service"
+              "name": "p",
+              "type": "serviceParams"
             }
           ],
           "returns": [
-            "ScheduledDAGStartService"
+            "serviceResult"
           ]
         },
         {
@@ -402,8 +373,8 @@
               "type": "*event.Dispatcher"
             },
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "ApprovalLifecyclePort"
             },
             {
               "name": "logger",
@@ -446,8 +417,8 @@
               "type": "*event.Dispatcher"
             },
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "TurnLifecyclePort"
             },
             {
               "name": "logger",
@@ -2363,8 +2334,8 @@
               "type": "context.Context"
             },
             {
-              "name": "s",
-              "type": "*service"
+              "name": "store",
+              "type": "recoveryTurnStore"
             },
             {
               "name": "agent",
@@ -2549,12 +2520,34 @@
           ]
         },
         {
+          "name": "handleToolApprovalRequestedEventWithCtx",
+          "exported": false,
+          "params": [
+            {
+              "name": "runtime",
+              "type": "ApprovalLifecyclePort"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "ev",
+              "type": "tooldto.ToolApprovalRequested"
+            },
+            {
+              "name": "parent",
+              "type": "context.Context"
+            }
+          ]
+        },
+        {
           "name": "handleToolApprovalRequestedEvent",
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "ApprovalLifecyclePort"
             },
             {
               "name": "logger",
@@ -2567,12 +2560,34 @@
           ]
         },
         {
+          "name": "handleToolApprovalResolvedEventWithCtx",
+          "exported": false,
+          "params": [
+            {
+              "name": "runtime",
+              "type": "ApprovalLifecyclePort"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "ev",
+              "type": "tooldto.ToolApprovalResolved"
+            },
+            {
+              "name": "parent",
+              "type": "context.Context"
+            }
+          ]
+        },
+        {
           "name": "handleToolApprovalResolvedEvent",
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "ApprovalLifecyclePort"
             },
             {
               "name": "logger",
@@ -2589,8 +2604,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "logger",
@@ -2611,8 +2626,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "logger",
@@ -2629,8 +2644,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "logger",
@@ -2651,8 +2666,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "logger",
@@ -3090,7 +3105,7 @@
             },
             {
               "name": "store",
-              "type": "taskdag.Store"
+              "type": "taskdag.WakeupDispatchStore"
             },
             {
               "name": "dagKey",
@@ -3103,6 +3118,24 @@
           ],
           "returns": [
             "[]taskdag.Node",
+            "error"
+          ]
+        },
+        {
+          "name": "listPersistedAgentSnapshotsFromStore",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentThreads",
+              "type": "AgentThreadStore"
+            }
+          ],
+          "returns": [
+            "[]AgentSnapshot",
             "error"
           ]
         },
@@ -3137,8 +3170,8 @@
               "type": "context.Context"
             },
             {
-              "name": "s",
-              "type": "*service"
+              "name": "store",
+              "type": "recoveryTurnStore"
             },
             {
               "name": "agent",
@@ -3160,8 +3193,8 @@
               "type": "context.Context"
             },
             {
-              "name": "s",
-              "type": "*service"
+              "name": "store",
+              "type": "recoveryTurnStore"
             },
             {
               "name": "node",
@@ -3341,68 +3374,6 @@
           ],
           "returns": [
             "*slog.Logger"
-          ]
-        },
-        {
-          "name": "lookupAgentByIDLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "agents",
-              "type": "map[string]*agentState"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "*agentState",
-            "error"
-          ]
-        },
-        {
-          "name": "lookupAgentByIdentityLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "agents",
-              "type": "map[string]*agentState"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "kind",
-              "type": "agentIdentityKind"
-            }
-          ],
-          "returns": [
-            "*agentState",
-            "error"
-          ]
-        },
-        {
-          "name": "lookupAgentBySeqLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "agents",
-              "type": "map[string]*agentState"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "launchSeq",
-              "type": "uint64"
-            }
-          ],
-          "returns": [
-            "*agentState",
-            "error"
           ]
         },
         {
@@ -3642,12 +3613,44 @@
           ]
         },
         {
-          "name": "newHookConsumerInternal",
+          "name": "newAgentRegistry",
+          "exported": false,
+          "returns": [
+            "*agentRegistry"
+          ]
+        },
+        {
+          "name": "newDAGController",
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "p",
+              "type": "dagControllerParams"
+            }
+          ],
+          "returns": [
+            "*dagController"
+          ]
+        },
+        {
+          "name": "newHookConsumerWithPorts",
+          "exported": false,
+          "params": [
+            {
+              "name": "runtime",
+              "type": "HookConsumerRuntime"
+            },
+            {
+              "name": "reports",
+              "type": "HookReportPort"
+            },
+            {
+              "name": "suppression",
+              "type": "HookSuppressionLookup"
+            },
+            {
+              "name": "eventBus",
+              "type": "*event.Dispatcher"
             },
             {
               "name": "logger",
@@ -3675,20 +3678,55 @@
           ]
         },
         {
-          "name": "newHookConsumer",
+          "name": "newLifecycleController",
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
-            },
-            {
-              "name": "logger",
-              "type": "*slog.Logger"
+              "name": "p",
+              "type": "lifecycleControllerParams"
             }
           ],
           "returns": [
-            "*hookConsumer"
+            "*lifecycleController"
+          ]
+        },
+        {
+          "name": "newRecoveryController",
+          "exported": false,
+          "params": [
+            {
+              "name": "deps",
+              "type": "recoveryControllerDeps"
+            }
+          ],
+          "returns": [
+            "*recoveryController"
+          ]
+        },
+        {
+          "name": "newReportController",
+          "exported": false,
+          "params": [
+            {
+              "name": "deps",
+              "type": "reportControllerDeps"
+            }
+          ],
+          "returns": [
+            "*reportController"
+          ]
+        },
+        {
+          "name": "newTurnController",
+          "exported": false,
+          "params": [
+            {
+              "name": "deps",
+              "type": "turnControllerDeps"
+            }
+          ],
+          "returns": [
+            "*turnController"
           ]
         },
         {
@@ -3836,8 +3874,8 @@
           "exported": false,
           "params": [
             {
-              "name": "s",
-              "type": "*service"
+              "name": "c",
+              "type": "*dagController"
             },
             {
               "name": "req",
@@ -3895,8 +3933,8 @@
               "type": "context.Context"
             },
             {
-              "name": "s",
-              "type": "*service"
+              "name": "state",
+              "type": "recoveryStatePort"
             },
             {
               "name": "agent",
@@ -4169,6 +4207,74 @@
             }
           ],
           "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "persistedAgentSnapshotByListFromStore",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentThreads",
+              "type": "AgentThreadStore"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentSnapshot",
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "name": "persistedAgentSnapshotByThreadIDFromStore",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentThreads",
+              "type": "AgentThreadStore"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentSnapshot",
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "name": "persistedAgentSnapshotFromStore",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentThreads",
+              "type": "AgentThreadStore"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentSnapshot",
             "error"
           ]
         },
@@ -4477,8 +4583,8 @@
           "exported": false,
           "params": [
             {
-              "name": "s",
-              "type": "*service"
+              "name": "launcher",
+              "type": "recoveryLauncherPort"
             },
             {
               "name": "agent",
@@ -4733,28 +4839,6 @@
           ]
         },
         {
-          "name": "recoverAgent",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "s",
-              "type": "*service"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
-          ],
-          "returns": [
-            "bool",
-            "error"
-          ]
-        },
-        {
           "name": "recoveringNewTerminalThreadHook",
           "exported": false,
           "params": [
@@ -4942,8 +5026,8 @@
               "type": "context.Context"
             },
             {
-              "name": "s",
-              "type": "*service"
+              "name": "state",
+              "type": "recoveryStatePort"
             },
             {
               "name": "agent",
@@ -5375,8 +5459,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "logger",
@@ -5404,8 +5488,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "logger",
@@ -5450,8 +5534,8 @@
           "exported": false,
           "params": [
             {
-              "name": "s",
-              "type": "*service"
+              "name": "launcher",
+              "type": "recoveryLauncherPort"
             },
             {
               "name": "agent",
@@ -5501,8 +5585,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "agentID",
@@ -5556,8 +5640,8 @@
               "type": "context.Context"
             },
             {
-              "name": "s",
-              "type": "*service"
+              "name": "launcher",
+              "type": "recoveryLauncherPort"
             },
             {
               "name": "agent",
@@ -5838,7 +5922,7 @@
             },
             {
               "name": "snapshots",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStateReader"
             },
             {
               "name": "p",
@@ -5860,7 +5944,7 @@
             },
             {
               "name": "snapshots",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStateReader"
             },
             {
               "name": "agentID",
@@ -6056,8 +6140,8 @@
           "exported": false,
           "params": [
             {
-              "name": "svc",
-              "type": "*service"
+              "name": "runtime",
+              "type": "turnLifecycleRuntime"
             },
             {
               "name": "agentID",
@@ -6236,8 +6320,8 @@
           "exported": false,
           "params": [
             {
-              "name": "s",
-              "type": "*service"
+              "name": "store",
+              "type": "recoveryTurnStore"
             },
             {
               "name": "agent",
@@ -7910,6 +7994,322 @@
           ]
         },
         {
+          "receiver": "*agentRegistry",
+          "name": "addRehydratedRuntimeAgent",
+          "exported": false,
+          "params": [
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "agentForLaunchLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "req",
+              "type": "LaunchRequest"
+            },
+            {
+              "name": "newAgent",
+              "type": "func(string) *agentRuntime"
+            }
+          ],
+          "returns": [
+            "*agentRuntime"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "agentIDs",
+          "exported": false,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "hasRuntimeAgent",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "listAgents",
+          "exported": false,
+          "returns": [
+            "[]agentRuntime"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "lockRead",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "lock",
+          "exported": false
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "lookupAgentByIDLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*agentState",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "lookupAgentByIdentityLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "kind",
+              "type": "agentIdentityKind"
+            }
+          ],
+          "returns": [
+            "*agentState",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "lookupAgentBySeqLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "launchSeq",
+              "type": "uint64"
+            }
+          ],
+          "returns": [
+            "*agentState",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "rLock",
+          "exported": false
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "rUnlock",
+          "exported": false
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "rekeyLaunchedAgentLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "requestedAgentLaunchInProgressLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "inProgress",
+              "type": "func(*agentRuntime) bool"
+            }
+          ],
+          "returns": [
+            "*agentRuntime"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "runtimeAgentSnapshots",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "snapshot",
+              "type": "func(context.Context, *agentRuntime) AgentSnapshot"
+            }
+          ],
+          "returns": [
+            "[]AgentSnapshot",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "stoppedHookThreadSuppressed",
+          "exported": false,
+          "params": [
+            {
+              "name": "threadID",
+              "type": "string"
+            },
+            {
+              "name": "timestamp",
+              "type": "time.Time"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "suppressStoppedHookThreadLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "threadID",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "suppressStoppedHookThreadUntilLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "threadID",
+              "type": "string"
+            },
+            {
+              "name": "beforeOrAt",
+              "type": "time.Time"
+            }
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "turnIDFor",
+          "exported": false,
+          "params": [
+            {
+              "name": "sub",
+              "type": "TurnSubmission"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "unlock",
+          "exported": false
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "withAgentLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentState) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "withAgentReadLockedByAgentID",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentState) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
+          "name": "withAgentReadLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentState) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "*createDAGNodeParams",
           "name": "UnmarshalJSON",
           "exported": true,
@@ -7931,6 +8331,579 @@
             {
               "name": "data",
               "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "ApplyOps",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "contract.ApplyOpsRequest"
+            }
+          ],
+          "returns": [
+            "contract.ApplyOpsResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "CreateDAG",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "CreateDAGRequest"
+            }
+          ],
+          "returns": [
+            "DAGDetail",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "DeleteDAG",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "contract.DeleteDAGRequest"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "DispatchNode",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "contract.DispatchNodeRequest"
+            }
+          ],
+          "returns": [
+            "contract.DispatchNodeResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "GetDAG",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "DAGDetail",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "GetRun",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "contract.GetRunRequest"
+            }
+          ],
+          "returns": [
+            "contract.GetRunResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "ListDAGs",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "filter",
+              "type": "ListDAGsFilter"
+            }
+          ],
+          "returns": [
+            "[]DAGSummary",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "ListRuns",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "contract.ListRunsRequest"
+            }
+          ],
+          "returns": [
+            "contract.ListRunsResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "StartDAG",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "StartDAGRequest"
+            }
+          ],
+          "returns": [
+            "StartDAGResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "StartScheduledDAG",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "orchcron.ScheduledDAGStartRequest"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "TerminateDAG",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "TerminateDAGRequest"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "UpdateNodeStatus",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "UpdateNodeStatusRequest"
+            }
+          ],
+          "returns": [
+            "DAGNode",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "applyEmptyOpsShortCircuit",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
+              "name": "baseVersion",
+              "type": "int64"
+            }
+          ],
+          "returns": [
+            "contract.ApplyOpsResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "applyTypedOps",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
+              "name": "baseVersion",
+              "type": "int64"
+            },
+            {
+              "name": "ops",
+              "type": "nodeexec.Ops"
+            }
+          ],
+          "returns": [
+            "contract.ApplyOpsResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "assignAndEnqueueDispatch",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "target",
+              "type": "*taskdag.Node"
+            },
+            {
+              "name": "assignedTo",
+              "type": "string"
+            },
+            {
+              "name": "runID",
+              "type": "int64"
+            }
+          ],
+          "returns": [
+            "*taskdag.AssignNodeAndEnqueueWakeupResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "blockDispatchIncomplete",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "target",
+              "type": "*taskdag.Node"
+            },
+            {
+              "name": "assignedTo",
+              "type": "string"
+            },
+            {
+              "name": "runID",
+              "type": "int64"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "completeNodeWithDownstream",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "flow",
+              "type": "taskdag.NodeFlowStore"
+            },
+            {
+              "name": "input",
+              "type": "taskdag.NodeStatusUpdate"
+            },
+            {
+              "name": "oldStatus",
+              "type": "string"
+            },
+            {
+              "name": "result",
+              "type": "*DAGNode"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "failNodeWithDownstream",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "flow",
+              "type": "taskdag.NodeFlowStore"
+            },
+            {
+              "name": "input",
+              "type": "taskdag.NodeStatusUpdate"
+            },
+            {
+              "name": "oldStatus",
+              "type": "string"
+            },
+            {
+              "name": "result",
+              "type": "*DAGNode"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "findDispatchTarget",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
+              "name": "nodeKey",
+              "type": "string"
+            },
+            {
+              "name": "runID",
+              "type": "int64"
+            }
+          ],
+          "returns": [
+            "*taskdag.Node",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "resolveStartDAGUniqueViolation",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
+              "name": "runKey",
+              "type": "string"
+            },
+            {
+              "name": "txErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "StartDAGResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "runStartDAGWithFallback",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
+              "name": "runKey",
+              "type": "string"
+            },
+            {
+              "name": "input",
+              "type": "taskdag.CreateRunInput"
+            }
+          ],
+          "returns": [
+            "StartDAGResponse",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "stopSpawnedAgentThreads",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
+              "name": "runID",
+              "type": "int64"
+            },
+            {
+              "name": "threadIDs",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "terminableRun",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "TerminateDAGRequest"
+            }
+          ],
+          "returns": [
+            "string",
+            "string",
+            "*taskdag.Run",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "validateNodeTransition",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "store",
+              "type": "taskdag.OrchestrationStore"
+            },
+            {
+              "name": "input",
+              "type": "taskdag.NodeStatusUpdate"
+            }
+          ],
+          "returns": [
+            "taskdag.Node",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "validateStartDAGPrereq",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "StartDAGRequest"
+            }
+          ],
+          "returns": [
+            "string",
+            "*taskdag.DAG",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*dagController",
+          "name": "withDAGStore",
+          "exported": false,
+          "params": [
+            {
+              "name": "fn",
+              "type": "func(taskdag.OrchestrationStore) error"
             }
           ],
           "returns": [
@@ -8029,6 +9002,29 @@
           ],
           "returns": [
             "mcp.AfterDecision",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*hookConsumer",
+          "name": "applyThreadStoppedLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "ev",
+              "type": "threaddto.Stopped"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "bool",
             "error"
           ]
         },
@@ -8324,6 +9320,15 @@
         },
         {
           "receiver": "*hookConsumer",
+          "name": "requireReports",
+          "exported": false,
+          "returns": [
+            "HookReportPort",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*hookConsumer",
           "name": "runThreadStoppedDAGFallback",
           "exported": false,
           "params": [
@@ -8345,6 +9350,456 @@
             {
               "name": "data",
               "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "archiveAgentViaLauncher",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "owner",
+              "type": "lifecycleStopPort"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "currentRecoveryStore",
+          "exported": false,
+          "returns": [
+            "recoveryTurnStore"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "forceKillProcess",
+          "exported": false,
+          "params": [
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "launchSeq",
+              "type": "uint64"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "handleProcessExitTransition",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "state",
+              "type": "lifecycleTransitionPort"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "handleProcessExit",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "state",
+              "type": "lifecycleTransitionPort"
+            },
+            {
+              "name": "reports",
+              "type": "processExitReportPort"
+            },
+            {
+              "name": "eventBus",
+              "type": "*event.Dispatcher"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "launchSeq",
+              "type": "uint64"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "hasLocalRuntimeAgent",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "launchAgentUntilStarted",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "owner",
+              "type": "lifecycleLaunchPort"
+            },
+            {
+              "name": "req",
+              "type": "LaunchRequest"
+            }
+          ],
+          "returns": [
+            "string",
+            "LaunchResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "launchAgentViaLauncher",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "owner",
+              "type": "lifecycleLaunchPort"
+            },
+            {
+              "name": "req",
+              "type": "LaunchRequest"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "launchWithRetry",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "owner",
+              "type": "lifecycleLaunchPort"
+            },
+            {
+              "name": "attempt",
+              "type": "launcherLaunchAttempt"
+            },
+            {
+              "name": "req",
+              "type": "LaunchRequest"
+            }
+          ],
+          "returns": [
+            "string",
+            "LaunchResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "listAgents",
+          "exported": false,
+          "returns": [
+            "[]agentRuntime"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "prepareLauncherStop",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "owner",
+              "type": "lifecycleStopPort"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*agentRuntime",
+            "uint64",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "recordProcessExitError",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventBus",
+              "type": "*event.Dispatcher"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "removeSession",
+          "exported": false,
+          "params": [
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "requestAgentStop",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            },
+            {
+              "name": "state",
+              "type": "lifecycleStopStatePort"
+            }
+          ],
+          "returns": [
+            "uint64",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "shouldStopViaLauncher",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "startLauncherAttempt",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "*launcherLaunchAttempt"
+            },
+            {
+              "name": "req",
+              "type": "LaunchRequest"
+            }
+          ],
+          "returns": [
+            "LaunchResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "stopAgentLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "state",
+              "type": "lifecycleStopStatePort"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "stopAgentViaLauncher",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "owner",
+              "type": "lifecycleStopPort"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "stopAllAgents",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "stopper",
+              "type": "lifecycleStopAllPort"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            }
+          ]
+        },
+        {
+          "receiver": "*lifecycleController",
+          "name": "waitForProcessExit",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "launchSeq",
+              "type": "uint64"
             }
           ],
           "returns": [
@@ -8490,6 +9945,386 @@
           ],
           "returns": [
             "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "canRecoverAgentViaLauncher",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "commitLauncherRecoveryFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "launcherRecoveryAttempt"
+            },
+            {
+              "name": "launchErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "commitLauncherRecoverySuccess",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "launcherRecoveryAttempt"
+            },
+            {
+              "name": "result",
+              "type": "LaunchResult"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "commitRecoveryRekeyFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "launching",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "rekeyErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "currentRecoveryStore",
+          "exported": false,
+          "returns": [
+            "recoveryTurnStore"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "discardStaleLaunchResult",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "launching",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "launchErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "discardStaleSuccessfulLaunch",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "launching",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "staleErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "finishLauncherRecoveryTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "attempt",
+              "type": "launcherRecoveryAttempt"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "finishLocalRecoveryTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "activeTurnID",
+              "type": "string"
+            },
+            {
+              "name": "replay",
+              "type": "TurnSubmission"
+            },
+            {
+              "name": "shouldReplay",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "log",
+          "exported": false,
+          "returns": [
+            "*slog.Logger"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "notifyRecoveryFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "recoverErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "prepareLauncherRecovery",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "launcherRecoveryAttempt",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "recoverAfterProcessExit",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "launchSeq",
+              "type": "uint64"
+            },
+            {
+              "name": "shouldRecover",
+              "type": "bool"
+            }
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "recoverAgent",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "recoverLauncherWithReason",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "recoverLocalWithReason",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "recoverWithReason",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*recoveryController",
+          "name": "rollbackRecoveryCommitSuccessFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "launching",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "commitErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
             "error"
           ]
         },
@@ -8765,6 +10600,342 @@
           "exported": false
         },
         {
+          "receiver": "*reportController",
+          "name": "GetReport",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentReportResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "HandleReportEvent",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "event",
+              "type": "ReportEvent"
+            }
+          ],
+          "returns": [
+            "ReportEventResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "RememberReportRequest",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "RememberReportRequest"
+            }
+          ],
+          "returns": [
+            "RememberReportRequestResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "applyReportEventLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "data",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "report",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "ReportEventResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "applyReportEventWithoutRuntime",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "report",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "ReportEventResult",
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "nextPersistedReportRecord",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "snapshot",
+              "type": "AgentSnapshot"
+            },
+            {
+              "name": "report",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "reportstore.Record",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "persistAgentReportFileAndGC",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "record",
+              "type": "reportstore.Record"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "persistedAgentReport",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentReportResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "reportEventFallbackResult",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "report",
+              "type": "string"
+            },
+            {
+              "name": "runtimeErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "ReportEventResult",
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "setNoReportFallbackLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "setProcessExitFallbackReportLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "launchSeq",
+              "type": "uint64"
+            },
+            {
+              "name": "shouldRecover",
+              "type": "bool"
+            }
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "setStateChangedFallbackReportLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "nextState",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "setStoppedFallbackReportLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "warn",
+          "exported": false,
+          "params": [
+            {
+              "name": "msg",
+              "type": "string"
+            },
+            {
+              "name": "attrs",
+              "type": "...any"
+            }
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "withAgentLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentRuntime) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*reportController",
+          "name": "withAgentReadLockedByAgentID",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentRuntime) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "*reportEventParams",
           "name": "UnmarshalJSON",
           "exported": true,
@@ -8804,6 +10975,14 @@
           ],
           "returns": [
             "error"
+          ]
+        },
+        {
+          "receiver": "*runnerActor",
+          "name": "configured",
+          "exported": false,
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -9634,29 +11813,6 @@
         },
         {
           "receiver": "*service",
-          "name": "applyEmptyOpsShortCircuit",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "baseVersion",
-              "type": "int64"
-            }
-          ],
-          "returns": [
-            "contract.ApplyOpsResponse",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "applyLaunchRequestDefaults",
           "exported": false,
           "params": [
@@ -9671,91 +11827,6 @@
           ],
           "returns": [
             "LaunchRequest",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "applyReportEventLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            },
-            {
-              "name": "eventType",
-              "type": "string"
-            },
-            {
-              "name": "data",
-              "type": "json.RawMessage"
-            },
-            {
-              "name": "report",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "ReportEventResult",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "applyReportEventWithoutRuntime",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "eventType",
-              "type": "string"
-            },
-            {
-              "name": "report",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "ReportEventResult",
-            "bool"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "applyTypedOps",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "baseVersion",
-              "type": "int64"
-            },
-            {
-              "name": "ops",
-              "type": "nodeexec.Ops"
-            }
-          ],
-          "returns": [
-            "contract.ApplyOpsResponse",
             "error"
           ]
         },
@@ -9803,59 +11874,6 @@
         },
         {
           "receiver": "*service",
-          "name": "assignAndEnqueueDispatch",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "target",
-              "type": "*taskdag.Node"
-            },
-            {
-              "name": "assignedTo",
-              "type": "string"
-            },
-            {
-              "name": "runID",
-              "type": "int64"
-            }
-          ],
-          "returns": [
-            "*taskdag.AssignNodeAndEnqueueWakeupResult",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "blockDispatchIncomplete",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "target",
-              "type": "*taskdag.Node"
-            },
-            {
-              "name": "assignedTo",
-              "type": "string"
-            },
-            {
-              "name": "runID",
-              "type": "int64"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "buildRuntimeFromPersistedBinding",
           "exported": false,
           "params": [
@@ -9876,48 +11894,12 @@
         },
         {
           "receiver": "*service",
-          "name": "canRecoverAgentViaLauncher",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "bool"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "canRehydratePersistedRuntime",
           "exported": false,
           "params": [
             {
               "name": "agentID",
               "type": "string"
-            }
-          ],
-          "returns": [
-            "bool"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "canSubmitViaLauncher",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
             }
           ],
           "returns": [
@@ -9984,50 +11966,6 @@
         },
         {
           "receiver": "*service",
-          "name": "commitLauncherRecoveryFailure",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "attempt",
-              "type": "launcherRecoveryAttempt"
-            },
-            {
-              "name": "launchErr",
-              "type": "error"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "commitLauncherRecoverySuccess",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "attempt",
-              "type": "launcherRecoveryAttempt"
-            },
-            {
-              "name": "result",
-              "type": "LaunchResult"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "completeLauncherLaunchLocked",
           "exported": false,
           "params": [
@@ -10054,32 +11992,28 @@
         },
         {
           "receiver": "*service",
-          "name": "completeNodeWithDownstream",
+          "name": "configuredReportApplier",
           "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "flow",
-              "type": "taskdag.NodeFlowStore"
-            },
-            {
-              "name": "input",
-              "type": "taskdag.NodeStatusUpdate"
-            },
-            {
-              "name": "oldStatus",
-              "type": "string"
-            },
-            {
-              "name": "result",
-              "type": "*DAGNode"
-            }
-          ],
           "returns": [
+            "reportApplier",
             "error"
+          ]
+        },
+        {
+          "receiver": "*service",
+          "name": "configuredReportController",
+          "exported": false,
+          "returns": [
+            "*reportController",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*service",
+          "name": "dagFacade",
+          "exported": false,
+          "returns": [
+            "*dagController"
           ]
         },
         {
@@ -10106,50 +12040,6 @@
         },
         {
           "receiver": "*service",
-          "name": "discardStaleSuccessfulLaunch",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "launching",
-              "type": "*agentRuntime"
-            },
-            {
-              "name": "staleErr",
-              "type": "error"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "enqueueLocalTurnSubmission",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "req",
-              "type": "TurnSubmission"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "ensureRuntimeForPersistedAgent",
           "exported": false,
           "params": [
@@ -10161,42 +12051,6 @@
               "name": "agentID",
               "type": "string"
             }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "ensureTurnAbortableLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "ensureTurnRunningForUserInputLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
-          ],
-          "returns": [
-            "error"
           ]
         },
         {
@@ -10253,36 +12107,6 @@
         },
         {
           "receiver": "*service",
-          "name": "failNodeWithDownstream",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "flow",
-              "type": "taskdag.NodeFlowStore"
-            },
-            {
-              "name": "input",
-              "type": "taskdag.NodeStatusUpdate"
-            },
-            {
-              "name": "oldStatus",
-              "type": "string"
-            },
-            {
-              "name": "result",
-              "type": "*DAGNode"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "finalizeActiveTurnLocked",
           "exported": false,
           "params": [
@@ -10304,33 +12128,6 @@
             }
           ],
           "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "findDispatchTarget",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "nodeKey",
-              "type": "string"
-            },
-            {
-              "name": "runID",
-              "type": "int64"
-            }
-          ],
-          "returns": [
-            "*taskdag.Node",
             "error"
           ]
         },
@@ -10358,104 +12155,6 @@
           ],
           "returns": [
             "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "finishLauncherRecoveryTurnLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            },
-            {
-              "name": "attempt",
-              "type": "launcherRecoveryAttempt"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "finishRemoteTurnSubmitFailure",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "attempt",
-              "type": "remoteTurnSubmitAttempt"
-            },
-            {
-              "name": "submitErr",
-              "type": "error"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "finishRemoteTurnSubmitSuccess",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "attempt",
-              "type": "remoteTurnSubmitAttempt"
-            },
-            {
-              "name": "remoteTurnID",
-              "type": "string"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "finishTurnStartFailure",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "work",
-              "type": "turnWork"
-            },
-            {
-              "name": "startErr",
-              "type": "error"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "finishTurnStartSuccess",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "work",
-              "type": "turnWork"
-            },
-            {
-              "name": "startedTurnID",
-              "type": "string"
-            }
           ]
         },
         {
@@ -10608,24 +12307,6 @@
         },
         {
           "receiver": "*service",
-          "name": "forceKillProcess",
-          "exported": false,
-          "params": [
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "launchSeq",
-              "type": "uint64"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "forkParentForLaunch",
           "exported": false,
           "params": [
@@ -10660,21 +12341,6 @@
           "returns": [
             "*PersistedThread",
             "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "handleProcessExitTransition",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
           ]
         },
         {
@@ -10728,20 +12394,6 @@
               "name": "ev",
               "type": "turndto.TurnInterrupted"
             }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "hasLocalRuntimeAgent",
-          "exported": false,
-          "params": [
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "bool"
           ]
         },
         {
@@ -10800,22 +12452,6 @@
         },
         {
           "receiver": "*service",
-          "name": "interruptAgentSnapshot",
-          "exported": false,
-          "params": [
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "AgentStateResult",
-            "string",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "interruptTurn",
           "exported": false,
           "params": [
@@ -10865,26 +12501,6 @@
         },
         {
           "receiver": "*service",
-          "name": "launchAgentUntilStarted",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "req",
-              "type": "LaunchRequest"
-            }
-          ],
-          "returns": [
-            "string",
-            "LaunchResult",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "launchAgentViaLauncher",
           "exported": false,
           "params": [
@@ -10899,38 +12515,6 @@
           ],
           "returns": [
             "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "launchWithRetry",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "attempt",
-              "type": "launcherLaunchAttempt"
-            },
-            {
-              "name": "req",
-              "type": "LaunchRequest"
-            }
-          ],
-          "returns": [
-            "string",
-            "LaunchResult",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "listAgents",
-          "exported": false,
-          "returns": [
-            "[]agentRuntime"
           ]
         },
         {
@@ -10965,20 +12549,6 @@
           "returns": [
             "persistedRuntimeSource",
             "string",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "lockRead",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            }
-          ],
-          "returns": [
             "error"
           ]
         },
@@ -11109,6 +12679,24 @@
         },
         {
           "receiver": "*service",
+          "name": "mutateHookAgentLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentRuntime) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*service",
           "name": "newAgentLocked",
           "exported": false,
           "params": [
@@ -11141,29 +12729,6 @@
           ],
           "returns": [
             "*agentRuntime",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "nextPersistedReportRecord",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "snapshot",
-              "type": "AgentSnapshot"
-            },
-            {
-              "name": "report",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "reportstore.Record",
             "error"
           ]
         },
@@ -11209,105 +12774,6 @@
         },
         {
           "receiver": "*service",
-          "name": "notifyRecoveryFailure",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "recoverErr",
-              "type": "error"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "persistAgentReportFileAndGC",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "record",
-              "type": "reportstore.Record"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "persistedAgentReport",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "AgentReportResult",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "persistedAgentSnapshotByList",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "AgentSnapshot",
-            "bool",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "persistedAgentSnapshotByThreadID",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "AgentSnapshot",
-            "bool",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "persistedAgentSnapshot",
           "exported": false,
           "params": [
@@ -11323,6 +12789,21 @@
           "returns": [
             "AgentSnapshot",
             "error"
+          ]
+        },
+        {
+          "receiver": "*service",
+          "name": "persistedArchiveBindingStore",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentBindingStore",
+            "bool"
           ]
         },
         {
@@ -11364,22 +12845,6 @@
           ],
           "returns": [
             "*PersistedThread",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "prepareInterruptAgent",
-          "exported": false,
-          "params": [
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "agentRuntime",
-            "string",
             "error"
           ]
         },
@@ -11435,77 +12900,6 @@
           ],
           "returns": [
             "launcherLaunchAttempt",
-            "bool",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "prepareLauncherRecovery",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "launcherRecoveryAttempt",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "prepareLauncherStop",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "*agentRuntime",
-            "uint64",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "prepareRemoteTurnSubmit",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "req",
-              "type": "TurnSubmission"
-            }
-          ],
-          "returns": [
-            "remoteTurnSubmitAttempt",
             "bool",
             "error"
           ]
@@ -11600,103 +12994,6 @@
         },
         {
           "receiver": "*service",
-          "name": "reconcileReadyStateLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "recordProcessExitError",
-          "exported": false,
-          "params": [
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            },
-            {
-              "name": "err",
-              "type": "error"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "recoverAfterProcessExit",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "launchSeq",
-              "type": "uint64"
-            },
-            {
-              "name": "shouldRecover",
-              "type": "bool"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "recoverLauncherWithReason",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "recoverLocalWithReason",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "recoverTurnCompletionStateLocked",
           "exported": false,
           "params": [
@@ -11737,28 +13034,6 @@
         },
         {
           "receiver": "*service",
-          "name": "recoverWithReason",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "rekeyLaunchedAgentLocked",
           "exported": false,
           "params": [
@@ -11768,71 +13043,6 @@
             }
           ],
           "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "removeSession",
-          "exported": false,
-          "params": [
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "reportEventFallbackResult",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "eventType",
-              "type": "string"
-            },
-            {
-              "name": "report",
-              "type": "string"
-            },
-            {
-              "name": "runtimeErr",
-              "type": "error"
-            }
-          ],
-          "returns": [
-            "ReportEventResult",
-            "bool"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "requestAgentStop",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "uint64",
             "error"
           ]
         },
@@ -11883,71 +13093,10 @@
         },
         {
           "receiver": "*service",
-          "name": "resolveStartDAGUniqueViolation",
+          "name": "runnerLifecycleController",
           "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "runKey",
-              "type": "string"
-            },
-            {
-              "name": "txErr",
-              "type": "error"
-            }
-          ],
           "returns": [
-            "StartDAGResponse",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "runStartDAGWithFallback",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "runKey",
-              "type": "string"
-            },
-            {
-              "name": "input",
-              "type": "taskdag.CreateRunInput"
-            }
-          ],
-          "returns": [
-            "StartDAGResponse",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "runtimeAgentSnapshots",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            }
-          ],
-          "returns": [
-            "[]AgentSnapshot",
-            "error"
+            "*lifecycleController"
           ]
         },
         {
@@ -11964,47 +13113,6 @@
             "agentRuntime",
             "bool",
             "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "setNoReportFallbackLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "setProcessExitFallbackReportLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            },
-            {
-              "name": "launchSeq",
-              "type": "uint64"
-            },
-            {
-              "name": "shouldRecover",
-              "type": "bool"
-            }
           ]
         },
         {
@@ -12043,24 +13151,6 @@
         },
         {
           "receiver": "*service",
-          "name": "shouldStopViaLauncher",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "bool"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "snapshotLocked",
           "exported": false,
           "params": [
@@ -12075,29 +13165,6 @@
           ],
           "returns": [
             "AgentSnapshot"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "startLauncherAttempt",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "attempt",
-              "type": "*launcherLaunchAttempt"
-            },
-            {
-              "name": "req",
-              "type": "LaunchRequest"
-            }
-          ],
-          "returns": [
-            "LaunchResult",
-            "error"
           ]
         },
         {
@@ -12150,28 +13217,6 @@
               "name": "source",
               "type": "string"
             }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "stopAgentLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agent",
-              "type": "*agentRuntime"
-            },
-            {
-              "name": "reason",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
           ]
         },
         {
@@ -12265,69 +13310,6 @@
         },
         {
           "receiver": "*service",
-          "name": "stopSpawnedAgentThreads",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "dagKey",
-              "type": "string"
-            },
-            {
-              "name": "runID",
-              "type": "int64"
-            },
-            {
-              "name": "threadIDs",
-              "type": "[]string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "stoppedHookThreadSuppressed",
-          "exported": false,
-          "params": [
-            {
-              "name": "threadID",
-              "type": "string"
-            },
-            {
-              "name": "timestamp",
-              "type": "time.Time"
-            }
-          ],
-          "returns": [
-            "bool"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "submitAgentReadyState",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "bool",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "submitInitialLaunchPromptOrStop",
           "exported": false,
           "params": [
@@ -12398,32 +13380,6 @@
         },
         {
           "receiver": "*service",
-          "name": "suppressStoppedHookThreadLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "threadID",
-              "type": "string"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "suppressStoppedHookThreadUntilLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "threadID",
-              "type": "string"
-            },
-            {
-              "name": "beforeOrAt",
-              "type": "time.Time"
-            }
-          ]
-        },
-        {
-          "receiver": "*service",
           "name": "syncStateChangedHookLocked",
           "exported": false,
           "params": [
@@ -12446,125 +13402,20 @@
         },
         {
           "receiver": "*service",
-          "name": "terminableRun",
+          "name": "turnTerminalConverged",
           "exported": false,
           "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "req",
-              "type": "TerminateDAGRequest"
-            }
-          ],
-          "returns": [
-            "string",
-            "string",
-            "*taskdag.Run",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "trySubmitRemoteTurn",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
             {
               "name": "agentID",
               "type": "string"
             },
             {
-              "name": "req",
-              "type": "TurnSubmission"
-            }
-          ],
-          "returns": [
-            "bool",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "turnIDFor",
-          "exported": false,
-          "params": [
-            {
-              "name": "sub",
-              "type": "TurnSubmission"
-            }
-          ],
-          "returns": [
-            "string"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "validateNodeTransition",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "store",
-              "type": "taskdag.OrchestrationStore"
-            },
-            {
-              "name": "input",
-              "type": "taskdag.NodeStatusUpdate"
-            }
-          ],
-          "returns": [
-            "taskdag.Node",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "validateStartDAGPrereq",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "req",
-              "type": "StartDAGRequest"
-            }
-          ],
-          "returns": [
-            "string",
-            "*taskdag.DAG",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "waitForProcessExit",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
+              "name": "turnID",
               "type": "string"
-            },
-            {
-              "name": "launchSeq",
-              "type": "uint64"
             }
           ],
           "returns": [
-            "error"
+            "bool"
           ]
         },
         {
@@ -12602,78 +13453,6 @@
               "name": "err",
               "type": "error"
             }
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "withAgentLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "fn",
-              "type": "func(*agentState) error"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "withAgentReadLockedByAgentID",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "fn",
-              "type": "func(*agentState) error"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "withAgentReadLocked",
-          "exported": false,
-          "params": [
-            {
-              "name": "agentID",
-              "type": "string"
-            },
-            {
-              "name": "fn",
-              "type": "func(*agentState) error"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "receiver": "*service",
-          "name": "withDAGStore",
-          "exported": false,
-          "params": [
-            {
-              "name": "fn",
-              "type": "func(taskdag.OrchestrationStore) error"
-            }
-          ],
-          "returns": [
-            "error"
           ]
         },
         {
@@ -12745,6 +13524,653 @@
             {
               "name": "data",
               "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "BindActiveTurnID",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "CompleteTurn",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            },
+            {
+              "name": "success",
+              "type": "bool"
+            },
+            {
+              "name": "errMsg",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "InterruptAgent",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "source",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentStateResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "SubmitTurn",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "TurnSubmission"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "agentRunningLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "canSubmitViaLauncher",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "claimTurnWork",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "[]turnWork"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "enqueueLocalTurnSubmission",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "req",
+              "type": "TurnSubmission"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "ensureTurnAbortableLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "ensureTurnRunningForUserInputLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "ensureTurnStartedLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "trigger",
+              "type": "agentdto.AgentTrigger"
+            },
+            {
+              "name": "states",
+              "type": "...agentdto.AgentState"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finalizeActiveTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            },
+            {
+              "name": "kind",
+              "type": "activeTurnFinalizationKind"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finishRemoteTurnSubmitFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            },
+            {
+              "name": "submitErr",
+              "type": "error"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finishRemoteTurnSubmitSuccess",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            },
+            {
+              "name": "remoteTurnID",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finishTurnStartFailure",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "work",
+              "type": "turnWork"
+            },
+            {
+              "name": "startErr",
+              "type": "error"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finishTurnStartSuccess",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "work",
+              "type": "turnWork"
+            },
+            {
+              "name": "startedTurnID",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "fireOrForceLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "trigger",
+              "type": "agentdto.AgentTrigger"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "interruptAgentSnapshot",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "AgentStateResult",
+            "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "interruptTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "log",
+          "exported": false,
+          "returns": [
+            "*slog.Logger"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "markAwaitingUserInput",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "prepareInterruptAgent",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "agentRuntime",
+            "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "prepareRemoteTurnSubmit",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "req",
+              "type": "TurnSubmission"
+            }
+          ],
+          "returns": [
+            "remoteTurnSubmitAttempt",
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "reconcileReadyStateLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "resolveAwaitingUserInput",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "startTurnExecution",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "work",
+              "type": "turnWork"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "submitAgentReadyState",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "trySubmitRemoteTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "req",
+              "type": "TurnSubmission"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "turnIDFor",
+          "exported": false,
+          "params": [
+            {
+              "name": "sub",
+              "type": "TurnSubmission"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "turnTerminalConverged",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "waitForSubmitSessionReady",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "withAgentLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentRuntime) error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "withAgentReadLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "fn",
+              "type": "func(*agentRuntime) error"
             }
           ],
           "returns": [
@@ -12878,6 +14304,33 @@
                 }
               ],
               "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "AgentLaunchSnapshotter",
+          "exported": true,
+          "methods": [
+            {
+              "name": "launchAgentSnapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "LaunchRequest"
+                },
+                {
+                  "name": "beforeInitialPrompt",
+                  "type": "func(agentID string, result LaunchResult) error"
+                }
+              ],
+              "returns": [
+                "AgentSnapshot",
                 "error"
               ]
             }
@@ -13116,6 +14569,56 @@
           ]
         },
         {
+          "name": "ApprovalLifecyclePort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "markAwaitingUserInput",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "resolveAwaitingUserInput",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
           "name": "DispatchRetryAlertSink",
           "exported": true,
           "methods": [
@@ -13133,6 +14636,151 @@
               ],
               "returns": [
                 "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "HookConsumerRuntime",
+          "exported": true,
+          "methods": [
+            {
+              "name": "hookSyncForceStoppedLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "mutateHookAgentLocked",
+              "params": [
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "fn",
+                  "type": "func(*agentRuntime) error"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "publishAgentRuntimeReported",
+              "params": [
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ]
+            },
+            {
+              "name": "syncStateChangedHookLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "nextState",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "turnLifecycleRuntime"
+          ]
+        },
+        {
+          "name": "HookReportPort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "HandleReportEvent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "event",
+                  "type": "ReportEvent"
+                }
+              ],
+              "returns": [
+                "ReportEventResult",
+                "error"
+              ]
+            },
+            {
+              "name": "setStateChangedFallbackReportLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "nextState",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "setStoppedFallbackReportLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "HookSuppressionLookup",
+          "exported": true,
+          "methods": [
+            {
+              "name": "stoppedHookThreadSuppressed",
+              "params": [
+                {
+                  "name": "threadID",
+                  "type": "string"
+                },
+                {
+                  "name": "timestamp",
+                  "type": "time.Time"
+                }
+              ],
+              "returns": [
+                "bool"
               ]
             }
           ]
@@ -13177,6 +14825,108 @@
                 {
                   "name": "ev",
                   "type": "turndto.TurnInterrupted"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "RunnerLifecyclePort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "runnerLifecycleController",
+              "returns": [
+                "*lifecycleController"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "RunnerRuntimePort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "StopAllAgents",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ]
+            },
+            {
+              "name": "claimTurnWork",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "[]turnWork"
+              ]
+            },
+            {
+              "name": "handleProcessExit",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "launchSeq",
+                  "type": "uint64"
+                },
+                {
+                  "name": "err",
+                  "type": "error"
+                }
+              ]
+            },
+            {
+              "name": "publishTurnStalled",
+              "params": [
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "threadID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                },
+                {
+                  "name": "stalledFor",
+                  "type": "time.Duration"
+                },
+                {
+                  "name": "timestamp",
+                  "type": "time.Time"
+                }
+              ]
+            },
+            {
+              "name": "startTurnExecution",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "work",
+                  "type": "turnWork"
                 }
               ]
             }
@@ -13260,6 +15010,35 @@
           ]
         },
         {
+          "name": "TurnLifecyclePort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "BindActiveTurnID",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "turnLifecycleRuntime"
+          ]
+        },
+        {
           "name": "WakeupLauncher",
           "exported": true,
           "methods": [
@@ -13273,6 +15052,267 @@
                 {
                   "name": "req",
                   "type": "LaunchRequest"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "lifecycleLaunchPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "applyLaunchRequestDefaults",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "LaunchRequest"
+                }
+              ],
+              "returns": [
+                "LaunchRequest",
+                "error"
+              ]
+            },
+            {
+              "name": "finishLauncherLaunch",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "attempt",
+                  "type": "launcherLaunchAttempt"
+                },
+                {
+                  "name": "result",
+                  "type": "LaunchResult"
+                },
+                {
+                  "name": "launchErr",
+                  "type": "error"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "prepareLauncherLaunch",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "req",
+                  "type": "LaunchRequest"
+                }
+              ],
+              "returns": [
+                "launcherLaunchAttempt",
+                "bool",
+                "error"
+              ]
+            },
+            {
+              "name": "submitInitialLaunchPromptOrStop",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "result",
+                  "type": "LaunchResult"
+                },
+                {
+                  "name": "req",
+                  "type": "LaunchRequest"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "lifecycleStopAllPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "DrainAsync",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ]
+            },
+            {
+              "name": "stopAgentViaLauncher",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "lifecycleStopPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "agentRunningLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "bool"
+              ]
+            },
+            {
+              "name": "handleProcessExit",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "launchSeq",
+                  "type": "uint64"
+                },
+                {
+                  "name": "err",
+                  "type": "error"
+                }
+              ]
+            },
+            {
+              "name": "markStoppingLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "bool",
+                "error"
+              ]
+            },
+            {
+              "name": "stopAgentWithReason",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "lifecycleStopStatePort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "markStoppingLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "bool",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "lifecycleTransitionPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "fireOrForceLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "trigger",
+                  "type": "agentdto.AgentTrigger"
                 }
               ],
               "returns": [
@@ -13347,6 +15387,318 @@
           ]
         },
         {
+          "name": "processExitReportPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "setProcessExitFallbackReportLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "launchSeq",
+                  "type": "uint64"
+                },
+                {
+                  "name": "shouldRecover",
+                  "type": "bool"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryLaunchCommitPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "commitLaunchFailureLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "launchErr",
+                  "type": "error"
+                },
+                {
+                  "name": "details",
+                  "type": "...string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "commitLaunchSuccessLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "rekeyLaunchedAgentLocked",
+              "params": [
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryLauncherPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "IsRunning",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "bool"
+              ]
+            },
+            {
+              "name": "Launch",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "req",
+                  "type": "LaunchRequest"
+                }
+              ],
+              "returns": [
+                "LaunchResult",
+                "error"
+              ]
+            },
+            {
+              "name": "Stop",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryLocalProcessPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "startProcessLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryRegistryPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "lock"
+            },
+            {
+              "name": "lookupAgentByIDLocked",
+              "params": [
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "*agentRuntime",
+                "error"
+              ]
+            },
+            {
+              "name": "lookupAgentBySeqLocked",
+              "params": [
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "launchSeq",
+                  "type": "uint64"
+                }
+              ],
+              "returns": [
+                "*agentRuntime",
+                "error"
+              ]
+            },
+            {
+              "name": "rLock"
+            },
+            {
+              "name": "rUnlock"
+            },
+            {
+              "name": "suppressStoppedHookThreadLocked",
+              "params": [
+                {
+                  "name": "threadID",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "suppressStoppedHookThreadUntilLocked",
+              "params": [
+                {
+                  "name": "threadID",
+                  "type": "string"
+                },
+                {
+                  "name": "beforeOrAt",
+                  "type": "time.Time"
+                }
+              ]
+            },
+            {
+              "name": "unlock"
+            },
+            {
+              "name": "withAgentLocked",
+              "params": [
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "fn",
+                  "type": "func(*agentRuntime) error"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryReportPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "setNoReportFallbackLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryStatePort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "fireOrForceLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "trigger",
+                  "type": "agentdto.AgentTrigger"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "recoveryStoreProvider",
+          "exported": false,
+          "methods": [
+            {
+              "name": "currentRecoveryStore",
+              "returns": [
+                "recoveryTurnStore"
+              ]
+            }
+          ]
+        },
+        {
           "name": "recoveryTurnStore",
           "exported": false,
           "embeds": [
@@ -13382,22 +15734,364 @@
           ]
         },
         {
-          "name": "stopSpawnedAgentSink",
+          "name": "reportApplier",
           "exported": false,
           "methods": [
             {
-              "name": "Inc",
+              "name": "applyReportEventLocked",
               "params": [
                 {
-                  "name": "result",
-                  "type": "StopResult"
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "eventType",
+                  "type": "string"
+                },
+                {
+                  "name": "data",
+                  "type": "json.RawMessage"
+                },
+                {
+                  "name": "report",
+                  "type": "string"
                 }
+              ],
+              "returns": [
+                "ReportEventResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "turnLifecycleRuntime",
+          "exported": false,
+          "methods": [
+            {
+              "name": "CompleteTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "success",
+                  "type": "bool"
+                },
+                {
+                  "name": "errMsg",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "forceIdleAfterCompletionError",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "success",
+                  "type": "bool"
+                },
+                {
+                  "name": "errMsg",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "bool",
+                "error"
+              ]
+            },
+            {
+              "name": "forceIdleAfterInterruptionError",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "bool",
+                "error"
+              ]
+            },
+            {
+              "name": "forceIdleAfterProviderTurnCompletion",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "ev",
+                  "type": "turndto.TurnCompleted"
+                }
+              ],
+              "returns": [
+                "bool",
+                "error"
+              ]
+            },
+            {
+              "name": "interruptTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "stopAgentAfterPermanentTurnFailure",
+              "params": [
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "threadID",
+                  "type": "string"
+                },
+                {
+                  "name": "source",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "turnTerminalConverged",
+              "params": [
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "bool"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "turnRecoveryOwner",
+          "exported": false,
+          "methods": [
+            {
+              "name": "recoverTurnCompletionStateLocked",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "*agentRuntime"
+                },
+                {
+                  "type": "bool"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "recoverTurnInterruptionStateLocked",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "*agentRuntime"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "turnRuntimeRehydrator",
+          "exported": false,
+          "methods": [
+            {
+              "name": "ensureRuntimeForPersistedAgent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "turnStatePort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "ensureTurnStartedLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "trigger",
+                  "type": "agentdto.AgentTrigger"
+                },
+                {
+                  "name": "states",
+                  "type": "...agentdto.AgentState"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "finalizeActiveTurnLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "turnID",
+                  "type": "string"
+                },
+                {
+                  "name": "kind",
+                  "type": "activeTurnFinalizationKind"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "fireOrForceLocked",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agent",
+                  "type": "*agentRuntime"
+                },
+                {
+                  "name": "trigger",
+                  "type": "agentdto.AgentTrigger"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "turnStopPort",
+          "exported": false,
+          "methods": [
+            {
+              "name": "stopAgentViaLauncher",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
               ]
             }
           ]
         }
       ],
       "structs": [
+        {
+          "name": "AgentLifecycleControllerParams",
+          "exported": true
+        },
         {
           "name": "ArchiveOutcome",
           "exported": true
@@ -13455,6 +16149,10 @@
           "exported": true
         },
         {
+          "name": "RunnerActorParams",
+          "exported": true
+        },
+        {
           "name": "StallDetector",
           "exported": true
         },
@@ -13491,6 +16189,14 @@
           "exported": false
         },
         {
+          "name": "agentLifecycleController",
+          "exported": false
+        },
+        {
+          "name": "agentRegistry",
+          "exported": false
+        },
+        {
           "name": "agentRuntime",
           "exported": false
         },
@@ -13504,6 +16210,14 @@
         },
         {
           "name": "createDAGParams",
+          "exported": false
+        },
+        {
+          "name": "dagController",
+          "exported": false
+        },
+        {
+          "name": "dagControllerParams",
           "exported": false
         },
         {
@@ -13551,6 +16265,14 @@
           "exported": false
         },
         {
+          "name": "lifecycleController",
+          "exported": false
+        },
+        {
+          "name": "lifecycleControllerParams",
+          "exported": false
+        },
+        {
           "name": "listDAGsParams",
           "exported": false
         },
@@ -13587,6 +16309,14 @@
           "exported": false
         },
         {
+          "name": "recoveryController",
+          "exported": false
+        },
+        {
+          "name": "recoveryControllerDeps",
+          "exported": false
+        },
+        {
           "name": "rememberReportRequestParams",
           "exported": false
         },
@@ -13596,6 +16326,14 @@
         },
         {
           "name": "remoteTurnSubmitAttempt",
+          "exported": false
+        },
+        {
+          "name": "reportController",
+          "exported": false
+        },
+        {
+          "name": "reportControllerDeps",
           "exported": false
         },
         {
@@ -13635,6 +16373,10 @@
           "exported": false
         },
         {
+          "name": "serviceResult",
+          "exported": false
+        },
+        {
           "name": "smartRetryStrategyResolution",
           "exported": false
         },
@@ -13656,6 +16398,14 @@
         },
         {
           "name": "submitParams",
+          "exported": false
+        },
+        {
+          "name": "turnController",
+          "exported": false
+        },
+        {
+          "name": "turnControllerDeps",
           "exported": false
         },
         {
@@ -16013,10 +18763,6 @@
             {
               "name": "cfg",
               "type": "*AutomationNodeConfig"
-            },
-            {
-              "name": "runCtx",
-              "type": "RunContext"
             }
           ],
           "returns": [
@@ -20699,7 +23445,7 @@
           "params": [
             {
               "name": "store",
-              "type": "taskdag.Store"
+              "type": "taskdag.WakeupReclaimStore"
             },
             {
               "name": "logger",
@@ -21029,7 +23775,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "agentInterruptPort"
+              "type": "contract.AgentInterruptPort"
             }
           ],
           "returns": [
@@ -21042,7 +23788,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             }
           ],
           "returns": [
@@ -21154,7 +23900,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "agentRecoverPort"
+              "type": "contract.AgentRecoveryPort"
             }
           ],
           "returns": [
@@ -21232,7 +23978,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStopWaitPort"
             }
           ],
           "returns": [
@@ -21423,6 +24169,24 @@
           ],
           "returns": [
             "Schema"
+          ]
+        },
+        {
+          "name": "ToolErrorClassifier",
+          "exported": true,
+          "params": [
+            {
+              "name": "toolName",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "mcpcommon.ToolErrorClassification",
+            "bool"
           ]
         },
         {
@@ -22667,7 +25431,7 @@
             },
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             }
           ],
           "returns": [
@@ -23019,7 +25783,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             },
             {
               "name": "exeFn",
@@ -23269,6 +26033,19 @@
           ]
         },
         {
+          "name": "isTaskCreateDAGName",
+          "exported": false,
+          "params": [
+            {
+              "name": "toolName",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "joinUniqueCSV",
           "exported": false,
           "params": [
@@ -23402,7 +26179,7 @@
             },
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             },
             {
               "name": "in",
@@ -23859,7 +26636,7 @@
             },
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             },
             {
               "name": "agentID",
@@ -25144,7 +27921,7 @@
             },
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             }
           ],
           "returns": [
@@ -25369,7 +28146,7 @@
             },
             {
               "name": "svc",
-              "type": "agentLaunchPort"
+              "type": "contract.AgentLaunchPort"
             },
             {
               "name": "requested",
@@ -25990,7 +28767,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStopWaitPort"
             },
             {
               "name": "agentID",
@@ -26033,7 +28810,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStopWaitPort"
             },
             {
               "name": "agentID",
@@ -26069,7 +28846,7 @@
           "params": [
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStopWaitPort"
             }
           ],
           "returns": [
@@ -27036,7 +29813,7 @@
             },
             {
               "name": "svc",
-              "type": "contract.AgentLifecyclePort"
+              "type": "contract.AgentStopWaitPort"
             },
             {
               "name": "agentID",
@@ -27544,71 +30321,6 @@
           ]
         },
         {
-          "name": "agentInterruptPort",
-          "exported": false,
-          "methods": [
-            {
-              "name": "InterruptAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                },
-                {
-                  "name": "source",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "contract.AgentStateResult",
-                "error"
-              ]
-            }
-          ]
-        },
-        {
-          "name": "agentLaunchPort",
-          "exported": false,
-          "methods": [
-            {
-              "name": "LaunchAgent",
-              "params": [
-                {
-                  "type": "context.Context"
-                },
-                {
-                  "type": "contract.LaunchRequest"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "Snapshot",
-              "params": [
-                {
-                  "type": "context.Context"
-                },
-                {
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "contract.AgentSnapshot",
-                "error"
-              ]
-            }
-          ],
-          "embeds": [
-            "agentSnapshotLister"
-          ]
-        },
-        {
           "name": "agentListReportReader",
           "exported": false,
           "methods": [
@@ -27624,45 +30336,6 @@
               ],
               "returns": [
                 "contract.AgentReportResult",
-                "error"
-              ]
-            }
-          ]
-        },
-        {
-          "name": "agentRecoverPort",
-          "exported": false,
-          "methods": [
-            {
-              "name": "Recover",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
-              "name": "Snapshot",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "contract.AgentSnapshot",
                 "error"
               ]
             }
@@ -29513,6 +32186,13 @@
           ]
         },
         {
+          "name": "ReadOnlyNonOrchestrationDeniedTools",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "RegisteredDependencyAbsencePolicies",
           "exported": true,
           "returns": [
@@ -29556,6 +32236,27 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "RequireDependency",
+          "exported": true,
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "DependencyProfile"
+            },
+            {
+              "name": "value",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -30914,26 +33615,9 @@
       ],
       "interfaces": [
         {
-          "name": "AgentLifecyclePort",
+          "name": "AgentInterruptPort",
           "exported": true,
           "methods": [
-            {
-              "name": "GetState",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "AgentStateResult",
-                "error"
-              ]
-            },
             {
               "name": "InterruptAgent",
               "params": [
@@ -30954,7 +33638,13 @@
                 "AgentStateResult",
                 "error"
               ]
-            },
+            }
+          ]
+        },
+        {
+          "name": "AgentLaunchPort",
+          "exported": true,
+          "methods": [
             {
               "name": "LaunchAgent",
               "params": [
@@ -30985,22 +33675,6 @@
               ]
             },
             {
-              "name": "Recover",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            },
-            {
               "name": "Snapshot",
               "params": [
                 {
@@ -31014,22 +33688,6 @@
               ],
               "returns": [
                 "AgentSnapshot",
-                "error"
-              ]
-            },
-            {
-              "name": "StopAgent",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
                 "error"
               ]
             }
@@ -31100,6 +33758,45 @@
               ],
               "returns": [
                 "AgentMemoryWriteResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "AgentRecoveryPort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "Recover",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentSnapshot",
                 "error"
               ]
             }
@@ -31202,6 +33899,120 @@
                 "error"
               ]
             }
+          ]
+        },
+        {
+          "name": "AgentStateReader",
+          "exported": true,
+          "methods": [
+            {
+              "name": "GetState",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentStateResult",
+                "error"
+              ]
+            },
+            {
+              "name": "ListAgents",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "[]AgentSnapshot",
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentSnapshot",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "AgentStopPort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "StopAgent",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "AgentStopWaitPort",
+          "exported": true,
+          "methods": [
+            {
+              "name": "ListAgents",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                }
+              ],
+              "returns": [
+                "[]AgentSnapshot",
+                "error"
+              ]
+            },
+            {
+              "name": "Snapshot",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "agentID",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "AgentSnapshot",
+                "error"
+              ]
+            }
+          ],
+          "embeds": [
+            "AgentStopPort"
           ]
         },
         {
@@ -42518,6 +45329,13 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "codexNativeToolDescriptors",
+          "exported": false,
+          "returns": [
+            "[]contract.NativeToolDescriptor"
           ]
         },
         {

@@ -23,7 +23,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewServiceWithPromptAssembly 构造带 prompt assembly 的 thread 服务。
@@ -41,16 +41,15 @@ func NewServiceWithPromptAssembly(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
 }
 
 // NewServiceWithPromptAssemblyAndSharedFiles 构造完整 thread 服务。
-// 除 prompt assembly 外，它还接入 shared files、runtime prompt catalog、match/enable_when 评估器和可选 tracing。
+// 除 prompt assembly 外，它还接入 runtime prompt catalog、match/enable_when 评估器和可选 tracing。
 func NewServiceWithPromptAssemblyAndSharedFiles(
 	logger *slog.Logger,
 	threadStore threadServiceStorePort,
 	bindingStore bindingServiceStorePort,
-	sharedFiles sharedFileServiceStorePort,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns contract.TurnThreadCleaner,
@@ -60,7 +59,6 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	mcpServers contract.MCPServerConfigProvider,
-	promptStore promptServiceStorePort,
 	promptCatalog promptServiceCatalogPort,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
@@ -70,7 +68,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	if len(tracingOpt) > 0 {
 		tracing = tracingOpt[0]
 	}
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
 // newService 统一完成 thread service wiring。
@@ -79,7 +77,6 @@ func newService(
 	logger *slog.Logger,
 	threadStore threadServiceStorePort,
 	bindingStore bindingServiceStorePort,
-	sharedFiles sharedFileServiceStorePort,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns contract.TurnThreadCleaner,
@@ -89,7 +86,6 @@ func newService(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	mcpServers contract.MCPServerConfigProvider,
-	promptStore promptServiceStorePort,
 	promptCatalog promptServiceCatalogPort,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
@@ -106,7 +102,6 @@ func newService(
 		logger:                  logger,
 		threadStore:             threadStore,
 		bindingStore:            bindingStore,
-		sharedFiles:             sharedFiles,
 		sessions:                sessions,
 		starter:                 starter,
 		promptAssembly:          promptAssembly,
@@ -118,7 +113,6 @@ func newService(
 		sessionGenerationBinder: sessionGenerationBinderFromOrchestration(orchestration),
 		tracing:                 tracing,
 		bus:                     dispatcher,
-		promptStore:             promptStore,
 		promptCatalog:           promptCatalog,
 		matchWhenEval:           matchWhenEval,
 		enableWhenEval:          enableWhenEval,

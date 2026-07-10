@@ -12,7 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"go.uber.org/fx"
@@ -24,15 +23,13 @@ var Module = fx.Module("thread",
 	fx.Provide(
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndSharedFiles,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 			fx.As(new(Service)),
 			fx.As(new(contract.PendingLaunchSpawner)),
 		),
 		fx.Annotate(NewThreadHandlers, fx.ParamTags("", `optional:"true"`)),
 		provideThreadServiceStorePort,
 		provideBindingServiceStorePort,
-		provideSharedFileServiceStorePort,
-		providePromptServiceStorePort,
 		providePromptServiceCatalogPort,
 		provideThreadConcreteOutputs,
 		provideRuntimePromptCatalog,
@@ -54,19 +51,28 @@ func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
 }
 
 type threadServiceStorePort interface {
-	threadstore.Store
+	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
+	ListAll(ctx context.Context) ([]threadstore.Thread, error)
+	ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadstore.Thread, error)
+	Upsert(ctx context.Context, params threadstore.UpsertParams) error
+	SavePromptSnapshot(ctx context.Context, threadID string, snapshot threadstore.PromptSnapshot) error
+	LoadPromptSnapshot(ctx context.Context, threadID string) (*threadstore.PromptSnapshot, error)
+	UpdateStatus(ctx context.Context, params threadstore.UpdateStatusParams) error
+	DeleteByThreadID(ctx context.Context, threadID string) error
+	CountChildren(ctx context.Context, parentAgentID string) (int64, error)
+	Exists(ctx context.Context, threadID string) (bool, error)
 }
 
 type bindingServiceStorePort interface {
-	bindingstore.Store
-}
-
-type sharedFileServiceStorePort interface {
-	sharedfilestore.Store
-}
-
-type promptServiceStorePort interface {
-	promptstore.Store
+	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*bindingstore.Binding, error)
+	Upsert(ctx context.Context, params bindingstore.UpsertParams) error
+	DeleteByAgentID(ctx context.Context, agentID string) error
+	UpdateSessionUUID(ctx context.Context, params bindingstore.UpdateSessionUUIDParams) error
+	UpdateProviderThreadID(ctx context.Context, params bindingstore.UpdateProviderThreadIDParams) error
+	SetArchived(ctx context.Context, params bindingstore.SetArchivedParams) error
+	GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error)
+	ListAgentThreadBindings(ctx context.Context) ([]bindingstore.Binding, error)
+	UpdateAgentCwd(ctx context.Context, params bindingstore.UpdateAgentCwdParams) error
 }
 
 type promptServiceCatalogPort any
@@ -91,24 +97,6 @@ type bindingServiceStorePortParams struct {
 }
 
 func provideBindingServiceStorePort(params bindingServiceStorePortParams) bindingServiceStorePort {
-	return params.Store
-}
-
-type sharedFileServiceStorePortParams struct {
-	fx.In
-	Store sharedfilestore.Store `optional:"true"`
-}
-
-func provideSharedFileServiceStorePort(params sharedFileServiceStorePortParams) sharedFileServiceStorePort {
-	return params.Store
-}
-
-type promptServiceStorePortParams struct {
-	fx.In
-	Store promptstore.Store `optional:"true"`
-}
-
-func providePromptServiceStorePort(params promptServiceStorePortParams) promptServiceStorePort {
 	return params.Store
 }
 
@@ -150,7 +138,7 @@ func provideRuntimePromptCatalog(params runtimePromptCatalogParams) promptstore.
 type threadBindingStoreRecord = bindingstore.Binding
 type threadConfigStoreRecord = threadstore.Thread
 type threadBindingStoreAdapter struct {
-	store bindingstore.Store
+	store bindingServiceStorePort
 }
 
 func (s *service) threadBindingStorePort() threadBindingStorePort {
@@ -334,7 +322,7 @@ func bindingCWDUpdateToStore(params threadBindingCWDUpdate) bindingstore.UpdateA
 }
 
 type threadConfigStoreAdapter struct {
-	store threadstore.Store
+	store threadServiceStorePort
 }
 
 func (s *service) threadConfigStorePort() threadConfigStorePort {
@@ -526,7 +514,7 @@ func promptBoundaryRecordFromStore(boundary *threadstore.PromptBoundary) *prompt
 	}
 }
 
-func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, _ string, currentName string) string {
+func resolveDisplayName(ctx context.Context, store threadServiceStorePort, agentID, _ string, currentName string) string {
 	name := strings.TrimSpace(currentName)
 	if name == defaultThreadName() {
 		name = ""

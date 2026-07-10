@@ -71,7 +71,6 @@ type service struct {
 	logger                  *slog.Logger
 	threadStore             threadServiceStorePort
 	bindingStore            bindingServiceStorePort
-	sharedFiles             sharedFileServiceStorePort
 	sessions                SessionProvider
 	starter                 SessionStarter
 	promptAssembly          contract.PromptAssemblyService
@@ -106,9 +105,7 @@ type service struct {
 
 	resumeInFlight, resumeBlocked, sessionRecoveryCount sync.Map
 
-	// promptStore 是可选写路径；未装配时 thread/start 不注入路由 prompt，由 provider 使用自身默认提示词。
-	promptStore promptServiceStorePort
-	// promptCatalog 是运行时读路径，会合并内置模板和数据库模板；promptStore 只负责 snapshot 写入。
+	// promptCatalog 是运行时读路径，会合并内置模板和数据库模板。
 	promptCatalog promptServiceCatalogPort
 
 	// matchWhenEval 用当前 BuildCtx 评估 prompt_template.match_when。
