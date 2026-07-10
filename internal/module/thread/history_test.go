@@ -12,7 +12,6 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
@@ -33,7 +32,7 @@ func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 	svc := NewService(
 		silentLogger(),
 		nil,
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "thread-1",
@@ -96,7 +95,7 @@ func TestReadMessagesFirstPageUsesMessagePageReader(t *testing.T) {
 	svc := NewService(
 		silentLogger(),
 		nil,
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "thread-1",
@@ -194,7 +193,7 @@ func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
 	}
 	forkedSession := &historyTestSession{threadID: "thread-2"}
 	threadStore := &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID:       "thread-1",
 			AgentID:        "agent-1",
 			Prompt:         "demo",
@@ -204,7 +203,7 @@ func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
 			ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 		},
 	}
-	bindings := newHistoryTestBindingStore(&bindingstore.Binding{
+	bindings := newHistoryTestBindingStore(&BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -270,18 +269,18 @@ func requireForkedHistoryUsesForkThreadID(t *testing.T, fixture forkedThreadHist
 type historyTestBindingStore struct {
 	historyTestBindingNoopStore
 
-	bindings map[string]bindingstore.Binding
+	bindings map[string]BindingRecord
 }
 
-func newHistoryTestBindingStore(binding *bindingstore.Binding) *historyTestBindingStore {
-	store := &historyTestBindingStore{bindings: map[string]bindingstore.Binding{}}
+func newHistoryTestBindingStore(binding *BindingRecord) *historyTestBindingStore {
+	store := &historyTestBindingStore{bindings: map[string]BindingRecord{}}
 	if binding != nil {
 		store.bindings[strings.TrimSpace(binding.AgentID)] = *binding
 	}
 	return store
 }
 
-func (s *historyTestBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s *historyTestBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*BindingRecord, error) {
 	for _, binding := range s.bindings {
 		if strings.TrimSpace(binding.Provider) != strings.TrimSpace(provider) || strings.TrimSpace(binding.ProviderThreadID) != strings.TrimSpace(providerThreadID) {
 			continue
@@ -292,11 +291,11 @@ func (s *historyTestBindingStore) GetByProviderThread(_ context.Context, provide
 	return nil, platformdb.ErrNotFound
 }
 
-func (s *historyTestBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
+func (s *historyTestBindingStore) Upsert(_ context.Context, params BindingUpsert) error {
 	if s.bindings == nil {
-		s.bindings = map[string]bindingstore.Binding{}
+		s.bindings = map[string]BindingRecord{}
 	}
-	s.bindings[strings.TrimSpace(params.AgentID)] = bindingstore.Binding{
+	s.bindings[strings.TrimSpace(params.AgentID)] = BindingRecord{
 		AgentID:          params.AgentID,
 		Provider:         params.Provider,
 		ProviderThreadID: params.ProviderThreadID,
@@ -313,18 +312,18 @@ type historyTestBindingNoopStore struct{}
 
 func (historyTestBindingNoopStore) DeleteByAgentID(context.Context, string) error { return nil }
 
-func (historyTestBindingNoopStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
+func (historyTestBindingNoopStore) UpdateSessionUUID(context.Context, BindingSessionUUIDUpdate) error {
 	return nil
 }
-func (historyTestBindingNoopStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
-	return nil
-}
-
-func (historyTestBindingNoopStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+func (historyTestBindingNoopStore) UpdateProviderThreadID(context.Context, BindingProviderThreadIDUpdate) error {
 	return nil
 }
 
-func (s *historyTestBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (historyTestBindingNoopStore) SetArchived(context.Context, BindingArchiveUpdate) error {
+	return nil
+}
+
+func (s *historyTestBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	binding, ok := s.bindings[strings.TrimSpace(agentID)]
 	if !ok {
 		return nil, platformdb.ErrNotFound
@@ -339,11 +338,11 @@ func (historyTestBindingNoopStore) BindAgentThread(context.Context, bindingstore
 
 func (historyTestBindingNoopStore) UnbindAgentThread(context.Context, string) error { return nil }
 
-func (s *historyTestBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+func (s *historyTestBindingStore) ListAgentThreadBindings(context.Context) ([]BindingRecord, error) {
 	if len(s.bindings) == 0 {
 		return nil, nil
 	}
-	out := make([]bindingstore.Binding, 0, len(s.bindings))
+	out := make([]BindingRecord, 0, len(s.bindings))
 	for _, binding := range s.bindings {
 		out = append(out, binding)
 	}
@@ -358,7 +357,7 @@ func (s *historyTestBindingStore) GetThreadByAgent(_ context.Context, agentID st
 	return shared.FirstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID), nil
 }
 
-func (historyTestBindingNoopStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (historyTestBindingNoopStore) UpdateAgentCwd(context.Context, BindingCWDUpdate) error {
 	return nil
 }
 

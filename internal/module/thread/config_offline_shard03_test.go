@@ -7,19 +7,17 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
 	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID: "thread-model-offline",
 			Model:    "claude-sonnet-4-20250514",
 			Status:   "running",
 		},
 	}
-	runtime := mustBuildOfflineConfig(t, threads.thread, &bindingstore.Binding{Provider: "claude"}).Runtime
+	runtime := mustBuildOfflineConfig(t, threads.thread, &BindingRecord{Provider: "claude"}).Runtime
 
 	model, ok := runtime["model"]
 	if !ok {
@@ -33,7 +31,7 @@ func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
 func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-context-offline",
 		Model:    "gpt-5.5",
 		Cwd:      "/repo",
@@ -50,7 +48,7 @@ func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		}}),
 	}}
-	svc := newConfigTestService(t, threads, &stubBindingStore{binding: &bindingstore.Binding{
+	svc := newConfigTestService(t, threads, &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-context-offline",
@@ -109,7 +107,7 @@ func TestSetConfigFailsFastWithoutBinding(t *testing.T) {
 
 	model := "claude-opus-4-7[1m]"
 	effort := "max"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-claude",
 		Model:         "sonnet",
 		Status:        statusCreated,
@@ -139,7 +137,7 @@ func TestSetConfigOfflineRejectsInvalidEffort(t *testing.T) {
 	t.Parallel()
 
 	effort := "turbo"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		Model:     "o4-mini",
 		Status:    statusCreated,
@@ -233,33 +231,33 @@ func batchRuntimeSessions() (*stubSession, *stubSession) {
 
 func batchRuntimeThreadStore(t *testing.T) *stubThreadStore {
 	t.Helper()
-	thread1 := threadstore.Thread{
+	thread1 := ThreadRecord{
 		ThreadID:       "thread-1",
 		Model:          "gpt-5.5",
 		AgentID:        "agent-1",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
 	}
-	thread2 := threadstore.Thread{
+	thread2 := ThreadRecord{
 		ThreadID:       "thread-2",
 		Model:          "claude-opus",
 		AgentID:        "agent-2",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "creative"}),
 	}
-	thread3 := threadstore.Thread{ThreadID: "thread-3", PendingLaunch: true}
+	thread3 := ThreadRecord{ThreadID: "thread-3", PendingLaunch: true}
 	return &stubThreadStore{
 		thread:     cloneThread(thread1),
-		threads:    []threadstore.Thread{thread1, thread2, thread3},
-		threadByID: map[string]*threadstore.Thread{"thread-1": cloneThread(thread1), "thread-2": cloneThread(thread2), "thread-3": cloneThread(thread3)},
+		threads:    []ThreadRecord{thread1, thread2, thread3},
+		threadByID: map[string]*ThreadRecord{"thread-1": cloneThread(thread1), "thread-2": cloneThread(thread2), "thread-3": cloneThread(thread3)},
 	}
 }
 
-func cloneThread(thread threadstore.Thread) *threadstore.Thread {
+func cloneThread(thread ThreadRecord) *ThreadRecord {
 	copy := thread
 	return &copy
 }
 
-func batchRuntimeBindings() []bindingstore.Binding {
-	return []bindingstore.Binding{
+func batchRuntimeBindings() []BindingRecord {
+	return []BindingRecord{
 		{
 			AgentID:          "agent-1",
 			Provider:         "codex",

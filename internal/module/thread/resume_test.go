@@ -9,8 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
@@ -20,7 +18,7 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	snapshot := validThreadPromptSnapshotForTest("resume")
 	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID:      "thread-1",
 			AgentID:       "agent-1",
 			Prompt:        "resume",
@@ -35,7 +33,7 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 		},
 		promptSnapshot: &snapshot,
 	}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -174,7 +172,7 @@ func TestServiceResumeRejectsRequestCWDThatDiffersFromStoredThreadCWD(t *testing
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555557"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -183,7 +181,7 @@ func TestServiceResumeRejectsRequestCWDThatDiffersFromStoredThreadCWD(t *testing
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -212,7 +210,7 @@ func TestServiceResumeRejectsMissingStoredCWD(t *testing.T) {
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555558"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -220,7 +218,7 @@ func TestServiceResumeRejectsMissingStoredCWD(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -248,7 +246,7 @@ func TestServiceResumeRejectsRequestCWDWhenStoredCWDIsMissing(t *testing.T) {
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555559"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -256,7 +254,7 @@ func TestServiceResumeRejectsRequestCWDWhenStoredCWDIsMissing(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -291,7 +289,7 @@ func newResumeCodexDisabledNativeToolsService(
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	snapshot := validThreadPromptSnapshotForTest("resume")
 	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID:       "thread-native-tools",
 			AgentID:        "agent-native-tools",
 			Prompt:         "resume",
@@ -303,7 +301,7 @@ func newResumeCodexDisabledNativeToolsService(
 		},
 		promptSnapshot: &snapshot,
 	}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-native-tools",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -402,7 +400,7 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 	const providerThreadID = "11111111-2222-3333-4444-555555555556"
 	const agentID = "agent-placeholder-name"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:        agentID,
 		AgentID:         agentID,
 		Name:            defaultThreadName(),
@@ -414,7 +412,7 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 		ManuallyRenamed: false,
 		ConfigOverride:  legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          agentID,
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -467,7 +465,7 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	const providerThreadID = "11111111-2222-3333-4444-555555555552"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
 		Prompt:         "resume",
@@ -477,7 +475,7 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -529,7 +527,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555553"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	stored := threadstore.PromptSnapshot{
+	stored := PromptSnapshotRecord{
 		DisplayName:           "resume",
 		BaseInstructions:      "stored base",
 		DeveloperInstructions: "stored dev",
@@ -538,7 +536,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 		Hash:                  promptSnapshotHash("resume", "stored base", "stored dev", "codex", nil, nil, 0),
 	}
 	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID:      "thread-1",
 			AgentID:       "agent-1",
 			Prompt:        "resume",
@@ -550,7 +548,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 		},
 		promptSnapshot: &stored,
 	}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -592,7 +590,7 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 	effort := "max"
 	const providerThreadID = "11111111-2222-3333-4444-555555555554"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -608,7 +606,7 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 			},
 		}),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: providerThreadID,
@@ -646,7 +644,7 @@ func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
 	const providerThreadID = "11111111-2222-3333-4444-555555555557"
 	claudeHome := t.TempDir()
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-claude-home",
 		AgentID:   "agent-claude-home",
 		Prompt:    "resume",
@@ -659,7 +657,7 @@ func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
 			"legacyPromptSnapshotMigration": true,
 		}}),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-claude-home",
 		Provider:         "claude",
 		ProviderThreadID: providerThreadID,
@@ -692,7 +690,7 @@ func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
 	storedHome := t.TempDir()
 	requestHome := t.TempDir()
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-claude-home-override",
 		AgentID:   "agent-claude-home-override",
 		Prompt:    "resume",
@@ -705,7 +703,7 @@ func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
 			"legacyPromptSnapshotMigration": true,
 		}}),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-claude-home-override",
 		Provider:         "claude",
 		ProviderThreadID: providerThreadID,

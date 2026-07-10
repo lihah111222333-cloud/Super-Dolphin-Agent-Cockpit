@@ -9,9 +9,7 @@ import (
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type capturingSessionBridge struct {
@@ -74,13 +72,12 @@ func (*mockSession) Capabilities() dto.CapabilitySet { return nil }
 func (*mockSession) Close(context.Context) error     { return nil }
 
 type capturingThreadStore struct {
-	threadstore.Store
-	thread *threadstore.Thread
-	upsert threadstore.UpsertParams
-	status threadstore.UpdateStatusParams
+	thread *thread.ThreadRecord
+	upsert thread.ThreadUpsert
+	status thread.ThreadStatusUpdate
 }
 
-func (s *capturingThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *capturingThreadStore) GetByThreadID(_ context.Context, threadID string) (*thread.ThreadRecord, error) {
 	if s.thread == nil || (s.thread.ThreadID != "" && s.thread.ThreadID != threadID) {
 		return nil, platformdb.ErrNotFound
 	}
@@ -88,28 +85,49 @@ func (s *capturingThreadStore) GetByThreadID(_ context.Context, threadID string)
 	return &thread, nil
 }
 
-func (*capturingThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
+func (*capturingThreadStore) SavePromptSnapshot(context.Context, string, thread.PromptSnapshotRecord) error {
 	return nil
 }
-func (s *capturingThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
+func (s *capturingThreadStore) Upsert(_ context.Context, params thread.ThreadUpsert) error {
 	s.upsert = params
-	s.thread = &threadstore.Thread{ThreadID: params.ThreadID, AgentID: params.ThreadID, Prompt: params.Prompt, Model: params.Model, Cwd: params.Cwd, Status: params.Status, CreatedAt: params.CreatedAt, UpdatedAt: params.UpdatedAt}
+	s.thread = &thread.ThreadRecord{ThreadID: params.ThreadID, AgentID: params.ThreadID, Prompt: params.Prompt, Model: params.Model, Cwd: params.Cwd, Status: params.Status, CreatedAt: params.CreatedAt, UpdatedAt: params.UpdatedAt}
 	return nil
 }
-func (s *capturingThreadStore) UpdateStatus(_ context.Context, params threadstore.UpdateStatusParams) error {
+func (s *capturingThreadStore) UpdateStatus(_ context.Context, params thread.ThreadStatusUpdate) error {
 	s.status = params
 	return nil
 }
 func (*capturingThreadStore) CountChildren(context.Context, string) (int64, error) { return 0, nil }
 func (*capturingThreadStore) Exists(context.Context, string) (bool, error)         { return false, nil }
 
-type capturingBindingStore struct {
-	bindingstore.Store
-	binding *bindingstore.Binding
-	upsert  bindingstore.UpsertParams
+func (s *capturingThreadStore) ListAll(context.Context) ([]thread.ThreadRecord, error) {
+	if s.thread == nil {
+		return nil, nil
+	}
+	return []thread.ThreadRecord{*s.thread}, nil
 }
 
-func (s *capturingBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s *capturingThreadStore) ListConfigsByIDs(context.Context, []string) ([]thread.ThreadRecord, error) {
+	return s.ListAll(context.Background())
+}
+
+func (*capturingThreadStore) LoadPromptSnapshot(context.Context, string) (*thread.PromptSnapshotRecord, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (s *capturingThreadStore) DeleteByThreadID(_ context.Context, threadID string) error {
+	if s.thread != nil && s.thread.ThreadID == threadID {
+		s.thread = nil
+	}
+	return nil
+}
+
+type capturingBindingStore struct {
+	binding *thread.BindingRecord
+	upsert  thread.BindingUpsert
+}
+
+func (s *capturingBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*thread.BindingRecord, error) {
 	if s.binding == nil || s.binding.Provider != provider || s.binding.ProviderThreadID != providerThreadID {
 		return nil, platformdb.ErrNotFound
 	}
@@ -117,12 +135,12 @@ func (s *capturingBindingStore) GetByProviderThread(_ context.Context, provider,
 	return &binding, nil
 }
 
-func (s *capturingBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
+func (s *capturingBindingStore) Upsert(_ context.Context, params thread.BindingUpsert) error {
 	s.upsert = params
 	// fixture 必须与 production sqlc Upsert 字段对齐，防止 verifyThreadBinding
 	// 因漏写 codex_home / instance_key / agent_type / agent_memory_scope 等
 	// optional 字段在未来 StartRequest 注入对应 Config 时炸（B-4.7 latent fix）
-	s.binding = &bindingstore.Binding{
+	s.binding = &thread.BindingRecord{
 		AgentID:            params.AgentID,
 		Provider:           params.Provider,
 		ProviderThreadID:   params.ProviderThreadID,
@@ -142,7 +160,7 @@ func (s *capturingBindingStore) Upsert(_ context.Context, params bindingstore.Up
 	return nil
 }
 
-func (s *capturingBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+func (s *capturingBindingStore) UpdateSessionUUID(_ context.Context, params thread.BindingSessionUUIDUpdate) error {
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.SessionUUID = params.SessionUUID
 		if s.binding.ProviderThreadID == "" || s.binding.ProviderThreadID == s.binding.AgentID {
@@ -152,31 +170,48 @@ func (s *capturingBindingStore) UpdateSessionUUID(_ context.Context, params bind
 	}
 	return nil
 }
-func (s *capturingBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+func (s *capturingBindingStore) UpdateProviderThreadID(_ context.Context, params thread.BindingProviderThreadIDUpdate) error {
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.ProviderThreadID = params.ProviderThreadID
 		s.binding.UpdatedAt = params.UpdatedAt
 	}
 	return nil
 }
-func (s *capturingBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *capturingBindingStore) GetByAgentID(_ context.Context, agentID string) (*thread.BindingRecord, error) {
 	if s.binding == nil || (agentID != "" && s.binding.AgentID != agentID) {
 		return nil, platformdb.ErrNotFound
 	}
 	binding := *s.binding
 	return &binding, nil
 }
-func (s *capturingBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+func (s *capturingBindingStore) ListAgentThreadBindings(context.Context) ([]thread.BindingRecord, error) {
 	if s.binding == nil {
 		return nil, nil
 	}
-	return []bindingstore.Binding{*s.binding}, nil
+	return []thread.BindingRecord{*s.binding}, nil
 }
-func (s *capturingBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
-	if s.binding == nil {
-		return "", platformdb.ErrNotFound
+
+func (s *capturingBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
+	if s.binding != nil && s.binding.AgentID == agentID {
+		s.binding = nil
 	}
-	return s.binding.CodexThreadID, nil
+	return nil
+}
+
+func (s *capturingBindingStore) SetArchived(_ context.Context, params thread.BindingArchiveUpdate) error {
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.Archived = params.Archived
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
+	return nil
+}
+
+func (s *capturingBindingStore) UpdateAgentCwd(_ context.Context, params thread.BindingCWDUpdate) error {
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.Cwd = params.Cwd
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
+	return nil
 }
 
 type capturingOrchestration struct{ launchReq thread.LaunchAgentRequest }

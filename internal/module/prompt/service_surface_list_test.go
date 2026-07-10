@@ -642,7 +642,7 @@ func writePromptJSON(t *testing.T, server *platformrpc.Server, raw string) {
 func registeredThreadPromptProviders(t *testing.T, store promptstore.Store) map[string]contract.DynamicSectionProvider {
 	t.Helper()
 	reg := &captureDynamicProviders{items: map[string]contract.DynamicSectionProvider{}}
-	require.NoError(t, threadprompt.RegisterProviders(reg, threadprompt.NewRuntimeCatalog(store, nil)))
+	require.NoError(t, threadprompt.RegisterProviders(reg, threadprompt.NewRuntimeCatalog(adaptPromptStoreForThreadPromptTest(store), nil)))
 	return reg.items
 }
 

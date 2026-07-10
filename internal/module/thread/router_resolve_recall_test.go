@@ -7,19 +7,17 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestResolveRoutedPrompt_RecallOnlySectionsDoNotLaunchAsDefaultPrompt(t *testing.T) {
 	t.Parallel()
 
-	tpl := sqlTemplate(defaultPromptKey, "main", "default body", []string{"scope.cwd:/repo/a"})
+	tpl := sqlTemplate(defaultPromptKey, "main", "default body", []string{"scope.cwd:/repo/a", "intent:recall"})
 	tpl.ID = 91
-	s := newServiceWithRouter(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{tpl},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+	s := newServiceWithRouter(&fakePromptCatalog{
+		templates: []PromptTemplate{tpl},
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			91: {
 				{TemplateID: 91, SectionKey: "recall_sqlc", Region: "dynamic", Body: "recall body", TriggerType: "recall", Enabled: true},
 			},
@@ -48,7 +46,7 @@ func TestResolveRoutedPrompt_BuiltinRecallSectionsDoNotEnterBaseInstructions(t *
 	if err != nil {
 		t.Fatalf("NewDefaultRegistry() error = %v", err)
 	}
-	catalog := threadprompt.NewRuntimeCatalog(nil, reg)
+	catalog := newBuiltinPromptCatalogForTest(reg)
 	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
 	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/general-zh", Prompt: "hello"}
 	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
@@ -105,7 +103,6 @@ func TestResolveRoutedPrompt_MainDefaultOrchestratorSectionsGateIndependently(t 
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			req := resolveBuiltinPromptForTools(t, "main/default", tt.tools)
@@ -203,7 +200,7 @@ func resolveBuiltinPromptForToolsAllowEmpty(t *testing.T, promptKey string, tool
 	if err != nil {
 		t.Fatalf("NewDefaultRegistry() error = %v", err)
 	}
-	catalog := threadprompt.NewRuntimeCatalog(nil, reg)
+	catalog := newBuiltinPromptCatalogForTest(reg)
 	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
 	req := &StartRequest{CWD: "/repo/a", PromptKey: promptKey, Prompt: "hello", EnabledTools: tools}
 	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {

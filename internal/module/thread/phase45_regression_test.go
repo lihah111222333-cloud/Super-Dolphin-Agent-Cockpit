@@ -6,8 +6,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type startSnapshotPromptAssembly struct {
@@ -141,7 +139,7 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 		Version:               contract.PromptAssemblySnapshotVersion,
 		Hash:                  "snapshot-hash",
 	}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
 		Prompt:         "resume name",
@@ -153,7 +151,7 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555561"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -193,7 +191,7 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:         "thread-1",
 		AgentID:          "agent-1",
 		ParentAgentID:    "agent-root",
@@ -208,7 +206,7 @@ func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T)
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555562"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		ParentAgentID:    "agent-root",
 		AgentType:        "worker",

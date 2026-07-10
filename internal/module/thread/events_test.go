@@ -21,7 +21,7 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	defer func() { _ = dispatcher.Close() }()
 
 	bindings := &eventBindingStore{
-		binding:  &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "agent-1", SessionUUID: "fallback-agent-1", RolloutPath: writeExistingProviderHistoryFile(t)},
+		binding:  &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "agent-1", SessionUUID: "fallback-agent-1", RolloutPath: writeExistingProviderHistoryFile(t)},
 		updateCh: make(chan struct{}, 1),
 	}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
@@ -56,7 +56,7 @@ func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testin
 
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	bindings := &eventBindingStore{
-		binding: &bindingstore.Binding{
+		binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "agent-1",
@@ -81,7 +81,7 @@ func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testin
 func TestOnAgentLaunchedSkipsUnchangedSessionUUID(t *testing.T) {
 	t.Parallel()
 
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", SessionUUID: "session-uuid-1"}}
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-1", SessionUUID: "session-uuid-1"}}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 	// 启动再停止 worker，让入队事件在断言前同步 drain 完成。
 	svc.startBusWorkers()
@@ -102,7 +102,7 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 
 	_, worktreeCWD := newPromptGitFixture(t)
 	promptAssembly := &stubPromptAssemblyService{}
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1"}}
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-1"}}
 	svc := NewServiceWithPromptAssembly(silentLogger(), nil, bindings, nil, nil, nil, nil, nil, promptAssembly, nil, nil).(*service)
 	// 启动再停止 worker，让入队事件在断言前同步 drain 完成。
 	svc.startBusWorkers()
@@ -129,7 +129,7 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 func TestOnAgentLaunchedRejectsMismatchedCWDFromExistingBinding(t *testing.T) {
 	t.Parallel()
 
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/repo/stored"}}
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-1", Cwd: "/repo/stored"}}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 	svc.startBusWorkers()
 
@@ -147,7 +147,7 @@ func TestOnAgentLaunchedRejectsMismatchedCWDFromExistingBinding(t *testing.T) {
 	assertBindingCWD(t, bindings.Binding(), "/repo/stored")
 }
 
-func assertSessionUUIDUpdate(t *testing.T, updates []bindingstore.UpdateSessionUUIDParams, wantAgentID, wantUUID string) {
+func assertSessionUUIDUpdate(t *testing.T, updates []BindingSessionUUIDUpdate, wantAgentID, wantUUID string) {
 	t.Helper()
 	if len(updates) != 1 {
 		t.Fatalf("len(sessionUpdates) = %d, want 1", len(updates))
@@ -164,7 +164,7 @@ func assertSessionUUIDUpdate(t *testing.T, updates []bindingstore.UpdateSessionU
 	}
 }
 
-func assertBindingSessionUUID(t *testing.T, got *bindingstore.Binding, want string) {
+func assertBindingSessionUUID(t *testing.T, got *BindingRecord, want string) {
 	t.Helper()
 	if got == nil {
 		t.Fatalf("binding = nil, want SessionUUID %s", want)
@@ -174,7 +174,7 @@ func assertBindingSessionUUID(t *testing.T, got *bindingstore.Binding, want stri
 	}
 }
 
-func assertProviderThreadUpdate(t *testing.T, updates []bindingstore.UpdateProviderThreadIDParams, wantAgentID, wantThreadID string) {
+func assertProviderThreadUpdate(t *testing.T, updates []BindingProviderThreadIDUpdate, wantAgentID, wantThreadID string) {
 	t.Helper()
 	if len(updates) != 1 {
 		t.Fatalf("len(providerUpdates) = %d, want 1", len(updates))
@@ -191,7 +191,7 @@ func assertProviderThreadUpdate(t *testing.T, updates []bindingstore.UpdateProvi
 	}
 }
 
-func assertBindingProviderThreadID(t *testing.T, got *bindingstore.Binding, want string) {
+func assertBindingProviderThreadID(t *testing.T, got *BindingRecord, want string) {
 	t.Helper()
 	if got == nil {
 		t.Fatalf("binding = nil, want ProviderThreadID %s", want)
@@ -201,7 +201,7 @@ func assertBindingProviderThreadID(t *testing.T, got *bindingstore.Binding, want
 	}
 }
 
-func assertCWDUpdate(t *testing.T, updates []bindingstore.UpdateAgentCwdParams, wantAgentID, wantCWD string) {
+func assertCWDUpdate(t *testing.T, updates []BindingCWDUpdate, wantAgentID, wantCWD string) {
 	t.Helper()
 	if len(updates) != 1 {
 		t.Fatalf("cwd updates = %#v, want 1 update", updates)
@@ -218,7 +218,7 @@ func assertCWDUpdate(t *testing.T, updates []bindingstore.UpdateAgentCwdParams, 
 	}
 }
 
-func assertBindingCWD(t *testing.T, got *bindingstore.Binding, want string) {
+func assertBindingCWD(t *testing.T, got *BindingRecord, want string) {
 	t.Helper()
 	if got == nil {
 		t.Fatalf("binding = nil, want Cwd %s", want)
@@ -248,7 +248,7 @@ func cancelThreadSubscriptions(cancels []context.CancelFunc) {
 	}
 }
 
-func waitForProviderThreadUpdates(t *testing.T, bindings *eventBindingStore, want int, d time.Duration) []bindingstore.UpdateProviderThreadIDParams {
+func waitForProviderThreadUpdates(t *testing.T, bindings *eventBindingStore, want int, d time.Duration) []BindingProviderThreadIDUpdate {
 	t.Helper()
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
@@ -266,23 +266,23 @@ type eventBindingStore struct {
 	eventBindingMapNoopStore
 
 	mu              sync.RWMutex
-	binding         *bindingstore.Binding
-	sessionUpdates  []bindingstore.UpdateSessionUUIDParams
-	providerUpdates []bindingstore.UpdateProviderThreadIDParams
-	cwdUpdates      []bindingstore.UpdateAgentCwdParams
+	binding         *BindingRecord
+	sessionUpdates  []BindingSessionUUIDUpdate
+	providerUpdates []BindingProviderThreadIDUpdate
+	cwdUpdates      []BindingCWDUpdate
 	updateCh        chan struct{}
 }
 
 type eventBindingLookupNoopStore struct{}
 
-func (eventBindingLookupNoopStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
+func (eventBindingLookupNoopStore) GetByProviderThread(context.Context, string, string) (*BindingRecord, error) {
 	return nil, errors.New("not found")
 }
-func (eventBindingLookupNoopStore) Upsert(context.Context, bindingstore.UpsertParams) error {
+func (eventBindingLookupNoopStore) Upsert(context.Context, BindingUpsert) error {
 	return nil
 }
 func (eventBindingLookupNoopStore) DeleteByAgentID(context.Context, string) error { return nil }
-func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params BindingSessionUUIDUpdate) error {
 	s.mu.Lock()
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
@@ -298,10 +298,10 @@ func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindings
 	}
 	return nil
 }
-func (eventBindingLookupNoopStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+func (eventBindingLookupNoopStore) SetArchived(context.Context, BindingArchiveUpdate) error {
 	return nil
 }
-func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params BindingProviderThreadIDUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.providerUpdates = append(s.providerUpdates, params)
@@ -310,7 +310,7 @@ func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params bin
 	}
 	return nil
 }
-func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.binding != nil && s.binding.AgentID == agentID {
@@ -323,13 +323,13 @@ func (eventBindingLookupNoopStore) BindAgentThread(context.Context, bindingstore
 	return nil
 }
 func (eventBindingLookupNoopStore) UnbindAgentThread(context.Context, string) error { return nil }
-func (eventBindingLookupNoopStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+func (eventBindingLookupNoopStore) ListAgentThreadBindings(context.Context) ([]BindingRecord, error) {
 	return nil, nil
 }
 func (eventBindingLookupNoopStore) GetThreadByAgent(context.Context, string) (string, error) {
 	return "", errors.New("not found")
 }
-func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params bindingstore.UpdateAgentCwdParams) error {
+func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params BindingCWDUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cwdUpdates = append(s.cwdUpdates, params)
@@ -351,31 +351,31 @@ func (eventBindingMapNoopStore) ListCwdMap(context.Context) (map[string]string, 
 	return nil, nil
 }
 
-func (s *eventBindingStore) SessionUpdates() []bindingstore.UpdateSessionUUIDParams {
+func (s *eventBindingStore) SessionUpdates() []BindingSessionUUIDUpdate {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]bindingstore.UpdateSessionUUIDParams, len(s.sessionUpdates))
+	out := make([]BindingSessionUUIDUpdate, len(s.sessionUpdates))
 	copy(out, s.sessionUpdates)
 	return out
 }
 
-func (s *eventBindingStore) ProviderThreadUpdates() []bindingstore.UpdateProviderThreadIDParams {
+func (s *eventBindingStore) ProviderThreadUpdates() []BindingProviderThreadIDUpdate {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]bindingstore.UpdateProviderThreadIDParams, len(s.providerUpdates))
+	out := make([]BindingProviderThreadIDUpdate, len(s.providerUpdates))
 	copy(out, s.providerUpdates)
 	return out
 }
 
-func (s *eventBindingStore) CWDUpdates() []bindingstore.UpdateAgentCwdParams {
+func (s *eventBindingStore) CWDUpdates() []BindingCWDUpdate {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]bindingstore.UpdateAgentCwdParams, len(s.cwdUpdates))
+	out := make([]BindingCWDUpdate, len(s.cwdUpdates))
 	copy(out, s.cwdUpdates)
 	return out
 }
 
-func (s *eventBindingStore) Binding() *bindingstore.Binding {
+func (s *eventBindingStore) Binding() *BindingRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.binding == nil {
@@ -385,7 +385,7 @@ func (s *eventBindingStore) Binding() *bindingstore.Binding {
 	return &binding
 }
 
-func bindingProviderThreadID(binding *bindingstore.Binding) string {
+func bindingProviderThreadID(binding *BindingRecord) string {
 	if binding == nil {
 		return ""
 	}

@@ -10,8 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestServiceStartRequiresOrchestration(t *testing.T) {
@@ -131,7 +129,7 @@ func TestResolveStablePromptSnapshotPropagatesStoreError(t *testing.T) {
 func TestResolveStablePromptSnapshotFailsWhenThreadMetaMissing(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{threadStore: &stubThreadStore{threadByID: map[string]*threadstore.Thread{}}}
+	svc := &service{threadStore: &stubThreadStore{threadByID: map[string]*ThreadRecord{}}}
 
 	_, err := svc.resolveStablePromptSnapshot(
 		context.Background(),
@@ -149,7 +147,7 @@ func TestUnarchivePendingLaunchDoesNotRequireBinding(t *testing.T) {
 
 	bindingStore := &stubThreadBindingStore{}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:      "thread-pending",
 			Status:        statusArchived,
 			PendingLaunch: true,
@@ -226,7 +224,7 @@ type snapshotRequiresThreadRowStore struct {
 	wantAgentMemoryScope string
 }
 
-func (s *snapshotRequiresThreadRowStore) SavePromptSnapshot(ctx context.Context, threadID string, snapshot threadstore.PromptSnapshot) error {
+func (s *snapshotRequiresThreadRowStore) SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshotRecord) error {
 	if s.thread == nil || s.thread.ThreadID != threadID {
 		return fmt.Errorf("new thread row %q does not exist before snapshot save", threadID)
 	}
@@ -245,8 +243,8 @@ func TestForkFailsWhenThreadMetaMissing(t *testing.T) {
 	originalSession := &stubSession{threadID: providerThreadID, forkResult: dto.ForkResult{NewThreadID: "thread-fork"}}
 	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{AgentID: "thread-parent", Provider: "claude", ProviderThreadID: providerThreadID, SessionUUID: providerThreadID, CodexThreadID: "thread-parent", Cwd: "/repo"}}
-	threads := &stubThreadStore{threadByID: map[string]*threadstore.Thread{}, promptSnapshot: &threadstore.PromptSnapshot{
+	bindings := &stubBindingStore{binding: &BindingRecord{AgentID: "thread-parent", Provider: "claude", ProviderThreadID: providerThreadID, SessionUUID: providerThreadID, CodexThreadID: "thread-parent", Cwd: "/repo"}}
+	threads := &stubThreadStore{threadByID: map[string]*ThreadRecord{}, promptSnapshot: &PromptSnapshotRecord{
 		DisplayName:           "Forked Thread",
 		BaseInstructions:      "stored base",
 		DeveloperInstructions: "stored dev",
@@ -272,7 +270,7 @@ func TestForkFailsWhenThreadMetaMissing(t *testing.T) {
 func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-resume",
 		AgentID:   "agent-resume",
 		Prompt:    "resume name",
@@ -282,7 +280,7 @@ func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
 		Status:    statusCreated,
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555581"
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-resume",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -374,7 +372,7 @@ func TestRecoverFailsWhenThreadMetaLookupErrors(t *testing.T) {
 
 	storeErr := errors.New("thread metadata store unavailable")
 	threads := &stubThreadStore{getErr: storeErr}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
@@ -397,7 +395,7 @@ func TestRecoverFailsWhenThreadMetaLookupErrors(t *testing.T) {
 func TestRecoverUsesPersistedSubagentIdentity(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:         "thread-parent",
 		AgentID:          "agent-parent",
 		ParentAgentID:    "agent-root-from-thread",
@@ -408,7 +406,7 @@ func TestRecoverUsesPersistedSubagentIdentity(t *testing.T) {
 		Cwd:              "/repo",
 		CreatedAt:        123,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
@@ -621,7 +619,7 @@ func TestLegacyThreadUsesExplicitSnapshotMigrationGate(t *testing.T) {
 
 	run := func(t *testing.T, config []byte, wantErr bool) {
 		t.Helper()
-		threads := &stubThreadStore{thread: &threadstore.Thread{
+		threads := &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:         "thread-legacy",
 			AgentID:          "agent-legacy",
 			ParentAgentID:    "agent-root",
@@ -635,7 +633,7 @@ func TestLegacyThreadUsesExplicitSnapshotMigrationGate(t *testing.T) {
 			Status:           statusCreated,
 		}}
 		const providerThreadID = "11111111-2222-3333-4444-555555555582"
-		bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		bindings := &stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-legacy",
 			ParentAgentID:    "agent-root",
 			AgentType:        "worker",
@@ -786,7 +784,7 @@ func TestPromptSnapshotHashCoversSectionSnapshot(t *testing.T) {
 	}
 }
 
-func validThreadPromptSnapshotForTest(displayName string) threadstore.PromptSnapshot {
+func validThreadPromptSnapshotForTest(displayName string) PromptSnapshotRecord {
 	assembly := ensureStartAssemblySnapshot(contract.StartAssembly{
 		DisplayName:           displayName,
 		BaseInstructions:      "stored base",

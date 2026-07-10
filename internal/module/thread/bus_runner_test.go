@@ -7,7 +7,6 @@ import (
 	"time"
 
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/kelindar/event"
 )
 
@@ -45,7 +44,7 @@ func TestThreadSubscribersRegisterCancelAndDeliver(t *testing.T) {
 
 	dispatcher := platformbus.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1"}}
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-1"}}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 	spec := NewThreadSubscribers(svc).Spec
 
@@ -93,7 +92,7 @@ func registerThreadGoroutineCleanup(t *testing.T, done <-chan struct{}, label st
 func TestThreadBusWorkersAsRunnerRunStopsWorkers(t *testing.T) {
 	t.Parallel()
 
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1"}}
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-1"}}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 	runner := threadBusWorkersAsRunner(svc)
 	ctx, cancel := context.WithCancel(context.Background())

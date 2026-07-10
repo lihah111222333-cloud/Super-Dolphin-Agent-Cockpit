@@ -9,8 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestWorktreeResumeInvalidationClearsCache(t *testing.T) {
@@ -75,7 +73,7 @@ func assertMemoryPromptBuild(t *testing.T, gotCalls int, instructions string, wa
 func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssembly promptpkg.Service) *service {
 	t.Helper()
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f705"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-resume",
 		AgentID:        "agent-resume",
 		Prompt:         "resume name",
@@ -85,7 +83,7 @@ func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssemb
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",

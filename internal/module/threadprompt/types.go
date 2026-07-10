@@ -9,9 +9,9 @@ import (
 )
 
 // PromptStore 是 threadprompt 运行时 catalog 需要的最小 prompt 存储端口。
-// 具体 promptstore 只能在 module.go 适配成本接口，业务文件不得直接依赖 store DTO。
+// 具体 Store 只能由组合根 adapter 转换成本接口，业务文件不得直接依赖 Store DTO。
 type PromptStore interface {
-	List(ctx context.Context, filter promptListFilter) ([]PromptTemplate, error)
+	List(ctx context.Context, filter PromptListFilter) ([]PromptTemplate, error)
 	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
 	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
@@ -28,6 +28,7 @@ type RuntimePromptCatalog interface {
 	ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error)
 	ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error)
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
+	CanInsertPromptVersion() bool
 }
 
 // RuntimeListFilter 描述运行时 prompt catalog 的列表过滤条件。
@@ -38,7 +39,8 @@ type RuntimeListFilter struct {
 	Limit    int32
 }
 
-type promptListFilter struct {
+// PromptListFilter 描述 threadprompt 从持久化端口读取模板的过滤条件。
+type PromptListFilter struct {
 	AgentKey string
 	Keyword  string
 	CWD      string

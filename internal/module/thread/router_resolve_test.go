@@ -9,28 +9,25 @@ import (
 	"time"
 
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-// fakePromptStore is the minimum surface of promptstore.Store that
-// resolveRoutedPrompt exercises. Other methods panic on use so an incorrect
-// code path fails loudly.
-type fakePromptStore struct {
-	promptstore.Store
-	templates            []promptstore.PromptTemplate
+// fakePromptCatalog 是路由测试使用的 Thread-owned catalog fake。
+// 它只实现路由行为依赖的窄端口，不跨层复刻 Store 或 threadprompt adapter。
+type fakePromptCatalog struct {
+	templates            []PromptTemplate
 	listErr              error
-	listFilters          []promptstore.ListFilter
-	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection
-	recallSections       []promptstore.PromptTemplateSection
-	defaultRuleSections  []promptstore.PromptTemplateSection
+	listFilters          []PromptListFilter
+	sectionsByTemplateID map[int64][]PromptTemplateSection
+	recallSections       []PromptTemplateSection
+	defaultRuleSections  []PromptTemplateSection
 	recallErr            error
 	nextVersionID        int64
 	insertErr            error
-	lastInsertVersion    promptstore.PromptTemplateVersion
+	lastInsertVersion    PromptTemplateVersion
+	readOnly             bool
 }
 
-func (f *fakePromptStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+func (f *fakePromptCatalog) ListTemplates(_ context.Context, filter PromptListFilter) ([]PromptTemplate, error) {
 	f.listFilters = append(f.listFilters, filter)
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -38,7 +35,10 @@ func (f *fakePromptStore) List(_ context.Context, filter promptstore.ListFilter)
 	return filterFakePromptTemplatesByCWD(f.templates, filter.CWD), nil
 }
 
-func (f *fakePromptStore) InsertVersion(_ context.Context, v promptstore.PromptTemplateVersion) (int64, error) {
+func (f *fakePromptCatalog) InsertVersion(_ context.Context, v PromptTemplateVersion) (int64, error) {
+	if f.readOnly {
+		return 0, errors.New("prompt catalog is read-only")
+	}
 	f.lastInsertVersion = v
 	if f.insertErr != nil {
 		return 0, f.insertErr
@@ -47,45 +47,50 @@ func (f *fakePromptStore) InsertVersion(_ context.Context, v promptstore.PromptT
 	return f.nextVersionID, nil
 }
 
-func (f *fakePromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
-	return append([]promptstore.PromptTemplateSection(nil), f.sectionsByTemplateID[templateID]...), nil
+func (f *fakePromptCatalog) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]PromptTemplateSection, error) {
+	return append([]PromptTemplateSection(nil), f.sectionsByTemplateID[templateID]...), nil
 }
-func (f *fakePromptStore) ListRecallSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptCatalog) ListRecallSections(_ context.Context, cwd string) ([]PromptTemplateSection, error) {
 	if f.recallErr != nil {
 		return nil, f.recallErr
 	}
 	return filterFakePromptSectionsByCWD(f.recallSections, cwd), nil
 }
-func (f *fakePromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptCatalog) ListDefaultRuleSections(_ context.Context, cwd string) ([]PromptTemplateSection, error) {
 	return filterFakePromptSectionsByCWD(f.defaultRuleSections, cwd), nil
 }
-func filterFakePromptSectionsByCWD(sections []promptstore.PromptTemplateSection, cwd string) []promptstore.PromptTemplateSection {
+
+func (f *fakePromptCatalog) CanInsertPromptVersion() bool {
+	return !f.readOnly
+}
+
+func filterFakePromptSectionsByCWD(sections []PromptTemplateSection, cwd string) []PromptTemplateSection {
 	if len(sections) == 0 {
 		return nil
 	}
-	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
+	out := make([]PromptTemplateSection, 0, len(sections))
 	for _, section := range sections {
 		if !section.Enabled {
 			continue
 		}
-		if promptTemplateVisibleInCWD(promptstore.TemplateTags(section.TemplateTags), cwd) {
+		if promptTemplateVisibleInCWD(runtimePromptTemplateTags(section.TemplateTags), cwd) {
 			out = append(out, section)
 		}
 	}
 	return out
 }
 
-func newServiceWithRouter(store promptstore.Store) *service {
+func newServiceWithRouter(catalog PromptCatalog) *service {
 	return &service{
-		promptCatalog:  threadprompt.NewRuntimeCatalog(store, nil),
+		promptCatalog:  catalog,
 		matchWhenEval:  promptpkg.EvaluateMatchWhen,
 		enableWhenEval: promptpkg.EvaluateEnableWhen,
 	}
 }
 
-func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.PromptTemplate {
+func sqlTemplate(promptKey, agentKey, text string, tags []string) PromptTemplate {
 	b, _ := json.Marshal(tags)
-	return promptstore.PromptTemplate{
+	return PromptTemplate{
 		PromptKey:  promptKey,
 		AgentKey:   agentKey,
 		PromptText: text,
@@ -95,99 +100,10 @@ func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.Pr
 	}
 }
 
-func runtimePromptCatalogAdapterFixture() (*fakePromptStore, runtimePromptCatalog) {
-	tpl := sqlTemplate("main/local", "main", "body", []string{"scope.global"})
-	tpl.ID = 7
-	tpl.Title = "Main"
-	tpl.ToolName = "codex"
-	tpl.WhenToUse = "when needed"
-	tpl.Variables = json.RawMessage(`{"name":"value"}`)
-	tpl.MatchWhen = json.RawMessage(`{"language":"go"}`)
-	tpl.Priority = 12
-	tpl.Description = "desc"
-	tpl.CreatedBy = "seed"
-	tpl.UpdatedBy = "operator"
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{tpl},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
-			7: {
-				{TemplateID: 7, SectionKey: "identity", Body: "identity", EnableWhen: json.RawMessage(`{"provider":"codex"}`), Enabled: true},
-			},
-		},
-	}
-	catalog := (&service{promptCatalog: threadprompt.NewRuntimeCatalog(store, nil)}).runtimePromptCatalog()
-	return store, catalog
-}
-
-func TestRuntimePromptCatalogAdapterCopiesTemplateDTO(t *testing.T) {
-	t.Parallel()
-
-	store, catalog := runtimePromptCatalogAdapterFixture()
-	rows, err := catalog.ListTemplates(context.Background(), runtimePromptListFilter{CWD: "/repo/a", Limit: 200})
-	if err != nil {
-		t.Fatalf("ListTemplates() error = %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("ListTemplates() len = %d, want 1", len(rows))
-	}
-	got := rows[0]
-	if got.ID != 7 || got.PromptKey != "main/local" || got.AgentKey != "main" || got.Priority != 12 {
-		t.Fatalf("runtime template DTO = %+v, want copied local template", got)
-	}
-	got.Tags[0] = 'X'
-	if string(store.templates[0].Tags) == string(got.Tags) {
-		t.Fatal("runtime template tags share backing bytes with store DTO")
-	}
-}
-
-func TestRuntimePromptCatalogAdapterCopiesSectionDTO(t *testing.T) {
-	t.Parallel()
-
-	store, catalog := runtimePromptCatalogAdapterFixture()
-	sections, err := catalog.ListSectionsByTemplateID(context.Background(), 7)
-	if err != nil {
-		t.Fatalf("ListSectionsByTemplateID() error = %v", err)
-	}
-	if len(sections) != 1 || sections[0].SectionKey != "identity" || string(sections[0].EnableWhen) != `{"provider":"codex"}` {
-		t.Fatalf("runtime sections = %#v, want copied section DTO", sections)
-	}
-	sections[0].EnableWhen[0] = 'X'
-	if string(store.sectionsByTemplateID[7][0].EnableWhen) == string(sections[0].EnableWhen) {
-		t.Fatal("runtime section enable_when shares backing bytes with store DTO")
-	}
-}
-
-func TestRuntimePromptCatalogAdapterCopiesVersionDTO(t *testing.T) {
-	t.Parallel()
-
-	store, catalog := runtimePromptCatalogAdapterFixture()
-	versionID, err := catalog.InsertVersion(context.Background(), runtimePromptTemplateVersion{
-		PromptKey:  "main/local",
-		Title:      "Main",
-		AgentKey:   "main",
-		ToolName:   "codex",
-		PromptText: "snapshot body",
-		Variables:  json.RawMessage(`{"v":1}`),
-		Tags:       json.RawMessage(`["scope.global"]`),
-		Enabled:    true,
-		CreatedBy:  "seed",
-		UpdatedBy:  "operator",
-	})
-	if err != nil {
-		t.Fatalf("InsertVersion() error = %v", err)
-	}
-	if versionID == 0 {
-		t.Fatal("InsertVersion() id = 0, want generated id")
-	}
-	if store.lastInsertVersion.PromptKey != "main/local" || store.lastInsertVersion.PromptText != "snapshot body" {
-		t.Fatalf("InsertVersion() stored version = %+v, want copied local DTO", store.lastInsertVersion)
-	}
-}
-
 func TestConvertStoreSectionsToBlocksSkipsRecallSections(t *testing.T) {
 	t.Parallel()
 
-	blocks := convertRuntimeSectionsToBlocks([]runtimePromptTemplateSection{
+	blocks := convertRuntimeSectionsToBlocks([]PromptTemplateSection{
 		{SectionKey: "identity", Region: "static", Body: "base identity", TriggerType: "always", Enabled: true},
 		{SectionKey: "recall_sqlc", Region: "dynamic", Body: "recall body", TriggerType: " recall ", Enabled: true},
 		{SectionKey: "workflow", Region: "dynamic", Body: "workflow body", Enabled: true},
@@ -207,8 +123,8 @@ func TestConvertStoreSectionsToBlocksSkipsRecallSections(t *testing.T) {
 // `main/default` persona and stamps req.AgentKey with that row's agent_key.
 func TestResolveRoutedPrompt_EmptyAgentKeyFallsBackToDefaultPromptKey(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
@@ -238,8 +154,8 @@ func TestResolveRoutedPrompt_EmptyAgentKeyFallsBackToDefaultPromptKey(t *testing
 // let the provider CLI use its bundled system prompt.
 func TestResolveRoutedPrompt_EmptyAgentKeyAndNoDefaultLeavesRequestUntouched(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
 		},
 	}
@@ -255,8 +171,8 @@ func TestResolveRoutedPrompt_EmptyAgentKeyAndNoDefaultLeavesRequestUntouched(t *
 
 func TestResolveRoutedPrompt_ExplicitBaseInstructionsShortCircuits(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "from db", []string{"sql"}),
 		},
 	}
@@ -278,8 +194,8 @@ func TestResolveRoutedPrompt_ExplicitBaseInstructionsShortCircuits(t *testing.T)
 
 func TestResolveRoutedPrompt_ExplicitAgentKeyBypassesRouter(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "db body", []string{"sql"}),
 			sqlTemplate("main/ui", "ui_expert", "ui body", []string{"react"}),
 		},
@@ -309,8 +225,8 @@ func TestResolveRoutedPrompt_ExplicitAgentKeyBypassesRouter(t *testing.T) {
 // none. Upstream CLI then uses its bundled prompt.
 func TestResolveRoutedPrompt_UnknownExplicitAgentKeyLeavesRequestUntouched(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
@@ -330,8 +246,8 @@ func TestResolveRoutedPrompt_UnknownExplicitAgentKeyLeavesRequestUntouched(t *te
 
 func TestResolveRoutedPrompt_InsertVersionFailFailsFastAfterRecordingAgentKey(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "db body", nil),
 		},
 		insertErr: errors.New("simulated"),
@@ -368,7 +284,7 @@ func TestResolveRoutedPrompt_NoStoreIsNoop(t *testing.T) {
 func TestResolveRoutedPrompt_AgentKeyMatchIsCaseAndWhitespaceInsensitive(t *testing.T) {
 	t.Parallel()
 	tpl := sqlTemplate("main/orchestrator", "  Orchestrator ", "you coordinate", nil)
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{tpl}}
+	store := &fakePromptCatalog{templates: []PromptTemplate{tpl}}
 	s := newServiceWithRouter(store)
 
 	req := &StartRequest{CWD: "/repo/a", AgentKey: "orchestrator"}
@@ -388,8 +304,8 @@ func TestResolveRoutedPrompt_AgentKeyMatchIsCaseAndWhitespaceInsensitive(t *test
 // the UI / observability sees a concrete identity.
 func TestResolveRoutedPrompt_ExplicitPromptKeyWinsOverAgentKey(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
 			sqlTemplate("main/launch-fav", "main", "fav launch body", nil),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
@@ -419,8 +335,8 @@ func TestResolveRoutedPrompt_ExplicitPromptKeyWinsOverAgentKey(t *testing.T) {
 // semantics — refuse to silently substitute the default persona.
 func TestResolveRoutedPrompt_UnknownPromptKeyDoesNotFallback(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -446,8 +362,8 @@ func TestResolveRoutedPrompt_DisabledPromptKeyDoesNotFallback(t *testing.T) {
 	t.Parallel()
 	tpl := sqlTemplate("main/launch-fav", "main", "fav body", nil)
 	tpl.Enabled = false
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			tpl,
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
@@ -465,7 +381,7 @@ func TestResolveRoutedPrompt_DisabledTemplateSkipped(t *testing.T) {
 	t.Parallel()
 	tpl := sqlTemplate("main/sql", "sql_expert", "db body", nil)
 	tpl.Enabled = false
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{tpl}}
+	store := &fakePromptCatalog{templates: []PromptTemplate{tpl}}
 	s := newServiceWithRouter(store)
 
 	req := &StartRequest{CWD: "/repo/a", AgentKey: "sql_expert"}
@@ -482,8 +398,8 @@ func TestResolveRoutedPrompt_DisabledTemplateSkipped(t *testing.T) {
 // next thread launch.
 func TestResolveRoutedPrompt_UnknownPromptKeyMarksStale(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -510,8 +426,8 @@ func TestResolveRoutedPrompt_DisabledPromptKeyMarksStale(t *testing.T) {
 	t.Parallel()
 	tpl := sqlTemplate("main/launch-fav", "main", "fav body", nil)
 	tpl.Enabled = false
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			tpl,
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
@@ -531,8 +447,8 @@ func TestResolveRoutedPrompt_DisabledPromptKeyMarksStale(t *testing.T) {
 // UI would clear pref on every successful launch.
 func TestResolveRoutedPrompt_KnownPromptKeyKeepsStaleFalse(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/launch-fav", "main", "fav body", nil),
 		},
 	}
@@ -551,8 +467,8 @@ func TestResolveRoutedPrompt_KnownPromptKeyKeepsStaleFalse(t *testing.T) {
 // which must not flip the stale flag (there is nothing to invalidate).
 func TestResolveRoutedPrompt_EmptyPromptKeyKeepsStaleFalse(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}

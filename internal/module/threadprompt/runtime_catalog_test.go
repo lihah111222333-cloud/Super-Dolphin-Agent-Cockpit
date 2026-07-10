@@ -2,12 +2,12 @@ package threadprompt
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestRuntimeCatalogListsBuiltinAndUserExperts(t *testing.T) {
@@ -27,7 +27,7 @@ func TestRuntimeCatalogListsBuiltinAndUserExperts(t *testing.T) {
 			},
 		},
 	}
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{
+	store := &fakePromptStore{templates: []PromptTemplate{
 		{
 			ID:        7,
 			PromptKey: "main/expert/user-sql",
@@ -41,7 +41,7 @@ func TestRuntimeCatalogListsBuiltinAndUserExperts(t *testing.T) {
 		},
 	}}
 
-	catalog := newRuntimeCatalogForStore(store, builtin)
+	catalog := newRuntimeCatalog(store, builtin)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{
 		AgentKey: "main",
 		CWD:      "/repo/a",
@@ -61,7 +61,7 @@ func TestRuntimeCatalogListsBuiltinAndUserExperts(t *testing.T) {
 	if got.ID >= 0 || got.CreatedBy != "builtin.registry" || got.UpdatedBy != "builtin.registry" {
 		t.Fatalf("builtin template metadata = %#v, want negative ID and builtin.registry authors", *got)
 	}
-	tags := promptstore.TemplateTags(got.Tags)
+	tags := templateTags(got.Tags)
 	for _, want := range []string{"intent:expert", "review", "builtin:system", "scope.global"} {
 		if !runtimeCatalogStringSliceContains(tags, want) {
 			t.Fatalf("builtin tags = %#v, want %q", tags, want)
@@ -72,7 +72,7 @@ func TestRuntimeCatalogListsBuiltinAndUserExperts(t *testing.T) {
 func TestRuntimeCatalogZeroLimitStillListsStoreTemplates(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{
+	store := &fakePromptStore{templates: []PromptTemplate{
 		{
 			ID:        7,
 			PromptKey: "main/expert/user-sql",
@@ -86,7 +86,7 @@ func TestRuntimeCatalogZeroLimitStillListsStoreTemplates(t *testing.T) {
 		},
 	}}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{
 		AgentKey: "main",
 		CWD:      "/repo/a",
@@ -108,14 +108,14 @@ func TestRuntimeCatalogRegistryWinsOverHistoricalSystemSeedSameKey(t *testing.T)
 	builtin := builtinReviewRegistryForTest()
 	seedTemplate := seedReviewPromptTemplateForTest()
 	seedStore := &fakePromptStore{
-		templates:    []promptstore.PromptTemplate{seedTemplate},
-		getTemplates: map[string]promptstore.PromptTemplate{runtimeCatalogReviewPromptKey: seedTemplate},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+		templates:    []PromptTemplate{seedTemplate},
+		getTemplates: map[string]PromptTemplate{runtimeCatalogReviewPromptKey: seedTemplate},
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			42: {{ID: 99, TemplateID: 42, SectionKey: "identity", Body: "seed section", Enabled: true}},
 		},
 	}
 
-	catalog := newRuntimeCatalogForStore(seedStore, builtin)
+	catalog := newRuntimeCatalog(seedStore, builtin)
 	templates := requireRuntimeCatalogList(t, catalog)
 	requireRuntimePromptKeyCount(t, templates, runtimeCatalogReviewPromptKey, 1)
 	requireRuntimeTemplateText(t, templates, runtimeCatalogReviewPromptKey, -11, "builtin prompt text")
@@ -133,11 +133,11 @@ func TestRuntimeCatalogRegistryWinsOverHistoricalSystemSeedBeforeFilters(t *test
 	seedTemplate.PromptText = "legacy-only-keyword"
 	seedTemplate.WhenToUse = "legacy-only-keyword"
 	store := &fakePromptStore{
-		templates:    []promptstore.PromptTemplate{seedTemplate},
-		getTemplates: map[string]promptstore.PromptTemplate{runtimeCatalogReviewPromptKey: seedTemplate},
+		templates:    []PromptTemplate{seedTemplate},
+		getTemplates: map[string]PromptTemplate{runtimeCatalogReviewPromptKey: seedTemplate},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, builtinReviewRegistryForTest())
+	catalog := newRuntimeCatalog(store, builtinReviewRegistryForTest())
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{
 		AgentKey: "main",
 		CWD:      "/repo/a",
@@ -156,10 +156,10 @@ func TestRuntimeCatalogBuiltinKeyHidesUserSameKeyRows(t *testing.T) {
 
 	userTemplate := userReviewPromptTemplateForTest()
 	userStore := &fakePromptStore{
-		templates:    []promptstore.PromptTemplate{userTemplate},
-		getTemplates: map[string]promptstore.PromptTemplate{runtimeCatalogReviewPromptKey: userTemplate},
+		templates:    []PromptTemplate{userTemplate},
+		getTemplates: map[string]PromptTemplate{runtimeCatalogReviewPromptKey: userTemplate},
 	}
-	userCatalog := newRuntimeCatalogForStore(userStore, builtinReviewRegistryForTest())
+	userCatalog := newRuntimeCatalog(userStore, builtinReviewRegistryForTest())
 	userTemplates, err := userCatalog.ListTemplates(context.Background(), RuntimeListFilter{AgentKey: "main", CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() user row error = %v", err)
@@ -185,11 +185,11 @@ func TestRuntimeCatalogBuiltinKeyHidesManuallyEditedSystemSeedSameKey(t *testing
 	editedSeed.ManuallyEdited = true
 	editedSeed.UpdatedBy = "prompt.rpc"
 	store := &fakePromptStore{
-		templates:    []promptstore.PromptTemplate{editedSeed},
-		getTemplates: map[string]promptstore.PromptTemplate{runtimeCatalogReviewPromptKey: editedSeed},
+		templates:    []PromptTemplate{editedSeed},
+		getTemplates: map[string]PromptTemplate{runtimeCatalogReviewPromptKey: editedSeed},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, builtinReviewRegistryForTest())
+	catalog := newRuntimeCatalog(store, builtinReviewRegistryForTest())
 	templates := requireRuntimeCatalogList(t, catalog)
 	requireRuntimePromptKeyCount(t, templates, runtimeCatalogReviewPromptKey, 1)
 
@@ -206,11 +206,11 @@ func TestRuntimeCatalogBuiltinKeyHidesSeedKeyRowsUpdatedByUser(t *testing.T) {
 	userUpdatedSeed.ManuallyEdited = false
 	userUpdatedSeed.UpdatedBy = "rpc.prompts"
 	store := &fakePromptStore{
-		templates:    []promptstore.PromptTemplate{userUpdatedSeed},
-		getTemplates: map[string]promptstore.PromptTemplate{runtimeCatalogReviewPromptKey: userUpdatedSeed},
+		templates:    []PromptTemplate{userUpdatedSeed},
+		getTemplates: map[string]PromptTemplate{runtimeCatalogReviewPromptKey: userUpdatedSeed},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, builtinReviewRegistryForTest())
+	catalog := newRuntimeCatalog(store, builtinReviewRegistryForTest())
 	templates := requireRuntimeCatalogList(t, catalog)
 	requireRuntimePromptKeyCount(t, templates, runtimeCatalogReviewPromptKey, 1)
 
@@ -224,9 +224,9 @@ func TestRuntimeCatalogLimitKeepsBuiltinWhenDBRowsAreNewer(t *testing.T) {
 	newerDBTemplate := userReviewPromptTemplateForTest()
 	newerDBTemplate.PromptKey = "main/expert/newer-db"
 	newerDBTemplate.UpdatedAt = time.Now()
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{newerDBTemplate}}
+	store := &fakePromptStore{templates: []PromptTemplate{newerDBTemplate}}
 
-	catalog := newRuntimeCatalogForStore(store, builtinReviewRegistryForTest())
+	catalog := newRuntimeCatalog(store, builtinReviewRegistryForTest())
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{
 		AgentKey: "main",
 		CWD:      "/repo/a",
@@ -243,7 +243,7 @@ func TestRuntimeCatalogLimitKeepsBuiltinWhenDBRowsAreNewer(t *testing.T) {
 func TestRuntimeCatalogKeywordFiltersUserRowsAfterStoreList(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{
+	store := &fakePromptStore{templates: []PromptTemplate{
 		{
 			ID:        91,
 			PromptKey: "main/expert/when-only",
@@ -257,7 +257,7 @@ func TestRuntimeCatalogKeywordFiltersUserRowsAfterStoreList(t *testing.T) {
 		},
 	}}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{
 		AgentKey: "main",
 		CWD:      "/repo/a",
@@ -298,8 +298,8 @@ func builtinReviewRegistryForTest() *fakeBuiltinPromptRegistry {
 	}
 }
 
-func seedReviewPromptTemplateForTest() promptstore.PromptTemplate {
-	return promptstore.PromptTemplate{
+func seedReviewPromptTemplateForTest() PromptTemplate {
+	return PromptTemplate{
 		ID:         42,
 		PromptKey:  runtimeCatalogReviewPromptKey,
 		Title:      "Historical Seed",
@@ -313,8 +313,8 @@ func seedReviewPromptTemplateForTest() promptstore.PromptTemplate {
 	}
 }
 
-func userReviewPromptTemplateForTest() promptstore.PromptTemplate {
-	return promptstore.PromptTemplate{
+func userReviewPromptTemplateForTest() PromptTemplate {
+	return PromptTemplate{
 		ID:        77,
 		PromptKey: runtimeCatalogReviewPromptKey,
 		Title:     "User Review",
@@ -333,14 +333,14 @@ func TestRuntimeCatalogListTemplatesAppliesCWDVisibility(t *testing.T) {
 	builtin := &fakeBuiltinPromptRegistry{templates: []contract.BuiltinPromptTemplate{
 		{ID: -1, PromptKey: "main/builtin-global", Title: "Builtin Global", AgentKey: "main", Enabled: true, Scope: "global"},
 	}}
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{
+	store := &fakePromptStore{templates: []PromptTemplate{
 		{ID: 1, PromptKey: "main/db-global", Title: "DB Global", AgentKey: "main", Tags: mustJSONTags("scope.global"), Enabled: true},
 		{ID: 2, PromptKey: "main/db-other", Title: "DB Other", AgentKey: "main", Tags: mustJSONTags("scope.cwd:/repo/b"), Enabled: true},
 		{ID: 3, PromptKey: "main/db-legacy", Title: "DB Legacy", AgentKey: "main", Tags: mustJSONTags("intent:expert"), Enabled: true},
 		{ID: 4, PromptKey: "main/db-disabled", Title: "DB Disabled", AgentKey: "main", Tags: mustJSONTags("scope.global"), Enabled: false},
 	}}
 
-	catalog := newRuntimeCatalogForStore(store, builtin)
+	catalog := newRuntimeCatalog(store, builtin)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{AgentKey: "main", CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -360,13 +360,13 @@ func TestRuntimeCatalogListTemplatesAppliesCWDVisibility(t *testing.T) {
 func TestRuntimeCatalogListTemplatesWithEmptyCWDHidesProjectScopedRows(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{
+	store := &fakePromptStore{templates: []PromptTemplate{
 		{ID: 1, PromptKey: "main/db-global", Title: "DB Global", AgentKey: "main", Tags: mustJSONTags("scope.global"), Enabled: true},
 		{ID: 2, PromptKey: "main/db-project", Title: "DB Project", AgentKey: "main", Tags: mustJSONTags("scope.cwd:/repo/a"), Enabled: true},
 		{ID: 3, PromptKey: "main/db-legacy", Title: "DB Legacy", AgentKey: "main", Tags: mustJSONTags("intent:expert"), Enabled: true},
 	}}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{AgentKey: "main"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -411,7 +411,7 @@ func TestRuntimeCatalogListRecallSectionsMergesBuiltinAndDBAndAllowsScopedPrefer
 		},
 	}
 	store := &fakePromptStore{
-		recallSections: []promptstore.PromptTemplateSection{
+		recallSections: []PromptTemplateSection{
 			{
 				ID:                  8,
 				TemplateID:          5,
@@ -425,7 +425,7 @@ func TestRuntimeCatalogListRecallSectionsMergesBuiltinAndDBAndAllowsScopedPrefer
 			},
 		},
 	}
-	catalog := newRuntimeCatalogForStore(store, builtin)
+	catalog := newRuntimeCatalog(store, builtin)
 
 	sections, err := catalog.ListRecallSections(context.Background(), "/repo/a")
 	if err != nil {
@@ -463,7 +463,7 @@ func TestRuntimeCatalogListDefaultRuleSectionsPrefersProjectOverGlobal(t *testin
 		},
 	}
 	store := &fakePromptStore{
-		defaultRuleSections: []promptstore.PromptTemplateSection{
+		defaultRuleSections: []PromptTemplateSection{
 			{
 				ID:                13,
 				TemplateID:        12,
@@ -478,7 +478,7 @@ func TestRuntimeCatalogListDefaultRuleSectionsPrefersProjectOverGlobal(t *testin
 		},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, builtin)
+	catalog := newRuntimeCatalog(store, builtin)
 	sections, err := catalog.ListDefaultRuleSections(context.Background(), "/repo/a")
 	if err != nil {
 		t.Fatalf("ListDefaultRuleSections() error = %v", err)
@@ -491,17 +491,17 @@ func TestRuntimeCatalogListDefaultRuleSectionsPrefersProjectOverGlobal(t *testin
 func TestRuntimeCatalogInsertVersionNilStoreReturnsErrorAndStoreDelegates(t *testing.T) {
 	t.Parallel()
 
-	nilCatalog := newRuntimeCatalogForStore(nil, nil)
+	nilCatalog := newRuntimeCatalog(nil, nil)
 	if nilCatalog != nil {
-		t.Fatalf("newRuntimeCatalogForStore(nil, nil) = %#v, want nil", nilCatalog)
+		t.Fatalf("newRuntimeCatalog(nil, nil) = %#v, want nil", nilCatalog)
 	}
-	nilCatalog = newRuntimeCatalogForStore(nil, builtinReviewRegistryForTest())
+	nilCatalog = newRuntimeCatalog(nil, builtinReviewRegistryForTest())
 	if _, err := nilCatalog.InsertVersion(context.Background(), PromptTemplateVersion{PromptKey: "main/test"}); err == nil {
 		t.Fatal("InsertVersion() with nil store error = nil, want error")
 	}
 
 	store := &fakePromptStore{insertVersionID: 91}
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	id, err := catalog.InsertVersion(context.Background(), PromptTemplateVersion{PromptKey: "main/test"})
 	if err != nil {
 		t.Fatalf("InsertVersion() error = %v", err)
@@ -630,10 +630,5 @@ func runtimeCatalogRecallTopicCount(sections []PromptTemplateSection, topic stri
 }
 
 func runtimeCatalogStringSliceContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

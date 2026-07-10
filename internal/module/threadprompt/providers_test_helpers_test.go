@@ -8,11 +8,10 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-func expertTemplate(promptKey string, priority int, whenToUse string) promptstore.PromptTemplate {
-	return promptstore.PromptTemplate{
+func expertTemplate(promptKey string, priority int, whenToUse string) PromptTemplate {
+	return PromptTemplate{
 		PromptKey: promptKey,
 		WhenToUse: whenToUse,
 		Priority:  priority,
@@ -21,35 +20,34 @@ func expertTemplate(promptKey string, priority int, whenToUse string) promptstor
 }
 
 type fakePromptStore struct {
-	promptstore.Store
-	templates                []promptstore.PromptTemplate
-	getTemplates             map[string]promptstore.PromptTemplate
+	templates                []PromptTemplate
+	getTemplates             map[string]PromptTemplate
 	getErr                   error
 	listErr                  error
-	listFilters              []promptstore.ListFilter
-	sectionsByTemplateID     map[int64][]promptstore.PromptTemplateSection
-	recallSections           []promptstore.PromptTemplateSection
-	recallSectionsByCWD      map[string][]promptstore.PromptTemplateSection
+	listFilters              []PromptListFilter
+	sectionsByTemplateID     map[int64][]PromptTemplateSection
+	recallSections           []PromptTemplateSection
+	recallSectionsByCWD      map[string][]PromptTemplateSection
 	recallCWDs               []string
 	recallErr                error
-	defaultRuleSections      []promptstore.PromptTemplateSection
-	defaultRuleSectionsByCWD map[string][]promptstore.PromptTemplateSection
+	defaultRuleSections      []PromptTemplateSection
+	defaultRuleSectionsByCWD map[string][]PromptTemplateSection
 	defaultRuleCWDs          []string
 	defaultRuleErr           error
-	insertVersions           []promptstore.PromptTemplateVersion
+	insertVersions           []PromptTemplateVersion
 	insertVersionID          int64
 	insertVersionErr         error
 }
 
-func (f *fakePromptStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+func (f *fakePromptStore) List(_ context.Context, filter PromptListFilter) ([]PromptTemplate, error) {
 	f.listFilters = append(f.listFilters, filter)
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	return append([]promptstore.PromptTemplate(nil), f.templates...), nil
+	return append([]PromptTemplate(nil), f.templates...), nil
 }
 
-func (f *fakePromptStore) Get(_ context.Context, promptKey string) (*promptstore.PromptTemplate, error) {
+func (f *fakePromptStore) Get(_ context.Context, promptKey string) (*PromptTemplate, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -68,7 +66,7 @@ func (f *fakePromptStore) Get(_ context.Context, promptKey string) (*promptstore
 	return nil, platformdb.ErrNotFound
 }
 
-func (f *fakePromptStore) InsertVersion(_ context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
+func (f *fakePromptStore) InsertVersion(_ context.Context, version PromptTemplateVersion) (int64, error) {
 	if f.insertVersionErr != nil {
 		return 0, f.insertVersionErr
 	}
@@ -79,34 +77,34 @@ func (f *fakePromptStore) InsertVersion(_ context.Context, version promptstore.P
 	return int64(len(f.insertVersions)), nil
 }
 
-func (f *fakePromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
-	return append([]promptstore.PromptTemplateSection(nil), f.sectionsByTemplateID[templateID]...), nil
+func (f *fakePromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]PromptTemplateSection, error) {
+	return append([]PromptTemplateSection(nil), f.sectionsByTemplateID[templateID]...), nil
 }
 
-func (f *fakePromptStore) ListSectionsByTemplateIDs(_ context.Context, templateIDs []int64) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptStore) ListSectionsByTemplateIDs(_ context.Context, templateIDs []int64) ([]PromptTemplateSection, error) {
 	return fakePromptSectionsByTemplateIDs(f.sectionsByTemplateID, templateIDs), nil
 }
 
-func (f *fakePromptStore) ListRecallSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptStore) ListRecallSections(_ context.Context, cwd string) ([]PromptTemplateSection, error) {
 	f.recallCWDs = append(f.recallCWDs, cwd)
 	if f.recallErr != nil {
 		return nil, f.recallErr
 	}
 	if f.recallSectionsByCWD != nil {
-		return append([]promptstore.PromptTemplateSection(nil), f.recallSectionsByCWD[cwd]...), nil
+		return append([]PromptTemplateSection(nil), f.recallSectionsByCWD[cwd]...), nil
 	}
-	return append([]promptstore.PromptTemplateSection(nil), f.recallSections...), nil
+	return append([]PromptTemplateSection(nil), f.recallSections...), nil
 }
 
-func (f *fakePromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]PromptTemplateSection, error) {
 	f.defaultRuleCWDs = append(f.defaultRuleCWDs, cwd)
 	if f.defaultRuleErr != nil {
 		return nil, f.defaultRuleErr
 	}
 	if f.defaultRuleSectionsByCWD != nil {
-		return append([]promptstore.PromptTemplateSection(nil), f.defaultRuleSectionsByCWD[cwd]...), nil
+		return append([]PromptTemplateSection(nil), f.defaultRuleSectionsByCWD[cwd]...), nil
 	}
-	return append([]promptstore.PromptTemplateSection(nil), f.defaultRuleSections...), nil
+	return append([]PromptTemplateSection(nil), f.defaultRuleSections...), nil
 }
 
 type capturingDynamicRegistrar struct {

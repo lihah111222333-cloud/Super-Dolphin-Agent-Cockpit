@@ -11,10 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestStartSessionUsesPromptAssembly(t *testing.T) {
@@ -91,16 +87,11 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 	expert.Priority = 120
 	expert.Title = "协作编程任务处理助手"
 	expert.WhenToUse = "需要创建项目、修改代码、排查 bug 或规划多步骤软件工程任务时使用。"
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{general, expert}}
-	catalog := threadprompt.NewRuntimeCatalog(store, nil)
+	store := &fakePromptCatalog{templates: []PromptTemplate{general, expert}}
 
 	promptAssembly := promptpkg.NewService(&promptpkg.Config{}, nil)
-	if err := registerThreadPromptProviders(threadPromptProviderParams{
-		Registrar:     promptAssembly,
-		PromptStore:   store,
-		PromptCatalog: catalog,
-	}); err != nil {
-		t.Fatalf("registerThreadPromptProviders() error = %v", err)
+	if err := promptAssembly.RegisterDynamicProvider(staticAvailableExpertsProvider{}); err != nil {
+		t.Fatalf("RegisterDynamicProvider() error = %v", err)
 	}
 
 	threads := &stubThreadStore{}
@@ -136,7 +127,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 		testThreadDependencyConfig(),
 		nil,
 		nil,
-		catalog,
+		store,
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,
 	).(*service)
@@ -149,6 +140,17 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
+}
+
+type staticAvailableExpertsProvider struct{}
+
+func (staticAvailableExpertsProvider) SectionName() string {
+	return contract.DynamicSectionAvailableExperts
+}
+
+func (staticAvailableExpertsProvider) Resolve(context.Context, contract.SectionContext) (*string, error) {
+	text := "可用专家: main/expert/prompt; use prompt_key='main/expert/prompt'"
+	return &text, nil
 }
 
 func TestBaseInstructionsNotFoldedIntoPrompt(t *testing.T) {
@@ -198,7 +200,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		Hash:                  "snapshot-hash",
 		Generation:            7,
 	}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-assembly",
 		AgentID:        "agent-assembly",
 		Prompt:         snapshot.DisplayName,
@@ -210,7 +212,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 	}}
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f608"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-assembly",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -261,7 +263,7 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f706"
 	promptAssembly := &stubPromptAssemblyService{}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-resume",
 		AgentID:        "agent-resume",
 		Prompt:         "resume name",
@@ -271,7 +273,7 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
@@ -302,7 +304,7 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f704"
 	_, worktreeCWD := newPromptGitFixture(t)
 	promptAssembly := &stubPromptAssemblyService{}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-resume",
 		AgentID:        "agent-resume",
 		Prompt:         "resume name",
@@ -312,7 +314,7 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
@@ -368,14 +370,14 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 	}
 	forkedSession := &stubSession{threadID: "provider-thread-fork"}
 	sessions := &stubSessionProvider{session: originalSession}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-thread-parent",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-parent",
 		AgentID:        "agent-parent",
 		Prompt:         "assembled name",

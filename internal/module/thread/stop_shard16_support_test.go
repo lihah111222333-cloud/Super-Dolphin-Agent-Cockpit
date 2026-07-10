@@ -8,15 +8,14 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type stubThreadBindingStore struct {
 	stubThreadBindingStoreNoopMethods
 
-	binding         *bindingstore.Binding
-	sessionUpdates  []bindingstore.UpdateSessionUUIDParams
-	archived        []bindingstore.SetArchivedParams
+	binding         *BindingRecord
+	sessionUpdates  []BindingSessionUUIDUpdate
+	archived        []BindingArchiveUpdate
 	deletedAgentIDs []string
 	calls           *[]string
 	getByAgentIDErr error
@@ -24,10 +23,10 @@ type stubThreadBindingStore struct {
 
 type stubThreadBindingStoreNoopMethods struct{}
 
-func (stubThreadBindingStoreNoopMethods) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
+func (stubThreadBindingStoreNoopMethods) GetByProviderThread(context.Context, string, string) (*BindingRecord, error) {
 	return nil, platformdb.ErrNotFound
 }
-func (stubThreadBindingStoreNoopMethods) Upsert(context.Context, bindingstore.UpsertParams) error {
+func (stubThreadBindingStoreNoopMethods) Upsert(context.Context, BindingUpsert) error {
 	return nil
 }
 func (s *stubThreadBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
@@ -35,14 +34,14 @@ func (s *stubThreadBindingStore) DeleteByAgentID(_ context.Context, agentID stri
 	recordCall(s.calls, "binding_delete:"+agentID)
 	return nil
 }
-func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params BindingSessionUUIDUpdate) error {
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	return nil
 }
-func (stubThreadBindingStoreNoopMethods) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+func (stubThreadBindingStoreNoopMethods) UpdateProviderThreadID(context.Context, BindingProviderThreadIDUpdate) error {
 	return nil
 }
-func (s *stubThreadBindingStore) SetArchived(_ context.Context, params bindingstore.SetArchivedParams) error {
+func (s *stubThreadBindingStore) SetArchived(_ context.Context, params BindingArchiveUpdate) error {
 	s.archived = append(s.archived, params)
 	archived := "false"
 	if params.Archived {
@@ -51,7 +50,7 @@ func (s *stubThreadBindingStore) SetArchived(_ context.Context, params bindingst
 	recordCall(s.calls, "binding_archive:"+params.AgentID+":"+archived)
 	return nil
 }
-func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	if s.binding != nil && s.binding.AgentID == agentID {
 		return s.binding, nil
 	}
@@ -64,11 +63,11 @@ func (stubThreadBindingStoreNoopMethods) BindAgentThread(context.Context, bindin
 	return nil
 }
 func (stubThreadBindingStoreNoopMethods) UnbindAgentThread(context.Context, string) error { return nil }
-func (s *stubThreadBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+func (s *stubThreadBindingStore) ListAgentThreadBindings(context.Context) ([]BindingRecord, error) {
 	if s.binding == nil {
 		return nil, nil
 	}
-	return []bindingstore.Binding{*s.binding}, nil
+	return []BindingRecord{*s.binding}, nil
 }
 func (s *stubThreadBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
 	if s.binding == nil {
@@ -76,7 +75,7 @@ func (s *stubThreadBindingStore) GetThreadByAgent(context.Context, string) (stri
 	}
 	return s.binding.ProviderThreadID, nil
 }
-func (stubThreadBindingStoreNoopMethods) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (stubThreadBindingStoreNoopMethods) UpdateAgentCwd(context.Context, BindingCWDUpdate) error {
 	return nil
 }
 
@@ -219,7 +218,7 @@ type recordingThreadStore struct {
 	deletedThreadID string
 }
 
-func (s *recordingThreadStore) UpdateStatus(ctx context.Context, params threadstore.UpdateStatusParams) error {
+func (s *recordingThreadStore) UpdateStatus(ctx context.Context, params ThreadStatusUpdate) error {
 	recordCall(s.calls, "thread_status:"+params.ThreadID+":"+params.Status)
 	return s.stubThreadStore.UpdateStatus(ctx, params)
 }

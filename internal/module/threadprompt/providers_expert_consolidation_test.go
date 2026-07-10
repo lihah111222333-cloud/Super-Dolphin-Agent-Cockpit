@@ -6,14 +6,13 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestAvailableExpertsProviderUsesConsolidatedDeveloperExpertRoster(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			expertTemplate("main/code-review", 30, "代码审查、diff 风险评估、回归与安全问题检查"),
 			expertTemplate("main/code-debug", 30, "错误排查、panic/exception/traceback 分析、最小复现定位"),
 			expertTemplate("main/code-task", 20, "通用编程实现、重构、解释代码、补测试，覆盖合并后的日常开发任务。"),

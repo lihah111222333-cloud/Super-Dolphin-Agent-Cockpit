@@ -12,8 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
@@ -22,14 +20,14 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	turns := &stubTurnService{}
 	orch := &stubThreadOrchestration{}
 	svc := &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
 			CodexThreadID:    "thread-1",
 			SessionUUID:      "019e2c67-aabc-74f2-bf7a-6872e8465908",
 		}},
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,
@@ -101,13 +99,13 @@ func TestStopUsesPublicThreadIDForStatusUpdateWhenProviderDiffers(t *testing.T) 
 	turns := &stubTurnService{}
 	orch := &stubThreadOrchestration{}
 	svc := &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
 			CodexThreadID:    "thread-1",
 		}},
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,
@@ -142,13 +140,13 @@ func TestStopRemovesSessionByGenerationWhenAvailable(t *testing.T) {
 		generation: 7,
 	}
 	svc := &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
 			CodexThreadID:    "thread-1",
 		}},
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,
@@ -181,7 +179,7 @@ func TestStopContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
 	}
 	orch := &stubThreadOrchestration{calls: &calls}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,
@@ -189,7 +187,7 @@ func TestStopContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
 		calls: &calls,
 	}
 	svc := &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:       "agent-1",
 			CodexThreadID: "thread-1",
 		}},
@@ -236,7 +234,7 @@ func TestStopRetriesBindingAfterPendingLaunchLock(t *testing.T) {
 	t.Parallel()
 
 	calls := []string{}
-	binding := &bindingstore.Binding{
+	binding := &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -248,7 +246,7 @@ func TestStopRetriesBindingAfterPendingLaunchLock(t *testing.T) {
 			failLookups:            3,
 		},
 		threadStore: &recordingThreadStore{
-			stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 				ThreadID:      "thread-1",
 				AgentID:       "agent-1",
 				Status:        statusCreated,
@@ -275,7 +273,7 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	turns := &stubTurnService{calls: &calls}
 	orch := &stubThreadOrchestration{calls: &calls}
 	bindingStore := &stubThreadBindingStore{
-		binding: &bindingstore.Binding{
+		binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
@@ -284,7 +282,7 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 		calls: &calls,
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Status: statusCreated}},
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Status: statusCreated}},
 		calls:           &calls,
 	}
 	session := &stubThreadSession{threadID: "thread-1", calls: &calls}
@@ -340,14 +338,14 @@ func TestArchiveContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
 	}
 	orch := &stubThreadOrchestration{calls: &calls}
 	bindingStore := &stubThreadBindingStore{
-		binding: &bindingstore.Binding{
+		binding: &BindingRecord{
 			AgentID:       "agent-1",
 			CodexThreadID: "thread-1",
 		},
 		calls: &calls,
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,
@@ -411,7 +409,7 @@ func TestArchiveFailsFastWhenBindingMissing(t *testing.T) {
 		calls:           &calls,
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-orphan", Status: statusCreated}},
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-orphan", Status: statusCreated}},
 		calls:           &calls,
 	}
 	svc := &service{
@@ -434,10 +432,10 @@ func TestUnarchivePublishesCreatedLifecycleEvent(t *testing.T) {
 	t.Parallel()
 
 	bindingStore := &stubThreadBindingStore{
-		binding: &bindingstore.Binding{AgentID: "agent-1", CodexThreadID: "thread-1"},
+		binding: &BindingRecord{AgentID: "agent-1", CodexThreadID: "thread-1"},
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Status: statusArchived}},
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Status: statusArchived}},
 	}
 	var stopped threaddto.Stopped
 	svc := &service{
@@ -469,7 +467,7 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	turns := &stubTurnService{calls: &calls}
 	orch := &stubThreadOrchestration{calls: &calls}
 	bindingStore := &stubThreadBindingStore{
-		binding: &bindingstore.Binding{
+		binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
@@ -478,7 +476,7 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 		calls: &calls,
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Status: statusCreated}},
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Status: statusCreated}},
 		calls:           &calls,
 	}
 	session := &stubThreadSession{threadID: "thread-1", calls: &calls}
@@ -527,7 +525,7 @@ func TestDeleteRetriesBindingAfterPendingLaunchLock(t *testing.T) {
 	t.Parallel()
 
 	calls := []string{}
-	binding := &bindingstore.Binding{
+	binding := &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -538,7 +536,7 @@ func TestDeleteRetriesBindingAfterPendingLaunchLock(t *testing.T) {
 		failLookups:            3,
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:      "thread-1",
 			AgentID:       "agent-1",
 			Status:        statusCreated,
@@ -626,14 +624,14 @@ func (s *lateResolveBindingStore) shouldFailLookup() bool {
 	return true
 }
 
-func (s *lateResolveBindingStore) GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *lateResolveBindingStore) GetByAgentID(ctx context.Context, agentID string) (*BindingRecord, error) {
 	if s.shouldFailLookup() {
 		return nil, platformdb.ErrNotFound
 	}
 	return s.stubThreadBindingStore.GetByAgentID(ctx, agentID)
 }
 
-func (s *lateResolveBindingStore) GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s *lateResolveBindingStore) GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*BindingRecord, error) {
 	if s.shouldFailLookup() {
 		return nil, platformdb.ErrNotFound
 	}
@@ -688,13 +686,13 @@ func newScratchpadCleanupService(t *testing.T) (*service, string) {
 	}
 
 	return &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
 			CodexThreadID:    "thread-1",
 		}},
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:       "thread-1",
 			AgentID:        "agent-1",
 			Status:         statusCreated,
@@ -707,13 +705,13 @@ func newScratchpadCleanupService(t *testing.T) (*service, string) {
 func newResumeBlockTimingService(t *testing.T, status string) *service {
 	t.Helper()
 	return &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
 			CodexThreadID:    "thread-1",
 		}},
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   status,
@@ -736,7 +734,7 @@ type resumeBlockAssertingThreadStore struct {
 	deleteObserved bool
 }
 
-func (s *resumeBlockAssertingThreadStore) UpdateStatus(ctx context.Context, params threadstore.UpdateStatusParams) error {
+func (s *resumeBlockAssertingThreadStore) UpdateStatus(ctx context.Context, params ThreadStatusUpdate) error {
 	s.statusObserved = true
 	s.assertBlocked("UpdateStatus")
 	return s.stubThreadStore.UpdateStatus(ctx, params)

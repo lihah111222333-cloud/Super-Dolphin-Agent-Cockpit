@@ -14,13 +14,12 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-// testThreadConfigOverrideStore 把完整 threadstore.Store 收窄成 handler 只需要的 ConfigOverride 读取口。
+// testThreadConfigOverrideStore 把 Thread-owned store 端口收窄成 handler 只需要的 ConfigOverride 读取口。
 // 测试用这个适配器确保 toolbridge 不依赖 thread store 的其他写入能力。
 type testThreadConfigOverrideStore struct {
-	inner threadstore.Store
+	inner threadmod.ThreadStore
 }
 
 func (a testThreadConfigOverrideStore) GetConfigOverride(ctx context.Context, threadID string) (json.RawMessage, error) {
@@ -35,11 +34,10 @@ func (a testThreadConfigOverrideStore) GetConfigOverride(ctx context.Context, th
 }
 
 type persistentFlowThreadStore struct {
-	threadstore.Store
-	row *threadstore.Thread
+	row *threadmod.ThreadRecord
 }
 
-func (s *persistentFlowThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *persistentFlowThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadmod.ThreadRecord, error) {
 	if s.row == nil || s.row.ThreadID != threadID {
 		return nil, platformdb.ErrNotFound
 	}
@@ -50,8 +48,8 @@ func (s *persistentFlowThreadStore) Exists(_ context.Context, threadID string) (
 	return s.row != nil && s.row.ThreadID == threadID, nil
 }
 
-func (s *persistentFlowThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
-	s.row = &threadstore.Thread{
+func (s *persistentFlowThreadStore) Upsert(_ context.Context, params threadmod.ThreadUpsert) error {
+	s.row = &threadmod.ThreadRecord{
 		ThreadID:         params.ThreadID,
 		AgentID:          params.ThreadID,
 		ParentAgentID:    params.ParentAgentID,
@@ -72,8 +70,42 @@ func (s *persistentFlowThreadStore) Upsert(_ context.Context, params threadstore
 	return nil
 }
 
-func (*persistentFlowThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
+func (*persistentFlowThreadStore) SavePromptSnapshot(context.Context, string, threadmod.PromptSnapshotRecord) error {
 	return nil
+}
+
+func (s *persistentFlowThreadStore) ListAll(context.Context) ([]threadmod.ThreadRecord, error) {
+	if s.row == nil {
+		return nil, nil
+	}
+	return []threadmod.ThreadRecord{*s.row}, nil
+}
+
+func (s *persistentFlowThreadStore) ListConfigsByIDs(context.Context, []string) ([]threadmod.ThreadRecord, error) {
+	return s.ListAll(context.Background())
+}
+
+func (*persistentFlowThreadStore) LoadPromptSnapshot(context.Context, string) (*threadmod.PromptSnapshotRecord, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (s *persistentFlowThreadStore) UpdateStatus(_ context.Context, params threadmod.ThreadStatusUpdate) error {
+	if s.row != nil && s.row.ThreadID == params.ThreadID {
+		s.row.Status = params.Status
+		s.row.UpdatedAt = params.UpdatedAt
+	}
+	return nil
+}
+
+func (s *persistentFlowThreadStore) DeleteByThreadID(_ context.Context, threadID string) error {
+	if s.row != nil && s.row.ThreadID == threadID {
+		s.row = nil
+	}
+	return nil
+}
+
+func (*persistentFlowThreadStore) CountChildren(context.Context, string) (int64, error) {
+	return 0, nil
 }
 
 type persistentFlowSessions struct {

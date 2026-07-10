@@ -10,7 +10,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/kelindar/event"
 )
 
@@ -26,7 +25,7 @@ func TestCompactPublishesCompactedEvent(t *testing.T) {
 
 	session := &compactEventSession{stubSession: stubSession{threadID: "thread-1"}}
 	sessions := &stubSessionProvider{session: session}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}}
+	bindings := &stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}}
 	svc := NewService(silentLogger(), nil, bindings, sessions, nil, nil, nil, bus.NewThreadEmitters(dispatcher))
 
 	result, err := svc.Compact(context.Background(), "thread-1", "")
@@ -49,7 +48,7 @@ func TestCompactInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
 	promptAssembly := &stubPromptAssemblyService{}
 	session := &compactEventSession{stubSession: stubSession{threadID: "thread-1"}}
 	sessions := &stubSessionProvider{session: session}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}}
+	bindings := &stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}}
 	svc := NewServiceWithPromptAssembly(silentLogger(), nil, bindings, sessions, nil, nil, nil, nil, promptAssembly, nil, nil)
 
 	if _, err := svc.Compact(context.Background(), "thread-1", ""); err != nil {

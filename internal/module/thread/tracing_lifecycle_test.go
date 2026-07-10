@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type threadTraceSink struct {
@@ -56,7 +55,7 @@ func TestThreadSpawnIfNeededTraceDoneForNoop(t *testing.T) {
 	t.Parallel()
 
 	sink := &threadTraceSink{}
-	store := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-trace-spawn", Status: statusStopped, PendingLaunch: true}}
+	store := &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-trace-spawn", Status: statusStopped, PendingLaunch: true}}
 	svc := &service{threadStore: store, tracing: platformobs.NewService(mustThreadTraceConfig(t), platformobs.WithSink(sink))}
 	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-trace-spawn", "secret user text", "")
 	if err != nil {

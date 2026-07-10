@@ -7,8 +7,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestHandoff_RejectsEmptySourceThreadID(t *testing.T) {
@@ -74,7 +72,7 @@ func TestHandoff_StoreError(t *testing.T) {
 
 func TestHandoff_LoadsNarrowSourceFields(t *testing.T) {
 	t.Parallel()
-	row := &threadstore.Thread{
+	row := &ThreadRecord{
 		ThreadID:      "thread-src",
 		AgentID:       "agent-src",
 		Cwd:           "/work/repo",
@@ -84,7 +82,7 @@ func TestHandoff_LoadsNarrowSourceFields(t *testing.T) {
 	}
 	s := &service{
 		threadStore: &stubThreadStore{thread: row},
-		bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-src",
 			Provider:         "claude",
 			ProviderThreadID: "thread-src",
@@ -116,7 +114,7 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 			return session, nil
 		},
 	}
-	source := &threadstore.Thread{
+	source := &ThreadRecord{
 		ThreadID: "thread-src",
 		AgentID:  "agent-src",
 		Cwd:      wantStartCWD(t),
@@ -126,7 +124,7 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 	svc := NewServiceWithPromptAssembly(
 		silentLogger(),
 		&stubThreadStore{thread: source},
-		&stubBindingStore{binding: &bindingstore.Binding{
+		&stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-src",
 			Provider:         "codex",
 			ProviderThreadID: "thread-src",
@@ -178,7 +176,7 @@ func TestHandoff_PreservesSourceCodexIdentity(t *testing.T) {
 			return session, nil
 		},
 	}
-	source := &threadstore.Thread{
+	source := &ThreadRecord{
 		ThreadID: "thread-src",
 		AgentID:  "agent-src",
 		Cwd:      wantStartCWD(t),
@@ -192,7 +190,7 @@ func TestHandoff_PreservesSourceCodexIdentity(t *testing.T) {
 			},
 		}),
 	}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-src",
 		Provider:           "codex",
 		ProviderThreadID:   "thread-src",
@@ -235,7 +233,7 @@ func TestHandoff_PreservesSourceCodexIdentity(t *testing.T) {
 func TestHandoff_RejectsPartialSourceCodexIdentity(t *testing.T) {
 	t.Parallel()
 
-	source := &threadstore.Thread{
+	source := &ThreadRecord{
 		ThreadID: "thread-src",
 		AgentID:  "agent-src",
 		Cwd:      wantStartCWD(t),
@@ -250,7 +248,7 @@ func TestHandoff_RejectsPartialSourceCodexIdentity(t *testing.T) {
 	svc := NewService(
 		silentLogger(),
 		&stubThreadStore{thread: source},
-		&stubBindingStore{binding: &bindingstore.Binding{
+		&stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-src",
 			Provider:         "codex",
 			ProviderThreadID: "thread-src",

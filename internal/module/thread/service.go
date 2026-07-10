@@ -47,18 +47,6 @@ type ListPageResult struct {
 	NextCursorThreadID  string `json:"next_cursor_thread_id,omitempty"`
 }
 
-type threadPageStore interface {
-	ListPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error)
-}
-
-type loadedThreadPageStore interface {
-	ListLoadedPage(ctx context.Context, params contract.ThreadListPageParams) (contract.ThreadListPage, error)
-}
-
-type activeThreadCountStore interface {
-	CountActive(ctx context.Context) (int64, error)
-}
-
 // SessionProvider 复用跨模块会话查询接口，保留本包旧构造函数的类型签名兼容。
 type SessionProvider = contract.SessionProvider
 
@@ -69,8 +57,8 @@ type sessionGenerationRemover interface {
 
 type service struct {
 	logger                  *slog.Logger
-	threadStore             threadServiceStorePort
-	bindingStore            bindingServiceStorePort
+	threadStore             ThreadStore
+	bindingStore            BindingStore
 	sessions                SessionProvider
 	starter                 SessionStarter
 	promptAssembly          contract.PromptAssemblyService
@@ -106,7 +94,7 @@ type service struct {
 	resumeInFlight, resumeBlocked, sessionRecoveryCount sync.Map
 
 	// promptCatalog 是运行时读路径，会合并内置模板和数据库模板。
-	promptCatalog promptServiceCatalogPort
+	promptCatalog PromptCatalog
 
 	// matchWhenEval 用当前 BuildCtx 评估 prompt_template.match_when。
 	// 由构造层注入以避免 thread 直接依赖 prompt 包；为 nil 时自动路由会跳过表达式评估。
@@ -160,7 +148,7 @@ func (s *service) ListPage(ctx context.Context, req ListPageRequest) (ListPageRe
 	if s.threadStore == nil {
 		return ListPageResult{}, errors.New("thread store is not configured")
 	}
-	store, ok := s.threadStore.(threadPageStore)
+	store, ok := s.threadStore.(ThreadPageReader)
 	if !ok {
 		return ListPageResult{}, errors.New("thread store page query is not configured")
 	}
@@ -180,7 +168,7 @@ func (s *service) ListLoadedPage(ctx context.Context, req ListPageRequest) (List
 	if s.threadStore == nil {
 		return ListPageResult{}, errors.New("thread store is not configured")
 	}
-	store, ok := s.threadStore.(loadedThreadPageStore)
+	store, ok := s.threadStore.(LoadedThreadPageReader)
 	if !ok {
 		return ListPageResult{}, errors.New("thread loaded page query is not configured")
 	}
@@ -196,7 +184,7 @@ func (s *service) CountActive(ctx context.Context) (int64, error) {
 	if s.threadStore == nil {
 		return 0, errors.New("thread store is not configured")
 	}
-	counter, ok := s.threadStore.(activeThreadCountStore)
+	counter, ok := s.threadStore.(ActiveThreadCounter)
 	if !ok {
 		return 0, errors.New("thread active count query is not configured")
 	}

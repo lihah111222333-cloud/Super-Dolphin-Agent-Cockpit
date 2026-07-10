@@ -8,8 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestPersistStartedSessionUsesRuntimeCodexIdentityWhenStartConfigIsPartial(t *testing.T) {
@@ -105,7 +103,6 @@ func TestPersistStartedSessionRejectsInvalidRuntimeCodexIdentity(t *testing.T) {
 		{name: "empty-string", value: "", wantError: contract.ErrCodexHomeRequired},
 	}
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -153,7 +150,7 @@ func TestResumeUsesStoredRuntimeCodexIdentityWhenBindingIdentityIsEmpty(t *testi
 
 	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f702"
 	codexHome := t.TempDir()
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-runtime-resume",
 		AgentID:  "agent-runtime-resume",
 		Prompt:   "SQLite resume identity",
@@ -169,7 +166,7 @@ func TestResumeUsesStoredRuntimeCodexIdentityWhenBindingIdentityIsEmpty(t *testi
 			},
 		}),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-runtime-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-runtime-resume",
@@ -213,12 +210,12 @@ func TestResumeRejectsHydratedPartialCodexIdentityBeforeProvider(t *testing.T) {
 	tests := []struct {
 		name      string
 		runtime   map[string]any
-		binding   bindingstore.Binding
+		binding   BindingRecord
 		wantError error
 	}{
 		{
 			name: "state-home-only",
-			binding: bindingstore.Binding{
+			binding: BindingRecord{
 				CodexHome: t.TempDir(),
 			},
 			wantError: contract.ErrCodexInstanceKeyRequired,
@@ -240,7 +237,6 @@ func TestResumeRejectsHydratedPartialCodexIdentityBeforeProvider(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -279,7 +275,6 @@ func TestPersistResumedSessionRejectsRuntimeCodexIdentityBeforeReqOrStateFallbac
 		}, wantError: contract.ErrCodexModelProviderRequired},
 	}
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -379,7 +374,7 @@ func TestPersistResumedSessionCanonicalizesStoredCodexIdentity(t *testing.T) {
 	assertStoredRuntimeCodexIdentity(t, threads.upsert.ConfigOverride, realHome, "default", "openai")
 }
 
-func assertPersistedCodexIdentity(t *testing.T, got bindingstore.UpsertParams, home, instanceKey, modelProvider string) {
+func assertPersistedCodexIdentity(t *testing.T, got BindingUpsert, home, instanceKey, modelProvider string) {
 	t.Helper()
 	home = canonicalCodexHomeForTest(t, home)
 	if got.CodexHome != home ||

@@ -12,9 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 // TestFoldRouterOutputIntoAssemblyInput_PreservesBlocks is a regression test
@@ -72,7 +69,7 @@ func TestFoldRouterOutputIntoAssemblyInput_PreservesBlocks(t *testing.T) {
 func TestSpawnIfNeeded_SkipsStoppedThread(t *testing.T) {
 	t.Parallel()
 
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-1",
 		Status:        statusStopped,
 		PendingLaunch: true,
@@ -93,7 +90,7 @@ func TestSpawnIfNeeded_SkipsStoppedThread(t *testing.T) {
 func TestSpawnIfNeeded_SkipsArchivedThread(t *testing.T) {
 	t.Parallel()
 
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-2",
 		Status:        statusArchived,
 		PendingLaunch: true,
@@ -247,7 +244,7 @@ func TestSpawnIfNeededKeepsPendingThreadRetryableOnSpawnFailure(t *testing.T) {
 
 	deletedIDs := []string{}
 	store := &deleteCaptureThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:       "thread-pending-fail",
 			Status:         statusCreated,
 			PendingLaunch:  true,
@@ -327,7 +324,7 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 	t.Parallel()
 
 	threadID := "019d5f6b-fb3c-7760-9d6f-54005553f6c2"
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       threadID,
 		Status:         statusCreated,
 		PendingLaunch:  true,
@@ -342,7 +339,7 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 		orchestration:           &stubThreadOrchestration{},
 		sessionGenerationBinder: &stubThreadOrchestration{},
 		promptAssembly:          promptAssemblyStub{},
-		promptCatalog:           threadprompt.NewRuntimeCatalog(&fakePromptStore{}, nil),
+		promptCatalog:           &fakePromptCatalog{},
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: threadID}
 			sessions.session = session
@@ -377,7 +374,7 @@ func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       threadID,
 		Status:         statusCreated,
 		PendingLaunch:  true,
@@ -425,7 +422,7 @@ func TestSpawnIfNeededUsesRuntimeCodexIdentityWhenPendingConfigIsPartial(t *test
 	threadID := "thread-pending-runtime-codex"
 	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f6c3"
 	codexHome := t.TempDir()
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      threadID,
 		Status:        statusCreated,
 		PendingLaunch: true,
@@ -475,15 +472,15 @@ func TestSpawnIfNeededUsesRuntimeCodexIdentityWhenPendingConfigIsPartial(t *test
 func TestRunPendingSpawnPropagatesRouterError(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "db body", []string{"scope.cwd:/tmp/project"}),
 		},
 		insertErr: errors.New("version insert failed"),
 	}
 	svc := &service{
 		threadStore:   &stubThreadStore{},
-		promptCatalog: threadprompt.NewRuntimeCatalog(store, nil),
+		promptCatalog: store,
 	}
 
 	req := &StartRequest{
@@ -493,7 +490,7 @@ func TestRunPendingSpawnPropagatesRouterError(t *testing.T) {
 		Provider: "codex",
 		Prompt:   "write SQL",
 	}
-	err := svc.runPendingSpawn(context.Background(), req, &threadstore.Thread{}, req.AgentID, req.AgentID)
+	err := svc.runPendingSpawn(context.Background(), req, &ThreadRecord{}, req.AgentID, req.AgentID)
 	if err == nil {
 		t.Fatal("runPendingSpawn() error = nil, want routed prompt materialization error")
 	}
@@ -505,7 +502,7 @@ func TestRunPendingSpawnPropagatesRouterError(t *testing.T) {
 func TestBuildPendingSpawnRequestRejectsMissingStoredCWD(t *testing.T) {
 	t.Parallel()
 
-	row := &threadstore.Thread{
+	row := &ThreadRecord{
 		ThreadID:      "thread-pending-missing-cwd",
 		Status:        statusCreated,
 		PendingLaunch: true,
@@ -523,7 +520,7 @@ func TestBuildPendingSpawnRequestRejectsMissingStoredCWD(t *testing.T) {
 func TestBuildPendingSpawnRequestRejectsRequestCWDMismatch(t *testing.T) {
 	t.Parallel()
 
-	row := &threadstore.Thread{
+	row := &ThreadRecord{
 		ThreadID:      "thread-pending-cwd-mismatch",
 		Status:        statusCreated,
 		PendingLaunch: true,
@@ -544,7 +541,7 @@ func assertFailedPendingLaunchOutcome(
 	launched bool,
 	err error,
 	deletedIDs []string,
-	status threadstore.UpdateStatusParams,
+	status ThreadStatusUpdate,
 	stopped []threaddto.Stopped,
 	threadID string,
 ) {
@@ -574,7 +571,7 @@ func assertFailedPendingLaunchOutcome(
 func TestStopPendingThread_CleansLaunchMutex(t *testing.T) {
 	t.Parallel()
 
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-3",
 		Status:        statusCreated,
 		PendingLaunch: true,
@@ -599,7 +596,7 @@ func TestStopPendingThread_CleansLaunchMutex(t *testing.T) {
 func TestArchivePendingThread_CleansLaunchMutex(t *testing.T) {
 	t.Parallel()
 
-	store := &stubThreadStore{thread: &threadstore.Thread{
+	store := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-4",
 		Status:        statusCreated,
 		PendingLaunch: true,
@@ -626,7 +623,7 @@ func TestDeletePendingThread_SkipsBindingResolution(t *testing.T) {
 
 	deletedIDs := []string{}
 	store := &deleteCaptureThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:      "thread-pending-5",
 			Status:        statusCreated,
 			PendingLaunch: true,

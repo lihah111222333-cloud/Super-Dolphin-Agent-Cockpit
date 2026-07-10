@@ -3,13 +3,19 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/kelindar/event"
 )
 
 type threadStateKind string
@@ -130,22 +136,25 @@ type threadConfigStorePort interface {
 	ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadConfigRecord, error)
 }
 
-// runtimePromptCatalog 是 thread/start 路由需要的本地 prompt catalog 端口。
-// 真实 prompt store/catalog 只在 module.go 的 adapter 边界转换成本接口。
-type runtimePromptCatalog interface {
-	ListTemplates(ctx context.Context, filter runtimePromptListFilter) ([]runtimePromptTemplate, error)
-	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]runtimePromptTemplateSection, error)
-	InsertVersion(ctx context.Context, version runtimePromptTemplateVersion) (int64, error)
+// PromptCatalog 是 thread/start 路由消费的运行时 prompt 端口。
+// 外层 catalog 必须显式报告写能力，builtin-only catalog 可以保持只读。
+type PromptCatalog interface {
+	ListTemplates(ctx context.Context, filter PromptListFilter) ([]PromptTemplate, error)
+	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
+	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
+	CanInsertPromptVersion() bool
 }
 
-type runtimePromptListFilter struct {
+// PromptListFilter 描述 Thread 路由的模板过滤条件。
+type PromptListFilter struct {
 	AgentKey string
 	Keyword  string
 	CWD      string
 	Limit    int32
 }
 
-type runtimePromptTemplate struct {
+// PromptTemplate 是 Thread 路由使用的 prompt 模板快照。
+type PromptTemplate struct {
 	ID             int64
 	PromptKey      string
 	Title          string
@@ -166,7 +175,8 @@ type runtimePromptTemplate struct {
 	Description    string
 }
 
-type runtimePromptTemplateSection struct {
+// PromptTemplateSection 是 Thread 路由转换为基础指令块的 section 快照。
+type PromptTemplateSection struct {
 	ID                  int64
 	TemplateID          int64
 	SectionKey          string
@@ -186,7 +196,8 @@ type runtimePromptTemplateSection struct {
 	UpdatedAt           time.Time
 }
 
-type runtimePromptTemplateVersion struct {
+// PromptTemplateVersion 是 Thread 路由写入版本归档的输入。
+type PromptTemplateVersion struct {
 	ID              int64
 	PromptKey       string
 	Title           string
@@ -435,4 +446,130 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 	default:
 		return nil
 	}
+}
+
+// NewService 构造最小 thread 服务。
+// 该入口只装配 store、session、starter、turn 清理和 orchestration，适合不需要 prompt assembly 的测试或轻量运行时。
+func NewService(
+	logger *slog.Logger,
+	threadStore ThreadStore,
+	bindingStore BindingStore,
+	sessions SessionProvider,
+	starter SessionStarter,
+	turns contract.TurnThreadCleaner,
+	orchestration OrchestrationFacade,
+	threadEvents *bus.ThreadEmitters,
+) Service {
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
+}
+
+// NewServiceWithPromptAssembly 构造带 prompt assembly 的 thread 服务。
+// 它额外接入配置和工具 registry，使 thread/start 可以把 prompt、MCP 和工具上下文交给 prompt 模块组装。
+func NewServiceWithPromptAssembly(
+	logger *slog.Logger,
+	threadStore ThreadStore,
+	bindingStore BindingStore,
+	sessions SessionProvider,
+	starter SessionStarter,
+	turns contract.TurnThreadCleaner,
+	orchestration OrchestrationFacade,
+	threadEvents *bus.ThreadEmitters,
+	promptAssembly contract.PromptAssemblyService,
+	cfg *contract.Config,
+	toolRegistry contract.ToolRegistry,
+) Service {
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
+}
+
+// NewServiceWithPromptAssemblyAndSharedFiles 构造完整 thread 服务。
+// 除 prompt assembly 外，它还接入 runtime prompt catalog、match/enable_when 评估器和可选 tracing。
+func NewServiceWithPromptAssemblyAndSharedFiles(
+	logger *slog.Logger,
+	threadStore ThreadStore,
+	bindingStore BindingStore,
+	sessions SessionProvider,
+	starter SessionStarter,
+	turns contract.TurnThreadCleaner,
+	orchestration OrchestrationFacade,
+	threadEvents *bus.ThreadEmitters,
+	promptAssembly contract.PromptAssemblyService,
+	cfg *contract.Config,
+	toolRegistry contract.ToolRegistry,
+	mcpServers contract.MCPServerConfigProvider,
+	promptCatalog PromptCatalog,
+	matchWhenEval contract.MatchWhenEvaluator,
+	enableWhenEval contract.EnableWhenEvaluator,
+	tracingOpt ...*platformobs.Service,
+) Service {
+	var tracing *platformobs.Service
+	if len(tracingOpt) > 0 {
+		tracing = tracingOpt[0]
+	}
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptCatalog, matchWhenEval, enableWhenEval, tracing)
+}
+
+// newService 统一完成 thread service wiring。
+// 构造阶段会创建事件 emitter、后台 worker 和进程内缓存；外层构造器只负责选择依赖集合。
+func newService(
+	logger *slog.Logger,
+	threadStore ThreadStore,
+	bindingStore BindingStore,
+	sessions SessionProvider,
+	starter SessionStarter,
+	turns contract.TurnThreadCleaner,
+	orchestration OrchestrationFacade,
+	threadEvents *bus.ThreadEmitters,
+	promptAssembly contract.PromptAssemblyService,
+	cfg *contract.Config,
+	toolRegistry contract.ToolRegistry,
+	mcpServers contract.MCPServerConfigProvider,
+	promptCatalog PromptCatalog,
+	matchWhenEval contract.MatchWhenEvaluator,
+	enableWhenEval contract.EnableWhenEvaluator,
+	tracing *platformobs.Service,
+) Service {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	var dispatcher *event.Dispatcher
+	if threadEvents != nil {
+		dispatcher = threadEvents.Dispatcher()
+	}
+	s := &service{
+		logger:                  logger,
+		threadStore:             threadStore,
+		bindingStore:            bindingStore,
+		sessions:                sessions,
+		starter:                 starter,
+		promptAssembly:          promptAssembly,
+		cfg:                     cfg,
+		toolRegistry:            toolRegistry,
+		mcpServers:              mcpServers,
+		turns:                   turns,
+		orchestration:           orchestration,
+		sessionGenerationBinder: sessionGenerationBinderFromOrchestration(orchestration),
+		tracing:                 tracing,
+		bus:                     dispatcher,
+		promptCatalog:           promptCatalog,
+		matchWhenEval:           matchWhenEval,
+		enableWhenEval:          enableWhenEval,
+		emitStarted:             contract.NewEmitter[threaddto.Started](dispatcher),
+		emitStopped:             contract.NewEmitter[threaddto.Stopped](dispatcher),
+		emitUpdated:             contract.NewEmitter[threaddto.Updated](dispatcher),
+		emitMessagesPage:        contract.NewEmitter[threaddto.MessagesPage](dispatcher),
+		emitCompacted:           contract.NewEmitter[threaddto.Compacted](dispatcher),
+		emitLaunched:            contract.NewEmitter[threaddto.Launched](dispatcher),
+		threadAgents:            make(map[string]string),
+		reconnectDelay:          sessionRecoveryReconnectDelay,
+	}
+	// Workers live beside service methods they call; bus callbacks only enqueue.
+	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)
+	s.sessionRecoveryWorker = newSessionRecoveryWorker(s, logger)
+	return s
+}
+
+// sessionGenerationBinderFromOrchestration 从兼容 facade 里提取独立 generation 绑定端口。
+func sessionGenerationBinderFromOrchestration(orchestration OrchestrationFacade) SessionGenerationBinder {
+	binder, _ := orchestration.(SessionGenerationBinder)
+	return binder
 }

@@ -10,8 +10,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestResolveResumeRequestCanonicalizesCodexIdentityFromSymlinkSources(t *testing.T) {
@@ -21,12 +19,12 @@ func TestResolveResumeRequestCanonicalizesCodexIdentityFromSymlinkSources(t *tes
 	tests := []struct {
 		name    string
 		runtime map[string]any
-		binding bindingstore.Binding
+		binding BindingRecord
 		request ResumeRequest
 	}{
 		{
 			name: "binding",
-			binding: bindingstore.Binding{
+			binding: BindingRecord{
 				CodexHome:          aliasHome,
 				CodexInstanceKey:   "default",
 				CodexModelProvider: "openai",
@@ -72,7 +70,7 @@ func TestResolveResumeRequestCanonicalizesConfigCodexIdentity(t *testing.T) {
 	t.Parallel()
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
-	threads, bindings := resumeCodexIdentityStores(t, "thread-config-resolve", nil, bindingstore.Binding{})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-config-resolve", nil, BindingRecord{})
 	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, &stubSessionStarter{}, nil, nil, nil).(*service)
 
 	got, _, err := svc.resolveResumeRequest(context.Background(), ResumeRequest{
@@ -94,7 +92,7 @@ func TestResumeSessionCanonicalizesCodexIdentityBeforeProvider(t *testing.T) {
 	t.Parallel()
 
 	realHome, aliasHome := createCodexHomeSymlinkAlias(t)
-	threads, bindings := resumeCodexIdentityStores(t, "thread-provider", nil, bindingstore.Binding{})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-provider", nil, BindingRecord{})
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		if req.CodexHome != realHome ||
@@ -129,7 +127,7 @@ func TestResumeSessionCanonicalizesCleanCodexHomeBeforeProvider(t *testing.T) {
 	t.Parallel()
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
-	threads, bindings := resumeCodexIdentityStores(t, "thread-clean-provider", nil, bindingstore.Binding{})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-clean-provider", nil, BindingRecord{})
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		if req.CodexHome != canonicalHome ||
@@ -164,7 +162,7 @@ func TestResumeSessionCanonicalizesConfigCodexIdentityBeforeProvider(t *testing.
 	t.Parallel()
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
-	threads, bindings := resumeCodexIdentityStores(t, "thread-config-provider", nil, bindingstore.Binding{})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-config-provider", nil, BindingRecord{})
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		if req.CodexHome != canonicalHome ||
@@ -243,7 +241,7 @@ func TestServiceResumeForwardsResolvedCleanAliasCodexIdentity(t *testing.T) {
 	t.Parallel()
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
-	threads, bindings := resumeCodexIdentityStores(t, "thread-single-canonicalize", nil, bindingstore.Binding{
+	threads, bindings := resumeCodexIdentityStores(t, "thread-single-canonicalize", nil, BindingRecord{
 		CodexHome:          aliasHome,
 		CodexInstanceKey:   "default",
 		CodexModelProvider: "openai",
@@ -294,7 +292,7 @@ func TestServiceResumeRejectsInvalidCompleteHistoricalCodexIdentity(t *testing.T
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			threads, bindings := resumeCodexIdentityStores(t, "thread-invalid-history-"+tt.name, nil, bindingstore.Binding{
+			threads, bindings := resumeCodexIdentityStores(t, "thread-invalid-history-"+tt.name, nil, BindingRecord{
 				CodexHome:          tt.home,
 				CodexInstanceKey:   "default",
 				CodexModelProvider: "openai",
@@ -322,7 +320,7 @@ func TestServiceResumeRejectsPartialCodexIdentityBeforeProvider(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
 
 	explicitHome := t.TempDir()
-	threads, bindings := resumeCodexIdentityStores(t, "thread-partial", nil, bindingstore.Binding{})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-partial", nil, BindingRecord{})
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		t.Fatal("ResumeSession should not be called when codex identity is partial")
 		return nil, nil
@@ -342,7 +340,7 @@ func TestServiceResumeRejectsPartialConfigCodexIdentityBeforeProvider(t *testing
 	t.Parallel()
 
 	explicitHome := t.TempDir()
-	threads, bindings := resumeCodexIdentityStores(t, "thread-config-partial", nil, bindingstore.Binding{})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-config-partial", nil, BindingRecord{})
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		t.Fatal("ResumeSession should not be called when config codex identity is partial")
 		return nil, nil
@@ -364,7 +362,7 @@ func TestResumeSessionLeavesNonCodexIdentityUnchanged(t *testing.T) {
 	t.Parallel()
 
 	_, aliasHome := createCleanCodexHomeAlias(t)
-	threads, bindings := resumeCodexIdentityStores(t, "thread-claude-codex-fields", nil, bindingstore.Binding{Provider: "claude"})
+	threads, bindings := resumeCodexIdentityStores(t, "thread-claude-codex-fields", nil, BindingRecord{Provider: "claude"})
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		if req.Provider != "claude" {
@@ -398,7 +396,7 @@ func resumeCodexIdentityStores(
 	t *testing.T,
 	threadID string,
 	runtimeConfig map[string]any,
-	binding bindingstore.Binding,
+	binding BindingRecord,
 ) (*stubThreadStore, *stubBindingStore) {
 	t.Helper()
 	if runtimeConfig == nil {
@@ -407,7 +405,7 @@ func resumeCodexIdentityStores(
 	runtimeConfig["legacyPromptSnapshotMigration"] = true
 	providerThreadID := "019d5f6b-fb3c-7760-9d6f-54005553f70f"
 	cwd := t.TempDir()
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       threadID,
 		AgentID:        "agent-" + threadID,
 		Prompt:         "resume",

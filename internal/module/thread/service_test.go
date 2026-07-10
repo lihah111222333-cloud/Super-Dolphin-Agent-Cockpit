@@ -9,8 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 // TestListThreadsUsesLimitAndCursor 验证列表页读取必须把 limit/cursor 下推到 store。
@@ -187,7 +185,7 @@ type pageAwareThreadStore struct {
 }
 
 // ListAll 记录 legacy 全量读取调用，分页路径不允许触发它。
-func (s *pageAwareThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
+func (s *pageAwareThreadStore) ListAll(context.Context) ([]ThreadRecord, error) {
 	s.listAllCalled = true
 	return nil, errors.New("ListAll should not be called by paged thread readers")
 }
@@ -232,7 +230,7 @@ func TestDeletePinPendingLaunchHardDelete(t *testing.T) {
 	t.Parallel()
 
 	store := &pinDeleteThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:      "thread-pending",
 			Status:        statusCreated,
 			PendingLaunch: true,
@@ -241,7 +239,7 @@ func TestDeletePinPendingLaunchHardDelete(t *testing.T) {
 	svc := &service{threadStore: store}
 	_ = svc.acquirePendingLaunchLock("thread-pending")
 	svc.emitStopped = func(evt threaddto.Stopped) {
-		store.thread = &threadstore.Thread{
+		store.thread = &ThreadRecord{
 			ThreadID: evt.ThreadID,
 			AgentID:  evt.AgentID,
 			Status:   evt.Status,
@@ -264,7 +262,7 @@ func TestDeletePinPendingLaunchHardDelete(t *testing.T) {
 func TestDeleteFailsWhenBindingStoreMissing(t *testing.T) {
 	t.Parallel()
 
-	store := &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+	store := &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-active",
 		Status:   statusCreated,
 	}}}
@@ -284,7 +282,7 @@ func TestDeletePendingLaunchStillHandlesMissingBindingRecord(t *testing.T) {
 	t.Parallel()
 
 	store := &pinDeleteThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:      "thread-pending-missing-binding",
 			Status:        statusCreated,
 			PendingLaunch: true,
@@ -307,7 +305,7 @@ func TestSetArchivedFailsWhenBindingStoreMissing(t *testing.T) {
 	t.Run("binding store missing", func(t *testing.T) {
 		t.Parallel()
 
-		svc := &service{threadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1"}}}
+		svc := &service{threadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1"}}}
 
 		err := svc.setBindingArchived(context.Background(), "thread-1", true)
 
@@ -319,7 +317,7 @@ func TestSetArchivedFailsWhenBindingStoreMissing(t *testing.T) {
 	t.Run("thread store missing", func(t *testing.T) {
 		t.Parallel()
 
-		svc := &service{bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{AgentID: "thread-1"}}}
+		svc := &service{bindingStore: &stubThreadBindingStore{binding: &BindingRecord{AgentID: "thread-1"}}}
 
 		err := svc.setBindingArchived(context.Background(), "thread-1", true)
 
@@ -377,12 +375,12 @@ func TestDeletePinPreservesUnmanagedScratchpad(t *testing.T) {
 		Runtime: map[string]any{"scratchpadDir": external},
 	})
 	svc := &service{
-		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:       "thread-external",
 			AgentID:        "agent-external",
 			ConfigOverride: raw,
 		}}},
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-external",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-external",
@@ -441,14 +439,14 @@ func TestDeletePinBindingDeleteFailureAbortsBeforeThreadDelete(t *testing.T) {
 
 func newPinDeleteManagedService(threadID, agentID, providerThreadID string, calls *[]string, stopErr, bindingErr error) *service {
 	return &service{
-		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: threadID,
 			AgentID:  agentID,
 			Status:   statusCreated,
 		}}, calls: calls},
 		bindingStore: &pinDeleteBindingStore{
 			stubThreadBindingStore: &stubThreadBindingStore{
-				binding: &bindingstore.Binding{
+				binding: &BindingRecord{
 					AgentID:          agentID,
 					Provider:         "codex",
 					ProviderThreadID: providerThreadID,

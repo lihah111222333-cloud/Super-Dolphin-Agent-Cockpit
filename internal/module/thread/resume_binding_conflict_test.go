@@ -9,8 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 // TestResumeBindingConflictSuppressesThreadStartedEvent is a regression test
@@ -35,7 +33,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	// provider_thread_id = conflictUUID, but that UUID is ALSO bound
 	// to agent B. This triggers ensureProviderThreadAvailable → error.
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-A",
 		AgentID:        "agent-A",
 		Prompt:         "DAG改造执行",
@@ -50,7 +48,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	// provider_thread_id conflictUUID, but GetByProviderThread for
 	// that UUID returns agent-B's binding.
 	bindings := &conflictBindingStore{
-		agentBinding: &bindingstore.Binding{
+		agentBinding: &BindingRecord{
 			AgentID:          "agent-A",
 			Provider:         "codex",
 			ProviderThreadID: conflictUUID,
@@ -58,7 +56,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 			RolloutPath:      rolloutPath,
 			Cwd:              "/repo",
 		},
-		conflictBinding: &bindingstore.Binding{
+		conflictBinding: &BindingRecord{
 			AgentID:          "agent-B",
 			Provider:         "codex",
 			ProviderThreadID: conflictUUID,
@@ -117,7 +115,7 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 	const providerThreadID = "11111111-2222-3333-4444-555555555572"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID:       "thread-1",
 			AgentID:        "agent-1",
 			Prompt:         "test",
@@ -129,7 +127,7 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 		},
 		upsertErr: errTransientDB, // simulate transient DB failure
 	}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
@@ -171,7 +169,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 
 	const conflictUUID = "11111111-2222-3333-4444-555555555573"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-A",
 		AgentID:        "agent-A",
 		Prompt:         "eviction-test",
@@ -183,7 +181,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 	}}
 
 	bindings := &conflictBindingStore{
-		agentBinding: &bindingstore.Binding{
+		agentBinding: &BindingRecord{
 			AgentID:          "agent-A",
 			Provider:         "codex",
 			ProviderThreadID: conflictUUID,
@@ -191,7 +189,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 			RolloutPath:      rolloutPath,
 			Cwd:              "/repo",
 		},
-		conflictBinding: &bindingstore.Binding{
+		conflictBinding: &BindingRecord{
 			AgentID:          "agent-B",
 			Provider:         "codex",
 			ProviderThreadID: conflictUUID,
@@ -241,11 +239,11 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 // to reject the persist.
 type conflictBindingStore struct {
 	stubBindingStore
-	agentBinding    *bindingstore.Binding
-	conflictBinding *bindingstore.Binding
+	agentBinding    *BindingRecord
+	conflictBinding *BindingRecord
 }
 
-func (s *conflictBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *conflictBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	if s.agentBinding != nil && s.agentBinding.AgentID == agentID {
 		b := *s.agentBinding
 		return &b, nil
@@ -253,7 +251,7 @@ func (s *conflictBindingStore) GetByAgentID(_ context.Context, agentID string) (
 	return s.stubBindingStore.GetByAgentID(context.Background(), agentID)
 }
 
-func (s *conflictBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s *conflictBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*BindingRecord, error) {
 	if s.conflictBinding != nil &&
 		s.conflictBinding.Provider == provider &&
 		s.conflictBinding.ProviderThreadID == providerThreadID {
@@ -263,7 +261,7 @@ func (s *conflictBindingStore) GetByProviderThread(_ context.Context, provider, 
 	return s.stubBindingStore.GetByProviderThread(context.Background(), provider, providerThreadID)
 }
 
-func (s *conflictBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+func (s *conflictBindingStore) UpdateProviderThreadID(_ context.Context, params BindingProviderThreadIDUpdate) error {
 	// Simulate eviction: when the conflict binding's provider_thread_id is
 	// cleared, GetByProviderThread should no longer return it.
 	if s.conflictBinding != nil && s.conflictBinding.AgentID == params.AgentID {

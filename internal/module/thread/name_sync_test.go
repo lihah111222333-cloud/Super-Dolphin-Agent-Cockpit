@@ -5,15 +5,12 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "before",
@@ -21,7 +18,7 @@ func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
 		Status:    statusCreated,
 	}}
 	session := &stubSession{threadID: "thread-1"}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -44,7 +41,7 @@ func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
 func TestSetNameSucceedsWithoutActiveSessionAfterRestart(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:        "thread-1",
 		AgentID:         "agent-1",
 		Prompt:          "before",
@@ -52,7 +49,7 @@ func TestSetNameSucceedsWithoutActiveSessionAfterRestart(t *testing.T) {
 		Status:          statusCreated,
 		ManuallyRenamed: false,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-1",
 		Provider:      "codex",
 		CodexThreadID: "thread-1",
@@ -75,7 +72,7 @@ func TestSetNameReturnsProviderRenameErrorForActiveSession(t *testing.T) {
 	t.Parallel()
 
 	renameErr := errors.New("provider rename failed")
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "before",
@@ -83,7 +80,7 @@ func TestSetNameReturnsProviderRenameErrorForActiveSession(t *testing.T) {
 		Status:    statusCreated,
 	}}
 	session := &stubSession{threadID: "thread-1", setThreadNameErr: renameErr}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",

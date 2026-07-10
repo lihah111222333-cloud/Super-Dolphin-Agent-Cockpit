@@ -9,7 +9,6 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -217,7 +216,7 @@ func TestAgentLaunchedCallbackEnqueueOnly(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{block: make(chan struct{})}
 
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1"}}
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-1"}}
 	svc := &service{
 		logger:       silentLogger(),
 		bindingStore: bindings,

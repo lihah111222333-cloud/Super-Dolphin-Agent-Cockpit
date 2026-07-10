@@ -3,9 +3,6 @@ package thread
 import (
 	"context"
 	"testing"
-
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestArchiveResolvesBindingWhenPendingLaunchProbeMissesAlias(t *testing.T) {
@@ -13,14 +10,14 @@ func TestArchiveResolvesBindingWhenPendingLaunchProbeMissesAlias(t *testing.T) {
 
 	calls := []string{}
 	bindingStore := &stubThreadBindingStore{
-		binding: &bindingstore.Binding{
+		binding: &BindingRecord{
 			AgentID:       "agent-1",
 			CodexThreadID: "thread-1",
 		},
 		calls: &calls,
 	}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,

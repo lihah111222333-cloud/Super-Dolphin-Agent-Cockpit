@@ -9,8 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func writeExistingProviderHistoryFile(t *testing.T) string {
@@ -25,7 +23,7 @@ func writeExistingProviderHistoryFile(t *testing.T) string {
 func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-public",
 		AgentID:        "agent-1",
 		Prompt:         "resume",
@@ -39,7 +37,7 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 	// over the stale ProviderThreadID placeholder when the CLI file exists.
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
@@ -74,7 +72,7 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-public",
 		AgentID:        "agent-1",
 		Prompt:         "resume",
@@ -84,7 +82,7 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-1",
 		Provider:      "claude",
 		CodexThreadID: "thread-public",
@@ -116,14 +114,14 @@ func TestServiceRecoverUsesSessionUUIDForProviderResumeWhenPublicThreadIsAgentID
 
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "agent-1",
 		AgentID:   "agent-1",
 		Prompt:    "Recovered Thread",
 		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
-	}, promptSnapshot: &threadstore.PromptSnapshot{
+	}, promptSnapshot: &PromptSnapshotRecord{
 		DisplayName:           "Recovered Thread",
 		BaseInstructions:      "stored base",
 		DeveloperInstructions: "stored dev",
@@ -131,7 +129,7 @@ func TestServiceRecoverUsesSessionUUIDForProviderResumeWhenPublicThreadIsAgentID
 		Version:               contract.PromptAssemblySnapshotVersion,
 		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil, nil, 0),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "agent-1",
@@ -170,7 +168,7 @@ func TestServiceRecoverUsesSessionUUIDForProviderResumeWhenPublicThreadIsAgentID
 func TestServiceRecoverRejectsProviderResumeWithoutRecoverableUUID(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "agent-1",
 		AgentID:   "agent-1",
 		Prompt:    "Recovered Thread",
@@ -178,7 +176,7 @@ func TestServiceRecoverRejectsProviderResumeWithoutRecoverableUUID(t *testing.T)
 		Cwd:       "/repo",
 		CreatedAt: 123,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "agent-1",

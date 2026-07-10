@@ -10,7 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestNewServiceInitializesDefaults(t *testing.T) {
@@ -274,7 +273,7 @@ func TestNormalizeStartRequestRejectsInvalidToolSurfaceMode(t *testing.T) {
 func TestBuildPendingSpawnRequestPreservesToolSurfaceMode(t *testing.T) {
 	t.Parallel()
 
-	row := &threadstore.Thread{
+	row := &ThreadRecord{
 		ThreadID: "thread-pending",
 		Cwd:      "/tmp/demo",
 		Model:    "gpt-5.5",
@@ -403,7 +402,7 @@ func TestNewThreadHandlersDispatchConfigSet(t *testing.T) {
 func TestNewThreadHandlersDispatchConfigGetPendingLaunch(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-launch",
 		Model:         "stored-thread-model",
 		Status:        statusCreated,

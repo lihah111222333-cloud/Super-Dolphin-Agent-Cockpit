@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -28,7 +27,7 @@ func TestAvailableExpertsProviderFailsFastWithoutStore(t *testing.T) {
 func TestAvailableExpertsProviderReturnsNilWithoutPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{}, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{}, nil)}
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{}); err != nil || text != nil {
 		t.Fatalf("Resolve() without user prompt = (%v, %v), want nil, nil", text, err)
 	}
@@ -38,7 +37,7 @@ func TestAvailableExpertsProviderRendersShortListSortedAndScoped(t *testing.T) {
 	t.Parallel()
 
 	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+		templates: []PromptTemplate{
 			expertTemplate("low/priority", 1, "低优先级任务"),
 			expertTemplate("main/default", 100, "当前模板不应出现"),
 			{PromptKey: "disabled/expert", Priority: 99, WhenToUse: "禁用模板", Enabled: false},
@@ -46,7 +45,7 @@ func TestAvailableExpertsProviderRendersShortListSortedAndScoped(t *testing.T) {
 			expertTemplate("high/priority", 50, "高优先级任务"),
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "你好", PromptKey: "main/default"},
@@ -76,7 +75,7 @@ func TestAvailableExpertsProviderPrefersProjectTemplateOverGlobalTemplate(t *tes
 	t.Parallel()
 
 	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+		templates: []PromptTemplate{
 			{
 				PromptKey: "main/expert/sql-global",
 				Title:     "SQL Expert",
@@ -93,7 +92,7 @@ func TestAvailableExpertsProviderPrefersProjectTemplateOverGlobalTemplate(t *tes
 			},
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "帮我看 SQL"},
@@ -113,8 +112,8 @@ func TestAvailableExpertsProviderPrefersProjectTemplateOverGlobalTemplate(t *tes
 func TestAvailableExpertsProviderDoesNotRenderFullForOrdinaryMultiTaskPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
@@ -141,8 +140,8 @@ func TestAvailableExpertsProviderDoesNotRenderFullForOrdinaryMultiTaskPrompt(t *
 func TestAvailableExpertsProviderRendersFullForExplicitDelegationPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
@@ -174,8 +173,8 @@ func TestAvailableExpertsProviderRendersFullForExplicitDelegationPrompt(t *testi
 func TestAvailableExpertsProviderAndCacheDependencyUseSameCWDResolver(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{expertTemplate("coder/prompt", 20, "代码任务")}}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	store := &fakePromptStore{templates: []PromptTemplate{expertTemplate("coder/prompt", 20, "代码任务")}}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
 	input := contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试", CWD: "/repo/start"},
 	}
@@ -197,8 +196,8 @@ func TestAvailableExpertsProviderAndCacheDependencyUseSameCWDResolver(t *testing
 func TestAvailableExpertsProviderMissingCWDFailsCritical(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{expertTemplate("coder/prompt", 20, "代码任务")}}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	store := &fakePromptStore{templates: []PromptTemplate{expertTemplate("coder/prompt", 20, "代码任务")}}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试"},
 	})
@@ -213,8 +212,8 @@ func TestAvailableExpertsProviderMissingCWDFailsCritical(t *testing.T) {
 func TestAvailableExpertsProviderExcludesCurrentPromptOnTurn(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
@@ -240,8 +239,8 @@ func TestAvailableExpertsProviderExcludesCurrentPromptOnTurn(t *testing.T) {
 func TestAvailableExpertsProviderDoesNotRenderFullForSingleCharacterTriggers(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 		},
 	}, nil)}
@@ -263,8 +262,8 @@ func TestAvailableExpertsProviderDoesNotRenderFullForSingleCharacterTriggers(t *
 func TestAvailableExpertsProviderReturnsNilWhenNoUsableExperts(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			{PromptKey: "empty/when", Enabled: true, WhenToUse: ""},
 			{PromptKey: "disabled/expert", Enabled: false, WhenToUse: "禁用"},
 		},
@@ -279,7 +278,7 @@ func TestAvailableExpertsProviderReturnsNilWhenNoUsableExperts(t *testing.T) {
 func TestAvailableExpertsProviderFailsFastWhenListFails(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{listErr: errors.New("db down")}, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{listErr: errors.New("db down")}, nil)}
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试", CWD: "/repo/a"},
 	}); err == nil || text != nil || !contract.IsCriticalPromptSectionError(err) {
@@ -290,12 +289,12 @@ func TestAvailableExpertsProviderFailsFastWhenListFails(t *testing.T) {
 func TestAvailableExpertsExcludesRecallAndDefaultRuleAssets(t *testing.T) {
 	t.Parallel()
 
-	templates := []promptstore.PromptTemplate{
+	templates := []PromptTemplate{
 		{PromptKey: "main/expert", AgentKey: "main", WhenToUse: "Use for expert work.", Enabled: true},
 		{PromptKey: "main/knowledge/sqlc", AgentKey: "main", WhenToUse: "Knowledge asset.", Tags: mustJSONTags("intent:recall"), Enabled: true},
 		{PromptKey: "main/default-rule/scope", AgentKey: "default_rule", WhenToUse: "Project rule.", Tags: mustJSONTags("intent:default_rule"), Enabled: true},
 	}
-	got := availableExpertsFromTemplates(promptTemplatesFromStore(templates), "")
+	got := availableExpertsFromTemplates(templates, "")
 	if len(got) != 1 || got[0].PromptKey != "main/expert" {
 		t.Fatalf("availableExpertsFromTemplates() = %#v, want only main/expert", got)
 	}
@@ -314,7 +313,7 @@ func TestRecallCatalogProviderFailsFastWithoutStore(t *testing.T) {
 func TestRecallCatalogProviderReturnsNilOnEmpty(t *testing.T) {
 	t.Parallel()
 
-	provider := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{}, nil)}
+	provider := RecallCatalogProvider{catalog: newRuntimeCatalog(&fakePromptStore{}, nil)}
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{BuildCtx: contract.BuildCtx{CWD: "/repo/a"}}); err != nil || text != nil {
 		t.Fatalf("Resolve() empty catalog = (%v, %v), want nil, nil", text, err)
 	}
@@ -323,7 +322,7 @@ func TestRecallCatalogProviderReturnsNilOnEmpty(t *testing.T) {
 func TestRecallCatalogProviderFailsFastWhenListFails(t *testing.T) {
 	t.Parallel()
 
-	provider := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{recallErr: errors.New("db down")}, nil)}
+	provider := RecallCatalogProvider{catalog: newRuntimeCatalog(&fakePromptStore{recallErr: errors.New("db down")}, nil)}
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{BuildCtx: contract.BuildCtx{CWD: "/repo/a"}}); err == nil || text != nil || !contract.IsCriticalPromptSectionError(err) {
 		t.Fatalf("Resolve() list failure = (%v, %v), want critical error", text, err)
 	}
@@ -333,7 +332,7 @@ func TestRecallCatalogProviderMissingCWDFailsCritical(t *testing.T) {
 	t.Parallel()
 
 	store := &fakePromptStore{}
-	provider := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	provider := RecallCatalogProvider{catalog: newRuntimeCatalog(store, nil)}
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{})
 	if err == nil || text != nil || !contract.IsCriticalPromptSectionError(err) {
 		t.Fatalf("Resolve() missing cwd = (%v, %v), want critical error", text, err)
@@ -347,12 +346,12 @@ func TestRecallCatalogProviderFiltersByCWD(t *testing.T) {
 	t.Parallel()
 
 	store := &fakePromptStore{
-		recallSectionsByCWD: map[string][]promptstore.PromptTemplateSection{
+		recallSectionsByCWD: map[string][]PromptTemplateSection{
 			"/repo/a": {{RecallTopic: "repo-a", TemplateDescription: "Repo A only.", TriggerType: "recall", Enabled: true}},
 			"/repo/b": {{RecallTopic: "repo-b", TemplateDescription: "Repo B only.", TriggerType: "recall", Enabled: true}},
 		},
 	}
-	provider := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	provider := RecallCatalogProvider{catalog: newRuntimeCatalog(store, nil)}
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{BuildCtx: contract.BuildCtx{CWD: "/repo/a"}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -372,8 +371,8 @@ func TestRecallCatalogProviderRendersTopicCatalog(t *testing.T) {
 	t.Parallel()
 
 	const bodyMarker = "PROMPT_INTENT_RECALL_BODY_MARKER"
-	provider := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		recallSections: []promptstore.PromptTemplateSection{
+	provider := RecallCatalogProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		recallSections: []PromptTemplateSection{
 			{
 				RecallTopic:         "sqlc-workflow",
 				Body:                bodyMarker + " SQLC workflow body must stay behind prompt_recall.",
@@ -420,8 +419,8 @@ func TestRecallCatalogProviderRendersTopicCatalog(t *testing.T) {
 func TestRecallCatalogProviderPrefersProjectTopicOverGlobalTopic(t *testing.T) {
 	t.Parallel()
 
-	provider := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		recallSections: []promptstore.PromptTemplateSection{
+	provider := RecallCatalogProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		recallSections: []PromptTemplateSection{
 			{
 				RecallTopic:         "sqlc-workflow",
 				TemplateDescription: "Global SQLC workflow.",
@@ -455,8 +454,8 @@ func TestPromptDynamicProvidersLogResolveMetrics(t *testing.T) {
 	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&logs, nil)))
 	t.Cleanup(func() { pkglogger.SetForTest(previous) })
 
-	available := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	available := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
@@ -483,8 +482,8 @@ func TestPromptDynamicProvidersLogResolveMetrics(t *testing.T) {
 	}
 
 	logs.Reset()
-	recall := RecallCatalogProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
-		recallSections: []promptstore.PromptTemplateSection{
+	recall := RecallCatalogProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+		recallSections: []PromptTemplateSection{
 			{RecallTopic: "sqlc-workflow", TemplateDescription: "SQLC 变更先改 sql/queries 并生成代码。", Enabled: true},
 		},
 	}, nil)}

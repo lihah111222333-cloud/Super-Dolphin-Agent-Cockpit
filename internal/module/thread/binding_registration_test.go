@@ -6,9 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
@@ -16,7 +13,7 @@ func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 
 	t.Run("empty to filled is allowed", func(t *testing.T) {
 		threads := &stubThreadStore{}
-		bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		bindings := &stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "", // empty — not yet set
@@ -43,7 +40,7 @@ func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 
 	t.Run("non-empty change is rejected", func(t *testing.T) {
 		threads := &stubThreadStore{}
-		bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		bindings := &stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1", // already set
@@ -116,7 +113,7 @@ func TestBindingRecoveryReporterRecordsProviderSessionUUID(t *testing.T) {
 	t.Parallel()
 
 	const sessionUUID = "11111111-2222-3333-4444-555555555555"
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
@@ -142,7 +139,7 @@ func TestBindingRecoveryReporterDoesNotPromoteProviderThreadIDWithoutHistoryFile
 	t.Parallel()
 
 	const sessionUUID = "11111111-2222-3333-4444-555555555555"
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
@@ -163,7 +160,7 @@ func TestBindingRecoveryReporterDoesNotPromoteProviderThreadIDWithoutHistoryFile
 func TestBindingRecoveryReporterSkipsInvalidSessionUUID(t *testing.T) {
 	t.Parallel()
 
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
@@ -184,7 +181,7 @@ func TestBindingRecoveryReporterSkipsInvalidSessionUUID(t *testing.T) {
 func TestThreadBindingStoreAdapterPreservesBindingFields(t *testing.T) {
 	t.Parallel()
 
-	source := &bindingstore.Binding{
+	source := &BindingRecord{
 		AgentID:            "agent-adapter",
 		Provider:           "codex",
 		ProviderThreadID:   "provider-thread-adapter",
@@ -234,7 +231,7 @@ func TestThreadBindingStoreAdapterPreservesBindingFields(t *testing.T) {
 	assertThreadBindingUpsertParams(t, bindings.upsert)
 }
 
-func assertThreadBindingRecord(t *testing.T, got *threadBindingRecord, want bindingstore.Binding) {
+func assertThreadBindingRecord(t *testing.T, got *threadBindingRecord, want BindingRecord) {
 	t.Helper()
 	if got == nil {
 		t.Fatal("binding record = nil")
@@ -262,9 +259,9 @@ func assertThreadBindingRecord(t *testing.T, got *threadBindingRecord, want bind
 	}
 }
 
-func assertThreadBindingUpsertParams(t *testing.T, got bindingstore.UpsertParams) {
+func assertThreadBindingUpsertParams(t *testing.T, got BindingUpsert) {
 	t.Helper()
-	want := bindingstore.UpsertParams{
+	want := BindingUpsert{
 		AgentID:            "agent-next",
 		Provider:           "codex",
 		ProviderThreadID:   "provider-next",
@@ -290,7 +287,7 @@ func TestPersistThreadStateRejectsPublicThreadCollision(t *testing.T) {
 
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1",
 		AgentID:  "agent-other",
 	}}
@@ -316,7 +313,7 @@ func TestPersistThreadStateRejectsPublicThreadCollision(t *testing.T) {
 func TestPersistThreadStateRejectsOrphanPublicThreadCollision(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1",
 	}}
 	bindings := &stubBindingStore{}
@@ -364,7 +361,7 @@ func TestPersistThreadStateRollsBackInsertedBindingOnThreadUpsertFailure(t *test
 func TestPersistThreadStateRestoresPreviousBindingOnThreadUpsertFailure(t *testing.T) {
 	t.Parallel()
 
-	previous := &bindingstore.Binding{
+	previous := &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "provider-thread-1",
@@ -431,7 +428,7 @@ func TestBindingRegistrationCanonicalizesExistingAliasCodexHome(t *testing.T) {
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
 	threads := &stubThreadStore{}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-canonical",
 		Provider:           "codex",
 		ProviderThreadID:   "provider-thread-canonical",
@@ -496,7 +493,7 @@ func TestBindingRegistrationRejectsCodexIdentityTupleConflict(t *testing.T) {
 			t.Parallel()
 
 			threads := &stubThreadStore{}
-			bindings := &stubBindingStore{binding: &bindingstore.Binding{
+			bindings := &stubBindingStore{binding: &BindingRecord{
 				AgentID:            "agent-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
 				Provider:           "codex",
 				ProviderThreadID:   "provider-thread-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
@@ -541,7 +538,7 @@ func TestBindingRegistrationRejectsNonAliasCodexHomeRepair(t *testing.T) {
 	canonicalHome, _ := createCleanCodexHomeAlias(t)
 	otherHome, _ := createCleanCodexHomeAlias(t)
 	threads := &stubThreadStore{}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-home-conflict",
 		Provider:           "codex",
 		ProviderThreadID:   "provider-thread-home-conflict",
@@ -581,7 +578,7 @@ func TestBindingRegistrationHistoryInputUsesCanonicalCodexHome(t *testing.T) {
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
 	threads := &stubThreadStore{}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-history-canonical",
 		Provider:           "codex",
 		ProviderThreadID:   "provider-thread-history-canonical",
@@ -619,7 +616,7 @@ func TestPersistThreadStateUpdatesExistingBindingSessionUUID(t *testing.T) {
 
 	const sessionUUID = "019e2c35-42ef-75b3-9f73-31cf7cc4cf2e"
 	threads := &stubThreadStore{}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-session",
 		Provider:           "codex",
 		ProviderThreadID:   "",

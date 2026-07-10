@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestRuntimeCatalogGetTemplateWithEmptyCWDSkipsStore(t *testing.T) {
@@ -15,7 +14,7 @@ func TestRuntimeCatalogGetTemplateWithEmptyCWDSkipsStore(t *testing.T) {
 
 	store := &fakePromptStore{getErr: errors.New("store get should not be called")}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	_, err := catalog.GetTemplate(context.Background(), "main/db-global", "")
 	if err == nil {
 		t.Fatal("GetTemplate() error = nil, want not found without trusted cwd")
@@ -38,11 +37,11 @@ func TestRuntimeCatalogGetTemplateWithEmptyCWDCanReadBuiltin(t *testing.T) {
 			Scope:     "global",
 		},
 	}}
-	store := &fakePromptStore{getTemplates: map[string]promptstore.PromptTemplate{
+	store := &fakePromptStore{getTemplates: map[string]PromptTemplate{
 		"main/default": {ID: 1, PromptKey: "main/default", Title: "DB Default", Tags: mustJSONTags("scope.global"), Enabled: true},
 	}, getErr: errors.New("store get should not be called")}
 
-	catalog := newRuntimeCatalogForStore(store, builtin)
+	catalog := newRuntimeCatalog(store, builtin)
 	got, err := catalog.GetTemplate(context.Background(), "main/default", "")
 	if err != nil {
 		t.Fatalf("GetTemplate() error = %v", err)
@@ -56,7 +55,7 @@ func TestRuntimeCatalogListTemplatesInfersRecallIntentFromRecallOnlySections(t *
 	t.Parallel()
 
 	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+		templates: []PromptTemplate{
 			{
 				ID:        41,
 				PromptKey: "main/knowledge/sqlc",
@@ -67,7 +66,7 @@ func TestRuntimeCatalogListTemplatesInfersRecallIntentFromRecallOnlySections(t *
 				Enabled:   true,
 			},
 		},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			41: {
 				{
 					TemplateID:  41,
@@ -80,7 +79,7 @@ func TestRuntimeCatalogListTemplatesInfersRecallIntentFromRecallOnlySections(t *
 		},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -89,8 +88,8 @@ func TestRuntimeCatalogListTemplatesInfersRecallIntentFromRecallOnlySections(t *
 	if got == nil {
 		t.Fatalf("ListTemplates() = %#v, want section-only recall template", templates)
 	}
-	if !runtimeCatalogStringSliceContains(promptstore.TemplateTags(got.Tags), "intent:recall") {
-		t.Fatalf("template tags = %#v, want inferred intent:recall", promptstore.TemplateTags(got.Tags))
+	if !runtimeCatalogStringSliceContains(templateTags(got.Tags), "intent:recall") {
+		t.Fatalf("template tags = %#v, want inferred intent:recall", templateTags(got.Tags))
 	}
 }
 
@@ -98,7 +97,7 @@ func TestRuntimeCatalogListTemplatesDoesNotInferRecallWhenInjectableSectionExist
 	t.Parallel()
 
 	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+		templates: []PromptTemplate{
 			{
 				ID:        42,
 				PromptKey: "main/expert/sqlc",
@@ -109,7 +108,7 @@ func TestRuntimeCatalogListTemplatesDoesNotInferRecallWhenInjectableSectionExist
 				Enabled:   true,
 			},
 		},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			42: {
 				{TemplateID: 42, SectionKey: "workflow", TriggerType: "always", Body: "Implement SQLC changes.", Enabled: true},
 				{TemplateID: 42, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", Enabled: true},
@@ -117,7 +116,7 @@ func TestRuntimeCatalogListTemplatesDoesNotInferRecallWhenInjectableSectionExist
 		},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -126,8 +125,8 @@ func TestRuntimeCatalogListTemplatesDoesNotInferRecallWhenInjectableSectionExist
 	if got == nil {
 		t.Fatalf("ListTemplates() = %#v, want expert template", templates)
 	}
-	if runtimeCatalogStringSliceContains(promptstore.TemplateTags(got.Tags), "intent:recall") {
-		t.Fatalf("template tags = %#v, want expert with injectable section to stay launchable", promptstore.TemplateTags(got.Tags))
+	if runtimeCatalogStringSliceContains(templateTags(got.Tags), "intent:recall") {
+		t.Fatalf("template tags = %#v, want expert with injectable section to stay launchable", templateTags(got.Tags))
 	}
 }
 
@@ -135,7 +134,7 @@ func TestRuntimeCatalogListTemplatesIgnoresDisabledInjectableSectionWhenInferrin
 	t.Parallel()
 
 	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+		templates: []PromptTemplate{
 			{
 				ID:        43,
 				PromptKey: "main/knowledge/sqlc-disabled-workflow",
@@ -146,7 +145,7 @@ func TestRuntimeCatalogListTemplatesIgnoresDisabledInjectableSectionWhenInferrin
 				Enabled:   true,
 			},
 		},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			43: {
 				{TemplateID: 43, SectionKey: "workflow", TriggerType: "always", Body: "Disabled workflow.", Enabled: false},
 				{TemplateID: 43, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", Enabled: true},
@@ -154,13 +153,13 @@ func TestRuntimeCatalogListTemplatesIgnoresDisabledInjectableSectionWhenInferrin
 		},
 	}
 
-	catalog := newRuntimeCatalogForStore(store, nil)
+	catalog := newRuntimeCatalog(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
 	}
 	got := runtimeCatalogTemplateByKey(templates, "main/knowledge/sqlc-disabled-workflow")
-	if got == nil || !runtimeCatalogStringSliceContains(promptstore.TemplateTags(got.Tags), "intent:recall") {
+	if got == nil || !runtimeCatalogStringSliceContains(templateTags(got.Tags), "intent:recall") {
 		t.Fatalf("template = %#v, want disabled injectable section ignored and intent:recall inferred", got)
 	}
 }
@@ -169,7 +168,7 @@ func TestAvailableExpertsExcludesSectionOnlyRecallAssets(t *testing.T) {
 	t.Parallel()
 
 	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+		templates: []PromptTemplate{
 			{
 				ID:        71,
 				PromptKey: "main/knowledge/pricing",
@@ -180,7 +179,7 @@ func TestAvailableExpertsExcludesSectionOnlyRecallAssets(t *testing.T) {
 				Enabled:   true,
 			},
 		},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			71: {
 				{
 					TemplateID:  71,
@@ -192,7 +191,7 @@ func TestAvailableExpertsExcludesSectionOnlyRecallAssets(t *testing.T) {
 			},
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "查询价格"},

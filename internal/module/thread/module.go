@@ -9,10 +9,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"go.uber.org/fx"
 )
@@ -28,17 +24,12 @@ var Module = fx.Module("thread",
 			fx.As(new(contract.PendingLaunchSpawner)),
 		),
 		fx.Annotate(NewThreadHandlers, fx.ParamTags("", `optional:"true"`)),
-		provideThreadServiceStorePort,
-		provideBindingServiceStorePort,
-		providePromptServiceCatalogPort,
 		provideThreadConcreteOutputs,
-		provideRuntimePromptCatalog,
 		NewThreadSubscribers,
 		provideCronThreadStarter,
 	),
 	fx.Provide(fx.Annotate(threadBusWorkersAsRunner, fx.ResultTags(`group:"runners"`))),
 	fx.Provide(NewBindingRecoveryReporter, NewThreadLister, NewThreadConfigReader, NewThreadRuntimeConfigReader),
-	fx.Invoke(registerThreadPromptProviders),
 )
 
 func provideThreadConcreteOutputs(svc Service) (*service, contract.ThreadStateConfigReader) {
@@ -50,95 +41,14 @@ func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
 	return NewCronStarterAdapter(svc)
 }
 
-type threadServiceStorePort interface {
-	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
-	ListAll(ctx context.Context) ([]threadstore.Thread, error)
-	ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadstore.Thread, error)
-	Upsert(ctx context.Context, params threadstore.UpsertParams) error
-	SavePromptSnapshot(ctx context.Context, threadID string, snapshot threadstore.PromptSnapshot) error
-	LoadPromptSnapshot(ctx context.Context, threadID string) (*threadstore.PromptSnapshot, error)
-	UpdateStatus(ctx context.Context, params threadstore.UpdateStatusParams) error
-	DeleteByThreadID(ctx context.Context, threadID string) error
-	CountChildren(ctx context.Context, parentAgentID string) (int64, error)
-	Exists(ctx context.Context, threadID string) (bool, error)
-}
-
-type bindingServiceStorePort interface {
-	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*bindingstore.Binding, error)
-	Upsert(ctx context.Context, params bindingstore.UpsertParams) error
-	DeleteByAgentID(ctx context.Context, agentID string) error
-	UpdateSessionUUID(ctx context.Context, params bindingstore.UpdateSessionUUIDParams) error
-	UpdateProviderThreadID(ctx context.Context, params bindingstore.UpdateProviderThreadIDParams) error
-	SetArchived(ctx context.Context, params bindingstore.SetArchivedParams) error
-	GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error)
-	ListAgentThreadBindings(ctx context.Context) ([]bindingstore.Binding, error)
-	UpdateAgentCwd(ctx context.Context, params bindingstore.UpdateAgentCwdParams) error
-}
-
-type promptServiceCatalogPort any
-
-type threadStoreRecord = threadstore.Thread
-type threadStoreStatusUpdate = threadstore.UpdateStatusParams
-type bindingStoreRecord = bindingstore.Binding
-type bindingStoreArchiveUpdate = bindingstore.SetArchivedParams
-
-type threadServiceStorePortParams struct {
-	fx.In
-	Store threadstore.Store `optional:"true"`
-}
-
-func provideThreadServiceStorePort(params threadServiceStorePortParams) threadServiceStorePort {
-	return params.Store
-}
-
-type bindingServiceStorePortParams struct {
-	fx.In
-	Store bindingstore.Store `optional:"true"`
-}
-
-func provideBindingServiceStorePort(params bindingServiceStorePortParams) bindingServiceStorePort {
-	return params.Store
-}
-
-type promptServiceCatalogPortParams struct {
-	fx.In
-	Catalog promptstore.RuntimePromptCatalog `optional:"true"`
-}
-
-func providePromptServiceCatalogPort(params promptServiceCatalogPortParams) promptServiceCatalogPort {
-	return params.Catalog
-}
-
-type threadPromptProviderParams struct {
-	fx.In
-	Registrar     contract.DynamicSectionRegistrar `optional:"true"`
-	PromptStore   promptstore.Store                `optional:"true"`
-	Builtin       contract.BuiltinPromptRegistry   `optional:"true"`
-	PromptCatalog promptstore.RuntimePromptCatalog `optional:"true"`
-}
-
-func registerThreadPromptProviders(params threadPromptProviderParams) error {
-	catalog := params.PromptCatalog
-	if catalog == nil {
-		catalog = threadprompt.NewRuntimeCatalog(params.PromptStore, params.Builtin)
-	}
-	return threadprompt.RegisterProviders(params.Registrar, catalog)
-}
-
-type runtimePromptCatalogParams struct {
-	fx.In
-	PromptStore promptstore.Store              `optional:"true"`
-	Builtin     contract.BuiltinPromptRegistry `optional:"true"`
-}
-
-func provideRuntimePromptCatalog(params runtimePromptCatalogParams) promptstore.RuntimePromptCatalog {
-	return threadprompt.NewRuntimeCatalog(params.PromptStore, params.Builtin)
-}
-
-type threadBindingStoreRecord = bindingstore.Binding
-type threadConfigStoreRecord = threadstore.Thread
+type threadStoreRecord = ThreadRecord
+type threadStoreStatusUpdate = ThreadStatusUpdate
+type bindingStoreRecord = BindingRecord
+type bindingStoreArchiveUpdate = BindingArchiveUpdate
+type threadBindingStoreRecord = BindingRecord
+type threadConfigStoreRecord = ThreadRecord
 type threadBindingStoreAdapter struct {
-	store bindingServiceStorePort
+	store BindingStore
 }
 
 func (s *service) threadBindingStorePort() threadBindingStorePort {
@@ -148,7 +58,7 @@ func (s *service) threadBindingStorePort() threadBindingStorePort {
 	return threadBindingStoreAdapter{store: s.bindingStore}
 }
 
-func newThreadBindingStorePort(store bindingstore.Store) threadBindingStorePort {
+func newThreadBindingStorePort(store BindingStore) threadBindingStorePort {
 	if store == nil {
 		return nil
 	}
@@ -205,7 +115,7 @@ func (a threadBindingStoreAdapter) UpdateAgentCwd(ctx context.Context, params th
 	return a.store.UpdateAgentCwd(ctx, bindingCWDUpdateToStore(params))
 }
 
-func threadBindingRecordFromStore(binding *bindingstore.Binding) *threadBindingRecord {
+func threadBindingRecordFromStore(binding *BindingRecord) *threadBindingRecord {
 	if binding == nil {
 		return nil
 	}
@@ -230,11 +140,11 @@ func threadBindingRecordFromStore(binding *bindingstore.Binding) *threadBindingR
 }
 
 // threadBindingRecordToStore 只在 module adapter 边界把本地 binding DTO 转回 store DTO。
-func threadBindingRecordToStore(binding *threadBindingRecord) *bindingstore.Binding {
+func threadBindingRecordToStore(binding *threadBindingRecord) *BindingRecord {
 	if binding == nil {
 		return nil
 	}
-	return &bindingstore.Binding{
+	return &BindingRecord{
 		AgentID:            binding.AgentID,
 		Provider:           binding.Provider,
 		ProviderThreadID:   binding.ProviderThreadID,
@@ -262,11 +172,11 @@ func historyTargetIDRecord(binding *threadBindingRecord, threadID string) string
 	return historyTargetID(threadBindingRecordToStore(binding), threadID)
 }
 
-func bindingProvider(binding *bindingstore.Binding) string {
+func bindingProvider(binding *BindingRecord) string {
 	return bindingRecordProvider(threadBindingRecordFromStore(binding))
 }
 
-func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*BindingRecord, error) {
 	binding, err := s.resolveBindingChainRecord(ctx, threadID)
 	return threadBindingRecordToStore(binding), err
 }
@@ -277,8 +187,8 @@ func (s *service) resolveThreadBindingRecord(ctx context.Context, threadID strin
 	return threadBindingRecordFromStore(binding), err
 }
 
-func bindingUpsertParamsToStore(params threadBindingUpsertParams) bindingstore.UpsertParams {
-	return bindingstore.UpsertParams{
+func bindingUpsertParamsToStore(params threadBindingUpsertParams) BindingUpsert {
+	return BindingUpsert{
 		AgentID:            params.AgentID,
 		Provider:           params.Provider,
 		ProviderThreadID:   params.ProviderThreadID,
@@ -297,24 +207,24 @@ func bindingUpsertParamsToStore(params threadBindingUpsertParams) bindingstore.U
 	}
 }
 
-func bindingSessionUUIDUpdateToStore(params threadBindingSessionUUIDUpdate) bindingstore.UpdateSessionUUIDParams {
-	return bindingstore.UpdateSessionUUIDParams{
+func bindingSessionUUIDUpdateToStore(params threadBindingSessionUUIDUpdate) BindingSessionUUIDUpdate {
+	return BindingSessionUUIDUpdate{
 		SessionUUID: params.SessionUUID,
 		UpdatedAt:   params.UpdatedAt,
 		AgentID:     params.AgentID,
 	}
 }
 
-func bindingProviderThreadIDUpdateToStore(params threadBindingProviderThreadIDUpdate) bindingstore.UpdateProviderThreadIDParams {
-	return bindingstore.UpdateProviderThreadIDParams{
+func bindingProviderThreadIDUpdateToStore(params threadBindingProviderThreadIDUpdate) BindingProviderThreadIDUpdate {
+	return BindingProviderThreadIDUpdate{
 		ProviderThreadID: params.ProviderThreadID,
 		UpdatedAt:        params.UpdatedAt,
 		AgentID:          params.AgentID,
 	}
 }
 
-func bindingCWDUpdateToStore(params threadBindingCWDUpdate) bindingstore.UpdateAgentCwdParams {
-	return bindingstore.UpdateAgentCwdParams{
+func bindingCWDUpdateToStore(params threadBindingCWDUpdate) BindingCWDUpdate {
+	return BindingCWDUpdate{
 		AgentID:   params.AgentID,
 		Cwd:       params.Cwd,
 		UpdatedAt: params.UpdatedAt,
@@ -322,7 +232,7 @@ func bindingCWDUpdateToStore(params threadBindingCWDUpdate) bindingstore.UpdateA
 }
 
 type threadConfigStoreAdapter struct {
-	store threadServiceStorePort
+	store ThreadStore
 }
 
 func (s *service) threadConfigStorePort() threadConfigStorePort {
@@ -352,7 +262,7 @@ func (a threadConfigStoreAdapter) ListConfigsByIDs(ctx context.Context, threadID
 }
 
 // threadConfigRecordFromStore 将 store thread DTO 逐字段复制为 thread 本地 DTO，避免业务路径继续透传 store 类型。
-func threadConfigRecordFromStore(thread *threadstore.Thread) *threadConfigRecord {
+func threadConfigRecordFromStore(thread *ThreadRecord) *threadConfigRecord {
 	if thread == nil {
 		return nil
 	}
@@ -384,20 +294,20 @@ func threadConfigRecordFromStore(thread *threadstore.Thread) *threadConfigRecord
 	}
 }
 
-func (s *service) buildOfflineConfig(ctx context.Context, threadID string, binding *bindingstore.Binding) (offlineConfigSnapshot, error) {
+func (s *service) buildOfflineConfig(ctx context.Context, threadID string, binding *BindingRecord) (offlineConfigSnapshot, error) {
 	return s.buildOfflineConfigRecord(ctx, threadID, threadBindingRecordFromStore(binding))
 }
 
-func (s *service) offlineRuntimeConfigForMissingSession(ctx context.Context, threadID string, binding *bindingstore.Binding, resolveErr error) (map[string]any, bool, error) {
+func (s *service) offlineRuntimeConfigForMissingSession(ctx context.Context, threadID string, binding *BindingRecord, resolveErr error) (map[string]any, bool, error) {
 	return s.offlineRuntimeConfigForMissingSessionRecord(ctx, threadID, threadBindingRecordFromStore(binding), resolveErr)
 }
 
-func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *bindingstore.Binding) {
+func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *BindingRecord) {
 	s.cleanupThreadScratchpadRecord(ctx, threadID, threadBindingRecordFromStore(binding))
 }
 
-func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
-	return threadstore.UpsertParams{
+func newThreadUpsertParams(thread ThreadRecord) ThreadUpsert {
+	return ThreadUpsert{
 		ThreadID:         strings.TrimSpace(thread.ThreadID),
 		Name:             strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt)),
 		Prompt:           strings.TrimSpace(thread.Prompt),
@@ -421,7 +331,7 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 }
 
 // NewBindingRecoveryReporter 创建会话恢复时回写 binding 的 reporter。
-func NewBindingRecoveryReporter(store bindingstore.Store, logger *slog.Logger) contract.SessionRecoveryReporter {
+func NewBindingRecoveryReporter(store BindingStore, logger *slog.Logger) contract.SessionRecoveryReporter {
 	return &bindingRecoveryReporter{store: newThreadBindingStorePort(store), logger: logger}
 }
 
@@ -463,8 +373,8 @@ func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string)
 	return fromStoredPromptSnapshot(promptSnapshotRecordFromStore(snapshot)), nil
 }
 
-func promptSnapshotRecordToStore(record promptSnapshotRecord) threadstore.PromptSnapshot {
-	return threadstore.PromptSnapshot{
+func promptSnapshotRecordToStore(record promptSnapshotRecord) PromptSnapshotRecord {
+	return PromptSnapshotRecord{
 		DisplayName:           record.DisplayName,
 		BaseInstructions:      record.BaseInstructions,
 		Boundary:              promptBoundaryRecordToStore(record.Boundary),
@@ -477,17 +387,17 @@ func promptSnapshotRecordToStore(record promptSnapshotRecord) threadstore.Prompt
 	}
 }
 
-func promptBoundaryRecordToStore(boundary *promptBoundaryRecord) *threadstore.PromptBoundary {
+func promptBoundaryRecordToStore(boundary *promptBoundaryRecord) *PromptBoundaryRecord {
 	if boundary == nil {
 		return nil
 	}
-	return &threadstore.PromptBoundary{
+	return &PromptBoundaryRecord{
 		CachedPrefix: boundary.CachedPrefix,
 		UncachedTail: boundary.UncachedTail,
 	}
 }
 
-func promptSnapshotRecordFromStore(snapshot *threadstore.PromptSnapshot) *promptSnapshotRecord {
+func promptSnapshotRecordFromStore(snapshot *PromptSnapshotRecord) *promptSnapshotRecord {
 	if snapshot == nil {
 		return nil
 	}
@@ -504,7 +414,7 @@ func promptSnapshotRecordFromStore(snapshot *threadstore.PromptSnapshot) *prompt
 	}
 }
 
-func promptBoundaryRecordFromStore(boundary *threadstore.PromptBoundary) *promptBoundaryRecord {
+func promptBoundaryRecordFromStore(boundary *PromptBoundaryRecord) *promptBoundaryRecord {
 	if boundary == nil {
 		return nil
 	}
@@ -514,7 +424,7 @@ func promptBoundaryRecordFromStore(boundary *threadstore.PromptBoundary) *prompt
 	}
 }
 
-func resolveDisplayName(ctx context.Context, store threadServiceStorePort, agentID, _ string, currentName string) string {
+func resolveDisplayName(ctx context.Context, store ThreadStore, agentID, _ string, currentName string) string {
 	name := strings.TrimSpace(currentName)
 	if name == defaultThreadName() {
 		name = ""
@@ -528,141 +438,10 @@ func resolveDisplayName(ctx context.Context, store threadServiceStorePort, agent
 	return name
 }
 
-// runtimePromptCatalog 把构造层注入的 prompt catalog 收窄成本包本地端口。
-// 路由文件只接触 runtimePromptCatalog，真实 store DTO 在这个 adapter 边界显式复制。
-func (s *service) runtimePromptCatalog() runtimePromptCatalog {
+// PromptCatalog 返回构造层注入的 Thread-owned prompt 端口。
+func (s *service) promptCatalogPort() PromptCatalog {
 	if s == nil || s.promptCatalog == nil {
 		return nil
 	}
-	catalog, ok := s.promptCatalog.(promptstore.RuntimePromptCatalog)
-	if !ok {
-		return nil
-	}
-	return promptStoreRuntimeCatalogAdapter{catalog: catalog}
-}
-
-type promptStoreRuntimeCatalogAdapter struct {
-	catalog promptstore.RuntimePromptCatalog
-}
-
-// ListTemplates 读取运行时模板并转换成 thread 本地 DTO。
-func (a promptStoreRuntimeCatalogAdapter) ListTemplates(ctx context.Context, filter runtimePromptListFilter) ([]runtimePromptTemplate, error) {
-	rows, err := a.catalog.ListTemplates(ctx, promptstore.RuntimeListFilter{
-		AgentKey: filter.AgentKey,
-		Keyword:  filter.Keyword,
-		CWD:      filter.CWD,
-		Limit:    filter.Limit,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return runtimePromptTemplatesFromStore(rows), nil
-}
-
-// ListSectionsByTemplateID 读取模板 section 并转换成 thread 本地 DTO。
-func (a promptStoreRuntimeCatalogAdapter) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]runtimePromptTemplateSection, error) {
-	rows, err := a.catalog.ListSectionsByTemplateID(ctx, templateID)
-	if err != nil {
-		return nil, err
-	}
-	return runtimePromptSectionsFromStore(rows), nil
-}
-
-// InsertVersion 将 thread 本地版本 DTO 转回 prompt catalog 写入边界。
-func (a promptStoreRuntimeCatalogAdapter) InsertVersion(ctx context.Context, version runtimePromptTemplateVersion) (int64, error) {
-	return a.catalog.InsertVersion(ctx, runtimePromptVersionToStore(version))
-}
-
-// CanInsertPromptVersion 透传底层 catalog 的写能力标记，缺省保持可写以兼容旧实现。
-func (a promptStoreRuntimeCatalogAdapter) CanInsertPromptVersion() bool {
-	checker, ok := a.catalog.(promptVersionInsertCapability)
-	return !ok || checker.CanInsertPromptVersion()
-}
-
-func runtimePromptTemplatesFromStore(rows []promptstore.PromptTemplate) []runtimePromptTemplate {
-	out := make([]runtimePromptTemplate, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, runtimePromptTemplateFromStore(row))
-	}
-	return out
-}
-
-func runtimePromptTemplateFromStore(row promptstore.PromptTemplate) runtimePromptTemplate {
-	return runtimePromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		WhenToUse:      row.WhenToUse,
-		Variables:      cloneRuntimePromptJSON(row.Variables),
-		Tags:           cloneRuntimePromptJSON(row.Tags),
-		Enabled:        row.Enabled,
-		ManuallyEdited: row.ManuallyEdited,
-		MatchWhen:      cloneRuntimePromptJSON(row.MatchWhen),
-		Priority:       row.Priority,
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
-		Description:    row.Description,
-	}
-}
-
-func runtimePromptSectionsFromStore(rows []promptstore.PromptTemplateSection) []runtimePromptTemplateSection {
-	out := make([]runtimePromptTemplateSection, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, runtimePromptSectionFromStore(row))
-	}
-	return out
-}
-
-func runtimePromptSectionFromStore(row promptstore.PromptTemplateSection) runtimePromptTemplateSection {
-	return runtimePromptTemplateSection{
-		ID:                  row.ID,
-		TemplateID:          row.TemplateID,
-		SectionKey:          row.SectionKey,
-		Region:              row.Region,
-		Ordinal:             row.Ordinal,
-		Body:                row.Body,
-		EnableWhen:          cloneRuntimePromptJSON(row.EnableWhen),
-		Enabled:             row.Enabled,
-		TriggerType:         row.TriggerType,
-		RecallTopic:         row.RecallTopic,
-		TemplatePromptKey:   row.TemplatePromptKey,
-		TemplateTitle:       row.TemplateTitle,
-		TemplateDescription: row.TemplateDescription,
-		TemplateWhenToUse:   row.TemplateWhenToUse,
-		TemplateTags:        cloneRuntimePromptJSON(row.TemplateTags),
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
-	}
-}
-
-func runtimePromptVersionToStore(row runtimePromptTemplateVersion) promptstore.PromptTemplateVersion {
-	return promptstore.PromptTemplateVersion{
-		ID:              row.ID,
-		PromptKey:       row.PromptKey,
-		Title:           row.Title,
-		AgentKey:        row.AgentKey,
-		ToolName:        row.ToolName,
-		PromptText:      row.PromptText,
-		Variables:       cloneRuntimePromptJSON(row.Variables),
-		Tags:            cloneRuntimePromptJSON(row.Tags),
-		Description:     row.Description,
-		Enabled:         row.Enabled,
-		CreatedBy:       row.CreatedBy,
-		UpdatedBy:       row.UpdatedBy,
-		SourceUpdatedAt: row.SourceUpdatedAt,
-		CreatedAt:       row.CreatedAt,
-		ArchivedAt:      row.ArchivedAt,
-	}
-}
-
-func cloneRuntimePromptJSON(raw []byte) []byte {
-	if len(raw) == 0 {
-		return nil
-	}
-	return append([]byte(nil), raw...)
+	return s.promptCatalog
 }

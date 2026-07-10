@@ -6,13 +6,12 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestAvailableExpertsProviderRendersBuiltinAndUserExpertsOnly(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(
 		runtimeProviderUserStore(),
 		runtimeProviderBuiltinRegistry(),
 	)}
@@ -38,7 +37,7 @@ func runtimeProviderBuiltinRegistry() *fakeBuiltinPromptRegistry {
 }
 
 func runtimeProviderUserStore() *fakePromptStore {
-	return &fakePromptStore{templates: []promptstore.PromptTemplate{
+	return &fakePromptStore{templates: []PromptTemplate{
 		{PromptKey: "user/expert/sql", Title: "SQL Expert", AgentKey: "main", WhenToUse: "Use for SQL work.", Tags: mustJSONTags("scope.cwd:/repo/a", "intent:expert"), Enabled: true, Priority: 160},
 		{PromptKey: "user/knowledge/sqlc", Title: "SQLC Knowledge", AgentKey: "main", WhenToUse: "Recall SQLC workflow.", Tags: mustJSONTags("scope.cwd:/repo/a", "intent:recall"), Enabled: true},
 		{PromptKey: "user/default/rule", Title: "Project Rule", AgentKey: "default_rule", WhenToUse: "Project default.", Tags: mustJSONTags("scope.cwd:/repo/a", "intent:default_rule"), Enabled: true},

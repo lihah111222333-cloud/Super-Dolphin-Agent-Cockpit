@@ -5,33 +5,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestResolveRoutedPromptUsesBuiltinDefaultWhenDBSeedMissing(t *testing.T) {
 	t.Parallel()
 
-	catalog := threadprompt.NewRuntimeCatalog(nil, &threadBuiltinPromptRegistry{
-		templates: []contract.BuiltinPromptTemplate{
-			{
-				ID:        -100001,
-				PromptKey: defaultPromptKey,
-				Kind:      "base",
-				Title:     "Builtin Default",
-				AgentKey:  "main",
-				Enabled:   true,
-				Scope:     "global",
-			},
+	catalog := &fakePromptCatalog{
+		readOnly: true,
+		templates: []PromptTemplate{{
+			ID: -100001, PromptKey: defaultPromptKey, Title: "Builtin Default", AgentKey: "main", Enabled: true,
+		}},
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
+			-100001: {{ID: -200001, TemplateID: -100001, SectionKey: "identity", Region: "static", Ordinal: 0, Body: "Builtin default body", Enabled: true, TriggerType: "always"}},
 		},
-		sections: map[int64][]contract.BuiltinPromptSection{
-			-100001: {
-				{ID: -200001, TemplateID: -100001, SectionKey: "identity", Region: "static", Ordinal: 0, Body: "Builtin default body", Enabled: true, TriggerType: "always"},
-			},
-		},
-	})
+	}
 	svc := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
 	req := &StartRequest{CWD: "/repo/a", Prompt: "hello"}
 
@@ -56,7 +44,7 @@ func TestResolveRoutedPromptUsesBuiltinDefaultWhenDBSeedMissing(t *testing.T) {
 func TestResolveRoutedPromptFailsWhenDefaultTemplateMissing(t *testing.T) {
 	t.Parallel()
 
-	store := &fakePromptStore{}
+	store := &fakePromptCatalog{}
 	svc := newServiceWithRouter(store)
 	req := &StartRequest{CWD: "/repo/a", Prompt: "hello"}
 
@@ -69,28 +57,13 @@ func TestResolveRoutedPromptFailsWhenDefaultTemplateMissing(t *testing.T) {
 	}
 }
 
-func TestResolveRoutedPromptDoesNotDuplicateRegistryBackedSystemSeed(t *testing.T) {
+func TestResolveRoutedPromptPersistsSelectedTemplateVersion(t *testing.T) {
 	t.Parallel()
 
-	seed := sqlTemplate(defaultPromptKey, "main", "DB default body", []string{"scope.global"})
-	seed.ID = 42
-	seed.CreatedBy = "system.seed"
-	seed.UpdatedBy = "system.seed"
-	store := &fakePromptStore{templates: []promptstore.PromptTemplate{seed}}
-	catalog := threadprompt.NewRuntimeCatalog(store, &threadBuiltinPromptRegistry{
-		templates: []contract.BuiltinPromptTemplate{
-			{
-				ID:         -100001,
-				PromptKey:  defaultPromptKey,
-				Kind:       "base",
-				Title:      "Builtin Default",
-				AgentKey:   "main",
-				PromptText: "Builtin prompt text",
-				Enabled:    true,
-				Scope:      "global",
-			},
-		},
-	})
+	template := sqlTemplate(defaultPromptKey, "main", "Builtin prompt text", []string{"scope.global"})
+	template.ID = -100001
+	template.Title = "Builtin Default"
+	catalog := &fakePromptCatalog{templates: []PromptTemplate{template}}
 	svc := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
 	req := &StartRequest{CWD: "/repo/a", Prompt: "hello"}
 
@@ -107,7 +80,7 @@ func TestResolveRoutedPromptDoesNotDuplicateRegistryBackedSystemSeed(t *testing.
 	if req.BaseInstructions != "Builtin prompt text" {
 		t.Fatalf("BaseInstructions = %q, want builtin prompt text", req.BaseInstructions)
 	}
-	if store.lastInsertVersion.PromptText != "Builtin prompt text" {
-		t.Fatalf("version prompt_text = %q, want builtin prompt text", store.lastInsertVersion.PromptText)
+	if catalog.lastInsertVersion.PromptText != "Builtin prompt text" {
+		t.Fatalf("version prompt_text = %q, want builtin prompt text", catalog.lastInsertVersion.PromptText)
 	}
 }

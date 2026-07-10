@@ -11,7 +11,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -27,7 +26,7 @@ func TestBackgroundResumeIfNeededSkipsInvalidProviderThreadID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			threads := &stubThreadStore{thread: &threadstore.Thread{
+			threads := &stubThreadStore{thread: &ThreadRecord{
 				ThreadID:  "thread-1",
 				AgentID:   "agent-1",
 				Prompt:    "resume",
@@ -36,7 +35,7 @@ func TestBackgroundResumeIfNeededSkipsInvalidProviderThreadID(t *testing.T) {
 				CreatedAt: 123,
 				Status:    statusCreated,
 			}}
-			bindings := &stubBindingStore{binding: &bindingstore.Binding{
+			bindings := &stubBindingStore{binding: &BindingRecord{
 				AgentID:          "agent-1",
 				Provider:         "claude",
 				ProviderThreadID: tt.providerThreadID,
@@ -65,7 +64,7 @@ func TestBackgroundResumeIfNeededSkipsInvalidProviderThreadID(t *testing.T) {
 func TestBackgroundResumeIfNeededSkipsArchivedBinding(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -74,7 +73,7 @@ func TestBackgroundResumeIfNeededSkipsArchivedBinding(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "22222222-3333-4444-5555-666666666666",
@@ -102,7 +101,7 @@ func TestBackgroundResumeIfNeededSkipsArchivedBinding(t *testing.T) {
 func TestBackgroundResumeIfNeededSkipsStoppedThread(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -111,7 +110,7 @@ func TestBackgroundResumeIfNeededSkipsStoppedThread(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusStopped,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "33333333-4444-5555-6666-777777777777",
@@ -135,7 +134,7 @@ func TestBackgroundResumeIfNeededSkipsStoppedThread(t *testing.T) {
 func TestResumeRejectsLifecycleBlockedAgent(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -144,7 +143,7 @@ func TestResumeRejectsLifecycleBlockedAgent(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "provider-thread-1",
@@ -163,7 +162,7 @@ func TestResumeRejectsLifecycleBlockedAgent(t *testing.T) {
 func TestProcessSessionRecoverySkipsArchivedBinding(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
 		Prompt:    "resume",
@@ -172,7 +171,7 @@ func TestProcessSessionRecoverySkipsArchivedBinding(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusArchived,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "provider-thread-1",
@@ -202,7 +201,7 @@ func TestSetModelReturnsFriendlyCapabilityError(t *testing.T) {
 		allowedModels: []string{"sonnet"},
 		configureErr:  contract.NewCapabilityError(dto.CapModelSwitch, "claude"),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "thread-1",
@@ -230,7 +229,7 @@ func TestCompactReturnsFriendlyCapabilityError(t *testing.T) {
 	t.Parallel()
 
 	sessions := &stubSessionProvider{session: &stubSession{threadID: "thread-1"}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "thread-1",
@@ -397,17 +396,17 @@ type stubThreadStore struct {
 	stubThreadStoreLifecycleNoop
 	stubThreadStoreListNoop
 
-	thread                  *threadstore.Thread
-	threads                 []threadstore.Thread
-	threadByID              map[string]*threadstore.Thread
+	thread                  *ThreadRecord
+	threads                 []ThreadRecord
+	threadByID              map[string]*ThreadRecord
 	getErr                  error
-	upsert                  threadstore.UpsertParams
+	upsert                  ThreadUpsert
 	upsertCount             int
 	upsertErr               error
 	existsErr               error
 	countChildrenErr        error
-	status                  threadstore.UpdateStatusParams
-	promptSnapshot          *threadstore.PromptSnapshot
+	status                  ThreadStatusUpdate
+	promptSnapshot          *PromptSnapshotRecord
 	promptSnapshotError     error
 	savePromptSnapshotError error
 	loadPromptSnapshotError error
@@ -415,7 +414,7 @@ type stubThreadStore struct {
 	promptSnapshotID        string
 }
 
-func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*ThreadRecord, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
@@ -435,26 +434,26 @@ func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*th
 
 type stubThreadStoreLifecycleNoop struct{}
 
-func (stubThreadStoreLifecycleNoop) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
+func (stubThreadStoreLifecycleNoop) GetByPort(context.Context, int32) (*ThreadRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
+func (s *stubThreadStore) ListAll(context.Context) ([]ThreadRecord, error) {
 	if s.threads != nil {
 		return s.threads, nil
 	}
 	if s.thread != nil {
-		return []threadstore.Thread{*s.thread}, nil
+		return []ThreadRecord{*s.thread}, nil
 	}
 	return nil, nil
 }
 
-func (s *stubThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadstore.Thread, error) {
+func (s *stubThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]ThreadRecord, error) {
 	idMap := make(map[string]bool)
 	for _, id := range threadIDs {
 		idMap[id] = true
 	}
-	var result []threadstore.Thread
+	var result []ThreadRecord
 	all, _ := s.ListAll(ctx)
 	for _, t := range all {
 		if idMap[t.ThreadID] {
@@ -464,11 +463,11 @@ func (s *stubThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []stri
 	return result, nil
 }
 
-func (stubThreadStoreLifecycleNoop) ListRunning(context.Context) ([]threadstore.Thread, error) {
+func (stubThreadStoreLifecycleNoop) ListRunning(context.Context) ([]ThreadRecord, error) {
 	return nil, nil
 }
 
-func (stubThreadStoreLifecycleNoop) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
+func (stubThreadStoreLifecycleNoop) ListRecoverable(context.Context) ([]ThreadRecord, error) {
 	return nil, nil
 }
 
@@ -476,7 +475,7 @@ func (stubThreadStoreLifecycleNoop) ListRunningAgents(context.Context) ([]thread
 	return nil, nil
 }
 
-func (s *stubThreadStore) SavePromptSnapshot(_ context.Context, threadID string, snapshot threadstore.PromptSnapshot) error {
+func (s *stubThreadStore) SavePromptSnapshot(_ context.Context, threadID string, snapshot PromptSnapshotRecord) error {
 	s.savePromptSnapshotIDs = append(s.savePromptSnapshotIDs, threadID)
 	if s.savePromptSnapshotError != nil {
 		return s.savePromptSnapshotError
@@ -491,7 +490,7 @@ func (s *stubThreadStore) SavePromptSnapshot(_ context.Context, threadID string,
 	return nil
 }
 
-func (s *stubThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
+func (s *stubThreadStore) LoadPromptSnapshot(context.Context, string) (*PromptSnapshotRecord, error) {
 	if s.loadPromptSnapshotError != nil {
 		return nil, s.loadPromptSnapshotError
 	}
@@ -506,13 +505,13 @@ func (s *stubThreadStore) LoadPromptSnapshot(context.Context, string) (*threadst
 	return &snapshotCopy, nil
 }
 
-func (s *stubThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
+func (s *stubThreadStore) Upsert(_ context.Context, params ThreadUpsert) error {
 	if s.upsertErr != nil {
 		return s.upsertErr
 	}
 	s.upsertCount++
 	s.upsert = params
-	s.thread = &threadstore.Thread{
+	s.thread = &ThreadRecord{
 		ThreadID:       params.ThreadID,
 		Prompt:         params.Prompt,
 		Model:          params.Model,
@@ -526,7 +525,7 @@ func (s *stubThreadStore) Upsert(_ context.Context, params threadstore.UpsertPar
 	return nil
 }
 
-func (s *stubThreadStore) UpdateStatus(_ context.Context, params threadstore.UpdateStatusParams) error {
+func (s *stubThreadStore) UpdateStatus(_ context.Context, params ThreadStatusUpdate) error {
 	s.status = params
 	return nil
 }
@@ -579,17 +578,17 @@ func (stubThreadStoreListNoop) CountAll(context.Context) (int64, error) { return
 type stubBindingStore struct {
 	stubBindingStoreNoopMethods
 
-	binding                *bindingstore.Binding
-	bindings               []bindingstore.Binding
-	upsert                 bindingstore.UpsertParams
-	upserts                []bindingstore.UpsertParams
+	binding                *BindingRecord
+	bindings               []BindingRecord
+	upsert                 BindingUpsert
+	upserts                []BindingUpsert
 	deleteAgentIDs         []string
 	deleteErr              error
-	sessionUpdates         []bindingstore.UpdateSessionUUIDParams
-	updateProviderThreadID bindingstore.UpdateProviderThreadIDParams
+	sessionUpdates         []BindingSessionUUIDUpdate
+	updateProviderThreadID BindingProviderThreadIDUpdate
 }
 
-func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*BindingRecord, error) {
 	if s.binding == nil || s.binding.Provider != provider || s.binding.ProviderThreadID != providerThreadID {
 		return nil, platformdb.ErrNotFound
 	}
@@ -597,13 +596,13 @@ func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, prov
 	return &binding, nil
 }
 
-func (s *stubBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
+func (s *stubBindingStore) Upsert(_ context.Context, params BindingUpsert) error {
 	s.upsert = params
 	s.upserts = append(s.upserts, params)
 	// fixture 与 production sqlc Upsert 15 字段对齐，防止 verifyThreadBinding
 	// 下游读到空字段产生 mismatch。B-4.7 仅修 prompt 模块 fixture，
 	// reviewer 反审指出本 fixture 同样漂移，本 commit 补全。
-	s.binding = &bindingstore.Binding{
+	s.binding = &BindingRecord{
 		AgentID:            params.AgentID,
 		Provider:           params.Provider,
 		ProviderThreadID:   params.ProviderThreadID,

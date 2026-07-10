@@ -6,14 +6,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
 	cwd := wantStartCWD(t)
 	svc := &service{
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "agent-dup"}},
+		threadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "agent-dup"}},
 	}
 	req, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-dup",

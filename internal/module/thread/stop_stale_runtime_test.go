@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestStopContinuesWhenLocalSessionAndManagedAgentAlreadyGone(t *testing.T) {
@@ -22,7 +20,7 @@ func TestStopContinuesWhenLocalSessionAndManagedAgentAlreadyGone(t *testing.T) {
 	}
 	orch := &stubThreadOrchestration{calls: &calls, stopErr: contract.ErrAgentNotFound}
 	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: "thread-1",
 			AgentID:  "agent-1",
 			Status:   statusCreated,
@@ -30,7 +28,7 @@ func TestStopContinuesWhenLocalSessionAndManagedAgentAlreadyGone(t *testing.T) {
 		calls: &calls,
 	}
 	svc := &service{
-		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:       "agent-1",
 			CodexThreadID: "thread-1",
 		}},

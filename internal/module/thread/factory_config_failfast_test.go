@@ -10,8 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type failFastBindingStore struct {
@@ -19,10 +17,10 @@ type failFastBindingStore struct {
 	agentErr      map[string]error
 	providerErr   map[string]error
 	providerCalls []string
-	binding       *bindingstore.Binding
+	binding       *BindingRecord
 }
 
-func (s *failFastBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *failFastBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	if err := s.agentErr[agentID]; err != nil {
 		return nil, err
 	}
@@ -33,7 +31,7 @@ func (s *failFastBindingStore) GetByAgentID(_ context.Context, agentID string) (
 	return nil, platformdb.ErrNotFound
 }
 
-func (s *failFastBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s *failFastBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*BindingRecord, error) {
 	s.providerCalls = append(s.providerCalls, provider)
 	if err := s.providerErr[provider]; err != nil {
 		return nil, err
@@ -51,7 +49,7 @@ func TestResolveBindingChainFailsFastOnPrimaryLookupError(t *testing.T) {
 	storeErr := errors.New("binding store unavailable")
 	store := &failFastBindingStore{
 		agentErr: map[string]error{"thread-1": storeErr},
-		binding:  &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1"},
+		binding:  &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1"},
 	}
 	svc := &service{bindingStore: store}
 
@@ -76,7 +74,7 @@ func TestResolveBindingChainFailsFastOnRememberedAgentLookupError(t *testing.T) 
 			"thread-1": platformdb.ErrNotFound,
 			"agent-1":  storeErr,
 		},
-		binding: &bindingstore.Binding{AgentID: "fallback-agent", Provider: "codex", ProviderThreadID: "thread-1"},
+		binding: &BindingRecord{AgentID: "fallback-agent", Provider: "codex", ProviderThreadID: "thread-1"},
 	}
 	svc := &service{bindingStore: store}
 	svc.rememberThreadAgent("thread-1", "agent-1")
@@ -96,7 +94,7 @@ func TestResolveBindingChainFailsFastOnPersistedAgentLookupError(t *testing.T) {
 	storeErr := errors.New("thread store unavailable")
 	store := &failFastBindingStore{
 		agentErr: map[string]error{"thread-1": platformdb.ErrNotFound},
-		binding:  &bindingstore.Binding{AgentID: "fallback-agent", Provider: "codex", ProviderThreadID: "thread-1"},
+		binding:  &BindingRecord{AgentID: "fallback-agent", Provider: "codex", ProviderThreadID: "thread-1"},
 	}
 	svc := &service{bindingStore: store, threadStore: &stubThreadStore{getErr: storeErr}}
 
@@ -113,7 +111,7 @@ func TestResolveBindingChainFallsBackToProviderThreadWhenPersistedThreadMissing(
 	t.Parallel()
 
 	threadID := "thread-1"
-	want := &bindingstore.Binding{
+	want := &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: threadID,
@@ -124,7 +122,7 @@ func TestResolveBindingChainFallsBackToProviderThreadWhenPersistedThreadMissing(
 	}
 	svc := &service{
 		bindingStore: store,
-		threadStore:  &stubThreadStore{threadByID: map[string]*threadstore.Thread{}},
+		threadStore:  &stubThreadStore{threadByID: map[string]*ThreadRecord{}},
 	}
 
 	binding, err := svc.resolveBindingChain(context.Background(), threadID)
@@ -151,7 +149,7 @@ func TestResolveBindingChainMissingPersistedThreadReturnsSemanticNotFoundWithout
 	}
 	svc := &service{
 		bindingStore: store,
-		threadStore:  &stubThreadStore{threadByID: map[string]*threadstore.Thread{}},
+		threadStore:  &stubThreadStore{threadByID: map[string]*ThreadRecord{}},
 	}
 	svc.rememberThreadAgent(threadID, "agent-1")
 
@@ -180,7 +178,7 @@ func TestResolveBindingChainFailsFastWhenPersistedAgentBindingMissing(t *testing
 			threadID:  platformdb.ErrNotFound,
 			"agent-1": platformdb.ErrNotFound,
 		},
-		binding: &bindingstore.Binding{
+		binding: &BindingRecord{
 			AgentID:          "fallback-agent",
 			Provider:         "codex",
 			ProviderThreadID: threadID,
@@ -188,7 +186,7 @@ func TestResolveBindingChainFailsFastWhenPersistedAgentBindingMissing(t *testing
 	}
 	svc := &service{
 		bindingStore: store,
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID: threadID,
 			AgentID:  "agent-1",
 		}},
@@ -235,14 +233,14 @@ func TestBuildOfflineConfigFailsFastOnMalformedConfigOverride(t *testing.T) {
 	t.Parallel()
 
 	svc := &service{
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+		threadStore: &stubThreadStore{thread: &ThreadRecord{
 			ThreadID:       "thread-1",
 			AgentID:        "agent-1",
 			ConfigOverride: json.RawMessage("{"),
 		}},
 	}
 
-	_, err := svc.buildOfflineConfig(context.Background(), "thread-1", &bindingstore.Binding{Provider: "codex"})
+	_, err := svc.buildOfflineConfig(context.Background(), "thread-1", &BindingRecord{Provider: "codex"})
 	if err == nil || !strings.Contains(err.Error(), "decode thread config override") {
 		t.Fatalf("buildOfflineConfig() error = %v, want config decode failure", err)
 	}
@@ -252,7 +250,7 @@ func TestPersistThreadConfigFailsFastOnMalformedConfigOverride(t *testing.T) {
 	t.Parallel()
 
 	model := "gpt-5"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
 		ConfigOverride: json.RawMessage("{"),
@@ -284,7 +282,7 @@ func TestPersistThreadConfigFailsWhenThreadStoreMissing(t *testing.T) {
 func TestConfigReadsFailFastWithoutSessionProvider(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1",
 		AgentID:  "agent-1",
 		Model:    "gpt-5.5",
@@ -305,7 +303,7 @@ func TestConfigReadsFailFastWithoutSessionProvider(t *testing.T) {
 func TestReadRuntimeConfigsFailsFastOnMalformedConfigOverride(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{threadStore: &stubThreadStore{thread: &threadstore.Thread{
+	svc := &service{threadStore: &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		ConfigOverride: json.RawMessage("{"),
 	}}}
@@ -319,7 +317,7 @@ func TestReadRuntimeConfigsFailsFastOnMalformedConfigOverride(t *testing.T) {
 func TestReadRuntimeConfigsFailsFastOnMissingThread(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{threadStore: &stubThreadStore{threadByID: map[string]*threadstore.Thread{}}}
+	svc := &service{threadStore: &stubThreadStore{threadByID: map[string]*ThreadRecord{}}}
 	_, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-missing"})
 	if err == nil || !strings.Contains(err.Error(), "thread-missing") {
 		t.Fatalf("ReadRuntimeConfigs() error = %v, want missing thread failure", err)
@@ -340,7 +338,7 @@ func TestReadMessagesFailsFastOnPendingLaunchLookupError(t *testing.T) {
 func TestReadRuntimeConfigsFailsFastOnMissingSessionForBinding(t *testing.T) {
 	t.Parallel()
 
-	thread := threadstore.Thread{
+	thread := ThreadRecord{
 		ThreadID: "thread-1",
 		AgentID:  "agent-1",
 		Model:    "gpt-5.5",
@@ -352,7 +350,7 @@ func TestReadRuntimeConfigsFailsFastOnMissingSessionForBinding(t *testing.T) {
 	}
 	svc := &service{
 		threadStore: &stubThreadStore{thread: &thread},
-		bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
+		bindingStore: &stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "thread-1",
@@ -373,7 +371,7 @@ func TestReadRuntimeConfigsFailsFastOnMissingSessionForBinding(t *testing.T) {
 func TestReadRuntimeConfigsFailsFastOnMissingBindingForPersistedAgent(t *testing.T) {
 	t.Parallel()
 
-	thread := threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1"}
+	thread := ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1"}
 	svc := &service{
 		threadStore:  &stubThreadStore{thread: &thread},
 		bindingStore: &stubBindingStore{},
@@ -390,7 +388,7 @@ func TestReadThreadStateRuntimeConfigFailsFastOnBindingLookupError(t *testing.T)
 
 	storeErr := errors.New("binding lookup failed")
 	svc := &service{
-		threadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1"}},
+		threadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1"}},
 		bindingStore: &failFastBindingStore{
 			agentErr: map[string]error{"thread-1": storeErr},
 		},
@@ -407,32 +405,32 @@ func TestReadThreadStateRuntimeConfigIncludesPersistedCWD(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		thread  *threadstore.Thread
-		binding *bindingstore.Binding
+		thread  *ThreadRecord
+		binding *BindingRecord
 		want    string
 	}{
 		{
 			name:    "thread cwd",
-			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Cwd: "/thread/worktree"},
-			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/thread/worktree"},
+			thread:  &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Cwd: "/thread/worktree"},
+			binding: &BindingRecord{AgentID: "agent-1", Cwd: "/thread/worktree"},
 			want:    "/thread/worktree",
 		},
 		{
 			name:    "binding cwd",
-			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1"},
-			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/binding/worktree"},
+			thread:  &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1"},
+			binding: &BindingRecord{AgentID: "agent-1", Cwd: "/binding/worktree"},
 			want:    "/binding/worktree",
 		},
 		{
 			name:    "thread cwd overrides empty runtime cwd",
-			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Cwd: "/thread/worktree", ConfigOverride: json.RawMessage(`{"runtime":{"cwd":""}}`)},
-			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/thread/worktree"},
+			thread:  &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Cwd: "/thread/worktree", ConfigOverride: json.RawMessage(`{"runtime":{"cwd":""}}`)},
+			binding: &BindingRecord{AgentID: "agent-1", Cwd: "/thread/worktree"},
 			want:    "/thread/worktree",
 		},
 		{
 			name:    "binding cwd overrides stale runtime cwd",
-			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", ConfigOverride: json.RawMessage(`{"runtime":{"cwd":"/stale/worktree"}}`)},
-			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/binding/worktree"},
+			thread:  &ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", ConfigOverride: json.RawMessage(`{"runtime":{"cwd":"/stale/worktree"}}`)},
+			binding: &BindingRecord{AgentID: "agent-1", Cwd: "/binding/worktree"},
 			want:    "/binding/worktree",
 		},
 	}

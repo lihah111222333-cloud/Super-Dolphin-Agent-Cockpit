@@ -20,7 +20,7 @@ func (s *stubBindingStore) DeleteByAgentID(_ context.Context, agentID string) er
 	return nil
 }
 
-func (s *stubBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+func (s *stubBindingStore) UpdateSessionUUID(_ context.Context, params BindingSessionUUIDUpdate) error {
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.SessionUUID = params.SessionUUID
@@ -29,7 +29,7 @@ func (s *stubBindingStore) UpdateSessionUUID(_ context.Context, params bindingst
 	return nil
 }
 
-func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params BindingProviderThreadIDUpdate) error {
 	s.updateProviderThreadID = params
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.ProviderThreadID = params.ProviderThreadID
@@ -40,15 +40,15 @@ func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params bind
 
 type stubBindingStoreNoopMethods struct{}
 
-func (stubBindingStoreNoopMethods) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+func (stubBindingStoreNoopMethods) SetArchived(context.Context, BindingArchiveUpdate) error {
 	return nil
 }
 
-func (s *stubBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *stubBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	return s.bindingForAgent(agentID)
 }
 
-func (s *stubBindingStore) bindingForAgent(agentID string) (*bindingstore.Binding, error) {
+func (s *stubBindingStore) bindingForAgent(agentID string) (*BindingRecord, error) {
 	if s.binding == nil || (agentID != "" && s.binding.AgentID != agentID) {
 		return nil, db.ErrNotFound
 	}
@@ -62,14 +62,14 @@ func (stubBindingStoreNoopMethods) BindAgentThread(context.Context, bindingstore
 
 func (stubBindingStoreNoopMethods) UnbindAgentThread(context.Context, string) error { return nil }
 
-func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]BindingRecord, error) {
 	if s.bindings != nil {
 		return s.bindings, nil
 	}
 	if s.binding == nil {
 		return nil, nil
 	}
-	return []bindingstore.Binding{*s.binding}, nil
+	return []BindingRecord{*s.binding}, nil
 }
 
 func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
@@ -79,7 +79,7 @@ func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, er
 	return shared.FirstNonEmpty(s.binding.CodexThreadID, s.binding.ProviderThreadID), nil
 }
 
-func (stubBindingStoreNoopMethods) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (stubBindingStoreNoopMethods) UpdateAgentCwd(context.Context, BindingCWDUpdate) error {
 	return nil
 }
 

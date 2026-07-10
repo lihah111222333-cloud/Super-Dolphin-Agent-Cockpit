@@ -4,15 +4,13 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-func filterFakePromptTemplatesByCWD(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
+func filterFakePromptTemplatesByCWD(templates []PromptTemplate, cwd string) []PromptTemplate {
 	cwd = strings.TrimSpace(cwd)
-	out := make([]promptstore.PromptTemplate, 0, len(templates))
+	out := make([]PromptTemplate, 0, len(templates))
 	for _, template := range templates {
-		tags := promptstore.TemplateTags(template.Tags)
+		tags := runtimePromptTemplateTags(template.Tags)
 		if cwd == "" || promptTemplateVisibleInCWD(tags, cwd) {
 			out = append(out, template)
 		}
@@ -39,8 +37,8 @@ func promptTemplateVisibleInCWD(tags []string, cwd string) bool {
 
 func TestResolveRouterPromptListPassesTrustedCWD(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("repo-a/launch", "main", "repo body", []string{"scope.cwd:/repo/a"}),
 		},
 	}
@@ -65,8 +63,8 @@ func TestResolveRouterPromptListPassesTrustedCWD(t *testing.T) {
 
 func TestResolveRoutedPromptRequiresTrustedCWDForCatalogRouting(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -87,8 +85,8 @@ func TestResolveRoutedPromptRequiresTrustedCWDForCatalogRouting(t *testing.T) {
 
 func TestResolveRoutedPrompt_PromptKeyRequiresTrustedCWD(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/launch-fav", "main", "fav body", nil),
 		},
 	}
@@ -112,8 +110,8 @@ func TestResolveRoutedPrompt_PromptKeyRequiresTrustedCWD(t *testing.T) {
 
 func TestResolveRoutedPrompt_PromptKeyCrossCWDMissMarksStale(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("repo-b/launch", "main", "repo b body", []string{"scope.cwd:/repo/b"}),
 			sqlTemplate(defaultPromptKey, "main", "default body", []string{"scope.global"}),
 		},
@@ -134,8 +132,8 @@ func TestResolveRoutedPrompt_PromptKeyCrossCWDMissMarksStale(t *testing.T) {
 
 func TestResolveRoutedPrompt_PromptKeyRuntimeAssetMarksStale(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("repo-a/recall", "main", "recall body", []string{"scope.cwd:/repo/a", "intent:recall"}),
 		},
 	}
@@ -153,13 +151,13 @@ func TestResolveRoutedPrompt_PromptKeyRuntimeAssetMarksStale(t *testing.T) {
 	}
 }
 
-func TestResolveRoutedPrompt_PromptKeySectionOnlyRecallAssetMarksStale(t *testing.T) {
+func TestResolveRoutedPrompt_PromptKeyRecallAssetMarksStale(t *testing.T) {
 	t.Parallel()
-	tpl := sqlTemplate("repo-a/recall", "main", "recall prompt text must not launch", []string{"scope.cwd:/repo/a"})
+	tpl := sqlTemplate("repo-a/recall", "main", "recall prompt text must not launch", []string{"scope.cwd:/repo/a", "intent:recall"})
 	tpl.ID = 81
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{tpl},
-		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{tpl},
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
 			81: {
 				{
 					TemplateID:  81,
@@ -178,9 +176,9 @@ func TestResolveRoutedPrompt_PromptKeySectionOnlyRecallAssetMarksStale(t *testin
 		t.Fatalf("resolveRoutedPrompt() error = %v", err)
 	}
 	if !req.PromptKeyStale {
-		t.Fatalf("section-only recall asset prompt_key must mark stale for UI cleanup: %+v", req)
+		t.Fatalf("recall asset prompt_key must mark stale for UI cleanup: %+v", req)
 	}
 	if req.BaseInstructions != "" || req.AgentKey != "" || req.PromptVersionID != nil {
-		t.Fatalf("section-only recall asset pin must not inject prompt: %+v", req)
+		t.Fatalf("recall asset pin must not inject prompt: %+v", req)
 	}
 }

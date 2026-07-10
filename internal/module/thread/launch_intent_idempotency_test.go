@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 )
 
@@ -467,7 +466,7 @@ func (s *cleanupCountingThreadStore) DeleteByThreadID(context.Context, string) e
 	return s.deleteErr
 }
 
-func (s *cleanupCountingThreadStore) UpdateStatus(_ context.Context, params threadstore.UpdateStatusParams) error {
+func (s *cleanupCountingThreadStore) UpdateStatus(_ context.Context, params ThreadStatusUpdate) error {
 	s.status = params
 	return s.statusErr
 }

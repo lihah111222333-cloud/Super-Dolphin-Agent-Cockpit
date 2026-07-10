@@ -169,7 +169,7 @@ func (c *runtimePromptCatalog) listStoreTemplates(
 	if strings.TrimSpace(filter.CWD) == "" {
 		return nil, nil
 	}
-	templates, err := c.store.List(ctx, promptListFilter{
+	templates, err := c.store.List(ctx, PromptListFilter{
 		AgentKey: strings.TrimSpace(filter.AgentKey),
 		Keyword:  c.storeListKeyword(filter),
 		CWD:      strings.TrimSpace(filter.CWD),

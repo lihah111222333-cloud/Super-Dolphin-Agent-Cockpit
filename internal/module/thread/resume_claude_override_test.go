@@ -8,8 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *testing.T) {
@@ -17,13 +15,13 @@ func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555555"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1", AgentID: "agent-1", Prompt: "resume",
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123,
 		Status: statusCreated, LastEventType: "",
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID: "agent-1", Provider: "claude", ProviderThreadID: providerThreadID,
 		CodexThreadID: "thread-1", RolloutPath: rolloutPath, Cwd: "/repo",
 	}}
@@ -54,7 +52,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 	effort := "max"
 	const providerThreadID = "11111111-2222-3333-4444-555555555555"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1", AgentID: "agent-1", Prompt: "resume",
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123, Status: statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
@@ -65,7 +63,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 			},
 		}),
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID: "agent-1", Provider: "claude", ProviderThreadID: providerThreadID,
 		CodexThreadID: "thread-1", RolloutPath: rolloutPath, Cwd: "/repo",
 	}}

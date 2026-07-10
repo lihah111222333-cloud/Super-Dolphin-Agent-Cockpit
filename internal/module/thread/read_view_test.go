@@ -12,8 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
@@ -21,8 +19,8 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 
 	svc, ok := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		historyThreadStore(ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
@@ -75,8 +73,8 @@ func TestReadMessagesReadsPersistedHistoryWithoutLiveSession(t *testing.T) {
 
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		historyThreadStore(ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
@@ -138,8 +136,8 @@ func newPersistedMessagesPageService(t *testing.T, contents []string) Service {
 	}
 	return NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		historyThreadStore(ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
@@ -189,8 +187,8 @@ func TestReadMessagesFailsFastWithoutSessionOrPersistedHistory(t *testing.T) {
 
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		historyThreadStore(ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:       "agent-1",
 			Provider:      "codex",
 			CodexThreadID: "thread-1",
@@ -246,7 +244,7 @@ func TestListProjectsPersistedStatusIntoRef(t *testing.T) {
 
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "thread-archived", AgentID: "agent-archived", Prompt: "demo", Status: "archived"}),
+		historyThreadStore(ThreadRecord{ThreadID: "thread-archived", AgentID: "agent-archived", Prompt: "demo", Status: "archived"}),
 		nil,
 		nil,
 		nil,
@@ -269,7 +267,7 @@ func TestListKeepsUnnamedThreadNameEmpty(t *testing.T) {
 
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "agent-empty-name", AgentID: "agent-empty-name", Status: "created"}),
+		historyThreadStore(ThreadRecord{ThreadID: "agent-empty-name", AgentID: "agent-empty-name", Status: "created"}),
 		nil,
 		nil,
 		nil,
@@ -296,7 +294,7 @@ func TestGetReturnsProviderIdentityFromBinding(t *testing.T) {
 	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{
+		historyThreadStore(ThreadRecord{
 			ThreadID: "agent-1",
 			AgentID:  "agent-1",
 			Prompt:   "codex-1",
@@ -305,7 +303,7 @@ func TestGetReturnsProviderIdentityFromBinding(t *testing.T) {
 			Port:     9567,
 			Status:   "created",
 		}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: providerUUID,
@@ -345,8 +343,8 @@ func TestGetPrefersSessionUUIDForResolvedIdentity(t *testing.T) {
 	const sessionUUID = "019e218f-b9c9-7c60-87f7-449577c795dc"
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "agent-1", AgentID: "agent-1", Prompt: "codex-1"}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		historyThreadStore(ThreadRecord{ThreadID: "agent-1", AgentID: "agent-1", Prompt: "codex-1"}),
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "agent-1",
@@ -379,8 +377,8 @@ func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
 	const sessionUUID = "019e218f-b9c9-7c60-87f7-449577c795dc"
 	svc := NewService(
 		silentLogger(),
-		historyThreadStore(threadstore.Thread{ThreadID: "agent-1", AgentID: "agent-1", Prompt: "codex-1"}),
-		newHistoryTestBindingStore(&bindingstore.Binding{
+		historyThreadStore(ThreadRecord{ThreadID: "agent-1", AgentID: "agent-1", Prompt: "codex-1"}),
+		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "agent-1",
@@ -407,12 +405,12 @@ func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
 	}
 }
 
-func historyThreadStore(threads ...threadstore.Thread) *historyThreadPageStore {
-	store := &stubThreadStore{threads: append([]threadstore.Thread(nil), threads...)}
+func historyThreadStore(threads ...ThreadRecord) *historyThreadPageStore {
+	store := &stubThreadStore{threads: append([]ThreadRecord(nil), threads...)}
 	if len(store.threads) == 0 {
 		return &historyThreadPageStore{stubThreadStore: store}
 	}
-	store.threadByID = make(map[string]*threadstore.Thread, len(store.threads))
+	store.threadByID = make(map[string]*ThreadRecord, len(store.threads))
 	for i := range store.threads {
 		thread := &store.threads[i]
 		store.threadByID[strings.TrimSpace(thread.ThreadID)] = thread

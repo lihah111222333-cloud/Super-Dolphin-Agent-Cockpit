@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // TestPromptKeyChain_FrontendPayloadToBaseInstructions exercises the full
@@ -51,8 +49,8 @@ func TestPromptKeyChain_FrontendPayloadToBaseInstructions(t *testing.T) {
 	// Fake store mirrors what the user would have authored via SystemPromptPage:
 	// a "main/launch-fav" row plus an unrelated default. The router must
 	// land on the explicit pin, not the default.
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
 			sqlTemplate("main/launch-fav", "main", "PromptText authored by the user via SystemPromptPage", nil),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
@@ -170,8 +168,8 @@ func TestPromptKeyChain_NoPinFallsBackToDefault(t *testing.T) {
 
 	req := StartRequest{CWD: p.CWD, PromptKey: p.PromptKey, AgentKey: p.AgentKey}
 
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}

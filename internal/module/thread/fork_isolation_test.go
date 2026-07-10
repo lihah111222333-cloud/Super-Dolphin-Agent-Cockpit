@@ -11,8 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type forkPromptAssemblyStub struct {
@@ -74,7 +72,7 @@ func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *tes
 	}
 	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-parent",
 		Provider:      "codex",
 		CodexThreadID: "agent-parent",
@@ -82,7 +80,7 @@ func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *tes
 		SessionUUID:   parentUUID,
 		Cwd:           "/repo",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "agent-parent",
 		AgentID:        "agent-parent",
 		Prompt:         "Forked Thread",
@@ -113,13 +111,13 @@ func TestServiceForkRejectsMissingCWDBeforeProviderOrchestrationSideEffects(t *t
 		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
 	}
 	sessions := &stubSessionProvider{session: originalSession}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "thread-parent",
 		CodexThreadID:    "thread-parent",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		Prompt:    "Forked Thread",
 		Model:     "gpt-5.5",
@@ -308,17 +306,17 @@ func newForkServiceFixture(t *testing.T) *forkServiceFixture {
 }
 
 func forkParentBindingStore() *stubBindingStore {
-	return &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-parent", Provider: "codex", ProviderThreadID: "thread-parent", CodexThreadID: "thread-parent", Cwd: "/repo"}}
+	return &stubBindingStore{binding: &BindingRecord{AgentID: "agent-parent", Provider: "codex", ProviderThreadID: "thread-parent", CodexThreadID: "thread-parent", Cwd: "/repo"}}
 }
 
 func forkParentThreadStore() *stubThreadStore {
-	return &stubThreadStore{thread: &threadstore.Thread{
+	return &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		Prompt:    "Forked Thread",
 		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
-	}, promptSnapshot: &threadstore.PromptSnapshot{
+	}, promptSnapshot: &PromptSnapshotRecord{
 		DisplayName:           "Forked Thread",
 		BaseInstructions:      "stored base",
 		DeveloperInstructions: "stored dev",
@@ -333,7 +331,7 @@ func newPersistedForkLifecycleFixture(t *testing.T, status, ownerThreadID string
 	provider := "claude"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &recordingForkThreadStore{stubThreadStore: &stubThreadStore{
-		thread: &threadstore.Thread{
+		thread: &ThreadRecord{
 			ThreadID:      "thread-fork",
 			AgentID:       "thread-fork",
 			OwnerThreadID: strings.TrimSpace(ownerThreadID),
@@ -344,7 +342,7 @@ func newPersistedForkLifecycleFixture(t *testing.T, status, ownerThreadID string
 			CreatedAt:     123,
 		},
 		promptSnapshotID: "thread-fork",
-		promptSnapshot: &threadstore.PromptSnapshot{
+		promptSnapshot: &PromptSnapshotRecord{
 			DisplayName:           "Retained Fork",
 			BaseInstructions:      "stored base",
 			DeveloperInstructions: "stored dev",
@@ -353,7 +351,7 @@ func newPersistedForkLifecycleFixture(t *testing.T, status, ownerThreadID string
 			Hash:                  promptSnapshotHash("Retained Fork", "stored base", "stored dev", provider, nil, nil, 0),
 		},
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "thread-fork",
 		Provider:         provider,
 		ProviderThreadID: retainedForkProviderThreadID,
@@ -481,14 +479,14 @@ func TestServiceRecoverFallbackLaunchPreservesStoredProviderAndModel(t *testing.
 func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
 		Model:     "gpt-5.5",
 		CreatedAt: 123,
 	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
@@ -526,14 +524,14 @@ type recoverServiceFixture struct {
 	svc     *service
 }
 
-func newResumeRecoverFixture(t *testing.T, stores ...threadServiceStorePort) *recoverServiceFixture {
+func newResumeRecoverFixture(t *testing.T, stores ...ThreadStore) *recoverServiceFixture {
 	t.Helper()
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	manager := unified.NewSessionManager(nil)
 	threads := resumeRecoverThreadStore()
-	store := threadServiceStorePort(threads)
+	store := ThreadStore(threads)
 	if len(stores) > 0 {
 		store = stores[0]
 	}
@@ -547,18 +545,18 @@ func newResumeRecoverFixture(t *testing.T, stores ...threadServiceStorePort) *re
 }
 
 func resumeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBindingStore {
-	return &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-parent", Provider: "codex", ProviderThreadID: providerParentUUID, CodexThreadID: "thread-parent", RolloutPath: rolloutPath, SessionUUID: providerParentUUID, Cwd: "/repo"}}
+	return &stubBindingStore{binding: &BindingRecord{AgentID: "agent-parent", Provider: "codex", ProviderThreadID: providerParentUUID, CodexThreadID: "thread-parent", RolloutPath: rolloutPath, SessionUUID: providerParentUUID, Cwd: "/repo"}}
 }
 
 func resumeRecoverThreadStore() *stubThreadStore {
-	return &stubThreadStore{thread: &threadstore.Thread{
+	return &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
 		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
-	}, promptSnapshot: &threadstore.PromptSnapshot{
+	}, promptSnapshot: &PromptSnapshotRecord{
 		DisplayName:           "Recovered Thread",
 		BaseInstructions:      "stored base",
 		DeveloperInstructions: "stored dev",
@@ -638,7 +636,7 @@ func newClaudeRecoverService(t *testing.T) *service {
 }
 
 func claudeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBindingStore {
-	return &stubBindingStore{binding: &bindingstore.Binding{
+	return &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "claude",
 		ProviderThreadID: providerParentUUID,
@@ -651,7 +649,7 @@ func claudeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBind
 
 func claudeRecoverThreadStore(t *testing.T, model, effort string) *stubThreadStore {
 	t.Helper()
-	return &stubThreadStore{thread: &threadstore.Thread{
+	return &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
@@ -695,14 +693,14 @@ func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	t.Parallel()
 
 	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
@@ -739,14 +737,14 @@ func TestServiceRecoverDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *
 
 	promptAssembly := &forkPromptAssemblyStub{}
 	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
@@ -775,14 +773,14 @@ func TestServiceRecoverInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T)
 	_, worktreeCWD := forkPromptGitFixture(t)
 	promptAssembly := &forkPromptAssemblyStub{}
 	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
 		CodexThreadID:    "thread-parent",
 		Cwd:              worktreeCWD,
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
@@ -846,7 +844,7 @@ type recordingForkThreadStore struct {
 	failAfterErr     error
 }
 
-func (s *recordingForkThreadStore) Upsert(ctx context.Context, params threadstore.UpsertParams) error {
+func (s *recordingForkThreadStore) Upsert(ctx context.Context, params ThreadUpsert) error {
 	if s.failAfterUpserts > 0 && s.upsertCount+1 >= s.failAfterUpserts {
 		return s.failAfterErr
 	}

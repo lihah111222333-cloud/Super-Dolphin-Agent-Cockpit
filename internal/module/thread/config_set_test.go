@@ -9,8 +9,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/kelindar/event"
 )
 
@@ -33,7 +31,7 @@ func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 	}
 	sessions := &stubSessionProvider{session: session}
 	threads := newConfigPersistenceThreadStore()
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -84,7 +82,7 @@ func TestSetConfigInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 	svc := NewServiceWithPromptAssembly(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
 		nil,
@@ -120,7 +118,7 @@ func TestSetModelInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 	svc := NewServiceWithPromptAssembly(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
 		nil,
@@ -145,7 +143,7 @@ func TestSetConfigRejectsInvalidEffort(t *testing.T) {
 	effort := "turbo"
 	session := &stubSession{threadID: "thread-1"}
 	sessions := &stubSessionProvider{session: session}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -171,7 +169,7 @@ func TestSetConfigReturnsOverrideWithoutMutatingProviderEffectiveConfigAndPublis
 	defer cancel()
 
 	model := "gpt-5.5"
-	threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
+	threads := &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
 	session := &stubSession{
 		threadID:      "thread-1",
 		allowedModels: []string{model},
@@ -186,7 +184,7 @@ func TestSetConfigReturnsOverrideWithoutMutatingProviderEffectiveConfigAndPublis
 	svc := NewService(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
 		nil,
@@ -232,7 +230,7 @@ func TestSetConfigClearsModelOverrideWithoutClearingProviderEffectiveModelAndPub
 	defer cancel()
 
 	model := ""
-	threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
+	threads := &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
 	session := &stubSession{
 		threadID: "thread-1",
 		readConfigResult: dto.ThreadConfig{
@@ -246,7 +244,7 @@ func TestSetConfigClearsModelOverrideWithoutClearingProviderEffectiveModelAndPub
 	svc := NewService(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
 		nil,
@@ -294,7 +292,7 @@ func TestServiceReadRuntimeConfigUsesSessionSnapshot(t *testing.T) {
 		},
 	}
 	sessions := &stubSessionProvider{session: session}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -327,7 +325,7 @@ func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveCon
 
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
-	threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "sonnet", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
+	threads := &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", Model: "sonnet", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
 	session := &stubSession{
 		threadID:      "thread-1",
 		allowedModels: []string{"best", "sonnet", "sonnet[1m]", "haiku", "opus", "opus[1m]"},
@@ -341,7 +339,7 @@ func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveCon
 	svc := NewService(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "claude", ProviderThreadID: "thread-1"}},
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "claude", ProviderThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
 		nil,
@@ -400,7 +398,7 @@ func TestSetConfigRejectsMaxForCodex(t *testing.T) {
 	svc := NewService(
 		silentLogger(),
 		nil,
-		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
 		nil,

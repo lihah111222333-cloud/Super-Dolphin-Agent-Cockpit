@@ -20,8 +20,6 @@ import (
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"go.uber.org/fx"
 )
 
@@ -322,8 +320,8 @@ func newFxHarness(t *testing.T) *fxHarness {
 		fx.Provide(
 			func() thread.SessionStarter { return h.bridge },
 			func() thread.SessionProvider { return h.bridge },
-			func() threadstore.Store { return h.threadStore },
-			func() bindingstore.Store { return h.bindingStore },
+			func() thread.ThreadStore { return h.threadStore },
+			func() thread.BindingStore { return h.bindingStore },
 			newE2EPromptStore,
 			func() turnpkg.Service { return &noopTurnService{} },
 			func() thread.OrchestrationFacade { return h.orchestration },

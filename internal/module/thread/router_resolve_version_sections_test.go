@@ -4,21 +4,19 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 type sectionSnapshotPromptStore struct {
-	*fakePromptStore
-	sections   map[int64][]promptstore.PromptTemplateSection
+	*fakePromptCatalog
+	sections   map[int64][]PromptTemplateSection
 	sectionErr error
 }
 
-func (s *sectionSnapshotPromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+func (s *sectionSnapshotPromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]PromptTemplateSection, error) {
 	if s.sectionErr != nil {
 		return nil, s.sectionErr
 	}
-	return append([]promptstore.PromptTemplateSection(nil), s.sections[templateID]...), nil
+	return append([]PromptTemplateSection(nil), s.sections[templateID]...), nil
 }
 
 func TestResolveRoutedPrompt_InsertVersionUsesInjectableSections(t *testing.T) {
@@ -27,10 +25,10 @@ func TestResolveRoutedPrompt_InsertVersionUsesInjectableSections(t *testing.T) {
 	tpl := sqlTemplate("main/sectioned", "main", "legacy monolith", nil)
 	tpl.ID = 42
 	store := &sectionSnapshotPromptStore{
-		fakePromptStore: &fakePromptStore{
-			templates: []promptstore.PromptTemplate{tpl},
+		fakePromptCatalog: &fakePromptCatalog{
+			templates: []PromptTemplate{tpl},
 		},
-		sections: map[int64][]promptstore.PromptTemplateSection{
+		sections: map[int64][]PromptTemplateSection{
 			42: {
 				{SectionKey: "workflow", Region: "dynamic", Ordinal: 1, Body: "  Workflow body  ", Enabled: true, EnableWhen: []byte(`{"language":"zh"}`)},
 				{SectionKey: "identity", Region: "static", Ordinal: 2, Body: "Identity body", Enabled: true},
@@ -69,10 +67,10 @@ func TestResolveRoutedPrompt_AllInjectableSectionsGatedOutDoesNotFallBackToPromp
 	tpl := sqlTemplate("main/sectioned", "main", "legacy monolith", nil)
 	tpl.ID = 42
 	store := &sectionSnapshotPromptStore{
-		fakePromptStore: &fakePromptStore{
-			templates: []promptstore.PromptTemplate{tpl},
+		fakePromptCatalog: &fakePromptCatalog{
+			templates: []PromptTemplate{tpl},
 		},
-		sections: map[int64][]promptstore.PromptTemplateSection{
+		sections: map[int64][]PromptTemplateSection{
 			42: {
 				{SectionKey: "workflow", Region: "dynamic", Ordinal: 1, Body: "Workflow body", Enabled: true, EnableWhen: []byte(`{"language":"en"}`)},
 			},
@@ -101,8 +99,8 @@ func TestResolveRoutedPrompt_SectionStoreErrorFailsFast(t *testing.T) {
 	tpl.ID = 42
 	sectionErr := errors.New("section store down")
 	store := &sectionSnapshotPromptStore{
-		fakePromptStore: &fakePromptStore{
-			templates: []promptstore.PromptTemplate{tpl},
+		fakePromptCatalog: &fakePromptCatalog{
+			templates: []PromptTemplate{tpl},
 		},
 		sectionErr: sectionErr,
 	}

@@ -5,14 +5,12 @@ import (
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		Model:          "stale-model",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Effort: "low", Approvals: "never"}),
@@ -38,7 +36,7 @@ func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 	svc := NewService(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{
+		&stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "thread-1",
@@ -63,7 +61,7 @@ func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 func TestServiceGetConfigFailsFastWithoutSessionReturnsOfflineConfig(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		Model:          "gpt-5.5",
 		Cwd:            "/tmp/demo",
@@ -91,7 +89,7 @@ func TestServiceGetConfigFailsFastWithoutSessionReturnsOfflineConfig(t *testing.
 func TestServiceGetConfigPendingLaunchReturnsOfflineConfigWithoutBindingOrSession(t *testing.T) {
 	t.Parallel()
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:      "thread-pending-launch",
 		Model:         "stored-thread-model",
 		Status:        statusCreated,
@@ -120,7 +118,7 @@ func TestServiceGetConfigPendingLaunchReturnsOfflineConfigWithoutBindingOrSessio
 func TestBuildOfflineConfigPrefersStoredProviderOverBinding(t *testing.T) {
 	t.Parallel()
 
-	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+	got := mustBuildOfflineConfig(t, &ThreadRecord{
 		ThreadID:       "thread-stored-provider",
 		Model:          "gpt-5.5",
 		Status:         statusCreated,
@@ -135,12 +133,12 @@ func TestBuildOfflineConfigPrefersStoredProviderOverBinding(t *testing.T) {
 func TestBuildOfflineConfigPrefersStoredProviderWhenBindingMismatch(t *testing.T) {
 	t.Parallel()
 
-	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+	got := mustBuildOfflineConfig(t, &ThreadRecord{
 		ThreadID:       "thread-provider-mismatch",
 		Model:          "gpt-5.5",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude"}),
-	}, &bindingstore.Binding{Provider: "codex"})
+	}, &BindingRecord{Provider: "codex"})
 
 	if got.Config.Provider != "claude" {
 		t.Fatalf("buildOfflineConfig() provider = %q, want claude", got.Config.Provider)
@@ -150,12 +148,12 @@ func TestBuildOfflineConfigPrefersStoredProviderWhenBindingMismatch(t *testing.T
 func TestBuildOfflineConfigFallsBackToBindingWhenStoredEmpty(t *testing.T) {
 	t.Parallel()
 
-	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+	got := mustBuildOfflineConfig(t, &ThreadRecord{
 		ThreadID:       "thread-binding-fallback",
 		Model:          "gpt-5.5",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{}),
-	}, &bindingstore.Binding{Provider: "codex"})
+	}, &BindingRecord{Provider: "codex"})
 
 	if got.Config.Provider != "codex" {
 		t.Fatalf("buildOfflineConfig() provider = %q, want codex", got.Config.Provider)
@@ -165,7 +163,7 @@ func TestBuildOfflineConfigFallsBackToBindingWhenStoredEmpty(t *testing.T) {
 func TestBuildOfflineConfigFallsBackToDefaultWhenAllEmpty(t *testing.T) {
 	t.Parallel()
 
-	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+	got := mustBuildOfflineConfig(t, &ThreadRecord{
 		ThreadID:       "thread-default-fallback",
 		Model:          "gpt-5.5",
 		Status:         statusCreated,
@@ -180,7 +178,7 @@ func TestBuildOfflineConfigFallsBackToDefaultWhenAllEmpty(t *testing.T) {
 func TestBuildOfflineConfigPendingLaunchClaudeThread(t *testing.T) {
 	t.Parallel()
 
-	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+	got := mustBuildOfflineConfig(t, &ThreadRecord{
 		ThreadID:      "thread-pending-claude",
 		Prompt:        "",
 		Status:        statusCreated,
@@ -207,7 +205,7 @@ func TestServiceReadRuntimeConfigMergesSessionSnapshotWithOfflineConfig(t *testi
 			"approvalPolicy": "on-request",
 		},
 	}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		Model:          "gpt-5.5",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
@@ -215,7 +213,7 @@ func TestServiceReadRuntimeConfigMergesSessionSnapshotWithOfflineConfig(t *testi
 	svc, ok := NewService(
 		silentLogger(),
 		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{
+		&stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "thread-1",
@@ -308,7 +306,7 @@ func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "keep-model", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1, ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: "keep-model"})}}
+			threads := &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", Model: "keep-model", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1, ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: "keep-model"})}}
 			svc := NewService(silentLogger(), threads, nil, nil, nil, nil, nil, nil).(*service)
 			if err := svc.persistThreadConfig(context.Background(), "thread-1", tt.patch, dto.ThreadConfig{}); err != nil {
 				t.Fatalf("persistThreadConfig() error = %v", err)
@@ -325,8 +323,8 @@ func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
 
 func mustBuildOfflineConfig(
 	t *testing.T,
-	thread *threadstore.Thread,
-	binding *bindingstore.Binding,
+	thread *ThreadRecord,
+	binding *BindingRecord,
 ) offlineConfigSnapshot {
 	t.Helper()
 	svc := NewService(silentLogger(), &stubThreadStore{thread: thread}, nil, nil, nil, nil, nil, nil).(*service)
@@ -364,7 +362,7 @@ func newConfigTestService(
 }
 
 func testCodexBindingStore() *stubBindingStore {
-	return &stubBindingStore{binding: &bindingstore.Binding{
+	return &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
@@ -383,7 +381,7 @@ func assertOfflineConfigFallback(t *testing.T, cfg dto.ThreadConfig) {
 }
 
 func newConfigPersistenceThreadStore() *stubThreadStore {
-	return &stubThreadStore{thread: &threadstore.Thread{
+	return &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		Model:     "o4-mini",
 		Cwd:       "/tmp/demo",

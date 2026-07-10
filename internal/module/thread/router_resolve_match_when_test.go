@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // sqlTemplateWithMatchWhen is a convenience builder for the match_when
 // auto-route tests: it accepts a raw JSON expression (use "{}" for opt-in
 // always-match) and a priority integer. Pass nil raw to leave match_when
 // unset (= opt-out of auto-routing).
-func sqlTemplateWithMatchWhen(promptKey, agentKey, text string, matchWhen []byte, priority int) promptstore.PromptTemplate {
+func sqlTemplateWithMatchWhen(promptKey, agentKey, text string, matchWhen []byte, priority int) PromptTemplate {
 	tpl := sqlTemplate(promptKey, agentKey, text, nil)
 	tpl.MatchWhen = append(json.RawMessage(nil), matchWhen...)
 	tpl.Priority = priority
@@ -33,8 +31,8 @@ func matchWhenCWDPrefix(cwd string) []byte {
 // higher-priority row wins and its body is injected.
 func TestResolveRoutedPrompt_MatchWhenAutoRoutePicksHighestPriority(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/low", "low", "low body", []byte(`{}`), 1),
 			sqlTemplateWithMatchWhen("main/hi", "hi", "hi body", []byte(`{}`), 10),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
@@ -57,8 +55,8 @@ func TestResolveRoutedPrompt_MatchWhenAutoRoutePicksHighestPriority(t *testing.T
 // when the CWD prefix rule matches the request's CWD.
 func TestResolveRoutedPrompt_MatchWhenCWDPrefixMatches(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/work",
 				"work", "work body",
 				matchWhenCWDPrefix("/Users/mac/work"), 5),
@@ -78,8 +76,8 @@ func TestResolveRoutedPrompt_MatchWhenCWDPrefixMatches(t *testing.T) {
 // auto-route rule matches, the default persona still wins.
 func TestResolveRoutedPrompt_MatchWhenCWDPrefixMissFallsBackToDefault(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/work",
 				"work", "work body",
 				matchWhenCWDPrefix("/Users/mac/work"), 5),
@@ -99,8 +97,8 @@ func TestResolveRoutedPrompt_MatchWhenCWDPrefixMissFallsBackToDefault(t *testing
 // explicit PromptKey pin takes precedence over any match_when row.
 func TestResolveRoutedPrompt_MatchWhenSkippedWhenPromptKeyPinned(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/auto", "auto", "auto body", []byte(`{}`), 99),
 			sqlTemplate("main/pinned", "pinned", "pinned body", nil),
 		},
@@ -122,8 +120,8 @@ func TestResolveRoutedPrompt_MatchWhenSkippedWhenPromptKeyPinned(t *testing.T) {
 // preference and we honor it without overriding.
 func TestResolveRoutedPrompt_MatchWhenSkippedWhenAgentKeyPinned(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/auto", "auto", "auto body", []byte(`{}`), 99),
 			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
 		},
@@ -141,8 +139,8 @@ func TestResolveRoutedPrompt_MatchWhenSkippedWhenAgentKeyPinned(t *testing.T) {
 // workspace root, so cwd_prefix / cwd_glob rules must not match process cwd.
 func TestResolveRoutedPrompt_MatchWhenDoesNotTrustDotCWD(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/by-wd", "by-wd", "by-wd body", []byte(`{"cwd_prefix":"/"}`), 5),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
@@ -163,8 +161,8 @@ func TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored(t *testing.T) {
 	t.Parallel()
 	tpl := sqlTemplateWithMatchWhen("main/auto", "auto", "auto body", []byte(`{}`), 99)
 	tpl.Enabled = false
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			tpl,
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
@@ -184,8 +182,8 @@ func TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored(t *testing.T) {
 // tags_has keyword routing is retired.
 func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/general-zh", "main",
 				"fallback body", []byte(`{}`), 150),
 			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
@@ -212,8 +210,8 @@ func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback(t *testing.T) {
 // matches because template-level keyword routing is retired.
 func TestResolveRoutedPrompt_MatchWhenFallbackKicksInWhenNoSpecificMatches(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("main/general-zh", "general_main",
 				"fallback body", []byte(`{}`), 150),
 			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
@@ -239,8 +237,8 @@ func TestResolveRoutedPrompt_MatchWhenFallbackKicksInWhenNoSpecificMatches(t *te
 // per-pool DESC ordering after the two-stage split.
 func TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder(t *testing.T) {
 	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	store := &fakePromptCatalog{
+		templates: []PromptTemplate{
 			sqlTemplateWithMatchWhen("user/sql-low", "sql_low",
 				"low body", matchWhenCWDPrefix("/repo/sql"), 1),
 			sqlTemplateWithMatchWhen("user/sql-hi", "sql_hi",

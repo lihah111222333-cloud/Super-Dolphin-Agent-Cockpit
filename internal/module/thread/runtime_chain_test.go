@@ -9,25 +9,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
 	t.Setenv("PROMPT_START_CURRENT_DATE", "2026-05-22")
 
 	store := newRuntimeChainPromptStore()
-	catalog := threadprompt.NewRuntimeCatalog(store, runtimeChainBuiltinRegistry())
 	promptAssembly := promptpkg.NewService(&promptpkg.Config{}, nil)
-	if err := registerThreadPromptProviders(threadPromptProviderParams{
-		Registrar:     promptAssembly,
-		PromptCatalog: catalog,
-	}); err != nil {
-		t.Fatalf("registerThreadPromptProviders() error = %v", err)
+	if err := registerRuntimeChainProviders(promptAssembly); err != nil {
+		t.Fatalf("registerRuntimeChainProviders() error = %v", err)
 	}
 
 	sessions := &stubSessionProvider{}
-	svc := newRuntimeChainService(catalog, promptAssembly, sessions, runtimeChainStarter(t, sessions))
+	svc := newRuntimeChainService(store, promptAssembly, sessions, runtimeChainStarter(t, sessions))
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-runtime-chain",
 		Provider: "codex",
@@ -41,47 +35,60 @@ func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
 	}
 }
 
-func runtimeChainBuiltinRegistry() *threadBuiltinPromptRegistry {
-	return &threadBuiltinPromptRegistry{
-		templates: []contract.BuiltinPromptTemplate{
-			{ID: -700, PromptKey: "main/default", Title: "Builtin Main Default", AgentKey: "main", Enabled: true, Scope: "global", Priority: 200},
-			{ID: -701, PromptKey: "main/expert/builtin", Title: "Builtin Expert", AgentKey: "main", WhenToUse: "Use builtin expert for runtime chain checks.", Tags: []string{"scope.global", "intent:expert"}, Enabled: true, Scope: "global", Priority: 180},
-		},
-		sections: map[int64][]contract.BuiltinPromptSection{
-			-700: {{
-				TemplateID: -700,
-				SectionKey: "identity",
-				Region:     "static",
-				Ordinal:    0,
-				Body:       "Builtin identity",
-				Enabled:    true,
-			}},
-		},
-	}
-}
-
-func newRuntimeChainPromptStore() *fakePromptStore {
+func newRuntimeChainPromptStore() *fakePromptCatalog {
 	cwd := resolvePromptCWD("/repo/a")
 	otherCWD := resolvePromptCWD("/repo/b")
-	return &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
+	return &fakePromptCatalog{
+		templates: []PromptTemplate{
+			{ID: -700, PromptKey: "main/default", Title: "Builtin Main Default", AgentKey: "main", Tags: runtimeChainJSONTags("scope.global"), Enabled: true, Priority: 200},
 			{ID: 10, PromptKey: "user/expert/sql", Title: "SQL Expert", AgentKey: "main", WhenToUse: "Use for SQL work.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:expert"), Enabled: true, Priority: 160},
 			{ID: 11, PromptKey: "user/knowledge/sqlc", Title: "SQLC Knowledge", AgentKey: "main", WhenToUse: "Recall SQLC workflow.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:recall"), Enabled: true},
 			{ID: 12, PromptKey: "user/default/rule", Title: "Project Rule", AgentKey: "default_rule", WhenToUse: "Project default.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:default_rule"), Enabled: true},
 			{ID: 13, PromptKey: "user/expert/disabled", Title: "Disabled Expert", AgentKey: "main", WhenToUse: "Must stay hidden.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:expert"), Enabled: false},
 		},
-		recallSections: []promptstore.PromptTemplateSection{
+		sectionsByTemplateID: map[int64][]PromptTemplateSection{
+			-700: {{TemplateID: -700, SectionKey: "identity", Region: "static", Body: "Builtin identity", Enabled: true}},
+		},
+		recallSections: []PromptTemplateSection{
 			{TemplateID: 11, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", TemplateDescription: "Read source SQL first.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: true},
 			{TemplateID: 11, SectionKey: "recall_other", TriggerType: "recall", RecallTopic: "other-repo-topic", TemplateDescription: "Other repo only.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + otherCWD), Enabled: true},
 			{TemplateID: 11, SectionKey: "recall_disabled", TriggerType: "recall", RecallTopic: "disabled-topic", TemplateDescription: "Disabled topic.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: false},
 		},
-		defaultRuleSections: []promptstore.PromptTemplateSection{
+		defaultRuleSections: []PromptTemplateSection{
 			{TemplateID: 12, SectionKey: "focused_tests", Body: "Always run focused tests before reporting done.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: true},
 			{TemplateID: 12, SectionKey: "global_rule", Body: "Global runtime rule.", TemplateTags: runtimeChainJSONTags("scope.global"), Enabled: true},
 			{TemplateID: 12, SectionKey: "other_repo_rule", Body: "Other repo rule.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + otherCWD), Enabled: true},
 			{TemplateID: 12, SectionKey: "disabled_rule", Body: "Disabled rule.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: false},
 		},
 	}
+}
+
+func registerRuntimeChainProviders(registrar contract.DynamicSectionRegistrar) error {
+	providers := []staticRuntimeSectionProvider{
+		{name: contract.DynamicSectionAvailableExperts, body: "可用专家: main/expert/builtin; user/expert/sql"},
+		{name: contract.DynamicSectionRecallCatalog, body: "可回忆知识目录: sqlc-workflow"},
+		{name: contract.DynamicSectionProjectDefaultRules, body: "Always run focused tests before reporting done. Global runtime rule."},
+	}
+	for _, provider := range providers {
+		if err := registrar.RegisterDynamicProvider(provider); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type staticRuntimeSectionProvider struct {
+	name string
+	body string
+}
+
+func (p staticRuntimeSectionProvider) SectionName() string {
+	return p.name
+}
+
+func (p staticRuntimeSectionProvider) Resolve(context.Context, contract.SectionContext) (*string, error) {
+	body := p.body
+	return &body, nil
 }
 
 func runtimeChainStarter(t *testing.T, sessions *stubSessionProvider) *startOnlySessionStarter {
@@ -130,7 +137,7 @@ func runtimeChainHiddenSubstrings() []string {
 }
 
 func newRuntimeChainService(
-	catalog promptstore.RuntimePromptCatalog,
+	catalog PromptCatalog,
 	promptAssembly contract.PromptAssemblyService,
 	sessions *stubSessionProvider,
 	starter contract.SessionStarter,
