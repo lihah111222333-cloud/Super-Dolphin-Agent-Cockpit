@@ -2,8 +2,12 @@ package archtest_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
 )
 
 const (
@@ -166,6 +170,77 @@ func TestBoundaryRegistryRejectsInvalidEntries(t *testing.T) {
 				t.Fatalf("validateBoundaryRegistry() missing %q in:\n%s", tc.want, violations)
 			}
 		})
+	}
+}
+
+func TestBackendBoundaryRegistryValidation(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	if violations := archtest.ValidateBackendBoundaryRegistry(registry); len(violations) > 0 {
+		t.Fatalf("canonical backend boundary registry is invalid:\n%s", strings.Join(violations, "\n"))
+	}
+	if len(registry.Owners) == 0 || len(registry.Rules) == 0 {
+		t.Fatalf("canonical backend boundary registry must declare owners and rules: %#v", registry)
+	}
+
+	duplicateOwner := archtest.DefaultBackendBoundaryRegistry()
+	duplicateOwner.Owners = append(duplicateOwner.Owners, duplicateOwner.Owners[0])
+	if violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(duplicateOwner), "\n"); !strings.Contains(violations, "duplicate owner") {
+		t.Fatalf("duplicate owner must fail validation, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRegistryReturnsDeepCopy(t *testing.T) {
+	first := archtest.DefaultBackendBoundaryRegistry()
+	second := archtest.DefaultBackendBoundaryRegistry()
+	if len(first.Owners) == 0 || len(first.Owners[0].FilePatterns) == 0 {
+		t.Fatalf("registry fixture missing owner patterns: %#v", first)
+	}
+	first.Owners[0].FilePatterns[0] = "mutated/**/*.go"
+	if second.Owners[0].FilePatterns[0] == "mutated/**/*.go" {
+		t.Fatal("registry returns shared owner pattern slices")
+	}
+}
+
+func TestBackendBoundaryEvaluatorFailsClosed(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	if _, err := archtest.EvaluateBackendBoundary(filepath.Join(t.TempDir(), "missing"), registry); err == nil {
+		t.Fatal("missing root must return an error")
+	}
+
+	emptyRoot := t.TempDir()
+	if _, err := archtest.EvaluateBackendBoundary(emptyRoot, registry, registry.Rules[0].ID); err == nil {
+		t.Fatal("root without matching production Go files must return an error")
+	}
+
+	brokenRoot := t.TempDir()
+	brokenFile := filepath.Join(brokenRoot, "internal", "contract", "broken.go")
+	if err := os.MkdirAll(filepath.Dir(brokenFile), 0o755); err != nil {
+		t.Fatalf("create broken fixture directory: %v", err)
+	}
+	if err := os.WriteFile(brokenFile, []byte("package contract\nfunc (\n"), 0o600); err != nil {
+		t.Fatalf("write broken fixture: %v", err)
+	}
+	if _, err := archtest.EvaluateBackendBoundary(brokenRoot, registry, "contract_reverse_pollution"); err == nil {
+		t.Fatal("malformed Go source must return an error")
+	}
+}
+
+func TestBackendBoundaryRegistryCoversProductionTree(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	evaluation, err := archtest.EvaluateBackendBoundary(repoRoot(t), registry)
+	if err != nil {
+		t.Fatalf("evaluate production boundary registry: %v", err)
+	}
+	if evaluation.CandidateFiles == 0 {
+		t.Fatal("production boundary evaluation matched zero candidate files")
+	}
+	for _, rule := range registry.Rules {
+		if evaluation.ByRule[rule.ID] == 0 {
+			t.Fatalf("rule %q matched zero production files", rule.ID)
+		}
+	}
+	if len(evaluation.Violations) > 0 {
+		t.Fatalf("production boundary violations:\n%s", strings.Join(evaluation.Violations, "\n"))
 	}
 }
 
