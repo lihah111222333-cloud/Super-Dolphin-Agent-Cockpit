@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.js",
-  "generated_at": "2026-07-08",
+  "generated_at": "2026-07-10",
   "files": 4004,
   "domains": {
     "docs-agent": 851,

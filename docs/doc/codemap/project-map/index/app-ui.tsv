@@ -17,13 +17,13 @@ frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	18901	当前 
 frontend-app/public/wails/runtime.test.js	frontend-app	app-ui	js-test	14656	当前 React/Vite 前端包	frontend,app,public,wails,runtime,test,当前,React,Vite,前端包
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
 frontend-app/scripts/agentic-e2e-discovery.mjs	frontend-app	app-ui	js-source	6036	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	5915	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	9805	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7632	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	12675	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-reporter.mjs	frontend-app	app-ui	js-source	8046	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,reporter,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-sandbox.mjs	frontend-app	app-ui	js-source	3296	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,sandbox,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-wails-mock.mjs	frontend-app	app-ui	js-source	13514	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,wails,mock,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e.mjs	frontend-app	app-ui	js-source	24250	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e.test.mjs	frontend-app	app-ui	js-source	38924	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,test,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-wails-mock.mjs	frontend-app	app-ui	js-source	23596	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,wails,mock,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e.mjs	frontend-app	app-ui	js-source	26608	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e.test.mjs	frontend-app	app-ui	js-source	55562	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-runner-contract.test.mjs	frontend-app	app-ui	js-source	1236	React 前端构建与校验脚本	frontend,app,scripts,desktop,runner,contract,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	10249	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-source	2380	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
@@ -224,7 +224,7 @@ frontend-app/src/pages/settings/components/ModelProvidersCard.jsx	frontend-app	a
 frontend-app/src/pages/settings/components/PromptSettingsCard.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,PromptSettingsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/PromptSettingsCard.jsx	frontend-app	app-ui	jsx	3967	React 页面与路由级 UI	frontend,app,src,pages,settings,components,PromptSettingsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/ProviderSettingsPanels.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsPanels,React,页面与路由级,UI
-frontend-app/src/pages/settings/components/ProviderSettingsPanels.jsx	frontend-app	app-ui	jsx	6542	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsPanels,React,页面与路由级,UI
+frontend-app/src/pages/settings/components/ProviderSettingsPanels.jsx	frontend-app	app-ui	jsx	6983	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsPanels,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/SettingsPageComponents.css	frontend-app	app-ui	css	7941	React 页面与路由级 UI	frontend,app,src,pages,settings,components,SettingsPageComponents,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/SettingsPromptNotice.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,SettingsPromptNotice,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/SettingsPromptNotice.jsx	frontend-app	app-ui	jsx	418	React 页面与路由级 UI	frontend,app,src,pages,settings,components,SettingsPromptNotice,React,页面与路由级,UI
