@@ -783,6 +783,7 @@ refactor(thread): 通过领域端口隔离 Store
 - Modify: `internal/module/turn/contract.go`
 - Create: `internal/module/uistate/persistence_port.go`
 - Create: `internal/app/{cron,dashboard,datasource_v2,feedback,insight,memory,personalization,prompt,turn,uistate}_store_adapters.go`
+- Create: `internal/app/business_store_adapter_nil.go`
 - Modify: `internal/app/business_store_adapters_module.go`
 - Add focused tests under each affected Module and `internal/app`
 - Modify: `internal/archtest/interface_isolation_dashboard_guard_test.go`
@@ -840,6 +841,8 @@ Expected: PASS；保存为迁移前行为基线。
 跨层 DTO 映射必须切断可变引用共享：`json.RawMessage`、slice、map 和标量指针都要复制，自动字段测试除 source/target exported field 集合与 one-hot 映射外，还要断言修改 domain DTO 不会回写 Store DTO。Lane B 允许新建一个仅测试可见的 App 字段守卫 helper 供四个 checkpoint 复用，禁止复制四套反射实现。
 
 B1 固定按 `feedback → insight → personalization → turn` 串行推进。Feedback 保留 provider 在 nil Store 时返回 nil、由 `Record` 显式 fail-fast 的既有时机；Personalization 保留 non-nil adapter 的方法级 fail-fast；Turn 保留 optional nil。Insight 的 Store 是 required 依赖，迁到 App 后 constructor 必须在 nil 时返回明确错误，不能留下延迟 panic。Turn 只把 `turndedupe.ErrNotFound` 映射为 `turn.ErrDedupeNotFound`，其他错误保持原始 `errors.Is` 链。
+
+B1 的 App adapter 统一通过 `business_store_adapter_nil.go` 识别 nil interface 与 typed nil Store；共享 helper 只处理 nil 判定，不承载 DTO 映射、错误转换或业务兜底。实现必须覆盖 Go 所有可 nil 的 reflect kind，避免各 adapter 复制不完整的 pointer-only 判断。Turn 的领域端口按既定 owned path 写入 `internal/module/turn/contract.go`，不得另增 turn 顶层生产文件。
 
 ### B2. 按现有领域端口迁移
 
