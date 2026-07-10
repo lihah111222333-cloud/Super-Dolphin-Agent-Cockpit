@@ -48,6 +48,8 @@ MISSING_FILES=()
 DIRTY_FILES=()
 HAS_FRONTEND_APP_CHANGES=0
 CODEMAP_GENERATED_PATHS=(
+  README.md
+  docs/doc/codemap/13-archtest-boundaries.md
   docs/doc/codemap/README.md
   docs/doc/codemap/ai-index.json
   docs/doc/codemap/project-map
@@ -128,6 +130,8 @@ refresh_codemap_generated_files() {
   )
 
   for generated in \
+    README.md \
+    docs/doc/codemap/13-archtest-boundaries.md \
     docs/doc/codemap/README.md \
     docs/doc/codemap/ai-index.json \
     docs/doc/codemap/project-map
@@ -140,6 +144,8 @@ refresh_codemap_generated_files() {
 
   rm -rf docs/doc/codemap/project-map
   mkdir -p docs/doc/codemap
+  cp "$CODEMAP_TMP/README.md" README.md
+  cp "$CODEMAP_TMP/docs/doc/codemap/13-archtest-boundaries.md" docs/doc/codemap/13-archtest-boundaries.md
   cp "$CODEMAP_TMP/docs/doc/codemap/README.md" docs/doc/codemap/README.md
   cp "$CODEMAP_TMP/docs/doc/codemap/ai-index.json" docs/doc/codemap/ai-index.json
   cp -R "$CODEMAP_TMP/docs/doc/codemap/project-map" docs/doc/codemap/project-map

@@ -19,6 +19,9 @@ func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
 	return []BackendBoundaryGuard{
 		{ID: "backend_surface_governance", File: "internal/archtest/backend_boundary_governance_test.go", TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"}, Reason: "the governance guard fails when a backend top-level Go surface is missing or stale"},
 		{ID: "backend_boundary_single_source", File: "internal/archtest/backend_boundary_single_source_test.go", TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"}, Reason: "canonical backend boundary facts must not be duplicated by procedural evaluators"},
+		{ID: "rpc_runtime_e2e", File: "internal/e2e/rpc_runtime/runtime_e2e_test.go", TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"}, BuildTags: []string{"e2e"}, Reason: "the tagged RPC runtime suite validates the backend process boundary end to end"},
+		{ID: "code_size_budget", File: "internal/guards/code_size_guard_test.go", TestNames: []string{"TestCodeSizeBudgetBaselineIsActionable"}, Reason: "the repository guard keeps code size baselines non-empty and enforcing"},
+		{ID: "rollback_skip_markers", File: "internal/guards/rollback_skip_guard_test.go", TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"}, Reason: "the repository guard rejects hidden rollback skip markers in Go tests"},
 		{ID: "dependency_direction", File: "internal/archtest/dependency_direction_test.go", TestNames: []string{"TestDependencyDirection"}, Reason: "dependency direction tests protect typed backend layer relationships"},
 		{ID: "fx_graph", File: "internal/archtest/fx_graph_test.go", TestNames: []string{"TestFxValidateApp"}, Reason: "the desktop composition root must retain a valid Fx graph"},
 		{ID: "pkg_public_boundary", File: "internal/archtest/backend_boundary_guard_coverage_test.go", TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"}, Reason: "public pkg libraries must reject both repository internals and command entrypoints"},
@@ -37,12 +40,12 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/app", "desktop composition root", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"fx_graph"}),
-		backendBoundarySurface("internal/archtest", "architecture governance implementation", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"backend_boundary_single_source"}),
+		backendBoundarySurface("internal/archtest", "architecture governance implementation", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"backend_surface_governance", "backend_boundary_single_source"}),
 		backendBoundarySurface("internal/contract", "stable DTO and port contracts", []BoundaryRuleID{"contract_reverse_pollution"}, nil),
 		backendBoundarySurface("internal/devtools", "backend developer tooling", []BoundaryRuleID{"fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/dto", "transport-neutral data transfer objects", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/e2e", "backend end-to-end test surface", nil, []BoundaryGuardID{"backend_surface_governance"}),
-		backendBoundarySurface("internal/guards", "repository-level test guard surface", nil, []BoundaryGuardID{"backend_surface_governance"}),
+		backendBoundarySurface("internal/e2e", "backend end-to-end test surface", nil, []BoundaryGuardID{"rpc_runtime_e2e"}),
+		backendBoundarySurface("internal/guards", "repository-level test guard surface", nil, []BoundaryGuardID{"code_size_budget", "rollback_skip_markers"}),
 		backendBoundarySurface("internal/mcpserver", "shared MCP server implementations", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"dependency_direction"}),
 		backendBoundarySurface("internal/module", "business module ownership", []BoundaryRuleID{"module_horizontal_deep_import", "module_no_direct_db_imports", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/platform", "infrastructure runtime layer", []BoundaryRuleID{"platform_no_module", "platform_no_store", "fx_assembly_scope"}, nil),
@@ -120,7 +123,7 @@ func validateBackendBoundaryGuardFields(label string, guard BackendBoundaryGuard
 		violations = append(violations, label+" reason is empty")
 	}
 	if !isCanonicalBackendBoundaryGuardFile(guard.File) {
-		violations = append(violations, fmt.Sprintf("%s file %q must be a canonical internal/archtest/*_test.go path", label, guard.File))
+		violations = append(violations, fmt.Sprintf("%s file %q must be a canonical internal/**/*_test.go path", label, guard.File))
 	}
 	if len(guard.TestNames) == 0 {
 		violations = append(violations, label+" test_names is empty")
@@ -134,7 +137,36 @@ func validateBackendBoundaryGuardFields(label string, guard BackendBoundaryGuard
 		}
 		seen[name] = true
 	}
+	violations = append(violations, validateBackendBoundaryGuardBuildTags(label, guard.BuildTags)...)
 	return violations
+}
+
+// validateBackendBoundaryGuardBuildTags 拒绝非法或重复的专项测试构建标签。
+func validateBackendBoundaryGuardBuildTags(label string, tags []string) []string {
+	seen := make(map[string]bool, len(tags))
+	var violations []string
+	for _, tag := range tags {
+		if !isCanonicalGoBuildTag(tag) {
+			violations = append(violations, fmt.Sprintf("%s build tag %q is invalid", label, tag))
+		} else if seen[tag] {
+			violations = append(violations, fmt.Sprintf("%s duplicate build tag %q", label, tag))
+		}
+		seen[tag] = true
+	}
+	return violations
+}
+
+// isCanonicalGoBuildTag 只接受 Go 构建约束可使用的字母、数字、下划线和点。
+func isCanonicalGoBuildTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	for _, char := range tag {
+		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != '_' && char != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 // validateBackendBoundarySurfaceDescriptors 拒绝空机制、重复目录以及未知 rule/guard 引用。
@@ -201,7 +233,7 @@ func validateBackendBoundarySurfaceGuards(label string, ids []BoundaryGuardID, k
 
 func isCanonicalBackendBoundaryGuardFile(path string) bool {
 	return !strings.Contains(path, "\\") && path == filepath.ToSlash(filepath.Clean(path)) &&
-		strings.HasPrefix(path, "internal/archtest/") && strings.HasSuffix(path, "_test.go")
+		strings.HasPrefix(path, "internal/") && strings.HasSuffix(path, "_test.go")
 }
 
 // isCanonicalBackendBoundarySurface 只接受三个后端根下恰好一级的规范相对目录。
@@ -382,14 +414,14 @@ func validateBackendBoundaryGuardFiles(root string, guards []BackendBoundaryGuar
 		path, err := resolveBackendBoundaryGuardFile(root, guard.File)
 		if err != nil {
 			violations = append(violations, fmt.Sprintf(
-				"guard %q file %s must resolve to a regular file within internal/archtest: %v",
+				"guard %q file %s must resolve to a regular file within the repository internal tree: %v",
 				guard.ID,
 				guard.File,
 				err,
 			))
 			continue
 		}
-		names, err := DiscoverRunnableGoTests(path)
+		names, err := discoverRunnableGoTests(path, guard.BuildTags)
 		if err != nil {
 			violations = append(violations, fmt.Sprintf("guard %q read %s: %v", guard.ID, guard.File, err))
 			continue
@@ -407,18 +439,18 @@ func validateBackendBoundaryGuardFiles(root string, guards []BackendBoundaryGuar
 	return violations
 }
 
-// resolveBackendBoundaryGuardFile 解析 guard 实体路径，并拒绝符号链接或仓库外目标。
+// resolveBackendBoundaryGuardFile 解析 guard 实体路径，并拒绝符号链接或仓库 internal 树外目标。
 func resolveBackendBoundaryGuardFile(root, guardFile string) (string, error) {
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve repository root: %w", err)
 	}
-	archtestDir, err := filepath.EvalSymlinks(filepath.Join(resolvedRoot, "internal", "archtest"))
+	internalDir, err := filepath.EvalSymlinks(filepath.Join(resolvedRoot, "internal"))
 	if err != nil {
-		return "", fmt.Errorf("resolve archtest directory: %w", err)
+		return "", fmt.Errorf("resolve repository internal directory: %w", err)
 	}
-	if !isPathWithinDirectory(resolvedRoot, archtestDir) {
-		return "", fmt.Errorf("archtest directory escapes repository root")
+	if !isPathWithinDirectory(resolvedRoot, internalDir) {
+		return "", fmt.Errorf("internal directory escapes repository root")
 	}
 	path := filepath.Join(resolvedRoot, filepath.FromSlash(guardFile))
 	info, err := os.Lstat(path)
@@ -432,8 +464,8 @@ func resolveBackendBoundaryGuardFile(root, guardFile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !isPathWithinDirectory(archtestDir, resolvedPath) {
-		return "", fmt.Errorf("guard path escapes internal/archtest")
+	if !isPathWithinDirectory(internalDir, resolvedPath) {
+		return "", fmt.Errorf("guard path escapes repository internal tree")
 	}
 	return resolvedPath, nil
 }
@@ -447,7 +479,16 @@ func isPathWithinDirectory(directory, path string) bool {
 
 // DiscoverRunnableGoTests 使用 Go AST 返回指定文件中可由 testing 发现的顶层 Test 函数名。
 func DiscoverRunnableGoTests(path string) ([]string, error) {
-	matched, err := build.Default.MatchFile(filepath.Dir(path), filepath.Base(path))
+	return discoverRunnableGoTests(path, nil)
+}
+
+// discoverRunnableGoTests 在当前 GOFLAGS 与 guard 专项标签合并后的构建上下文中发现测试。
+func discoverRunnableGoTests(path string, additionalTags []string) ([]string, error) {
+	buildContext, err := currentGoBuildContext(additionalTags)
+	if err != nil {
+		return nil, err
+	}
+	matched, err := buildContext.MatchFile(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return nil, fmt.Errorf("match Go build constraints for %s: %w", path, err)
 	}
@@ -468,6 +509,46 @@ func DiscoverRunnableGoTests(path string) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func currentGoBuildContext(additionalTags []string) (build.Context, error) {
+	buildContext := build.Default
+	tags, err := goBuildTagsFromGOFLAGS(os.Getenv("GOFLAGS"))
+	if err != nil {
+		return build.Context{}, err
+	}
+	buildContext.BuildTags = append(append(append([]string(nil), buildContext.BuildTags...), tags...), additionalTags...)
+	return buildContext, nil
+}
+
+// goBuildTagsFromGOFLAGS 提取最后一个 -tags 设置，并对标签内容做 fail-fast 校验。
+func goBuildTagsFromGOFLAGS(flags string) ([]string, error) {
+	fields := strings.Fields(flags)
+	var value string
+	for index := 0; index < len(fields); index++ {
+		switch field := fields[index]; {
+		case field == "-tags":
+			index++
+			if index >= len(fields) {
+				return nil, fmt.Errorf("GOFLAGS -tags is missing its value")
+			}
+			value = fields[index]
+		case strings.HasPrefix(field, "-tags="):
+			value = strings.TrimPrefix(field, "-tags=")
+		}
+	}
+	value = strings.Trim(value, "'\"")
+	if value == "" {
+		return nil, nil
+	}
+	var tags []string
+	for tag := range strings.FieldsFuncSeq(value, func(char rune) bool { return char == ',' || unicode.IsSpace(char) }) {
+		if !isCanonicalGoBuildTag(tag) {
+			return nil, fmt.Errorf("GOFLAGS contains invalid build tag %q", tag)
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
 }
 
 // isRunnableGoTestFunction 镜像 cmd/go 对顶层 Test 函数的名称、签名和泛型约束。

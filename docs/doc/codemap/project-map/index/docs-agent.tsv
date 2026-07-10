@@ -333,7 +333,7 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	11709	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	12418	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1444806	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
@@ -425,7 +425,7 @@ docs/plans/2026-07-09-frontend-mature-replacement-remaining-wave-plan.md	docs	do
 docs/plans/2026-07-09-frontend-zod-normalization-next-wave-plan.md	docs	docs-agent	doc	10787	历史计划与迁移执行文档	docs,plans,2026,07,09,frontend,zod,normalization,next,wave,plan,历史计划与迁移执行文档
 docs/plans/2026-07-09-orchestration-boundary-9plus-repair.md	docs	docs-agent	doc	29236	历史计划与迁移执行文档	docs,plans,2026,07,09,orchestration,boundary,9plus,repair,历史计划与迁移执行文档
 docs/plans/2026-07-09-ui-test-mcp-scenario-migration.md	docs	docs-agent	doc	1967	历史计划与迁移执行文档	docs,plans,2026,07,09,ui,test,mcp,scenario,migration,历史计划与迁移执行文档
-docs/plans/2026-07-10-backend-boundary-ai-governance.md	docs	docs-agent	doc	13152	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,boundary,ai,governance,历史计划与迁移执行文档
+docs/plans/2026-07-10-backend-boundary-ai-governance.md	docs	docs-agent	doc	13452	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,boundary,ai,governance,历史计划与迁移执行文档
 docs/plans/2026-07-10-backend-boundary-p2-parallel-remediation.md	docs	docs-agent	doc	5829	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,boundary,p2,parallel,remediation,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-refactor.md	docs	docs-agent	doc	15138	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,refactor,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-review-followup.md	docs	docs-agent	doc	7729	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,review,followup,历史计划与迁移执行文档
@@ -833,7 +833,7 @@ docs/superpowers/specs/2026-06-16-project-governance-design.md	docs	docs-agent	d
 docs/superpowers/specs/2026-06-23-model-provider-management-design.md	docs	docs-agent	doc	5548	项目文档体系	docs,superpowers,specs,2026,06,23,model,provider,management,design,项目文档体系
 docs/superpowers/specs/2026-06-23-p1a-codex-identity-inheritance-design.md	docs	docs-agent	doc	4668	项目文档体系	docs,superpowers,specs,2026,06,23,p1a,codex,identity,inheritance,design,项目文档体系
 docs/superpowers/specs/2026-07-03-codex-cli-permission-sync-design.md	docs	docs-agent	doc	9639	项目文档体系	docs,superpowers,specs,2026,07,03,codex,cli,permission,sync,design,项目文档体系
-docs/superpowers/specs/2026-07-10-backend-boundary-ai-governance-design.md	docs	docs-agent	doc	9301	项目文档体系	docs,superpowers,specs,2026,07,10,backend,boundary,ai,governance,design,项目文档体系
+docs/superpowers/specs/2026-07-10-backend-boundary-ai-governance-design.md	docs	docs-agent	doc	9732	项目文档体系	docs,superpowers,specs,2026,07,10,backend,boundary,ai,governance,design,项目文档体系
 docs/superpowers/specs/2026-07-10-mcp-orch-boundary-refactor-design.md	docs	docs-agent	doc	8034	项目文档体系	docs,superpowers,specs,2026,07,10,mcp,orch,boundary,refactor,design,项目文档体系
 docs/superpowers/需求文档/全功能UI重构-未完成.md	docs	docs-agent	doc	5711	项目文档体系	docs,superpowers,需求文档,全功能UI重构,未完成,项目文档体系
 docs/superpowers/需求文档/发布验收清单-未完成.md	docs	docs-agent	doc	3472	项目文档体系	docs,superpowers,需求文档,发布验收清单,未完成,项目文档体系

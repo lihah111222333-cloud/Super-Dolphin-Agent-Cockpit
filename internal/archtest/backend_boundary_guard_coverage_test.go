@@ -277,6 +277,18 @@ func TestPkgNoInternalImportsRuleRejectsRepositoryInternals(t *testing.T) {
 	if len(violations) != 2 {
 		t.Fatalf("violations = %v, want internal and cmd imports only", violations)
 	}
+	joined := strings.Join(violations, "\n")
+	for _, forbidden := range []string{
+		"github.com/anthropic-ai/super-agent-v3/internal/platform/config",
+		"github.com/anthropic-ai/super-agent-v3/cmd/agent-runtime",
+	} {
+		if !strings.Contains(joined, forbidden) {
+			t.Errorf("violations missing forbidden import %q: %v", forbidden, violations)
+		}
+	}
+	if strings.Contains(joined, "log/slog") {
+		t.Fatalf("standard library import was rejected: %v", violations)
+	}
 }
 
 func writeBackendBoundaryFixture(t *testing.T, root, relPath, source string) string {

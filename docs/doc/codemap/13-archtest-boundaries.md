@@ -4,7 +4,7 @@
 
 - Owners: 11
 - Canonical rules: 17
-- Specialized guards: 6
+- Specialized guards: 9
 - Governed backend surfaces: 26
 
 ## Rule owners
@@ -47,14 +47,17 @@
 
 ## Specialized guards
 
-| Guard | Test file | Runnable tests | Reason |
-|---|---|---|---|
-| `backend_boundary_single_source` | `internal/archtest/backend_boundary_single_source_test.go` | `TestBackendBoundaryRuleFactsHaveOneSource` | canonical backend boundary facts must not be duplicated by procedural evaluators |
-| `backend_surface_governance` | `internal/archtest/backend_boundary_governance_test.go` | `TestValidateDefaultBackendBoundaryGovernance` | the governance guard fails when a backend top-level Go surface is missing or stale |
-| `dependency_direction` | `internal/archtest/dependency_direction_test.go` | `TestDependencyDirection` | dependency direction tests protect typed backend layer relationships |
-| `fx_graph` | `internal/archtest/fx_graph_test.go` | `TestFxValidateApp` | the desktop composition root must retain a valid Fx graph |
-| `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | public pkg libraries must reject both repository internals and command entrypoints |
-| `ui_wails_boundary` | `internal/archtest/ui_wails_guard_test.go` | `TestUIWailsActiveAgentPredicateFromContract`<br>`TestUIWailsNoDirectUIStateImport` | Wails UI bindings consume contract-facing state instead of module implementations |
+| Guard | Test file | Build tags | Runnable tests | Reason |
+|---|---|---|---|---|
+| `backend_boundary_single_source` | `internal/archtest/backend_boundary_single_source_test.go` | — | `TestBackendBoundaryRuleFactsHaveOneSource` | canonical backend boundary facts must not be duplicated by procedural evaluators |
+| `backend_surface_governance` | `internal/archtest/backend_boundary_governance_test.go` | — | `TestValidateDefaultBackendBoundaryGovernance` | the governance guard fails when a backend top-level Go surface is missing or stale |
+| `code_size_budget` | `internal/guards/code_size_guard_test.go` | — | `TestCodeSizeBudgetBaselineIsActionable` | the repository guard keeps code size baselines non-empty and enforcing |
+| `dependency_direction` | `internal/archtest/dependency_direction_test.go` | — | `TestDependencyDirection` | dependency direction tests protect typed backend layer relationships |
+| `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | the desktop composition root must retain a valid Fx graph |
+| `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | public pkg libraries must reject both repository internals and command entrypoints |
+| `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | the repository guard rejects hidden rollback skip markers in Go tests |
+| `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | the tagged RPC runtime suite validates the backend process boundary end to end |
+| `ui_wails_boundary` | `internal/archtest/ui_wails_guard_test.go` | — | `TestUIWailsActiveAgentPredicateFromContract`<br>`TestUIWailsNoDirectUIStateImport` | Wails UI bindings consume contract-facing state instead of module implementations |
 
 ## Governed backend surfaces
 
@@ -68,12 +71,12 @@
 | `cmd/super-dolphin-release-manifest` | `fx_assembly_scope` | — | release manifest command assembly |
 | `cmd/super-dolphin-updater` | `fx_assembly_scope` | — | updater command assembly |
 | `internal/app` | `fx_assembly_scope` | `fx_graph` | desktop composition root |
-| `internal/archtest` | `fx_assembly_scope` | `backend_boundary_single_source` | architecture governance implementation |
+| `internal/archtest` | `fx_assembly_scope` | `backend_boundary_single_source`<br>`backend_surface_governance` | architecture governance implementation |
 | `internal/contract` | `contract_reverse_pollution` | — | stable DTO and port contracts |
 | `internal/devtools` | `fx_assembly_scope` | — | backend developer tooling |
 | `internal/dto` | `fx_assembly_scope` | — | transport-neutral data transfer objects |
-| `internal/e2e` | — | `backend_surface_governance` | backend end-to-end test surface |
-| `internal/guards` | — | `backend_surface_governance` | repository-level test guard surface |
+| `internal/e2e` | — | `rpc_runtime_e2e` | backend end-to-end test surface |
+| `internal/guards` | — | `code_size_budget`<br>`rollback_skip_markers` | repository-level test guard surface |
 | `internal/mcpserver` | `fx_assembly_scope` | `dependency_direction` | shared MCP server implementations |
 | `internal/module` | `fx_assembly_scope`<br>`module_horizontal_deep_import`<br>`module_no_direct_db_imports` | — | business module ownership |
 | `internal/platform` | `fx_assembly_scope`<br>`platform_no_module`<br>`platform_no_store` | — | infrastructure runtime layer |

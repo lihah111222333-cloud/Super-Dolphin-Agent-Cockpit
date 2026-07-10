@@ -18,11 +18,21 @@ const (
 	readmePath       = "README.md"
 	statsBeginMarker = "<!-- BEGIN GENERATED ARCHTEST STATS -->"
 	statsEndMarker   = "<!-- END GENERATED ARCHTEST STATS -->"
+	codeQualityTitle = "## Code Quality"
+	metricsHeader    = "| Metric | Value |"
+	metricsDivider   = "|--------|-------|"
+	archtestRowStart = "| Architecture Tests | "
 )
 
 type archtestStats struct {
 	Tests int
 	Files int
+}
+
+type readmeHeading struct {
+	text         string
+	start        int
+	contentStart int
 }
 
 type generatedArtifact struct {
@@ -65,7 +75,10 @@ func main() {
 
 // run 从统一 registry 和源码 AST 生成或只读校验规则地图及 README 统计。
 func run(root string, check bool) error {
-	registry := archtest.DefaultBackendBoundaryRegistry()
+	return runWithRegistry(root, archtest.DefaultBackendBoundaryRegistry(), check)
+}
+
+func runWithRegistry(root string, registry archtest.BackendBoundaryRegistry, check bool) error {
 	if violations := archtest.ValidateBackendBoundaryGovernance(root, registry); len(violations) > 0 {
 		return fmt.Errorf("invalid backend boundary governance:\n%s", strings.Join(violations, "\n"))
 	}
@@ -126,9 +139,9 @@ func renderRules(out *strings.Builder, rules []archtest.BackendBoundaryRule) {
 func renderGuards(out *strings.Builder, guards []archtest.BackendBoundaryGuard) {
 	items := append([]archtest.BackendBoundaryGuard(nil), guards...)
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	out.WriteString("## Specialized guards\n\n| Guard | Test file | Runnable tests | Reason |\n|---|---|---|---|\n")
+	out.WriteString("## Specialized guards\n\n| Guard | Test file | Build tags | Runnable tests | Reason |\n|---|---|---|---|---|\n")
 	for _, guard := range items {
-		fmt.Fprintf(out, "| `%s` | `%s` | %s | %s |\n", guard.ID, guard.File, renderCodeList(guard.TestNames), escapeMarkdown(guard.Reason))
+		fmt.Fprintf(out, "| `%s` | `%s` | %s | %s | %s |\n", guard.ID, guard.File, renderCodeList(guard.BuildTags), renderCodeList(guard.TestNames), escapeMarkdown(guard.Reason))
 	}
 	out.WriteString("\n")
 }
@@ -261,46 +274,146 @@ func replaceREADMEStats(input string, stats archtestStats) (string, error) {
 
 // readmeArchtestStatsBounds 校验唯一表格行和 marker，并返回可替换内容边界。
 func readmeArchtestStatsBounds(input string) (int, int, error) {
-	if strings.Count(input, statsBeginMarker) != 1 || strings.Count(input, statsEndMarker) != 1 {
-		return 0, 0, fmt.Errorf("README archtest stats markers must each appear exactly once")
+	markerStart, begin, end, err := readmeArchtestMarkerBounds(input)
+	if err != nil {
+		return 0, 0, err
 	}
-	markerStart := strings.Index(input, statsBeginMarker)
-	begin := markerStart + len(statsBeginMarker)
-	end := strings.Index(input, statsEndMarker)
-	if begin > end {
-		return 0, 0, fmt.Errorf("README archtest stats markers are reversed")
+	sectionStart, sectionEnd, err := readmeCodeQualitySectionBounds(input)
+	if err != nil {
+		return 0, 0, err
 	}
-	rowStart := strings.LastIndex(input[:markerStart], "\n") + 1
-	rowEnd := len(input)
-	if offset := strings.Index(input[markerStart:], "\n"); offset >= 0 {
-		rowEnd = markerStart + offset
-	}
-	row := input[rowStart:rowEnd]
-	if end+len(statsEndMarker) > rowEnd || !strings.HasPrefix(row, "| Architecture Tests | ") {
-		return 0, 0, fmt.Errorf("README archtest stats markers must be inline in the Architecture Tests row")
-	}
-	if countREADMEArchitectureTestRows(input) != 1 {
-		return 0, 0, fmt.Errorf("README must contain exactly one Architecture Tests row")
+	rowStart, rowEnd := readmeLineBounds(input, markerStart)
+	if err := validateReadmeArchtestRow(input, markerStart, end, rowStart, rowEnd, sectionStart, sectionEnd); err != nil {
+		return 0, 0, err
 	}
 	return begin, end, nil
+}
+
+func readmeArchtestMarkerBounds(input string) (int, int, int, error) {
+	if strings.Count(input, statsBeginMarker) != 1 || strings.Count(input, statsEndMarker) != 1 {
+		return 0, 0, 0, fmt.Errorf("README archtest stats markers must each appear exactly once")
+	}
+	markerStart := strings.Index(input, statsBeginMarker)
+	begin, end := markerStart+len(statsBeginMarker), strings.Index(input, statsEndMarker)
+	if begin > end {
+		return 0, 0, 0, fmt.Errorf("README archtest stats markers are reversed")
+	}
+	return markerStart, begin, end, nil
+}
+
+func readmeLineBounds(input string, position int) (int, int) {
+	start, end := strings.LastIndex(input[:position], "\n")+1, len(input)
+	if offset := strings.Index(input[position:], "\n"); offset >= 0 {
+		end = position + offset
+	}
+	return start, end
+}
+
+// validateReadmeArchtestRow 拒绝伪表格、围栏内容、缩进副本和额外单元格。
+func validateReadmeArchtestRow(input string, markerStart, end, rowStart, rowEnd, sectionStart, sectionEnd int) error {
+	if countREADMEArchitectureTestRows(input) != 1 {
+		return fmt.Errorf("README must contain exactly one Architecture Tests row")
+	}
+	if rowStart < sectionStart || rowEnd > sectionEnd || readmePositionIsFenced(input[sectionStart:rowStart]) {
+		return fmt.Errorf("README Architecture Tests row must be an unfenced row in the Code Quality section")
+	}
+	markerEnd := end + len(statsEndMarker)
+	row := input[rowStart:rowEnd]
+	if markerStart != rowStart+len(archtestRowStart) || markerEnd > rowEnd || row != archtestRowStart+input[markerStart:markerEnd]+" |" {
+		return fmt.Errorf("README archtest stats markers must occupy the Value cell of a two-column Architecture Tests row")
+	}
+	if !readmeMetricsTablePrecedesRow(input[sectionStart:rowStart]) {
+		return fmt.Errorf("README Architecture Tests row must belong to the Code Quality metrics table")
+	}
+	return nil
 }
 
 func countREADMEArchitectureTestRows(input string) int {
 	count := 0
 	for line := range strings.SplitSeq(input, "\n") {
-		if strings.HasPrefix(line, "| Architecture Tests | ") {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), archtestRowStart) {
 			count++
 		}
 	}
 	return count
 }
 
-// syncGeneratedFile 保留单文件调用兼容性，并使用同一原子刷新路径。
+// readmeCodeQualitySectionBounds 返回唯一未围栏 Code Quality 二级章节的内容区间。
+func readmeCodeQualitySectionBounds(input string) (int, int, error) {
+	headings := unfencedReadmeH2Headings(input)
+	target := -1
+	for index, heading := range headings {
+		if heading.text == codeQualityTitle {
+			if target >= 0 {
+				return 0, 0, fmt.Errorf("README must contain exactly one unfenced Code Quality section")
+			}
+			target = index
+		}
+	}
+	if target < 0 {
+		return 0, 0, fmt.Errorf("README must contain exactly one unfenced Code Quality section")
+	}
+	end := len(input)
+	if target+1 < len(headings) {
+		end = headings[target+1].start
+	}
+	return headings[target].contentStart, end, nil
+}
+
+func unfencedReadmeH2Headings(input string) []readmeHeading {
+	var headings []readmeHeading
+	offset, fenced := 0, false
+	for line := range strings.SplitSeq(input, "\n") {
+		if !fenced && strings.HasPrefix(line, "## ") {
+			contentStart := min(offset+len(line)+1, len(input))
+			headings = append(headings, readmeHeading{text: line, start: offset, contentStart: contentStart})
+		}
+		if isMarkdownFenceLine(line) {
+			fenced = !fenced
+		}
+		offset += len(line) + 1
+	}
+	return headings
+}
+
+func readmePositionIsFenced(input string) bool {
+	fenced := false
+	for line := range strings.SplitSeq(input, "\n") {
+		if isMarkdownFenceLine(line) {
+			fenced = !fenced
+		}
+	}
+	return fenced
+}
+
+// readmeMetricsTablePrecedesRow 要求目标行之前存在未围栏且相邻的指标表头和分隔行。
+func readmeMetricsTablePrecedesRow(input string) bool {
+	previous, fenced := "", false
+	for line := range strings.SplitSeq(input, "\n") {
+		if isMarkdownFenceLine(line) {
+			fenced = !fenced
+			previous = ""
+			continue
+		}
+		if !fenced && previous == metricsHeader && line == metricsDivider {
+			return true
+		}
+		previous = line
+	}
+	return false
+}
+
+func isMarkdownFenceLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")
+}
+
+// syncGeneratedFile 保留单文件调用兼容性，并使用同一暂存和失败回滚路径。
 func syncGeneratedFile(path, content string, check bool) error {
 	return syncGeneratedFiles([]generatedArtifact{{path: path, content: content}}, check)
 }
 
-// syncGeneratedFiles 以暂存、原子替换和失败回滚同步同一批生成物。
+// syncGeneratedFiles 逐文件原子替换，并在批次失败时尽力回滚已替换目标。
 func syncGeneratedFiles(artifacts []generatedArtifact, check bool) error {
 	return syncGeneratedFilesWithOps(artifacts, check, generatedFileOps{rename: os.Rename})
 }
@@ -324,8 +437,12 @@ func syncGeneratedFilesWithOps(artifacts []generatedArtifact, check bool, ops ge
 	defer cleanupGeneratedTemps(staged)
 	for index := range staged {
 		if err := ops.rename(staged[index].tempPath, staged[index].path); err != nil {
+			commitErr := fmt.Errorf("commit generated file %s: %w", staged[index].path, err)
 			rollbackErr := rollbackGeneratedArtifacts(staged[:index], ops)
-			return errors.Join(fmt.Errorf("commit generated file %s: %w", staged[index].path, err), rollbackErr)
+			if rollbackErr != nil {
+				return errors.Join(commitErr, fmt.Errorf("generated rollback incomplete; outputs may be partially refreshed: %w", rollbackErr))
+			}
+			return commitErr
 		}
 	}
 	return nil

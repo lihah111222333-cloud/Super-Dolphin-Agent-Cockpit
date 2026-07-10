@@ -168,7 +168,7 @@ SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal p
 | Metric | Value |
 |--------|-------|
 | Test Coverage | Recompute from current test run; no checked-in static baseline |
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 299 runnable `Test*` functions across 120 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 302 runnable `Test*` functions across 120 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Linter | golangci-lint (see .golangci.yml) |
 | CI | GitHub Actions (see .github/workflows/ci.yml) |
 

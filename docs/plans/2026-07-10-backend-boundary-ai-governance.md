@@ -54,7 +54,7 @@ type backendBoundaryImport struct {
 }
 ```
 
-`parseBackendBoundaryImports` 使用同一个 `token.FileSet` 解析并通过 `fset.Position(spec.Path.Pos())` 取得位置。candidate 和所有 typed rule evaluator 传递 `[]backendBoundaryImport`，规则判断仍只读取 `imp.path`，违规格式统一为：
+`parseBackendBoundaryImports` 使用同一个 `token.FileSet` 解析并通过 `fset.PositionFor(spec.Path.Pos(), false)` 取得物理源码位置。candidate 和所有 typed rule evaluator 传递 `[]backendBoundaryImport`，规则判断仍只读取 `imp.path`，违规格式统一为：
 
 ```go
 fmt.Sprintf("%s:%d:%d imports %s (rule=%s owner=%s reason=%s)", ...)
@@ -156,7 +156,7 @@ type BackendBoundaryRegistry struct {
 2. 与 `Surfaces` 做双向精确匹配。
 3. 校验每个 surface 至少有 rule 或 guard，并拒绝重复/未知 ID、空 reason。
 4. 校验被引用 canonical rule 确实能匹配该 surface 下至少一个生产 Go 文件；policy 驱动规则还必须有实际作用于该文件的执行策略。
-5. 校验 guard 文件严格位于 `internal/archtest`、以 `_test.go` 结尾、是普通文件，且解析实体路径后仍位于该目录；拒绝文件或父目录 symlink 逃逸。
+5. 校验 guard 文件严格位于仓库 `internal/**`、以 `_test.go` 结尾、是普通文件，且解析实体路径后仍位于仓库 internal 树；拒绝文件或父目录 symlink 逃逸。专项 e2e guard 可声明 `BuildTags`，发现测试时与当前 `GOFLAGS=-tags` 合并。
 6. 先按当前 Go build context 校验 build tag、GOOS/GOARCH 文件选择，再镜像 `cmd/go` 校验每个 `TestNames` 都是该文件内真实、顶层、无类型参数且可发现的 Test 函数；接受 Go 工具认可的裸 `Test`、`*T`、`*pkg.T` 和空结果列表。
 7. 拒绝重复 guard、孤儿 guard 和重复测试名。
 
@@ -265,8 +265,10 @@ Expected: tests PASS；生成 `13-archtest-boundaries.md`；README 数量来自 
 - Modify: `Makefile`
 - Generate: `docs/doc/codemap/README.md`
 - Generate: `docs/doc/codemap/ai-index.json`
-- Generate as required: `docs/doc/codemap/project-map.json`
-- Generate as required: `docs/doc/codemap/project-map.md`
+- Generate as required: `docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json`
+- Generate as required: `docs/doc/codemap/project-map/AI_PROJECT_MAP.md`
+- Generate as required: `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`
+- Generate as required: `docs/doc/codemap/project-map/index/*.tsv`
 
 **Step 1: 写 Makefile 接线**
 

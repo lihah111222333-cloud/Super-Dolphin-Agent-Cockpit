@@ -289,6 +289,8 @@ func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 
 	cached := runFixTestGuardGitOutput(t, root, "diff", "--cached", "--name-only")
 	assertOutputContainsAll(t, cached,
+		"README.md",
+		"docs/doc/codemap/13-archtest-boundaries.md",
 		"docs/doc/codemap/README.md",
 		"docs/doc/codemap/ai-index.json",
 		"docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -297,6 +299,10 @@ func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 
 	stagedMap := runFixTestGuardGitOutput(t, root, "show", ":docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
 	assertOutputContainsAll(t, stagedMap, "project map refreshed")
+	stagedREADME := runFixTestGuardGitOutput(t, root, "show", ":README.md")
+	assertOutputContainsAll(t, stagedREADME, "root readme refreshed")
+	stagedArchtestMap := runFixTestGuardGitOutput(t, root, "show", ":docs/doc/codemap/13-archtest-boundaries.md")
+	assertOutputContainsAll(t, stagedArchtestMap, "archtest map refreshed")
 }
 
 func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {

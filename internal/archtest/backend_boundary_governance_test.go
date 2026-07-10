@@ -75,11 +75,11 @@ func TestValidateBackendBoundaryGovernanceRejectsInvalidDescriptors(t *testing.T
 			want: "test \"TestMissingGuard\" is not a runnable top-level Go test",
 		},
 		{
-			name: "guard outside archtest",
+			name: "guard outside internal",
 			mutate: func(registry *archtest.BackendBoundaryRegistry) {
-				registry.Guards[0].File = "internal/service/special_guard_test.go"
+				registry.Guards[0].File = "cmd/service/special_guard_test.go"
 			},
-			want: "must be a canonical internal/archtest/*_test.go path",
+			want: "must be a canonical internal/**/*_test.go path",
 		},
 		{
 			name: "orphan guard",
@@ -148,6 +148,45 @@ func TestBackendBoundaryGovernanceRegistryReturnsDeepCopy(t *testing.T) {
 	if second.Guards[0].TestNames[0] == "TestMutated" || second.Surfaces[0].RuleIDs[0] == "mutated_rule" {
 		t.Fatal("default registry shares nested governance slices")
 	}
+	for index := range first.Guards {
+		if len(first.Guards[index].BuildTags) == 0 {
+			continue
+		}
+		first.Guards[index].BuildTags[0] = "mutated_tag"
+		if second.Guards[index].BuildTags[0] == "mutated_tag" {
+			t.Fatal("default registry shares guard build tags")
+		}
+		return
+	}
+	t.Fatal("default registry has no tagged guard to exercise deep copy")
+}
+
+func TestDefaultGovernanceUsesDirectGuardsForTestOnlySurfaces(t *testing.T) {
+	t.Parallel()
+
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	guards := make(map[archtest.BoundaryGuardID]archtest.BackendBoundaryGuard, len(registry.Guards))
+	for _, guard := range registry.Guards {
+		guards[guard.ID] = guard
+	}
+	for _, surfacePath := range []string{"internal/e2e", "internal/guards"} {
+		var surface *archtest.BackendBoundarySurface
+		for index := range registry.Surfaces {
+			if registry.Surfaces[index].Path == surfacePath {
+				surface = &registry.Surfaces[index]
+				break
+			}
+		}
+		if surface == nil || len(surface.GuardIDs) == 0 {
+			t.Fatalf("test-only surface %q has no specialized guard", surfacePath)
+		}
+		for _, guardID := range surface.GuardIDs {
+			guard, ok := guards[guardID]
+			if !ok || !strings.HasPrefix(guard.File, surfacePath+"/") {
+				t.Errorf("surface %q guard %q resolves to %q, want a direct test under the surface", surfacePath, guardID, guard.File)
+			}
+		}
+	}
 }
 
 func TestDiscoverRunnableGoTestsMatchesGoToolSelectionAndSignatures(t *testing.T) {
@@ -190,6 +229,23 @@ func TestReturns(t *testing.T) error { return nil }
 	}
 }
 
+func TestDiscoverRunnableGoTestsHonorsGOFLAGSBuildTags(t *testing.T) {
+	t.Setenv("GOFLAGS", "-tags=archtest_governance")
+
+	path := filepath.Join(t.TempDir(), "tagged_test.go")
+	source := "//go:build archtest_governance\n\npackage fixture\n\nimport \"testing\"\n\nfunc TestTaggedGuard(t *testing.T) {}\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("write tagged guard fixture: %v", err)
+	}
+	names, err := archtest.DiscoverRunnableGoTests(path)
+	if err != nil {
+		t.Fatalf("discover tagged guard: %v", err)
+	}
+	if strings.Join(names, ",") != "TestTaggedGuard" {
+		t.Fatalf("tagged runnable tests = %v, want TestTaggedGuard", names)
+	}
+}
+
 func TestValidateBackendBoundaryGovernanceRejectsGuardSymlinkEscape(t *testing.T) {
 	t.Parallel()
 
@@ -205,7 +261,28 @@ func TestValidateBackendBoundaryGovernanceRejectsGuardSymlinkEscape(t *testing.T
 	}
 	registry.Guards[0].File = guardRel
 	registry.Guards[0].TestNames = []string{"TestExternalGuard"}
-	assertGovernanceViolation(t, root, registry, "must resolve to a regular file within internal/archtest")
+	assertGovernanceViolation(t, root, registry, "must resolve to a regular file within the repository internal tree")
+}
+
+func TestValidateBackendBoundaryGovernanceRejectsGuardParentSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	externalInternal := filepath.Join(t.TempDir(), "internal")
+	guardPath := filepath.Join(externalInternal, "archtest", "guard_test.go")
+	if err := os.MkdirAll(filepath.Dir(guardPath), 0o755); err != nil {
+		t.Fatalf("create external archtest directory: %v", err)
+	}
+	if err := os.WriteFile(guardPath, []byte("package archtest\n\nimport \"testing\"\n\nfunc TestExternalGuard(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatalf("write external guard fixture: %v", err)
+	}
+	if err := os.Symlink(externalInternal, filepath.Join(root, "internal")); err != nil {
+		t.Skipf("create parent symlink fixture: %v", err)
+	}
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	registry.Guards = []archtest.BackendBoundaryGuard{{ID: "external_guard", File: "internal/archtest/guard_test.go", TestNames: []string{"TestExternalGuard"}, Reason: "synthetic external guard"}}
+	registry.Surfaces = []archtest.BackendBoundarySurface{{Path: "internal/archtest", GuardIDs: []archtest.BoundaryGuardID{"external_guard"}, Reason: "synthetic escaped surface"}}
+	assertGovernanceViolation(t, root, registry, "must resolve to a regular file within the repository internal tree")
 }
 
 func validBackendBoundaryGovernanceFixture(t *testing.T) (string, archtest.BackendBoundaryRegistry) {

@@ -191,6 +191,8 @@ func writePreCommitFakeCodemapMakefile(t *testing.T, root string) {
 	content := ".PHONY: codemap-refresh project-map-refresh\n\n" +
 		"codemap-refresh:\n" +
 		"\t@mkdir -p docs/doc/codemap\n" +
+		"\t@printf 'root readme refreshed\\n' > README.md\n" +
+		"\t@printf 'archtest map refreshed\\n' > docs/doc/codemap/13-archtest-boundaries.md\n" +
 		"\t@printf 'readme refreshed\\n' > docs/doc/codemap/README.md\n" +
 		"\t@printf '{\"generated\":true}\\n' > docs/doc/codemap/ai-index.json\n\n" +
 		"project-map-refresh:\n" +

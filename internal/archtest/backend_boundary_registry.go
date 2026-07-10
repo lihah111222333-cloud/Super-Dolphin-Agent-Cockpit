@@ -70,6 +70,7 @@ type BackendBoundaryGuard struct {
 	ID        BoundaryGuardID
 	File      string
 	TestNames []string
+	BuildTags []string
 	Reason    string
 }
 
@@ -564,7 +565,7 @@ func cloneBackendBoundaryRegistry(registry BackendBoundaryRegistry) BackendBound
 		cloned.Rules[i] = cloneBackendBoundaryRule(rule)
 	}
 	for i, guard := range registry.Guards {
-		cloned.Guards[i] = BackendBoundaryGuard{ID: guard.ID, File: guard.File, TestNames: append([]string(nil), guard.TestNames...), Reason: guard.Reason}
+		cloned.Guards[i] = BackendBoundaryGuard{ID: guard.ID, File: guard.File, TestNames: append([]string(nil), guard.TestNames...), BuildTags: append([]string(nil), guard.BuildTags...), Reason: guard.Reason}
 	}
 	for i, surface := range registry.Surfaces {
 		cloned.Surfaces[i] = BackendBoundarySurface{Path: surface.Path, RuleIDs: append([]BoundaryRuleID(nil), surface.RuleIDs...), GuardIDs: append([]BoundaryGuardID(nil), surface.GuardIDs...), Reason: surface.Reason}

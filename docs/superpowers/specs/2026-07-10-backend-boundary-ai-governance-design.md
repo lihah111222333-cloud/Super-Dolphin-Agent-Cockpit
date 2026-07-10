@@ -1,6 +1,6 @@
 # Backend Boundary AI Governance Design
 
-状态：已按复核意见修正，待进入实现计划
+状态：已实现；两轮交叉复核问题已修正
 日期：2026-07-10
 范围：后端边界违规定位、后端治理清单、Archtest 规则地图与 README 测试统计
 
@@ -78,7 +78,7 @@ type BackendBoundaryRegistry struct {
 - 登记但不存在、没有 Go 源码或重复的 surface。
 - 未知 canonical rule ID。
 - 未知、重复或没有被任何 surface 引用的 guard ID。
-- 不存在、越出 `internal/archtest`、非 `_test.go`、非普通文件，或通过文件/父目录 symlink 逃逸的 guard 文件。
+- 不存在、越出仓库 `internal/**`、非 `_test.go`、非普通文件，或通过文件/父目录 symlink 逃逸的 guard 文件；带 `BuildTags` 的专项测试按其声明标签解析。
 - guard 声明的测试名不存在、重复，或不是当前 Go build context 选中且可由 `cmd/go` 发现的顶层 Test 函数；泛型测试函数必须拒绝，裸 `Test`、`*T`、`*pkg.T` 和空结果列表按 Go 工具语义处理。
 - surface 引用的 rule 没有匹配实际 Go 文件，或 policy 驱动的 rule 没有任何实际作用于该 surface 文件的策略。
 - `RuleIDs` 与 `GuardIDs` 同时为空。
@@ -96,8 +96,8 @@ type BackendBoundaryRegistry struct {
 - `--check` 只读比较并在漂移时非零退出。
 - 只从 `DefaultBackendBoundaryRegistry()` 生成 `docs/doc/codemap/13-archtest-boundaries.md`。
 - 规则地图输出：owner、canonical rule、kind、文件范围、allow/deny/scope/exception 摘要，以及每个后端顶层目录的 rule/guard 归属。
-- 使用当前 Go build context 选择源文件，再以 AST 镜像 `cmd/go` 的顶层 Test 签名规则统计 `internal/archtest/**/*_test.go` 中的测试函数和包含这些测试的文件数；README 文案明确标注为源码 AST 统计，不再声称等同于 `go test -list`。
-- README 只允许替换唯一 Architecture Tests 表格行内的固定 inline marker 区间；marker 缺失、重复、跨行、顺序错误或出现在其他行必须失败，不得猜测表格位置或重建整张表：
+- 使用包含 `GOFLAGS=-tags` 的当前 Go build context 选择源文件；专项 guard 再合并 registry 声明的 `BuildTags`。随后以 AST 镜像 `cmd/go` 的顶层 Test 签名规则统计 `internal/archtest/**/*_test.go` 中的测试函数和包含这些测试的文件数；README 文案明确标注为源码 AST 统计，不再声称等同于 `go test -list`。
+- README 只允许替换唯一未围栏 `## Code Quality` 指标表中、严格两列的唯一 Architecture Tests 行内固定 marker 区间；marker 缺失、重复、跨行、顺序错误、缩进副本、代码围栏伪行、额外单元格或错误章节必须失败，不得猜测表格位置或重建整张表：
 
 ```markdown
 | Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: ...<!-- END GENERATED ARCHTEST STATS --> |
@@ -105,7 +105,7 @@ type BackendBoundaryRegistry struct {
 
 - 输出按 surface、rule ID、guard path 排序，禁止依赖 map 迭代顺序。
 - 生成内容不写入当前时间、绝对路径或其他每次运行变化的字段。
-- 规则地图和 README 先全部预读并写入同目录临时文件，再用原子替换提交；任一提交失败必须回滚已替换目标，禁止留下跨产物半刷新状态。
+- 规则地图和 README 先全部预读并写入同目录临时文件，再逐文件原子替换；批次提交失败时尽力回滚已替换目标。若回滚本身失败，必须同时返回提交原因与回滚原因并明确提示可能存在半刷新，禁止虚假声称跨文件强原子性。
 
 Makefile 接线：
 
@@ -141,7 +141,7 @@ single BackendBoundaryRegistry + source tree
 
 1. 先增加违规夹具，精确断言单行 import 与 import block 的 `line:column`；确认旧实现失败。
 2. 增加统一 registry 校验测试：当前树完整、临时新增顶层目录会失败、未知 rule/guard、缺失测试入口、孤儿 guard、重复项和空机制会失败。
-3. 增加生成器单测：Markdown 稳定排序、README marker 窄替换、marker 缺失或重复失败、`--check` 漂移失败、刷新后通过。
+3. 增加生成器单测：Markdown 稳定排序、README 真实表格单元格窄替换、伪行/重复/额外单元格失败、`run` check 只读漂移失败、refresh 后 check 通过，以及提交/回滚双失败完整报错。
 4. 运行 focused tests，再运行 `./scripts/test_with_guard.sh ./internal/archtest -count=1`、`./scripts/test_with_guard.sh ./scripts/archtestmap -count=1`、`make archtest-map-refresh`、`make archtest-map-check`、`make codemap-refresh`、`make codemap-check`、`make guard`。
 5. 对所有修改的 Go 文件运行 LSP diagnostics；Warning、Information、Hint 同样必须清零。
 
