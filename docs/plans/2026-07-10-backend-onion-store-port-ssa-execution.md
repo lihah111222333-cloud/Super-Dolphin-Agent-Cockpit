@@ -786,6 +786,7 @@ refactor(thread): 通过领域端口隔离 Store
 - Create: `internal/app/business_store_adapter_nil.go`
 - Modify: `internal/app/business_store_adapters_module.go`
 - Add focused tests under each affected Module and `internal/app`
+- Modify: `internal/archtest/dependency_optional_boundary_test.go`
 - Modify: `internal/archtest/interface_isolation_dashboard_guard_test.go`
 
 ### B1. 固定每个模块的迁移责任
@@ -843,6 +844,8 @@ Expected: PASS；保存为迁移前行为基线。
 B1 固定按 `feedback → insight → personalization → turn` 串行推进。Feedback 保留 provider 在 nil Store 时返回 nil、由 `Record` 显式 fail-fast 的既有时机；Personalization 保留 non-nil adapter 的方法级 fail-fast；Turn 保留 optional nil。Insight 的 Store 是 required 依赖，迁到 App 后 constructor 必须在 nil 时返回明确错误，不能留下延迟 panic。Turn 只把 `turndedupe.ErrNotFound` 映射为 `turn.ErrDedupeNotFound`，其他错误保持原始 `errors.Is` 链。
 
 B1 的 App adapter 统一通过 `business_store_adapter_nil.go` 识别 nil interface 与 typed nil Store；共享 helper 只处理 nil 判定，不承载 DTO 映射、错误转换或业务兜底。实现必须覆盖 Go 所有可 nil 的 reflect kind，避免各 adapter 复制不完整的 pointer-only 判断。Turn 的领域端口按既定 owned path 写入 `internal/module/turn/contract.go`，不得另增 turn 顶层生产文件。
+
+Turn 的 `optional:"true"` 标签随 provider 迁到 `business_store_adapters_module.go` 后，必须同步 `dependency_optional_boundary_test.go` 的 App canonical classification：登记 `provideTurnDedupeStore` 为 `optionalAdjunct`，证据固定为缺失持久化时仅使用进程内 tracker，并把 App adjunct 精确预算从 9 调整为 10。该变更只迁移既有 optional 边界的治理归属，不允许新增未分类 optional 或放宽 stale 检查。
 
 ### B2. 按现有领域端口迁移
 
