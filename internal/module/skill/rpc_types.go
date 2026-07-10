@@ -87,11 +87,11 @@ func normalizeSkillSummarySuggestParams(p skillSummarySuggestParams) skillSummar
 func parseSkillSummarySuggestionResult(raw string) (string, error) {
 	var out skillSummarySuggestResult
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &out); err != nil {
-		return "", fmt.Errorf("parse skill summary suggestion: %w", err)
+		return "", summarysuggest.MarkRetryable(fmt.Errorf("parse skill summary suggestion: %w", err))
 	}
 	description := strings.TrimSpace(out.Description)
 	if description == "" {
-		return "", fmt.Errorf("skill summary suggestion is empty")
+		return "", summarysuggest.MarkRetryable(errors.New("skill summary suggestion is empty"))
 	}
 	if isInternalSkillMarkerSummary(description) {
 		return "", fmt.Errorf("skill summary suggestion contains internal marker")
@@ -185,7 +185,7 @@ func skillSummaryLooksLikeWorkflow(description string) bool {
 
 func compactRuneLen(value string) int {
 	count := 0
-	for _, field := range strings.Fields(value) {
+	for field := range strings.FieldsSeq(value) {
 		count += len([]rune(field))
 	}
 	return count

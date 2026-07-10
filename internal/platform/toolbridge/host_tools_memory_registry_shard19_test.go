@@ -44,7 +44,7 @@ func TestMemoryWriteReportsDeleteFailureAsPartial(t *testing.T) {
 			ActualTarget:   "private",
 			Type:           contract.MemoryTypeFeedback,
 		},
-		err: contract.NewAgentMemoryError("partial", errors.New("memory_overflow_delete_failed: unlink denied")),
+		err: contract.NewAgentMemoryError("partial", opaqueMemoryWriteFailure{cause: contract.ErrMemoryOverflowDeleteFailed}),
 	}
 	reg := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: true})
 	result := callMemoryWriteHostTool(t, reg)
@@ -63,6 +63,32 @@ func TestMemoryWriteReportsDeleteFailureAsPartial(t *testing.T) {
 		t.Fatalf("partial payload error = %#v, want typed delete failure", payload["error"])
 	}
 }
+
+func TestPartialMemoryWriteErrorMessageUsesContractFailureIdentity(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		cause error
+		want  string
+	}{
+		{cause: contract.ErrMemoryOverflowDeleteFailed, want: "memory_overflow_delete_failed"},
+		{cause: contract.ErrMemoryOverflowMergeFailed, want: "memory_overflow_merge_failed"},
+		{cause: contract.ErrMemoryIndexUpdateFailed, want: "memory_index_update_failed"},
+	} {
+		err := contract.NewAgentMemoryError("partial", opaqueMemoryWriteFailure{cause: tc.cause})
+		if got := partialMemoryWriteErrorMessage(err); got != tc.want {
+			t.Fatalf("partialMemoryWriteErrorMessage() = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+type opaqueMemoryWriteFailure struct {
+	cause error
+}
+
+func (e opaqueMemoryWriteFailure) Error() string { return "opaque memory write failure" }
+
+func (e opaqueMemoryWriteFailure) Unwrap() error { return e.cause }
 
 func assertMemoryWriteToolSchema(t *testing.T, reg *MemoryWriteHostToolRegistry, tools []dto.MCPTool) {
 	t.Helper()

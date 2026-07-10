@@ -152,7 +152,7 @@ internal/module/memory/dedup/overflow_test.go	internal	modules	go-test	4403	memo
 internal/module/memory/dedup/overflow.go	internal	modules	go-source	3324	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,dedup,overflow,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/dedup/tokenizer_test.go	internal	modules	go-test	5078	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,dedup,tokenizer,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/dedup/tokenizer.go	internal	modules	go-source	6651	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,dedup,tokenizer,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/domain_bridges.go	internal	modules	go-source	22430	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,domain,bridges,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/domain_bridges.go	internal	modules	go-source	22420	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,domain,bridges,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/entrypoint_provider_test.go	internal	modules	go-test	10319	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,entrypoint,provider,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/entrypoint_provider.go	internal	modules	go-source	6580	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,entrypoint,provider,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/extract_metadata_failfast_test.go	internal	modules	go-test	538	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,extract,metadata,failfast,test,canonical,管理,UI,RPC,与持久化接线
@@ -162,7 +162,7 @@ internal/module/memory/extract_runtime.go	internal	modules	go-source	18505	memor
 internal/module/memory/extract_test.go	internal	modules	go-test	15235	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,extract,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/extract_transcript.go	internal	modules	go-source	9531	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,extract,transcript,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/extract.go	internal	modules	go-source	22344	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,extract,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/factory.go	internal	modules	go-source	15306	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,factory,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/factory.go	internal	modules	go-source	15301	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,factory,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/feedback_tracker_test.go	internal	modules	go-test	2358	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,feedback,tracker,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/gate.go	internal	modules	go-source	13453	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,gate,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/golden_test.go	internal	modules	go-test	733	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,golden,test,canonical,管理,UI,RPC,与持久化接线
@@ -272,8 +272,8 @@ internal/module/memory/ui_rpc_merge_delete_failure_unix_test.go	internal	modules
 internal/module/memory/ui_rpc_merge_delete_failure_windows_test.go	internal	modules	go-test	641	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,delete,failure,windows,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_shared_shard19_test.go	internal	modules	go-test	23501	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,shared,shard19,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	28926	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc_test.go	internal	modules	go-test	30309	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc.go	internal	modules	go-source	30310	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_test.go	internal	modules	go-test	31109	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,test,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc.go	internal	modules	go-source	30599	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
 internal/module/notify/module.go	internal	modules	go-source	3180	业务模块层	internal,module,notify,业务模块层
 internal/module/observability/module.go	internal	modules	go-source	261	业务模块层	internal,module,observability,业务模块层
 internal/module/observability/rpc_test.go	internal	modules	go-test	23522	业务模块层	internal,module,observability,rpc,test,业务模块层
@@ -443,8 +443,8 @@ internal/module/skill/rpc_resolution_personal_deleted_test.go	internal	modules	g
 internal/module/skill/rpc_resolution_same_name_apply_test.go	internal	modules	go-test	16161	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,same,name,apply,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_test.go	internal	modules	go-test	17496	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_skill_types.go	internal	modules	go-source	21384	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,types,canonical,管理与,provider-native,mirror
-internal/module/skill/rpc_types_test.go	internal	modules	go-test	21829	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,types,test,canonical,管理与,provider-native,mirror
-internal/module/skill/rpc_types.go	internal	modules	go-source	24745	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,types,canonical,管理与,provider-native,mirror
+internal/module/skill/rpc_types_test.go	internal	modules	go-test	22363	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,types,test,canonical,管理与,provider-native,mirror
+internal/module/skill/rpc_types.go	internal	modules	go-source	24805	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,types,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc.go	internal	modules	go-source	18102	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_model_permissions_windows_test.go	internal	modules	go-test	1524	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,permissions,windows,test,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_model_test.go	internal	modules	go-test	6274	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,test,canonical,管理与,provider-native,mirror
@@ -462,7 +462,8 @@ internal/module/skill/skills_match_test.go	internal	modules	go-test	6362	skill c
 internal/module/skill/skills_match.go	internal	modules	go-source	6746	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_meta_test.go	internal	modules	go-test	11466	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_meta.go	internal	modules	go-source	17502	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,canonical,管理与,provider-native,mirror
-internal/module/skill/summarysuggest/execute.go	internal	modules	go-source	1924	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,canonical,管理与,provider-native,mirror
+internal/module/skill/summarysuggest/execute_test.go	internal	modules	go-test	572	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,test,canonical,管理与,provider-native,mirror
+internal/module/skill/summarysuggest/execute.go	internal	modules	go-source	2137	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,canonical,管理与,provider-native,mirror
 internal/module/skill/system_review.go	internal	modules	go-source	1917	skill canonical 管理与 provider-native mirror	internal,module,skill,system,review,canonical,管理与,provider-native,mirror
 internal/module/skill/test_json_test.go	internal	modules	go-test	230	skill canonical 管理与 provider-native mirror	internal,module,skill,test,json,canonical,管理与,provider-native,mirror
 internal/module/skill/test_permissions_unix_test.go	internal	modules	go-test	229	skill canonical 管理与 provider-native mirror	internal,module,skill,test,permissions,unix,canonical,管理与,provider-native,mirror

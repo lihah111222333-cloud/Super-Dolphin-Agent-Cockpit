@@ -13,6 +13,11 @@ var (
 	ErrMemoryInvalidParam = errors.New("memory invalid params")
 	ErrMemoryPersist      = errors.New("memory persist failed")
 	ErrMemoryTimedOut     = errors.New("memory timeout")
+	// 溢出合并、删除与索引刷新失败跨越 memory、UI 和 toolbridge 边界。
+	// 调用方必须通过 errors.Is 分类，不能依赖底层存储错误文本。
+	ErrMemoryOverflowMergeFailed  = errors.New("memory_overflow_merge_failed")
+	ErrMemoryOverflowDeleteFailed = errors.New("memory_overflow_delete_failed")
+	ErrMemoryIndexUpdateFailed    = errors.New("memory_index_update_failed")
 )
 
 // MemoryScope 是记忆工具 wire 参数中的作用域枚举。

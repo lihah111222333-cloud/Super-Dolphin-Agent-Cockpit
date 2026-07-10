@@ -3,11 +3,14 @@ package summarysuggest
 
 import (
 	"context"
-	"strings"
+	"errors"
+	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
+
+var errRetryable = errors.New("retryable skill summary suggestion error")
 
 // ParseFunc 是用于解析 dream 原始输出的函数类型。
 type ParseFunc func(string) (string, error)
@@ -19,7 +22,7 @@ func ExecuteWithOptions(ctx context.Context, dream contract.DreamExecutor, promp
 	defer cancel()
 
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		raw, err := executeDream(ctx, dream, prompt, options)
 		if err != nil {
 			return "", err
@@ -29,7 +32,7 @@ func ExecuteWithOptions(ctx context.Context, dream contract.DreamExecutor, promp
 			return value, nil
 		}
 		lastErr = err
-		if !retryable(err) {
+		if !IsRetryable(err) {
 			return "", err
 		}
 	}
@@ -44,10 +47,17 @@ func executeDream(ctx context.Context, dream contract.DreamExecutor, prompt stri
 	return dream.ExecuteDream(ctx, prompt)
 }
 
-// retryable 只允许摘要为空或解析格式错误触发重试。
-// 业务错误和执行器错误不在这里吞掉，避免掩盖 provider 侧故障。
-func retryable(err error) bool {
-	message := err.Error()
-	return strings.Contains(message, "parse skill summary suggestion") ||
-		strings.Contains(message, "skill summary suggestion is empty")
+// MarkRetryable 为已知可恢复的摘要解析错误附加稳定标记。
+// 原始错误保持在错误链中，供调用方保留具体诊断信息。
+func MarkRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", errRetryable, err)
+}
+
+// IsRetryable 判断错误链是否带有摘要解析可重试标记。
+// 仅显式标记的错误可以重试，避免错误文本变化扩大重试范围。
+func IsRetryable(err error) bool {
+	return errors.Is(err, errRetryable)
 }

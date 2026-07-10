@@ -76,11 +76,30 @@ func collectPrioritySSAErrorStringViolations(pkg *prioritySSAPackage, fn *ssa.Fu
 			continue
 		}
 		name, ok := prioritySSAErrorStringMatchCall(&call.Call)
-		if ok {
+		if ok && !prioritySSAArchGuardIgnored(pkg, call.Pos(), PrioritySSAErrorStringRule) {
 			violations = append(violations, prioritySSAViolation(pkg, call.Pos(), PrioritySSAErrorStringRule, "error string match "+name))
 		}
 	}
 	return violations
+}
+
+// prioritySSAArchGuardIgnored 仅让已有的逐行 archguard 标注豁免对应 priority SSA 规则。
+// 它必须按 SSA 调用位置定位同一语法文件，避免任意包级注释放宽整条规则。
+func prioritySSAArchGuardIgnored(pkg *prioritySSAPackage, pos token.Pos, rule PrioritySSARule) bool {
+	if pkg == nil || pkg.fset == nil || !pos.IsValid() {
+		return false
+	}
+	position := pkg.fset.Position(pos)
+	if position.Filename == "" || position.Line <= 0 {
+		return false
+	}
+	for _, file := range pkg.syntax {
+		if pkg.fset.Position(file.Pos()).Filename != position.Filename {
+			continue
+		}
+		return collectArchGuardIgnores(pkg.fset, file).has(position.Line, string(rule))
+	}
+	return false
 }
 
 // collectPrioritySSAFXInvokeViolations 扫描 fx.Invoke 参数函数中的阻塞或进程副作用。

@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -112,11 +113,13 @@ func partialMemoryWriteToolResult(result contract.AgentMemoryWriteResult, err er
 }
 
 func partialMemoryWriteErrorMessage(err error) string {
-	text := err.Error()
-	for _, marker := range []string{"memory_overflow_delete_failed", "memory_overflow_merge_failed", "memory_index_update_failed"} {
-		if strings.Contains(text, marker) {
-			return marker
-		}
+	switch {
+	case errors.Is(err, contract.ErrMemoryOverflowDeleteFailed):
+		return "memory_overflow_delete_failed"
+	case errors.Is(err, contract.ErrMemoryOverflowMergeFailed):
+		return "memory_overflow_merge_failed"
+	case errors.Is(err, contract.ErrMemoryIndexUpdateFailed):
+		return "memory_index_update_failed"
 	}
 	if code := contract.AgentMemoryErrorCode(err); code != "" {
 		return code

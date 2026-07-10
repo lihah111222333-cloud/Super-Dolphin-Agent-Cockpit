@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
+
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 const boundedWriteRetryDelay = 50 * time.Millisecond
@@ -38,14 +39,18 @@ func LikeContainsFold(s string) string {
 
 // IsSQLiteBusyLocked 判断错误是否属于 SQLite busy/locked 写入竞争。
 func IsSQLiteBusyLocked(err error) bool {
-	if err == nil {
+	code, ok := sqliteResultCode(err)
+	if !ok {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "database is locked") ||
-		strings.Contains(msg, "database is busy") ||
-		strings.Contains(msg, "SQLITE_BUSY") ||
-		strings.Contains(msg, "SQLITE_LOCKED")
+	primaryCode := sqlitePrimaryResultCode(code)
+	return primaryCode == sqlite3.SQLITE_BUSY || primaryCode == sqlite3.SQLITE_LOCKED
+}
+
+// sqlitePrimaryResultCode 提取 SQLite 扩展结果码的基础结果码。
+// SQLITE_BUSY_* 与 SQLITE_LOCKED_* 共享基础码，重试决策必须同时覆盖其扩展形式。
+func sqlitePrimaryResultCode(code int) int {
+	return code & 0xff
 }
 
 // BoundedWriteRetry 只在 SQLite busy/locked 时做有界重试。

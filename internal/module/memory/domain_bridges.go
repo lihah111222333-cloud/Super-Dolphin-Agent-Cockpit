@@ -23,8 +23,8 @@ import (
 
 var (
 	ErrInvalidProjectDir          = errors.New("invalid project directory")
-	ErrMemoryOverflowMergeFailed  = errors.New("memory_overflow_merge_failed")
-	ErrMemoryOverflowDeleteFailed = errors.New("memory_overflow_delete_failed")
+	ErrMemoryOverflowMergeFailed  = contract.ErrMemoryOverflowMergeFailed
+	ErrMemoryOverflowDeleteFailed = contract.ErrMemoryOverflowDeleteFailed
 )
 
 // ==== team-memory bridge ====

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/summarysuggest"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
@@ -251,6 +252,20 @@ func TestSkillSummarySuggestRPCRejectsGenericDescription(t *testing.T) {
 	}`))
 	if err == nil || !strings.Contains(err.Error(), "skill summary suggestion quality") {
 		t.Fatalf("Dispatch() error = %v, want quality rejection", err)
+	}
+}
+
+func TestParseSkillSummarySuggestionResultMarksRetryableShapeErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{"not-json", `{"description":""}`} {
+		_, err := parseSkillSummarySuggestionResult(raw)
+		if err == nil {
+			t.Fatalf("parseSkillSummarySuggestionResult(%q) error = nil", raw)
+		}
+		if !summarysuggest.IsRetryable(err) {
+			t.Fatalf("parseSkillSummarySuggestionResult(%q) error = %v, want retryable marker", raw, err)
+		}
 	}
 }
 

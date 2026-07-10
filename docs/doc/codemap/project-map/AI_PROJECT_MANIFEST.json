@@ -5,14 +5,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4253,
+  "files": 4257,
   "domains": {
-    "docs-agent": 869,
-    "other": 505,
+    "docs-agent": 871,
+    "other": 506,
     "app-ui": 426,
     "platform-provider": 1010,
     "orchestration": 419,
-    "modules": 717,
+    "modules": 718,
     "store-sql": 307
   },
   "index_files": {
@@ -36,8 +36,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 717,
-        "size_kb": 139.5,
+        "file_count": 718,
+        "size_kb": 139.7,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -57,15 +57,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 869,
-        "size_kb": 154.6,
+        "file_count": 871,
+        "size_kb": 155,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 505,
-        "size_kb": 96.3,
+        "file_count": 506,
+        "size_kb": 96.5,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -73,9 +73,9 @@
   "module_counts": {
     "(root)": 7,
     "cmd": 659,
-    "docs": 866,
+    "docs": 868,
     "frontend-app": 424,
-    "internal": 2002,
+    "internal": 2004,
     "migrations": 112,
     "pkg": 25,
     "scripts": 109,

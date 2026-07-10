@@ -472,6 +472,8 @@ func publishMemoryIntentFailedDiagnostic(d memoryIntentFailureDiagnostic) {
 	}
 }
 
+// redactedMemoryIntentError 将内部写入失败归约为 UI 可公开展示的稳定代码。
+// 它优先保留外层 agent code，再按 contract 哨兵分类，避免将路径或驱动错误泄漏给前端。
 func redactedMemoryIntentError(err error) string {
 	if err == nil {
 		return ""
@@ -479,11 +481,13 @@ func redactedMemoryIntentError(err error) string {
 	if code := contract.AgentMemoryErrorCode(err); code != "" {
 		return code
 	}
-	text := err.Error()
-	for _, marker := range []string{"memory_overflow_delete_failed", "memory_overflow_merge_failed", "memory_index_update_failed"} {
-		if strings.Contains(text, marker) {
-			return marker
-		}
+	switch {
+	case errors.Is(err, ErrMemoryOverflowDeleteFailed):
+		return "memory_overflow_delete_failed"
+	case errors.Is(err, ErrMemoryOverflowMergeFailed):
+		return "memory_overflow_merge_failed"
+	case errors.Is(err, ErrMemoryIndexUpdateFailed):
+		return "memory_index_update_failed"
 	}
 	return "memory_intent_failed"
 }

@@ -154,7 +154,7 @@ func isBinaryNotAvailable(err error) bool {
 		return true
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "executable file not found") ||
+	return strings.Contains(msg, "executable file not found") || // archguard:ignore priority_ssa_error_string -- final OS and stdlib compatibility fallback after typed checks.
 		strings.Contains(msg, "no such file or directory")
 }
 

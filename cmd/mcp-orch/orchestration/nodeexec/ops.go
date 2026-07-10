@@ -112,6 +112,7 @@ func (n *NodeSpec) UnmarshalJSON(data []byte) error {
 
 func addNodeStrictDecodeError(err error, allowed string) error {
 	errMsg := err.Error()
+	// archguard:ignore priority_ssa_error_string -- encoding/json unknown-field errors have no exported typed sentinel.
 	if strings.Contains(errMsg, "unknown field") {
 		return fmt.Errorf("add_node: %v (allowed: %s)", err, allowed)
 	}

@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestWrapStoreError_NilReturnsNil(t *testing.T) {
@@ -34,7 +37,7 @@ func TestWrapStoreError_ClassifiesNotFound(t *testing.T) {
 
 func TestWrapStoreError_ClassifiesConflict(t *testing.T) {
 	t.Parallel()
-	sqliteErr := errors.New("UNIQUE constraint failed: users.email")
+	sqliteErr := sqliteUniqueViolation(t)
 	wrapped := WrapStoreError(sqliteErr, "insert", "user")
 	if !errors.Is(wrapped, ErrConflict) {
 		t.Fatalf("expected ErrConflict, got %v", wrapped)
@@ -53,8 +56,8 @@ func TestWrapStoreError_ClassifiesSQLiteBusy(t *testing.T) {
 	t.Parallel()
 	busyErr := errors.New("database is locked")
 	wrapped := WrapStoreError(busyErr, "list", "order")
-	if !errors.Is(wrapped, ErrTimeout) {
-		t.Fatalf("expected ErrTimeout for SQLite busy, got %v", wrapped)
+	if errors.Is(wrapped, ErrTimeout) {
+		t.Fatalf("text-only error must not classify as SQLite busy, got %v", wrapped)
 	}
 }
 
@@ -84,7 +87,6 @@ func TestStoreError_ErrorFormatting(t *testing.T) {
 		{"both present", StoreError{Operation: "get", Entity: "user", Err: inner}, "get user: boom"},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			if got := c.se.Error(); got != c.expect {
@@ -138,8 +140,11 @@ func TestIsConflict(t *testing.T) {
 	if !IsConflict(ErrConflict) {
 		t.Fatal("IsConflict(ErrConflict) should be true")
 	}
-	if !IsConflict(errors.New("UNIQUE constraint failed: users.email")) {
-		t.Fatal("IsConflict(UNIQUE constraint failed) should be true")
+	if !IsConflict(sqliteUniqueViolation(t)) {
+		t.Fatal("IsConflict(actual SQLite UNIQUE violation) should be true")
+	}
+	if IsConflict(errors.New("UNIQUE constraint failed: users.email")) {
+		t.Fatal("IsConflict(text-only UNIQUE error) should be false")
 	}
 	if IsConflict(errors.New("random")) {
 		t.Fatal("IsConflict(random) should be false")
@@ -154,23 +159,64 @@ func TestIsTimeout(t *testing.T) {
 	if !IsTimeout(context.DeadlineExceeded) {
 		t.Fatal("IsTimeout(DeadlineExceeded) should be true")
 	}
-	if !IsTimeout(errors.New("database is locked")) {
-		t.Fatal("IsTimeout(SQLITE_BUSY) should be true")
+	if IsTimeout(errors.New("database is locked")) {
+		t.Fatal("IsTimeout(text-only SQLite busy) should be false")
 	}
 	if IsTimeout(errors.New("random")) {
 		t.Fatal("IsTimeout(random) should be false")
 	}
 }
 
+func TestSQLitePrimaryResultCode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		code int
+		want int
+	}{
+		{code: sqlite3.SQLITE_BUSY | 1<<8, want: sqlite3.SQLITE_BUSY},
+		{code: sqlite3.SQLITE_LOCKED | 2<<8, want: sqlite3.SQLITE_LOCKED},
+		{code: sqlite3.SQLITE_CONSTRAINT_UNIQUE, want: sqlite3.SQLITE_CONSTRAINT},
+	}
+	for _, tc := range cases {
+		if got := sqlitePrimaryResultCode(tc.code); got != tc.want {
+			t.Errorf("sqlitePrimaryResultCode(%d) = %d, want %d", tc.code, got, tc.want)
+		}
+	}
+}
+
+func sqliteUniqueViolation(t *testing.T) error {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec("CREATE TABLE users (email TEXT UNIQUE)"); err != nil {
+		t.Fatalf("create unique table: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (email) VALUES ('person@example.com')"); err != nil {
+		t.Fatalf("insert first row: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (email) VALUES ('person@example.com')")
+	if err == nil {
+		t.Fatal("duplicate insert unexpectedly succeeded")
+	}
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		t.Fatalf("duplicate insert error type = %T, want *sqlite.Error", err)
+	}
+	return err
+}
+
 func BenchmarkWrapStoreError_NotFound(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		WrapStoreError(sql.ErrNoRows, "get", "user")
 	}
 }
 
 func BenchmarkClassifyStoreError(b *testing.B) {
 	err := errors.New("random")
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		classifyStoreError(err)
 	}
 }

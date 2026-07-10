@@ -75,6 +75,32 @@ func TestRegisterUIMemoryMutationHandlersDoesNotExposeSharedFilePromote(t *testi
 	}
 }
 
+func TestRedactedMemoryIntentErrorUsesContractFailureIdentity(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		cause error
+		want  string
+	}{
+		{cause: contract.ErrMemoryOverflowDeleteFailed, want: "memory_overflow_delete_failed"},
+		{cause: contract.ErrMemoryOverflowMergeFailed, want: "memory_overflow_merge_failed"},
+		{cause: contract.ErrMemoryIndexUpdateFailed, want: "memory_index_update_failed"},
+	} {
+		err := opaqueMemoryIntentError{cause: tc.cause}
+		if got := redactedMemoryIntentError(err); got != tc.want {
+			t.Fatalf("redactedMemoryIntentError() = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+type opaqueMemoryIntentError struct {
+	cause error
+}
+
+func (e opaqueMemoryIntentError) Error() string { return "opaque memory intent failure" }
+
+func (e opaqueMemoryIntentError) Unwrap() error { return e.cause }
+
 func TestUIMemoryConsolidationJobStoreReturnsRunningBeforeWorkCompletes(t *testing.T) {
 	store, started, release := newBlockingMemoryConsolidationJobStore()
 
@@ -322,7 +348,6 @@ func TestBuildUIMemorySnapshotAutoDreamReflectsConfigGates(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &Config{
 				Enabled:             tc.enabled,
@@ -612,7 +637,7 @@ func TestUIMemoryGetRespectsEntryLimit(t *testing.T) {
 	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
-	for i := 0; i < 260; i++ {
+	for i := range 260 {
 		writeUIMemoryScanEntry(t, privateRoot, i, "small memory body\nWhy: scan budget fixture.\nHow to apply: keep enough files to cross the UI cap.")
 	}
 
@@ -664,7 +689,7 @@ func TestUIMemorySimilarityHealthRespectsScanBudget(t *testing.T) {
 	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
-	for i := 0; i < 260; i++ {
+	for i := range 260 {
 		writeUIMemoryScanEntry(t, privateRoot, i, "same body for similarity\nWhy: all entries share enough text to be similar.\nHow to apply: similarity must be skipped after scan truncates.")
 	}
 
@@ -717,7 +742,7 @@ func uiMemoryOverviewScanMap(t *testing.T, snapshot UIMemorySnapshot) map[string
 
 func uniqueTokenRun(prefix string, count int) string {
 	parts := make([]string, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		parts = append(parts, fmt.Sprintf("%s%03d", prefix, i))
 	}
 	return strings.Join(parts, " ")

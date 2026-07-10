@@ -21,7 +21,7 @@ var (
 	ErrMemoryLockTimeout       = errors.New("memory store lock timeout")
 	ErrMemoryNotFound          = errors.New("memory not found")
 	ErrInvalidMemoryEntry      = errors.New("invalid memory entry")
-	ErrMemoryIndexUpdateFailed = errors.New("memory_index_update_failed")
+	ErrMemoryIndexUpdateFailed = contract.ErrMemoryIndexUpdateFailed
 )
 
 // WriteOptions 控制单次 memory 写入的维护行为。

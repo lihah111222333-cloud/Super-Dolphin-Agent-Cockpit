@@ -227,6 +227,7 @@ func enrichSpawnError(err error, proc *localProcess) error {
 	}
 	stderr := proc.stderrSummary()
 	errMsg := err.Error()
+	// archguard:ignore priority_ssa_error_string -- this only avoids duplicating stderr already present in the display error.
 	if stderr == "" || strings.Contains(errMsg, stderr) {
 		return err
 	}

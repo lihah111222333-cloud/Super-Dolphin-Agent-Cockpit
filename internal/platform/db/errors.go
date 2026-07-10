@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var (
@@ -88,12 +89,18 @@ func IsTimeout(err error) bool {
 
 // IsUniqueViolation 判断 SQLite UNIQUE 约束错误。
 func IsUniqueViolation(err error) bool {
-	if err == nil {
-		return false
+	code, ok := sqliteResultCode(err)
+	return ok && code == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+}
+
+// sqliteResultCode 从错误链中提取 modernc SQLite 的稳定结果码。
+// 非 SQLite 驱动错误不参与 SQLite 分类，避免把可变的人类文本误判为数据库状态。
+func sqliteResultCode(err error) (int, bool) {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return 0, false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed") ||
-		strings.Contains(msg, "unique constraint failed")
+	return sqliteErr.Code(), true
 }
 
 func classifyStoreError(err error) error {

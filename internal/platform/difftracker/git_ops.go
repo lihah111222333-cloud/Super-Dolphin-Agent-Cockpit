@@ -85,6 +85,7 @@ func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, er
 		}
 		lastErr = err
 		errMsg := err.Error()
+		// archguard:ignore priority_ssa_error_string -- Git reports index.lock contention only through stderr text.
 		if !strings.Contains(errMsg, "index.lock") || attempt == gitRetryAttempts {
 			return nil, err
 		}
@@ -180,7 +181,7 @@ func slicesSort(values []string) {
 
 func isMissingHEADPath(err error) bool {
 	message := err.Error()
-	return strings.Contains(message, "does not exist in 'HEAD'") ||
+	return strings.Contains(message, "does not exist in 'HEAD'") || // archguard:ignore priority_ssa_error_string -- Git show exposes a path absent from HEAD only through stderr text.
 		strings.Contains(message, "exists on disk, but not in 'HEAD'")
 }
 
