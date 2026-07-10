@@ -853,6 +853,10 @@ Turn 的 `optional:"true"` 标签随 provider 迁到 `business_store_adapters_mo
 
 保留 `cron.Store`、`cron.SchedulerStore` 和 scheduler 子端口，但先把其完整签名改成跨包可实现的 domain surface。至少将当前 private `jobRecord`、`runRecord`、`createJobParams`、`updateJobScheduleParams`、`claimDueJobsForUpdateParams`、`leaseParams`、`markFinishedParams`、`markFailedParams`、`setActiveTurnParams`、`insertRunParams`、`casRunStatusParams`、`setRunTurnParams` 改为对应 exported 类型，并更新所有消费者。`errStoreJobNotFound`、`errStoreJobRunNotFound`、`errStoreClaimTokenMismatch`、`errStoreStatusTransitionRefused`、`errStoreEmptyID/CWD/Provider/ScheduleExpr` 必须导出为稳定 domain sentinel，或改为 exported domain error 分类；App adapter 返回的错误必须继续支持现有 `errors.Is` 分支。随后把 `cronStoreAdapter`、`cronJobStoreAdapter`、`cronScheduler*Adapter`、`cronSubmitAdapter` 及 Store DTO 映射移动到 `internal/app/cron_store_adapters.go`。`cron.Module` 删除具体 Store provider，只消费 typed ports。
 
+跨包审计必须额外包含 `scheduler.go` 的 `submitRunWithActiveTurnParams`：它虽然不在 `SchedulerStore` 主接口中，却出现在 scheduler 的隐式 `submittedTurnStore` 方法签名，必须导出为 `cron.SubmitRunWithActiveTurnParams`，否则 App concrete 无法满足真实运行时 type assertion。其余类型采用直接领域导出名 `JobRecord`、`RunRecord`、`CreateJobParams`、`UpdateJobScheduleParams`、`ClaimDueJobsForUpdateParams`、`LeaseParams`、`MarkFinishedParams`、`MarkFailedParams`、`SetActiveTurnParams`、`InsertRunParams`、`CASRunStatusParams`、`SetRunTurnParams`；sentinel 采用对应 `ErrStore*` 导出名，不得 alias Store 类型或错误。
+
+App 保留一个共享 concrete root adapter，同时投影 `cron.Store` 与 `cron.SchedulerStore`，以维持现有事务/状态机能力集合。cron Store 是 required 依赖，App constructor 对 nil 与 typed nil 必须立即返回错误；不得构造携带 nil Store 的延迟 panic adapter。八类 Store sentinel 只映射为对应 cron domain sentinel且不得泄漏 Store sentinel，其他错误保持原对象与 `errors.Is`；`Config`、`Skills` 的 `json.RawMessage` 在 domain→Store 与 Store→domain 两向都复制。测试需覆盖两端口跨包实现、隐式 scheduler 子接口实际调用、全 exported-field one-hot 和双向可变字段隔离。
+
 - [ ] **Step 4: 迁移 dashboard**
 
 保留现有 exported `AgentStatusReader`、`AILogReader`、`AuditLogReader`、`BusLogReader`、`SystemLogReader`、`DBQueryExecutor`、`CommandCardReader`、`PromptTemplateReader`、`SharedFileReader`。把九类 Store adapter 和 mapper 从 dashboard `module.go` 移到 `internal/app/dashboard_store_adapters.go`；dashboard 文件不得保留 Store DTO、Store not-found 映射或具体 reader 类型。
@@ -870,6 +874,8 @@ Turn 的 `optional:"true"` 标签随 provider 迁到 `business_store_adapters_mo
 - [ ] **Step 7: 迁移 memory 与 personalization**
 
 Memory 已使用 `sharedfileport.Reader/Deleter`，只需把 `sharedFileReaderAdapter`、`sharedFileDeleterAdapter` 移到 App 并由 app provider 返回对应接口。Personalization 将本地 preference port/DTO 导出为 `personalization.PreferenceStore` 和领域 DTO，把 `uiPreferenceStoreAdapter` 移到 App。
+
+Memory 不新增或改写 `sharedfileport` DTO。`memoryHandlerFxDeps` 改为可选消费 `sharedfileport.Reader/Deleter`，`newMemoryHandlerDeps` 只做 typed 依赖归并；App 的两个 provider 以 required `sharedfilestore.Reader/Deleter` 为输入并注册到 `businessStoreAdaptersModule()`，不新增 App optional 标签。provider 对直接传入的 nil/typed nil 返回 nil domain port，Reader 的 nil-file fail-fast、filter/row 全字段映射和 Store 错误身份保持 focused test 覆盖。
 
 - [ ] **Step 8: 迁移 prompt**
 
