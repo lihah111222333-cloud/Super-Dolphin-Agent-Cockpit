@@ -323,7 +323,7 @@ func TestNewUIDesktopScriptUsesSQLiteWithoutPostgresRuntime(t *testing.T) {
 		}
 	}
 	assertTextOrder(t, text, "ensure_dev_control_session_token\nensure_sqlite_runtime", `ensure_node_deps "$FRONTEND_APP_DIR"`)
-	assertTextOrder(t, text, "ensure_sqlite_runtime\nstop_stale_vite_for_port", "\nstart_desktop_backend\n")
+	assertTextOrder(t, text, "ensure_sqlite_runtime\nensure_dev_codex_cli", "\nstart_desktop_backend\n")
 	for _, forbidden := range []string{
 		`configure_dev_postgres_runtime`,
 		`ensure_local_postgres`,
@@ -365,6 +365,22 @@ func TestNewUIDesktopScriptUsesShortDevHome(t *testing.T) {
 	}
 	assertTextOrder(t, text, `SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
 	assertTextOrder(t, text, `export SUPER_DOLPHIN_HOME`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
+}
+
+func TestNewUIDesktopScriptValidatesCodexCLIBeforeStartingBackend(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	for _, want := range []string{
+		`ensure_dev_codex_cli()`,
+		`SUPER_DOLPHIN_DEV_CODEX_CLI`,
+		`app-server --help`,
+		`ensure_dev_codex_cli`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing Codex CLI startup guard %q", want)
+		}
+	}
+	assertTextOrder(t, text, "\nensure_dev_codex_cli\n", "\nstart_desktop_backend\n")
 }
 
 func TestNewUIDesktopScriptDoesNotSeedDevProviderPreferencesThroughDatabase(t *testing.T) {

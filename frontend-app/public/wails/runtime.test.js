@@ -9,6 +9,14 @@ function createTestWebSocketClass(sockets) {
 
     static OPEN = 1;
 
+    onopen;
+
+    onclose;
+
+    onerror;
+
+    onmessage;
+
     constructor(url) {
       this.url = url;
       this.readyState = TestWebSocket.CONNECTING;
@@ -211,6 +219,29 @@ describe('development Wails runtime shim', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     sockets[0].receive({ jsonrpc: '2.0', id: downloadRequest.id, result: { ok: true } });
     await expect(downloadPromise).resolves.toEqual({ ok: true });
+  });
+
+  it('keeps interactive file selection pending beyond the short RPC timeout', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    const telemetry = vi.fn();
+    window.__AO_WAILS_RUNTIME_TELEMETRY__ = telemetry;
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    const selectionPromise = runtime.Call.ByID(4126105303);
+    sockets[0].open();
+    await Promise.resolve();
+    const request = JSON.parse(sockets[0].sent[0]);
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(telemetry).not.toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'runtime.rpc.timeout',
+      method: 'ui/selectFiles',
+    }));
+
+    sockets[0].receive({ jsonrpc: '2.0', id: request.id, result: { paths: ['/tmp/selected.txt'] } });
+    await expect(selectionPromise).resolves.toEqual(['/tmp/selected.txt']);
   });
 
   it('emits failure telemetry and clears pending calls on websocket close', async () => {

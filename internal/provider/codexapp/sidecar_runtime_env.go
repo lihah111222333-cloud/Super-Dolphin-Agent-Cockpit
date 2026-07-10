@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	sidecarRuntimeModeEnv      = "SUPER_DOLPHIN_RUNTIME_MODE"
-	sidecarRuntimeResourcesEnv = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
+	sidecarRuntimeModeEnv       = "SUPER_DOLPHIN_RUNTIME_MODE"
+	sidecarRuntimeResourcesEnv  = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
+	sidecarDependencyProfileEnv = "SUPER_DOLPHIN_DEPENDENCY_PROFILE"
 )
 
 func lookupEnvValue(env []string, key string) (string, bool) {
@@ -42,7 +43,7 @@ func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]strin
 
 // peerProcessEnv 组装 sidecar peer 进程环境变量。
 // 它先清洗父进程中的数据库连接变量，再按 peer 名称保留可信 ORCH_SQLITE_PATH，
-// 最后用配置的 workspace roots 覆盖默认工作区边界，避免 peer 继承错误目录。
+// 然后为 peer 固定 production 依赖 profile，最后用配置的 workspace roots 覆盖默认工作区边界，避免 peer 继承错误目录。
 func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
 	orchSQLitePath, hasOrchSQLitePath, err := trustedOrchSQLitePath(parent, name)
 	if err != nil {
@@ -63,6 +64,7 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	if _, ok := lookupTrimmedEnvValue(env, sidecarRuntimeResourcesEnv); !ok {
 		return nil, errors.New("peer process requires parent sidecar runtime contract: missing SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR")
 	}
+	env = append(removeEnvKeys(env, sidecarDependencyProfileEnv), sidecarDependencyProfileEnv+"="+string(contract.DependencyProfileProduction))
 	env, err = injectPeerBootstrapIdentity(env, name)
 	if err != nil {
 		return nil, err

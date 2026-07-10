@@ -58,6 +58,7 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 		}
 		binaryName := "mcp-" + string(fam)
 		binEnv := cloneManifestEnv(env)
+		binEnv[manifestDependencyProfileEnvKey] = string(DependencyProfileProduction)
 		addMCPProjectRootEnv(binEnv, ctx)
 		if fam == dto.FamilyLSP {
 			addLSPWorkspaceRootEnv(binEnv, ctx)
@@ -105,8 +106,12 @@ func appendExtraManifestBinaries(bins []dto.MCPBinary, extras []dto.MCPBinary) [
 	return bins
 }
 
-// manifestProjectRootEnvKey 是 MCP 子进程识别当前项目根的环境变量名。
-const manifestProjectRootEnvKey = "PROJECT_ROOT"
+const (
+	// manifestDependencyProfileEnvKey 是核心 MCP 子进程选择依赖装配配置的环境变量名。
+	manifestDependencyProfileEnvKey = "SUPER_DOLPHIN_DEPENDENCY_PROFILE"
+	// manifestProjectRootEnvKey 是 MCP 子进程识别当前项目根的环境变量名。
+	manifestProjectRootEnvKey = "PROJECT_ROOT"
+)
 
 // addMCPProjectRootEnv 为 stdio MCP 子进程补齐 PROJECT_ROOT。
 // 查找顺序是显式 env、当前进程 env、ManifestContext.ProjectRoot、再从 binaryDir 向上推导。

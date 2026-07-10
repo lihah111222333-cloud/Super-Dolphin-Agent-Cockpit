@@ -24,6 +24,37 @@ ensure_dev_control_session_token() {
   export GO_AGENT_CTL_SESSION_TOKEN="dev-new-ui-$(date +%s)-$$"
 }
 
+ensure_dev_codex_cli() {
+  local candidate="${SUPER_DOLPHIN_DEV_CODEX_CLI:-}"
+  local candidate_dir
+
+  if [ -n "$candidate" ] && [ "${candidate#/}" = "$candidate" ]; then
+    candidate="$(command -v "$candidate" 2>/dev/null || true)"
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(command -v codex 2>/dev/null || true)"
+  fi
+  if [ -z "$candidate" ] && [ "$(uname -s)" = "Darwin" ] && [ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]; then
+    candidate="/Applications/ChatGPT.app/Contents/Resources/codex"
+  fi
+  if [ -z "$candidate" ] || [ ! -x "$candidate" ]; then
+    echo "❌ Codex CLI is required; set SUPER_DOLPHIN_DEV_CODEX_CLI to an executable path" >&2
+    exit 1
+  fi
+  if ! "$candidate" app-server --help >/dev/null 2>&1; then
+    echo "❌ Codex CLI does not support app-server: $candidate" >&2
+    exit 1
+  fi
+
+  candidate_dir="$(cd "$(dirname "$candidate")" && pwd)"
+  case ":$PATH:" in
+    *":$candidate_dir:"*) ;;
+    *) PATH="$candidate_dir:$PATH" ;;
+  esac
+  SUPER_DOLPHIN_DEV_CODEX_CLI="$candidate"
+  export PATH SUPER_DOLPHIN_DEV_CODEX_CLI
+}
+
 ensure_node_deps() {
   local dir="$1"
   if [ ! -f "$dir/package.json" ]; then
@@ -31,18 +62,78 @@ ensure_node_deps() {
     exit 1
   fi
   cd "$dir"
-  if [ ! -d node_modules ]; then
-    echo "  → npm ci ($dir)"
-    npm ci --registry="$NPM_REGISTRY"
+  local package_manager="${SUPER_DOLPHIN_FRONTEND_PACKAGE_MANAGER:-}"
+  if [ -z "$package_manager" ]; then
+    if [ -f pnpm-lock.yaml ]; then
+      package_manager="pnpm"
+    elif command -v npm >/dev/null 2>&1 && ! npm_command_is_pnpm_shim; then
+      package_manager="npm"
+    elif command -v pnpm >/dev/null 2>&1; then
+      package_manager="pnpm"
+    else
+      echo "❌ no supported frontend package manager found (need npm or pnpm)" >&2
+      exit 1
+    fi
+  fi
+
+  if [ ! -d node_modules ] || [ ! -x node_modules/.bin/vite ]; then
+    install_node_deps "$package_manager" "$dir"
   elif [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; then
-    echo "  → npm ci (package-lock changed)"
-    npm ci --registry="$NPM_REGISTRY"
+    install_node_deps "$package_manager" "package-lock changed"
+  elif [ -f pnpm-lock.yaml ] && [ pnpm-lock.yaml -nt node_modules ]; then
+    install_node_deps "$package_manager" "pnpm-lock changed"
   elif [ package.json -nt node_modules ]; then
-    echo "  → npm install (package.json changed)"
-    npm install --registry="$NPM_REGISTRY"
+    install_node_deps "$package_manager" "package.json changed"
   else
     echo "  → dependencies unchanged"
   fi
+}
+
+npm_command_is_pnpm_shim() {
+  local npm_path
+  local user_agent
+  npm_path="$(command -v npm 2>/dev/null || true)"
+  if [ -n "$npm_path" ] && sed -n '1,24p' "$npm_path" 2>/dev/null | grep -q 'PNPM='; then
+    return 0
+  fi
+  user_agent="$(npm config get user-agent 2>/dev/null || true)"
+  case "$user_agent" in
+    pnpm/*) return 0 ;;
+  esac
+  return 1
+}
+
+install_node_deps() {
+  local package_manager="$1"
+  local reason="$2"
+  case "$package_manager" in
+    npm)
+      if npm_command_is_pnpm_shim; then
+        echo "❌ npm resolves to pnpm shim; set SUPER_DOLPHIN_FRONTEND_PACKAGE_MANAGER=pnpm or fix PATH" >&2
+        exit 1
+      fi
+      if [ -f package-lock.json ]; then
+        echo "  → npm ci ($reason)"
+        npm ci --registry="$NPM_REGISTRY"
+      else
+        echo "  → npm install ($reason)"
+        npm install --registry="$NPM_REGISTRY"
+      fi
+      ;;
+    pnpm)
+      if [ -f pnpm-lock.yaml ]; then
+        echo "  → pnpm install --frozen-lockfile ($reason)"
+        pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
+      else
+        echo "  → pnpm install --no-frozen-lockfile --lockfile=false ($reason)"
+        pnpm install --no-frozen-lockfile --lockfile=false --registry="$NPM_REGISTRY"
+      fi
+      ;;
+    *)
+      echo "❌ unsupported SUPER_DOLPHIN_FRONTEND_PACKAGE_MANAGER: $package_manager" >&2
+      exit 1
+      ;;
+  esac
 }
 
 peer_binary_stale() {
@@ -694,6 +785,13 @@ validate_backend_hot_reload_config
 SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"
+if [ -z "${SUPER_DOLPHIN_DEPENDENCY_PROFILE+x}" ]; then
+  SUPER_DOLPHIN_DEPENDENCY_PROFILE="desktop_host"
+fi
+if [ -z "$SUPER_DOLPHIN_DEPENDENCY_PROFILE" ]; then
+  echo "❌ SUPER_DOLPHIN_DEPENDENCY_PROFILE must not be empty" >&2
+  exit 1
+fi
 SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"
 SUPER_DOLPHIN_BACKEND_LOG="${SUPER_DOLPHIN_BACKEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/backend.log}"
 SUPER_DOLPHIN_FRONTEND_LOG="${SUPER_DOLPHIN_FRONTEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/frontend.log}"
@@ -705,6 +803,7 @@ SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY="${SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY:-de
 SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER="${SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER:-openai}"
 export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSERVER_URL GO_AGENT_PEER_BIN_DIR
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
+export SUPER_DOLPHIN_DEPENDENCY_PROFILE
 export SUPER_DOLPHIN_HOME SUPER_DOLPHIN_BACKEND_HOT_RELOAD SUPER_DOLPHIN_HOT_WATCH_PATHS SUPER_DOLPHIN_HOT_POLL_INTERVAL
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
@@ -716,6 +815,7 @@ configure_frontend_watch_mode
 mkdir -p "$(dirname "$SUPER_DOLPHIN_BACKEND_LOG")" "$(dirname "$SUPER_DOLPHIN_FRONTEND_LOG")" "$SUPER_DOLPHIN_HOME"
 ensure_dev_control_session_token
 ensure_sqlite_runtime
+ensure_dev_codex_cli
 stop_stale_vite_for_port "$VITE_DEV_PORT"
 fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"
 fail_if_port_busy "$SUPER_DOLPHIN_HTTP_ADDR"
@@ -733,6 +833,7 @@ echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
 echo "  runtime:      $SUPER_DOLPHIN_RUNTIME_MODE ($SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR)"
 echo "  home:         $SUPER_DOLPHIN_HOME"
 echo "  sqlite:       $SUPER_DOLPHIN_SQLITE_PATH"
+echo "  codex cli:    $SUPER_DOLPHIN_DEV_CODEX_CLI"
 echo "  frontend watch: $FRONTEND_WATCH_MODE"
 echo "  logs:         $SUPER_DOLPHIN_BACKEND_LOG"
 if backend_hot_reload_enabled; then

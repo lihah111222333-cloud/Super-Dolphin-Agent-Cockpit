@@ -50,6 +50,25 @@ func TestBuildManifestPassesSidecarRuntimeContractToStdioBinaries(t *testing.T) 
 	}
 }
 
+func TestBuildManifestForcesProductionDependencyProfileForCoreStdioBinaries(t *testing.T) {
+	manifest := BuildManifest(dto.ManifestContext{
+		BinaryDir: "/bundle/bin",
+		Env: map[string]string{
+			"SUPER_DOLPHIN_DEPENDENCY_PROFILE": "desktop_host",
+		},
+		TransportMode: dto.ManifestTransportStdioOnly,
+	})
+
+	if len(manifest.Binaries) == 0 {
+		t.Fatal("BuildManifest() returned no binaries")
+	}
+	for _, bin := range manifest.Binaries {
+		if got := bin.Env["SUPER_DOLPHIN_DEPENDENCY_PROFILE"]; got != string(DependencyProfileProduction) {
+			t.Fatalf("binary %s SUPER_DOLPHIN_DEPENDENCY_PROFILE = %q, want %q", bin.Name, got, DependencyProfileProduction)
+		}
+	}
+}
+
 func TestBuildManifestStripsDatabaseEnvironmentFromStdioBinaries(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://process@127.0.0.1:5432/super_dolphin?sslmode=disable")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:5432/super_dolphin?sslmode=disable")

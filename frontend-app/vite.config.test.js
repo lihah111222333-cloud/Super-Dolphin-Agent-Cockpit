@@ -30,6 +30,42 @@ describe('frontend vite dev proxy', () => {
       headers: { Cookie: 'super_dolphin_wails_ws=dev-token' },
     });
   });
+
+  it('serves the development Wails runtime shim as a module request', () => {
+    const config = createFrontendViteConfig({}, { command: 'serve', mode: 'development' });
+    const plugin = config.plugins.find((item) => item?.name === 'super-dolphin-dev-wails-runtime');
+    const handlers = [];
+    const headers = {};
+    let body = '';
+    let nextCalled = false;
+    const response = {
+      statusCode: 0,
+      setHeader(name, value) {
+        headers[name] = value;
+      },
+      end(value) {
+        body = String(value);
+      },
+    };
+
+    plugin.configureServer({
+      middlewares: {
+        use(handler) {
+          handlers.push(handler);
+        },
+      },
+    });
+    handlers[0]({ url: '/wails/runtime.js?import' }, response, () => {
+      nextCalled = true;
+    });
+
+    expect(nextCalled).toBe(false);
+    expect(response.statusCode).toBe(200);
+    expect(headers['Content-Type']).toBe('text/javascript; charset=utf-8');
+    expect(headers['Cache-Control']).toBe('no-store');
+    expect(body).toContain('/wails/ws');
+    expect(body).toContain('__WAILS_SHIM_DEBUG__');
+  });
 });
 
 describe('frontend vite watch config', () => {

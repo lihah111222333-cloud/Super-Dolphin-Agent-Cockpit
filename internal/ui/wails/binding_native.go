@@ -284,8 +284,9 @@ func (a *App) newDialog() (*application.OpenFileDialogStruct, error) {
 		return nil, err
 	}
 	dialog := app.Dialog.OpenFile()
-	if current := app.Window.Current(); current != nil {
-		dialog = dialog.AttachToWindow(current)
+	if parent := dialogParentWindow(app); parent != nil {
+		prepareDialogParentWindow(parent)
+		dialog = dialog.AttachToWindow(parent)
 	}
 	return dialog, nil
 }
@@ -305,10 +306,37 @@ func (a *App) newExportDirectoryDialog(defaultPath string) (*application.OpenFil
 		CanChooseFiles(false).
 		CanCreateDirectories(true).
 		ShowHiddenFiles(true)
-	if current := app.Window.Current(); current != nil {
-		dialog = dialog.AttachToWindow(current)
+	if parent := dialogParentWindow(app); parent != nil {
+		prepareDialogParentWindow(parent)
+		dialog = dialog.AttachToWindow(parent)
 	}
 	return dialog, nil
+}
+
+// dialogParentWindow 优先使用当前活动窗口；来自调试浏览器的 RPC 没有窗口上下文时回到主窗口。
+func dialogParentWindow(app *application.App) application.Window {
+	if app == nil || app.Window == nil {
+		return nil
+	}
+	if current := app.Window.Current(); current != nil {
+		return current
+	}
+	mainWindow, _ := app.Window.GetByName("main")
+	return mainWindow
+}
+
+// prepareDialogParentWindow 在展示原生选择器前恢复并聚焦父窗口，避免面板附着在后台不可见窗口。
+func prepareDialogParentWindow(window application.Window) {
+	if window == nil {
+		return
+	}
+	if window.IsMinimised() {
+		window.UnMinimise()
+	}
+	if !window.IsVisible() {
+		window.Show()
+	}
+	window.Focus()
 }
 
 // requireWailsApp 返回 Wails app，未绑定 runtime 时立即报错。

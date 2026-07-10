@@ -1,6 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import process from 'node:process';
+
+const WAILS_RUNTIME_PATHNAME = '/wails/runtime.js';
+const DEV_WAILS_RUNTIME_SHIM_PATH = join(process.cwd(), 'public', 'wails', 'runtime.js');
 
 function parseFrontendWatchBool(name, value) {
   if (value === undefined) {
@@ -78,6 +83,27 @@ function isProductionViteInvocation(env, viteEnv = {}) {
   return viteEnv.command === 'build' || viteEnv.mode === 'production' || env.NODE_ENV === 'production';
 }
 
+function serveDevelopmentWailsRuntimePlugin() {
+  return {
+    name: 'super-dolphin-dev-wails-runtime',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
+        if (pathname !== WAILS_RUNTIME_PATHNAME) {
+          next();
+          return;
+        }
+        const source = readFileSync(DEV_WAILS_RUNTIME_SHIM_PATH, 'utf8');
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(source);
+      });
+    },
+  };
+}
+
 function assertUITestMCPFlagAllowed(env, viteEnv = {}) {
   if (env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === undefined) {
     return;
@@ -94,7 +120,7 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
   const wailsWebSocketProxyHeaders = resolveWailsWebSocketProxyHeaders(env);
 
   return defineConfig({
-    plugins: [react()],
+    plugins: [serveDevelopmentWailsRuntimePlugin(), react()],
     build: {
       outDir: 'dist',
       emptyOutDir: true,

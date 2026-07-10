@@ -51,10 +51,22 @@ func TestPeerProcessEnvConsumesDevSidecarRuntimeContract(t *testing.T) {
 	}
 	requireEnvValue(t, env, "SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	requireEnvValue(t, env, "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR", "/work/repo")
+	requireEnvValue(t, env, "SUPER_DOLPHIN_DEPENDENCY_PROFILE", "production")
 	for _, key := range []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING"} {
 		requireEnvKeyAbsent(t, env, key)
 	}
 	requireEnvValue(t, env, "NON_DB_PARENT", "keep")
+}
+
+func TestPeerProcessEnvOverridesParentDependencyProfile(t *testing.T) {
+	env, err := peerProcessEnv("mcp-orch", append(testPeerParentEnv(),
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=desktop_host",
+	), nil)
+	if err != nil {
+		t.Fatalf("peerProcessEnv() error = %v", err)
+	}
+	requireEnvValue(t, env, "SUPER_DOLPHIN_DEPENDENCY_PROFILE", "production")
+	requireEnvItemAbsent(t, env, "SUPER_DOLPHIN_DEPENDENCY_PROFILE=desktop_host")
 }
 
 func TestPeerProcessEnvPreservesPackagedSidecarRuntimeContract(t *testing.T) {
