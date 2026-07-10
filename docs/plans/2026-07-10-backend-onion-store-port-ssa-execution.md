@@ -153,6 +153,7 @@ B4 dashboard
 | dashboard Reader adapter 的动态 Writer capability 可能丢失 | 接受 | B4 增加有/无 Upserter 与真实 `WriteWorkflowMaterial` 三条行为测试 |
 | A/C/D RED 只看非零可能把编译或 setup 错误当成功 | 接受 | 先 guarded `-list`，再要求 violation token 并拒绝 build/setup/load 错误；Lane C loader 先 GREEN |
 | `test_with_guard.sh` 会先执行未过滤的全量 archtest， intentional RED 无法到达精确 `-list/-run` | 接受 | A/C/D 的 guarded `-list` 与 RED 改用只预跑 CodeSizeGuard、随后透传精确参数的 `go_with_guard.sh test`；实现后的全量 GREEN 仍使用 `test_with_guard.sh` |
+| Thread 已占满 30 个被计数生产文件，新增专用 Port 文件触发 package-file guard | 接受 | 保留 `persistence_port.go` 的边界可读性；把同属构造职责且已在 Lane A owned 范围的 `service_constructor.go` 原样并入既有 `factory.go` 后删除前者。`factory.go` 沿用仓库现有不计包文件数规则，不新增豁免；禁止把 Handoff 拼入 Archive 扩大语义范围 |
 | 26/12、22/10 基线只打印未断言 | 接受 | shell 对行数、唯一文件数与 basename 做硬断言 |
 | `git status ??` 不能证明 unrelated 内容未变 | 接受 | 对四个精确文件记录并复核 type/mode/size/SHA256，且证明未 tracked/未与集成 diff 重叠 |
 | canonical RED wrapper 被复用于 GREEN 会必然失败 | 接受 | Step 5 仅收 RED，Step 6 使用普通零退出 GREEN 命令 |
@@ -504,7 +505,7 @@ done
 - Modify: `internal/module/thread/module.go`
 - Modify: `internal/module/thread/factory.go`
 - Modify: `internal/module/thread/service.go`
-- Modify: `internal/module/thread/service_constructor.go`
+- Delete after verbatim constructor move: `internal/module/thread/service_constructor.go`
 - Modify: `internal/module/thread/lifecycle_fork.go`
 - Modify: `internal/module/thread/lifecycle_helpers.go`
 - Modify: `internal/module/thread/router_resolve.go`
@@ -605,6 +606,8 @@ type BindingStore interface {
 - [ ] **Step 4: 将 Service 字段和构造函数改为新 Port**
 
 `service` 不再保存旧 `threadServiceStorePort`、`bindingServiceStorePort` 或 `promptServiceCatalogPort`。构造函数显式接收 `ThreadStore`、`BindingStore`、`PromptCatalog`；optional 依赖继续通过 Fx tag 表达，不得用 `any` 或 service locator 聚合。
+
+Thread 包在当前基线已占满 30 个被 CodeSizeGuard 计数的生产文件。为保留专用 `persistence_port.go`，把 `service_constructor.go` 的构造函数仅做 import 合并、`gofmt` 和原样移动后并入现有 `factory.go`，随后删除 `service_constructor.go`；两者本就同属 service factory/constructor 责任，且都在 Lane A owned 范围。必须用 LSP references、diagnostics 与 Thread 全包测试证明移动等价；不得改 guard、增加豁免，或把 Handoff/Archive 等无关生命周期文件拼接收口。
 
 ### A3. 将 Prompt Catalog 变成真实类型契约
 
