@@ -2,8 +2,8 @@ package notify
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
@@ -16,12 +16,12 @@ import (
 type DispatchRetryAlertNotifier struct {
 	logger   *slog.Logger
 	notifier contract.MessageNotifier
-	store    taskdag.Store
+	store    taskdag.DAGDetailStore
 }
 
 // NewDispatchRetryAlertNotifier 创建派发重试告警器；logger 为空时使用全局 logger。
 // notifier 或 store 可以为空，运行时会按 drop 语义跳过，不阻断 DAG 调度主路径。
-func NewDispatchRetryAlertNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store) *DispatchRetryAlertNotifier {
+func NewDispatchRetryAlertNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.DAGDetailStore) *DispatchRetryAlertNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -29,7 +29,7 @@ func NewDispatchRetryAlertNotifier(logger *slog.Logger, notifier contract.Messag
 }
 
 // provideDispatchRetryAlertSink 把通知器收窄为 orchestration.DispatchRetryAlertSink 端口。
-func provideDispatchRetryAlertSink(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store) orchestration.DispatchRetryAlertSink {
+func provideDispatchRetryAlertSink(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.DAGDetailStore) orchestration.DispatchRetryAlertSink {
 	return NewDispatchRetryAlertNotifier(logger, notifier, store)
 }
 
@@ -121,10 +121,10 @@ func buildDispatchRetryAlertBody(alert orchestration.DispatchRetryAlert, node *t
 		b.WriteString(")")
 	}
 	b.WriteString("\nRetry attempts: ")
-	b.WriteString(fmt.Sprintf("%d", alert.AttemptCount))
+	b.WriteString(strconv.Itoa(int(alert.AttemptCount)))
 	if alert.RetryCount > 0 {
 		b.WriteString("\nProcess retry count: ")
-		b.WriteString(fmt.Sprintf("%d", alert.RetryCount))
+		b.WriteString(strconv.Itoa(int(alert.RetryCount)))
 	}
 	if errText := strings.TrimSpace(alert.LastError); errText != "" {
 		b.WriteString("\nLast error: ")

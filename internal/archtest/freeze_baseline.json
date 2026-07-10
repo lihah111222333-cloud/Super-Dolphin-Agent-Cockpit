@@ -5,54 +5,6 @@
     "tests": {}
   },
   "priority_ssa": {
-    "cmd/mcp-orch/notify/dispatch_retry_alert.go:19:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
-      "line": 19,
-      "detail": "field store uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify/dispatch_retry_alert.go:24:priority_ssa_wide_port:parameter store in NewDispatchRetryAlertNotifier uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
-      "line": 24,
-      "detail": "parameter store in NewDispatchRetryAlertNotifier uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify/dispatch_retry_alert.go:28:priority_ssa_wide_port:storage propagation in NewDispatchRetryAlertNotifier uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
-      "line": 28,
-      "detail": "storage propagation in NewDispatchRetryAlertNotifier uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify/dispatch_retry_alert.go:32:priority_ssa_wide_port:parameter store in provideDispatchRetryAlertSink uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
-      "line": 32,
-      "detail": "parameter store in provideDispatchRetryAlertSink uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify/subscribers.go:57:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/subscribers.go",
-      "line": 57,
-      "detail": "field store uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify/subscribers.go:78:priority_ssa_wide_port:parameter store in NewDAGNotifier uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/subscribers.go",
-      "line": 78,
-      "detail": "parameter store in NewDAGNotifier uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify/subscribers.go:85:priority_ssa_wide_port:storage propagation in NewDAGNotifier uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify/subscribers.go",
-      "line": 85,
-      "detail": "storage propagation in NewDAGNotifier uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/notify:0:priority_ssa_wide_port:type conversion in init uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/notify",
-      "line": 0,
-      "detail": "type conversion in init uses broad port taskdag.Store"
-    },
     "cmd/mcp-orch/orchestration/nodeexec/ops.go:115:priority_ssa_error_string:error string match strings.Contains": {
       "rule": "priority_ssa_error_string",
       "file": "cmd/mcp-orch/orchestration/nodeexec/ops.go",
