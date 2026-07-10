@@ -1,0 +1,108 @@
+package archtest
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestBackendBoundaryGuardsCoverProductionTree(t *testing.T) {
+	t.Parallel()
+
+	registry := DefaultBackendBoundaryRegistry()
+	evaluation, err := EvaluateBackendBoundary(repoRootForGuardTests(t), registry)
+	if err != nil {
+		t.Fatalf("evaluate production backend boundaries: %v", err)
+	}
+	if evaluation.CandidateFiles == 0 {
+		t.Fatal("backend boundary registry matched zero production Go candidates")
+	}
+	for _, rule := range registry.Rules {
+		if evaluation.ByRule[rule.ID] == 0 {
+			t.Fatalf("backend boundary rule %q matched zero production files", rule.ID)
+		}
+	}
+	if len(evaluation.Violations) > 0 {
+		t.Fatalf("backend boundary production violations:\n%s", strings.Join(evaluation.Violations, "\n"))
+	}
+}
+
+func TestBackendBoundaryGuardsFailClosed(t *testing.T) {
+	t.Parallel()
+
+	registry := DefaultBackendBoundaryRegistry()
+	if _, err := EvaluateBackendBoundary(filepath.Join(t.TempDir(), "missing"), registry); err == nil {
+		t.Fatal("missing backend boundary root must return an error")
+	}
+	if _, err := EvaluateBackendBoundary(t.TempDir(), registry, registry.Rules[0].ID); err == nil {
+		t.Fatal("empty backend boundary candidate directory must return an error")
+	}
+
+	malformedRoot := t.TempDir()
+	malformedRel := "internal/contract/broken.go"
+	malformedPath := writeBackendBoundaryFixture(t, malformedRoot, malformedRel, "package contract\nfunc (\n")
+	if _, err := EvaluateBackendBoundaryFile(malformedPath, malformedRel, registry, "contract_reverse_pollution"); err == nil {
+		t.Fatal("malformed Go source must return an error")
+	}
+	if _, err := EvaluateBackendBoundary(t.TempDir(), registry, "unknown_backend_boundary_rule"); err == nil {
+		t.Fatal("unknown backend boundary rule must return an error")
+	}
+}
+
+func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
+	t.Parallel()
+
+	registry := DefaultBackendBoundaryRegistry()
+	cases := []struct {
+		name    string
+		ruleID  BoundaryRuleID
+		relPath string
+		source  string
+	}{
+		{
+			name:    "contract_to_module",
+			ruleID:  "contract_reverse_pollution",
+			relPath: "internal/contract/leak.go",
+			source:  "package contract\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n",
+		},
+		{
+			name:    "module_sibling_deep_import",
+			ruleID:  "module_horizontal_deep_import",
+			relPath: "internal/module/thread/service.go",
+			source:  "package thread\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent\"\n",
+		},
+		{
+			name:    "mcp_lsp_orchestration_only_import",
+			ruleID:  "mcp_sidecar_narrow_import_surface",
+			relPath: "cmd/mcp-lsp/main.go",
+			source:  "package main\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/notify\"\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := writeBackendBoundaryFixture(t, root, tc.relPath, tc.source)
+			violations, err := EvaluateBackendBoundaryFile(path, tc.relPath, registry, tc.ruleID)
+			if err != nil {
+				t.Fatalf("evaluate fixture: %v", err)
+			}
+			if !strings.Contains(strings.Join(violations, "\n"), "rule="+string(tc.ruleID)) {
+				t.Fatalf("fixture %q did not trigger rule %q: %v", tc.relPath, tc.ruleID, violations)
+			}
+		})
+	}
+}
+
+func writeBackendBoundaryFixture(t *testing.T, root, relPath, source string) string {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create backend boundary fixture directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("write backend boundary fixture: %v", err)
+	}
+	return path
+}
