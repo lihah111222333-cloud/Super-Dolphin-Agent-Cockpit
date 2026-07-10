@@ -13,6 +13,8 @@
     "ariaLabel": "燧元 工作台",
     "search": "搜索",
     "newChat": "新对话",
+    "notifications": "通知",
+    "history": "历史记录",
     "resize": "调整工作台侧栏宽度",
     "settings": "设置",
     "memoryBadgeTitle": "条待整合相似记忆",
@@ -75,6 +77,34 @@
   },
   "chat": {
     "introTitle": "我们应该在 燧元 中构建什么？",
+    "introSubtitle": "探索 AI 驱动界面的可能性。开启对话、分析文件或编排复杂任务。",
+    "introSuggestions": {
+      "summarizeDocument": {
+        "title": "总结文档",
+        "description": "上传 PDF 或文本文件，快速提炼关键要点。",
+        "prompt": "请帮我总结这份文档，提炼关键结论、风险和下一步行动。"
+      },
+      "codeReview": {
+        "title": "代码审查",
+        "description": "粘贴代码片段，检查性能、正确性与潜在缺陷。",
+        "prompt": "请审查这段代码，重点找出性能、正确性和可维护性问题。"
+      },
+      "creativeBrainstorm": {
+        "title": "创意头脑风暴",
+        "description": "生成营销文案、产品命名或结构化提纲。",
+        "prompt": "请和我头脑风暴一个创意方案，给出结构、备选方向和取舍建议。"
+      }
+    },
+    "sendFailedTitle": "发送失败",
+    "attachmentFailedTitle": "附件选择失败",
+    "actionFailedTitle": "操作失败",
+    "noticeTitle": "通知",
+    "approvalFailed": "审批操作失败",
+    "composerDisclaimer": "燧元 AI 可能出错，请核对重要信息。",
+    "processComplete": "执行过程",
+    "processRunning": "正在执行",
+    "processStepSingle": "条",
+    "processStepPlural": "条",
     "scrollBottom": "滚动到底部",
     "showOlder": "显示更早的消息",
     "loadingOlder": "正在加载更早的消息",
@@ -105,6 +135,7 @@
     "addProject": "添加项目",
     "removeProject": "移除此项目",
     "addFile": "添加文件",
+    "attachLabel": "附件",
     "customConfig": "自定义",
     "customConfigLabel": "自定义配置",
     "customConfigTitle": "自定义配置待后端接入",
@@ -497,7 +528,7 @@
   "skills": {
     "tabs": {
       "plugins": "MCP工具",
-      "library": "skills",
+      "library": "技能库",
       "datasource": "数据源"
     },
     "pluginsTitle": "MCP工具",

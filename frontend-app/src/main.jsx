@@ -28,6 +28,7 @@ import './shared/styles/ThemePolish.css';
 import './shared/styles/PagePrimitivesPolish.css';
 import './AppShellWorkbench.css';
 import './pages/chat/ChatPageWorkbench.css';
+import './pages/chat/components/ProjectSelector.css';
 import './pages/workflows/WorkflowEmptyState.css';
 import './pages/files/FilesPageWorkbench.css';
 import './features/prompts/PromptPagePolish.css';

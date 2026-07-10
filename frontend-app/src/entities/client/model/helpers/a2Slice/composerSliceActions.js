@@ -13,7 +13,7 @@ function createSelectFilesForComposerAction(runtime, deps) {
       return attachments;
     }
     catch (error) {
-      runtime.notifyAction(`选择附件失败：${error.message || String(error)}`, 'error');
+      runtime.notifyAction(error.message || String(error), 'error', { category: 'attachment' });
       runtime.addWarning('error', 'attachments.select.failed', { error: error.message || String(error) });
       return [];
     }

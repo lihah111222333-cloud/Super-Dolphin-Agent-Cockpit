@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, MemoryStick, Plus, Search } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
+import { AlertTriangle, ChevronDown, MemoryStick, Plus, Search } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { deleteMemoryEntry, fetchMemoryDashboard, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from './services/memoryPageService.js';
 import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentText, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx'; import './MemoryPage.css';
@@ -145,23 +145,66 @@ function MemoryPageView({ copy, model }) { return ( <section className="memory-p
 groups={model.derived.similarGroups} setExpanded={model.setSimilarExpanded} similarity={model.similarity} /> <MemoryStatusMessages copy={copy} dashboard={model.dashboard} notice={model.notice} />
 <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} copy={copy} setActiveCategory={model.setActiveCategory} /> <MemoryCardsSection copy={copy} dashboard={model.dashboard} deletion={model.deletion} editor={model.editor}
 searchText={model.searchText} visibleEntries={model.derived.visibleEntries} /> <MemoryModals deletion={model.deletion} editor={model.editor} similarity={model.similarity} /> </section> ); }
-function MemoryPageHeader({ copy, disabled, editor, searchText, setSearchText }) { return ( <PageHeader icon={MemoryStick} title={copy.title} actions={(
-<> <label> <Search size={17} /> <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={searchText} onChange={(event) => setSearchText(event.target.value)} /> </label> <div className="memory-create">
-<button type="button" className="light" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} disabled={disabled} onClick={() => editor.setCreateMenuOpen((open) => !open)}> <Plus size={15} /> {copy.new} ▾ </button>
-{editor.createMenuOpen ? <MemoryCreateMenu copy={copy} onCreate={editor.openCreate} /> : null} </div> </> )} /> ); }
+function MemoryPageHeader({ copy, disabled, editor, searchText, setSearchText }) {
+  return (
+    <PageHeader icon={MemoryStick} title={copy.title} actions={(
+      <>
+        <label>
+          <Search size={17} />
+          <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={searchText} onChange={(event) => setSearchText(event.target.value)} />
+        </label>
+        <div className="memory-create">
+          <button type="button" className="light memory-create-button" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} disabled={disabled} onClick={() => editor.setCreateMenuOpen((open) => !open)}>
+            <Plus size={15} aria-hidden="true" />
+            <span>{copy.new}</span>
+            <ChevronDown size={14} aria-hidden="true" className="memory-create-chevron" />
+          </button>
+          {editor.createMenuOpen ? <MemoryCreateMenu copy={copy} onCreate={editor.openCreate} /> : null}
+        </div>
+      </>
+    )} />
+  );
+}
 function MemoryCreateMenu({ copy, onCreate }) { return ( <div role="menu" aria-label="新建记忆" className="memory-create-menu memory-create-menu-list">
 <button type="button" role="menuitem" onClick={() => onCreate('feedback')}>{copy.newPreference}</button>
 <button type="button" role="menuitem" onClick={() => onCreate('project')}>{copy.newProject}</button> </div> ); }
-function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) { return (
-<div className="memory-stats"> <Panel title={copy.overview}> <strong className="big">{categoryCounts.all}</strong> <p><span className="orange-dot" />{categoryCounts.preference} {copy.preference} <span />{categoryCounts.project} {copy.project}</p> </Panel>
-{health ? <MemoryHealthPanel copy={copy} health={health} /> : null} <MemoryAutoDreamPanel autoDream={autoDream} copy={copy} disabled={disabled} /> </div> ); }
+function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) {
+  return (
+    <div className="memory-stats">
+      <Panel className="memory-overview-panel" title={copy.overview}>
+        <div className="memory-overview-content">
+          <strong className="big memory-overview-total">{categoryCounts.all}</strong>
+          <div className="memory-overview-breakdown" aria-label={copy.overview}>
+            <span><span className="orange-dot" />{categoryCounts.preference} {copy.preference}</span>
+            <span><span className="green-dot" />{categoryCounts.project} {copy.project}</span>
+          </div>
+        </div>
+      </Panel>
+      {health ? <MemoryHealthPanel copy={copy} health={health} /> : null}
+      <MemoryAutoDreamPanel autoDream={autoDream} copy={copy} disabled={disabled} />
+    </div>
+  );
+}
 function MemoryHealthPanel({ copy, health }) { const prefPercent = memoryHealthPercent(health.preferenceCount, health.maxPerCategory); const projPercent = memoryHealthPercent(health.projectCount, health.maxPerCategory); return (
-<Panel title={copy.health}> <p>{copy.preference} <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
+<Panel className="memory-health-panel" title={copy.health}> <p>{copy.preference} <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
 <div className={'memory-health-track ' + memoryHealthClass(prefPercent)}><span style={{ width: String(prefPercent) + '%' }} /></div> <p>{copy.project} <meter value={health.projectCount} max={health.maxPerCategory} /> {health.projectCount} / {health.maxPerCategory}</p>
 <div className={'memory-health-track ' + memoryHealthClass(projPercent)}><span style={{ width: String(projPercent) + '%' }} /></div> <p><span className="green-dot" /> {copy.healthy}</p> </Panel> ); }
-function MemoryAutoDreamPanel({ autoDream, copy, disabled }) { return ( <Panel title={copy.autoDream}> <p><span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}</p> <small>{copy.autoDreamDescription}</small>
-<button type="button" onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling || disabled}> {autoDream.enabled ? copy.disable : copy.enable} </button>
-{autoDream.pendingRestart ? <small className="memory-pending">{copy.pendingRestart}</small> : null} </Panel> ); }
+function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
+  return (
+    <Panel className="memory-auto-dream-panel" title={copy.autoDream}>
+      <div className="memory-auto-dream-content">
+        <p className="memory-auto-dream-status">
+          <span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}
+        </p>
+        <small className="memory-auto-dream-description">{copy.autoDreamDescription}</small>
+        <button type="button" className="memory-auto-dream-toggle" onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling || disabled}>
+          {autoDream.enabled ? copy.disable : copy.enable}
+        </button>
+        {autoDream.pendingRestart ? <small className="memory-pending">{copy.pendingRestart}</small> : null}
+      </div>
+    </Panel>
+  );
+}
 function MemorySimilaritySection({ copy, expanded, groups, setExpanded, similarity }) { if (!groups.length) return null; const busy = memorySimilarityBusy(similarity); return (
 <> <div className="similar-alert"> <AlertTriangle size={20} /> <span>{groups.length} {copy.similarGroupsSuffix}</span> <button type="button" onClick={() => { void similarity.mergeAllGroups(); }} disabled={busy}>{memoryMergeAllLabel(similarity, copy)}</button>
 <button type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? copy.collapse : copy.expand}</button> </div> {expanded ? <MemorySimilarityList busy={busy} copy={copy} groups={groups} similarity={similarity} /> : null} </> ); }

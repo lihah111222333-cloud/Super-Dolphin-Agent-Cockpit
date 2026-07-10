@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { TestChatPageWrapper, copyTextToClipboard, createActiveThreadStore, createFakeStore } from './__tests__/chatPageTestSupport.js';
@@ -25,6 +25,21 @@ const CLIPBOARD_IMAGE_ATTACHMENT = {
   path: '/var/folders/abc/T/clipboard-987654321.png',
   previewUrl: '/clipboard/clipboard-987654321.png',
 };
+
+it('collapses earlier assistant updates per turn while keeping the final reply visible', () => {
+  render(<ChatPage store={createActiveThreadStore([
+    { id: 'turn-user', role: 'user', text: '检查问题', time: '2026-06-02T08:00:00Z' },
+    { id: 'turn-progress', role: 'assistant', kind: 'assistant', text: '正在定位根因', time: '2026-06-02T08:00:10Z' },
+    { id: 'turn-tool', role: 'assistant', kind: 'tool', title: 'grep', text: '命中目标文件', time: '2026-06-02T08:00:20Z' },
+    { id: 'turn-final', role: 'assistant', kind: 'assistant', text: '已经完成修复', time: '2026-06-02T08:01:00Z' },
+  ])} projectPath="/repo/app" />);
+
+  const processGroup = screen.getByTestId('turn-process-group');
+  expect(processGroup).not.toHaveAttribute('open');
+  expect(within(processGroup).getByText('正在定位根因')).toBeInTheDocument();
+  expect(within(processGroup).getByText('命中目标文件')).toBeInTheDocument();
+  expect(screen.getByText('已经完成修复').closest('[data-testid="turn-process-group"]')).toBeNull();
+});
 
   it('reveals an active assistant reply incrementally when a batched update grows the text', async () => {
     const initialMessages = [

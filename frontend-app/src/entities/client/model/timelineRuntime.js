@@ -21,6 +21,7 @@ const TIMELINE_LIFECYCLE_KINDS = new Set(['tool', 'command', 'process']);
 const TIMELINE_TERMINAL_STATUSES = new Set([...RUNTIME_TOOL_TERMINAL_STATUSES, 'skipped', 'cancelled', 'canceled', 'aborted']);
 const MESSAGE_LIFECYCLE_ITEM_TYPES = new Set(['message', 'usermessage', 'user_message', 'assistantmessage', 'assistant_message']);
 const GENERIC_COMMAND_TITLES = new Set(['command', 'execute command', 'running command', '执行命令', '命令', '终端命令']);
+const USER_CONTROL_ENVELOPE_TAGS = Object.freeze(['turn_aborted', 'hook_prompt']);
 
 function normalizeString(value) {
   return normalizeOptionalTextField(value);
@@ -109,17 +110,20 @@ function normalizeUserTimelineText(text) {
   if (processed) {
     processed = processed.replace(IMAGE_PLACEHOLDER_RE, '').trim();
   }
-  const trimmed = normalizeString(processed).trim();
-  const closeTag = '</turn_aborted>';
-  const lower = trimmed.toLowerCase();
-  if (!lower.startsWith('<turn_aborted>')) {
-    return { text: processed, controlOnly: false };
+  let remaining = normalizeString(processed).trim();
+  let strippedControlEnvelope = false;
+  while (remaining) {
+    const lower = remaining.toLowerCase();
+    const tagName = USER_CONTROL_ENVELOPE_TAGS.find((tag) => lower.startsWith(`<${tag}`));
+    if (!tagName) break;
+    strippedControlEnvelope = true;
+    const closeTag = `</${tagName}>`;
+    const closeIndex = lower.indexOf(closeTag);
+    remaining = closeIndex >= 0 ? remaining.slice(closeIndex + closeTag.length).trimStart() : '';
   }
-  const closeIndex = lower.indexOf(closeTag);
-  const remaining = closeIndex >= 0 ? trimmed.slice(closeIndex + closeTag.length).trimStart() : '';
   return {
-    text: remaining,
-    controlOnly: !remaining,
+    text: strippedControlEnvelope ? remaining : processed,
+    controlOnly: strippedControlEnvelope && !remaining,
   };
 }
 
@@ -334,7 +338,8 @@ function isInjectedPromptTimelineItem(item) {
   if (item?.role !== 'user') return false;
   const text = normalizeString(item?.text).trim();
   if (!text) return false;
-  return /^#\s+AGENTS\.md instructions for .+\n/i.test(text) && /<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>/i.test(text);
+  if (/^<recommended_plugins(?:\s[^>]*)?>/i.test(text)) return true;
+  return /#\s+AGENTS\.md instructions for .+\n/i.test(text) && /<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>/i.test(text);
 }
 
 function isMessageLifecycleTimelineItem(item) {

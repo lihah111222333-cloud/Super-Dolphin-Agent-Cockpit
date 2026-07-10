@@ -6,8 +6,10 @@ import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { runUIAction } from '../model/chatUiActions.js';
 import { firstText, firstTrimmedText, textValue, timeLabelFromTimestamp, trimmedText } from '../markdown/markdownMessageModel.js';
 import { TimelineLoadingPlaceholder, TimelineMessage } from './TimelineMessage.jsx';
+import { TurnProcessGroup } from './TurnProcessGroup.jsx';
 import { isApprovalMessage } from './chatApprovalModel.js';
 import { isReasoningMessage, syntheticReasoningMessage } from './chatReasoningModel.js';
+import { materializeTurnTimelineEntries } from './chatTurnGroupingModel.js';
 import { CONVERSATION_DROP_TARGET_ID, useComposerInteractions } from '../hooks/useComposerInteractions.js';
 import { TIMELINE_SCROLL_LOAD_THRESHOLD, isTimelineNearBottom, requestTimelineBottomScroll, scrollTimelineElementToBottom } from '../hooks/timelineScroll.js';
 import { useTimelineMaterialization } from '../hooks/useTimelineMaterialization.js';
@@ -298,6 +300,7 @@ function Conversation(props) {
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline
         copy={copy}
+        activeCurrentTurn={isBusy || sending || justSent}
         composer={composer}
         smoothStreaming={store?.smoothStreaming ?? false}
         introMode={introMode}
@@ -367,14 +370,51 @@ function ConversationComposer({
       projectPath={projectPath}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
-      showProjectSelector={false}
+      showProjectSelector
       composer={composer}
       canUseProjectActions={canUseProjectActions}
     />
   );
 }
 
+function ConversationTimelineEntry({
+  activeThreadId,
+  copy,
+  entry,
+  formatTime: formatTimelineTime,
+  messageActions,
+  onScrollIfSticky,
+  smoothStreaming,
+}) {
+  if (entry.type === 'process') {
+    return (
+      <TurnProcessGroup
+        active={entry.active}
+        messages={entry.messages}
+        actions={messageActions}
+        activeThreadId={activeThreadId}
+        copy={copy}
+        smoothStreaming={smoothStreaming}
+        onScrollIfSticky={onScrollIfSticky}
+        formatTime={formatTimelineTime}
+      />
+    );
+  }
+  return (
+    <TimelineMessage
+      message={entry.message}
+      actions={messageActions}
+      activeThreadId={activeThreadId}
+      copy={copy}
+      smoothStreaming={smoothStreaming}
+      onScrollIfSticky={onScrollIfSticky}
+      formatTime={formatTimelineTime}
+    />
+  );
+}
+
 function ConversationTimeline({
+  activeCurrentTurn,
   copy = APP_COPY.zh.chat,
   composer,
   introMode,
@@ -462,6 +502,7 @@ function ConversationTimeline({
   if (pendingReasoning) {
     timelineMessages.push(pendingReasoning);
   }
+  const timelineEntries = materializeTurnTimelineEntries(timelineMessages, { activeCurrentTurn });
 
   return (
     <div className="timeline-shell">
@@ -470,12 +511,18 @@ function ConversationTimeline({
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker copy={copy} hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
-        {!introMode && !timelineContentBlocked ? timelineMessages.map((message) => {
-          const key = message.callId ? `tool-${message.callId}` : message.id;
-          return (
-            <TimelineMessage key={key} message={message} actions={messageActions} activeThreadId={activeThreadId} copy={copy} smoothStreaming={smoothStreaming} onScrollIfSticky={onScrollIfSticky} formatTime={formatTime} />
-          );
-        }) : null}
+        {!introMode && !timelineContentBlocked ? timelineEntries.map((entry) => (
+          <ConversationTimelineEntry
+            key={entry.key}
+            entry={entry}
+            activeThreadId={activeThreadId}
+            copy={copy}
+            messageActions={messageActions}
+            smoothStreaming={smoothStreaming}
+            onScrollIfSticky={onScrollIfSticky}
+            formatTime={formatTime}
+          />
+        )) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
         <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
       </div>

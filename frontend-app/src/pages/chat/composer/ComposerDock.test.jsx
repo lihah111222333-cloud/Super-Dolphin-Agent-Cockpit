@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ComposerDock } from './ComposerDock.jsx';
 
@@ -61,6 +61,10 @@ describe('ComposerDock', () => {
     const { container } = render(<ComposerDock {...props} />);
 
     const addFileButton = screen.getByRole('button', { name: '添加文件' });
+    expect(addFileButton).toHaveAccessibleName('添加文件');
+    expect(addFileButton.textContent).toBe('');
+    expect(addFileButton.querySelector('svg')).toBeInTheDocument();
+    expect(addFileButton.querySelector('.composer-attach-label')).toBeNull();
     fireEvent.click(addFileButton);
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
     fireEvent.paste(screen.getByRole('textbox', { name: '输入给 Agent 的内容' }));
@@ -79,6 +83,33 @@ describe('ComposerDock', () => {
     expect(store.openForkDraft).not.toHaveBeenCalled();
     expect(props.sendMessage).toHaveBeenCalledTimes(2);
     expect(composer.handlePaste).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches the active project from the composer project selector', async () => {
+    const store = createStore({
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/side-project'],
+      addProjectFromPicker: vi.fn(),
+      removeProjectPath: vi.fn(),
+      setActiveProjectPath: vi.fn(),
+    });
+
+    render(
+      <div className="sa-window" data-theme="light">
+        <ComposerDock
+          {...baseProps}
+          composer={createComposer()}
+          showProjectSelector
+          store={store}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
+    const menu = await screen.findByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'repo/side-project' }));
+
+    expect(store.setActiveProjectPath).toHaveBeenCalledWith('/repo/side-project');
   });
 
   it('exposes an accessible submit anchor only in send mode', () => {
@@ -118,6 +149,8 @@ describe('ComposerDock', () => {
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
     expect(screen.getByTestId('composer-dock').querySelector('.composer-card')).toBeInTheDocument();
+    expect(screen.getByText('燧元 AI 可能出错，请核对重要信息。')).toHaveClass('composer-disclaimer');
+    expect(screen.queryByText('Suiyuan AI can make mistakes. Consider verifying critical information.')).not.toBeInTheDocument();
   });
 
   it('switches the primary action to interrupt when the active thread is interruptible', () => {

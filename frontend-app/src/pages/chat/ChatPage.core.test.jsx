@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
   it('exports the chat page component', () => {
     expect(TestChatPageWrapper).toBeTypeOf('function');
   });
@@ -24,14 +25,50 @@ import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, getThrea
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' })).toBeInTheDocument();
+    const introHeading = screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' });
+    expect(introHeading).toBeInTheDocument();
+    expect(within(introHeading).getByText('燧元').tagName).toBe('EM');
+    expect(screen.getByText('探索 AI 驱动界面的可能性。开启对话、分析文件或编排复杂任务。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '总结文档 上传 PDF 或文本文件，快速提炼关键要点。' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '代码审查 粘贴代码片段，检查性能、正确性与潜在缺陷。' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创意头脑风暴 生成营销文案、产品命名或结构化提纲。' })).toBeInTheDocument();
+    expect(screen.queryByText('Explore the possibilities of AI-driven interfaces. Start a conversation, analyze files, or orchestrate complex tasks effortlessly.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Code Review')).not.toBeInTheDocument();
+    expect(screen.queryByText('Creative Brainstorm')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
+    expect(screen.getByTestId('chat-intro-light-logo')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-intro-dark-logo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '添加文件' }).querySelector('.lucide-paperclip')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '聊天操作' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
+  });
+
+  it('renders localized intro suggestions in English mode', () => {
+    const store = createFakeStore();
+
+    render(<TestChatPageWrapper copy={APP_COPY.en.chat} store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: 'What should we build in 燧元?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Summarize Document Upload a PDF or text file and get a concise overview of key points.',
+    }));
+    expect(screen.getByRole('button', {
+      name: 'Code Review Paste your snippet to check performance, correctness, and potential defects.',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Creative Brainstorm Generate marketing copy, product names, or structured outlines.',
+    })).toBeInTheDocument();
+    const addFileButton = screen.getByRole('button', { name: 'Add file' });
+    expect(addFileButton.textContent).toBe('');
+    expect(addFileButton.querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByText('Suiyuan AI can make mistakes. Consider verifying critical information.')).toBeInTheDocument();
+    expect(screen.queryByText('总结文档')).not.toBeInTheDocument();
+    expect(screen.queryByText('燧元 AI 可能出错，请核对重要信息。')).not.toBeInTheDocument();
+    expect(store.setDraft).toHaveBeenCalledWith('Please summarize this document, highlighting key conclusions, risks, and next steps.');
   });
 
   it('keeps successful new-chat notices out of the intro title bar', () => {
@@ -43,8 +80,22 @@ import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, getThrea
 
     expect(screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('chat-action-feedback')).toHaveClass('sr-only');
+    expect(screen.getByTestId('chat-action-feedback')).toHaveClass('chat-action-toast');
+    expect(screen.getByTestId('chat-action-feedback')).toHaveAttribute('role', 'alert');
     expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已创建新对话草稿');
+  });
+
+  it('labels attachment failures independently from send failures', () => {
+    const store = createFakeStore({
+      actionNotice: { category: 'attachment', message: 'runtime picker unavailable', tone: 'error' },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const alert = screen.getByTestId('chat-action-feedback');
+    expect(alert).toHaveTextContent('附件选择失败');
+    expect(alert).toHaveTextContent('runtime picker unavailable');
+    expect(alert).not.toHaveTextContent('发送失败');
   });
 
   it('shows approval action failures as a visible alert', async () => {

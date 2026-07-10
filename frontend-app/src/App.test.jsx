@@ -130,10 +130,6 @@ function getBackendThreadText() {
   return screen.getAllByText('后端线程')[0];
 }
 
-function queryBackendThreadText() {
-  return screen.queryAllByText('后端线程')[0] ?? null;
-}
-
 function getThreadCardByName(name) {
   const card = screen.getAllByText(name)
     .map((node) => node.closest('.thread-card'))
@@ -681,32 +677,32 @@ async function showAllTraceDashboardEvents() {
 
     const shell = await screen.findByTestId('frontend-app');
     const sidebar = screen.getByTestId('app-sidebar');
+    const appbar = document.querySelector('.suiyuan-top-appbar');
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
     expect(within(sidebar).getByText('燧元')).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '新对话' })).toHaveTextContent('新对话');
+    expect(within(sidebar).getByRole('button', { name: '设置' })).toHaveTextContent('设置');
+    expect(within(sidebar).getByRole('button', { name: '聊天页面' })).toHaveTextContent('聊天页面');
+    expect(within(sidebar).getByRole('button', { name: '插件与技能' })).toHaveTextContent('插件与技能');
+    expect(within(appbar).getByRole('button', { name: '通知' })).toBeInTheDocument();
+    expect(within(appbar).getByRole('button', { name: '历史记录' })).toBeInTheDocument();
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument();
+    expect(screen.queryByText('Usage')).not.toBeInTheDocument();
+    expect(screen.queryByText('Limits')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upgrade Plan' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '切换到 English' }));
+    expect(within(sidebar).getByRole('button', { name: 'New chat' })).toHaveTextContent('New chat');
+    expect(within(sidebar).getByRole('button', { name: 'Chat' })).toHaveTextContent('Chat');
+    expect(within(appbar).getByRole('button', { name: 'Notifications' })).toBeInTheDocument();
+    expect(within(appbar).getByRole('button', { name: 'History' })).toBeInTheDocument();
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('Chat');
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to 中文' }));
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
-    expect(within(sidebar).getByRole('button', { name: '设置' })).toBeInTheDocument();
-    fireEvent.click(within(sidebar).getByRole('button', { name: '切换到 English' }));
-    expect(within(sidebar).getByRole('button', { name: 'New chat' })).toBeInTheDocument();
-    expect(screen.getByText('Current page: Chat')).toBeInTheDocument();
-    fireEvent.click(within(sidebar).getByRole('button', { name: 'Switch to 中文' }));
-    expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
-    expect(screen.getByText('当前页面: 聊天页面')).toBeInTheDocument();
-    const sidebarResizer = within(sidebar).getByRole('separator', { name: '调整工作台侧栏宽度' });
-    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '340');
-
-    fireEvent.keyDown(sidebarResizer, { key: 'ArrowLeft' });
-
-    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '324');
-    expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '324px' });
-
-    dispatchPointer(sidebarResizer, 'pointerdown', 324);
-    dispatchPointer(window, 'pointermove', 374);
-    dispatchPointer(window, 'pointerup', 374);
-
-    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '374');
-    expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '374px' });
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('聊天页面');
+    expect(within(sidebar).queryByRole('separator', { name: '调整工作台侧栏宽度' })).not.toBeInTheDocument();
   });
 
   it('fails fast when required browser storage is unavailable', () => {
@@ -732,9 +728,8 @@ async function showAllTraceDashboardEvents() {
     expect(shell).toHaveClass('sidebar-open');
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
-    expect(screen.getByTestId('app-sidebar')).toHaveStyle({ marginLeft: '0px' });
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
     await screen.findByTestId('settings-page');
     expect(shell).not.toHaveClass('sidebar-open');
   }, 10_000);
@@ -743,9 +738,9 @@ async function showAllTraceDashboardEvents() {
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    expect(sidebar.querySelector('.sidebar-brand img')?.getAttribute('src')).toContain('suiyuan-brand-icon.png');
+    expect(sidebar.querySelector('.suiyuan-brand-block img')?.getAttribute('src')).toContain('suiyuan-brand-icon.png');
     expect(sidebar.querySelector('.sidebar-tree-folder img')).toBeNull();
-    expect(sidebar.querySelector('.sidebar-tree-folder svg')).toBeInTheDocument();
+    expect(sidebar.querySelector('.suiyuan-nav-item svg')).toBeInTheDocument();
   });
 
   it('keeps the workbench sidebar class stable while switching between chat and tools', async () => {
@@ -763,760 +758,55 @@ async function showAllTraceDashboardEvents() {
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
   });
 
-  it('keeps the sidebar project tree running indicator through stale sidebar refreshes', async () => {
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
-    backend.getSidebarState
-      .mockResolvedValueOnce({
-        activeThreadId: 'thread-1',
-        threads: [{ id: 'thread-1', name: 'Backend thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-      })
-      .mockResolvedValueOnce({
-        activeThreadId: 'thread-1',
-        threads: [{ id: 'thread-1', name: 'Backend thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-      });
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-1',
-      timelinesByThread: {
-        'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: 'backend message', ts: '2026-05-30T00:00:00Z' }],
-      },
-    });
-
+  it('shows the project tree only while the chat page is active', async () => {
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    await screen.findByRole('heading', { name: 'Backend thread' });
-    await waitFor(() => {
-      expect(within(sidebar).getByTitle('Backend thread')).toBeInTheDocument();
-    });
-    expect(sidebar.querySelector('.thread-inline-spinner')).toBeNull();
+    const nav = within(sidebar).getByRole('navigation', { name: 'Suiyuan navigation' });
 
-    act(() => {
-      bridgeCallback({
-        type: 'ui/thread/patch',
-        payload: {
-          threadId: 'thread-1',
-          sequence: '1',
-          status: 'running',
-          thread: { name: 'Backend thread' },
-        },
-      });
-    });
+    expect(within(sidebar).getByRole('region', { name: '项目' })).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(useClientStore.getState().threads.find((thread) => thread.id === 'thread-1')).toEqual(expect.objectContaining({
-        status: 'running',
-      }));
-    });
-    await waitFor(() => {
-      expect(sidebar.querySelector('.thread-inline-spinner')).toBeInTheDocument();
-    });
+    fireEvent.click(within(nav).getByRole('button', { name: '插件与技能' }));
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('skills'));
+    expect(within(sidebar).queryByRole('region', { name: '项目' })).not.toBeInTheDocument();
+    expect(within(sidebar).queryByRole('button', { name: '添加项目目录' })).not.toBeInTheDocument();
 
-    act(() => {
-      bridgeCallback({
-        type: 'ui/sidebar/changed',
-        payload: { projection: 'sidebar', revision: 2 },
-      });
-    });
-
-    await waitFor(() => {
-      expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
-    });
-    await waitFor(() => {
-      expect(sidebar.querySelector('.thread-inline-spinner')).toBeInTheDocument();
-    });
-  });
-
-  it('wires the sidebar project directory to project and thread actions', async () => {
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
-      activeThreadId: 'thread-other',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', projectPath: '/repo/other' }],
-    } : {
-      activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' }],
-    }));
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
-      activeThreadId: threadId,
-      threads: [
-        { id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' },
-        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', projectPath: '/repo/other' },
-      ],
-      timelinesByThread: {
-        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
-      },
-    }));
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
-      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
-      active: path,
-    }));
-    backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
-    backend.selectProjectDir.mockResolvedValue('/repo/new');
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
-    const otherChats = await within(sidebar).findByRole('list', { name: 'other 聊天记录' });
-    expect(within(appChats).getByTitle('后端线程')).toBeInTheDocument();
-    expect(within(appChats).queryByText('指定文件')).not.toBeInTheDocument();
-    expect(within(appChats).queryByText('共享文件')).not.toBeInTheDocument();
-    expect(within(otherChats).queryByTitle('Other project chat')).not.toBeInTheDocument();
-
-    fireEvent.click(await within(sidebar).findByRole('button', { name: '选择项目 other' }));
-    await waitFor(() => expect(within(otherChats).getByTitle('Other project chat')).toBeInTheDocument());
-    expect(backend.setActiveProject).not.toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' });
-
-    fireEvent.doubleClick(within(otherChats).getByTitle('Other project chat'));
-    fireEvent.change(within(otherChats).getByLabelText('会话名称'), { target: { value: 'Renamed sidebar chat' } });
-    fireEvent.click(within(otherChats).getByLabelText('保存会话名称'));
-    await waitFor(() => expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-other', name: 'Renamed sidebar chat' }));
-    await waitFor(() => expect(within(otherChats).getByTitle('Renamed sidebar chat')).toBeInTheDocument());
-
-    fireEvent.click(within(otherChats).getByTitle('Renamed sidebar chat'));
-    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-other'));
-
-    fireEvent.click(within(otherChats).getByTitle('删除'));
-    fireEvent.click(within(otherChats).getByRole('button', { name: '删除' }));
-    await waitFor(() => expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-other' }));
-
-    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe(''));
-
-    fireEvent.click(within(sidebar).getByRole('button', { name: '添加项目目录' }));
-    await waitFor(() => expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other'));
-    expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-    expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+    fireEvent.click(within(nav).getByRole('button', { name: '聊天页面' }));
     await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
-  }, 10_000);
+    expect(within(sidebar).getByRole('region', { name: '项目' })).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
+  });
 
-  it('keeps sidebar project order stable and toggles project chats from folder clicks without switching projects', async () => {
+  it('keeps project threads under their owning project node', async () => {
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
-      activeThreadId: '',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
-    } : {
-      activeThreadId: '',
-      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-    }));
+    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(
+      cwd === '/repo/other'
+        ? {
+          activeThreadId: 'thread-other',
+          threads: [{ id: 'thread-other', cwd: '/repo/other', name: 'Other project chat', provider: 'claude', status: 'idle' }],
+        }
+        : {
+          activeThreadId: 'thread-1',
+          threads: [{ id: 'thread-1', cwd: '/repo/app', name: '后端线程', provider: 'codex', status: '工作中' }],
+        },
+    ));
 
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    const projectNames = () => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder span'))
-      .map((node) => node.textContent);
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
+    const projects = await within(sidebar).findByRole('region', { name: '项目' });
+    const appThreads = within(projects).getByRole('list', { name: 'app 聊天记录' });
+    const otherThreads = within(projects).getByRole('list', { name: 'other 聊天记录' });
 
-    await waitFor(() => expect(projectNames()).toEqual(['app', 'other']));
-    expect(within(projectLists()[0]).getByTitle('App project chat')).toBeInTheDocument();
-    expect(within(projectLists()[1]).queryByTitle('Other project chat')).not.toBeInTheDocument();
+    expect(await within(appThreads).findByText('后端线程')).toBeInTheDocument();
+    expect(within(projects).queryByText('Other project chat')).not.toBeInTheDocument();
 
-    fireEvent.click(projectButton('other'));
+    fireEvent.click(within(projects).getByRole('button', { name: '选择项目 other' }));
 
-    await waitFor(() => {
-      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
-      expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument();
-    });
-    expect(projectNames()).toEqual(['app', 'other']);
-    expect(backend.setActiveProject).not.toHaveBeenCalled();
-
-    fireEvent.click(projectButton('other'));
-
-    await waitFor(() => expect(within(projectLists()[1]).queryByTitle('Other project chat')).not.toBeInTheDocument());
-    expect(projectNames()).toEqual(['app', 'other']);
-  });
-
-  it('keeps a sidebar project chat selected when the project switch sidebar refresh returns late', async () => {
-    const expandOtherSidebar = deferred();
-    const lateSwitchSidebar = deferred();
-    let otherSidebarCalls = 0;
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/other') {
-        otherSidebarCalls += 1;
-        return otherSidebarCalls === 1 ? expandOtherSidebar.promise : lateSwitchSidebar.promise;
-      }
-      return Promise.resolve({
-        activeThreadId: 'thread-app',
-        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-      });
-    });
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
-      activeThreadId: threadId,
-      threads: [
-        { id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' },
-        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' },
-      ],
-      timelinesByThread: {
-        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
-      },
-    }));
-    backend.getThreadMessages.mockResolvedValue({ messages: [] });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-    expandOtherSidebar.resolve({
-      activeThreadId: '',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
-    });
-    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument());
-
-    fireEvent.click(within(projectLists()[1]).getByTitle('Other project chat'));
-    await waitFor(() => expect(otherSidebarCalls).toBe(2));
-    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-other'));
-    expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('/repo/other');
-
-    lateSwitchSidebar.resolve({
-      activeThreadId: '',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
-    });
-    await waitFor(() => expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe(''));
-
-    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
-  });
-
-  it('does not show the new-chat intro while opening a project tree chat across projects', async () => {
-    const expandOtherSidebar = deferred();
-    const projectChange = deferred();
-    const lateSwitchSidebar = deferred();
-    let otherSidebarCalls = 0;
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockReturnValue(projectChange.promise);
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/other') {
-        otherSidebarCalls += 1;
-        return otherSidebarCalls === 1 ? expandOtherSidebar.promise : lateSwitchSidebar.promise;
-      }
-      return Promise.resolve({
-        activeThreadId: 'thread-app',
-        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-      });
-    });
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
-      activeThreadId: threadId,
-      threads: [
-        { id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' },
-        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' },
-      ],
-      timelinesByThread: {
-        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
-      },
-    }));
-    backend.getThreadMessages.mockResolvedValue({ messages: [] });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-    expandOtherSidebar.resolve({
-      activeThreadId: '',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
-    });
-    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument());
-
-    fireEvent.click(within(projectLists()[1]).getByTitle('Other project chat'));
-
-    await waitFor(() => expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('/repo/other'));
-    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
-    expect(useClientStore.getState().threadStateLoadingByThread['thread-other']).toBe(true);
-
-    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-    lateSwitchSidebar.resolve({
-      activeThreadId: '',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
-    });
-    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-other'));
-  });
-
-  it('starts a new chat for a sidebar project only from the project action button', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/empty'], active: '/repo/app' });
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/empty' ? {
-      activeThreadId: '',
-      threads: [],
-    } : {
-      activeThreadId: 'thread-app',
-      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-    }));
-    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
-      projects: ['/repo/app', '/repo/empty'],
-      active: path,
-    }));
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const emptyChats = await within(sidebar).findByRole('list', { name: /empty/ });
-    const emptyProjectButton = within(sidebar).getByRole('button', { name: '选择项目 empty' });
-
-    fireEvent.click(emptyProjectButton);
-
-    await waitFor(() => expect(within(emptyChats).getByText('暂无聊天记录')).toBeInTheDocument());
-    expect(backend.setActiveProject).not.toHaveBeenCalled();
-    expect(useClientStore.getState()).toEqual(expect.objectContaining({
-      activeProject: '/repo/app',
-      activeThreadId: 'thread-app',
-    }));
-
-    fireEvent.click(within(sidebar).getByTitle(/empty/));
-
-    await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/empty' }));
-    await waitFor(() => expect(useClientStore.getState()).toEqual(expect.objectContaining({
-      activeProject: '/repo/empty',
-      activeThreadId: '',
-    })));
-  });
-
-  it('cancels sidebar project thread rename when starting a new project chat', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-app',
-      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-    });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
-    const threadButton = await within(appChats).findByTitle('App project chat');
-    const newProjectThreadButton = within(sidebar).getByRole('button', { name: '新对话 app' });
-
-    fireEvent.doubleClick(threadButton);
-    const renameInput = within(appChats).getByLabelText('会话名称');
-    fireEvent.change(renameInput, {
-      target: { value: 'Unsaved sidebar rename' },
-    });
-    fireEvent.blur(renameInput, { relatedTarget: newProjectThreadButton });
-
-    expect(within(appChats).queryByLabelText('会话名称')).not.toBeInTheDocument();
-
-    fireEvent.click(newProjectThreadButton);
-
-    expect(backend.renameThread).not.toHaveBeenCalled();
-    await waitFor(() => expect(useClientStore.getState()).toEqual(expect.objectContaining({
-      activePage: 'chat',
-      activeThreadId: '',
-    })));
-  });
-
-  it('keeps sidebar project thread rename open when focus moves inside the rename form', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-app',
-      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-    });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
-    const threadButton = await within(appChats).findByTitle('App project chat');
-
-    fireEvent.doubleClick(threadButton);
-    const renameInput = within(appChats).getByLabelText('会话名称');
-    const saveButton = within(appChats).getByLabelText('保存会话名称');
-
-    fireEvent.blur(renameInput, { relatedTarget: saveButton });
-
-    expect(within(appChats).getByLabelText('会话名称')).toBeInTheDocument();
-    expect(backend.renameThread).not.toHaveBeenCalled();
-  });
-
-  it('keeps cached chats visible when multiple sidebar projects are expanded', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({ projects: ['/repo/app', '/repo/other'], active: path }));
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
-      activeThreadId: '',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle' }],
-      agentRuntimeById: { 'thread-other': { cwd: '/repo/other' } },
-    } : {
-      activeThreadId: '',
-      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
-      agentRuntimeById: { 'thread-app': { cwd: '/repo/app' } },
-    }));
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument());
-
-    await waitFor(() => {
-      expect(within(projectLists()[0]).getByTitle('App project chat')).toBeInTheDocument();
-      expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument();
-    });
-    expect(within(projectLists()[1]).queryByText('暂无聊天记录')).not.toBeInTheDocument();
-  });
-
-  it('keeps cached project chats available after expanding an empty project', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/empty'], active: '/repo/app' });
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/empty' ? {
-      activeThreadId: '',
-      threads: [],
-    } : {
-      activeThreadId: 'thread-app',
-      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
-    }));
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-app',
-      timelinesByThread: {
-        'thread-app': [{ id: 'message-thread-app', kind: 'assistant', text: 'app message', ts: '2026-05-30T00:00:00Z' }],
-      },
-    });
-    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
-      projects: ['/repo/app', '/repo/empty'],
-      active: path,
-    }));
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
-    const emptyChats = await within(sidebar).findByRole('list', { name: /empty/ });
-    expect(within(appChats).getByTitle('App project chat')).toBeInTheDocument();
-
-    fireEvent.click(within(sidebar).getByRole('button', { name: '选择项目 empty' }));
-
-    await waitFor(() => expect(within(emptyChats).getByText('暂无聊天记录')).toBeInTheDocument());
-    expect(backend.setActiveProject).not.toHaveBeenCalled();
-    expect(within(appChats).getByTitle('App project chat')).toBeInTheDocument();
-  });
-
-  it('refreshes a project instead of reusing the empty cache written during bootstrap', async () => {
-    const projects = deferred();
-    let superSidebarCalls = 0;
-    backend.readConfig.mockResolvedValue({ cwd: '/repo/super' });
-    backend.getProjects.mockReturnValue(projects.promise);
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/super') {
-        superSidebarCalls += 1;
-        return Promise.resolve(superSidebarCalls === 1 ? {
-          activeThreadId: 'thread-ai',
-          threads: [{ id: 'thread-ai', name: 'AI Chat', provider: 'codex', status: 'idle', cwd: '/repo/ai' }],
-        } : {
-          activeThreadId: '',
-          threads: [{ id: 'thread-super', name: 'Super Chat', provider: 'codex', status: 'idle', cwd: '/repo/super' }],
-        });
-      }
-      return Promise.resolve({ activeThreadId: '', threads: [] });
-    });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    await waitFor(() => expect(projectButton('super')).toBeTruthy());
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    projects.resolve({ projects: ['/repo/super', '/repo/ai'], active: '/repo/ai' });
-
-    await waitFor(() => expect(useClientStore.getState().bootstrapStatus).toBe('ready'));
-    expect(superSidebarCalls).toBe(1);
-
-    fireEvent.click(projectButton('super'));
-
-    await waitFor(() => expect(superSidebarCalls).toBe(2));
-    await waitFor(() => expect(within(projectLists()[0]).getByTitle('Super Chat')).toBeInTheDocument());
-  });
-
-  it('shows a new dot-project chat under the real current project immediately', async () => {
-    backend.readConfig.mockResolvedValue({ cwd: '/repo/sidebar-chat-consistency' });
-    backend.getProjects.mockResolvedValue({ projects: [], active: '.' });
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: '',
-      threads: [],
-    });
-    backend.startThread.mockResolvedValue({ threadId: 'thread-dot' });
-    backend.startTurn.mockResolvedValue({ ok: true });
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-dot',
-      threads: [{
-        id: 'thread-dot',
-        name: 'Dot project first chat',
-        provider: 'codex',
-        status: 'idle',
-        cwd: '/repo/sidebar-chat-consistency',
-      }],
-      timelinesByThread: {
-        'thread-dot': [{ id: 'message-thread-dot', kind: 'assistant', text: 'reply', ts: '2026-05-30T00:00:00Z' }],
-      },
-    });
-    backend.getThreadMessages.mockResolvedValue({ messages: [] });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    await within(sidebar).findByRole('list', { name: 'sidebar-chat-consistency 聊天记录' });
-    expect(within(sidebar).queryByRole('button', { name: '选择项目 .' })).not.toBeInTheDocument();
-
-    fireEvent.change(await screen.findByTestId('composer-input'), { target: { value: 'Dot project first chat' } });
-    fireEvent.click(screen.getByLabelText('发送消息'));
-
-    const projectChats = within(sidebar).getByRole('list', { name: 'sidebar-chat-consistency 聊天记录' });
-    await waitFor(() => expect(within(projectChats).getByTitle('Dot project first chat')).toBeInTheDocument());
-    expect(within(projectChats).queryByText('暂无聊天记录')).not.toBeInTheDocument();
-
-    fireEvent.click(within(projectChats).getByTitle('Dot project first chat'));
-
-    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
-      cwd: '/repo/sidebar-chat-consistency',
-      threadId: 'thread-dot',
-      includeDiff: false,
-    }));
-    expect(backend.setActiveProject).not.toHaveBeenCalledWith({
-      cwd: '/repo/sidebar-chat-consistency',
-      path: '/repo/sidebar-chat-consistency',
-    });
-    expect(within(projectChats).getByTitle('Dot project first chat')).toBeInTheDocument();
-  });
-
-  it('keeps the active project chat list when opening a thread returns a thread-scoped snapshot', async () => {
-    const threads = [
-      { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
-      { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
-    ];
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-a',
-      threads,
-    });
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-b',
-      threads: [threads[1]],
-      timelinesByThread: {
-        'thread-b': [{ id: 'message-thread-b', kind: 'assistant', text: 'thread b message', ts: '2026-05-30T00:00:00Z' }],
-      },
-    });
-    backend.getThreadMessages.mockResolvedValue({ messages: [] });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
-    expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
-    expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
-
-    fireEvent.click(within(appChats).getByTitle('Thread B'));
-
-    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-b',
-      includeDiff: false,
-    }));
-    expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
-    expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
-  });
-
-  it('hides raw archived threads when expanding a cached sidebar project', async () => {
-    let otherSidebarCalls = 0;
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/other') {
-        otherSidebarCalls += 1;
-        if (otherSidebarCalls > 1) return new Promise(() => {});
-        return Promise.resolve({
-          activeThreadId: '',
-          threads: [
-            { id: 'thread-other-live', name: 'Other live chat', provider: 'codex', status: 'idle' },
-            { id: 'thread-other-archived', name: 'Other archived chat', provider: 'codex', status: 'archived' },
-          ],
-          agentRuntimeById: {
-            'thread-other-live': { cwd: '/repo/other' },
-            'thread-other-archived': { cwd: '/repo/other' },
-          },
-        });
-      }
-      return Promise.resolve({
-        activeThreadId: '',
-        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
-      });
-    });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-
-    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Other live chat')).toBeInTheDocument());
-    expect(within(projectLists()[1]).queryByTitle('Other archived chat')).not.toBeInTheDocument();
-  });
-
-  it('uses runtime cwd for cached sidebar project threads before showing them', async () => {
-    let otherSidebarCalls = 0;
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/other') {
-        otherSidebarCalls += 1;
-        if (otherSidebarCalls > 1) return new Promise(() => {});
-        return Promise.resolve({
-          activeThreadId: '',
-          threads: [
-            { id: 'thread-other-runtime', name: 'Runtime other chat', provider: 'codex', status: 'idle' },
-            { id: 'thread-app-runtime', name: 'Runtime app chat', provider: 'codex', status: 'idle' },
-          ],
-          agentRuntimeById: {
-            'thread-other-runtime': { cwd: '/repo/other' },
-            'thread-app-runtime': { cwd: '/repo/app' },
-          },
-        });
-      }
-      return Promise.resolve({
-        activeThreadId: '',
-        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
-      });
-    });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-
-    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Runtime other chat')).toBeInTheDocument());
-    expect(within(projectLists()[1]).queryByTitle('Runtime app chat')).not.toBeInTheDocument();
-  });
-
-  it('keeps cached sidebar project threads that only have a recoverable session uuid', async () => {
-    let otherSidebarCalls = 0;
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/other') {
-        otherSidebarCalls += 1;
-        if (otherSidebarCalls > 1) return new Promise(() => {});
-        return Promise.resolve({
-          activeThreadId: '',
-          threads: [
-            {
-              id: 'agent-half-bound',
-              name: 'Recoverable half-bound chat',
-              provider: 'codex',
-              status: 'idle',
-              provider_thread_id: '',
-              rollout_path: '',
-              session_uuid: 'session-half-bound',
-            },
-          ],
-          agentRuntimeById: {
-            'session-half-bound': { cwd: '/repo/other' },
-          },
-        });
-      }
-      return Promise.resolve({
-        activeThreadId: '',
-        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
-      });
-    });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-
-    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Recoverable half-bound chat')).toBeInTheDocument());
-  });
-
-  it('does not show cached sidebar project threads when cwd is unknown', async () => {
-    let otherSidebarCalls = 0;
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
-    backend.getSidebarState.mockImplementation(({ cwd }) => {
-      if (cwd === '/repo/other') {
-        otherSidebarCalls += 1;
-        if (otherSidebarCalls > 1) return new Promise(() => {});
-        return Promise.resolve({
-          activeThreadId: '',
-          threads: [{ id: 'thread-unknown-cwd', name: 'Unknown cwd chat', provider: 'codex', status: 'idle' }],
-        });
-      }
-      return Promise.resolve({
-        activeThreadId: '',
-        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
-      });
-    });
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
-    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
-      .find((button) => button.textContent === name);
-
-    fireEvent.click(projectButton('other'));
-
-    await waitFor(() => expect(within(projectLists()[1]).getByText('暂无聊天记录')).toBeInTheDocument());
-    expect(within(projectLists()[1]).queryByTitle('Unknown cwd chat')).not.toBeInTheDocument();
-  });
-
-  it('moves automation threads from project chats into the sidebar task list', async () => {
-    const threads = [
-      { id: 'thread-project', name: '项目普通对话', provider: 'codex', status: 'idle', cwd: '/repo/app' },
-      { id: 'thread-design', name: '[AI 流程设计师] AI 设计流程', provider: 'codex', status: 'created', cwd: '/repo/app', agentKey: 'dag_designer' },
-      { id: 'thread-legacy-design', name: 'AI 设计流程', provider: 'codex', status: 'idle', cwd: '/repo/app' },
-    ];
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-project',
-      threads,
-    });
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
-      activeThreadId: threadId,
-      threads,
-      timelinesByThread: {
-        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
-      },
-    }));
-
-    render(<App />);
-
-    const sidebar = await screen.findByTestId('app-sidebar');
-    const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
-    expect(within(appChats).getByTitle('项目普通对话')).toBeInTheDocument();
-    expect(within(appChats).getByRole('button', { name: '打开项目聊天：项目普通对话' })).toBeInTheDocument();
-    expect(within(appChats).queryByTitle('[AI 流程设计师] AI 设计流程')).not.toBeInTheDocument();
-    expect(within(appChats).queryByTitle('AI 设计流程')).not.toBeInTheDocument();
-
-    const tasks = within(sidebar).getByRole('list', { name: '任务对话' });
-    const taskThread = within(tasks).getByTitle('[AI 流程设计师] AI 设计流程');
-    expect(taskThread).toBeInTheDocument();
-    expect(within(tasks).getByRole('button', { name: '打开任务对话：[AI 流程设计师] AI 设计流程' })).toBeInTheDocument();
-    expect(within(tasks).getByTitle('AI 设计流程')).toBeInTheDocument();
-
-    fireEvent.click(taskThread);
-    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-design'));
+    expect(await within(otherThreads).findByText('Other project chat')).toBeInTheDocument();
+    expect(within(appThreads).queryByText('Other project chat')).not.toBeInTheDocument();
+    expect(within(otherThreads).queryByText('后端线程')).not.toBeInTheDocument();
   });
 
   it('starts a new empty draft from the screenshot sidebar new chat button', async () => {
@@ -1528,7 +818,8 @@ async function showAllTraceDashboardEvents() {
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
     await screen.findByText('我们应该在 燧元 中构建什么？');
-    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '添加项目目录' })).toBeVisible();
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '聊天页面' })).toHaveClass('active');
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
 
@@ -1763,12 +1054,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const { container } = render(<App />);
 
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
-    const projectSelector = screen.getByRole('button', { name: '选择项目' });
-    expect(projectSelector).toHaveTextContent(/^app$/);
-    expect(projectSelector).toHaveClass('project-select');
+    expect(within(screen.getByLabelText('Suiyuan app bar')).queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
     expect(container.querySelector('.work-status')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: '折叠 file' })).toBeInTheDocument();
+    expect(await within(screen.getByTestId('runtime-panel')).findByRole('button', { name: '折叠 file' })).toBeInTheDocument();
     expect(screen.queryByText(/diff --git a\/file b\/file/)).not.toBeInTheDocument();
     expect(backend.getProjects).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(backend.getThreadState).toHaveBeenCalledWith({
@@ -1778,44 +1067,67 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
   });
 
-  it('shows the project selector only once in the shell toolbar', async () => {
+  it('keeps project selection out of the Suiyuan shell toolbar', async () => {
     render(<App />);
 
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: '选择项目' })).toHaveLength(1);
-    expect(screen.queryByLabelText('当前工作目录')).not.toBeInTheDocument();
+    const topAppBar = within(screen.getByLabelText('Suiyuan app bar'));
+    expect(topAppBar.queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
+    expect(topAppBar.queryByLabelText('当前工作目录')).not.toBeInTheDocument();
     const sidebarToggle = screen.getByRole('button', { name: '显示侧边栏' });
     expect(sidebarToggle).toHaveAttribute('title', '显示侧边栏');
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
-  it('renders the prototype sidebar primary navigation order', () => {
+  it('exposes an explicit collapse control inside the Suiyuan sidebar', () => {
     render(<App skipBootstrap />);
 
-    const navButtons = within(screen.getByTestId('sidebar-nav')).getAllByRole('button');
+    const shell = screen.getByTestId('frontend-app');
+    fireEvent.click(screen.getByRole('button', { name: '展开侧栏' }));
+    expect(shell).toHaveClass('sidebar-open');
 
-    expect(navButtons.map((button) => button.textContent)).toEqual([
-      '插件',
-      '自动化',
-      '定制角色',
-      '共享文件',
-    ]);
-    expect(navButtons.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
-      expect.stringContaining('lucide-puzzle'),
-      expect.stringContaining('lucide-refresh-cw'),
-      expect.stringContaining('lucide-circle-user-round'),
-      expect.stringContaining('lucide-folder-open'),
-    ]);
-    expect(screen.getByRole('button', { name: '新对话' }).querySelector('svg')).toHaveClass('lucide-square-plus');
+    const collapseButton = within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '折叠侧栏' });
+    expect(collapseButton).toHaveAttribute('title', '折叠侧栏');
+    expect(collapseButton.textContent).toBe('');
+    fireEvent.click(collapseButton);
+
+    expect(shell).toHaveClass('sidebar-collapsed');
+    expect(screen.getByRole('button', { name: '展开侧栏' })).toBeInTheDocument();
   });
 
-  it('keeps non-prototype utility navigation outside the primary rail', () => {
+  it('renders the Stitch Suiyuan sidebar primary navigation order', () => {
     render(<App skipBootstrap />);
 
-    expect(within(screen.getByTestId('sidebar-secondary-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+    const navButtons = Array.from(screen.getByTestId('sidebar-nav').querySelectorAll('.suiyuan-nav-item'));
+
+    expect(navButtons.map((button) => button.textContent)).toEqual([
+      '聊天页面',
+      '插件与技能',
+      '自动化',
+      '提示词',
+      '共享文件',
       '记忆中心',
       '链路追踪',
     ]);
+    expect(navButtons.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
+      expect.stringContaining('lucide-message-square-text'),
+      expect.stringContaining('lucide-puzzle'),
+      expect.stringContaining('lucide-sliders-horizontal'),
+      expect.stringContaining('lucide-circle-user-round'),
+      expect.stringContaining('lucide-folder-open'),
+      expect.stringContaining('lucide-brain'),
+      expect.stringContaining('lucide-database'),
+    ]);
+    expect(screen.getByRole('button', { name: '新对话' }).querySelector('svg')).toHaveClass('lucide-plus');
+  });
+
+  it('keeps only reachable Suiyuan footer actions outside the primary rail', () => {
+    render(<App skipBootstrap />);
+
+    expect(within(screen.getByTestId('app-sidebar')).getAllByRole('button').slice(-1).map((button) => button.getAttribute('aria-label'))).toEqual([
+      '设置',
+    ]);
+    expect(within(screen.getByTestId('app-sidebar')).queryByRole('button', { name: 'Support' })).not.toBeInTheDocument();
   });
 
   it('uses the current URL path as the active page on boot', async () => {
@@ -1826,7 +1138,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
-    expect(screen.getByText('当前页面: 自动化')).toBeInTheDocument();
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('自动化');
     expect(window.location.pathname).toBe('/dags');
   });
 
@@ -1835,11 +1147,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    const chatButton = await screen.findByRole('button', { name: '新对话' });
+    const chatButton = await screen.findByRole('button', { name: '聊天页面' });
     await waitFor(() => expect(chatButton).toHaveClass('active'));
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
-    expect(screen.getByText('当前页面: 聊天页面')).toBeInTheDocument();
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('聊天页面');
   });
 
   it('lets user navigation override the explicit boot URL after initial route sync', async () => {
@@ -1853,7 +1165,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(getSidebarNavButton('插件与技能'));
 
     await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
-    expect(screen.getByText('当前页面: 插件与技能')).toBeInTheDocument();
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('插件与技能');
     expect(window.location.pathname).toBe('/skills');
   });
 
@@ -1863,7 +1175,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(getSidebarNavButton('插件与技能'));
     await waitFor(() => expect(window.location.pathname).toBe('/skills'));
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
     await waitFor(() => expect(window.location.pathname).toBe('/settings'));
 
     await act(async () => {
@@ -1872,7 +1184,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
-    expect(screen.getByText('当前页面: 插件与技能')).toBeInTheDocument();
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('插件与技能');
   });
 
   it('hides idle status noise while keeping the provider badge in thread cards', async () => {
@@ -3068,10 +2380,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('新对话');
+    await screen.findByRole('button', { name: '新对话' });
     expect(container.querySelector('.work-status')).toBeNull();
     expect(container).not.toHaveTextContent(internalId);
-    expect(screen.getAllByText('新对话').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '新对话' }).length).toBeGreaterThan(0);
   });
 
   it('shows a lightweight history placeholder when the active thread has no trusted cache', async () => {
@@ -3626,6 +2938,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(container.querySelector('.traffic-lights')).toBeNull();
     expect(container.querySelectorAll('.titlebar')).toHaveLength(0);
     expect(within(screen.getByTestId('app-sidebar')).getByText('燧元')).toBeInTheDocument();
+    expect(screen.getByTestId('suiyuan-brand-light-logo')).toBeInTheDocument();
+    expect(screen.getByTestId('suiyuan-brand-dark-logo')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '新对话' }).querySelector('.lucide-plus')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '聊天页面' }).querySelector('.lucide-message-square-text')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '自动化' }).querySelector('.lucide-sliders-horizontal')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '链路追踪' }).querySelector('.lucide-database')).toBeInTheDocument();
   });
 
   it('keeps the user message visible and calls thread/start before turn/start for a new chat', async () => {
@@ -4888,227 +4206,22 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByText('unknown')).not.toBeInTheDocument();
   });
 
-  it('aligns the project selector dropdown with old project actions', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
-      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
-      active: path,
-    }));
-    backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
-    backend.removeProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-
+  it('keeps project switching controls out of the Suiyuan top app bar while loading the active thread', async () => {
     render(<App />);
-    await waitForBackendThreadHeading();
 
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('repo/app');
-    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('repo/other');
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
-    await waitFor(() => {
-      expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' });
-      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^other$/);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '添加项目' }));
-    await waitFor(() => {
-      expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other');
-      expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-      expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^new$/);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    fireEvent.click(screen.getByRole('button', { name: '移除此项目 repo/new' }));
-    await waitFor(() => {
-      expect(backend.removeProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已移除项目：repo/new');
-    });
-  });
-
-  it('keeps the independent new-window action in the top command bar', async () => {
-    backend.selectProjectDir.mockResolvedValue('/repo/window');
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    fireEvent.click(screen.getByRole('button', { name: '新窗口（独立进程）' }));
-
-    await waitFor(() => {
-      expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/app');
-      expect(backend.openNewWindow).toHaveBeenCalledWith({ cwd: '/repo/window' });
-      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已打开新窗口：repo/window');
-    });
-  });
-
-  it('switches from current directory to the visible absolute cwd project option', async () => {
-    backend.getProjects.mockResolvedValue({ projects: [], active: '.' });
-    backend.addProject.mockResolvedValue({ projects: ['/repo/app'], active: '.' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('当前目录 (.)');
-    expect(screen.getByRole('menu', { name: '选择项目' })).toHaveTextContent('repo/app');
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'repo/app' }));
-
-    await waitFor(() => {
-      expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/app' });
-      expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/app' });
-      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^app$/);
-    });
-  });
-
-  it('refreshes the chat list when switching to another project', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(
-      cwd === '/repo/other'
-        ? {
-          activeThreadId: 'thread-other',
-          threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'claude', status: 'idle' }],
-        }
-        : {
-          activeThreadId: 'thread-1',
-          threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
-        },
-    ));
-    backend.getThreadState.mockImplementation(({ threadId, includeDiff }) => Promise.resolve({
-      activeThreadId: threadId,
-      timelinesByThread: { [threadId]: [] },
-      ...(includeDiff ? { diffTextByThread: { [threadId]: '' } } : {}),
-    }));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
-
-    await waitFor(() => {
-      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
-      expect(getThreadCardByName('Other project chat')).toBeInTheDocument();
-      expect(queryBackendThreadText()).not.toBeInTheDocument();
-    });
-    expect(useClientStore.getState().activeThreadId).toBe('');
-    expect(getThreadCardByName('Other project chat')).not.toHaveClass('active');
-    expect(backend.getThreadState).not.toHaveBeenCalledWith({
-      cwd: '/repo/other',
-      threadId: 'thread-other',
+    expect(await waitForBackendThreadHeading()).toBeInTheDocument();
+    const topAppBar = within(screen.getByLabelText('Suiyuan app bar'));
+    expect(topAppBar.queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
+    expect(topAppBar.queryByText('Overview')).not.toBeInTheDocument();
+    expect(topAppBar.queryByText('Usage')).not.toBeInTheDocument();
+    expect(topAppBar.queryByText('Limits')).not.toBeInTheDocument();
+    expect(topAppBar.queryByRole('button', { name: 'Upgrade Plan' })).not.toBeInTheDocument();
+    expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
       includeDiff: true,
     });
-
-    clickThreadCardByName('Other project chat');
-
-    await waitFor(() => {
-      expect(backend.getThreadState).toHaveBeenCalledWith({
-        cwd: '/repo/other',
-        threadId: 'thread-other',
-        includeDiff: false,
-      });
-    });
-    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
-    expect(backend.getThreadState).not.toHaveBeenCalledWith({
-      cwd: '/repo/other',
-      threadId: 'thread-other',
-      includeDiff: true,
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-
-    await waitFor(() => {
-      expect(backend.getThreadState).toHaveBeenCalledWith({
-        cwd: '/repo/other',
-        threadId: 'thread-other',
-        includeDiff: true,
-      });
-    });
-  });
-
-  it('shows a loading chat list immediately while a project switch refreshes slowly', async () => {
-    const projectChange = deferred();
-    const sidebarRefresh = deferred();
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockReturnValue(projectChange.promise);
-    backend.getSidebarState.mockImplementation(({ cwd }) => (
-      cwd === '/repo/other'
-        ? sidebarRefresh.promise
-        : Promise.resolve({
-          activeThreadId: 'thread-1',
-          threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
-        })
-    ));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^other$/);
-      expect(screen.getByText('正在加载会话列表…')).toBeInTheDocument();
-      expect(queryBackendThreadText()).not.toBeInTheDocument();
-    });
-
-    await act(async () => {
-      sidebarRefresh.resolve({
-        activeThreadId: 'thread-other',
-        threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'claude', status: 'idle' }],
-      });
-      await Promise.resolve();
-    });
-
-    await waitFor(() => expect(getThreadCardByName('Other project chat')).toBeInTheDocument());
-    expect(useClientStore.getState().activeThreadId).toBe('');
-
-    await act(async () => {
-      projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-      await Promise.resolve();
-    });
-  });
-
-  it('refreshes the chat list when the new project has no active sidebar thread', async () => {
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(
-      cwd === '/repo/other'
-        ? {
-          activeThreadId: '',
-          threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'claude', status: 'idle' }],
-        }
-        : {
-          activeThreadId: 'thread-1',
-          threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
-        },
-    ));
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
-      activeThreadId: threadId,
-      timelinesByThread: { [threadId]: [] },
-      diffTextByThread: { [threadId]: '' },
-    }));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
-
-    await waitFor(() => {
-      expect(getThreadCardByName('Other project chat')).toBeInTheDocument();
-      expect(queryBackendThreadText()).not.toBeInTheDocument();
-    });
-    expect(useClientStore.getState().activeThreadId).toBe('');
-    expect(getThreadCardByName('Other project chat')).not.toHaveClass('active');
-    expect(backend.getThreadState).not.toHaveBeenCalledWith({
-      cwd: '/repo/other',
-      threadId: 'thread-other',
-      includeDiff: true,
-    });
+    expect(backend.setActiveProject).not.toHaveBeenCalled();
   });
 
   it('turns the composer model chip into a thread model selector', async () => {
@@ -5497,7 +4610,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await screen.findByLabelText('插件与技能');
 
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('任务')).toHaveTextContent('暂无任务');
+    expect(screen.queryByLabelText('任务')).not.toBeInTheDocument();
 
     openPluginsAndSkillsPage();
     expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
@@ -5528,8 +4641,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     fireEvent.click(screen.getByLabelText(navLabel));
 
-    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
-    expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent(heading));
     assertNoInvalidLoad();
 
     await act(async () => {
@@ -5539,7 +4651,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     expect(await screen.findByText(settledText)).toBeInTheDocument();
-    expect(screen.queryByText('正在连接本地项目...')).not.toBeInTheDocument();
   });
 
   it('loads global shared files while project context resolves', async () => {
@@ -5549,7 +4660,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     fireEvent.click(screen.getByLabelText('共享文件'));
 
-    expect(await screen.findByRole('heading', { name: '文件产物' })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('文件产物'));
     expect(screen.queryByText('正在连接本地项目...')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(backend.listSharedFiles).toHaveBeenCalledWith();

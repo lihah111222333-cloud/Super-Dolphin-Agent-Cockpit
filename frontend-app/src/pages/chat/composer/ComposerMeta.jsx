@@ -1,6 +1,7 @@
 import React from 'react';
-import { ArrowUp, CircleStop, Folder, Plus } from 'lucide-react';
+import { ArrowUp, CircleStop, Folder, Paperclip } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
+import { ProjectSelector } from '../components/ProjectSelector.jsx';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
 import { runUIAction } from '../model/chatUiActions.js';
 import { firstText, trimmedText } from '../markdown/markdownMessageModel.js';
@@ -24,7 +25,7 @@ function ComposerMeta({
   selectFiles,
   sendMessage,
   showProviderToggle: _,
-  showProjectSelector: _showProjectSelector = false,
+  showProjectSelector = false,
   store,
 }) {
   const primaryActionLabel = canInterrupt ? copy.interrupt : copy.sendMessage;
@@ -53,12 +54,16 @@ function ComposerMeta({
           if (!projectActionBlocked) runUIAction(() => selectFiles());
         }}
       >
-        <Plus size={20} />
+        <Paperclip size={18} aria-hidden="true" />
       </button>
-      <div className="composer-context" aria-label={copy.projects} title={projectTitle}>
-        <Folder size={15} aria-hidden="true" />
-        <span>{projectLabel}</span>
-      </div>
+      {showProjectSelector ? (
+        <ProjectSelector copy={copy} projectPath={projectPath} store={store} />
+      ) : (
+        <div className="composer-context" aria-label={copy.projects} title={projectTitle}>
+          <Folder size={15} aria-hidden="true" />
+          <span>{projectLabel}</span>
+        </div>
+      )}
       <div className="composer-actions">
         <ComposerModelSelector copy={copy} store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
         <button

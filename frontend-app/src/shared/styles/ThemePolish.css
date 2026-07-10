@@ -361,7 +361,7 @@ textarea:disabled {
 .message {
   width: var(--conversation-content-width);
   max-width: var(--conversation-content-width);
-  margin: 18px var(--conversation-content-right-gutter) 18px var(--conversation-content-left-gutter);
+  margin: 12px auto;
 }
 
 .message.user {
@@ -531,9 +531,9 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card {
-  border-color: var(--line);
+  border-color: var(--suiyuan-surface-variant);
   background: var(--surface);
-  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
+  box-shadow: var(--suiyuan-input-shadow);
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating textarea {
@@ -544,21 +544,40 @@ textarea:disabled {
   color: var(--text-muted);
 }
 
-.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-custom,
-.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice,
-.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-model {
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--surface-2) 86%, var(--surface));
   color: var(--text-sec);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent) inset;
 }
 
-.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach {
+  border-color: var(--suiyuan-surface-variant);
+  background: var(--suiyuan-surface-low);
+  color: var(--suiyuan-secondary);
+  box-shadow: none;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-model {
+  border-color: color-mix(in srgb, var(--suiyuan-primary-fixed) 30%, transparent);
+  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent);
+  color: var(--suiyuan-on-surface);
+  box-shadow: none;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .send:disabled {
+  border: 0;
+  background: var(--suiyuan-primary) !important;
+  color: var(--on-accent) !important;
+  box-shadow: var(--suiyuan-send-shadow);
+  opacity: 1;
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .provider {

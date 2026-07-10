@@ -13,6 +13,155 @@
   font-size: 40px;
 }
 
+.memory-page .page-actions {
+  align-items: center;
+}
+
+.memory-page .page-actions label {
+  flex: 1 1 420px;
+  min-width: 220px;
+}
+
+.memory-page .memory-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 16px 24px 22px;
+}
+
+.memory-page .memory-stats .panel {
+  min-height: 98px;
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
+  background: color-mix(in srgb, var(--surface) 92%, var(--primary-soft));
+  box-shadow: var(--suiyuan-input-shadow);
+}
+
+.memory-page .memory-overview-panel,
+.memory-page .memory-auto-dream-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.memory-page .memory-overview-panel::before,
+.memory-page .memory-auto-dream-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--primary);
+}
+
+.memory-page .memory-auto-dream-panel::before {
+  background: var(--orange);
+}
+
+.memory-page .memory-overview-content,
+.memory-page .memory-auto-dream-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.memory-page .memory-overview-total {
+  color: var(--text-pri);
+  font-size: 34px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 0.95;
+}
+
+.memory-page .memory-overview-breakdown {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-page .memory-overview-breakdown > span,
+.memory-page .memory-auto-dream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.memory-page .memory-auto-dream-content {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.memory-page .memory-auto-dream-description {
+  min-width: 0;
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.memory-page .memory-auto-dream-toggle {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  min-width: 56px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-weight: 700;
+}
+
+.memory-page .memory-create {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: max-content;
+}
+
+.memory-page .memory-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border-radius: 8px;
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
+  font-weight: 760;
+  letter-spacing: 0;
+  padding: 0 12px;
+}
+
+.memory-page .memory-create-button:hover {
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg-hover);
+  color: var(--primary-action-text);
+}
+
+.memory-page .memory-create-button:disabled {
+  opacity: 0.58;
+  box-shadow: none;
+}
+
+.memory-page .memory-create-chevron {
+  transition: transform 160ms ease;
+}
+
+.memory-page .memory-create-button[aria-expanded="true"] .memory-create-chevron {
+  transform: rotate(180deg);
+}
+
 .orange-dot,
 .green-dot {
   display: inline-block;
@@ -84,6 +233,15 @@ meter {
   position: relative;
 }
 
+.memory-page .memory-create-menu {
+  left: 0;
+  right: auto;
+  width: max-content;
+  min-width: 148px;
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
 .memory-create-menu {
   position: absolute;
   top: calc(100% + 8px);
@@ -103,6 +261,19 @@ meter {
   justify-content: flex-start;
   border: 0;
   background: transparent;
+}
+
+.memory-page .memory-create-menu button,
+.memory-page .memory-create-menu [role="menuitem"] {
+  min-height: 32px;
+  border-radius: 7px;
+  color: var(--text-pri);
+  font-weight: 700;
+}
+
+.memory-page .memory-create-menu button:hover,
+.memory-page .memory-create-menu [role="menuitem"]:hover {
+  background: var(--primary-soft);
 }
 
 .memory-create-menu-list {
@@ -261,8 +432,25 @@ meter {
 }
 
 @media (max-width: 860px) {
+  .memory-page .memory-stats,
   .memory-similar-item,
   .memory-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .memory-page .memory-overview-content,
+  .memory-page .memory-auto-dream-content {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .memory-page .memory-overview-breakdown {
+    justify-content: flex-start;
+  }
+
+  .memory-page .memory-auto-dream-toggle {
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: start;
   }
 }

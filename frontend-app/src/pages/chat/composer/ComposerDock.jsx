@@ -118,6 +118,7 @@ function ComposerDock({
           store={store}
         />
       </div>
+      {floating ? <p className="composer-disclaimer">{copy.composerDisclaimer}</p> : null}
       <ComposerPreviewModal composer={composer} />
     </footer>
   );

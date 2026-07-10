@@ -22,11 +22,61 @@
 }
 
 .composer--floating {
+  --composer-fixed-left: 0px;
+  --composer-floating-max-width: 800px;
+  --composer-floating-side-gutter: clamp(16px, 4vw, 32px);
+  --composer-floating-bottom-gap: 22px;
   z-index: 6;
   width: min(920px, calc(100% - 48px));
   padding: 0;
   border-top: 0;
   background: transparent;
+}
+
+.composer.composer--floating[data-file-drop-target] {
+  position: fixed;
+  inset: auto 0 0 var(--composer-fixed-left);
+  z-index: 18;
+  width: auto;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(58px, 12vh, 96px) var(--composer-floating-side-gutter) var(--composer-floating-bottom-gap);
+  border-top: 0;
+  background: linear-gradient(
+    to top,
+    var(--bg) 0%,
+    color-mix(in srgb, var(--bg) 92%, transparent) 58%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] {
+  --primary: var(--suiyuan-primary);
+  --primary-soft: var(--suiyuan-primary-fixed);
+  --info: var(--suiyuan-primary);
+  --blue: var(--suiyuan-primary);
+  --primary-action-bg: var(--suiyuan-primary);
+  --primary-action-bg-hover: var(--suiyuan-primary-deep);
+  --primary-action-border: var(--suiyuan-primary);
+  --primary-action-text: var(--suiyuan-background);
+  --primary-action-shadow: var(--suiyuan-input-shadow);
+  background: linear-gradient(
+    to top,
+    var(--bg) 0%,
+    color-mix(in srgb, var(--bg) 96%, transparent) 64%,
+    transparent 100%
+  );
+}
+
+.sa-window .composer.composer--floating[data-file-drop-target] {
+  --composer-fixed-left: var(--suiyuan-sidebar-width, 280px);
+}
+
+.sa-window.sidebar-collapsed .composer.composer--floating[data-file-drop-target] {
+  --composer-fixed-left: 0px;
 }
 
 .composer-card {
@@ -54,15 +104,68 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   border-color: var(--line);
-  border-radius: 28px;
+  border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
+}
+
+.composer.composer--floating[data-file-drop-target] .composer-card {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  width: min(100%, var(--composer-floating-max-width));
+  max-width: var(--composer-floating-max-width);
+  margin: 0 auto;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface));
+  border-radius: 20px;
+  background: var(--suiyuan-surface-lowest, var(--surface));
+  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card {
+  border-color: var(--suiyuan-surface-variant);
+  background: var(--surface);
+  box-shadow: var(--suiyuan-input-shadow);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-attach {
+  border-color: var(--suiyuan-surface-variant);
+  background: var(--suiyuan-surface-low);
+  color: var(--suiyuan-secondary);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-model {
+  border-color: color-mix(in srgb, var(--suiyuan-primary-fixed) 30%, transparent);
+  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent);
+  color: var(--suiyuan-on-surface);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .send:disabled {
+  border: 0;
+  background: var(--suiyuan-primary);
+  color: var(--on-accent);
+  box-shadow: var(--suiyuan-send-shadow);
+  opacity: 1;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer-disclaimer {
+  color: var(--suiyuan-secondary-fixed-dim);
+}
+
+.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card {
+  border-color: var(--suiyuan-outline-variant);
+  background: var(--suiyuan-surface-low);
+  box-shadow: var(--suiyuan-input-shadow);
 }
 
 .composer textarea {
   display: block;
   width: 100%;
-  min-height: calc(1.5em * 3 + 34px);
+  height: 76px;
+  min-height: 76px;
   max-height: calc(1.5em * 8 + 34px);
   resize: none;
   border: 0;
@@ -70,7 +173,7 @@
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  padding: 14px 16px 8px;
+  padding: 18px 20px 12px;
   outline: none;
   font-size: 16px;
   line-height: 1.5;
@@ -78,8 +181,28 @@
 }
 
 .composer--floating textarea {
-  padding: 22px 26px 12px;
-  font-size: 17px;
+  padding: 18px 20px 12px;
+  font-size: 16px;
+}
+
+.composer.composer--floating[data-file-drop-target] textarea {
+  height: 76px;
+  min-height: 76px;
+  max-height: 180px;
+  padding: 18px 20px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 20px 20px 0 0;
+  background: transparent;
+  color: var(--text-pri);
+  font-size: 15px;
+  line-height: 1.45;
+  overflow-y: auto;
+}
+
+.composer.composer--floating[data-file-drop-target] textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.72;
 }
 
 .composer textarea:focus {
@@ -112,16 +235,26 @@
 
 .composer-meta {
   min-width: 0;
-  min-height: 46px;
+  min-height: 48px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 14px 12px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px 10px;
 }
 
 .composer--floating .composer-meta {
-  min-height: 58px;
-  padding: 0 22px 16px;
+  min-height: 48px;
+  padding: 6px 10px;
+}
+
+.composer.composer--floating[data-file-drop-target] .composer-meta {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px 10px;
 }
 
 .composer button {
@@ -133,11 +266,30 @@
 }
 
 .composer-attach {
-  flex: 0 0 34px;
-  width: 34px;
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
   padding: 0;
   display: inline-grid;
   place-items: center;
+}
+
+.composer.composer--floating[data-file-drop-target] .composer-attach {
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-color: color-mix(in srgb, var(--line) 78%, var(--surface));
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--surface));
+  color: var(--text-sec);
 }
 
 .composer-context {
@@ -155,6 +307,18 @@
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
+}
+
+.composer.composer--floating[data-file-drop-target] .composer-context {
+  flex: 0 1 auto;
+  max-width: min(178px, 24vw);
+  min-height: 32px;
+  padding: 0 11px;
+  border-color: color-mix(in srgb, var(--line) 70%, var(--surface));
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .composer-context svg {
@@ -220,6 +384,13 @@
   padding-left: 18px;
 }
 
+.composer.composer--floating[data-file-drop-target] .composer-actions {
+  flex: 1 1 auto;
+  margin-left: 0;
+  gap: 10px;
+  padding-left: 0;
+}
+
 .composer-model-wrap {
   position: relative;
   margin-left: 0;
@@ -227,6 +398,11 @@
   width: fit-content;
   min-width: 0;
   max-width: min(150px, 42vw);
+}
+
+.composer.composer--floating[data-file-drop-target] .composer-model-wrap {
+  flex: 0 1 auto;
+  max-width: min(164px, 34vw);
 }
 
 .composer .provider {
@@ -249,6 +425,19 @@
   border: 1px solid var(--line);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.composer.composer--floating[data-file-drop-target] .composer-model {
+  height: 34px;
+  min-height: 34px;
+  max-width: 100%;
+  gap: 6px;
+  padding: 0 10px 0 11px;
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+  background: color-mix(in srgb, var(--primary-soft) 46%, var(--surface));
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .composer-model svg {
@@ -313,10 +502,11 @@
 }
 
 .composer .send {
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  min-height: 38px;
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
   display: grid;
   place-items: center;
   border-color: var(--primary-action-border);
@@ -325,6 +515,19 @@
   color: var(--primary-action-text);
   box-shadow: var(--primary-action-shadow);
   padding: 0;
+}
+
+.composer.composer--floating[data-file-drop-target] .send {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  margin-left: auto;
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
 }
 
 .composer .send:hover,
@@ -339,10 +542,34 @@
   box-shadow: none;
 }
 
+.composer.composer--floating[data-file-drop-target] .send:disabled {
+  border-color: color-mix(in srgb, var(--line) 86%, var(--surface));
+  background: color-mix(in srgb, var(--surface-2) 90%, var(--surface));
+  color: var(--text-subtle);
+  box-shadow: none;
+}
+
 .composer .send--interrupt {
   border-color: color-mix(in srgb, var(--error) 48%, var(--line));
   background: color-mix(in srgb, var(--error) 14%, var(--surface));
   color: var(--error);
+}
+
+.composer.composer--floating[data-file-drop-target] .send--interrupt {
+  border-color: color-mix(in srgb, var(--error) 48%, var(--line));
+  background: color-mix(in srgb, var(--error) 14%, var(--surface));
+  color: var(--error);
+}
+
+.composer-disclaimer {
+  width: min(100%, var(--composer-floating-max-width));
+  margin: 10px auto 0;
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
 }
 
 .attachments {
@@ -507,14 +734,59 @@
     width: calc(100% - 24px);
   }
 
+  .sa-window .composer.composer--floating[data-file-drop-target] {
+    --composer-fixed-left: 0px;
+  }
+
+  .composer.composer--floating[data-file-drop-target] {
+    padding: clamp(46px, 10vh, 74px) 12px 14px;
+  }
+
   .composer--floating textarea {
     padding: 18px 18px 10px;
     font-size: 16px;
   }
 
+  .composer.composer--floating[data-file-drop-target] textarea {
+    height: 76px;
+    min-height: 76px;
+    padding: 16px 16px 10px;
+    font-size: 15px;
+  }
+
   .composer--floating .composer-meta {
     gap: 8px;
-    padding: 0 16px 14px;
+    padding: 6px 8px;
+  }
+
+  .composer.composer--floating[data-file-drop-target] .composer-meta {
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  .composer.composer--floating[data-file-drop-target] .composer-attach {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+  }
+
+  .composer.composer--floating[data-file-drop-target] .composer-context {
+    max-width: min(128px, 27vw);
+    padding: 0 9px;
+  }
+
+  .composer.composer--floating[data-file-drop-target] .composer-model-wrap {
+    max-width: min(132px, 34vw);
+  }
+}
+
+@media (max-width: 420px) {
+  .composer.composer--floating[data-file-drop-target] .composer-context {
+    max-width: 92px;
+  }
+
+  .composer.composer--floating[data-file-drop-target] .composer-model-wrap {
+    max-width: 112px;
   }
 }
 

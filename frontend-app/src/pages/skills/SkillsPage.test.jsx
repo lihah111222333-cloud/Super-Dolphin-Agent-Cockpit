@@ -61,7 +61,7 @@ function deferred() {
 }
 
 function openSkillTools() {
-  fireEvent.click(screen.getByRole('button', { name: 'skills' }));
+  fireEvent.click(screen.getByRole('button', { name: '技能库' }));
 }
 
 function getOverviewMetric(overview, label) {
@@ -201,7 +201,7 @@ describe('SkillsPage backend migration', () => {
 
     expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'skills' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '技能库' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '本地技能库' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'SQLite MCP' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Playwright MCP' })).toBeInTheDocument();
@@ -409,7 +409,7 @@ describe('SkillsPage backend migration', () => {
   it('frames the plugin entry around the current local skills surface', async () => {
     renderSkillsPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'skills' }));
+    fireEvent.click(screen.getByRole('button', { name: '技能库' }));
 
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(screen.getByText('本地运行时')).toBeInTheDocument();

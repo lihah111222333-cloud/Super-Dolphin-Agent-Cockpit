@@ -27,6 +27,7 @@ const cssFiles = [
   'src/shared/styles/PagePrimitivesPolish.css',
   'src/AppShellWorkbench.css',
   'src/pages/chat/ChatPageWorkbench.css',
+  'src/pages/chat/components/ProjectSelector.css',
   'src/pages/workflows/WorkflowEmptyState.css',
   'src/pages/files/FilesPageWorkbench.css',
   'src/features/prompts/PromptPagePolish.css',
@@ -41,6 +42,7 @@ const cssFiles = [
 ];
 
 const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
+const appSource = readFileSync(path.join(cwd(), 'src/App.jsx'), 'utf8');
 const mainCssImports = [...mainSource.matchAll(/^import '\.\/([^']+\.css)';$/gm)].map((match) => `src/${match[1]}`);
 const css = cssFiles.map((file) => readFileSync(path.join(cwd(), file), 'utf8')).join('\n');
 const root = postcss.parse(css);
@@ -291,10 +293,10 @@ describe('composer layout styles', () => {
     const activeComposer = declarationsFor('.conversation:not(.conversation--intro) .composer--docked');
 
     expect(textarea['line-height']).toBe('1.5');
-    expect(textarea.height).toBe('104px');
-    expect(textarea['min-height']).toBe('104px');
-    expect(floatingTextarea.height).toBe('136px');
-    expect(floatingTextarea['min-height']).toBe('136px');
+    expect(textarea.height).toBe('76px');
+    expect(textarea['min-height']).toBe('76px');
+    expect(floatingTextarea.height).toBe('76px');
+    expect(floatingTextarea['min-height']).toBe('76px');
     expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
     expect(textarea['overflow-y']).toBe('auto');
     expect(activeTimelineShell['grid-row']).toBe('2');
@@ -310,12 +312,20 @@ describe('composer layout styles', () => {
     const disabledSend = declarationsFor('.composer .send:disabled');
 
     expect(floatingCard.background).toBe('var(--surface)');
-    expect(floatingCard['border-radius']).toBe('28px');
+    expect(floatingCard['border-radius']).toBe('20px');
     expect(floatingCard['box-shadow']).toContain('var(--suiyuan-input-shadow)');
-    expect(textarea.padding).toBe('22px 26px 12px');
-    expect(meta['min-height']).toBe('58px');
+    expect(textarea.padding).toBe('18px 20px 12px');
+    expect(meta['min-height']).toBe('48px');
     expect(send.background).toBe('var(--primary-action-bg)');
     expect(disabledSend.background).toBe('var(--surface-2)');
+  });
+
+  it('keeps the fixed floating composer aligned when the product nav collapses', () => {
+    const expandedFloatingComposer = topLevelDeclarationsFor('.sa-window .composer.composer--floating[data-file-drop-target]');
+    const collapsedFloatingComposer = topLevelDeclarationsFor('.sa-window.sidebar-collapsed .composer.composer--floating[data-file-drop-target]');
+
+    expect(expandedFloatingComposer['--composer-fixed-left']).toBe('var(--suiyuan-sidebar-width, 280px)');
+    expect(collapsedFloatingComposer['--composer-fixed-left']).toBe('0px');
   });
 
   it('keeps composer send controls aligned with the shell theme', () => {
@@ -505,7 +515,7 @@ describe('theme-aware component styles', () => {
       const light = declarationsFor('.sa-window[data-theme="light"]');
       const lightSpecific = declarationsFor('.sa-window[data-theme="light"].sa-window');
 
-      expect(light['--bg']).toBe('#fbf9f2');
+      expect(light['--bg']).toBe('#fbf9f3');
       expect(light['--bg-elevated']).toBe('#fbf9f3');
       expect(light['--surface']).toBe('#ffffff');
       expect(light['--surface-2']).toBe('#f5f4ed');
@@ -515,7 +525,7 @@ describe('theme-aware component styles', () => {
       expect(light['--text-pri']).toBe('#1b1c18');
       expect(light['--text-sec']).toBe('#584238');
       expect(light['--text-muted']).toBe('#8b7268');
-      expect(lightSpecific['--bg']).toBe('#fbf9f2');
+      expect(lightSpecific['--bg']).toBe('#fbf9f3');
       expect(lightSpecific['--bg-elevated']).toBe('#fbf9f3');
       expect(lightSpecific['--surface-2']).toBe('#f5f4ed');
       expect(lightSpecific['--surface-3']).toBe('#f0eee7');
@@ -753,8 +763,8 @@ describe('assistant message styles', () => {
     const assistantBubble = declarationsFor('.message.assistant:not(.approval-message) .bubble');
     const markdown = declarationsFor('.message-markdown');
 
-    expect(message.margin).toBe('18px auto');
-    expect(assistantBubble['max-width']).toBe('min(1080px, 100%)');
+    expect(message.margin).toBe('12px auto');
+    expect(assistantBubble['max-width']).toBe('min(840px, 100%)');
     expect(assistantBubble.padding).toBe('0');
     expect(assistantBubble.border).toBe('0');
     expect(assistantBubble.background).toBe('transparent');
@@ -844,20 +854,30 @@ describe('conversation grid styles', () => {
 });
 
 describe('suiyuan chat canvas', () => {
-  it('centers the chat canvas and renders message surfaces as warm cards', () => {
+  it('centers the chat canvas with unframed assistant responses and compact user bubbles', () => {
     const conversation = declarationsFor('.conversation');
     const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
     const timeline = declarationsFor('.timeline');
+    const message = declarationsFor('.message');
     const assistantMessage = declarationsFor('.message.assistant');
     const userMessage = declarationsFor('.message.user');
+    const assistantBubble = declarationsFor('.message.assistant .bubble');
+    const userBubble = declarationsFor('.message.user .bubble');
     const markdownPre = declarationsFor('.message-markdown pre');
 
     expect(conversation.background).toBe('var(--bg)');
     expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
     expect(timeline['align-items']).toBe('center');
-    expect(assistantMessage.background).toBe('var(--surface)');
-    expect(assistantMessage['box-shadow']).toBe('var(--suiyuan-card-shadow)');
-    expect(userMessage.background).toBe('var(--surface-3)');
+    expect(message.border).toBe('0');
+    expect(message.background).toBe('transparent');
+    expect(message['box-shadow']).toBe('none');
+    expect(assistantMessage.background).toBe('transparent');
+    expect(assistantMessage['box-shadow']).toBe('none');
+    expect(assistantBubble.width).toBe('100%');
+    expect(assistantBubble['max-width']).toBe('min(840px, 100%)');
+    expect(userMessage.background).toBe('transparent');
+    expect(userBubble.width).toBe('fit-content');
+    expect(userBubble.background).toBe('var(--surface-3)');
     expect(markdownPre.background).toBe('var(--surface-code)');
   });
 });
@@ -888,6 +908,10 @@ describe('conversation content column styles', () => {
     const dockedComposer = declarationsFor('.composer.composer--docked');
     const activeDockedComposer = declarationsFor('.conversation:not(.conversation--intro) .composer.composer--docked');
     const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
+    const composerTextarea = declarationsFor('.composer textarea');
+    const composerMeta = declarationsFor('.composer-meta');
+    const composerAttach = declarationsFor('.composer-attach');
+    const composerSend = declarationsFor('.composer .send');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
     const headerTools = declarationsFor('.chat-header-tools');
     const headerTool = declarationsFor('.chat-header-tool');
@@ -914,10 +938,11 @@ describe('conversation content column styles', () => {
     expect(timeline['flex-direction']).toBe('column');
     expect(timeline['align-items']).toBe('center');
     expect(message.width).toBe('var(--conversation-content-width)');
-    expect(message.margin).toBe('18px auto');
+    expect(message.margin).toBe('12px auto');
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
     expect(userBubble['margin-left']).toBe('auto');
+    expect(userBubble['max-width']).toBe('min(720px, 78%)');
     expect(userBubble.background).toBe('var(--surface-3)');
     expect(userBubble.color).toBe('var(--text-pri)');
     expect(composer.width).toBe('min(900px, max(0px, calc(100% - clamp(24px, 6vw, 96px))))');
@@ -930,8 +955,21 @@ describe('conversation content column styles', () => {
     expect(dockedComposerCard.width).toBe('100%');
     expect(dockedComposerCard.margin).toBe('0 auto');
     expect(dockedComposerCard.border).toBe('1px solid color-mix(in srgb, var(--border) 88%, var(--surface))');
-    expect(dockedComposerCard['border-radius']).toBe('30px');
+    expect(dockedComposerCard['border-radius']).toBe('20px');
     expect(dockedComposerCard['box-shadow']).toBe('var(--composer-shadow)');
+    expect(composerTextarea.height).toBe('76px');
+    expect(composerTextarea['min-height']).toBe('76px');
+    expect(composerMeta['min-height']).toBe('48px');
+    expect(composerMeta['flex-wrap']).toBe('nowrap');
+    expect(composerAttach.flex).toBe('0 0 36px');
+    expect(composerAttach.width).toBe('36px');
+    expect(composerAttach['min-width']).toBe('36px');
+    expect(composerAttach.height).toBe('36px');
+    expect(composerAttach.padding).toBe('0');
+    expect(composerSend.flex).toBe('0 0 40px');
+    expect(composerSend.width).toBe('40px');
+    expect(composerSend['min-width']).toBe('40px');
+    expect(composerSend.height).toBe('40px');
     expect(scrollButton.position).toBe('absolute');
     expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
     expect(scrollButton.bottom).toBe('18px');
@@ -943,11 +981,13 @@ describe('conversation content column styles', () => {
     const introConversation = declarationsFor('.conversation--intro');
     const introTimelineShell = declarationsFor('.conversation--intro .timeline-shell');
     const introTimeline = declarationsFor('.conversation--intro .timeline');
+    const stitchIntroTimeline = declarationsFor('.sa-window .chat-page.chat-page--intro .conversation--intro .timeline');
     const introStage = declarationsFor('.conversation--intro .intro-chat-stage');
     const introTitle = topLevelDeclarationsFor('.empty-chat h2');
     const scopedIntroTitle = declarationsFor('.conversation--intro .empty-chat h2');
     const introCopy = topLevelDeclarationsFor('.empty-chat p');
     const floatingComposer = declarationsFor('.conversation--intro .composer--floating');
+    const stitchScopedFloatingComposer = declarationsFor('.sa-window .chat-page.chat-page--intro .conversation--intro .composer--floating');
     const floatingCard = declarationsFor('.composer--floating .composer-card');
 
     expect(introConversation['--conversation-intro-width']).toBe('min(920px, max(0px, calc(100% - clamp(24px, 6vw, 88px))))');
@@ -963,6 +1003,8 @@ describe('conversation content column styles', () => {
     expect(introTimeline['align-items']).toBe('center');
     expect(introTimeline['justify-content']).toBe('flex-start');
     expect(introTimeline.padding).toBe('0');
+    expect(stitchIntroTimeline.transform).toBe('none');
+    expect(stitchIntroTimeline['-webkit-transform']).toBe('none');
     expect(introStage.width).toBe('min(100%, var(--conversation-intro-width))');
     expect(introStage['max-width']).toBe('100%');
     expect(introStage.display).toBe('flex');
@@ -983,94 +1025,378 @@ describe('conversation content column styles', () => {
     expect(floatingComposer['max-width']).toBe('100%');
     expect(floatingComposer.padding).toBe('0');
     expect(floatingComposer.background).toBe('transparent');
+    expect(stitchScopedFloatingComposer.position).toBeUndefined();
+    expect(stitchScopedFloatingComposer.width).toBeUndefined();
+    expect(stitchScopedFloatingComposer['max-width']).toBeUndefined();
+    expect(stitchScopedFloatingComposer['pointer-events']).toBeUndefined();
+    expect(stitchScopedFloatingComposer['z-index']).toBe('18');
     expect(floatingCard.width).toBe('100%');
     expect(floatingCard.margin).toBe('0 auto');
   });
 
-  it('keeps the light-mode new-chat composer on matching theme surfaces', () => {
-    const floatingCard = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card');
-    const attach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
+  it('keeps the light new-chat composer on the dark-mode geometry', () => {
+    const floating = topLevelDeclarationsFor('.composer--floating');
+    const sharedCard = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target] .composer-card');
+    const sharedTextarea = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target] textarea');
+    const sharedMeta = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target] .composer-meta');
+    const sharedAttach = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target] .composer-attach');
+    const sharedContext = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target] .composer-context');
+    const sharedModel = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target] .composer-model');
+    const lightCard = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card');
+    const lightAttach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
+    const lightTextarea = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] textarea');
+    const lightMeta = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-meta');
+    const lightContext = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-context');
+    const lightModel = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-model');
+    const disabledSend = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .send:disabled');
+    const disclaimer = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer-disclaimer');
     const track = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track');
+    const darkFloating = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target]');
+    const darkCard = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card');
+    const darkTextarea = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] textarea');
 
-    expect(floatingCard.background).toBe('var(--surface)');
-    expect(floatingCard['border-color']).toBe('var(--line)');
-    expect(floatingCard['box-shadow']).toBe('var(--suiyuan-input-shadow), var(--suiyuan-input-highlight)');
-    expect(attach.background).toBe('transparent');
+    expect(floating['--composer-floating-max-width']).toBe('800px');
+    expect(floating['--composer-floating-bottom-gap']).toBe('22px');
+    expect(sharedCard.padding).toBe('0');
+    expect(sharedCard['border-radius']).toBe('20px');
+    expect(sharedTextarea.height).toBe('76px');
+    expect(sharedTextarea['min-height']).toBe('76px');
+    expect(sharedMeta['min-height']).toBe('48px');
+    expect(sharedMeta['flex-wrap']).toBe('nowrap');
+    expect(sharedAttach.flex).toBe('0 0 36px');
+    expect(sharedAttach.width).toBe('36px');
+    expect(sharedAttach['min-width']).toBe('36px');
+    expect(sharedAttach.height).toBe('36px');
+    expect(sharedAttach['min-height']).toBe('36px');
+    expect(sharedAttach.padding).toBe('0');
+    expect(sharedContext.display).toBeUndefined();
+    expect(sharedModel.height).toBe('34px');
+    expect(sharedModel['min-height']).toBe('34px');
+    for (const property of ['height', 'min-height', 'padding', 'border-radius']) {
+      expect(lightTextarea[property]).toBeUndefined();
+    }
+    for (const property of ['font-size', 'line-height']) {
+      expect(lightTextarea[property]).toBeUndefined();
+    }
+    for (const property of ['height', 'min-height', 'margin-top', 'padding']) {
+      expect(lightMeta[property]).toBeUndefined();
+    }
+    expect(lightContext.display).toBeUndefined();
+    for (const property of ['width', 'height', 'min-height', 'padding']) {
+      expect(lightAttach[property]).toBeUndefined();
+    }
+    for (const property of ['min-width', 'height', 'min-height']) {
+      expect(lightModel[property]).toBeUndefined();
+    }
+    expect(darkFloating['--composer-floating-max-width']).toBeUndefined();
+    expect(darkFloating['--composer-floating-bottom-gap']).toBeUndefined();
+    expect(darkCard.padding).toBeUndefined();
+    expect(darkCard['border-radius']).toBeUndefined();
+    expect(darkTextarea.height).toBeUndefined();
+    expect(darkTextarea['min-height']).toBeUndefined();
+    expect(lightCard.background).toBe('var(--surface)');
+    expect(lightCard['border-color']).toBe('var(--suiyuan-surface-variant)');
+    expect(lightCard['box-shadow']).toBe('var(--suiyuan-input-shadow)');
+    expect(lightAttach.background).toBe('var(--suiyuan-surface-low)');
+    expect(lightAttach['border-color']).toBe('var(--suiyuan-surface-variant)');
+    expect(lightModel.background).toBe('color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent)');
+    expect(disabledSend.background).toBe('var(--suiyuan-primary)');
+    expect(disabledSend.color).toBe('var(--on-accent)');
+    expect(disclaimer.color).toBe('var(--suiyuan-secondary-fixed-dim)');
+    expect(disclaimer.margin).toBeUndefined();
+    expect(disclaimer['font-weight']).toBeUndefined();
+    expect(disclaimer['line-height']).toBeUndefined();
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
+  });
+
+  it('keeps the Suiyuan intro and floating composer dark when the shell theme is dark', () => {
+    const intro = declarationsFor('.sa-window[data-theme="dark"] .chat-page.chat-page--intro');
+    const darkCard = declarationsFor('.sa-window[data-theme="dark"] .chat-intro-card');
+    const composerBackdrop = declarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target]');
+    const composerCard = declarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card');
+
+    expect(intro.background).toContain('var(--suiyuan-surface-bright)');
+    expect(darkCard.background).toContain('var(--suiyuan-surface-lowest)');
+    expect(composerBackdrop.background).toContain('var(--bg)');
+    expect(composerCard.background).toContain('var(--suiyuan-surface-low)');
+    expect(composerCard['border-color']).toContain('var(--suiyuan-outline-variant)');
+  });
+
+  it('keeps light and dark intro geometry structurally isomorphic', () => {
+    const spotlight = topLevelDeclarationsFor('.chat-intro-spotlight');
+    const spotlightInner = topLevelDeclarationsFor('.chat-intro-spotlight__inner');
+    const logoTile = topLevelDeclarationsFor('.chat-intro-logo-tile');
+    const introTitle = topLevelDeclarationsFor('.chat-intro-title');
+    const introSubtitle = topLevelDeclarationsFor('.chat-intro-subtitle');
+    const suggestions = topLevelDeclarationsFor('.chat-intro-suggestions');
+    const card = topLevelDeclarationsFor('.chat-intro-card');
+    const cardIcon = topLevelDeclarationsFor('.chat-intro-card__icon');
+    const cardIconSvg = topLevelDeclarationsFor('.chat-intro-card__icon svg');
+    const cardTitle = topLevelDeclarationsFor('.chat-intro-card__title');
+    const cardDescription = topLevelDeclarationsFor('.chat-intro-card__description');
+    const darkSpotlight = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-spotlight');
+    const darkCard = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-card');
+    const darkTitle = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-title');
+    const darkSuggestions = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-suggestions');
+    const darkIcon = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-card__icon');
+    const darkCardTitle = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-card__title');
+    const darkCardDescription = topLevelDeclarationsFor('.sa-window[data-theme="dark"] .chat-intro-card__description');
+    const mobileSpotlight = mediaDeclarationFor('(max-width: 640px)', '.chat-intro-spotlight', 'overflow-y');
+    const mobileInner = mediaDeclarationFor('(max-width: 640px)', '.chat-intro-spotlight__inner', 'justify-content');
+    const mobileCard = mediaDeclarationFor('(max-width: 640px)', '.chat-intro-card', 'min-height');
+    const mobileIcon = mediaDeclarationFor('(max-width: 640px)', '.chat-intro-card__icon', 'width');
+    const mobileTitle = mediaDeclarationFor('(max-width: 640px)', '.chat-intro-card__title', 'margin');
+    const mobileDescription = mediaDeclarationFor('(max-width: 640px)', '.chat-intro-card__description', 'line-height');
+
+    expect(spotlight.inset).toBe('64px 0 0');
+    expect(spotlight.padding).toBe('0 32px');
+    expect(spotlightInner.height).toBe('auto');
+    expect(logoTile.display).toBe('none');
+    expect(introTitle.margin).toBe('0');
+    expect(introTitle['font-weight']).toBe('650');
+    expect(introSubtitle.display).toBe('none');
+    expect(suggestions.width).toBe('min(900px, 100%)');
+    expect(suggestions['margin-top']).toBe('48px');
+    expect(suggestions['margin-bottom']).toBe('128px');
+    expect(card['min-height']).toBe('174px');
+    expect(card.gap).toBe('8px');
+    expect(card['border-color']).toBe('var(--suiyuan-surface-variant)');
+    expect(card.padding).toBe('24px');
+    expect(cardIcon.width).toBe('36px');
+    expect(cardIcon.height).toBe('36px');
+    expect(cardIcon['margin-bottom']).toBe('0');
+    expect(cardIconSvg.width).toBe('17px');
+    expect(cardIconSvg.height).toBe('17px');
+    expect(cardTitle.margin).toBe('8px 0 0');
+    expect(cardTitle['font-weight']).toBe('700');
+    expect(cardDescription['min-height']).toBe('0');
+    expect(cardDescription.color).toBe('var(--suiyuan-secondary)');
+    expect(cardDescription['font-weight']).toBe('500');
+    expect(cardDescription['line-height']).toBe('16px');
+    expect(darkSpotlight.inset).toBeUndefined();
+    expect(darkSpotlight.padding).toBeUndefined();
+    expect(darkTitle['font-weight']).toBeUndefined();
+    expect(darkSuggestions.width).toBeUndefined();
+    expect(darkSuggestions['margin-top']).toBeUndefined();
+    expect(darkSuggestions['margin-bottom']).toBeUndefined();
+    expect(darkCard['min-height']).toBeUndefined();
+    expect(darkCard.gap).toBeUndefined();
+    expect(darkIcon.width).toBeUndefined();
+    expect(darkIcon.height).toBeUndefined();
+    expect(darkIcon['margin-bottom']).toBeUndefined();
+    expect(darkCardTitle.margin).toBeUndefined();
+    expect(darkCardTitle['font-weight']).toBeUndefined();
+    expect(darkCardDescription['min-height']).toBeUndefined();
+    expect(darkCardDescription['font-weight']).toBeUndefined();
+    expect(darkCardDescription['line-height']).toBeUndefined();
+    expect(css).not.toContain('.composer-attach-label');
+    expect(css).not.toContain('content: "附件"');
+    expect(mobileSpotlight['overflow-y']).toBe('auto');
+    expect(mobileSpotlight.padding).toBe('24px 16px 270px');
+    expect(mobileInner['justify-content']).toBe('flex-start');
+    expect(mobileCard['min-height']).toBe('92px');
+    expect(mobileCard.gap).toBe('5px');
+    expect(mobileIcon.width).toBe('34px');
+    expect(mobileIcon.height).toBe('34px');
+    expect(mobileTitle.margin).toBe('4px 0 0');
+    expect(mobileDescription['line-height']).toBe('15px');
+  });
+
+  it('keeps the composer toolbar on one row at tablet and mobile widths', () => {
+    const tabletMeta = mediaDeclarationFor('(max-width: 920px)', '.sa-window .composer-meta', 'flex-wrap');
+    const tabletActions = mediaDeclarationFor('(max-width: 920px)', '.sa-window .composer-actions', 'width');
+    const mobileMeta = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-meta', 'display');
+    const mobileAttach = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-attach', 'width');
+    const mobileActions = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-actions', 'display');
+
+    expect(tabletMeta['flex-wrap']).toBe('nowrap');
+    expect(tabletActions.width).toBe('auto');
+    expect(mobileMeta.display).toBe('flex');
+    expect(mobileMeta['flex-wrap']).toBe('nowrap');
+    expect(mobileAttach.width).toBe('36px');
+    expect(mobileActions.display).toBe('inline-flex');
   });
 });
 
 describe('workbench shell styles', () => {
   describe('suiyuan shell layout', () => {
     it('uses warm Suiyuan surfaces for the app shell and primary navigation', () => {
-      const navRail = declarationsFor('.nav-rail');
-      const activeNav = declarationsFor('.nav-rail button.active');
-      const topCommand = declarationsFor('.top-command');
+      const navRail = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
+      const activeNav = declarationsFor('.suiyuan-nav-item.active');
+      const activeIndicator = declarationsFor('.suiyuan-nav-item.active::before');
+      const topCommand = topLevelDeclarationsFor('.suiyuan-top-appbar');
+      const mobileTopCommand = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-top-appbar', 'padding');
+      const mainCanvas = declarationsFor('.suiyuan-main-canvas');
+      const nonChatPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .memory-page');
+      const skillsPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .skills-tabbed-container');
       const main = declarationsFor('.sa-main');
 
-      expect(navRail.background).toBe('var(--bg-elevated)');
+      expect(navRail.background).toBe('var(--sidebar-bg)');
       expect(activeNav.background).toBe('var(--primary-soft)');
       expect(activeNav.color).toBe('var(--text-pri)');
-      expect(topCommand.background).toBe('var(--bg-elevated)');
-      expect(topCommand['border-bottom']).toBe('1px solid var(--line)');
+      expect(activeIndicator.width).toBe('4px');
+      expect(topCommand.position).toBe('absolute');
+      expect(topCommand.height).toBe('64px');
+      expect(topCommand.padding).toBe('0 24px');
+      expect(mobileTopCommand.padding).toBe('0 14px 0 64px');
+      expect(topCommand.background).toBe('var(--bg)');
+      expect(topCommand['border-bottom']).toBe('0');
+      expect(mainCanvas.height).toBe('100%');
+      expect(nonChatPage['padding-top']).toBe('64px');
+      expect(skillsPage['padding-top']).toBe('64px');
       expect(main.background).toBe('var(--bg)');
+    });
+
+    it('keeps the light sidebar on the dark-mode geometry', () => {
+      const sharedSidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
+      const sharedBrand = topLevelDeclarationsFor('.suiyuan-brand-block');
+      const sharedBrandTitle = topLevelDeclarationsFor('.suiyuan-brand-meta strong');
+      const sharedNewChat = topLevelDeclarationsFor('.suiyuan-new-chat');
+      const sharedNav = topLevelDeclarationsFor('.suiyuan-nav');
+      const sharedNavItem = topLevelDeclarationsFor('.suiyuan-nav-item');
+      const lightSidebar = declarationsFor('.sa-window[data-theme="light"] .app-sidebar.suiyuan-sidebar');
+      const lightBrand = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-block');
+      const lightMark = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-light-mark');
+      const lightDarkMark = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-dark-mark');
+      const lightBrandTitle = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-meta strong');
+      const lightNewChat = declarationsFor('.sa-window[data-theme="light"] .suiyuan-new-chat');
+      const lightNav = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav');
+      const lightNavItem = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item');
+      const activeNav = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active');
+      const activeIndicator = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active::before');
+      const appbarTitle = topLevelDeclarationsFor('.suiyuan-appbar-title h1');
+
+      expect(sharedSidebar.gap).toBe('20px');
+      expect(sharedSidebar.padding).toBe('24px 18px 18px');
+      expect(sharedBrand['min-height']).toBe('42px');
+      expect(sharedBrand.gap).toBe('12px');
+      expect(sharedBrandTitle['font-size']).toBe('17px');
+      expect(sharedNewChat.width).toBe('100%');
+      expect(sharedNewChat['min-height']).toBe('40px');
+      expect(sharedNav.gap).toBe('6px');
+      expect(sharedNavItem['min-height']).toBe('34px');
+      expect(sharedNavItem.gap).toBe('10px');
+      expect(sharedNavItem.padding).toBe('0 12px 0 14px');
+      expect(sharedNavItem['font-size']).toBe('13px');
+      expect(sharedNavItem['font-weight']).toBe('620');
+      expect(sharedNavItem['line-height']).toBe('18px');
+      expect(appbarTitle['line-height']).toBe('1.25');
+      for (const property of ['gap', 'padding']) expect(lightSidebar[property]).toBeUndefined();
+      for (const property of ['width', 'min-height', 'margin', 'gap']) expect(lightBrand[property]).toBeUndefined();
+      for (const property of ['width', 'height', 'display']) expect(lightMark[property]).toBeUndefined();
+      expect(lightDarkMark.display).toBeUndefined();
+      expect(lightBrandTitle['font-size']).toBeUndefined();
+      expect(lightBrandTitle['font-weight']).toBeUndefined();
+      for (const property of ['width', 'min-height', 'margin']) {
+        expect(lightNewChat[property]).toBeUndefined();
+      }
+      for (const property of ['font-size', 'font-weight', 'line-height']) {
+        expect(lightNewChat[property]).toBeUndefined();
+      }
+      for (const property of ['width', 'margin', 'gap']) expect(lightNav[property]).toBeUndefined();
+      for (const property of ['min-height', 'gap', 'padding']) {
+        expect(lightNavItem[property]).toBeUndefined();
+      }
+      for (const property of ['font-size', 'font-weight', 'line-height']) {
+        expect(lightNavItem[property]).toBeUndefined();
+      }
+      expect(lightNewChat.background).toBe('var(--suiyuan-primary)');
+      expect(lightNewChat['box-shadow']).toBe('none');
+      expect(lightNewChat.opacity).toBe('0.8');
+      expect(activeNav.color).toBe('var(--suiyuan-primary)');
+      expect(activeNav['font-weight']).toBeUndefined();
+      expect(activeIndicator.inset).toBeUndefined();
+    });
+
+    it('keeps marketing tabs and upgrade CTAs out of the Suiyuan app shell', () => {
+      expect(appSource).not.toContain('SUIYUAN_APP_TABS');
+      expect(appSource).not.toContain("label: 'Overview'");
+      expect(appSource).not.toContain("label: 'Usage'");
+      expect(appSource).not.toContain("label: 'Limits'");
+      expect(appSource).not.toContain('Upgrade Plan');
+      expect(appSource).not.toContain('Support');
+      expect(css).not.toContain('suiyuan-upgrade-action');
+    });
+
+    it('maps Suiyuan design tokens to dark surfaces in dark mode', () => {
+      const darkShell = declarationsFor('.sa-window.suiyuan-shell[data-theme="dark"]');
+
+      expect(darkShell['--suiyuan-background']).toBe('#131411');
+      expect(darkShell['--suiyuan-surface-bright']).toBe('#131411');
+      expect(darkShell['--suiyuan-surface-lowest']).toBe('#1b1c18');
+      expect(darkShell['--suiyuan-surface-low']).toBe('#1e1f1b');
+      expect(darkShell['--suiyuan-on-surface']).toBe('#e5e2da');
+      expect(darkShell['--suiyuan-primary']).toBe('#ffb597');
+      expect(darkShell['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.3)');
+      expect(darkShell['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.2)');
+    });
+
+    it('renders memory controls as compact Suiyuan components', () => {
+      const stats = topLevelDeclarationsFor('.memory-page .memory-stats');
+      const panel = declarationsFor('.memory-page .memory-stats .panel');
+      const overviewChip = declarationsFor('.memory-page .memory-overview-breakdown > span');
+      const autoToggle = topLevelDeclarationsFor('.memory-page .memory-auto-dream-toggle');
+      const createButton = declarationsFor('.memory-page .memory-create-button');
+      const createMenu = declarationsFor('.memory-page .memory-create-menu');
+
+      expect(stats['grid-template-columns']).toBe('repeat(2, minmax(280px, 1fr))');
+      expect(panel['border-radius']).toBe('8px');
+      expect(overviewChip['border-radius']).toBe('999px');
+      expect(autoToggle['grid-column']).toBe('2');
+      expect(createButton.background).toBe('var(--primary-action-bg)');
+      expect(createButton['border-radius']).toBe('8px');
+      expect(createMenu.left).toBe('0');
+      expect(createMenu.right).toBe('auto');
+      expect(createMenu.width).toBe('max-content');
     });
   });
 
   it('keeps the screenshot-style sidebar fixed and branded', () => {
-    const sidebar = topLevelDeclarationsFor('.app-sidebar');
-    const resizer = topLevelDeclarationsFor('.workbench-sidebar-resizer');
-    const body = topLevelDeclarationsFor('.sa-body');
-    const brand = declarationsFor('.sidebar-brand');
-    const newChat = declarationsFor('.sidebar-new-chat');
-    const projectTree = declarationsFor('.sidebar-project-tree');
-    const settings = declarationsFor('.sidebar-settings');
+    const sidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
+    const body = topLevelDeclarationsFor('.sa-body.suiyuan-shell-body');
+    const brand = declarationsFor('.suiyuan-brand-block');
+    const brandMeta = declarationsFor('.suiyuan-brand-meta');
+    const newChat = declarationsFor('.suiyuan-new-chat');
+    const nav = declarationsFor('.suiyuan-nav');
+    const chatNavGroup = declarationsFor('.suiyuan-chat-nav-group');
+    const projectTree = declarationsFor('.suiyuan-chat-project-tree');
+    const collapseButton = declarationsFor('.suiyuan-sidebar-collapse');
+    const footer = declarationsFor('.suiyuan-sidebar-footer');
 
-    expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
+    expect(sidebar.width).toBe('280px');
     expect(sidebar.position).toBe('relative');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(sidebar.overflow).toBe('hidden');
     expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('var(--workbench-sidebar-width) minmax(0, 1fr)');
-    expect(resizer.cursor).toBe('col-resize');
-    expect(resizer.right).toBe('0');
-    expect(resizer.width).toBe('10px');
-    expect(resizer.height).toBe('100%');
-    expect(brand.display).toBe('inline-flex');
-    expect(newChat['min-height']).toContain('38px');
-    expect(newChat.background).toBe('var(--sidebar-active)');
-    expect(projectTree.flex).toBe('1 1 auto');
-    expect(projectTree['min-height']).toBe('0');
+    expect(body['grid-template-columns']).toBe('280px minmax(0, 1fr)');
+    expect(brand.display).toBe('flex');
+    expect(brandMeta.display).toBe('grid');
+    expect(newChat['min-height']).toBe('40px');
+    expect(newChat.background).toBe('var(--primary-action-bg)');
+    expect(nav.display).toBe('grid');
+    expect(chatNavGroup.display).toBe('grid');
+    expect(chatNavGroup['min-height']).toBe('0');
+    expect(projectTree['max-height']).toBe('min(300px, 32vh)');
     expect(projectTree['overflow-y']).toBe('auto');
-    expect(settings['margin-top']).toBe('0');
-    expect(settings.position).toBe('relative');
-    expect(settings['z-index']).toBe('4');
-    expect(settings['flex-shrink']).toBe('0');
+    expect(projectTree['overscroll-behavior']).toBe('contain');
+    expect(projectTree['scrollbar-gutter']).toBe('stable');
+    expect(collapseButton.width).toBe('32px');
+    expect(collapseButton.height).toBe('32px');
+    expect(collapseButton['margin-left']).toBe('auto');
+    expect(footer['margin-top']).toBe('auto');
   });
 
-  it('keeps project chat records visible under each sidebar project', () => {
-    const root = declarationsFor('.sidebar-tree-root');
-    const list = declarationsFor('.sidebar-project-thread-list');
-    const thread = declarationsFor('.sidebar-project-thread');
-    const threadTitle = declarationsFor('.sidebar-thread-title');
-    const empty = declarationsFor('.sidebar-project-thread-empty');
-    const taskList = declarationsFor('.sidebar-task-list');
-    const taskThread = declarationsFor('.sidebar-task-thread');
-
-    expect(root.display).toBe('grid');
-    expect(root['min-width']).toBe('0');
-    expect(list['border-left']).toBe('1px solid var(--sidebar-border)');
-    expect(list.display).toBe('grid');
-    expect(thread['min-height']).toBe('28px');
-    expect(thread['font-size']).toBe('13px');
-    expect(threadTitle['text-overflow']).toBe('ellipsis');
-    expect(threadTitle['white-space']).toBe('nowrap');
-    expect(empty['font-style']).toBe('italic');
-    expect(css).not.toContain('.app-sidebar--chat');
-    expect(taskList.display).toBe('grid');
-    expect(taskThread['min-height']).toBe('28px');
-    expect(taskThread['font-size']).toBe('13px');
+  it('keeps the primary product nav while nesting projects under Chat', () => {
+    expect(appSource).toContain('<ChatSidebarProjectTree');
+    expect(appSource).not.toContain('<SidebarTaskSummary');
+    expect(appSource).toContain("label: 'Chat'");
+    expect(appSource).toContain("label: 'Plugins'");
+    expect(appSource).toContain("label: 'Automation'");
+    expect(appSource).toContain("label: 'Roles'");
+    expect(appSource).toContain("label: 'Files'");
+    expect(appSource).toContain("label: 'Memory'");
+    expect(appSource).toContain("label: 'Logs'");
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
@@ -1109,8 +1435,8 @@ describe('workbench shell styles', () => {
     const mediumModel = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer-model')[0];
     const tabletTitle = mediaDeclarationsFor('(max-width: 920px)', '.empty-chat h2')[0];
     const mobileMeta = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-meta')[0];
-    const mobileProject = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap', 'grid-column');
-    const mobileActions = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-actions', 'grid-template-columns');
+    const mobileProject = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap', 'width');
+    const mobileActions = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-actions', 'display');
     const mobileModel = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-model', 'max-width');
     const mobileSend = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer .send')[0];
 
@@ -1120,16 +1446,51 @@ describe('workbench shell styles', () => {
     expect(mediumModel['min-width']).toBe('0');
     expect(tabletTitle['white-space']).toBe('normal');
     expect(tabletTitle['overflow-wrap']).toBe('anywhere');
-    expect(mobileMeta.display).toBe('grid');
-    expect(mobileMeta['grid-template-columns']).toBe('minmax(0, 1fr) auto');
-    expect(mobileProject['grid-column']).toBe('1 / -1');
-    expect(mobileActions['grid-template-columns']).toBe('minmax(0, 1fr) auto');
+    expect(mobileMeta.display).toBe('flex');
+    expect(mobileMeta['flex-wrap']).toBe('nowrap');
+    expect(mobileProject.width).toBe('auto');
+    expect(mobileActions.display).toBe('inline-flex');
     expect(mobileModel['max-width']).toBe('100%');
-    expect(mobileSend['justify-self']).toBe('end');
+    expect(mobileSend.width).toBe('40px');
+    expect(mobileSend['min-width']).toBe('40px');
   });
 });
 
 describe('composer control styles', () => {
+  it('gives the portalled project menu an opaque component-owned surface', () => {
+    const trigger = topLevelDeclarationsFor('.sa-window .composer-meta .project-select');
+    const popover = topLevelDeclarationsFor('.project-selector-popover');
+    const menu = topLevelDeclarationsFor('.project-dropdown');
+    const row = topLevelDeclarationsFor('.project-dropdown-row');
+
+    expect(trigger.background).toBe('var(--surface)');
+    expect(trigger['box-shadow']).toBe('var(--suiyuan-input-highlight)');
+    expect(popover.background).toBe('var(--surface)');
+    expect(popover.border).toBe('1px solid var(--border)');
+    expect(popover['border-radius']).toBe('8px');
+    expect(popover['box-shadow']).toBe('var(--shadow)');
+    expect(menu.display).toBe('grid');
+    expect(menu['overflow-y']).toBe('auto');
+    expect(row.display).toBe('grid');
+    expect(row['grid-template-columns']).toBe('minmax(0, 1fr) 32px');
+  });
+
+  it('keeps the composer project selector clickable without displacing send controls', () => {
+    const wrap = topLevelDeclarationsFor('.composer-meta .project-select-wrap');
+    const button = topLevelDeclarationsFor('.composer-meta .project-select');
+    const label = topLevelDeclarationsFor('.composer-meta .project-select span');
+
+    expect(wrap.flex).toBe('0 1 210px');
+    expect(wrap['min-width']).toBe('0');
+    expect(wrap['max-width']).toBe('210px');
+    expect(button.width).toBe('100%');
+    expect(button['max-width']).toBe('100%');
+    expect(label['min-width']).toBe('0');
+    expect(label.overflow).toBe('hidden');
+    expect(label['text-overflow']).toBe('ellipsis');
+    expect(label['white-space']).toBe('nowrap');
+  });
+
   it('keeps the collapsed project selector short while allowing a wider project menu', () => {
     const select = declarationsFor('.top-command .project-select');
     const dropdown = declarationsFor('.top-command .project-dropdown');
@@ -1189,8 +1550,8 @@ describe('composer control styles', () => {
     expect(label['min-width']).toBe('0');
     expect(label.overflow).toBe('hidden');
     expect(label['text-overflow']).toBe('ellipsis');
-    expect(send.flex).toBe('0 0 42px');
-    expect(send['min-width']).toBe('42px');
+    expect(send.flex).toBe('0 0 40px');
+    expect(send['min-width']).toBe('40px');
   });
 
   it('keeps attachment controls left while model controls sit on the right', () => {
@@ -1199,10 +1560,10 @@ describe('composer control styles', () => {
     const provider = firstDeclarationsFor('.composer .provider');
 
     expect(meta['align-items']).toBe('center');
-    expect(meta.gap).toBe('12px');
+    expect(meta.gap).toBe('8px');
     expect(actions['margin-left']).toBe('auto');
     expect(actions['justify-content']).toBe('flex-end');
-    expect(actions['padding-left']).toBe('18px');
+    expect(actions['padding-left']).toBe('0');
     expect(provider['margin-left']).toBe('0');
   });
 
@@ -1347,7 +1708,7 @@ describe('light theme baseline usability', () => {
     const inlineCode = declarationsFor('.sa-window[data-theme="light"] .message-markdown code');
     const codeBlock = declarationsFor('.sa-window[data-theme="light"] .message-markdown pre');
 
-    expect(lightTheme['--bg']).toBe('#fbf9f2');
+    expect(lightTheme['--bg']).toBe('#fbf9f3');
     expect(lightTheme['--text-sec']).toBe('#584238');
     expect(markdown.color).toBe('var(--text-sec)');
     expect(assistantMarkdown.color).toBe('var(--text-sec)');
@@ -1531,20 +1892,19 @@ describe('suiyuan theme contract', () => {
     const light = declarationsFor('.sa-window[data-theme="light"]');
 
     expect(rootSelectors).toHaveLength(1);
-    expect(dark['--bg']).toBe('#070816');
-    expect(dark['--surface']).toBe('#11162d');
-    expect(dark['--surface-2']).toBe('#182039');
-    expect(dark['--surface-3']).toBe('#243051');
-    expect(dark['--text-pri']).toBe('#f7f9ff');
-    expect(dark['--primary']).toBe('#9b6cff');
-    expect(dark['--primary-2']).toBe('#22d3ee');
-    expect(dark['--app-bg']).toContain('#12143a');
-    expect(dark['--app-bg']).toContain('#0d213d');
+    expect(dark['--bg']).toBe('#131411');
+    expect(dark['--surface']).toBe('#1b1c18');
+    expect(dark['--surface-2']).toBe('#1e1f1b');
+    expect(dark['--surface-3']).toBe('#292a25');
+    expect(dark['--text-pri']).toBe('#e5e2da');
+    expect(dark['--primary']).toBe('#ffb597');
+    expect(dark['--primary-2']).toBe('#ff8a50');
+    expect(dark['--app-bg']).toBe('#131411');
     expect(dark['--accent']).toBe('var(--primary)');
     expect(dark['--accent-2']).toBe('var(--primary-2)');
     expect(dark['--green']).toBe('var(--success)');
     expect(dark['--blue']).toBe('var(--info)');
-    expect(light['--bg']).toBe('#fbf9f2');
+    expect(light['--bg']).toBe('#fbf9f3');
     expect(light['--primary']).toBe('#a03b00');
     expect(light['--primary-2']).toBe('#792b00');
     expect(light['--accent']).toBe('var(--primary)');
@@ -1559,10 +1919,9 @@ describe('suiyuan theme contract', () => {
     const primaryDisabled = declarationsFor('.btn-primary:disabled');
     const secondary = declarationsFor('.btn-secondary');
 
-    expect(tokens['--primary-action-bg']).toContain('#9b6cff');
-    expect(tokens['--primary-action-bg']).toContain('#22d3ee');
-    expect(light['--primary-action-bg']).toContain('#a03b00');
-    expect(light['--primary-action-bg']).toContain('#792b00');
+    expect(tokens['--primary-action-bg']).toBe('#ffb597');
+    expect(light['--primary-action-bg']).toBe('#a03b00');
+    expect(light['--primary-action-bg-hover']).toBe('#c84d05');
     expect(primary.background).toBe('var(--primary-action-bg)');
     expect(primary.color).toBe('var(--primary-action-text)');
     expect(primary['white-space']).toBe('nowrap');

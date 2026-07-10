@@ -1,9 +1,30 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppWindowFrame } from './AppWindowFrame.jsx';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useShallow } from 'zustand/react/shallow';
+import {
+  Bell,
+  Brain,
+  CircleUserRound,
+  Clock3,
+  Database,
+  FolderOpen,
+  Menu,
+  MessageSquareText,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Puzzle,
+  Sailboat,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+  Plus,
+  Sun,
+  X,
+} from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
+import { ActivePageContent, PageLoadingFallback } from './AppRoutes.jsx';
+import { SidebarProjectTree as ChatSidebarProjectTree } from './WorkbenchSidebarProjectTree.jsx';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import {
   dashboardQueryKey,
@@ -14,7 +35,9 @@ import {
   useDashboardFocusInvalidation,
 } from './pages/shared/pageShared.js';
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
-import { APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
+import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
+import { runUIAction } from './shared/ui/runUIAction.js';
+import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
 import './AppChrome.css';
 import './AppShell.css';
 import {
@@ -38,33 +61,31 @@ const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 export const APP_PROFILER_ID = 'App';
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';
-const WORKBENCH_SIDEBAR_MIN_WIDTH = 280;
-const WORKBENCH_SIDEBAR_DEFAULT_WIDTH = 340;
-const WORKBENCH_SIDEBAR_MAX_WIDTH = 460;
-const WORKBENCH_SIDEBAR_KEY_STEP = 16;
-
-function clampWorkbenchSidebarWidth(value) {
-  const numeric = Number(value);
-  const width = Number.isFinite(numeric) ? numeric : WORKBENCH_SIDEBAR_DEFAULT_WIDTH;
-  return Math.max(WORKBENCH_SIDEBAR_MIN_WIDTH, Math.min(WORKBENCH_SIDEBAR_MAX_WIDTH, Math.round(width)));
-}
-
-function workbenchSidebarNextKeyboardWidth(event, currentWidth) {
-  const nextWidthByKey = {
-    ArrowLeft: currentWidth - WORKBENCH_SIDEBAR_KEY_STEP,
-    PageDown: currentWidth - WORKBENCH_SIDEBAR_KEY_STEP,
-    ArrowRight: currentWidth + WORKBENCH_SIDEBAR_KEY_STEP,
-    PageUp: currentWidth + WORKBENCH_SIDEBAR_KEY_STEP,
-    Home: WORKBENCH_SIDEBAR_MIN_WIDTH,
-    End: WORKBENCH_SIDEBAR_MAX_WIDTH,
-  };
-  return nextWidthByKey[event.key] ?? null;
-}
+const SUIYUAN_NAV_ITEMS = Object.freeze([
+  { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
+  { id: 'skills', label: 'Plugins', labelKey: 'skills', icon: Puzzle },
+  { id: 'workflows', label: 'Automation', labelKey: 'workflows', icon: SlidersHorizontal },
+  { id: 'prompts', label: 'Roles', labelKey: 'prompts', icon: CircleUserRound },
+  { id: 'files', label: 'Files', labelKey: 'files', icon: FolderOpen },
+  { id: 'memory', label: 'Memory', labelKey: 'memory', icon: Brain },
+  { id: 'observability', label: 'Logs', labelKey: 'observability', icon: Database },
+]);
 
 function workflowSubpageLabel(workflowView, copy) {
   if (workflowView === 'templates') return copy.templatePageTitle;
   if (workflowView === 'freeDesign') return copy.freeDesignPageTitle;
   return '';
+}
+
+function appPageTitleLabel(page, copy) {
+  if (page === 'workflows') return copy.workflow.title || copy.nav.workflows;
+  if (page === 'prompts') return copy.prompts.title || copy.nav.prompts;
+  if (page === 'files') return copy.files.title || copy.nav.files;
+  if (page === 'memory') return copy.memory.title || copy.nav.memory;
+  if (page === 'observability') return copy.observability.title || copy.nav.observability;
+  if (page === 'settings') return copy.settings.title || copy.nav.settings;
+  if (page === 'skills') return copy.skills.title || copy.nav.skills;
+  return copy.nav[page] || copy.nav.chat;
 }
 
 function appPageFromLocation() {
@@ -342,6 +363,145 @@ function useAppUpdateBanner(skipBootstrap) {
   };
 }
 
+function uiActionOptions(store) {
+  return {
+    onError: (error) => {
+      store?.addWarning?.('error', 'ui.action.failed', { error: errorMessage(error) });
+    },
+  };
+}
+
+function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
+  if (!updateBanner?.update) return null;
+  const version = updateVersionFromResult(updateBanner.update);
+  const installing = updateBanner.status === 'installing';
+  return (
+    <section className="app-update-banner" data-testid="app-update-banner" role="status">
+      <div className="app-update-copy">
+        <strong>{copy.available}{version ? ` ${version}` : ''}</strong>
+        <span>{copy.description}</span>
+        {updateBanner.message ? <small>{updateBanner.message}</small> : null}
+      </div>
+      <div className="app-update-actions">
+        <button type="button" className="app-update-primary" onClick={updateBanner.install} disabled={installing}>
+          {installing ? copy.installing : copy.install}
+        </button>
+        <button type="button" className="app-update-secondary" onClick={updateBanner.dismiss} disabled={installing}>
+          {copy.dismiss}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SuiyuanNavButton({ activePage, copy, item, memoryBadgeCount, setActivePage }) {
+  const Icon = item.icon;
+  const active = activePage === item.id;
+  const label = copy.nav[item.labelKey] || item.label;
+  const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
+  return (
+    <button
+      type="button"
+      className={`suiyuan-nav-item${active ? ' active' : ''}`}
+      onClick={() => setActivePage(item.id)}
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+    >
+      <Icon size={16} aria-hidden="true" />
+      <span>{label}</span>
+      {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} ${copy.workbench.memoryBadgeTitle}`} /> : null}
+    </button>
+  );
+}
+
+function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
+  const { activePage, setActivePage } = sidebar;
+  return (
+    <div className="suiyuan-chat-nav-group">
+      <SuiyuanNavButton
+        activePage={activePage}
+        copy={copy}
+        item={item}
+        memoryBadgeCount={0}
+        setActivePage={setActivePage}
+      />
+      {activePage === 'chat' ? (
+        <div className="suiyuan-chat-project-tree">
+          <ChatSidebarProjectTree copy={copy.workbench} projectPath={projectPath} setActivePage={setActivePage} store={store} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
+  const { activePage, closeSidebar, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
+  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
+  return (
+    <aside
+      id="app-sidebar"
+      className={`app-sidebar suiyuan-sidebar${isOpen ? ' is-open' : ''}`}
+      data-testid="app-sidebar"
+      aria-label={copy.workbench.ariaLabel}
+    >
+      <div className="suiyuan-brand-block">
+        <span className="suiyuan-brand-light-mark" data-testid="suiyuan-brand-light-logo" aria-hidden="true">
+          <Sailboat size={14} strokeWidth={2} />
+        </span>
+        <img className="suiyuan-brand-dark-mark" data-testid="suiyuan-brand-dark-logo" src={suiyuanBrandIcon} alt="" aria-hidden="true" />
+        <div className="suiyuan-brand-meta">
+          <strong>{APP_BRAND_NAME}</strong>
+          <span>AI Canvas</span>
+        </div>
+        <button
+          type="button"
+          className="suiyuan-sidebar-collapse"
+          aria-label={copy.workbench.collapse}
+          title={copy.workbench.collapse}
+          aria-controls="app-sidebar"
+          onClick={closeSidebar}
+        >
+          <PanelLeftClose size={17} aria-hidden="true" />
+        </button>
+      </div>
+      <button type="button" className="suiyuan-new-chat" aria-label={copy.workbench.newChat} onClick={startNewChat}>
+        <Plus size={18} aria-hidden="true" />
+        <span>{copy.workbench.newChat}</span>
+      </button>
+      <nav className="suiyuan-nav" data-testid="sidebar-nav" aria-label="Suiyuan navigation">
+        <SuiyuanChatNavGroup
+          copy={copy}
+          item={SUIYUAN_NAV_ITEMS[0]}
+          projectPath={projectPath}
+          sidebar={sidebar}
+          store={store}
+        />
+        {SUIYUAN_NAV_ITEMS.slice(1).map((item) => (
+          <SuiyuanNavButton
+            key={item.id}
+            activePage={activePage}
+            copy={copy}
+            item={item}
+            memoryBadgeCount={memoryBadgeCount}
+            setActivePage={setActivePage}
+          />
+        ))}
+      </nav>
+      <div className="suiyuan-sidebar-footer">
+        <button
+          type="button"
+          className={`suiyuan-footer-item${activePage === 'settings' ? ' active' : ''}`}
+          aria-label={copy.workbench.settings}
+          onClick={() => setActivePage('settings')}
+        >
+          <SettingsIcon size={15} aria-hidden="true" />
+          <span>{copy.workbench.settings}</span>
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 function useAppShellState(store, skipBootstrap) {
   const appStore = useClientStore();
   const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
@@ -381,7 +541,12 @@ function AppWindow({ shell, store }) {
     }
     return true;
   });
-  const [workbenchSidebarWidth, setWorkbenchSidebarWidth] = useState(WORKBENCH_SIDEBAR_DEFAULT_WIDTH);
+  const SidebarToggleIcon = sidebarOpen ? X : Menu;
+  const activeLabel = appPageTitleLabel(store.activePage, copy);
+  const currentPageLabel = currentPageLabelOverride || activeLabel;
+  const isDark = theme === COLOR_THEMES.dark;
+  const ThemeIcon = isDark ? Sun : Moon;
+  const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
     store.setActivePage(page);
@@ -394,66 +559,91 @@ function AppWindow({ shell, store }) {
   const handleWorkflowViewChange = useCallback((workflowView) => {
     setCurrentPageState({ activePage: 'workflows', workflowView: textValue(workflowView) || 'automation' });
   }, []);
-  const beginWorkbenchSidebarResize = useCallback((event) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = workbenchSidebarWidth;
-    const bodyEl = event.currentTarget?.closest?.('.sa-body');
-    let latestWidth = startWidth;
-    const move = (moveEvent) => {
-      if (moveEvent.buttons === 0) return;
-      const nextWidth = clampWorkbenchSidebarWidth(startWidth + (moveEvent.clientX - startX));
-      latestWidth = nextWidth;
-      bodyEl?.style.setProperty('--workbench-sidebar-width', `${nextWidth}px`);
-    };
-    const stop = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-      setWorkbenchSidebarWidth(latestWidth);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
-    try {
-      event.currentTarget?.setPointerCapture?.(event.pointerId);
-    } catch {
-      // Synthetic and older browser pointer events can fail capture; window listeners still drive resizing.
-    }
-  }, [workbenchSidebarWidth]);
-  const handleWorkbenchSidebarResizeKeyDown = useCallback((event) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-    const nextWidth = workbenchSidebarNextKeyboardWidth(event, workbenchSidebarWidth);
-    if (nextWidth === null) return;
-    event.preventDefault();
-    setWorkbenchSidebarWidth(clampWorkbenchSidebarWidth(nextWidth));
-  }, [workbenchSidebarWidth]);
+  const startNewChat = useCallback(() => {
+    setActivePageFromSidebar('chat');
+    runUIAction(() => store?.newThread?.(), uiActionOptions(store));
+  }, [setActivePageFromSidebar, store]);
   return (
-    <AppWindowFrame
-      frame={{
-        closeSidebar,
-        copy,
-        currentPageLabelOverride,
-        locale,
-        memoryBadge,
-        onSidebarResizeKeyDown: handleWorkbenchSidebarResizeKeyDown,
-        onSidebarResizeStart: beginWorkbenchSidebarResize,
-        onWorkflowViewChange: handleWorkflowViewChange,
-        openSidebar: () => setSidebarOpen(true),
-        projectPath,
-        rightPanelOpen,
-        setActivePage: setActivePageFromSidebar,
-        setRightPanelOpen,
-        sidebarOpen,
-        store: routeStore,
-        theme,
-        toggleLocale,
-        toggleSidebar: () => setSidebarOpen((open) => !open),
-        toggleTheme,
-        updateBanner,
-        workbenchSidebarWidth,
-      }}
-    />
+    <div className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-theme={theme} data-testid="frontend-app">
+      <button
+        type="button"
+        className="workbench-toggle"
+        aria-label={sidebarOpen ? copy.workbench.close : copy.workbench.open}
+        aria-controls="app-sidebar"
+        aria-expanded={sidebarOpen}
+        onClick={() => setSidebarOpen((open) => !open)}
+      >
+        <SidebarToggleIcon size={22} aria-hidden="true" />
+      </button>
+      {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label={copy.workbench.close} onClick={closeSidebar} /> : null}
+      <div className="sa-body suiyuan-shell-body">
+        {!sidebarOpen ? (
+          <button
+            type="button"
+            className="sidebar-expand-trigger"
+            aria-label={copy.workbench.expand}
+            title={copy.workbench.expand}
+            onClick={() => setSidebarOpen(true)}
+          >
+            <PanelLeftOpen size={20} aria-hidden="true" />
+          </button>
+        ) : null}
+        <SuiyuanSidebar
+          copy={copy}
+          projectPath={projectPath}
+          sidebar={{
+            activePage: store.activePage,
+            closeSidebar,
+            isOpen: sidebarOpen,
+            memorySimilarCount: memoryBadge.memorySimilarCount,
+            setActivePage: setActivePageFromSidebar,
+            startNewChat,
+          }}
+          store={store}
+        />
+        <main className="sa-main suiyuan-main">
+          <header className="suiyuan-top-appbar" aria-label="Suiyuan app bar">
+            <div className="suiyuan-appbar-title">
+              <span>{copy.currentPagePrefix}</span>
+              <h1>{currentPageLabel}</h1>
+            </div>
+            <div className="suiyuan-appbar-actions" aria-label="Workspace actions">
+              <button type="button" className="suiyuan-icon-action" aria-label={copy.workbench.notifications} title={copy.workbench.notifications} onClick={() => setActivePageFromSidebar('observability')}>
+                <Bell size={15} aria-hidden="true" />
+              </button>
+              <button type="button" className="suiyuan-icon-action" aria-label={copy.workbench.history} title={copy.workbench.history} onClick={() => setActivePageFromSidebar('chat')}>
+                <Clock3 size={15} aria-hidden="true" />
+              </button>
+              <button type="button" className="suiyuan-icon-action" aria-label={`${copy.workbench.switchThemePrefix}${themeLabel}`} title={themeLabel} onClick={toggleTheme}>
+                <ThemeIcon size={15} aria-hidden="true" />
+              </button>
+              <button type="button" className="suiyuan-locale-action" aria-label={copy.switchLanguage} title={copy.switchLanguage} onClick={toggleLocale}>
+                {locale.toUpperCase()}
+              </button>
+              <button type="button" className="suiyuan-profile-action" aria-label={copy.workbench.settings} title={copy.workbench.settings} onClick={() => setActivePageFromSidebar('settings')}>
+                <CircleUserRound size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </header>
+          <AppUpdateBanner copy={copy.update} updateBanner={updateBanner} />
+          <div className="suiyuan-main-canvas">
+            <Suspense fallback={<PageLoadingFallback />}>
+              <ActivePageContent
+                activePage={store.activePage}
+                copy={copy}
+                store={routeStore}
+                projectPath={projectPath}
+                memoryRevision={memoryBadge.memoryRevision}
+                setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
+                onWorkflowViewChange={handleWorkflowViewChange}
+                rightPanelOpen={rightPanelOpen}
+                setRightPanelOpen={setRightPanelOpen}
+              />
+            </Suspense>
+          </div>
+        </main>
+      </div>
+    </div>
   );
 }
 

@@ -61,6 +61,48 @@
   line-height: 1.35;
 }
 
+.chat-action-toast {
+  position: fixed;
+  top: 76px;
+  right: clamp(18px, 3vw, 36px);
+  z-index: 40;
+  width: min(440px, calc(100vw - 36px));
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--warning));
+  color: var(--text-pri);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  pointer-events: auto;
+}
+
+.chat-action-toast strong,
+.chat-action-toast span {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.chat-action-toast strong {
+  color: var(--text-pri);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.chat-action-toast span {
+  color: var(--text-sec);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chat-action-toast.is-error {
+  border-color: color-mix(in srgb, var(--error) 50%, var(--border));
+  background: color-mix(in srgb, var(--surface) 94%, var(--error));
+}
+
 .chat-header-tools {
   display: inline-flex;
   align-items: center;
@@ -289,7 +331,7 @@
 
 .message {
   width: var(--conversation-content-width);
-  margin: 18px auto;
+  margin: 12px auto;
 }
 
 .message.user {
@@ -299,10 +341,10 @@
 
 .message.user.no-avatar .bubble,
 .message.user .bubble {
-  max-width: min(626px, 72%);
+  max-width: min(720px, 78%);
   margin-left: auto;
-  border: 0;
-  border-radius: 20px 0 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
   background: var(--surface-3);
   color: var(--text-pri);
   box-shadow: none;
@@ -315,7 +357,7 @@
 
 .message.assistant:not(.approval-message).no-avatar .bubble,
 .message.assistant:not(.approval-message) .bubble {
-  max-width: min(1080px, 100%);
+  max-width: min(840px, 100%);
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -373,7 +415,7 @@
   width: 100%;
   margin: 0 auto;
   border: 1px solid color-mix(in srgb, var(--border) 88%, var(--surface));
-  border-radius: 30px;
+  border-radius: 20px;
   background: var(--composer-docked-bg, var(--surface));
   box-shadow: var(--composer-shadow);
   overflow: visible;
@@ -384,7 +426,7 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   border-color: var(--line);
-  border-radius: 28px;
+  border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
   overflow: visible;
@@ -392,13 +434,13 @@
 
 .composer textarea,
 .composer--floating textarea {
-  height: 104px;
-  min-height: 104px;
+  height: 76px;
+  min-height: 76px;
   max-height: calc(1.5em * 8 + 34px);
-  padding: 30px 44px 20px;
+  padding: 18px 20px 12px;
   border: 0;
   border-bottom: 1px solid var(--border);
-  border-radius: 36px 36px 0 0;
+  border-radius: 20px 20px 0 0;
   background: transparent;
   color: var(--text-pri);
   font-size: 16px;
@@ -407,9 +449,9 @@
 }
 
 .composer--floating textarea {
-  height: 136px;
-  min-height: 136px;
-  padding: 22px 26px 12px;
+  height: 76px;
+  min-height: 76px;
+  padding: 18px 20px 12px;
 }
 
 .composer textarea::placeholder {
@@ -423,11 +465,12 @@
 }
 
 .composer-meta {
-  min-height: 66px;
+  min-height: 48px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 28px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px 10px;
 }
 
 .composer-meta .project-select,
@@ -448,9 +491,35 @@
   max-width: 210px;
 }
 
+.composer-meta .project-select-wrap {
+  min-width: 0;
+  max-width: 210px;
+  flex: 0 1 210px;
+}
+
+.composer-meta .project-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.composer-meta .project-select span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-attach {
-  min-width: 42px;
-  width: 42px;
+  flex: 0 0 36px;
+  min-width: 36px;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -474,10 +543,10 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex: 1 1 0;
   justify-content: flex-end;
-  padding-left: 18px;
+  padding-left: 0;
 }
 
 .composer-model-wrap {
@@ -520,10 +589,11 @@
 }
 
 .composer .send {
-  flex: 0 0 42px;
-  width: 42px;
-  min-width: 42px;
-  height: 42px;
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
   margin-left: auto;
   border: 1px solid var(--primary-action-border);
   border-radius: 999px;
@@ -592,8 +662,9 @@
   }
 
   .sa-window .composer-attach {
-    min-width: 0;
-    padding: 0 14px;
+    min-width: 36px;
+    width: 36px;
+    padding: 0;
   }
 
   .shared-files-overview {
@@ -693,21 +764,23 @@
   }
 
   .sa-window .composer-meta {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     height: auto;
-    padding: 12px;
+    min-height: 48px;
+    padding: 6px 8px;
   }
 
   .sa-window .composer textarea,
   .sa-window .composer--floating textarea {
-    min-height: calc(1.5em * 3 + 28px);
-    padding: 24px 20px;
+    height: 76px;
+    min-height: 76px;
+    padding: 16px 16px 10px;
     font-size: 16px;
   }
 
   .sa-window .composer-meta .project-select-wrap {
     min-width: 0;
-    flex: 1 1 180px;
+    flex: 0 1 180px;
   }
 
   .sa-window .composer-meta .project-select {
@@ -715,8 +788,9 @@
   }
 
   .sa-window .composer-actions {
-    width: 100%;
-    margin-left: 0;
+    width: auto;
+    margin-left: auto;
+    flex: 1 1 auto;
   }
 
   .sa-window .composer-model {
@@ -746,38 +820,46 @@
   }
 
   .sa-window .composer-meta {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: nowrap;
     align-items: center;
   }
 
   .sa-window .composer-meta .project-select-wrap {
-    grid-column: 1 / -1;
-    width: 100%;
+    width: auto;
+    flex: 0 1 112px;
   }
 
-  .sa-window .composer-meta .project-select,
+  .sa-window .composer-meta .project-select {
+    width: auto;
+    max-width: 112px;
+  }
+
   .sa-window .composer-attach {
-    width: 100%;
+    width: 36px;
+    min-width: 36px;
   }
 
   .sa-window .composer-actions {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: inline-flex;
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
     align-items: center;
   }
 
   .sa-window .composer-model-wrap,
   .sa-window .composer-model {
-    width: 100%;
+    width: auto;
     max-width: 100%;
     min-width: 0;
   }
 
   .sa-window .composer .send {
-    width: 46px;
-    height: 46px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
     margin-left: 0;
     justify-self: end;
   }
@@ -785,16 +867,16 @@
 
 /* Keep the high-specificity light override aligned with exported Suiyuan tokens. */
 .sa-window[data-theme="light"].sa-window {
-  --bg: #fbf9f2;
+  --bg: #fbf9f3;
   --bg-elevated: #fbf9f3;
-  --app-bg: #fbf9f2;
+  --app-bg: #fbf9f3;
   --surface: #ffffff;
   --surface-2: #f5f4ed;
   --surface-3: #f0eee7;
   --surface-code: #f5f4ed;
   --overlay: color-mix(in srgb, var(--text-pri) 36%, transparent);
-  --border: rgba(224, 192, 179, 0.62);
-  --border-strong: rgba(139, 114, 104, 0.42);
+  --border: #e0c0b3;
+  --border-strong: #8b7268;
   --text-pri: #1b1c18;
   --text-sec: #584238;
   --text-muted: #8b7268;

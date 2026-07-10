@@ -13,6 +13,8 @@
     "ariaLabel": "燧元 Workbench",
     "search": "Search",
     "newChat": "New chat",
+    "notifications": "Notifications",
+    "history": "History",
     "resize": "Resize workbench sidebar",
     "settings": "Settings",
     "memoryBadgeTitle": "similar memories waiting to merge",
@@ -75,6 +77,34 @@
   },
   "chat": {
     "introTitle": "What should we build in 燧元?",
+    "introSubtitle": "Explore the possibilities of AI-driven interfaces. Start a conversation, analyze files, or orchestrate complex tasks.",
+    "introSuggestions": {
+      "summarizeDocument": {
+        "title": "Summarize Document",
+        "description": "Upload a PDF or text file and get a concise overview of key points.",
+        "prompt": "Please summarize this document, highlighting key conclusions, risks, and next steps."
+      },
+      "codeReview": {
+        "title": "Code Review",
+        "description": "Paste your snippet to check performance, correctness, and potential defects.",
+        "prompt": "Please review this code for performance, correctness, and maintainability issues."
+      },
+      "creativeBrainstorm": {
+        "title": "Creative Brainstorm",
+        "description": "Generate marketing copy, product names, or structured outlines.",
+        "prompt": "Please brainstorm a creative direction with a structure, alternatives, and trade-offs."
+      }
+    },
+    "sendFailedTitle": "Send failed",
+    "attachmentFailedTitle": "Attachment selection failed",
+    "actionFailedTitle": "Action failed",
+    "noticeTitle": "Notice",
+    "approvalFailed": "Approval action failed",
+    "composerDisclaimer": "Suiyuan AI can make mistakes. Consider verifying critical information.",
+    "processComplete": "Process",
+    "processRunning": "Running",
+    "processStepSingle": "step",
+    "processStepPlural": "steps",
     "scrollBottom": "Scroll to bottom",
     "showOlder": "Show older messages",
     "loadingOlder": "Loading older messages",
@@ -105,6 +135,7 @@
     "addProject": "Add project",
     "removeProject": "Remove project",
     "addFile": "Add file",
+    "attachLabel": "Attach",
     "customConfig": "Customize",
     "customConfigLabel": "Custom configuration",
     "customConfigTitle": "Custom configuration is waiting for backend integration",
@@ -497,7 +528,7 @@
   "skills": {
     "tabs": {
       "plugins": "MCP Tools",
-      "library": "skills",
+      "library": "Skills",
       "datasource": "Data Sources"
     },
     "pluginsTitle": "MCP Tools",

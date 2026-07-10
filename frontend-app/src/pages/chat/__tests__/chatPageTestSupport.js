@@ -125,7 +125,7 @@ function getThreadCardByName(name) {
   return card;
 }
 
-function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen = false }) {
+function TestChatPageWrapper({ copy, store, projectPath, rightPanelOpen: initialOpen = false }) {
   const [open, setOpen] = React.useState(initialOpen);
 
   return React.createElement(
@@ -137,6 +137,7 @@ function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen =
       '测试切换侧边栏',
     ),
     React.createElement(ChatPageComponent, {
+      copy,
       store,
       projectPath,
       rightPanelOpen: open,

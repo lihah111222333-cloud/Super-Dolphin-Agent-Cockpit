@@ -5,7 +5,6 @@ import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { activeThreadForStore, displayThreadName } from '../adapters/threadStateAdapter.js';
 import { ProjectSelector } from './ProjectSelector.jsx';
 import { runUIAction } from '../model/chatUiActions.js';
-import { chatHeaderFeedbackForStore } from '../model/chatHeaderModel.js';
 
 function restoreTriggerFocus(ref) {
   const focus = () => ref.current?.focus?.();
@@ -24,7 +23,6 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
   const canForceCompleteThread = typeof store?.hasForceCompleteThreadAction === 'function'
     ? Boolean(store.hasForceCompleteThreadAction())
     : canInterruptThread;
-  const feedback = chatHeaderFeedbackForStore(store);
   const activeThread = activeThreadForStore(store);
   const title = store?.activeThreadId && activeThread ? displayThreadName(activeThread) : '聊天页面';
   const setActionsMenuOpen = (isOpen) => {
@@ -129,11 +127,6 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           <RefreshCw size={14} />
         </button>
       </div>
-      {feedback?.message ? (
-        <output className={`action-feedback ${feedback.tone || 'info'}`} data-testid="chat-action-feedback">
-          {feedback.message}
-        </output>
-      ) : null}
     </header>
   );
 }

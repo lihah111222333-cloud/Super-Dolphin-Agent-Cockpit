@@ -51,10 +51,31 @@ describe('timelineRuntime', () => {
       role: 'user',
       text: '# AGENTS.md instructions for D:\\project\\Super-Dolphin\n<INSTRUCTIONS>rules</INSTRUCTIONS>',
     })).toBe(false);
+    expect(isVisibleTimelineItem({
+      role: 'user',
+      text: '<recommended_plugins>plugins</recommended_plugins># AGENTS.md instructions for D:\\project\\Super-Dolphin\n<INSTRUCTIONS>rules</INSTRUCTIONS>',
+    })).toBe(false);
+    expect(isVisibleTimelineItem({ role: 'user', text: '<recommended_plugins>plugins</recommended_plugins>' })).toBe(false);
     expect(isVisibleTimelineItem({ itemType: 'message', text: 'backend lifecycle item' })).toBe(false);
     expect(isVisibleTimelineItem({ role: 'assistant', kind: 'command', title: 'command' })).toBe(false);
     expect(isVisibleTimelineItem({ role: 'assistant', kind: 'command', title: '$ npm test' })).toBe(true);
     expect(isVisibleTimelineItem({ role: 'assistant', kind: 'thinking' })).toBe(true);
+  });
+
+  it('normalizes internal hook prompts as hidden control messages', () => {
+    const hookPrompt = normalizeTimelineItem({
+      id: 'hook-prompt',
+      role: 'user',
+      content: '<hook_prompt hook_run_id="stop:1">internal stop gate details</hook_prompt>',
+    });
+
+    expect(hookPrompt).toMatchObject({
+      id: 'hook-prompt',
+      role: 'user',
+      text: '',
+      controlOnly: true,
+    });
+    expect(isVisibleTimelineItem(hookPrompt)).toBe(false);
   });
 
   it('keeps backend approval requests visible even when the text is empty', () => {

@@ -1,0 +1,82 @@
+.turn-process {
+  width: var(--conversation-content-width);
+  max-width: var(--conversation-content-width);
+  margin: 10px auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  color: var(--text-sec);
+  overflow: hidden;
+}
+
+.turn-process > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.turn-process > summary::-webkit-details-marker {
+  display: none;
+}
+
+.turn-process-state {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.turn-process.is-active .turn-process-state {
+  border-color: var(--accent-2);
+  background: var(--accent-2);
+}
+
+.turn-process-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  transition: transform 160ms ease;
+}
+
+.turn-process[open] .turn-process-chevron {
+  transform: rotate(180deg);
+}
+
+.turn-process-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(480px, 52vh);
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 44%, transparent);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.turn-process-list > .message,
+.turn-process-list > .reasoning-message {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 7px 0;
+}
+
+.turn-process-list > .message .bubble {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-process-chevron {
+    transition: none;
+  }
+}

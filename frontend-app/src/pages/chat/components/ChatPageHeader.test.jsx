@@ -62,7 +62,7 @@ describe('ChatPageHeader', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('shows feedback from the header model', () => {
+  it('leaves feedback rendering to the page-level toast', () => {
     const store = createStore({ actionNotice: { message: 'Saved', tone: 'success' } });
 
     render(
@@ -74,6 +74,6 @@ describe('ChatPageHeader', () => {
       />
     );
 
-    expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('Saved');
+    expect(screen.queryByTestId('chat-action-feedback')).not.toBeInTheDocument();
   });
 });

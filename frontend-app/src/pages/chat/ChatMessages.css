@@ -31,29 +31,37 @@
   display: flex;
   gap: 14px;
   max-width: var(--conversation-content-width);
-  margin: 18px var(--conversation-content-right-gutter) 18px var(--conversation-content-left-gutter);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  margin: 12px var(--conversation-content-right-gutter) 12px var(--conversation-content-left-gutter);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .message.assistant {
-  background: var(--surface);
+  justify-content: flex-start;
+  background: transparent;
   color: var(--text-pri);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: none;
 }
 
 .message.user {
   flex-direction: row-reverse;
-  background: var(--surface-3);
+  justify-content: flex-start;
+  background: transparent;
   color: var(--text-pri);
   box-shadow: none;
 }
 
 .message.user .bubble {
+  width: fit-content;
   max-width: min(720px, 78%);
   margin-left: auto;
+  border-color: var(--line);
+  border-radius: 16px;
+  background: var(--surface-3);
+  padding: 12px 16px;
+  box-shadow: none;
 }
 
 .avatar {
@@ -98,9 +106,12 @@
 }
 
 .message.assistant .bubble {
-  max-width: min(760px, 100%);
+  width: 100%;
+  max-width: min(840px, 100%);
   background: transparent;
   border-color: transparent;
+  border-radius: 0;
+  padding: 8px 0 10px;
   box-shadow: none;
 }
 

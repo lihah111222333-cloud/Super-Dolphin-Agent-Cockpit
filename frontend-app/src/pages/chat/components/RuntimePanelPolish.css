@@ -1,16 +1,16 @@
-.log-lines {
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  margin: 16px !important;
-  padding: 14px 18px !important;
-  background: var(--surface-code) !important;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent) !important;
-  transition: all 0.3s ease;
+.runtime-panel .log-lines {
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 10px;
+  margin: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--surface-code) 72%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.log-lines:hover {
-  border-color: var(--border-strong) !important;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--text-pri) 4%, transparent) !important;
+.runtime-panel .log-lines:hover {
+  border-color: color-mix(in srgb, var(--border-strong) 82%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text-pri) 4%, transparent);
 }
 
 /* ==========================================================================

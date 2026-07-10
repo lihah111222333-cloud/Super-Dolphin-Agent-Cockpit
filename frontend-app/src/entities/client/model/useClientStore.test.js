@@ -191,6 +191,18 @@ function registerBridgeEventHandlersForTest() {
     })]);
   });
 
+  it('classifies composer file selection failures as attachment errors', async () => {
+    backend.selectFiles.mockRejectedValue(new Error('picker unavailable'));
+
+    await expect(useClientStore.getState().selectFilesForComposer()).resolves.toEqual([]);
+
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      category: 'attachment',
+      message: 'picker unavailable',
+      tone: 'error',
+    }));
+  });
+
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
     await useClientStore.getState().bootstrap();
 

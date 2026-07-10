@@ -14,10 +14,18 @@ function createStore(overrides = {}) {
   };
 }
 
+function renderProjectSelector(store) {
+  return render(
+    <div className="sa-window" data-theme="light">
+      <ProjectSelector store={store} projectPath="/repo/app" />
+    </div>,
+  );
+}
+
 describe('ProjectSelector', () => {
   it('selects, removes, and adds projects through the React Aria menu', async () => {
     const store = createStore();
-    render(<ProjectSelector store={store} projectPath="/repo/app" />);
+    renderProjectSelector(store);
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     const menu = await screen.findByRole('menu');
@@ -36,7 +44,7 @@ describe('ProjectSelector', () => {
 
   it('closes on Escape and restores focus to the project trigger', async () => {
     const store = createStore();
-    render(<ProjectSelector store={store} projectPath="/repo/app" />);
+    renderProjectSelector(store);
 
     const trigger = screen.getByRole('button', { name: '选择项目' });
     trigger.focus();
@@ -47,5 +55,16 @@ describe('ProjectSelector', () => {
     fireEvent.keyDown(document.activeElement || trigger, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
+  });
+
+  it('keeps the project menu inside the themed application shell', async () => {
+    const store = createStore();
+    const { container } = renderProjectSelector(store);
+
+    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
+    const popover = (await screen.findByRole('menu')).closest('.project-selector-popover');
+
+    expect(popover).not.toBeNull();
+    expect(container.querySelector('.sa-window')).toContainElement(popover);
   });
 });

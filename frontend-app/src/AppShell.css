@@ -1,3 +1,519 @@
+.sa-window.suiyuan-shell {
+  --workbench-sidebar-width: 280px;
+  background: var(--bg);
+}
+
+.sa-window.suiyuan-shell[data-theme="light"] {
+  --sidebar-bg: #fbf9f3;
+  --sidebar-border: #e0c0b3;
+  --sidebar-active: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  --primary-soft: color-mix(in srgb, var(--primary) 10%, var(--surface));
+}
+
+.sa-window.suiyuan-shell[data-theme="dark"] {
+  --suiyuan-background: #131411;
+  --suiyuan-surface-bright: #131411;
+  --suiyuan-surface-lowest: #1b1c18;
+  --suiyuan-surface-low: #1e1f1b;
+  --suiyuan-surface: #1e1f1b;
+  --suiyuan-surface-high: #292a25;
+  --suiyuan-surface-highest: #33342f;
+  --suiyuan-on-surface: #e5e2da;
+  --suiyuan-on-surface-variant: #d0c4bf;
+  --suiyuan-outline: #9f8d84;
+  --suiyuan-outline-variant: #504541;
+  --suiyuan-primary: #ffb597;
+  --suiyuan-primary-deep: #ff8a50;
+  --suiyuan-primary-fixed: rgba(255, 181, 151, 0.16);
+  --suiyuan-primary-fixed-dim: #ffb597;
+  --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
+  --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --sidebar-bg: #1b1c18;
+  --sidebar-border: #504541;
+  --sidebar-active: color-mix(in srgb, var(--primary) 14%, var(--surface-2));
+}
+
+.sa-body.suiyuan-shell-body {
+  height: 100vh;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.app-sidebar.suiyuan-sidebar {
+  position: relative;
+  width: 280px;
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 18px 18px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  color: var(--text-sec);
+  overflow: hidden;
+}
+
+.suiyuan-brand-block {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.suiyuan-brand-light-mark {
+  display: none;
+}
+
+.suiyuan-brand-block img {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.suiyuan-brand-meta {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.suiyuan-brand-meta strong {
+  color: var(--text-pri);
+  font-size: 17px;
+  font-weight: 780;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.suiyuan-brand-meta span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.suiyuan-sidebar-collapse {
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.suiyuan-sidebar-collapse:hover,
+.suiyuan-sidebar-collapse:focus-visible {
+  background: var(--surface-2);
+  color: var(--text-pri);
+}
+
+.suiyuan-new-chat {
+  width: 100%;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--primary-action-border);
+  border-radius: 999px;
+  padding: 0 18px;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
+  font-size: 13px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.suiyuan-new-chat:hover,
+.suiyuan-new-chat:focus-visible {
+  background: var(--primary-action-bg-hover);
+}
+
+.suiyuan-nav {
+  display: grid;
+  gap: 6px;
+}
+
+.suiyuan-chat-nav-group {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+}
+
+.suiyuan-chat-project-tree {
+  min-height: 0;
+  max-height: min(300px, 32vh);
+  margin-left: 10px;
+  padding-left: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border-left: 1px solid var(--sidebar-border);
+}
+
+.suiyuan-chat-project-tree .sidebar-project-tree {
+  min-height: 0;
+  padding-top: 2px;
+  overflow: visible;
+  border-top: 0;
+}
+
+.suiyuan-chat-project-tree .sidebar-section-heading {
+  min-height: 28px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.suiyuan-chat-project-tree .sidebar-tree-folder {
+  min-height: 30px;
+  gap: 6px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.suiyuan-chat-project-tree .sidebar-project-thread-list {
+  margin-left: 16px;
+  padding-left: 8px;
+}
+
+.suiyuan-chat-project-tree .sidebar-project-thread {
+  min-height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.suiyuan-nav-item,
+.suiyuan-footer-item {
+  position: relative;
+  width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  padding: 0 12px 0 14px;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.suiyuan-nav-item::before,
+.suiyuan-footer-item::before {
+  content: "";
+  position: absolute;
+  inset: 7px auto 7px 0;
+  width: 4px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
+.suiyuan-nav-item:hover,
+.suiyuan-nav-item:focus-visible,
+.suiyuan-footer-item:hover,
+.suiyuan-footer-item:focus-visible {
+  color: var(--text-pri);
+  background: var(--surface-2);
+}
+
+.suiyuan-nav-item.active,
+.suiyuan-footer-item.active {
+  color: var(--text-pri);
+  background: var(--primary-soft);
+}
+
+.suiyuan-nav-item.active::before,
+.suiyuan-footer-item.active::before {
+  width: 4px;
+  background: var(--primary);
+}
+
+.suiyuan-nav-item svg,
+.suiyuan-footer-item svg,
+.suiyuan-new-chat svg {
+  flex: 0 0 auto;
+  stroke-width: 2;
+}
+
+.suiyuan-nav-item span,
+.suiyuan-footer-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suiyuan-nav-item i {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.suiyuan-sidebar-footer {
+  margin-top: auto;
+  display: grid;
+  gap: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+.sa-window[data-theme="light"] .app-sidebar.suiyuan-sidebar {
+  border-right-color: color-mix(in srgb, var(--suiyuan-outline-variant) 30%, transparent);
+  color: var(--suiyuan-secondary);
+}
+
+.sa-window[data-theme="light"] .suiyuan-brand-meta strong {
+  color: var(--suiyuan-primary);
+}
+
+.sa-window[data-theme="light"] .suiyuan-brand-meta span {
+  color: var(--suiyuan-secondary);
+}
+
+.sa-window[data-theme="light"] .suiyuan-new-chat {
+  border: 0;
+  background: var(--suiyuan-primary);
+  color: var(--primary-action-text);
+  box-shadow: none;
+  opacity: 0.8;
+}
+
+.sa-window[data-theme="light"] .suiyuan-nav-item,
+.sa-window[data-theme="light"] .suiyuan-footer-item {
+  color: var(--suiyuan-secondary);
+}
+
+.sa-window[data-theme="light"] .suiyuan-nav-item.active,
+.sa-window[data-theme="light"] .suiyuan-footer-item.active {
+  color: var(--suiyuan-primary);
+  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent);
+}
+
+.sa-window[data-theme="light"] .suiyuan-sidebar-footer {
+  border-top-color: color-mix(in srgb, var(--suiyuan-outline-variant) 30%, transparent);
+}
+
+.suiyuan-footer-item:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.suiyuan-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.suiyuan-top-appbar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 20;
+  width: 100%;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 24px;
+  border-bottom: 0;
+  background: var(--bg);
+}
+
+.suiyuan-appbar-title {
+  min-width: 0;
+  margin-right: auto;
+  display: grid;
+  gap: 3px;
+}
+
+.suiyuan-appbar-title span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.suiyuan-appbar-title h1 {
+  min-width: 0;
+  max-width: min(420px, 42vw);
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-pri);
+  font-size: 16px;
+  font-weight: 780;
+  line-height: 1.25;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suiyuan-appbar-actions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.suiyuan-appbar-actions {
+  margin-left: auto;
+  gap: 8px;
+}
+
+.suiyuan-icon-action,
+.suiyuan-locale-action,
+.suiyuan-profile-action {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-sec);
+  padding: 0;
+  cursor: pointer;
+}
+
+.suiyuan-icon-action,
+.suiyuan-profile-action {
+  width: 30px;
+}
+
+.suiyuan-locale-action {
+  min-width: 30px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.suiyuan-icon-action:hover,
+.suiyuan-icon-action:focus-visible,
+.suiyuan-locale-action:hover,
+.suiyuan-locale-action:focus-visible,
+.suiyuan-profile-action:hover,
+.suiyuan-profile-action:focus-visible {
+  color: var(--text-pri);
+  background: var(--surface-2);
+}
+
+.suiyuan-main-canvas {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.suiyuan-main-canvas > .chat-page,
+.suiyuan-main-canvas > .console-page,
+.suiyuan-main-canvas > .workflow-page,
+.suiyuan-main-canvas > .memory-page,
+.suiyuan-main-canvas > .skills-tabbed-container,
+.suiyuan-main-canvas > .settings-page {
+  height: 100%;
+  min-height: 0;
+}
+
+.sa-window.suiyuan-shell .suiyuan-main-canvas > .console-page,
+.sa-window.suiyuan-shell .suiyuan-main-canvas > .workflow-page,
+.sa-window.suiyuan-shell .suiyuan-main-canvas > .memory-page,
+.sa-window.suiyuan-shell .suiyuan-main-canvas > .skills-tabbed-container,
+.sa-window.suiyuan-shell .suiyuan-main-canvas > .settings-page {
+  padding-top: 64px;
+}
+
+.sa-window.suiyuan-shell .chat-page-header {
+  min-height: 0;
+  padding-top: 12px;
+}
+
+.sa-window.suiyuan-shell .chat-page-title h1,
+.sa-window.suiyuan-shell .page-header > h1,
+.sa-window.suiyuan-shell .page-header > p,
+.sa-window.suiyuan-shell .prompt-header,
+.sa-window.suiyuan-shell .observability-page .settings-header {
+  display: none;
+}
+
+.sa-window.suiyuan-shell .page-header {
+  min-height: 0;
+  padding-block: 0;
+}
+
+.sa-window.suiyuan-shell .page-header .page-actions {
+  width: 100%;
+  margin-left: 0;
+}
+
+@media (max-width: 920px) {
+  .sa-body.suiyuan-shell-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-sidebar.suiyuan-sidebar {
+    --workbench-sidebar-width: min(320px, calc(100vw - 52px));
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 30;
+    width: var(--workbench-sidebar-width);
+    max-width: var(--workbench-sidebar-width);
+    margin-left: calc(-1 * var(--workbench-sidebar-width));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform: none;
+    transition: margin-left 180ms ease;
+    box-shadow: none;
+  }
+
+  .app-sidebar.suiyuan-sidebar.is-open {
+    margin-left: 0;
+    box-shadow: var(--shadow);
+  }
+
+  .suiyuan-top-appbar {
+    min-width: 0;
+    padding: 0 14px 0 64px;
+  }
+
+  .suiyuan-appbar-title h1 {
+    max-width: 34vw;
+    font-size: 15px;
+  }
+
+  .suiyuan-appbar-actions {
+    gap: 4px;
+  }
+}
+
 .nav-rail {
   background: var(--bg-elevated);
   border-right: 1px solid var(--line);

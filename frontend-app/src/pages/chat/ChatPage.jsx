@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
 } from './adapters/threadStateAdapter.js';
@@ -32,6 +33,65 @@ import './ChatReasoning.css';
 import './ChatPage.css';
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
+
+const INTRO_SUGGESTION_DEFINITIONS = Object.freeze([
+  { key: 'summarizeDocument', icon: FileText },
+  { key: 'codeReview', icon: Code2 },
+  { key: 'creativeBrainstorm', icon: Sparkles },
+]);
+
+function renderIntroTitle(title) {
+  const marker = '燧元';
+  const markerIndex = title.indexOf(marker);
+  if (markerIndex < 0) return title;
+
+  return (
+    <>
+      {title.slice(0, markerIndex)}
+      <em>{marker}</em>
+      {title.slice(markerIndex + marker.length)}
+    </>
+  );
+}
+
+function actionFeedbackTitle(feedback, copy) {
+  if (feedback?.tone !== 'error') return copy.noticeTitle;
+  if (feedback?.category === 'attachment') return copy.attachmentFailedTitle;
+  if (feedback?.category === 'send') return copy.sendFailedTitle;
+  return copy.actionFailedTitle;
+}
+
+function ChatIntroSpotlight({ copy, onSuggestion }) {
+  return (
+    <div className="chat-intro-spotlight" aria-labelledby="chat-intro-title" data-testid="chat-intro-spotlight">
+      <div className="chat-intro-spotlight__inner">
+        <div className="chat-intro-logo-tile" aria-hidden="true">
+          <Sailboat className="chat-intro-logo-light" data-testid="chat-intro-light-logo" size={28} strokeWidth={1.8} />
+          <Bot className="chat-intro-logo-dark" data-testid="chat-intro-dark-logo" size={28} strokeWidth={1.8} />
+        </div>
+        <h2 id="chat-intro-title" className="chat-intro-title" aria-label={copy.introTitle}>
+          <span aria-hidden="true">{renderIntroTitle(copy.introTitle)}</span>
+          <span className="sr-only">{copy.introTitle}</span>
+        </h2>
+        <p className="chat-intro-subtitle">{copy.introSubtitle}</p>
+        <div className="chat-intro-suggestions" data-testid="chat-intro-suggestions">
+          {INTRO_SUGGESTION_DEFINITIONS.map(({ key, icon: Icon }) => {
+            const suggestion = copy.introSuggestions[key];
+            return (
+              <button key={key} type="button" className="chat-intro-card" onClick={() => onSuggestion(suggestion.prompt)}>
+                <span className="chat-intro-card__icon" aria-hidden="true">
+                  <Icon size={17} strokeWidth={1.9} />
+                </span>
+                <span className="chat-intro-card__title">{suggestion.title}</span>
+                <span className="chat-intro-card__description">{suggestion.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function renderCodePreviewMarkdown(content) {
   return <CodePreviewMarkdown content={content} />;
@@ -164,8 +224,7 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
   const threadData = useChatThreadData(store, activeThreadId);
   const introMode = !activeThreadId && !threadData.timelineBlocked && threadData.messages.length === 0;
   const headerFeedback = chatHeaderFeedbackForStore(store);
-  const showHeader = !introMode || headerFeedback?.tone === 'error';
-  const showIntroFeedback = introMode && !showHeader && Boolean(headerFeedback?.message);
+  const showHeader = !introMode;
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
@@ -176,8 +235,8 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
     // 审批失败时由 ChatApprovalMessage 调用，通知 UI 显示错误
-    onError: (_event, detail) => { setApprovalNotice(detail || '审批操作失败'); },
-  }), [codePreview.openFileRef, codePreview.openLocalPath, store]);
+    onError: (_event, detail) => { setApprovalNotice(detail || copy.approvalFailed); },
+  }), [codePreview.openFileRef, codePreview.openLocalPath, copy.approvalFailed, store]);
   const viewportWidth = useViewportWidth();
   const chatLayoutRef = useRef(null);
   const rail = useThreadRailLayout({
@@ -205,11 +264,21 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
   const layoutColumns = rightPanelOpen
     ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : 'minmax(0, 1fr)';
+  const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
+  const prefillIntroSuggestion = (prompt) => {
+    store.setDraft(prompt);
+  };
 
   return (
     <section className={`chat-page${introMode ? ' chat-page--intro' : ''}`} data-testid="chat-page">
       {showHeader ? (
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
+      ) : null}
+      {headerFeedback?.message ? (
+        <output className={`chat-action-toast is-${headerFeedback.tone || 'info'}`} role="alert" data-testid="chat-action-feedback">
+          <strong>{actionFeedbackTitle(headerFeedback, copy)}</strong>
+          <span>{headerFeedback.message}</span>
+        </output>
       ) : null}
       {approvalNotice ? (
         <output className="approval-action-feedback" role="alert" data-testid="approval-action-feedback">
@@ -217,10 +286,11 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
         </output>
       ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
+        {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
         <ThreadRailResizer copy={copy} rail={rail} />
         <Conversation
-          copy={copy}
+          copy={conversationCopy}
           messages={threadData.messages}
           draft={store.draft}
           setDraft={store.setDraft}
@@ -261,11 +331,6 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
           width={rightPanelWidth}
         />
       </div>
-      {showIntroFeedback ? (
-        <output className="sr-only" data-testid="chat-action-feedback">
-          {headerFeedback.message}
-        </output>
-      ) : null}
       {codePreview.dialogs}
     </section>
   );

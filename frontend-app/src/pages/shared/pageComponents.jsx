@@ -36,9 +36,10 @@ function RetryableSyncError({ className = 'danger-text', message, onRetry }) {
   );
 }
 
-function Panel({ title, children }) {
+function Panel({ className = '', title, children }) {
+  const panelClassName = ['panel', className].filter(Boolean).join(' ');
   return (
-    <section className="panel">
+    <section className={panelClassName}>
       <h3>{title}</h3>
       <div>{children}</div>
     </section>
