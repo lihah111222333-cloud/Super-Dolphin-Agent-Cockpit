@@ -61,7 +61,8 @@ internal/module/dashboard/service_test.go	internal	modules	go-test	25008	dashboa
 internal/module/dashboard/service.go	internal	modules	go-source	13733	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,读模型与,UI,RPC,服务
 internal/module/dashboard/shared_files_rpc_test.go	internal	modules	go-test	7203	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,shared,files,rpc,test,读模型与,UI,RPC,服务
 internal/module/dashboard/skill_inventory_test.go	internal	modules	go-test	2591	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,skill,inventory,test,读模型与,UI,RPC,服务
-internal/module/dashboard/types.go	internal	modules	go-source	5351	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,types,读模型与,UI,RPC,服务
+internal/module/dashboard/types_json_test.go	internal	modules	go-test	651	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,types,json,test,读模型与,UI,RPC,服务
+internal/module/dashboard/types.go	internal	modules	go-source	5341	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,types,读模型与,UI,RPC,服务
 internal/module/dashboard/ui_page.go	internal	modules	go-source	19312	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,ui,page,读模型与,UI,RPC,服务
 internal/module/dashboard/wire_dto_contract_test.go	internal	modules	go-test	8893	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,wire,dto,contract,test,读模型与,UI,RPC,服务
 internal/module/dashboard/wire_dto.go	internal	modules	go-source	10652	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,wire,dto,读模型与,UI,RPC,服务
@@ -591,7 +592,7 @@ internal/module/threadprompt/providers_test.go	internal	modules	go-test	20835	�
 internal/module/threadprompt/providers.go	internal	modules	go-source	14786	业务模块层	internal,module,threadprompt,providers,业务模块层
 internal/module/threadprompt/runtime_catalog_inference_test.go	internal	modules	go-test	6747	业务模块层	internal,module,threadprompt,runtime,catalog,inference,test,业务模块层
 internal/module/threadprompt/runtime_catalog_test.go	internal	modules	go-test	22986	业务模块层	internal,module,threadprompt,runtime,catalog,test,业务模块层
-internal/module/threadprompt/runtime_catalog.go	internal	modules	go-source	19663	业务模块层	internal,module,threadprompt,runtime,catalog,业务模块层
+internal/module/threadprompt/runtime_catalog.go	internal	modules	go-source	19604	业务模块层	internal,module,threadprompt,runtime,catalog,业务模块层
 internal/module/threadprompt/runtime_intent.go	internal	modules	go-source	5145	业务模块层	internal,module,threadprompt,runtime,intent,业务模块层
 internal/module/threadprompt/runtime_provider_test.go	internal	modules	go-test	3064	业务模块层	internal,module,threadprompt,runtime,provider,test,业务模块层
 internal/module/threadprompt/types.go	internal	modules	go-source	4180	业务模块层	internal,module,threadprompt,types,业务模块层

@@ -82,7 +82,7 @@ type TurnRef struct {
 	ThreadID  string    `json:"thread_id,omitempty"`
 	AgentID   string    `json:"agent_id,omitempty"`
 	Status    string    `json:"status,omitempty"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // LogFilter 指定日志查询的统一过滤条件。

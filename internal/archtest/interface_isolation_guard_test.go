@@ -21,9 +21,7 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	budgets := []interfaceBudget{
-		{relPath: "internal/module/thread/module.go", name: "threadServiceStorePort", maxMethods: 10, maxEmbedded: 0},
-		{relPath: "internal/module/thread/module.go", name: "bindingServiceStorePort", maxMethods: 9, maxEmbedded: 0},
+	budgets := append(threadInterfaceIsolationBudgets(), []interfaceBudget{
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "Store", maxMethods: 0, maxEmbedded: 7},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "OrchestrationStore", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "DAGMutationStore", maxMethods: 2, maxEmbedded: 1},
@@ -35,7 +33,7 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 12},
 		{relPath: "cmd/mcp-lsp/multilsp/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-lsp/manager/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 8},
-	}
+	}...)
 
 	var violations []string
 	for _, budget := range budgets {
@@ -49,40 +47,6 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 				"%s:%s has %d direct methods / %d embedded ports, budget is <=%d / <=%d; split consumers before adding methods",
 				budget.relPath, budget.name, methods, embedded, budget.maxMethods, budget.maxEmbedded,
 			))
-		}
-	}
-	failIfViolations(t, violations)
-}
-
-func TestThreadServiceDropsUnusedStoreDependencies(t *testing.T) {
-	t.Parallel()
-
-	root := repoRoot(t)
-	const modulePath = "internal/module/thread/module.go"
-	const servicePath = "internal/module/thread/service.go"
-	const constructorPath = "internal/module/thread/service_constructor.go"
-	var violations []string
-	for _, name := range []string{"sharedFileServiceStorePort", "promptServiceStorePort"} {
-		if _, _, ok := interfaceShape(t, root, modulePath, name); ok {
-			violations = append(violations, fmt.Sprintf("%s: unused interface %s must be removed", modulePath, name))
-		}
-	}
-	for _, field := range []string{"sharedFiles", "promptStore"} {
-		if actual, ok := structFieldType(t, root, servicePath, "service", field); ok {
-			violations = append(violations, fmt.Sprintf("%s: unused service.%s dependency must be removed, got %s", servicePath, field, actual))
-		}
-	}
-	for _, check := range []struct {
-		funcName string
-		param    string
-	}{
-		{funcName: "NewServiceWithPromptAssemblyAndSharedFiles", param: "sharedFiles"},
-		{funcName: "NewServiceWithPromptAssemblyAndSharedFiles", param: "promptStore"},
-		{funcName: "newService", param: "sharedFiles"},
-		{funcName: "newService", param: "promptStore"},
-	} {
-		if actual, ok := functionParamType(t, root, constructorPath, check.funcName, check.param); ok {
-			violations = append(violations, fmt.Sprintf("%s: unused %s.%s dependency must be removed, got %s", constructorPath, check.funcName, check.param, actual))
 		}
 	}
 	failIfViolations(t, violations)
@@ -191,66 +155,6 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	}
 	// provideHostToolRegistry.svc check removed in skill refactor P3 Task 3.
 	// V1 no longer exposes skill_read_section through the Codex host registry.
-	failIfViolations(t, violations)
-}
-
-func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
-	t.Parallel()
-
-	root := repoRoot(t)
-	const moduleRelPath = "internal/module/dashboard/module.go"
-	var violations []string
-
-	fieldChecks := []struct {
-		field string
-		want  string
-	}{
-		{field: "AgentStatuses", want: "AgentStatusReader"},
-		{field: "SystemLogs", want: "SystemLogReader"},
-		{field: "AuditLogs", want: "AuditLogReader"},
-		{field: "BusLogs", want: "BusLogReader"},
-		{field: "AILogs", want: "AILogReader"},
-		{field: "DBQueries", want: "DBQueryExecutor"},
-		{field: "CommandCards", want: "CommandCardReader"},
-		{field: "Prompts", want: "PromptTemplateReader"},
-		{field: "SharedFiles", want: "SharedFileReader"},
-	}
-	for _, check := range fieldChecks {
-		actual, ok := structFieldType(t, root, moduleRelPath, "serviceParams", check.field)
-		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s not found", moduleRelPath, check.field))
-			continue
-		}
-		if actual != check.want {
-			violations = append(violations, fmt.Sprintf("%s: serviceParams.%s must depend on dashboard %s, got %s; keep store readers behind dashboard adapters", moduleRelPath, check.field, check.want, actual))
-		}
-	}
-
-	adapterChecks := []struct {
-		funcName  string
-		paramName string
-		want      string
-	}{
-		{funcName: "adaptAgentStatusReader", paramName: "store", want: "agentstatusstore.Store"},
-		{funcName: "adaptSystemLogReader", paramName: "store", want: "systemlogstore.Store"},
-		{funcName: "adaptAuditLogReader", paramName: "store", want: "auditlogstore.Store"},
-		{funcName: "adaptBusLogReader", paramName: "store", want: "buslogstore.Store"},
-		{funcName: "adaptAILogReader", paramName: "store", want: "ailogstore.Store"},
-		{funcName: "adaptDBQueryExecutor", paramName: "store", want: "dbquerystore.Store"},
-		{funcName: "adaptCommandCardReader", paramName: "reader", want: "commandcardstore.Reader"},
-		{funcName: "adaptPromptTemplateReader", paramName: "reader", want: "promptstore.Reader"},
-		{funcName: "adaptSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
-	}
-	for _, check := range adapterChecks {
-		actual, ok := functionParamType(t, root, moduleRelPath, check.funcName, check.paramName)
-		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", moduleRelPath, check.funcName, check.paramName))
-			continue
-		}
-		if actual != check.want {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s must be the only %s adapter input, got %s", moduleRelPath, check.funcName, check.paramName, check.want, actual))
-		}
-	}
 	failIfViolations(t, violations)
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -403,10 +404,8 @@ func runtimeNormalizedTags(tags []string) []string {
 }
 
 func runtimeAppendTagIfMissing(tags []string, tag string) []string {
-	for _, current := range tags {
-		if current == tag {
-			return tags
-		}
+	if slices.Contains(tags, tag) {
+		return tags
 	}
 	return append(tags, tag)
 }
@@ -542,10 +541,7 @@ func limitRuntimeTemplates(templates []PromptTemplate, limit int32) []PromptTemp
 	}
 	out := make([]PromptTemplate, 0, int(limit))
 	out = append(out, protected...)
-	remaining := int(limit) - len(out)
-	if remaining > len(others) {
-		remaining = len(others)
-	}
+	remaining := min(int(limit)-len(out), len(others))
 	return append(out, others[:remaining]...)
 }
 

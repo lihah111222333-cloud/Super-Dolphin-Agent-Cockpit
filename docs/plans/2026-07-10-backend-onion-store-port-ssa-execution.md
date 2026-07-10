@@ -152,9 +152,11 @@ B4 dashboard
 | Thread/threadprompt 还有 prompt 与 toolbridge 反向测试消费者 | 接受 | 两个精确测试文件归 Lane A，Lane A GREEN 跑完整 consumer packages |
 | dashboard Reader adapter 的动态 Writer capability 可能丢失 | 接受 | B4 增加有/无 Upserter 与真实 `WriteWorkflowMaterial` 三条行为测试 |
 | A/C/D RED 只看非零可能把编译或 setup 错误当成功 | 接受 | 先 guarded `-list`，再要求 violation token 并拒绝 build/setup/load 错误；Lane C loader 先 GREEN |
+| `test_with_guard.sh` 会先执行未过滤的全量 archtest， intentional RED 无法到达精确 `-list/-run` | 接受 | A/C/D 的 guarded `-list` 与 RED 改用只预跑 CodeSizeGuard、随后透传精确参数的 `go_with_guard.sh test`；实现后的全量 GREEN 仍使用 `test_with_guard.sh` |
 | 26/12、22/10 基线只打印未断言 | 接受 | shell 对行数、唯一文件数与 basename 做硬断言 |
 | `git status ??` 不能证明 unrelated 内容未变 | 接受 | 对四个精确文件记录并复核 type/mode/size/SHA256，且证明未 tracked/未与集成 diff 重叠 |
 | canonical RED wrapper 被复用于 GREEN 会必然失败 | 接受 | Step 5 仅收 RED，Step 6 使用普通零退出 GREEN 命令 |
+| 空 Fx bundle 以 package global 声明会触发 `internal/app` 的 `global_vars=0` 守卫 | 接受 | 使用仓库已有的 function seam：两个无参函数返回 `fx.Option`，`app.Module` 调用函数；不增加豁免 |
 | 最终裸 `git diff --check` 看不到已提交结果 | 接受 | 检查 `REMOTE_BASE_SHA..INTEGRATION_SHA` 并单独证明 integration tree clean |
 | lane 集成原语不确定 | 接受 | 固定按 A→B 提交序列→C 精确 SHA `cherry-pick`，记录每次集成后 SHA |
 | 应继续拆成四个以上 lane | 不采纳 | 用户明确要求 3 个工作树；通过 Lane B checkpoint 串行收敛复杂度 |
@@ -166,6 +168,7 @@ B4 dashboard
 - 主 agent 为 Task 0/D/E 启动一个持久 Bash controller session：`/bin/bash --noprofile --norc`。所有 controller Git 命令只在该 session 内执行；全文所有 `bash` block 都必须兼容 macOS 自带 Bash 3.2，禁止 zsh 专用数组展开、只读变量名或下标语义。session 丢失时停止，重新读取当前 repo/branch/HEAD/remote/lane SHA 并与已报告证据逐项相等后才可恢复。
 - worker 不继承 controller 环境。每个派发消息必须写入绝对 worktree、branch、`LANE_BASE_SHA`、owned files 和精确 commit 输出要求。
 - worker 也必须使用 `/bin/bash --noprofile --norc`。每个 `bash` block 第一行必须是 `set -euo pipefail`。预期 RED 的命令必须显式捕获非零状态，不能让 `set -e` 杀死 controller session；预期零匹配的 `rg` 必须区分 exit 0、1、>=2。
+- intentional RED 的 guarded test-list 与精确 RED 统一使用 `./scripts/go_with_guard.sh test ...`，因为它只预跑 CodeSizeGuard 后透传目标参数；实现后的 package/full GREEN 统一恢复为 `./scripts/test_with_guard.sh ...`，不得用 RED wrapper 替代完整守卫。
 - Task D 固定使用精确 SHA `cherry-pick`，不用模糊 branch merge，也不混用 merge/cherry-pick。主 agent 记录 `A_SHA`、有序 `B_SHAS`、`C_SHA` 以及每次 cherry-pick 后的新 integration SHA。
 
 ---
@@ -188,6 +191,7 @@ B4 dashboard
 - Modify: `internal/module/threadprompt/runtime_catalog_test.go`
 - Modify: `internal/module/dashboard/types.go`
 - Create: `internal/module/dashboard/types_json_test.go`
+- Modify on discovered executable correction: `docs/plans/2026-07-10-backend-onion-store-port-ssa-execution.md`
 - Preserve unrelated untracked files exactly as found
 
 - [ ] **Step 1: 记录 Git 与 dirty 边界**
@@ -346,17 +350,21 @@ package app
 
 import "go.uber.org/fx"
 
-var threadStoreAdaptersModule = fx.Options()
+func threadStoreAdaptersModule() fx.Option {
+	return fx.Options()
+}
 
 // internal/app/business_store_adapters_module.go
 package app
 
 import "go.uber.org/fx"
 
-var businessStoreAdaptersModule = fx.Options()
+func businessStoreAdaptersModule() fx.Option {
+	return fx.Options()
+}
 ```
 
-将 `threadStoreAdaptersModule`、`businessStoreAdaptersModule` 加入现有 `app.Module` 的 options；Lane A/B 后续只修改各自 bundle 文件，用 `fx.Provide` / `fx.Invoke` 登记自己的 adapter，不再等待 Task D 修改根清单。
+将 `threadStoreAdaptersModule()`、`businessStoreAdaptersModule()` 加入现有 `app.Module` 的 options。必须使用函数而不是 package global，保持 `internal/app` 的 `global_vars=0` 守卫；Lane A/B 后续只修改各自 bundle 函数的返回值，用 `fx.Options` 组合 `fx.Provide` / `fx.Invoke`，不再等待 Task D 修改根清单。
 
 Run:
 
@@ -369,7 +377,7 @@ assert_integration_tree
 ./scripts/test_with_guard.sh ./internal/app -run '^TestAppModuleGraphIsClosed$' -count=1
 ```
 
-Expected: guard 拆分前后测试集合和结果一致，两个空 bundle 不改变当前 Fx 图。禁止顺手修改业务断言。
+Expected: guard 拆分前后测试集合和结果一致，两个空 function bundle 不改变当前 Fx 图，`global_vars` 守卫仍为零。禁止顺手修改业务断言。
 
 - [ ] **Step 7: 精确提交并证明共同 seam**
 
@@ -390,7 +398,8 @@ git add -A -- \
   internal/module/threadprompt/runtime_catalog.go \
   internal/module/threadprompt/runtime_catalog_test.go \
   internal/module/dashboard/types.go \
-  internal/module/dashboard/types_json_test.go
+  internal/module/dashboard/types_json_test.go \
+  docs/plans/2026-07-10-backend-onion-store-port-ssa-execution.md
 
 git diff --cached --name-only
 git commit -m 'refactor(archtest): 预拆后端边界执行接缝'
@@ -415,6 +424,7 @@ while IFS= read -r path; do
     internal/module/threadprompt/runtime_catalog_test.go|\
     internal/module/dashboard/types.go|\
     internal/module/dashboard/types_json_test.go|\
+    docs/plans/2026-07-10-backend-onion-store-port-ssa-execution.md|\
     README.md|\
     docs/doc/codemap/13-archtest-boundaries.md|\
     docs/doc/codemap/README.md|\
@@ -430,7 +440,8 @@ for required in \
   internal/app/business_store_adapters_module.go \
   internal/archtest/interface_isolation_thread_guard_test.go \
   internal/archtest/interface_isolation_dashboard_guard_test.go \
-  internal/archtest/dependency_optional_thread_boundary_test.go; do
+  internal/archtest/dependency_optional_thread_boundary_test.go \
+  docs/plans/2026-07-10-backend-onion-store-port-ssa-execution.md; do
   printf '%s\n' "$seam_paths" | grep -Fx "$required" >/dev/null
 done
 export LANE_BASE_SHA=$SEAM_SHA
@@ -529,7 +540,7 @@ Run:
 
 ```bash
 set -euo pipefail
-./scripts/test_with_guard.sh ./internal/archtest \
+./scripts/go_with_guard.sh test ./internal/archtest \
   -list '^(TestThreadPersistencePortsOwnTheirDTOs|TestThreadPortsDoNotUseAny)$' \
   > /tmp/thread-port-red-list.txt
 test "$(grep -c '^TestThreadPersistencePortsOwnTheirDTOs$' /tmp/thread-port-red-list.txt)" -eq 1
@@ -537,7 +548,7 @@ test "$(grep -c '^TestThreadPortsDoNotUseAny$' /tmp/thread-port-red-list.txt)" -
 
 red_output=$(mktemp)
 set +e
-./scripts/test_with_guard.sh ./internal/archtest \
+./scripts/go_with_guard.sh test ./internal/archtest \
   -run '^(TestThreadPersistencePortsOwnTheirDTOs|TestThreadPortsDoNotUseAny)$' \
   -count=1 >"$red_output" 2>&1
 red_status=$?
@@ -807,7 +818,7 @@ set -euo pipefail
 
 Expected: PASS；保存为迁移前行为基线。
 
-每个 checkpoint 内的每个模块都必须先新增一个可观察的 RED：至少包含 adapter constructor/接口满足性测试，以及对有 DTO 转换模块的自动 exported-field 覆盖测试；涉及 not-found、nil、optional、transaction 的模块必须各有行为测试。只运行 `rg` 不算 RED。每完成一个模块就同步把 provider 加入 `businessStoreAdaptersModule`，并在 Lane B 自己的分支验证真实 App Fx 图，不允许推迟到 Task D。
+每个 checkpoint 内的每个模块都必须先新增一个可观察的 RED：至少包含 adapter constructor/接口满足性测试，以及对有 DTO 转换模块的自动 exported-field 覆盖测试；涉及 not-found、nil、optional、transaction 的模块必须各有行为测试。只运行 `rg` 不算 RED。每完成一个模块就同步把 provider 加入 `businessStoreAdaptersModule()` 的返回 option，并在 Lane B 自己的分支验证真实 App Fx 图，不允许推迟到 Task D。
 
 所有由 `internal/app` 实现的 exported Port 都必须满足“跨包可实现”：方法参数、返回值、callback 参数和需要 `errors.Is` 识别的 sentinel 必须 exported。每个 adapter 文件增加编译期断言，例如 `var _ cron.Store = (*cronStoreAdapter)(nil)`；测试必须从 `package app` 或 `package app_test` 编译这些断言，模块同包 fake 不能替代此证明。
 
@@ -1062,14 +1073,14 @@ ordinary import-related string           -> allow
 
 ```bash
 set -euo pipefail
-./scripts/test_with_guard.sh ./internal/archtest \
+./scripts/go_with_guard.sh test ./internal/archtest \
   -list '^TestBackendBoundarySingleSourceSSAFixtures$' \
   > /tmp/backend-boundary-red-list.txt
 test "$(grep -c '^TestBackendBoundarySingleSourceSSAFixtures$' /tmp/backend-boundary-red-list.txt)" -eq 1
 
 red_output=$(mktemp)
 set +e
-./scripts/test_with_guard.sh ./internal/archtest \
+./scripts/go_with_guard.sh test ./internal/archtest \
   -run '^TestBackendBoundarySingleSourceSSAFixtures$' -count=1 \
   >"$red_output" 2>&1
 red_status=$?
@@ -1261,7 +1272,7 @@ cherry_pick_exact() {
 
 - [ ] **Step 1: 复核并合并 Lane A**
 
-检查：Thread-owned DTO 无 Store alias、app adapter 字段完整、`any` 归零、optional/fail-fast 语义不变，`threadStoreAdaptersModule` 已让 Lane A 自身 App 图闭合。合并后运行 Thread、App focused tests 和 LSP diagnostics。
+检查：Thread-owned DTO 无 Store alias、app adapter 字段完整、`any` 归零、optional/fail-fast 语义不变，`threadStoreAdaptersModule()` 已让 Lane A 自身 App 图闭合。合并后运行 Thread、App focused tests 和 LSP diagnostics。
 
 ```bash
 set -euo pipefail
@@ -1273,7 +1284,7 @@ test "$(git -C "$INTEGRATION_TREE" rev-parse HEAD)" = "$INTEGRATION_AFTER_A"
 
 - [ ] **Step 2: 复核并合并 Lane B**
 
-检查每个 Module production import 为零、adapter 只位于 App、Store 未反向 import Module、`businessStoreAdaptersModule` 在 Lane B 分支已闭合、所有 exported Port 可由 `package app` 实现、错误映射与 nil 语义有测试。发现 private DTO/sentinel、字段扩写或跨模块 Port 上提时必须回到真实消费者引用裁决。按 Step 1 的固定协议处理并刷新 hook-owned 生成物。
+检查每个 Module production import 为零、adapter 只位于 App、Store 未反向 import Module、`businessStoreAdaptersModule()` 在 Lane B 分支已闭合、所有 exported Port 可由 `package app` 实现、错误映射与 nil 语义有测试。发现 private DTO/sentinel、字段扩写或跨模块 Port 上提时必须回到真实消费者引用裁决。按 Step 1 的固定协议处理并刷新 hook-owned 生成物。
 
 ```bash
 set -euo pipefail
@@ -1287,7 +1298,7 @@ export INTEGRATION_AFTER_B=$(git -C "$INTEGRATION_TREE" rev-parse HEAD)
 
 - [ ] **Step 3: 复核 App 两个 bundle 的最终 provider 集合**
 
-`internal/app/modules.go` 在 Task 0 后只引用两个 bundle，不在集成阶段重新复制 provider 清单。主 agent 复核 `threadStoreAdaptersModule`、`businessStoreAdaptersModule` 的最终 provider/invoke 集合，确保每个 Module 收到原有必需/optional 能力；未知或缺失的必需 Store 让 Fx 启动失败。
+`internal/app/modules.go` 在 Task 0 后只调用两个 bundle function，不在集成阶段重新复制 provider 清单。主 agent 复核 `threadStoreAdaptersModule()`、`businessStoreAdaptersModule()` 的最终 provider/invoke 集合，确保每个 Module 收到原有必需/optional 能力；未知或缺失的必需 Store 让 Fx 启动失败。
 
 登记完成后立即运行：
 
@@ -1317,7 +1328,7 @@ Run:
 ```bash
 set -euo pipefail
 assert_integration_tree
-./scripts/test_with_guard.sh ./internal/archtest \
+./scripts/go_with_guard.sh test ./internal/archtest \
   -list '^(TestModuleNoStoreImportsUsesCanonicalRule|TestModuleNoStoreImportsRejectsFixture)$' \
   > /tmp/module-store-canonical-red-list.txt
 test "$(grep -c '^TestModuleNoStoreImportsUsesCanonicalRule$' /tmp/module-store-canonical-red-list.txt)" -eq 1
@@ -1325,7 +1336,7 @@ test "$(grep -c '^TestModuleNoStoreImportsRejectsFixture$' /tmp/module-store-can
 
 red_output=$(mktemp)
 set +e
-./scripts/test_with_guard.sh ./internal/archtest \
+./scripts/go_with_guard.sh test ./internal/archtest \
   -run '^(TestModuleNoStoreImportsUsesCanonicalRule|TestModuleNoStoreImportsRejectsFixture)$' \
   -count=1 >"$red_output" 2>&1
 red_status=$?
