@@ -6,6 +6,9 @@ type BoundaryOwnerID string
 // BoundaryRuleID 标识一条稳定的后端边界规则。
 type BoundaryRuleID string
 
+// BoundaryGuardID 标识一个有真实 Go 测试入口的专项边界守卫。
+type BoundaryGuardID string
+
 // BoundaryRuleKind 标识规则求值方式。
 type BoundaryRuleKind string
 
@@ -56,8 +59,26 @@ const (
 
 // BackendBoundaryRegistry 是后端边界规则的唯一事实源。
 type BackendBoundaryRegistry struct {
-	Owners []BackendBoundaryOwner
-	Rules  []BackendBoundaryRule
+	Owners   []BackendBoundaryOwner
+	Rules    []BackendBoundaryRule
+	Guards   []BackendBoundaryGuard
+	Surfaces []BackendBoundarySurface
+}
+
+// BackendBoundaryGuard 描述专项守卫的稳定入口和治理原因。
+type BackendBoundaryGuard struct {
+	ID        BoundaryGuardID
+	File      string
+	TestNames []string
+	Reason    string
+}
+
+// BackendBoundarySurface 把后端顶层目录绑定到 canonical rule 或专项守卫。
+type BackendBoundarySurface struct {
+	Path     string
+	RuleIDs  []BoundaryRuleID
+	GuardIDs []BoundaryGuardID
+	Reason   string
 }
 
 // BackendBoundaryOwner 描述一个可审计的规则拥有者及其生产源码范围。
@@ -153,6 +174,7 @@ func OnionBoundaryRuleIDs() []BoundaryRuleID {
 		"hooks_no_mcpcontrol",
 		"mcpcontrol_no_hooks",
 		"hooks_no_platform_db",
+		"pkg_no_internal_imports",
 	}
 }
 
@@ -174,6 +196,7 @@ func CrossDomainBoundaryRuleIDs() []BoundaryRuleID {
 		"hooks_no_mcpcontrol",
 		"mcpcontrol_no_hooks",
 		"hooks_no_platform_db",
+		"pkg_no_internal_imports",
 	}
 }
 
@@ -181,8 +204,10 @@ func CrossDomainBoundaryRuleIDs() []BoundaryRuleID {
 func defaultBackendBoundaryRegistry() BackendBoundaryRegistry {
 	patterns := defaultBackendBoundaryPatterns()
 	return BackendBoundaryRegistry{
-		Owners: defaultBackendBoundaryOwners(patterns),
-		Rules:  defaultBackendBoundaryRules(patterns),
+		Owners:   defaultBackendBoundaryOwners(patterns),
+		Rules:    defaultBackendBoundaryRules(patterns),
+		Guards:   defaultBackendBoundaryGuards(),
+		Surfaces: defaultBackendBoundarySurfaces(),
 	}
 }
 
@@ -201,6 +226,7 @@ type backendBoundaryPatterns struct {
 	mcpIDA    []string
 	hooks     []string
 	mcpctrl   []string
+	pkg       []string
 }
 
 func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
@@ -219,6 +245,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		mcpIDA:    []string{"cmd/mcp-ida/**/*.go"},
 		hooks:     []string{"internal/platform/hooks/**/*.go"},
 		mcpctrl:   []string{"internal/platform/mcpcontrol/**/*.go"},
+		pkg:       []string{"pkg/**/*.go"},
 	}
 }
 
@@ -234,6 +261,7 @@ func defaultBackendBoundaryOwners(patterns backendBoundaryPatterns) []BackendBou
 		{ID: "fx_assembly", FilePatterns: patterns.fx, Reason: "Fx belongs only to typed assembly scopes"},
 		{ID: "mcpserver_family", FilePatterns: combineBoundaryPatterns(patterns.mcpOrch, patterns.mcpIDA), Reason: "MCP server families must not couple to sibling tool implementations"},
 		{ID: "platform_control_boundary", FilePatterns: combineBoundaryPatterns(patterns.hooks, patterns.mcpctrl), Reason: "hooks and MCP control stay decoupled and hooks do not own database lifecycle"},
+		{ID: "public_pkg_boundary", FilePatterns: patterns.pkg, Reason: "public pkg libraries must remain reusable without depending on repository internals or commands"},
 	}
 }
 
@@ -255,6 +283,7 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultHooksMCPControlRule(patterns),
 		defaultMCPControlHooksRule(patterns),
 		defaultHooksDatabaseRule(patterns),
+		defaultPublicPkgRule(patterns),
 	}
 }
 
@@ -435,6 +464,10 @@ func defaultHooksDatabaseRule(patterns backendBoundaryPatterns) BackendBoundaryR
 	return BackendBoundaryRule{ID: "hooks_no_platform_db", Owner: "platform_control_boundary", Reason: "hooks must not own database lifecycle in production or test helpers", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.hooks, Deny: boundaryPolicies("platform_control_boundary", patterns.hooks, []string{"internal/platform/db"}, "hooks must consume ports instead of database lifecycle"), SkipTestFiles: false}
 }
 
+func defaultPublicPkgRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: "pkg_no_internal_imports", Owner: "public_pkg_boundary", Reason: "public pkg libraries must not depend on repository internals or command entrypoints", Kind: BoundaryRuleDenyImports, FilePatterns: patterns.pkg, Deny: boundaryPolicies("public_pkg_boundary", patterns.pkg, []string{"internal", "cmd"}, "public pkg libraries must remain reusable outside the repository"), SkipTestFiles: true}
+}
+
 // boundaryFilePolicy 从注册范围派生文件模式，避免调用方另建宽泛白名单。
 func boundaryFilePolicy(owner BoundaryOwnerID, scope BoundaryScopeID, reason string) BoundaryFilePolicy {
 	// 未注册 scope 故意保留空 pattern，由统一 registry validator 在求值前失败关闭。
@@ -458,7 +491,7 @@ func boundaryScopeFilePattern(scope BoundaryScopeID) (string, bool) {
 	case BoundaryScopeFXMCPIDA:
 		return "cmd/mcp-ida/**/*.go", true
 	case BoundaryScopeFXCommandEntrypoint:
-		return "cmd/*/*.go", true
+		return "cmd/*/main.go", true
 	case BoundaryScopeFXMCPLSP:
 		return "cmd/mcp-lsp/fx.go", true
 	default:
@@ -519,14 +552,22 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 
 func cloneBackendBoundaryRegistry(registry BackendBoundaryRegistry) BackendBoundaryRegistry {
 	cloned := BackendBoundaryRegistry{
-		Owners: make([]BackendBoundaryOwner, len(registry.Owners)),
-		Rules:  make([]BackendBoundaryRule, len(registry.Rules)),
+		Owners:   make([]BackendBoundaryOwner, len(registry.Owners)),
+		Rules:    make([]BackendBoundaryRule, len(registry.Rules)),
+		Guards:   make([]BackendBoundaryGuard, len(registry.Guards)),
+		Surfaces: make([]BackendBoundarySurface, len(registry.Surfaces)),
 	}
 	for i, owner := range registry.Owners {
 		cloned.Owners[i] = BackendBoundaryOwner{ID: owner.ID, FilePatterns: append([]string(nil), owner.FilePatterns...), Reason: owner.Reason}
 	}
 	for i, rule := range registry.Rules {
 		cloned.Rules[i] = cloneBackendBoundaryRule(rule)
+	}
+	for i, guard := range registry.Guards {
+		cloned.Guards[i] = BackendBoundaryGuard{ID: guard.ID, File: guard.File, TestNames: append([]string(nil), guard.TestNames...), Reason: guard.Reason}
+	}
+	for i, surface := range registry.Surfaces {
+		cloned.Surfaces[i] = BackendBoundarySurface{Path: surface.Path, RuleIDs: append([]BoundaryRuleID(nil), surface.RuleIDs...), GuardIDs: append([]BoundaryGuardID(nil), surface.GuardIDs...), Reason: surface.Reason}
 	}
 	return cloned
 }

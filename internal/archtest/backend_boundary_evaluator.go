@@ -42,6 +42,7 @@ func ValidateBackendBoundaryRegistry(registry BackendBoundaryRegistry) []string 
 			ruleIDs[rule.ID] = true
 		}
 	}
+	violations = append(violations, validateBackendBoundaryGovernanceRegistry(registry)...)
 	return violations
 }
 
@@ -152,6 +153,9 @@ func isSupportedBackendBoundaryPattern(pattern string) bool {
 		}
 	}
 	if base, ok := strings.CutSuffix(pattern, "/*/*.go"); ok {
+		return base != "" && !strings.ContainsAny(base, "*?[]")
+	}
+	if base, ok := strings.CutSuffix(pattern, "/*/main.go"); ok {
 		return base != "" && !strings.ContainsAny(base, "*?[]")
 	}
 	return false
@@ -453,9 +457,15 @@ func evaluateBackendBoundaryPaths(root string, paths []string, rules []BackendBo
 
 type backendBoundaryCandidate struct {
 	rel       string
-	imports   []string
+	imports   []backendBoundaryImport
 	rules     []BackendBoundaryRule
 	generated bool
+}
+
+type backendBoundaryImport struct {
+	path   string
+	line   int
+	column int
 }
 
 // parseBackendBoundaryCandidate 仅解析至少命中一条规则的源码，生成文件保持排除证据而不参与判断。
@@ -576,18 +586,24 @@ func collectBackendBoundaryGoFiles(root string) ([]string, error) {
 	return files, nil
 }
 
-func parseBackendBoundaryImports(path string, data []byte) ([]string, error) {
-	node, err := parser.ParseFile(token.NewFileSet(), path, data, 0)
+// parseBackendBoundaryImports 解析导入路径及其字符串字面量的精确源码位置。
+func parseBackendBoundaryImports(path string, data []byte) ([]backendBoundaryImport, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, data, 0)
 	if err != nil {
 		return nil, err
 	}
-	imports := make([]string, 0, len(node.Imports))
+	imports := make([]backendBoundaryImport, 0, len(node.Imports))
 	for _, spec := range node.Imports {
 		imp, err := strconv.Unquote(spec.Path.Value)
 		if err != nil {
 			return nil, fmt.Errorf("unquote import %s: %w", spec.Path.Value, err)
 		}
-		imports = append(imports, imp)
+		position := fset.PositionFor(spec.Path.Pos(), false)
+		if !position.IsValid() || position.Line <= 0 || position.Column <= 0 {
+			return nil, fmt.Errorf("locate import %s in %s", spec.Path.Value, path)
+		}
+		imports = append(imports, backendBoundaryImport{path: imp, line: position.Line, column: position.Column})
 	}
 	return imports, nil
 }
@@ -606,7 +622,7 @@ func applicableBackendBoundaryRules(rules []BackendBoundaryRule, rel string) []B
 }
 
 // evaluateBackendBoundaryRule 按已验证的 typed kind 分派规则，未知 kind 仍失败关闭。
-func evaluateBackendBoundaryRule(rule BackendBoundaryRule, rel string, imports []string) []string {
+func evaluateBackendBoundaryRule(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
 	switch rule.Kind {
 	case BoundaryRuleDenyImports:
 		return denyImportViolations(rule, rel, imports)
@@ -623,10 +639,10 @@ func evaluateBackendBoundaryRule(rule BackendBoundaryRule, rel string, imports [
 	}
 }
 
-func denyImportViolations(rule BackendBoundaryRule, rel string, imports []string) []string {
+func denyImportViolations(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
 	var violations []string
 	for _, imp := range imports {
-		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp) && !backendBoundaryExceptionAllows(rule.Exceptions, rel, imp) {
+		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) && !backendBoundaryExceptionAllows(rule.Exceptions, rel, imp.path) {
 			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
 		}
 	}
@@ -634,27 +650,27 @@ func denyImportViolations(rule BackendBoundaryRule, rel string, imports []string
 }
 
 // allowInternalImportViolations 只对白名单外的内部或 cmd 导入报告违规，保留外部依赖边界。
-func allowInternalImportViolations(rule BackendBoundaryRule, rel string, imports []string) []string {
+func allowInternalImportViolations(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
 	var violations []string
 	for _, imp := range imports {
-		if !isBackendBoundaryInternalOrCmdImport(imp) || isOwnMCPCommandImport(rel, imp) {
+		if !isBackendBoundaryInternalOrCmdImport(imp.path) || isOwnMCPCommandImport(rel, imp.path) {
 			continue
 		}
-		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp) || !matchesBackendBoundaryPolicy(rule.Allow, rel, imp) {
+		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) || !matchesBackendBoundaryPolicy(rule.Allow, rel, imp.path) {
 			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
 		}
 	}
 	return violations
 }
 
-func moduleSiblingImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []string) []string {
+func moduleSiblingImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
 	owner, ok := backendBoundaryModuleOwner(rel)
 	if !ok {
 		return nil
 	}
 	var violations []string
 	for _, imp := range imports {
-		importOwner, ok := backendBoundaryImportedModuleOwner(imp)
+		importOwner, ok := backendBoundaryImportedModuleOwner(imp.path)
 		if ok && importOwner != owner {
 			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
 		}
@@ -662,13 +678,13 @@ func moduleSiblingImportViolationsForRule(rule BackendBoundaryRule, rel string, 
 	return violations
 }
 
-func scopedImportViolations(rule BackendBoundaryRule, rel string, imports []string) []string {
+func scopedImportViolations(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
 	var violations []string
 	for _, imp := range imports {
-		if !matchesBackendBoundaryPolicy(rule.Deny, rel, imp) {
+		if !matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) {
 			continue
 		}
-		if matchesBackendBoundaryFilePolicy(rule.ScopeAllow, rel) || backendBoundaryExceptionAllows(rule.Exceptions, rel, imp) {
+		if matchesBackendBoundaryFilePolicy(rule.ScopeAllow, rel) || backendBoundaryExceptionAllows(rule.Exceptions, rel, imp.path) {
 			continue
 		}
 		violations = append(violations, backendBoundaryViolation(rule, rel, imp))
@@ -677,10 +693,10 @@ func scopedImportViolations(rule BackendBoundaryRule, rel string, imports []stri
 }
 
 // storeImportViolationsForRule 保留 store 同 owner 内聚，同时拒绝 registry 未登记的横向和外部依赖。
-func storeImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []string) []string {
+func storeImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
 	var violations []string
 	for _, imp := range imports {
-		if isBackendBoundaryStdlibImport(imp) || isSameBackendBoundaryStorePackage(rel, imp) || matchesBackendBoundaryStorePolicy(rule.Allow, rel, imp) {
+		if isBackendBoundaryStdlibImport(imp.path) || isSameBackendBoundaryStorePackage(rel, imp.path) || matchesBackendBoundaryStorePolicy(rule.Allow, rel, imp.path) {
 			continue
 		}
 		violations = append(violations, backendBoundaryViolation(rule, rel, imp))
@@ -761,25 +777,47 @@ func matchesAnyBackendBoundaryPattern(patterns []string, rel string) bool {
 func matchesBackendBoundaryPattern(pattern, rel string) bool {
 	pattern = filepath.ToSlash(strings.TrimPrefix(pattern, "./"))
 	rel = filepath.ToSlash(strings.TrimPrefix(rel, "./"))
+	if matched, handled := matchesBackendBoundaryRecursivePattern(pattern, rel); handled {
+		return matched
+	}
+	if matched, handled := matchesBackendBoundaryDirectPattern(pattern, rel); handled {
+		return matched
+	}
+	return rel == pattern
+}
+
+// matchesBackendBoundaryRecursivePattern 求值受支持的递归目录模式。
+func matchesBackendBoundaryRecursivePattern(pattern, rel string) (bool, bool) {
 	switch {
 	case strings.HasSuffix(pattern, "/**/module.go"):
 		base := strings.TrimSuffix(pattern, "/**/module.go")
-		return strings.HasPrefix(rel, base+"/") && filepath.Base(rel) == "module.go"
+		return strings.HasPrefix(rel, base+"/") && filepath.Base(rel) == "module.go", true
 	case strings.HasSuffix(pattern, "/**/*.go"):
 		base := strings.TrimSuffix(pattern, "/**/*.go")
-		return strings.HasPrefix(rel, base+"/") && strings.HasSuffix(rel, ".go")
-	case strings.HasSuffix(pattern, "/*/*.go"):
-		base := strings.TrimSuffix(pattern, "/*/*.go")
-		if !strings.HasPrefix(rel, base+"/") || !strings.HasSuffix(rel, ".go") {
-			return false
-		}
-		return strings.Count(strings.TrimPrefix(rel, base+"/"), "/") == 1
+		return strings.HasPrefix(rel, base+"/") && strings.HasSuffix(rel, ".go"), true
 	case strings.HasSuffix(pattern, "/**"):
 		base := strings.TrimSuffix(pattern, "/**")
-		return rel == base || strings.HasPrefix(rel, base+"/")
+		return rel == base || strings.HasPrefix(rel, base+"/"), true
 	default:
-		return rel == pattern
+		return false, false
 	}
+}
+
+// matchesBackendBoundaryDirectPattern 求值 cmd 直属文件和 main.go 入口模式。
+func matchesBackendBoundaryDirectPattern(pattern, rel string) (bool, bool) {
+	suffix, requiredName := "/*/*.go", ""
+	switch {
+	case strings.HasSuffix(pattern, "/*/main.go"):
+		suffix, requiredName = "/*/main.go", "main.go"
+	case !strings.HasSuffix(pattern, suffix):
+		return false, false
+	}
+	base := strings.TrimSuffix(pattern, suffix)
+	if !strings.HasPrefix(rel, base+"/") || !strings.HasSuffix(rel, ".go") {
+		return false, true
+	}
+	nameMatches := requiredName == "" || filepath.Base(rel) == requiredName
+	return nameMatches && strings.Count(strings.TrimPrefix(rel, base+"/"), "/") == 1, true
 }
 
 // matchesBackendBoundaryImportPrefix 统一处理仓库内前缀、cmd 前缀和外部完整导入路径。
@@ -788,7 +826,7 @@ func matchesBackendBoundaryImportPrefix(imp, prefix string) bool {
 	if prefix == "frontend-app" {
 		return strings.Contains(imp, "/frontend-app") || strings.HasPrefix(imp, "frontend-app")
 	}
-	if prefix == "cmd" || strings.HasPrefix(prefix, "cmd/") || strings.HasPrefix(prefix, "internal/") {
+	if prefix == "cmd" || prefix == "internal" || strings.HasPrefix(prefix, "cmd/") || strings.HasPrefix(prefix, "internal/") {
 		prefix = backendBoundaryModulePath + "/" + prefix
 	}
 	return imp == prefix || strings.HasPrefix(imp, prefix+"/")
@@ -855,6 +893,6 @@ func backendBoundaryImportedModuleOwner(imp string) (string, bool) {
 	return strings.Split(strings.TrimPrefix(imp, prefix), "/")[0], true
 }
 
-func backendBoundaryViolation(rule BackendBoundaryRule, rel, imp string) string {
-	return fmt.Sprintf("%s imports %s (rule=%s owner=%s reason=%s)", rel, imp, rule.ID, rule.Owner, rule.Reason)
+func backendBoundaryViolation(rule BackendBoundaryRule, rel string, imp backendBoundaryImport) string {
+	return fmt.Sprintf("%s:%d:%d imports %s (rule=%s owner=%s reason=%s)", rel, imp.line, imp.column, imp.path, rule.ID, rule.Owner, rule.Reason)
 }

@@ -95,7 +95,7 @@ import (
 			source: `package fixture
 import _ "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 `,
-			wantHits: []string{"internal/module/thread/service.go imports github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"},
+			wantHits: []string{"internal/module/thread/service.go:2:10 imports github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"},
 		},
 		{
 			name:    "mcp_sidecar_direct_module_dependency",
@@ -104,7 +104,7 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 			source: `package fixture
 import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 `,
-			wantHits: []string{"cmd/mcp-orch/main.go imports", "internal/module/thread"},
+			wantHits: []string{"cmd/mcp-orch/main.go:2:10 imports", "internal/module/thread"},
 		},
 		mcpRPCHostImportFixture(),
 		{
@@ -114,7 +114,7 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 			source: `package fixture
 import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 `,
-			wantHits: []string{"internal/platform/toolbridge/handler.go imports", "internal/module/thread"},
+			wantHits: []string{"internal/platform/toolbridge/handler.go:2:10 imports", "internal/module/thread"},
 		},
 		{
 			name:    "sqlc_outside_persistence",
@@ -123,7 +123,7 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 			source: `package fixture
 import _ "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 `,
-			wantHits: []string{"internal/module/thread/service.go imports", "internal/store/sqlc"},
+			wantHits: []string{"internal/module/thread/service.go:2:10 imports", "internal/store/sqlc"},
 		},
 	}
 	for _, tc := range cases {
@@ -146,6 +146,33 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	}
 }
 
+func TestBackendBoundaryViolationUsesPhysicalImportPosition(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "fixture.go")
+	source := `package fixture
+
+//line generated.go:900
+import _ "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	violations, err := archtest.EvaluateBackendBoundaryFile(
+		path,
+		"internal/contract/leak.go",
+		archtest.DefaultBackendBoundaryRegistry(),
+		"contract_reverse_pollution",
+	)
+	if err != nil {
+		t.Fatalf("EvaluateBackendBoundaryFile(): %v", err)
+	}
+	got := strings.Join(violations, "\n")
+	if !strings.Contains(got, "internal/contract/leak.go:4:10 imports") {
+		t.Fatalf("violation does not use physical import position:\n%s", got)
+	}
+}
+
 func mcpRPCHostImportFixture() boundaryViolationFixture {
 	return boundaryViolationFixture{
 		name:    "mcp_sidecar_rpc_host_import",
@@ -154,7 +181,7 @@ func mcpRPCHostImportFixture() boundaryViolationFixture {
 		source: `package fixture
 import _ "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc/server"
 `,
-		wantHits: []string{"cmd/mcp-orch/main.go imports", "internal/platform/rpc/server"},
+		wantHits: []string{"cmd/mcp-orch/main.go:2:10 imports", "internal/platform/rpc/server"},
 	}
 }
 

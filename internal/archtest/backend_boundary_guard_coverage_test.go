@@ -225,6 +225,60 @@ func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 	}
 }
 
+func TestEvaluateBackendBoundaryFileReportsImportPosition(t *testing.T) {
+	t.Parallel()
+
+	registry := DefaultBackendBoundaryRegistry()
+	cases := []struct {
+		name       string
+		source     string
+		wantPrefix string
+	}{
+		{
+			name:       "single_import",
+			source:     "package contract\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n",
+			wantPrefix: "internal/contract/leak.go:3:10 imports ",
+		},
+		{
+			name:       "import_block",
+			source:     "package contract\n\nimport (\n    _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n)\n",
+			wantPrefix: "internal/contract/leak.go:4:7 imports ",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			relPath := "internal/contract/leak.go"
+			path := writeBackendBoundaryFixture(t, t.TempDir(), relPath, tc.source)
+			violations, err := EvaluateBackendBoundaryFile(path, relPath, registry, "contract_reverse_pollution")
+			if err != nil {
+				t.Fatalf("evaluate fixture: %v", err)
+			}
+			if len(violations) != 1 {
+				t.Fatalf("violations = %v, want exactly one", violations)
+			}
+			if !strings.HasPrefix(violations[0], tc.wantPrefix) {
+				t.Fatalf("violation = %q, want prefix %q", violations[0], tc.wantPrefix)
+			}
+		})
+	}
+}
+
+func TestPkgNoInternalImportsRuleRejectsRepositoryInternals(t *testing.T) {
+	t.Parallel()
+
+	relPath := "pkg/logger/leak.go"
+	source := "package logger\n\nimport (\n    _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/config\"\n    _ \"github.com/anthropic-ai/super-agent-v3/cmd/agent-runtime\"\n    _ \"log/slog\"\n)\n"
+	path := writeBackendBoundaryFixture(t, t.TempDir(), relPath, source)
+	violations, err := EvaluateBackendBoundaryFile(path, relPath, DefaultBackendBoundaryRegistry(), "pkg_no_internal_imports")
+	if err != nil {
+		t.Fatalf("evaluate pkg boundary fixture: %v", err)
+	}
+	if len(violations) != 2 {
+		t.Fatalf("violations = %v, want internal and cmd imports only", violations)
+	}
+}
+
 func writeBackendBoundaryFixture(t *testing.T, root, relPath, source string) string {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relPath))
