@@ -5,9 +5,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
 )
 
 const mcpOrchRPCHostSymbols = ",ApprovalManager,CallbackClient,Dispatch,HTTPRoute,HTTPRouteResult,Module,NewApprovalManager,NewPushBridge,NewServer,NotifyAll,NotifyClient,OnConnect,Params,PushBridge,Register,Run,Server,WSHandler,"
@@ -19,23 +23,12 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	if len(files) == 0 {
 		t.Skip("directory not yet created")
 	}
-	t.Run("allowed_internal_boundary", func(t *testing.T) {
-		rule := mustBoundaryRule(t, boundaryRuleMCPOrchAllowed)
-		allowed := boundaryImportPrefixes(rule.AllowedImportPrefixes)
-		forbidden := boundaryImportPrefixes(rule.DisallowedImportPrefixes)
-		var violations []string
-		for _, dep := range goListDeps(t, root, mcpOrchPkg) {
-			if (!strings.HasPrefix(dep, modulePath+"/internal/") && !strings.HasPrefix(dep, modulePath+"/cmd/")) || strings.HasPrefix(dep, modulePath+"/"+mcpOrchPkg) {
-				continue
-			}
-			if hasAllowedPrefix(dep, forbidden) || !hasAllowedPrefix(dep, allowed) {
-				violations = append(violations, fmt.Sprintf("%s depends on %s outside allowed boundary (rule=%s owner=%s)", mcpOrchPkg, dep, rule.ID, rule.Owner))
-			}
-		}
-		failIfViolations(t, violations)
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	t.Run("direct_internal_boundary", func(t *testing.T) {
+		assertMCPOrchDirectImportBoundary(t, files, registry)
 	})
-	t.Run("no_direct_other_cmd_imports", func(t *testing.T) {
-		assertNoImportPrefixes(t, files, []string{modulePath + "/cmd/agent-terminal", modulePath + "/cmd/mcp-lsp", modulePath + "/cmd/mcp-ida"})
+	t.Run("transitive_internal_boundary", func(t *testing.T) {
+		assertMCPOrchTransitiveImportBoundary(t, root, registry)
 	})
 	t.Run("rpc_client_mode_only", func(t *testing.T) { assertNoRPCHostSelectors(t, files) })
 	t.Run("module_no_reverse_mcp_imports", func(t *testing.T) {
@@ -44,6 +37,76 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module"), []string{modulePath + "/" + mcpOrchPkg, modulePath + "/cmd/mcp-lsp", modulePath + "/cmd/mcp-ida"})
 	})
+}
+
+func assertMCPOrchDirectImportBoundary(t *testing.T, files []parsedFile, registry archtest.BackendBoundaryRegistry) {
+	t.Helper()
+	var violations []string
+	for _, file := range files {
+		fileViolations, err := archtest.EvaluateBackendBoundaryFile(
+			file.AbsPath,
+			file.RelPath,
+			registry,
+			"mcp_sidecar_narrow_import_surface",
+		)
+		if err != nil {
+			t.Fatalf("EvaluateBackendBoundaryFile(%s): %v", file.RelPath, err)
+		}
+		violations = append(violations, fileViolations...)
+	}
+	failIfViolations(t, violations)
+}
+
+func assertMCPOrchTransitiveImportBoundary(t *testing.T, root string, registry archtest.BackendBoundaryRegistry) {
+	t.Helper()
+	imports := mcpOrchBoundaryImports(goListDeps(t, root, mcpOrchPkg))
+	if len(imports) == 0 {
+		return
+	}
+	path := filepath.Join(t.TempDir(), "mcp_orch_transitive.go")
+	if err := os.WriteFile(path, []byte(mcpOrchImportFixtureSource(imports)), 0o600); err != nil {
+		t.Fatalf("write transitive fixture: %v", err)
+	}
+	violations, err := archtest.EvaluateBackendBoundaryFile(
+		path,
+		mcpOrchPkg+"/main.go",
+		registry,
+		"mcp_sidecar_narrow_import_surface",
+	)
+	if err != nil {
+		t.Fatalf("EvaluateBackendBoundaryFile(transitive): %v", err)
+	}
+	failIfViolations(t, violations)
+}
+
+func mcpOrchBoundaryImports(dependencies []string) []string {
+	var imports []string
+	for _, dependency := range dependencies {
+		if !isMCPOrchBoundaryImport(dependency) {
+			continue
+		}
+		imports = append(imports, dependency)
+	}
+	return imports
+}
+
+func isMCPOrchBoundaryImport(dependency string) bool {
+	if strings.HasPrefix(dependency, modulePath+"/"+mcpOrchPkg) {
+		return false
+	}
+	return strings.HasPrefix(dependency, modulePath+"/internal/") || strings.HasPrefix(dependency, modulePath+"/cmd/")
+}
+
+func mcpOrchImportFixtureSource(imports []string) string {
+	var source strings.Builder
+	source.WriteString("package fixture\nimport (\n")
+	for _, importPath := range imports {
+		source.WriteString("\t_ ")
+		source.WriteString(strconv.Quote(importPath))
+		source.WriteString("\n")
+	}
+	source.WriteString(")\n")
+	return source.String()
 }
 
 func assertNoRPCHostSelectors(t *testing.T, files []parsedFile) {
