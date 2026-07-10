@@ -83,7 +83,7 @@ func (q *SubmissionQueue) Clear() {
 }
 
 func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
-	return s.agentRegistry().agentForLaunchLocked(req, s.newAgentLocked)
+	return s.registry.agentForLaunchLocked(req, s.newAgentLocked)
 }
 
 func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRuntime) error {
@@ -122,10 +122,6 @@ func (s *service) normalizeLaunchStateLocked(ctx context.Context, agent *agentRu
 	default:
 		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerRecoverRequested)
 	}
-}
-
-func (s *service) turnIDFor(sub TurnSubmission) string {
-	return s.agentRegistry().turnIDFor(sub)
 }
 
 func launchPort(req LaunchRequest) int {

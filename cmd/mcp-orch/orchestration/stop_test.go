@@ -191,7 +191,7 @@ func TestWaitForProcessExitReturnsErrorWhenForceKillFails(t *testing.T) {
 	agent.launchSeq = 1
 	svc.registry.agents[agent.id] = agent
 
-	if err := svc.waitForProcessExit(context.Background(), agent.id, agent.launchSeq); err == nil {
+	if err := svc.lifecycle.waitForProcessExit(context.Background(), svc.logger, agent.id, agent.launchSeq); err == nil {
 		t.Fatal("waitForProcessExit() error = nil, want force-kill failure")
 	}
 }
@@ -303,10 +303,10 @@ func TestRequestAgentStopKeepsOriginalReasonOnRepeat(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	svc.registry.agents[agent.id] = agent
 
-	if _, err := svc.requestAgentStop(context.Background(), agent.id, "shutdown"); err != nil {
+	if _, err := svc.lifecycle.requestAgentStop(context.Background(), agent.id, "shutdown", svc); err != nil {
 		t.Fatalf("requestAgentStop(first) error = %v", err)
 	}
-	if _, err := svc.requestAgentStop(context.Background(), agent.id, "user_requested"); err != nil {
+	if _, err := svc.lifecycle.requestAgentStop(context.Background(), agent.id, "user_requested", svc); err != nil {
 		t.Fatalf("requestAgentStop(second) error = %v", err)
 	}
 	if !agent.stopRequested {
@@ -325,8 +325,8 @@ func TestRemoveSessionGenerationAwareCleanerDoesNotFallbackToCurrent(t *testing.
 	agent := svc.newAgentLocked("agent-1")
 	agent.sessionGeneration = 11
 
-	svc.removeSession(agent)
-	svc.removeSession(agent)
+	svc.lifecycle.removeSession(agent)
+	svc.lifecycle.removeSession(agent)
 
 	if cleaner.removeCurrentCalls != 0 {
 		t.Fatalf("removeCurrentCalls = %d, want 0", cleaner.removeCurrentCalls)

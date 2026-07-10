@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"strings"
-	"time"
 
 	"go.uber.org/fx"
 )
@@ -62,17 +64,28 @@ type launcherLaunchAttempt struct {
 	forkParent  agentRuntime
 }
 
+type lifecycleLaunchPort interface {
+	applyLaunchRequestDefaults(ctx context.Context, req LaunchRequest) (LaunchRequest, error)
+	prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error)
+	finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error
+	submitInitialLaunchPromptOrStop(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error
+}
+
 // launchAgentViaLauncher 走 launcher 启动 agent，并在启动成功后提交初始 prompt。
 func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest) error {
-	req, err := s.applyLaunchRequestDefaults(ctx, req)
+	return s.lifecycle.launchAgentViaLauncher(ctx, s, req)
+}
+
+func (c *lifecycleController) launchAgentViaLauncher(ctx context.Context, owner lifecycleLaunchPort, req LaunchRequest) error {
+	req, err := owner.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
 		return err
 	}
-	agentID, result, err := s.launchAgentUntilStarted(ctx, req)
+	agentID, result, err := c.launchAgentUntilStarted(ctx, owner, req)
 	if err != nil {
 		return err
 	}
-	return s.submitInitialLaunchPromptOrStop(ctx, agentID, result, req)
+	return owner.submitInitialLaunchPromptOrStop(ctx, agentID, result, req)
 }
 
 // LaunchAgentSnapshot 返回代理启动器当前持有的运行快照。
@@ -86,7 +99,7 @@ func (s *service) launchAgentSnapshot(ctx context.Context, req LaunchRequest, be
 	if err != nil {
 		return AgentSnapshot{}, err
 	}
-	agentID, result, err := s.launchAgentUntilStarted(ctx, req)
+	agentID, result, err := s.lifecycle.launchAgentUntilStarted(ctx, s, req)
 	if err != nil {
 		return AgentSnapshot{}, err
 	}
@@ -128,30 +141,30 @@ func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequ
 }
 
 // launchAgentUntilStarted 准备启动 attempt，并按重试策略等待 launcher 返回启动结果。
-func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (string, LaunchResult, error) {
-	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
+func (c *lifecycleController) launchAgentUntilStarted(ctx context.Context, owner lifecycleLaunchPort, req LaunchRequest) (string, LaunchResult, error) {
+	attempt, handled, err := owner.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
 		return "", LaunchResult{}, err
 	}
-	return s.launchWithRetry(ctx, attempt, req)
+	return c.launchWithRetry(ctx, owner, attempt, req)
 }
 
 // launchWithRetry 带退避重试地执行 launcher 启动，失败后由 launcherrors 策略决定是否重试。
-func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (string, LaunchResult, error) {
+func (c *lifecycleController) launchWithRetry(ctx context.Context, owner lifecycleLaunchPort, attempt launcherLaunchAttempt, req LaunchRequest) (string, LaunchResult, error) {
 	var lastErr error
 	launchStartedAt := time.Now()
 	pkglogger.Info("orchestration: launch attempt sequence start", pkglogger.String(pkglogger.FieldAgentID, attempt.agentID), pkglogger.Int64("max_retries", int64(launcherrors.MaxRetries)))
 	for i := range launcherrors.MaxRetries {
 		if i > 0 {
 			if err := launcherrors.WaitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
-				return "", LaunchResult{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
+				return "", LaunchResult{}, owner.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
 			}
 		}
 		attemptStartedAt := time.Now()
-		result, launchErr := s.startLauncherAttempt(ctx, &attempt, req)
+		result, launchErr := c.startLauncherAttempt(ctx, &attempt, req)
 		if launchErr == nil {
 			pkglogger.Info("orchestration: launch attempt succeeded", pkglogger.String(pkglogger.FieldAgentID, attempt.agentID), pkglogger.Int64("attempt", int64(i+1)), pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()), pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
-			if err := s.finishLauncherLaunch(ctx, attempt, result, nil); err != nil {
+			if err := owner.finishLauncherLaunch(ctx, attempt, result, nil); err != nil {
 				return "", LaunchResult{}, err
 			}
 			return shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result, nil
@@ -162,15 +175,15 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 			break
 		}
 	}
-	return "", LaunchResult{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
+	return "", LaunchResult{}, owner.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
 }
 
 // startLauncherAttempt 根据 context mode 选择普通 launch 或 fork launch。
-func (s *service) startLauncherAttempt(ctx context.Context, attempt *launcherLaunchAttempt, req LaunchRequest) (LaunchResult, error) {
+func (c *lifecycleController) startLauncherAttempt(ctx context.Context, attempt *launcherLaunchAttempt, req LaunchRequest) (LaunchResult, error) {
 	if strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
-		return s.lifecycle.launcher.Fork(ctx, &attempt.forkParent, &attempt.launching, req)
+		return c.launcher.Fork(ctx, &attempt.forkParent, &attempt.launching, req)
 	}
-	return s.lifecycle.launcher.Launch(ctx, &attempt.launching, req)
+	return c.launcher.Launch(ctx, &attempt.launching, req)
 }
 
 // submitInitialLaunchPrompt 在启动成功后把 launch prompt 自动提交为第一轮 turn。
@@ -214,7 +227,7 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 	if err != nil {
 		return launcherLaunchAttempt{}, true, err
 	}
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 	defer registry.unlock()
 	if existing, err := registry.lookupAgentByIdentityLocked(req.AgentID, agentIdentityLocalOnly); err == nil && launchInProgress(ctx, s, existing) {
@@ -271,7 +284,7 @@ func (s *service) forkParentForLaunch(ctx context.Context, req LaunchRequest) (a
 
 // runtimeForkParentForLaunch 从当前进程内存态读取可信父 agent 快照。
 func (s *service) runtimeForkParentForLaunch(parentID string) (agentRuntime, bool, error) {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.rLock()
 	defer registry.rUnlock()
 	parent, lookupErr := registry.lookupAgentByIdentityLocked(parentID, agentIdentityLocalOnly)
@@ -338,7 +351,7 @@ func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool
 
 // finishLauncherLaunch 在锁内用 launchSeq fence 提交 launcher 启动结果。
 func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error {
-	registry := s.agentRegistry()
+	registry := s.registry
 	registry.lock()
 	agent, err := registry.lookupAgentBySeqLocked(attempt.agentID, attempt.expectedSeq)
 	if err != nil {
@@ -370,7 +383,7 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 		lastErr = launching.lastError
 	}
 	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, lastErr)
-	s.agentRegistry().unlock()
+	s.registry.unlock()
 	if launching != nil && s.lifecycle.launcher != nil {
 		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: fail launch cleanup stop failed", "agent_id", launching.id, "error", stopErr)
@@ -385,7 +398,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	bindLaunchResult(agent, result)
 	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
-		s.agentRegistry().unlock()
+		s.registry.unlock()
 		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: rekey failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
@@ -396,78 +409,95 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		agent.cmd = nil
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
-		s.agentRegistry().unlock()
+		s.registry.unlock()
 		if stopErr := s.lifecycle.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: commit success failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 		return err
 	}
-	s.agentRegistry().unlock()
+	s.registry.unlock()
 	return nil
 }
 
 // rekeyLaunchedAgentLocked 把 agent 的 map key 从本地生成 ID 改为远端返回的 agentID。
 func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
-	return s.agentRegistry().rekeyLaunchedAgentLocked(agent)
+	return s.registry.rekeyLaunchedAgentLocked(agent)
+}
+
+type lifecycleStopPort interface {
+	agentRunningLocked(ctx context.Context, agent *agentRuntime) bool
+	markStoppingLocked(ctx context.Context, agent *agentRuntime, reason string) (bool, error)
+	stopAgentWithReason(ctx context.Context, agentID, reason string) error
+	handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error)
 }
 
 // stopAgentViaLauncher 通过 launcher 停止 agent 并等待进程退出。
 func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason string) error {
+	return s.lifecycle.stopAgentViaLauncher(ctx, s, s.logger, agentID, reason)
+}
+
+// stopAgentViaLauncher 在 lifecycle owner 内选择 launcher 或本地 stop 路径并收口进程退出。
+func (c *lifecycleController) stopAgentViaLauncher(ctx context.Context, owner lifecycleStopPort, logger *slog.Logger, agentID, reason string) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return errAgentNotFound
 	}
-	if !s.shouldStopViaLauncher(ctx, agentID) {
-		return s.stopAgentWithReason(ctx, agentID, reason)
+	if !c.shouldStopViaLauncher(ctx, logger, agentID) {
+		return owner.stopAgentWithReason(ctx, agentID, reason)
 	}
-	agent, launchSeq, err := s.prepareLauncherStop(ctx, agentID, reason)
+	agent, launchSeq, err := c.prepareLauncherStop(ctx, owner, agentID, reason)
 	if err != nil {
 		return err
 	}
 	if agent == nil {
 		return nil
 	}
-	if err := s.lifecycle.launcher.Stop(ctx, agent); err != nil {
+	if err := c.launcher.Stop(ctx, agent); err != nil {
 		return err
 	}
-	s.handleProcessExit(ctx, agentID, launchSeq, nil)
+	owner.handleProcessExit(ctx, agentID, launchSeq, nil)
 	return nil
 }
 
 // archiveAgentViaLauncher 通过 launcher 归档 agent，成功时返回 true。
 func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
+	return s.lifecycle.archiveAgentViaLauncher(ctx, s, s.logger, agentID, reason)
+}
+
+// archiveAgentViaLauncher 在 lifecycle owner 内执行 launcher archive，并复用进程退出收口路径。
+func (c *lifecycleController) archiveAgentViaLauncher(ctx context.Context, owner lifecycleStopPort, logger *slog.Logger, agentID, reason string) (bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return false, errAgentNotFound
 	}
-	if !s.shouldStopViaLauncher(ctx, agentID) {
-		if s.hasLocalRuntimeAgent(agentID) {
-			return false, s.stopAgentWithReason(ctx, agentID, reason)
+	if !c.shouldStopViaLauncher(ctx, logger, agentID) {
+		if c.hasLocalRuntimeAgent(agentID) {
+			return false, owner.stopAgentWithReason(ctx, agentID, reason)
 		}
 		return false, nil
 	}
-	agent, launchSeq, err := s.prepareLauncherStop(ctx, agentID, reason)
+	agent, launchSeq, err := c.prepareLauncherStop(ctx, owner, agentID, reason)
 	if err != nil {
 		return false, err
 	}
 	if agent == nil {
 		return false, nil
 	}
-	if err := s.lifecycle.launcher.Archive(ctx, agent); err != nil {
+	if err := c.launcher.Archive(ctx, agent); err != nil {
 		return false, err
 	}
-	s.handleProcessExit(ctx, agentID, launchSeq, nil)
+	owner.handleProcessExit(ctx, agentID, launchSeq, nil)
 	return true, nil
 }
 
 // hasLocalRuntimeAgent 判断 agent 是否仍有本地进程句柄，archive 路径用它区分本地/远端。
-func (s *service) hasLocalRuntimeAgent(agentID string) bool {
+func (c *lifecycleController) hasLocalRuntimeAgent(agentID string) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return false
 	}
 	hasLocal := false
-	_ = s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	_ = c.registry.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
 		hasLocal = agent.cmd != nil
 		return nil
 	})
@@ -475,30 +505,30 @@ func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 }
 
 // shouldStopViaLauncher 判断 agent 是否由 launcher 管理且当前仍处于运行状态。
-func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
+func (c *lifecycleController) shouldStopViaLauncher(ctx context.Context, logger *slog.Logger, agentID string) bool {
 	shouldStop := false
-	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		if s.lifecycle.launcher != nil && agent.cmd == nil {
-			shouldStop = s.lifecycle.launcher.IsRunning(ctx, agent)
+	if err := c.registry.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		if c.launcher != nil && agent.cmd == nil {
+			shouldStop = c.launcher.IsRunning(ctx, agent)
 		}
 		return nil
 	}); err != nil {
-		pkglogger.Warn("orchestration: shouldStopViaLauncher read failed", "agent_id", agentID, "error", err)
+		loggerOrDefault(logger).Warn("orchestration: shouldStopViaLauncher read failed", "agent_id", agentID, "error", err)
 	}
 	return shouldStop
 }
 
 // prepareLauncherStop 在锁内把 agent 标记为 stopping，并返回供 launcher.Stop 使用的快照。
-func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason string) (*agentRuntime, uint64, error) {
+func (c *lifecycleController) prepareLauncherStop(ctx context.Context, owner lifecycleStopPort, agentID, reason string) (*agentRuntime, uint64, error) {
 	var (
 		agentRef  *agentRuntime
 		launchSeq uint64
 	)
-	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		if !s.agentRunningLocked(ctx, agent) {
+	err := c.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !owner.agentRunningLocked(ctx, agent) {
 			return fmt.Errorf("%w: agent %q is not running", errAgentNotRunningForStopper, agent.id)
 		}
-		if _, err := s.markStoppingLocked(ctx, agent, reason); err != nil {
+		if _, err := owner.markStoppingLocked(ctx, agent, reason); err != nil {
 			return err
 		}
 		agentRef = agent

@@ -52,14 +52,18 @@ type NotifyTap interface {
 	OnThreadStopped(ctx context.Context, ev threaddto.Stopped)
 }
 
+// HookSuppressionLookup 是 stopped hook 抑制状态的只读端口，由 agentRegistry 提供。
+type HookSuppressionLookup interface {
+	stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool
+}
+
 // HookConsumerRuntime 是 hook consumer 同步 agent runtime 所需的窄端口。
 type HookConsumerRuntime interface {
 	turnLifecycleRuntime
 
-	withAgentLocked(agentID string, fn func(*agentRuntime) error) error
+	mutateHookAgentLocked(agentID string, fn func(*agentRuntime) error) error
 	syncStateChangedHookLocked(ctx context.Context, agent *agentRuntime, nextState string) error
 	hookSyncForceStoppedLocked(ctx context.Context, agent *agentRuntime) error
-	stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool
 	publishAgentRuntimeReported(agent *agentRuntime)
 }
 
@@ -71,16 +75,24 @@ type HookReportPort interface {
 }
 
 type hookConsumer struct {
-	runtime   HookConsumerRuntime
-	reports   HookReportPort
-	eventBus  *event.Dispatcher
-	logger    *slog.Logger
-	notifyTap NotifyTap
+	runtime     HookConsumerRuntime
+	reports     HookReportPort
+	suppression HookSuppressionLookup
+	eventBus    *event.Dispatcher
+	logger      *slog.Logger
+	notifyTap   NotifyTap
 
 	dagFallbackLookup taskdag.NodeSpawningThreadLookup
 	dagFallbackFlow   taskdag.NodeFlowStore
 
 	dagTurnCompletedDeps DAGSubscriberDeps
+}
+
+func (s *service) mutateHookAgentLocked(agentID string, fn func(*agentRuntime) error) error {
+	if s == nil || s.registry == nil {
+		return errAgentNotFound
+	}
+	return s.registry.withAgentLocked(agentID, fn)
 }
 
 type hookContextEnvelope struct {
@@ -95,6 +107,7 @@ type HookAfterHandlerParams struct {
 
 	Runtime           HookConsumerRuntime
 	Reports           HookReportPort
+	Suppression       HookSuppressionLookup
 	Logger            *slog.Logger                     `optional:"true"`
 	NotifyTap         NotifyTap                        `optional:"true"`
 	DAGFallbackLookup taskdag.NodeSpawningThreadLookup `optional:"true"`
@@ -114,6 +127,7 @@ func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAft
 	return newHookConsumerWithPorts(
 		p.Runtime,
 		p.Reports,
+		p.Suppression,
 		p.EventBus,
 		p.Logger,
 		p.NotifyTap,
@@ -144,6 +158,7 @@ func withHookTurnCompletedDAGDeps(deps DAGSubscriberDeps) hookConsumerOption {
 func newHookConsumerWithPorts(
 	runtime HookConsumerRuntime,
 	reports HookReportPort,
+	suppression HookSuppressionLookup,
 	eventBus *event.Dispatcher,
 	logger *slog.Logger,
 	tap NotifyTap,
@@ -154,6 +169,7 @@ func newHookConsumerWithPorts(
 	c := &hookConsumer{
 		runtime:           runtime,
 		reports:           reports,
+		suppression:       suppression,
 		eventBus:          eventBus,
 		logger:            loggerOrDefault(logger),
 		notifyTap:         tap,
@@ -242,7 +258,7 @@ func (c *hookConsumer) handleProcessExitTopic(ctx context.Context, envelope hook
 // provisioning/recovering 期间的线程归属由 pending launch 逻辑接管，避免旧线程覆盖新会话。
 func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Started) {
 	provider := normalizeRuntimeProvider(ev.Provider)
-	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" && launchOwnsHookThreadBinding(agent.state) {
 			recordPendingLaunchThreadLocked(agent, threadID, ev.Timestamp)
@@ -278,7 +294,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		c.logger.Warn("orchestration: ignoring unknown mirrored agent state", "agent_id", ev.AgentID, "thread_id", ev.ThreadID, "state", nextState)
 		return
 	}
-	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		// session fence 防止旧进程/旧线程的状态事件写入当前会话。
 		// 空 SessionID 来自早期 provider 事件，仍按兼容输入处理。
 		if !agentSessionFenceOK(agent, ev.SessionID) {
@@ -332,12 +348,12 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 // 被抑制或不属于当前会话的 stopped 事件只记录为跳过，不再推进状态。
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	stoppedAccepted := true
-	err := c.runtime.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		var err error
 		stoppedAccepted, err = c.applyThreadStoppedLocked(ctx, ev, agent)
 		return err
 	})
-	if errors.Is(err, errAgentNotFound) && c.runtime.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
+	if errors.Is(err, errAgentNotFound) && c.suppression.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
 		return
 	}
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
@@ -358,7 +374,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 func (c *hookConsumer) applyThreadStoppedLocked(ctx context.Context, ev threaddto.Stopped, agent *agentRuntime) (bool, error) {
 	before := string(agent.state)
 	threadID := strings.TrimSpace(ev.ThreadID)
-	if c.runtime.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
+	if c.suppression.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
 		recoveringOldThreadHook(agent, threadID) || !bindStoppedHookThreadLocked(agent, threadID) {
 		return false, nil
 	}

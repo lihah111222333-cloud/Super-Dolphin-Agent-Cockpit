@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
 
@@ -24,7 +26,7 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 	if generation == 0 {
 		return errors.New("session generation is required")
 	}
-	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	return s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		agent.sessionGeneration = generation
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
@@ -32,14 +34,14 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 }
 
 // removeSession 清理 agent 绑定的 session generation，并同步重置 runtime 记录。
-func (s *service) removeSession(agent *agentRuntime) {
-	if s == nil || s.lifecycle == nil || s.lifecycle.sessionCleaner == nil || agent == nil {
+func (c *lifecycleController) removeSession(agent *agentRuntime) {
+	if c == nil || c.sessionCleaner == nil || agent == nil {
 		return
 	}
 	if agent.sessionGeneration == 0 {
 		return
 	}
-	s.lifecycle.sessionCleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
+	c.sessionCleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
 	agent.sessionGeneration = 0
 }
 
@@ -95,12 +97,30 @@ func (c *turnController) claimTurnWork(ctx context.Context) []turnWork {
 // launchSeq 是进程生命周期围栏：旧进程、重复事件或合成退出只能命中一次；有效退出会清理 active turn，
 // 按退出原因推进 stopped/failed，并在终态缺 report 时尝试持久化兜底报告，持久化失败只记日志不重入状态机。
 func (s *service) handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error) {
-	registry := s.agentRegistry()
+	s.lifecycle.handleProcessExit(ctx, s, s.reports, s.eventBus, s.logger, agentID, launchSeq, err)
+}
+
+type processExitReportPort interface {
+	setProcessExitFallbackReportLocked(ctx context.Context, agent *agentRuntime, launchSeq uint64, shouldRecover bool)
+}
+
+// handleProcessExit 在 lifecycle owner 内处理进程退出围栏、状态迁移、兜底 report 和自动恢复。
+func (c *lifecycleController) handleProcessExit(
+	ctx context.Context,
+	state lifecycleTransitionPort,
+	reports processExitReportPort,
+	eventBus *event.Dispatcher,
+	logger *slog.Logger,
+	agentID string,
+	launchSeq uint64,
+	err error,
+) {
+	registry := c.registry
 	registry.lock()
 
 	agent, lookupErr := registry.lookupAgentBySeqLocked(agentID, launchSeq)
 	if lookupErr != nil {
-		s.logger.Warn("orchestration: process exit ignored (stale seq)",
+		loggerOrDefault(logger).Warn("orchestration: process exit ignored (stale seq)",
 			"agent_id", agentID, "launch_seq", launchSeq, "error", err)
 		registry.unlock()
 		return
@@ -108,15 +128,15 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	// exactly-once 围栏：同一 launchSeq 的进程退出一旦处理过，
 	// actor 重投、合成退出或测试重复调用都不能再次触发状态迁移。
 	if agent.lastExitedSeq >= launchSeq {
-		s.logger.Debug("orchestration: duplicate process exit ignored (seq already drained)",
+		loggerOrDefault(logger).Debug("orchestration: duplicate process exit ignored (seq already drained)",
 			"agent_id", agentID, "launch_seq", launchSeq,
 			"last_exited_seq", agent.lastExitedSeq)
 		registry.unlock()
 		return
 	}
 	stateBefore := agent.state
-	shouldRecover := shouldAutoRecoverProcessExitLocked(s, agent, err)
-	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, s, agent)
+	shouldRecover := shouldAutoRecoverProcessExitLocked(c.launcher, agent, err)
+	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, c.launcher, agent)
 	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	closeAgentProcessGuard(agent)
@@ -125,33 +145,37 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	agent.lastExitedSeq = launchSeq
 	agent.updatedAt = now
 	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
-	s.removeSession(agent)
-	s.recordProcessExitError(agent, err)
-	s.handleProcessExitTransition(ctx, agent)
-	s.logger.Warn("orchestration: agent process exited",
+	c.removeSession(agent)
+	c.recordProcessExitError(eventBus, agent, err)
+	c.handleProcessExitTransition(ctx, state, logger, agent)
+	loggerOrDefault(logger).Warn("orchestration: agent process exited",
 		"agent_id", agentID, "launch_seq", launchSeq,
 		"state_before", stateBefore, "state_after", agent.state,
 		"stop_requested", agent.stopRequested, "exit_error", err)
 	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
-		emitEvent(s.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, agent.stopReason)
+		emitEvent(eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, agent.stopReason)
 	}
-	s.reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
+	reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
 	clearAgentStopReasonLocked(agent)
 	registry.unlock()
-	s.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
+	c.recovery.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
 }
 
-func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
+func (c *lifecycleController) recordProcessExitError(eventBus *event.Dispatcher, agent *agentRuntime, err error) {
 	if err == nil {
 		return
 	}
 	agent.lastError = err.Error()
 	if !agent.stopRequested {
-		emitEvent(s.eventBus, eventTypeAgentFailed, eventAgentID(agent), agent, err.Error(), true)
+		emitEvent(eventBus, eventTypeAgentFailed, eventAgentID(agent), agent, err.Error(), true)
 	}
 }
 
-func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentRuntime) {
+type lifecycleTransitionPort interface {
+	fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error
+}
+
+func (c *lifecycleController) handleProcessExitTransition(ctx context.Context, state lifecycleTransitionPort, logger *slog.Logger, agent *agentRuntime) {
 	trigger := agentdto.TriggerProcessExited
 	message := "orchestration: failed to mark agent failed after process exit"
 	if agent.stopRequested {
@@ -160,24 +184,24 @@ func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentR
 		trigger = agentdto.TriggerLaunchFailed
 		message = "orchestration: failed to mark launch failure after process exit"
 	}
-	if fireErr := s.fireOrForceLocked(ctx, agent, trigger); fireErr != nil {
-		s.logger.Warn(message, "agent_id", agent.id, "error", fireErr)
+	if fireErr := state.fireOrForceLocked(ctx, agent, trigger); fireErr != nil {
+		loggerOrDefault(logger).Warn(message, "agent_id", agent.id, "error", fireErr)
 	}
 }
 
 // waitForProcessExit 等待指定 launchSeq 的子进程退出。
 // 超时后会尝试强制停止进程，避免 stop 调用无限等待。
-func (s *service) waitForProcessExit(ctx context.Context, agentID string, launchSeq uint64) error {
+func (c *lifecycleController) waitForProcessExit(ctx context.Context, logger *slog.Logger, agentID string, launchSeq uint64) error {
 	if launchSeq == 0 {
 		return nil
 	}
-	waitCtx, cancel := platformconfig.WithTimeout(ctx, s.lifecycle.processExitWaitTimeout)
+	registry := c.registry
+	waitCtx, cancel := platformconfig.WithTimeout(ctx, c.processExitWaitTimeout)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		registry := s.agentRegistry()
 		registry.rLock()
 		agent, err := registry.lookupAgentBySeqLocked(agentID, launchSeq)
 		exited := err == nil && agent.lastExitedSeq >= launchSeq
@@ -190,19 +214,19 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 			if ctx != nil && ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return s.forceKillProcess(agentID, launchSeq)
+			return c.forceKillProcess(logger, agentID, launchSeq)
 		case <-ticker.C:
 		}
 	}
 }
 
 // forceKillProcess 在温和停止失败后强制结束进程。
-func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
+func (c *lifecycleController) forceKillProcess(logger *slog.Logger, agentID string, launchSeq uint64) error {
 	var (
 		cmd   *exec.Cmd
 		guard *processctl.Guard
 	)
-	registry := s.agentRegistry()
+	registry := c.registry
 	registry.rLock()
 	if agent, err := registry.lookupAgentBySeqLocked(agentID, launchSeq); err == nil &&
 		agent.lastExitedSeq < launchSeq && agent.cmd != nil {
@@ -214,10 +238,10 @@ func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
 		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q; no live process handle", agentID)
 	}
 	if err := processctl.ForceStop(cmd, guard); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		s.logger.Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)
+		loggerOrDefault(logger).Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)
 		return fmt.Errorf("orchestration: failed to force-kill timed out agent process %q: %w", agentID, err)
 	}
-	s.logger.Warn("orchestration: timed out waiting for process exit; forced kill issued", "agent_id", agentID, "launch_seq", launchSeq, "timeout", s.lifecycle.processExitWaitTimeout)
+	loggerOrDefault(logger).Warn("orchestration: timed out waiting for process exit; forced kill issued", "agent_id", agentID, "launch_seq", launchSeq, "timeout", c.processExitWaitTimeout)
 	return nil
 }
 
@@ -226,10 +250,7 @@ type RunnerRuntimePort interface {
 	handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error)
 	claimTurnWork(ctx context.Context) []turnWork
 	startTurnExecution(ctx context.Context, work turnWork)
-	listAgents() []agentRuntime
 	publishTurnStalled(agent *agentRuntime, threadID, turnID, reason string, stalledFor time.Duration, timestamp time.Time)
-	recoverWithReason(ctx context.Context, agentID, reason string) error
-	notifyRecoveryFailure(ctx context.Context, agentID string, recoverErr error) error
 	StopAllAgents(ctx context.Context)
 }
 
@@ -243,6 +264,33 @@ func (s *service) runnerLifecycleController() *lifecycleController {
 		return nil
 	}
 	return s.lifecycle
+}
+
+type lifecycleStopAllPort interface {
+	stopAgentViaLauncher(ctx context.Context, agentID, reason string) error
+	DrainAsync(ctx context.Context)
+}
+
+func (c *lifecycleController) stopAllAgents(ctx context.Context, stopper lifecycleStopAllPort, logger *slog.Logger) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ids := c.registry.agentIDs()
+	sort.Strings(ids)
+	for _, agentID := range ids {
+		if err := stopper.stopAgentViaLauncher(ctx, agentID, "shutdown"); err != nil &&
+			!errors.Is(err, errAgentNotFound) {
+			loggerOrDefault(logger).Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
+		}
+	}
+	stopper.DrainAsync(ctx)
+}
+
+func (c *lifecycleController) listAgents() []agentRuntime {
+	if c == nil || c.registry == nil {
+		return nil
+	}
+	return c.registry.listAgents()
 }
 
 type runnerActor struct {
@@ -271,10 +319,18 @@ func NewRunnerActor(p RunnerActorParams) platformrunner.Runner {
 
 const runnerShutdownDrainGrace = 30 * time.Second
 
+func (a *runnerActor) configured() bool {
+	return a != nil &&
+		a.lifecycle != nil &&
+		a.lifecycle.exitMonitor != nil &&
+		a.lifecycle.recovery != nil &&
+		a.runtime != nil
+}
+
 // Run 是本地模式的主循环，负责消费 turn、处理退出事件并检测卡住的 agent。
 // remote 模式不注册该 actor，turn 和状态事件由 launcher notify/hooks 回传。
 func (a *runnerActor) Run(ctx context.Context) error {
-	if a == nil || a.lifecycle == nil || a.lifecycle.exitMonitor == nil || a.runtime == nil {
+	if !a.configured() {
 		return errors.New("runner actor is not configured")
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -363,7 +419,7 @@ func (a *runnerActor) processTurnQueues(ctx context.Context) {
 
 // recoverStalledAgents 恢复启动中断后卡住的代理状态。
 func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *StallDetector) {
-	for _, agent := range a.runtime.listAgents() {
+	for _, agent := range a.lifecycle.listAgents() {
 		if !stallDetector.CheckStall(&agent) {
 			continue
 		}
@@ -373,9 +429,9 @@ func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *S
 			stalledFor = detectedAt.Sub(agent.updatedAt)
 		}
 		a.runtime.publishTurnStalled(&agent, agent.threadID, agent.activeTurnID, recoverReasonStall, stalledFor, detectedAt)
-		if err := a.runtime.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
+		if err := a.lifecycle.recovery.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
 			a.logger.Warn("orchestration: stalled agent recovery failed", "agent_id", agent.id, "error", err)
-			if notifyErr := a.runtime.notifyRecoveryFailure(ctx, agent.id, err); notifyErr != nil {
+			if notifyErr := a.lifecycle.recovery.notifyRecoveryFailure(ctx, agent.id, err); notifyErr != nil {
 				a.logger.Warn("orchestration: stalled recovery failure report notification failed",
 					"agent_id", agent.id, "error", notifyErr)
 			}

@@ -363,8 +363,7 @@ func TestHookConsumerAfter_ArtifactTargetUsesFxInjectedImporter(t *testing.T) {
 			}
 		}`),
 	}}}
-	flow := &dagSubscriberFlowSpy{}
-	importer := &dagSubscriberArtifactImporterSpy{}
+	flow, importer := &dagSubscriberFlowSpy{}, &dagSubscriberArtifactImporterSpy{}
 	var handler contract.BootstrapHookAfterHandler
 	app := fx.New(
 		fx.NopLogger,
@@ -378,6 +377,7 @@ func TestHookConsumerAfter_ArtifactTargetUsesFxInjectedImporter(t *testing.T) {
 			func() taskdag.NodeSpawningThreadLookup { return lookup },
 			func() taskdag.NodeFlowStore { return flow },
 			func() sharedfile.Importer { return importer },
+			func() HookSuppressionLookup { return svc.registry },
 			ProvideHookAfterHandler,
 		),
 		fx.Populate(&handler),

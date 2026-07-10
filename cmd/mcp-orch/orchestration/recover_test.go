@@ -360,11 +360,11 @@ func TestProcessExitAutoRecoveryStopsAtRetryLimit(t *testing.T) {
 	agent.command = longRunningTestCommandLine()
 
 	for i := range maxProcessExitAutoRecoveries {
-		if !shouldAutoRecoverProcessExitLocked(svc, agent, errors.New("process crashed")) {
+		if !shouldAutoRecoverProcessExitLocked(svc.lifecycle.launcher, agent, errors.New("process crashed")) {
 			t.Fatalf("shouldAutoRecoverProcessExitLocked() attempt %d = false, want true before limit", i+1)
 		}
 	}
-	if shouldAutoRecoverProcessExitLocked(svc, agent, errors.New("process crashed")) {
+	if shouldAutoRecoverProcessExitLocked(svc.lifecycle.launcher, agent, errors.New("process crashed")) {
 		t.Fatalf("shouldAutoRecoverProcessExitLocked() after retry limit = true, want false")
 	}
 	if !strings.Contains(agent.lastError, "auto recovery retry limit reached") {
@@ -445,7 +445,7 @@ func TestLoadRecoveredTurnSubmissionSkipsReclaimedWakeup(t *testing.T) {
 	}
 	agent := &agentRuntime{id: "agent-1", threadID: "thread-1", activeTurnID: "turn-active"}
 
-	submission, shouldReplay, err := loadRecoveredTurnSubmission(context.Background(), svc, agent)
+	submission, shouldReplay, err := loadRecoveredTurnSubmission(context.Background(), svc.lifecycle.recoveryStore, agent)
 	if err != nil {
 		t.Fatalf("loadRecoveredTurnSubmission() error = %v", err)
 	}

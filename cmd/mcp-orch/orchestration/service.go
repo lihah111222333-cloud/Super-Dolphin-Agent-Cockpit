@@ -9,7 +9,6 @@ import (
 	"errors"
 	"log/slog"
 	"os/exec"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,9 +75,11 @@ type service struct {
 
 // lifecycleController owns agent launch/stop/process-exit state and service-scoped async bookkeeping.
 type lifecycleController struct {
+	registry               *agentRegistry
 	launcher               AgentLauncher
 	sessionCleaner         contract.OrchestrationSessionCleaner
 	recoveryStore          recoveryTurnStore
+	recovery               *recoveryController
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
 	machineCfg             platformstatemachine.Config
@@ -90,6 +91,7 @@ type lifecycleController struct {
 }
 
 type lifecycleControllerParams struct {
+	registry       *agentRegistry
 	logger         *slog.Logger
 	launcher       AgentLauncher
 	sessionCleaner contract.OrchestrationSessionCleaner
@@ -103,6 +105,7 @@ func newLifecycleController(p lifecycleControllerParams) *lifecycleController {
 	}
 	asyncCtx, asyncCancel := context.WithCancel(context.Background())
 	return &lifecycleController{
+		registry:       p.registry,
 		launcher:       p.launcher,
 		sessionCleaner: p.sessionCleaner,
 		recoveryStore:  recoveryStore,
@@ -115,6 +118,13 @@ func newLifecycleController(p lifecycleControllerParams) *lifecycleController {
 		asyncCtx:               asyncCtx,
 		asyncCancel:            asyncCancel,
 	}
+}
+
+func (c *lifecycleController) currentRecoveryStore() recoveryTurnStore {
+	if c == nil {
+		return nil
+	}
+	return c.recoveryStore
 }
 
 type turnStatePort interface {
@@ -188,6 +198,24 @@ func (c *turnController) withAgentReadLocked(agentID string, fn func(*agentRunti
 	return c.registry.withAgentReadLocked(agentID, fn)
 }
 
+func (s *service) turnTerminalConverged(agentID, turnID string) bool {
+	if s == nil || s.turns == nil {
+		return false
+	}
+	return s.turns.turnTerminalConverged(agentID, turnID)
+}
+
+func (c *turnController) turnTerminalConverged(agentID, turnID string) bool {
+	converged := false
+	if err := c.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		converged = turnTerminalConvergedLocked(agent, turnID)
+		return nil
+	}); err != nil {
+		return false
+	}
+	return converged
+}
+
 func (c *turnController) turnIDFor(sub TurnSubmission) string {
 	if c != nil && c.registry != nil {
 		return c.registry.turnIDFor(sub)
@@ -238,6 +266,37 @@ type serviceParams struct {
 	AgentThreads   AgentThreadStore          `optional:"true"`
 	AgentBindings  AgentBindingStore         `optional:"true"`
 	DispatchStore  taskdag.DispatchNodeStore `optional:"true"`
+}
+
+type serviceResult struct {
+	fx.Out
+
+	Service             *service
+	AgentLaunch         contract.AgentLaunchPort
+	AgentState          contract.AgentStateReader
+	AgentStop           contract.AgentStopPort
+	AgentStopWait       contract.AgentStopWaitPort
+	AgentInterrupt      contract.AgentInterruptPort
+	AgentRecovery       contract.AgentRecoveryPort
+	AgentRuntime        contract.AgentRuntimePort
+	AgentReport         contract.AgentReportPort
+	TurnSubmission      contract.TurnSubmissionPort
+	DAGCreate           contract.DAGCreateRuntime
+	DAGRuntime          contract.DAGRuntime
+	DAGDelete           contract.DAGDeleteRuntime
+	DAGNodeStatus       contract.DAGNodeStatusRuntime
+	DAGNodeDispatch     contract.DAGNodeDispatchRuntime
+	ScheduledDAGStart   ScheduledDAGStartService
+	WakeupLauncher      WakeupLauncher
+	HookConsumerRuntime HookConsumerRuntime
+	HookReport          HookReportPort
+	HookSuppression     HookSuppressionLookup
+	AgentLaunchSnapshot AgentLaunchSnapshotter
+	StopAgent           StopAgentService
+	RunnerLifecycle     RunnerLifecyclePort
+	RunnerRuntime       RunnerRuntimePort
+	TurnLifecycle       TurnLifecyclePort
+	ApprovalLifecycle   ApprovalLifecyclePort
 }
 
 // recoveryTurnStore 是 recoveryTurnStore 接口的本地类型别名，用于内部断言。
@@ -293,6 +352,7 @@ func NewService(
 	}
 	registry := newAgentRegistry()
 	lifecycle := newLifecycleController(lifecycleControllerParams{
+		registry:       registry,
 		logger:         logger,
 		launcher:       launcher,
 		sessionCleaner: sessionCleaner,
@@ -323,6 +383,17 @@ func NewService(
 		registry: registry,
 		logger:   logger,
 	})
+	lifecycle.recovery = newRecoveryController(recoveryControllerDeps{
+		registry:     registry,
+		launcher:     lifecycle.launcher,
+		store:        lifecycle,
+		state:        svc,
+		local:        svc,
+		launchCommit: svc,
+		reports:      svc.reports,
+		eventBus:     eventBus,
+		logger:       logger,
+	})
 	bindRemoteLauncherEventSink(launcher, svc)
 	if local, ok := launcher.(*localLauncher); ok {
 		local.exitMonitor = lifecycle.exitMonitor
@@ -347,6 +418,39 @@ func ProvideService(p serviceParams) *service {
 		SvcStopper:          svc,
 	})
 	return svc
+}
+
+// ProvideServiceResult 为 fx 根装配一次性产出 service 与其窄端口。
+func ProvideServiceResult(p serviceParams) serviceResult {
+	svc := ProvideService(p)
+	return serviceResult{
+		Service:             svc,
+		AgentLaunch:         svc,
+		AgentState:          svc,
+		AgentStop:           svc,
+		AgentStopWait:       svc,
+		AgentInterrupt:      svc,
+		AgentRecovery:       svc,
+		AgentRuntime:        svc,
+		AgentReport:         svc,
+		TurnSubmission:      svc,
+		DAGCreate:           svc,
+		DAGRuntime:          svc,
+		DAGDelete:           svc,
+		DAGNodeStatus:       svc,
+		DAGNodeDispatch:     svc,
+		ScheduledDAGStart:   svc,
+		WakeupLauncher:      svc,
+		HookConsumerRuntime: svc,
+		HookReport:          svc,
+		HookSuppression:     svc.registry,
+		AgentLaunchSnapshot: svc,
+		StopAgent:           svc,
+		RunnerLifecycle:     svc,
+		RunnerRuntime:       svc,
+		TurnLifecycle:       svc,
+		ApprovalLifecycle:   svc,
+	}
 }
 
 // RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
@@ -417,14 +521,14 @@ func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, ru
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleToolApprovalRequestedEvent(runtime, loggerOrDefault(logger), ev)
+				handleToolApprovalRequestedEventWithCtx(runtime, loggerOrDefault(logger), ev, lifecycleCtx)
 			}, logger)
 			// approval resolved 事件解除 awaiting_user_input；重复完成会被下游视为幂等。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleToolApprovalResolvedEvent(runtime, loggerOrDefault(logger), ev)
+				handleToolApprovalResolvedEventWithCtx(runtime, loggerOrDefault(logger), ev, lifecycleCtx)
 			}, logger)
 			return nil
 		},
@@ -529,18 +633,7 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 
 // StopAllAgents 按字母顺序停止所有运行中的 agent，并在调用方 deadline 内等待异步任务完成。
 func (s *service) StopAllAgents(ctx context.Context) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ids := s.agentRegistry().agentIDs()
-	sort.Strings(ids)
-	for _, agentID := range ids {
-		if err := s.stopAgentViaLauncher(ctx, agentID, "shutdown"); err != nil &&
-			!errors.Is(err, errAgentNotFound) {
-			s.logger.Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
-		}
-	}
-	s.DrainAsync(ctx)
+	s.lifecycle.stopAllAgents(ctx, s, s.logger)
 }
 
 // DrainAsync 取消 service 共享异步 context，并等待已登记 goroutine 收尾。
@@ -576,7 +669,7 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
-	snapshots, err := s.runtimeAgentSnapshots(ctx)
+	snapshots, err := s.registry.runtimeAgentSnapshots(ctx, s.snapshotLocked)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +687,7 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 // Snapshot 返回单个 agent 快照；runtime 不存在时回退到持久化 thread/binding。
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	var snapshot AgentSnapshot
-	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
+	err := s.registry.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		snapshot = s.snapshotLocked(ctx, agent)
 		return nil
 	})

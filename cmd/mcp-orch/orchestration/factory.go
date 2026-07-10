@@ -153,7 +153,7 @@ func (s *service) forceIdleAfterTurnTerminalLocked(
 	}
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	if kind.recover != nil {
-		if err := kind.recover(ctx, s, agent); err != nil {
+		if err := kind.recover(ctx, turnRecoveryOwner(s), agent); err != nil {
 			return false, err
 		}
 	}
@@ -190,8 +190,8 @@ const (
 	processExitAutoRecoverWindow = 2 * time.Minute
 )
 
-func shouldAutoRecoverProcessExitLocked(s *service, agent *agentRuntime, err error) bool {
-	if !processExitAutoRecoverable(s, agent, err) {
+func shouldAutoRecoverProcessExitLocked(launcher recoveryLauncherPort, agent *agentRuntime, err error) bool {
+	if !processExitAutoRecoverable(launcher, agent, err) {
 		return false
 	}
 	resetProcessExitAutoRecoverWindowLocked(agent, time.Now())
@@ -204,9 +204,9 @@ func shouldAutoRecoverProcessExitLocked(s *service, agent *agentRuntime, err err
 }
 
 // processExitAutoRecoverable 判断进程退出后是否还能由本地命令或 launcher 恢复。
-func processExitAutoRecoverable(s *service, agent *agentRuntime, err error) bool {
-	return s != nil && agent != nil && err != nil && !agent.stopRequested &&
-		(len(agent.command) > 0 || s.lifecycle.launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
+func processExitAutoRecoverable(launcher recoveryLauncherPort, agent *agentRuntime, err error) bool {
+	return agent != nil && err != nil && !agent.stopRequested &&
+		(len(agent.command) > 0 || launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
 }
 
 func resetProcessExitAutoRecoverWindowLocked(agent *agentRuntime, now time.Time) {
@@ -220,11 +220,11 @@ func clearAgentAutoRecoveryLocked(agent *agentRuntime) {
 }
 
 // shouldRecoverViaLauncher 判断 agent 是否应通过 launcher 而非本地进程恢复。
-func shouldRecoverViaLauncher(ctx context.Context, s *service, agent *agentRuntime) bool {
-	if s == nil || s.lifecycle == nil || s.lifecycle.launcher == nil || agent == nil || agent.cmd != nil {
+func shouldRecoverViaLauncher(ctx context.Context, launcher recoveryLauncherPort, agent *agentRuntime) bool {
+	if launcher == nil || agent == nil || agent.cmd != nil {
 		return false
 	}
-	if s.lifecycle.launcher.IsRunning(ctx, agent) {
+	if launcher.IsRunning(ctx, agent) {
 		return true
 	}
 	return stoppedCodexAgentRecoverableViaLauncher(agent)
@@ -247,20 +247,6 @@ func launchOwnsHookThreadBinding(state agentdto.AgentState) bool {
 func resetRuntimeAfterProcessExitLocked(agent *agentRuntime, recoverViaLauncher bool) {
 	if !recoverViaLauncher {
 		resetRuntimeStateLocked(agent)
-	}
-}
-
-func (s *service) recoverAfterProcessExit(ctx context.Context, agentID string, launchSeq uint64, shouldRecover bool) {
-	if !shouldRecover {
-		return
-	}
-	if recoverErr := s.recoverWithReason(ctx, agentID, recoverReasonProcessExit); recoverErr != nil {
-		s.logger.Warn("orchestration: process exit recovery failed",
-			"agent_id", agentID, "launch_seq", launchSeq, "error", recoverErr)
-		if notifyErr := s.notifyRecoveryFailure(ctx, agentID, recoverErr); notifyErr != nil {
-			s.logger.Warn("orchestration: recovery failure report notification failed",
-				"agent_id", agentID, "launch_seq", launchSeq, "error", notifyErr)
-		}
 	}
 }
 
@@ -346,18 +332,6 @@ func (s *service) syncStateChangedHookLocked(ctx context.Context, agent *agentRu
 		return s.hookSyncForceStoppedLocked(ctx, agent)
 	}
 	return s.hookSyncFireLocked(ctx, agent, nextState)
-}
-
-func (s *service) suppressStoppedHookThreadLocked(threadID string) {
-	s.agentRegistry().suppressStoppedHookThreadLocked(threadID)
-}
-
-func (s *service) suppressStoppedHookThreadUntilLocked(threadID string, beforeOrAt time.Time) {
-	s.agentRegistry().suppressStoppedHookThreadUntilLocked(threadID, beforeOrAt)
-}
-
-func (s *service) stoppedHookThreadSuppressed(threadID string, timestamp time.Time) bool {
-	return s.agentRegistry().stoppedHookThreadSuppressed(threadID, timestamp)
 }
 
 func bindStateChangedHookThreadLocked(agent *agentRuntime, threadID, nextState string) bool {

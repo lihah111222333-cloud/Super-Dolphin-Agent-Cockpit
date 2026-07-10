@@ -655,7 +655,7 @@ func readAgentSnapshot(t *testing.T, svc *service, agentID string) agentSnapshot
 	t.Helper()
 
 	var snapshot agentSnapshot
-	if err := svc.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	if err := svc.registry.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
 		snapshot = agentSnapshot{
 			state:        string(agent.state),
 			activeTurnID: agent.activeTurnID,
@@ -664,7 +664,7 @@ func readAgentSnapshot(t *testing.T, svc *service, agentID string) agentSnapshot
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("withAgentReadLocked(%q) error = %v", agentID, err)
+		t.Fatalf("registry.withAgentReadLocked(%q) error = %v", agentID, err)
 	}
 	return snapshot
 }

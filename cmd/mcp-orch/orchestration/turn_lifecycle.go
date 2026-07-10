@@ -24,7 +24,7 @@ type turnLifecycleRuntime interface {
 	forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error)
 	forceIdleAfterInterruptionError(ctx context.Context, agentID string, turnID string, reason string) (bool, error)
 	stopAgentAfterPermanentTurnFailure(agentID, threadID, source string)
-	withAgentReadLocked(agentID string, fn func(*agentRuntime) error) error
+	turnTerminalConverged(agentID, turnID string) bool
 }
 
 // TurnLifecyclePort is the narrow runtime consumed by fx turn lifecycle hooks.
@@ -180,10 +180,15 @@ func (c *turnController) CompleteTurn(ctx context.Context, agentID, turnID strin
 	})
 }
 
+// markAwaitingUserInput 将当前 active turn 推进到 awaiting_user_input。
+// lifecycle 已取消时必须在持锁后停止，避免 queued approval 事件在服务停机后改写状态。
 func (c *turnController) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
 	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
 			return errTurnNotActive
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
 		}
 		if err := c.ensureTurnRunningForUserInputLocked(ctx, agent); err != nil {
 			return err
@@ -205,6 +210,9 @@ func (c *turnController) resolveAwaitingUserInput(ctx context.Context, agentID, 
 	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
 			return errTurnNotActive
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
 		}
 		resolvedTurnID := strings.TrimSpace(turnID)
 		if resolvedTurnID == "" {
@@ -246,10 +254,22 @@ func userInputMatchesActiveTurn(agent *agentRuntime, turnID string) bool {
 
 // handleToolApprovalRequestedEvent 将 request_user_input/tool approval 事件映射为 awaiting_user_input。
 func handleToolApprovalRequestedEvent(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalRequested) {
+	handleToolApprovalRequestedEventWithCtx(runtime, logger, ev, context.Background())
+}
+
+// handleToolApprovalRequestedEventWithCtx 在指定 lifecycle context 下处理 approval requested。
+// context 取消表示订阅已停止，事件应被丢弃而不是进入 awaiting_user_input。
+func handleToolApprovalRequestedEventWithCtx(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalRequested, parent context.Context) {
 	if runtime == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := runtime.markAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return
+	}
+	if err := runtime.markAwaitingUserInput(withEventTime(parent, ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to mark awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
@@ -258,10 +278,22 @@ func handleToolApprovalRequestedEvent(runtime ApprovalLifecyclePort, logger *slo
 
 // handleToolApprovalResolvedEvent 将 approval resolved 事件映射为用户输入已解决。
 func handleToolApprovalResolvedEvent(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalResolved) {
+	handleToolApprovalResolvedEventWithCtx(runtime, logger, ev, context.Background())
+}
+
+// handleToolApprovalResolvedEventWithCtx 在指定 lifecycle context 下处理 approval resolved。
+// context 取消表示订阅已停止，事件应被丢弃而不是恢复运行态。
+func handleToolApprovalResolvedEventWithCtx(runtime ApprovalLifecyclePort, logger *slog.Logger, ev tooldto.ToolApprovalResolved, parent context.Context) {
 	if runtime == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := runtime.resolveAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return
+	}
+	if err := runtime.resolveAwaitingUserInput(withEventTime(parent, ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to resolve awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
@@ -292,7 +324,7 @@ func isRequestUserInputEvent(kind string) bool {
 
 // shouldIgnoreUserInputErr 判断 user-input 状态事件是否已经幂等收口。
 func shouldIgnoreUserInputErr(err error) bool {
-	return err == nil || errors.Is(err, errAgentNotFound) || errors.Is(err, errTurnNotActive)
+	return err == nil || errors.Is(err, errAgentNotFound) || errors.Is(err, errTurnNotActive) || errors.Is(err, context.Canceled)
 }
 
 // userInputLogger 返回非 nil logger，避免事件路径因 logger 缺失 panic。
@@ -333,14 +365,14 @@ func (s *service) forceIdleAfterCompletionError(
 	errMsg string,
 ) (bool, error) {
 	recovered := false
-	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	err := s.turns.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
 			recoveredTrigger: string(completionRecoveryTrigger(success)),
 			errorText:        errMsg,
 			clearError:       success,
-			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
-				return svc.recoverTurnCompletionStateLocked(ctx, agent, success)
+			recover: func(ctx context.Context, owner turnRecoveryOwner, agent *agentRuntime) error {
+				return owner.recoverTurnCompletionStateLocked(ctx, agent, success)
 			},
 		})
 		return recoverErr
@@ -351,14 +383,15 @@ func (s *service) forceIdleAfterCompletionError(
 // forceIdleAfterProviderTurnCompletion 在确认 agent/thread 匹配后落 report 并强制收口当前 turn。
 func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error) {
 	recovered := false
-	if s == nil || s.reports == nil {
-		return false, errors.New("report controller is not configured")
+	reporter, err := s.configuredReportApplier()
+	if err != nil {
+		return false, err
 	}
-	err := s.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+	err = s.turns.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		if !canRecoverProviderTurnCompletion(agent, ev) {
 			return errTurnNotActive
 		}
-		if _, err := s.reports.applyReportEventLocked(
+		if _, err := reporter.applyReportEventLocked(
 			ctx,
 			agent,
 			"turn/completed",
@@ -372,8 +405,8 @@ func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev t
 			recoveredTrigger: string(completionRecoveryTrigger(ev.Success)),
 			errorText:        ev.Error,
 			clearError:       ev.Success,
-			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
-				return svc.recoverTurnCompletionStateLocked(ctx, agent, ev.Success)
+			recover: func(ctx context.Context, owner turnRecoveryOwner, agent *agentRuntime) error {
+				return owner.recoverTurnCompletionStateLocked(ctx, agent, ev.Success)
 			},
 		})
 		return recoverErr
@@ -389,13 +422,13 @@ func (s *service) forceIdleAfterInterruptionError(
 	reason string,
 ) (bool, error) {
 	recovered := false
-	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+	err := s.turns.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
 			recoveredTrigger: string(agentdto.TriggerTurnAborted),
 			errorText:        reason,
-			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
-				return svc.recoverTurnInterruptionStateLocked(ctx, agent)
+			recover: func(ctx context.Context, owner turnRecoveryOwner, agent *agentRuntime) error {
+				return owner.recoverTurnInterruptionStateLocked(ctx, agent)
 			},
 		})
 		return recoverErr
@@ -520,14 +553,7 @@ func turnTerminalConverged(runtime turnLifecycleRuntime, agentID, turnID string)
 	if runtime == nil {
 		return false
 	}
-	converged := false
-	if err := runtime.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		converged = turnTerminalConvergedLocked(agent, turnID)
-		return nil
-	}); err != nil {
-		return false
-	}
-	return converged
+	return runtime.turnTerminalConverged(agentID, turnID)
 }
 
 // turnTerminalConvergedLocked 在持锁读取路径判断 turn 终态是否已收敛。

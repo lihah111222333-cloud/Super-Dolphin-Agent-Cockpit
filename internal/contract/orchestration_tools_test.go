@@ -39,6 +39,20 @@ func TestReadOnlyAgentDeniedToolsUsesOrchestrationDenylist(t *testing.T) {
 	}
 }
 
+func TestReadOnlyAgentDeniedToolsUsesProductionWritableToolSurface(t *testing.T) {
+	denied := ReadOnlyAgentDeniedTools()
+	for _, name := range ReadOnlyNonOrchestrationDeniedTools() {
+		if !slices.Contains(denied, name) {
+			t.Fatalf("ReadOnlyAgentDeniedTools() missing writable tool %q", name)
+		}
+	}
+	for _, legacy := range []string{"edit", "lsp_edit"} {
+		if slices.Contains(denied, legacy) {
+			t.Fatalf("ReadOnlyAgentDeniedTools() contains retired tool name %q", legacy)
+		}
+	}
+}
+
 func TestOrchestrationToolHelpersReturnCopies(t *testing.T) {
 	tests := []struct {
 		name string
@@ -46,6 +60,7 @@ func TestOrchestrationToolHelpersReturnCopies(t *testing.T) {
 	}{
 		{name: "canonical", get: OrchestrationToolCanonicalNames},
 		{name: "denylist", get: OrchestrationToolDenylist},
+		{name: "read-only non-orchestration denied", get: ReadOnlyNonOrchestrationDeniedTools},
 		{name: "launch default disabled", get: func() []string {
 			tools, err := OrchestrationLaunchDefaultDisabledTools()
 			if err != nil {

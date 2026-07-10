@@ -192,7 +192,7 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	goroutines.Go(func() { runDone <- newRunnerActorForTest(silentLogger(), svc).Run(ctx) })
 	waitForAgentMonitor(t, svc, "agent-4", 3)
 
-	if err := svc.waitForProcessExit(context.Background(), "agent-4", 3); err != nil {
+	if err := svc.lifecycle.waitForProcessExit(context.Background(), svc.logger, "agent-4", 3); err != nil {
 		// 成功强杀时 waitForProcessExit 返回 nil；非 nil 通常表示进程已先行退出，也属于可接受路径。
 		t.Logf("waitForProcessExit returned %v (expected on force-kill path)", err)
 	}

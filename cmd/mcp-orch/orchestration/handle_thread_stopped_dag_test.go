@@ -160,7 +160,7 @@ func TestRecoveredReplayOldThreadStoppedSkipsDAGFallbackAfterRekey(t *testing.T)
 	lookup := &fakeFallbackLookup{nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7102), Status: "running"}}}
 	flow := &fakeFallbackFlow{}
 
-	if err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
+	if err := svc.lifecycle.recovery.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
 		t.Fatalf("recoverWithReason() error = %v", err)
 	}
 	hc := newHookConsumerInternal(svc, silentLogger(), nil, lookup, flow)

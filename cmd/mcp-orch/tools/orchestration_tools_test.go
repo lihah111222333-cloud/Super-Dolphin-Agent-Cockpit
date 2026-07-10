@@ -332,6 +332,12 @@ func TestLaunchRequestFromExecutableAppliesReviewerDisabledToolsForReadOnlyAgent
 			for _, tool := range reviewerDenied {
 				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
 			}
+			for _, tool := range []string{"patch_edit", "task_start_dag"} {
+				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+			}
+			for _, legacy := range []string{"edit", "lsp_edit"} {
+				require.NotContains(t, disabled, legacy)
+			}
 			require.Equal(t, 1, disabled["custom_tool"])
 		})
 	}
@@ -415,6 +421,13 @@ func TestLaunchRequestFromExecutableDoesNotApplyReviewerDisabledToolsToWorker(t 
 	for _, tool := range defaults {
 		require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
 	}
+	for _, tool := range []string{"patch_edit", "task_start_dag"} {
+		require.NotContains(t, disabled, tool)
+	}
+	for _, legacy := range []string{"edit", "lsp_edit"} {
+		require.NotContains(t, disabled, legacy)
+	}
+
 	nativeDisabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 	require.Equal(t, 1, nativeDisabled[contract.CodexNativeToolSpawnAgent])
 	for _, tool := range []string{

@@ -19,7 +19,7 @@ import (
 // GetState 返回 agent 当前状态；runtime 缺失时回退到持久化 thread 快照。
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
-	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
+	err := s.registry.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		result = AgentStateResult{AgentID: agent.id, State: string(agent.state)}
 		return nil
 	})
@@ -44,6 +44,10 @@ type reportController struct {
 	registry     *agentRegistry
 	agentThreads AgentThreadStore
 	logger       *slog.Logger
+}
+
+type reportApplier interface {
+	applyReportEventLocked(ctx context.Context, agent *agentRuntime, eventType string, data json.RawMessage, report string) (ReportEventResult, error)
 }
 
 func newReportController(deps reportControllerDeps) *reportController {
@@ -90,6 +94,10 @@ func (s *service) configuredReportController() (*reportController, error) {
 		s.reports.agentThreads = s.lifecycle.agentThreads
 	}
 	return s.reports, nil
+}
+
+func (s *service) configuredReportApplier() (reportApplier, error) {
+	return s.configuredReportController()
 }
 
 func (s *service) setStateChangedFallbackReportLocked(ctx context.Context, agent *agentRuntime, nextState string) {
