@@ -1,4 +1,4 @@
-package skill_test
+package app
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skill "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	skilltoolstore "github.com/anthropic-ai/super-agent-v3/internal/store/skilltool"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,7 +22,11 @@ func TestSkillToolRPCPersistsCRUDWithLazyTableCreation(t *testing.T) {
 	projectRoot := filepath.Join(t.TempDir(), "repo")
 	skillContent := "---\nname: backend\ndescription: Backend skill details\n---\n# Backend\nUse Go backend conventions carefully.\n"
 	writeSkillToolSkill(t, projectRoot, "backend", skillContent)
-	svc := skill.NewServiceWithDB(projectRoot, db)
+	port, err := provideSkillToolPersistence(skilltoolstore.New(db))
+	if err != nil {
+		t.Fatalf("provide Skill tool persistence: %v", err)
+	}
+	svc := skill.NewServiceWithToolStore(projectRoot, port)
 	server := newSkillToolRPCServer(svc)
 
 	assertSkillToolInitialListCreatesTable(t, db, server, projectRoot)

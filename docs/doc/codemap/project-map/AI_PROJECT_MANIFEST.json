@@ -5,15 +5,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4263,
+  "files": 4269,
   "domains": {
     "docs-agent": 872,
-    "other": 511,
+    "other": 515,
     "app-ui": 426,
     "platform-provider": 1010,
     "orchestration": 419,
-    "modules": 718,
-    "store-sql": 307
+    "modules": 717,
+    "store-sql": 310
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -36,8 +36,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 718,
-        "size_kb": 139.7,
+        "file_count": 717,
+        "size_kb": 139.5,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -50,8 +50,8 @@
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 307,
-        "size_kb": 45.7,
+        "file_count": 310,
+        "size_kb": 46.1,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 511,
-        "size_kb": 97.7,
+        "file_count": 515,
+        "size_kb": 98.4,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -75,7 +75,7 @@
     "cmd": 659,
     "docs": 869,
     "frontend-app": 424,
-    "internal": 2009,
+    "internal": 2015,
     "migrations": 112,
     "pkg": 25,
     "scripts": 109,

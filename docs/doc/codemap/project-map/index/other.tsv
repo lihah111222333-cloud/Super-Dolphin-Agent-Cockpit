@@ -20,7 +20,7 @@ internal/app/mcpcontrol_log_sink.go	internal	other	go-source	1489	root Fx/app �
 internal/app/modules_builtin_tools_test.go	internal	other	go-test	3631	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,builtin,tools,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_e2efixture_test.go	internal	other	go-test	3845	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_graph_test.go	internal	other	go-test	16575	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/modules.go	internal	other	go-source	9684	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules.go	internal	other	go-source	9749	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -37,6 +37,9 @@ internal/app/runtime_reporter_adapter.go	internal	other	go-source	2573	root Fx/a
 internal/app/session_ports_test.go	internal	other	go-test	1277	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/session_ports.go	internal	other	go-source	525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/sharedfile_adapter.go	internal	other	go-source	896	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/skill_store_adapters_test.go	internal	other	go-test	4828	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,skill,store,adapters,test,root,Fx,装配,runner,与,toolbridge
+internal/app/skill_store_adapters.go	internal	other	go-source	5666	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,skill,store,adapters,root,Fx,装配,runner,与,toolbridge
+internal/app/skill_tool_crud_test.go	internal	other	go-test	8041	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,skill,tool,crud,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7232	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/thread_orchestration_adapter.go	internal	other	go-source	10026	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/toolbridge_adapters_test.go	internal	other	go-test	2374	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,test,root,Fx,装配,runner,与
@@ -49,7 +52,7 @@ internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other
 internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	33857	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	8251	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	6517	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	26597	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	25778	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_test.go	internal	other	go-test	23913	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/baseline_shrink_test.go	internal	other	go-test	4503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,test,架构守卫,ratchet,与冻结规则
 internal/archtest/baseline_shrink.go	internal	other	go-source	2465	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,架构守卫,ratchet,与冻结规则
@@ -172,6 +175,7 @@ internal/archtest/sharedfilegitignore_no_pkg_error_var_test.go	internal	other	go
 internal/archtest/silent_fallback_guard_test.go	internal	other	go-test	5072	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/silent_fallback_guard.go	internal	other	go-source	11349	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/skill_fbsd_boundary_guard_test.go	internal	other	go-test	5476	架构守卫、baseline ratchet 与冻结规则	internal,archtest,skill,fbsd,boundary,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/skill_onion_boundary_test.go	internal	other	go-test	1647	架构守卫、baseline ratchet 与冻结规则	internal,archtest,skill,onion,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/sqlc_boundary_test.go	internal	other	go-test	541	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/sqlc_bypass_guard_test.go	internal	other	go-test	5558	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,bypass,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/sqlc_convention_guard_test.go	internal	other	go-test	1034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,convention,guard,test,架构守卫,baseline,ratchet,与冻结规则

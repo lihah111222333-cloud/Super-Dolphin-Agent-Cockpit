@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-10
 >
-> 已索引文件：**4263**
+> 已索引文件：**4269**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -25,11 +25,11 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 |---|---:|---:|---|
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 426 | 86.1 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 419 | 94.0 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 718 | 139.7 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 717 | 139.5 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1010 | 186.0 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
-| `docs/doc/codemap/project-map/index/store-sql.tsv` | 307 | 45.7 KB | 持久化层：store、sqlc、SQL queries、migrations |
+| `docs/doc/codemap/project-map/index/store-sql.tsv` | 310 | 46.1 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 872 | 155.2 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 511 | 97.7 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 515 | 98.4 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -48,7 +48,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2009 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 2015 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 869 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 659 | 可执行入口与 MCP peer |
 | `frontend-app` | 424 | 当前 React/Vite 新 UI |
@@ -114,7 +114,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/app` | 32 | root Fx 装配、runtime bridge、toolbridge adapters 与 graph closure tests |
+| `internal/app` | 35 | root Fx 装配、runtime bridge、toolbridge adapters 与 graph closure tests |
 
 ### internal/module
 
@@ -124,7 +124,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `internal/module/turn` | 67 | turn 启动、执行、审批与 provider 调度 |
 | `internal/module/prompt` | 89 | prompt 模板、启用条件与 system prompt 组装 |
 | `internal/module/memory` | 149 | memory canonical 管理、检索与持久化接线 |
-| `internal/module/skill` | 98 | skill canonical 管理与 provider-native mirror |
+| `internal/module/skill` | 97 | skill canonical 管理与 provider-native mirror |
 | `internal/module/uistate` | 50 | UI 事件投影与 timeline/sidebar 状态 |
 
 ### internal/platform

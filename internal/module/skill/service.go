@@ -3,7 +3,6 @@ package skill
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,7 +41,7 @@ type service struct {
 	approval           *ApprovalCache
 	auditStore         skillMutationAuditStore
 	mirrorTargets      []SkillMirrorTarget
-	skillTools         *toolstore.Store
+	skillTools         toolstore.Persistence
 
 	resolutionPreviewMu sync.Mutex
 	resolutionPreviews  map[string]skillResolutionStoredPreview
@@ -157,11 +156,11 @@ func NewService(projectRoot string) Service {
 	}
 }
 
-// NewServiceWithDB 创建带数据库 Skill Tool CRUD 能力的 skill service。
-// 生产装配通过 fx 注入同一张 SQLite；测试可直接传内存 DB 验证懒建表行为。
-func NewServiceWithDB(projectRoot string, db *sql.DB) Service {
+// NewServiceWithToolStore 创建通过消费端窄端口访问 Skill Tool CRUD 的 service。
+// 生产装配由 app adapter 注入 Store 实现；聚焦测试可提供满足端口的 fake。
+func NewServiceWithToolStore(projectRoot string, store toolstore.Persistence) Service {
 	svc := NewService(projectRoot).(*service)
-	svc.skillTools = toolstore.New(db)
+	svc.skillTools = store
 	return svc
 }
 
@@ -309,13 +308,6 @@ func (s *service) prepareScopedSkillsRoot(cwd, scope string, personalType ...str
 		return "", err
 	}
 	return root, nil
-}
-
-func resolveRequestedSkillScope(scope ...string) string {
-	if len(scope) == 0 {
-		return ""
-	}
-	return scope[0]
 }
 
 func resolveRequestedPersonalType(personalType ...string) string {

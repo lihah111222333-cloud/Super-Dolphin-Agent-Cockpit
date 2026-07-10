@@ -24,6 +24,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/routingtest"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/skilltool"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -58,6 +59,7 @@ var Module = fx.Module("store",
 	promptstore.Module,
 	routingtest.Module,
 	sharedfile.Module,
+	skilltool.Module,
 	systemlog.Module,
 	thread.Module,
 	topologyapproval.Module,

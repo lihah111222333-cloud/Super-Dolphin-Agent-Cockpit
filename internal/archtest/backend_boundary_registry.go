@@ -294,11 +294,6 @@ func defaultModuleDatabaseRule(patterns backendBoundaryPatterns) BackendBoundary
 			"github.com/jackc/pgx/v5/pgxpool",
 			"github.com/jackc/pgx/v5/pgconn",
 		}, "module code must not own direct database dependencies"),
-		Exceptions: []BoundaryException{
-			{ID: "skill_module_database_sql", Owner: "module_boundary", FilePattern: "internal/module/skill/module.go", ImportPrefix: "database/sql", Class: BoundaryExceptionPermanent, Reason: "skill module startup still injects the legacy tool-store database handle"},
-			{ID: "skill_service_database_sql", Owner: "module_boundary", FilePattern: "internal/module/skill/service.go", ImportPrefix: "database/sql", Class: BoundaryExceptionPermanent, Reason: "skill service still owns the tool-store construction seam"},
-			{ID: "skill_toolstore_database_sql", Owner: "module_boundary", FilePattern: "internal/module/skill/toolstore/store.go", ImportPrefix: "database/sql", Class: BoundaryExceptionPermanent, Reason: "toolstore remains the existing persistence subpackage for skill tools"},
-		},
 		SkipTestFiles: true,
 	}
 }

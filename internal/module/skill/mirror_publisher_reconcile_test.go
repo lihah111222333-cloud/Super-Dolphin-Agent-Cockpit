@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -471,17 +471,6 @@ func assertConflictReportItem(t *testing.T, items []SkillMirrorReportItem, targe
 	assertReportItem(t, items, targetID, provider, scope, rel, canonicalID, kind)
 }
 
-func findConflictReportItem(t *testing.T, items []SkillMirrorReportItem, targetID string, provider SkillProvider, scope, rel, canonicalID, kind string) SkillMirrorReportItem {
-	t.Helper()
-	for _, item := range items {
-		if sameReportLocation(item, targetID, provider, scope, rel, canonicalID) && item.ConflictKind == kind {
-			return item
-		}
-	}
-	t.Fatalf("missing conflict item target=%q provider=%q scope=%q rel=%q canonical=%q kind=%q in %+v", targetID, provider, scope, rel, canonicalID, kind, items)
-	return SkillMirrorReportItem{}
-}
-
 func findReportItem(t *testing.T, items []SkillMirrorReportItem, targetID string, provider SkillProvider, scope, rel, canonicalID string) SkillMirrorReportItem {
 	t.Helper()
 	for _, item := range items {
@@ -553,7 +542,8 @@ func TestSkillModuleExposesMirrorReconcilerThroughFx(t *testing.T) {
 		fx.NopLogger,
 		fx.Provide(func() *contract.Config { return &contract.Config{ProjectRoot: t.TempDir()} }),
 		fx.Provide(func() *event.Dispatcher { return event.NewDispatcher() }),
-		fx.Provide(func() auditstore.Store { return skillModuleAuditLogStoreStub{} }),
+		fx.Provide(func() MutationAuditStore { return skillModuleAuditLogStoreStub{} }),
+		fx.Provide(func() toolstore.Persistence { return skillModuleToolStoreStub{} }),
 		Module,
 		fx.Populate(&reconciler),
 	)
@@ -571,12 +561,47 @@ func TestSkillModuleExposesMirrorReconcilerThroughFx(t *testing.T) {
 	}
 }
 
-type skillModuleAuditLogStoreStub struct{}
-
-func (skillModuleAuditLogStoreStub) List(context.Context, auditstore.ListFilter) ([]auditstore.AuditEvent, error) {
-	return nil, nil
+func TestSkillModuleRequiresToolPersistence(t *testing.T) {
+	err := fx.ValidateApp(
+		fx.NopLogger,
+		fx.Provide(func() *contract.Config { return &contract.Config{ProjectRoot: t.TempDir()} }),
+		fx.Provide(func() *event.Dispatcher { return event.NewDispatcher() }),
+		fx.Provide(func() MutationAuditStore { return skillModuleAuditLogStoreStub{} }),
+		Module,
+	)
+	if err == nil || !strings.Contains(err.Error(), "toolstore.Persistence") {
+		t.Fatalf("ValidateApp without Skill tool persistence error = %v", err)
+	}
 }
 
-func (skillModuleAuditLogStoreStub) Insert(context.Context, auditstore.InsertParams) error {
+type skillModuleAuditLogStoreStub struct{}
+
+func (skillModuleAuditLogStoreStub) Insert(context.Context, MutationAuditEntry) error {
 	return nil
+}
+
+type skillModuleToolStoreStub struct{}
+
+func (skillModuleToolStoreStub) Create(context.Context, toolstore.MutationParams) (toolstore.Result, error) {
+	return toolstore.Result{}, toolstore.ErrStoreNotConfigured
+}
+
+func (skillModuleToolStoreStub) List(context.Context, toolstore.ListParams) (toolstore.ListResult, error) {
+	return toolstore.ListResult{}, toolstore.ErrStoreNotConfigured
+}
+
+func (skillModuleToolStoreStub) Get(context.Context, toolstore.IDParams) (toolstore.Result, error) {
+	return toolstore.Result{}, toolstore.ErrStoreNotConfigured
+}
+
+func (skillModuleToolStoreStub) GetByMethod(context.Context, toolstore.MethodParams) (toolstore.Result, error) {
+	return toolstore.Result{}, toolstore.ErrStoreNotConfigured
+}
+
+func (skillModuleToolStoreStub) Update(context.Context, toolstore.UpdateParams) (toolstore.Result, error) {
+	return toolstore.Result{}, toolstore.ErrStoreNotConfigured
+}
+
+func (skillModuleToolStoreStub) Delete(context.Context, toolstore.IDParams) error {
+	return toolstore.ErrStoreNotConfigured
 }

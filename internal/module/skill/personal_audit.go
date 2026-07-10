@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,15 +20,14 @@ const (
 	personalSkillRecoverySnapshotDir = ".super-dolphin-recovery-snapshot"
 )
 
-// skillMutationAuditStore 是 skill 模块写审计事件需要的最小端口。
-// 生产装配在 module.go 里适配 auditlog store，避免业务实现直接依赖 store 包。
-type skillMutationAuditStore interface {
-	Insert(context.Context, skillMutationAuditEntry) error
+// MutationAuditStore 是 Skill 模块写审计事件需要的消费端最小端口。
+// 生产装配由 app adapter 实现，Skill 不知道 auditlog Store 类型。
+type MutationAuditStore interface {
+	Insert(context.Context, MutationAuditEntry) error
 }
 
-// skillMutationAuditEntry 是 skill 模块内部审计写入 DTO。
-// 字段保持与 auditlog 入库面一一对应，但不向业务实现暴露 store 包类型。
-type skillMutationAuditEntry struct {
+// MutationAuditEntry 是 Skill 拥有的审计写入 DTO。
+type MutationAuditEntry struct {
 	EventType string
 	Action    string
 	Result    string
@@ -39,6 +37,9 @@ type skillMutationAuditEntry struct {
 	Level     string
 	Extra     json.RawMessage
 }
+
+type skillMutationAuditStore = MutationAuditStore
+type skillMutationAuditEntry = MutationAuditEntry
 
 type personalSkillArchiveRecord struct {
 	ArchiveID     string `json:"archive_id"`
@@ -379,35 +380,4 @@ func skillMutationAuditResult(action string) string {
 		return "success"
 	}
 	return "intent"
-}
-
-// copySkillDirContents 复制技能目录contents。
-func copySkillDirContents(source, target string) (int, int64, error) {
-	files, total := 0, int64(0)
-	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.MkdirAll(target, 0o755)
-		}
-		dst := filepath.Join(target, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink is not allowed: %s", rel)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		files, total = files+1, total+int64(len(data))
-		return os.WriteFile(dst, data, 0o644)
-	})
-	return files, total, err
 }

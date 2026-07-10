@@ -1,13 +1,11 @@
-// Package toolstore 管理 skill_tools 表的 CRUD 操作，提供 SQLite 持久化和 RPC handler 注册。
+// Package toolstore 定义 Skill 工具校验、RPC 形状和消费端持久化端口。
 package toolstore
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/creachadair/jrpc2/handler"
@@ -29,14 +27,17 @@ var (
 	ErrNotFound            = errors.New("skill tool not found")
 )
 
-// Store 管理 skill_tools 表；首次 CRUD 调用会自动建表。
-type Store struct {
-	db    *sql.DB
-	mu    sync.Mutex
-	ready bool
+// Persistence 是 Skill 工具编排所需的消费端持久化窄端口。
+type Persistence interface {
+	Create(context.Context, MutationParams) (Result, error)
+	List(context.Context, ListParams) (ListResult, error)
+	Get(context.Context, IDParams) (Result, error)
+	GetByMethod(context.Context, MethodParams) (Result, error)
+	Update(context.Context, UpdateParams) (Result, error)
+	Delete(context.Context, IDParams) error
 }
 
-// MutationParams 是新增或更新 Skill 工具的入参。
+// MutationParams 是 Skill 工具创建和更新共用的领域输入。
 type MutationParams struct {
 	CWD             string `json:"cwd"`
 	MethodName      string `json:"methodName"`
@@ -45,32 +46,32 @@ type MutationParams struct {
 	Enabled         *bool  `json:"enabled"`
 }
 
-// UpdateParams 是更新 Skill 工具的入参。
+// UpdateParams 按 ID 更新一个 Skill 工具。
 type UpdateParams struct {
 	ID int64 `json:"id"`
 	MutationParams
 }
 
-// IDParams 用项目路径和 id 定位一个 Skill 工具。
+// IDParams 按项目和 ID 定位一个 Skill 工具。
 type IDParams struct {
 	CWD string `json:"cwd"`
 	ID  int64  `json:"id"`
 }
 
-// MethodParams 用项目路径和方法名定位一个 Skill 工具。
+// MethodParams 按项目和方法名定位一个 Skill 工具。
 type MethodParams struct {
 	CWD        string `json:"cwd"`
 	MethodName string `json:"methodName"`
 }
 
-// ListParams 是 Skill 工具列表查询入参。
+// ListParams 过滤项目内的 Skill 工具列表。
 type ListParams struct {
 	CWD     string `json:"cwd"`
 	Keyword string `json:"keyword"`
 	Limit   int32  `json:"limit"`
 }
 
-// Result 是 Skill 工具的 JSON 返回形态。
+// Result 是 RPC 和动态工具面共用的 Skill 自有 DTO。
 type Result struct {
 	ID          int64     `json:"id"`
 	CWD         string    `json:"cwd"`
@@ -81,27 +82,26 @@ type Result struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// ListResult 返回当前项目可用的 Skill 工具。
+// ListResult 返回项目内 Skill 工具，并保持空数组 wire 形状。
 type ListResult struct {
 	Tools []Result `json:"tools"`
 }
 
-// DeleteResult 返回删除确认。
+// DeleteResult 返回 Skill 工具删除确认。
 type DeleteResult struct {
 	ID      int64 `json:"id"`
 	Deleted bool  `json:"deleted"`
 }
 
-// CWDResolver 解析工作目录路径的函数类型。
+// CWDResolver 把调用方工作目录解析到项目边界。
 type CWDResolver func(string) (string, error)
 
-// ErrorMapper 将内部错误映射为 RPC 错误的函数类型。
+// ErrorMapper 把领域错误映射到 RPC 错误契约。
 type ErrorMapper func(error) error
 
-// ContentReader 按工作目录和方法名读取 skill 全文内容的函数类型。
+// ContentReader 在动态工具解析完成后读取 Skill 全文。
 type ContentReader func(context.Context, string, string) (string, error)
 
-// normalizedMutation 是经过字段校验和空白裁剪后的写入参数。
 type normalizedMutation struct {
 	CWD         string
 	MethodName  string
@@ -109,15 +109,7 @@ type normalizedMutation struct {
 	Enabled     bool
 }
 
-// New 创建 Store；db 为空时保留 nil，让调用方 fail-fast 报配置错误。
-func New(db *sql.DB) *Store {
-	if db == nil {
-		return nil
-	}
-	return &Store{db: db}
-}
-
-// InvalidParamsError 判断错误是否应映射为 RPC invalid params。
+// InvalidParamsError 判断错误是否属于 RPC 参数非法类别。
 func InvalidParamsError(err error) bool {
 	return errors.Is(err, ErrIDRequired) ||
 		errors.Is(err, ErrLimitRequired) ||
@@ -127,8 +119,8 @@ func InvalidParamsError(err error) bool {
 		errors.Is(err, ErrEnabledRequired)
 }
 
-// Handlers 返回 Skill 工具 CRUD 的 host RPC handler 集合。
-func Handlers(store *Store, resolve CWDResolver, mapError ErrorMapper) handler.Map {
+// Handlers 返回 Skill 工具 CRUD 的 RPC handler 集合。
+func Handlers(store Persistence, resolve CWDResolver, mapError ErrorMapper) handler.Map {
 	return handler.Map{
 		"skills/tools/create": platformrpc.StrictHandler(createHandler(store, resolve, mapError)),
 		"skills/tools/list":   platformrpc.StrictHandler(listHandler(store, resolve, mapError)),
@@ -138,8 +130,8 @@ func Handlers(store *Store, resolve CWDResolver, mapError ErrorMapper) handler.M
 	}
 }
 
-// ListForSurface 返回当前项目启用的 Skill 工具定义，供动态工具面使用。
-func ListForSurface(ctx context.Context, store *Store, resolve CWDResolver, cwd string) ([]contract.SkillToolSurfaceTool, error) {
+// ListForSurface 返回动态 Provider 工具面需要的已启用工具定义。
+func ListForSurface(ctx context.Context, store Persistence, resolve CWDResolver, cwd string) ([]contract.SkillToolSurfaceTool, error) {
 	if store == nil {
 		return nil, ErrStoreNotConfigured
 	}
@@ -147,7 +139,11 @@ func ListForSurface(ctx context.Context, store *Store, resolve CWDResolver, cwd 
 	if err := resolveParamCWD(&resolved, resolve); err != nil {
 		return nil, err
 	}
-	result, err := store.List(ctx, ListParams{CWD: resolved, Limit: maxLimit})
+	p := ListParams{CWD: resolved, Limit: maxLimit}
+	if err := validateListParams(p); err != nil {
+		return nil, err
+	}
+	result, err := store.List(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -160,8 +156,8 @@ func ListForSurface(ctx context.Context, store *Store, resolve CWDResolver, cwd 
 	return tools, nil
 }
 
-// CallForSurface 解析启用的 Skill 工具并通过调用方提供的读取器返回全文。
-func CallForSurface(ctx context.Context, store *Store, resolve CWDResolver, read ContentReader, call contract.SkillToolCall) (string, error) {
+// CallForSurface 解析已启用工具并读取对应 Skill 全文。
+func CallForSurface(ctx context.Context, store Persistence, resolve CWDResolver, read ContentReader, call contract.SkillToolCall) (string, error) {
 	if store == nil || read == nil {
 		return "", ErrStoreNotConfigured
 	}
@@ -169,7 +165,11 @@ func CallForSurface(ctx context.Context, store *Store, resolve CWDResolver, read
 	if err := resolveParamCWD(&resolved, resolve); err != nil {
 		return "", err
 	}
-	tool, err := store.GetByMethod(ctx, MethodParams{CWD: resolved, MethodName: call.Name})
+	p := MethodParams{CWD: resolved, MethodName: strings.TrimSpace(call.Name)}
+	if err := validateMethodParams(p); err != nil {
+		return "", err
+	}
+	tool, err := store.GetByMethod(ctx, p)
 	if err != nil {
 		return "", err
 	}
@@ -179,62 +179,96 @@ func CallForSurface(ctx context.Context, store *Store, resolve CWDResolver, read
 	return read(ctx, resolved, tool.MethodName)
 }
 
-// createHandler 返回 create RPC 的处理函数闭包。
-func createHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, MutationParams) (Result, error) {
+func createHandler(store Persistence, resolve CWDResolver, mapError ErrorMapper) func(context.Context, MutationParams) (Result, error) {
 	return func(ctx context.Context, p MutationParams) (Result, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
 			return Result{}, mapHandlerError(err, mapError)
+		}
+		p, err := validatedMutationParams(p)
+		if err != nil {
+			return Result{}, mapHandlerError(err, mapError)
+		}
+		if store == nil {
+			return Result{}, mapHandlerError(ErrStoreNotConfigured, mapError)
 		}
 		result, err := store.Create(ctx, p)
 		return result, mapHandlerError(err, mapError)
 	}
 }
 
-// listHandler 返回 list RPC 的处理函数闭包。
-func listHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, ListParams) (ListResult, error) {
+func listHandler(store Persistence, resolve CWDResolver, mapError ErrorMapper) func(context.Context, ListParams) (ListResult, error) {
 	return func(ctx context.Context, p ListParams) (ListResult, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
 			return ListResult{}, mapHandlerError(err, mapError)
 		}
+		if err := validateListParams(p); err != nil {
+			return ListResult{}, mapHandlerError(err, mapError)
+		}
+		if store == nil {
+			return ListResult{}, mapHandlerError(ErrStoreNotConfigured, mapError)
+		}
+		p.Keyword = strings.TrimSpace(p.Keyword)
+		p.Limit = normalizeLimit(p.Limit)
 		result, err := store.List(ctx, p)
 		return result, mapHandlerError(err, mapError)
 	}
 }
 
-// getHandler 返回 get RPC 的处理函数闭包。
-func getHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, IDParams) (Result, error) {
+func getHandler(store Persistence, resolve CWDResolver, mapError ErrorMapper) func(context.Context, IDParams) (Result, error) {
 	return func(ctx context.Context, p IDParams) (Result, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
 			return Result{}, mapHandlerError(err, mapError)
+		}
+		if err := validateIDParams(p); err != nil {
+			return Result{}, mapHandlerError(err, mapError)
+		}
+		if store == nil {
+			return Result{}, mapHandlerError(ErrStoreNotConfigured, mapError)
 		}
 		result, err := store.Get(ctx, p)
 		return result, mapHandlerError(err, mapError)
 	}
 }
 
-// updateHandler 返回 update RPC 的处理函数闭包。
-func updateHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, UpdateParams) (Result, error) {
+func updateHandler(store Persistence, resolve CWDResolver, mapError ErrorMapper) func(context.Context, UpdateParams) (Result, error) {
 	return func(ctx context.Context, p UpdateParams) (Result, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
 			return Result{}, mapHandlerError(err, mapError)
+		}
+		if p.ID <= 0 {
+			return Result{}, mapHandlerError(ErrIDRequired, mapError)
+		}
+		validated, err := validatedMutationParams(p.MutationParams)
+		if err != nil {
+			return Result{}, mapHandlerError(err, mapError)
+		}
+		p.MutationParams = validated
+		if store == nil {
+			return Result{}, mapHandlerError(ErrStoreNotConfigured, mapError)
 		}
 		result, err := store.Update(ctx, p)
 		return result, mapHandlerError(err, mapError)
 	}
 }
 
-// deleteHandler 返回 delete RPC 的处理函数闭包。
-func deleteHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, IDParams) (DeleteResult, error) {
+func deleteHandler(store Persistence, resolve CWDResolver, mapError ErrorMapper) func(context.Context, IDParams) (DeleteResult, error) {
 	return func(ctx context.Context, p IDParams) (DeleteResult, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
 			return DeleteResult{}, mapHandlerError(err, mapError)
 		}
-		result, err := store.Delete(ctx, p)
-		return result, mapHandlerError(err, mapError)
+		if err := validateIDParams(p); err != nil {
+			return DeleteResult{}, mapHandlerError(err, mapError)
+		}
+		if store == nil {
+			return DeleteResult{}, mapHandlerError(ErrStoreNotConfigured, mapError)
+		}
+		if err := store.Delete(ctx, p); err != nil {
+			return DeleteResult{}, mapHandlerError(err, mapError)
+		}
+		return DeleteResult{ID: p.ID, Deleted: true}, nil
 	}
 }
 
-// resolveParamCWD 通过 resolve 函数解析并回写入参的 CWD 字段。
 func resolveParamCWD(cwd *string, resolve CWDResolver) error {
 	if resolve == nil {
 		return ErrStoreNotConfigured
@@ -247,7 +281,6 @@ func resolveParamCWD(cwd *string, resolve CWDResolver) error {
 	return nil
 }
 
-// mapHandlerError 将错误映射为 RPC 层可识别的错误形式。
 func mapHandlerError(err error, mapError ErrorMapper) error {
 	if err == nil {
 		return nil
@@ -258,152 +291,19 @@ func mapHandlerError(err error, mapError ErrorMapper) error {
 	return mapError(err)
 }
 
-// Create 校验并插入一个 Skill 工具。
-func (s *Store) Create(ctx context.Context, p MutationParams) (Result, error) {
+func validatedMutationParams(p MutationParams) (MutationParams, error) {
 	normalized, err := normalizeMutation(p)
 	if err != nil {
-		return Result{}, err
+		return MutationParams{}, err
 	}
-	if err := s.ensure(ctx); err != nil {
-		return Result{}, err
-	}
-	return s.scanOne(ctx, insertSQL,
-		normalized.CWD,
-		normalized.MethodName,
-		normalized.Description,
-		boolToSQLite(normalized.Enabled),
-	)
+	p.CWD = normalized.CWD
+	p.MethodName = normalized.MethodName
+	p.MethodNameSnake = ""
+	p.Description = normalized.Description
+	p.Enabled = &normalized.Enabled
+	return p, nil
 }
 
-// List 返回当前项目的 Skill 工具；keyword 匹配方法名和描述。
-func (s *Store) List(ctx context.Context, p ListParams) (ListResult, error) {
-	if err := validateListParams(p); err != nil {
-		return ListResult{}, err
-	}
-	tools, err := s.list(ctx, strings.TrimSpace(p.CWD), strings.TrimSpace(p.Keyword), normalizeLimit(p.Limit))
-	if err != nil {
-		return ListResult{}, err
-	}
-	return ListResult{Tools: tools}, nil
-}
-
-// Get 按项目路径和 id 读取一个 Skill 工具。
-func (s *Store) Get(ctx context.Context, p IDParams) (Result, error) {
-	if err := validateIDParams(p); err != nil {
-		return Result{}, err
-	}
-	if err := s.ensure(ctx); err != nil {
-		return Result{}, err
-	}
-	return s.scanOne(ctx, getSQL, strings.TrimSpace(p.CWD), p.ID)
-}
-
-// GetByMethod 按项目路径和方法名读取一个 Skill 工具。
-func (s *Store) GetByMethod(ctx context.Context, p MethodParams) (Result, error) {
-	methodName := strings.TrimSpace(p.MethodName)
-	if err := validateMethodName(methodName); err != nil {
-		return Result{}, err
-	}
-	cwd := strings.TrimSpace(p.CWD)
-	if cwd == "" {
-		return Result{}, ErrStoreNotConfigured
-	}
-	if err := s.ensure(ctx); err != nil {
-		return Result{}, err
-	}
-	return s.scanOne(ctx, getByMethodSQL, cwd, methodName)
-}
-
-// Update 覆盖一个 Skill 工具的可编辑字段。
-func (s *Store) Update(ctx context.Context, p UpdateParams) (Result, error) {
-	if p.ID <= 0 {
-		return Result{}, ErrIDRequired
-	}
-	normalized, err := normalizeMutation(p.MutationParams)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := s.ensure(ctx); err != nil {
-		return Result{}, err
-	}
-	return s.update(ctx, p.ID, normalized)
-}
-
-// Delete 删除当前项目中的 Skill 工具。
-func (s *Store) Delete(ctx context.Context, p IDParams) (DeleteResult, error) {
-	if err := validateIDParams(p); err != nil {
-		return DeleteResult{}, err
-	}
-	if err := s.delete(ctx, strings.TrimSpace(p.CWD), p.ID); err != nil {
-		return DeleteResult{}, err
-	}
-	return DeleteResult{ID: p.ID, Deleted: true}, nil
-}
-
-// list 执行带关键词过滤的查询，返回当前项目的工具列表。
-func (s *Store) list(ctx context.Context, cwd, keyword string, limit int32) ([]Result, error) {
-	if err := s.ensure(ctx); err != nil {
-		return nil, err
-	}
-	pattern := "%" + keyword + "%"
-	rows, err := s.db.QueryContext(ctx, listSQL, cwd, pattern, pattern, pattern, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list skill tools: %w", err)
-	}
-	defer rows.Close()
-	return scanRows(rows)
-}
-
-// update 执行 UPDATE 并返回更新后的记录。
-func (s *Store) update(ctx context.Context, id int64, p normalizedMutation) (Result, error) {
-	return s.scanOne(ctx, updateSQL, p.MethodName, p.Description, boolToSQLite(p.Enabled), p.CWD, id)
-}
-
-// delete 执行 DELETE，删除失败或记录不存在时返回错误。
-func (s *Store) delete(ctx context.Context, cwd string, id int64) error {
-	if err := s.ensure(ctx); err != nil {
-		return err
-	}
-	result, err := s.db.ExecContext(ctx, deleteSQL, cwd, id)
-	if err != nil {
-		return fmt.Errorf("delete skill tool: %w", err)
-	}
-	return requireAffected(result)
-}
-
-// ensure 创建表并缓存成功状态；失败不会被缓存，下一次调用可以继续重试。
-func (s *Store) ensure(ctx context.Context) error {
-	if s == nil || s.db == nil {
-		return ErrStoreNotConfigured
-	}
-	if s.ready {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.ready {
-		return nil
-	}
-	if _, err := s.db.ExecContext(ctx, createTableSQL); err != nil {
-		return fmt.Errorf("create skill_tools table: %w", err)
-	}
-	s.ready = true
-	return nil
-}
-
-// scanOne 执行单行查询并将结果扫描为 Result；行不存在时返回 ErrNotFound。
-func (s *Store) scanOne(ctx context.Context, query string, args ...any) (Result, error) {
-	tool, err := scan(s.db.QueryRowContext(ctx, query, args...))
-	if errors.Is(err, sql.ErrNoRows) {
-		return Result{}, ErrNotFound
-	}
-	if err != nil {
-		return Result{}, err
-	}
-	return tool, nil
-}
-
-// normalizeMutation 校验并裁剪写入参数，返回规范化后的结构体。
 func normalizeMutation(p MutationParams) (normalizedMutation, error) {
 	cwd := strings.TrimSpace(p.CWD)
 	if cwd == "" {
@@ -420,15 +320,9 @@ func normalizeMutation(p MutationParams) (normalizedMutation, error) {
 	if p.Enabled == nil {
 		return normalizedMutation{}, ErrEnabledRequired
 	}
-	return normalizedMutation{
-		CWD:         cwd,
-		MethodName:  methodName,
-		Description: description,
-		Enabled:     *p.Enabled,
-	}, nil
+	return normalizedMutation{CWD: cwd, MethodName: methodName, Description: description, Enabled: *p.Enabled}, nil
 }
 
-// validateListParams 校验 list 查询的必填字段。
 func validateListParams(p ListParams) error {
 	if strings.TrimSpace(p.CWD) == "" {
 		return ErrStoreNotConfigured
@@ -439,7 +333,6 @@ func validateListParams(p ListParams) error {
 	return nil
 }
 
-// validateIDParams 校验 id 查询的必填字段。
 func validateIDParams(p IDParams) error {
 	if strings.TrimSpace(p.CWD) == "" {
 		return ErrStoreNotConfigured
@@ -450,7 +343,13 @@ func validateIDParams(p IDParams) error {
 	return nil
 }
 
-// validateMethodName 校验方法名格式，不得含空白或路径分隔符。
+func validateMethodParams(p MethodParams) error {
+	if strings.TrimSpace(p.CWD) == "" {
+		return ErrStoreNotConfigured
+	}
+	return validateMethodName(p.MethodName)
+}
+
 func validateMethodName(methodName string) error {
 	methodName = strings.TrimSpace(methodName)
 	if methodName == "" {
@@ -462,7 +361,6 @@ func validateMethodName(methodName string) error {
 	return nil
 }
 
-// normalizeLimit 将 limit 约束到 maxLimit 上限。
 func normalizeLimit(limit int32) int32 {
 	if limit > maxLimit {
 		return maxLimit
@@ -470,7 +368,6 @@ func normalizeLimit(limit int32) int32 {
 	return limit
 }
 
-// firstNonEmpty 返回第一个非空字符串，全为空时返回空字符串。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -479,116 +376,3 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
-// scanRows 从查询结果集中逐行扫描并返回工具列表。
-func scanRows(rows *sql.Rows) ([]Result, error) {
-	out := make([]Result, 0)
-	for rows.Next() {
-		tool, err := scan(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, tool)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate skill tools: %w", err)
-	}
-	return out, nil
-}
-
-// scanner 是支持 Scan 方法的通用接口，供 *sql.Row 和 *sql.Rows 复用。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
-// scan 从单行结果扫描并构造 Result，enabled 字段从 SQLite integer 转换为 bool。
-func scan(source scanner) (Result, error) {
-	var tool Result
-	var enabled int64
-	err := source.Scan(
-		&tool.ID,
-		&tool.CWD,
-		&tool.MethodName,
-		&tool.Description,
-		&enabled,
-		&tool.CreatedAt,
-		&tool.UpdatedAt,
-	)
-	if err != nil {
-		return Result{}, err
-	}
-	tool.Enabled = enabled != 0
-	return tool, nil
-}
-
-// requireAffected 检查 sql.Result 是否影响了至少一行，否则返回 ErrNotFound。
-func requireAffected(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read skill tool affected rows: %w", err)
-	}
-	if affected == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// boolToSQLite 将 bool 转换为 SQLite 兼容的 0/1 整数。
-func boolToSQLite(value bool) int64 {
-	if value {
-		return 1
-	}
-	return 0
-}
-
-const createTableSQL = `
-CREATE TABLE IF NOT EXISTS skill_tools (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	cwd TEXT NOT NULL,
-	method_name TEXT NOT NULL,
-	description TEXT NOT NULL,
-	enabled INTEGER NOT NULL DEFAULT 1,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	UNIQUE(cwd, method_name),
-	CHECK (cwd <> ''),
-	CHECK (method_name <> ''),
-	CHECK (description <> ''),
-	CHECK (enabled IN (0, 1))
-)`
-
-const columns = `
-id, cwd, method_name, description, enabled, created_at, updated_at`
-
-const insertSQL = `
-INSERT INTO skill_tools (cwd, method_name, description, enabled)
-VALUES (?, ?, ?, ?)
-RETURNING ` + columns
-
-const listSQL = `
-SELECT ` + columns + `
-FROM skill_tools
-WHERE cwd = ?
-	AND (? = '%%' OR method_name LIKE ? OR description LIKE ?)
-ORDER BY updated_at DESC, id DESC
-LIMIT ?`
-
-const getSQL = `
-SELECT ` + columns + `
-FROM skill_tools
-WHERE cwd = ? AND id = ?`
-
-const getByMethodSQL = `
-SELECT ` + columns + `
-FROM skill_tools
-WHERE cwd = ? AND method_name = ?`
-
-const updateSQL = `
-UPDATE skill_tools
-SET method_name = ?, description = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
-WHERE cwd = ? AND id = ?
-RETURNING ` + columns
-
-const deleteSQL = `
-DELETE FROM skill_tools
-WHERE cwd = ? AND id = ?`
