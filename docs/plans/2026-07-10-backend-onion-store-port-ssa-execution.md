@@ -837,6 +837,10 @@ Expected: PASS；保存为迁移前行为基线。
 
 所有由 `internal/app` 实现的 exported Port 都必须满足“跨包可实现”：方法参数、返回值、callback 参数和需要 `errors.Is` 识别的 sentinel 必须 exported。每个 adapter 文件增加编译期断言，例如 `var _ cron.Store = (*cronStoreAdapter)(nil)`；测试必须从 `package app` 或 `package app_test` 编译这些断言，模块同包 fake 不能替代此证明。
 
+跨层 DTO 映射必须切断可变引用共享：`json.RawMessage`、slice、map 和标量指针都要复制，自动字段测试除 source/target exported field 集合与 one-hot 映射外，还要断言修改 domain DTO 不会回写 Store DTO。Lane B 允许新建一个仅测试可见的 App 字段守卫 helper 供四个 checkpoint 复用，禁止复制四套反射实现。
+
+B1 固定按 `feedback → insight → personalization → turn` 串行推进。Feedback 保留 provider 在 nil Store 时返回 nil、由 `Record` 显式 fail-fast 的既有时机；Personalization 保留 non-nil adapter 的方法级 fail-fast；Turn 保留 optional nil。Insight 的 Store 是 required 依赖，迁到 App 后 constructor 必须在 nil 时返回明确错误，不能留下延迟 panic。Turn 只把 `turndedupe.ErrNotFound` 映射为 `turn.ErrDedupeNotFound`，其他错误保持原始 `errors.Is` 链。
+
 ### B2. 按现有领域端口迁移
 
 - [ ] **Step 3: 迁移 cron**
