@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -181,7 +182,7 @@ func validateBoundaryImportPolicyFields(item string, rule BackendBoundaryRule, p
 	}
 	if strings.TrimSpace(policy.ImportPrefix) == "" {
 		violations = append(violations, item+" import_prefix is empty")
-	} else if normalizeBackendBoundaryImportPrefix(policy.ImportPrefix) != policy.ImportPrefix {
+	} else if !isCanonicalBackendBoundaryImportPrefix(policy.ImportPrefix) {
 		violations = append(violations, item+" import_prefix must use canonical form")
 	}
 	if strings.TrimSpace(policy.Reason) == "" {
@@ -325,6 +326,8 @@ func validateBoundaryExceptionScope(item string, rule BackendBoundaryRule, excep
 	}
 	if strings.TrimSpace(exception.ImportPrefix) == "" {
 		violations = append(violations, item+" import_prefix is empty")
+	} else if !isCanonicalBackendBoundaryImportPrefix(exception.ImportPrefix) {
+		violations = append(violations, item+" import_prefix must use canonical form")
 	} else if !exceptionMatchesRuleDeny(rule, exception) {
 		violations = append(violations, item+" import_prefix is outside rule deny policies")
 	}
@@ -729,8 +732,31 @@ func matchesBackendBoundaryImportPrefix(imp, prefix string) bool {
 }
 
 func normalizeBackendBoundaryImportPrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	prefix = strings.ReplaceAll(prefix, "\\", "/")
 	prefix = strings.Trim(prefix, "/")
-	return strings.TrimPrefix(prefix, backendBoundaryModulePath+"/")
+	prefix = strings.TrimPrefix(prefix, backendBoundaryModulePath+"/")
+	prefix = path.Clean(prefix)
+	if prefix == "." {
+		return ""
+	}
+	return prefix
+}
+
+// isCanonicalBackendBoundaryImportPrefix 拒绝空白、路径跳转、重复分隔符和仓库完整模块前缀。
+func isCanonicalBackendBoundaryImportPrefix(prefix string) bool {
+	if prefix == "" || prefix != strings.TrimSpace(prefix) || strings.Contains(prefix, "\\") {
+		return false
+	}
+	if normalizeBackendBoundaryImportPrefix(prefix) != prefix {
+		return false
+	}
+	for segment := range strings.SplitSeq(prefix, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func isBackendBoundaryInternalOrCmdImport(imp string) bool {

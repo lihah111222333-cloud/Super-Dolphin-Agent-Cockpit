@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -56,9 +57,11 @@ func assemblePolicySnapshot() localPolicyRecord {
 
 func TestBackendBoundaryRuleFactsRejectsLegacySQLCEvaluator(t *testing.T) {
 	const source = `package archtest_test
-func TestSQLCBoundaryLegacy(t *testing.T) {}
+func TestSQLCBoundaryLegacy(t *testing.T) {
+	_ = internalPrefix("internal/store/sqlc")
+}
 `
-	rel := "internal/archtest/sqlc_boundary_test.go"
+	rel := "internal/archtest/sqlc_legacy_test.go"
 	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +103,33 @@ func legacySidecarRule(t *testing.T, root string) {
 	violations := strings.Join(backendBoundaryConsumerFactViolations("dependency_direction_test.go", node), "\n")
 	if !strings.Contains(violations, "procedural MCP sidecar evaluator duplicates the canonical registry") {
 		t.Fatalf("procedural MCP sidecar evaluator must be rejected, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsRejectsIndirectSidecarEvaluator(t *testing.T) {
+	cases := map[string]string{
+		"package const": `package archtest_test
+const targetSidecar = "cmd/" + "mcp-lsp"
+func legacySidecarRule(t *testing.T, root string) {
+	assertNoImportPrefixes(t, parseImportFiles(t, root, targetSidecar), []string{internalPrefix("internal/module")})
+}`,
+		"local variable": `package archtest_test
+func legacySidecarRule(t *testing.T, root string) {
+	target := "cmd/" + "mcp-lsp"
+	assertNoImportPrefixes(t, parseImportFiles(t, root, target), []string{internalPrefix("internal/module")})
+}`,
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			node, err := parser.ParseFile(token.NewFileSet(), "dependency_direction_test.go", source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			violations := strings.Join(backendBoundaryConsumerFactViolations("dependency_direction_test.go", node), "\n")
+			if !strings.Contains(violations, "procedural MCP sidecar evaluator duplicates the canonical registry") {
+				t.Fatalf("indirect procedural MCP sidecar evaluator must be rejected, got:\n%s", violations)
+			}
+		})
 	}
 }
 
@@ -184,9 +214,27 @@ func parseBackendBoundaryRuleConsumer(root, rel string) (*ast.File, error) {
 }
 
 func backendBoundaryConsumerFactViolations(rel string, node *ast.File) []string {
-	var violations []string
+	violations := backendBoundaryFileSemanticViolations(rel, node)
 	for _, declaration := range node.Decls {
 		violations = append(violations, backendBoundaryConsumerDeclarationViolations(rel, declaration)...)
+	}
+	return violations
+}
+
+func backendBoundaryFileSemanticViolations(rel string, node *ast.File) []string {
+	packageStrings := backendBoundaryPackageStringConstants(node)
+	var violations []string
+	for _, declaration := range node.Decls {
+		fn, ok := declaration.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if rel != "internal/archtest/sqlc_boundary_test.go" && strings.HasPrefix(fn.Name.Name, "Test") && containsLegacySQLCBoundaryFacts(fn) {
+			violations = append(violations, rel+": local SQLC evaluator duplicates the canonical registry")
+		}
+		if declaresProceduralMCPSidecarBoundary(fn, packageStrings) {
+			violations = append(violations, rel+": procedural MCP sidecar evaluator duplicates the canonical registry")
+		}
 	}
 	return violations
 }
@@ -224,9 +272,6 @@ func backendBoundarySpecialFunctionViolation(rel string, fn *ast.FuncDecl) strin
 	if rel == "internal/archtest/sqlc_boundary_test.go" && strings.HasPrefix(fn.Name.Name, "Test") && !usesCanonicalSQLCBoundaryRule(fn) {
 		return rel + ": local SQLC evaluator duplicates the canonical registry"
 	}
-	if declaresProceduralMCPSidecarBoundary(fn) {
-		return rel + ": procedural MCP sidecar evaluator duplicates the canonical registry"
-	}
 	switch fn.Name.Name {
 	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
 		return rel + ": local default boundary registry duplicates the canonical registry"
@@ -257,26 +302,27 @@ func usesCanonicalSQLCBoundaryRule(fn *ast.FuncDecl) bool {
 }
 
 func containsLegacySQLCBoundaryFacts(fn *ast.FuncDecl) bool {
-	legacy := false
+	var namesSQLCPath, scansImports bool
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		if call, ok := node.(*ast.CallExpr); ok {
 			switch backendBoundaryCallName(call.Fun) {
-			case "parseImportFiles", "internalPrefix":
-				legacy = true
+			case "internalPrefix", "parseImportFiles":
+				scansImports = true
 			}
 		}
 		if value, ok := backendBoundaryStringLiteral(node); ok && value == "internal/store/sqlc" {
-			legacy = true
+			namesSQLCPath = true
 		}
-		return !legacy
+		return !(namesSQLCPath && scansImports)
 	})
-	return legacy
+	return namesSQLCPath && scansImports
 }
 
-func declaresProceduralMCPSidecarBoundary(fn *ast.FuncDecl) bool {
+func declaresProceduralMCPSidecarBoundary(fn *ast.FuncDecl, packageStrings map[string]string) bool {
 	if fn.Body == nil {
 		return false
 	}
+	stringsByName := backendBoundaryFunctionStringConstants(fn, packageStrings)
 	found := false
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
@@ -284,7 +330,7 @@ func declaresProceduralMCPSidecarBoundary(fn *ast.FuncDecl) bool {
 			return true
 		}
 		ast.Inspect(call, func(child ast.Node) bool {
-			if value, ok := backendBoundaryStringLiteral(child); ok && strings.HasPrefix(value, "cmd/mcp-") {
+			if parseCall, ok := child.(*ast.CallExpr); ok && backendBoundaryParseImportCallTargetsSidecar(parseCall, stringsByName) {
 				found = true
 			}
 			return !found
@@ -292,6 +338,93 @@ func declaresProceduralMCPSidecarBoundary(fn *ast.FuncDecl) bool {
 		return !found
 	})
 	return found
+}
+
+func backendBoundaryPackageStringConstants(node *ast.File) map[string]string {
+	values := make(map[string]string)
+	for _, declaration := range node.Decls {
+		group, ok := declaration.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range group.Specs {
+			if item, ok := spec.(*ast.ValueSpec); ok {
+				backendBoundaryCollectValueSpecStrings(item, values)
+			}
+		}
+	}
+	return values
+}
+
+func backendBoundaryFunctionStringConstants(fn *ast.FuncDecl, packageStrings map[string]string) map[string]string {
+	values := make(map[string]string, len(packageStrings))
+	maps.Copy(values, packageStrings)
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		switch item := node.(type) {
+		case *ast.AssignStmt:
+			backendBoundaryCollectAssignmentStrings(item, values)
+		case *ast.ValueSpec:
+			backendBoundaryCollectValueSpecStrings(item, values)
+		}
+		return true
+	})
+	return values
+}
+
+func backendBoundaryCollectAssignmentStrings(item *ast.AssignStmt, values map[string]string) {
+	for i, left := range item.Lhs {
+		name, ok := left.(*ast.Ident)
+		if !ok || i >= len(item.Rhs) {
+			continue
+		}
+		if value, ok := backendBoundaryStringValue(item.Rhs[i], values); ok {
+			values[name.Name] = value
+		}
+	}
+}
+
+func backendBoundaryCollectValueSpecStrings(item *ast.ValueSpec, values map[string]string) {
+	for i, name := range item.Names {
+		if i >= len(item.Values) {
+			continue
+		}
+		if value, ok := backendBoundaryStringValue(item.Values[i], values); ok {
+			values[name.Name] = value
+		}
+	}
+}
+
+func backendBoundaryParseImportCallTargetsSidecar(call *ast.CallExpr, values map[string]string) bool {
+	if backendBoundaryCallName(call.Fun) != "parseImportFiles" {
+		return false
+	}
+	for _, arg := range call.Args {
+		if value, ok := backendBoundaryStringValue(arg, values); ok && strings.HasPrefix(value, "cmd/mcp-") {
+			return true
+		}
+	}
+	return false
+}
+
+func backendBoundaryStringValue(expr ast.Expr, values map[string]string) (string, bool) {
+	switch item := expr.(type) {
+	case *ast.BasicLit:
+		return backendBoundaryStringLiteral(item)
+	case *ast.Ident:
+		value, ok := values[item.Name]
+		return value, ok
+	case *ast.ParenExpr:
+		return backendBoundaryStringValue(item.X, values)
+	case *ast.BinaryExpr:
+		if item.Op != token.ADD {
+			return "", false
+		}
+		left, leftOK := backendBoundaryStringValue(item.X, values)
+		right, rightOK := backendBoundaryStringValue(item.Y, values)
+		return left + right, leftOK && rightOK
+	default:
+		return "", false
+	}
 }
 
 func backendBoundaryCallName(expr ast.Expr) string {

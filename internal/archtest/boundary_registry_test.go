@@ -154,6 +154,27 @@ func TestBoundaryRegistryRejectsDetachedImportPolicies(t *testing.T) {
 	}
 }
 
+func TestBoundaryRegistryRejectsNonCanonicalImportPrefixes(t *testing.T) {
+	cases := []string{
+		" internal/store",
+		"./internal/store",
+		"internal//store",
+		"internal\\store",
+		"../internal/store",
+	}
+	for _, prefix := range cases {
+		t.Run(prefix, func(t *testing.T) {
+			registry := archtest.DefaultBackendBoundaryRegistry()
+			rule := mustMutableBackendBoundaryRule(t, &registry, "provider_no_store")
+			rule.Deny[0].ImportPrefix = prefix
+			violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(registry), "\n")
+			if !strings.Contains(violations, "import_prefix must use canonical form") {
+				t.Fatalf("non-canonical import prefix %q must fail validation, got:\n%s", prefix, violations)
+			}
+		})
+	}
+}
+
 func TestBackendBoundaryRegistryValidation(t *testing.T) {
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	if violations := archtest.ValidateBackendBoundaryRegistry(registry); len(violations) > 0 {
