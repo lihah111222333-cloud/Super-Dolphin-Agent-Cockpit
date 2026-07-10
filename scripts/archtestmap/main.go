@@ -94,7 +94,7 @@ func runWithRegistry(root string, registry archtest.BackendBoundaryRegistry, che
 	if err != nil {
 		return fmt.Errorf("update %s: %w", readmePath, err)
 	}
-	return syncGeneratedFiles([]generatedArtifact{
+	return syncGeneratedFiles(root, []generatedArtifact{
 		{path: filepath.Join(root, ruleMapPath), content: renderRuleMap(registry)},
 		{path: filepath.Join(root, readmePath), content: updatedREADME},
 	}, check)
@@ -340,7 +340,7 @@ func countREADMEArchitectureTestRows(input string) int {
 
 // readmeCodeQualitySectionBounds 返回唯一未围栏 Code Quality 二级章节的内容区间。
 func readmeCodeQualitySectionBounds(input string) (int, int, error) {
-	headings := unfencedReadmeH2Headings(input)
+	headings := unfencedReadmeSectionHeadings(input)
 	target := -1
 	for index, heading := range headings {
 		if heading.text == codeQualityTitle {
@@ -360,11 +360,12 @@ func readmeCodeQualitySectionBounds(input string) (int, int, error) {
 	return headings[target].contentStart, end, nil
 }
 
-func unfencedReadmeH2Headings(input string) []readmeHeading {
+// unfencedReadmeSectionHeadings 返回可终止二级章节的未围栏一级或二级标题。
+func unfencedReadmeSectionHeadings(input string) []readmeHeading {
 	var headings []readmeHeading
 	offset, fenced := 0, false
 	for line := range strings.SplitSeq(input, "\n") {
-		if !fenced && strings.HasPrefix(line, "## ") {
+		if !fenced && (strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ")) {
 			contentStart := min(offset+len(line)+1, len(input))
 			headings = append(headings, readmeHeading{text: line, start: offset, contentStart: contentStart})
 		}
@@ -386,21 +387,18 @@ func readmePositionIsFenced(input string) bool {
 	return fenced
 }
 
-// readmeMetricsTablePrecedesRow 要求目标行之前存在未围栏且相邻的指标表头和分隔行。
+// readmeMetricsTablePrecedesRow 要求目标行紧随以指标表头开头的连续 Markdown 表格块。
 func readmeMetricsTablePrecedesRow(input string) bool {
-	previous, fenced := "", false
-	for line := range strings.SplitSeq(input, "\n") {
-		if isMarkdownFenceLine(line) {
-			fenced = !fenced
-			previous = ""
-			continue
-		}
-		if !fenced && previous == metricsHeader && line == metricsDivider {
-			return true
-		}
-		previous = line
+	lines := strings.Split(strings.TrimSuffix(input, "\n"), "\n")
+	blockStart := len(lines)
+	for blockStart > 0 && isReadmeTableRow(lines[blockStart-1]) {
+		blockStart--
 	}
-	return false
+	return len(lines)-blockStart >= 2 && lines[blockStart] == metricsHeader && lines[blockStart+1] == metricsDivider
+}
+
+func isReadmeTableRow(line string) bool {
+	return strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|")
 }
 
 func isMarkdownFenceLine(line string) bool {
@@ -410,16 +408,19 @@ func isMarkdownFenceLine(line string) bool {
 
 // syncGeneratedFile 保留单文件调用兼容性，并使用同一暂存和失败回滚路径。
 func syncGeneratedFile(path, content string, check bool) error {
-	return syncGeneratedFiles([]generatedArtifact{{path: path, content: content}}, check)
+	return syncGeneratedFiles(filepath.Dir(path), []generatedArtifact{{path: path, content: content}}, check)
 }
 
 // syncGeneratedFiles 逐文件原子替换，并在批次失败时尽力回滚已替换目标。
-func syncGeneratedFiles(artifacts []generatedArtifact, check bool) error {
-	return syncGeneratedFilesWithOps(artifacts, check, generatedFileOps{rename: os.Rename})
+func syncGeneratedFiles(root string, artifacts []generatedArtifact, check bool) error {
+	return syncGeneratedFilesWithOps(root, artifacts, check, generatedFileOps{rename: os.Rename})
 }
 
 // syncGeneratedFilesWithOps 注入 rename 仅用于验证第二次提交失败时的回滚路径。
-func syncGeneratedFilesWithOps(artifacts []generatedArtifact, check bool, ops generatedFileOps) error {
+func syncGeneratedFilesWithOps(root string, artifacts []generatedArtifact, check bool, ops generatedFileOps) error {
+	if err := validateGeneratedArtifactPaths(root, artifacts); err != nil {
+		return err
+	}
 	changed, err := changedGeneratedArtifacts(artifacts)
 	if err != nil || len(changed) == 0 {
 		return err
@@ -446,6 +447,83 @@ func syncGeneratedFilesWithOps(artifacts []generatedArtifact, check bool, ops ge
 		}
 	}
 	return nil
+}
+
+// validateGeneratedArtifactPaths 在读取或写入前确认所有目标的现存父路径解析后仍位于仓库内。
+func validateGeneratedArtifactPaths(root string, artifacts []generatedArtifact) error {
+	rootAbsolute, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve generated root %s: %w", root, err)
+	}
+	rootResolved, err := filepath.EvalSymlinks(rootAbsolute)
+	if err != nil {
+		return fmt.Errorf("resolve generated root %s: %w", root, err)
+	}
+	rootInfo, err := os.Stat(rootResolved)
+	if err != nil {
+		return fmt.Errorf("inspect generated root %s: %w", root, err)
+	}
+	if !rootInfo.IsDir() {
+		return fmt.Errorf("generated root is not a directory: %s", root)
+	}
+	for _, artifact := range artifacts {
+		if err := validateGeneratedArtifactPath(rootAbsolute, rootResolved, artifact.path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateGeneratedArtifactPath 同时校验词法路径与最近现存父目录的真实解析路径。
+func validateGeneratedArtifactPath(rootAbsolute, rootResolved, path string) error {
+	pathAbsolute, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve generated artifact path %s: %w", path, err)
+	}
+	if pathAbsolute == rootAbsolute || !generatedPathWithin(rootAbsolute, pathAbsolute) {
+		return fmt.Errorf("generated artifact path escapes repository root: %s", path)
+	}
+	existingParent, err := nearestExistingGeneratedParent(filepath.Dir(pathAbsolute))
+	if err != nil {
+		return err
+	}
+	resolvedParent, err := filepath.EvalSymlinks(existingParent)
+	if err != nil {
+		return fmt.Errorf("resolve generated artifact parent %s: %w", existingParent, err)
+	}
+	parentInfo, err := os.Stat(resolvedParent)
+	if err != nil {
+		return fmt.Errorf("inspect generated artifact parent %s: %w", existingParent, err)
+	}
+	if !parentInfo.IsDir() {
+		return fmt.Errorf("generated artifact parent is not a directory: %s", existingParent)
+	}
+	if !generatedPathWithin(rootResolved, resolvedParent) {
+		return fmt.Errorf("generated artifact parent escapes repository root: %s", path)
+	}
+	return nil
+}
+
+func nearestExistingGeneratedParent(path string) (string, error) {
+	for {
+		_, err := os.Lstat(path)
+		if err == nil {
+			return path, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("inspect generated artifact parent %s: %w", path, err)
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", fmt.Errorf("generated artifact has no existing parent: %s", path)
+		}
+		path = parent
+	}
+}
+
+func generatedPathWithin(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
 // changedGeneratedArtifacts 预读整批目标，保证任何暂存或提交前已取得完整旧状态。

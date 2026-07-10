@@ -246,6 +246,45 @@ func TestDiscoverRunnableGoTestsHonorsGOFLAGSBuildTags(t *testing.T) {
 	}
 }
 
+func TestDiscoverRunnableGoTestsMatchesGOFLAGSQuotedSemantics(t *testing.T) {
+	testCases := []struct {
+		name       string
+		goFlags    string
+		constraint string
+		wantError  bool
+	}{
+		{name: "quoted tag value", goFlags: `"-tags=foo bar"`, constraint: "foo && bar"},
+		{name: "double dash tags", goFlags: "--tags=foo", constraint: "foo"},
+		{name: "last repeated tags flag wins", goFlags: "-tags=missing -tags=foo", constraint: "foo"},
+		{name: "split tags value is invalid", goFlags: "-tags foo", constraint: "foo", wantError: true},
+		{name: "bare tags flag is invalid", goFlags: "-tags", constraint: "foo", wantError: true},
+		{name: "unterminated quote is invalid", goFlags: `"-tags=foo`, constraint: "foo", wantError: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("GOFLAGS", testCase.goFlags)
+			path := filepath.Join(t.TempDir(), "tagged_test.go")
+			source := "//go:build " + testCase.constraint + "\n\npackage fixture\n\nimport \"testing\"\n\nfunc TestTaggedGuard(t *testing.T) {}\n"
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatalf("write tagged guard fixture: %v", err)
+			}
+			names, err := archtest.DiscoverRunnableGoTests(path)
+			if testCase.wantError {
+				if err == nil {
+					t.Fatalf("DiscoverRunnableGoTests with GOFLAGS %q succeeded, want error", testCase.goFlags)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DiscoverRunnableGoTests with GOFLAGS %q: %v", testCase.goFlags, err)
+			}
+			if strings.Join(names, ",") != "TestTaggedGuard" {
+				t.Fatalf("tagged runnable tests = %v, want TestTaggedGuard", names)
+			}
+		})
+	}
+}
+
 func TestValidateBackendBoundaryGovernanceRejectsGuardSymlinkEscape(t *testing.T) {
 	t.Parallel()
 

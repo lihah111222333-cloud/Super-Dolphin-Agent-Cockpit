@@ -523,23 +523,13 @@ func currentGoBuildContext(additionalTags []string) (build.Context, error) {
 
 // goBuildTagsFromGOFLAGS 提取最后一个 -tags 设置，并对标签内容做 fail-fast 校验。
 func goBuildTagsFromGOFLAGS(flags string) ([]string, error) {
-	fields := strings.Fields(flags)
-	var value string
-	for index := 0; index < len(fields); index++ {
-		switch field := fields[index]; {
-		case field == "-tags":
-			index++
-			if index >= len(fields) {
-				return nil, fmt.Errorf("GOFLAGS -tags is missing its value")
-			}
-			value = fields[index]
-		case strings.HasPrefix(field, "-tags="):
-			value = strings.TrimPrefix(field, "-tags=")
-		}
+	fields, err := splitGoQuotedFields(flags)
+	if err != nil {
+		return nil, fmt.Errorf("parse GOFLAGS: %w", err)
 	}
-	value = strings.Trim(value, "'\"")
-	if value == "" {
-		return nil, nil
+	value, err := lastGoBuildTagsValue(fields)
+	if err != nil || value == "" {
+		return nil, err
 	}
 	var tags []string
 	for tag := range strings.FieldsFuncSeq(value, func(char rune) bool { return char == ',' || unicode.IsSpace(char) }) {
@@ -549,6 +539,56 @@ func goBuildTagsFromGOFLAGS(flags string) ([]string, error) {
 		tags = append(tags, tag)
 	}
 	return tags, nil
+}
+
+// lastGoBuildTagsValue 校验 GOFLAGS 字段均为 flag，并返回最后一个 tags 设置。
+func lastGoBuildTagsValue(fields []string) (string, error) {
+	var value string
+	for _, field := range fields {
+		if !strings.HasPrefix(field, "-") {
+			return "", fmt.Errorf("parse GOFLAGS: non-flag %q", field)
+		}
+		switch {
+		case field == "-tags" || field == "--tags":
+			return "", fmt.Errorf("GOFLAGS -tags is missing its =value")
+		case strings.HasPrefix(field, "-tags="):
+			value = strings.TrimPrefix(field, "-tags=")
+		case strings.HasPrefix(field, "--tags="):
+			value = strings.TrimPrefix(field, "--tags=")
+		}
+	}
+	return value, nil
+}
+
+// splitGoQuotedFields 镜像 cmd/internal/quoted.Split，按 cmd/go 的 GOFLAGS 引号规则拆分参数。
+func splitGoQuotedFields(input string) ([]string, error) {
+	var fields []string
+	for len(input) > 0 {
+		input = strings.TrimLeftFunc(input, func(char rune) bool {
+			return char == ' ' || char == '\t' || char == '\n' || char == '\r'
+		})
+		if input == "" {
+			break
+		}
+		if input[0] == '\'' || input[0] == '"' {
+			quote := input[0]
+			closing := strings.IndexByte(input[1:], quote)
+			if closing < 0 {
+				return nil, fmt.Errorf("unterminated %c string", quote)
+			}
+			fields = append(fields, input[1:closing+1])
+			input = input[closing+2:]
+			continue
+		}
+		end := strings.IndexAny(input, " \t\n\r")
+		if end < 0 {
+			fields = append(fields, input)
+			break
+		}
+		fields = append(fields, input[:end])
+		input = input[end:]
+	}
+	return fields, nil
 }
 
 // isRunnableGoTestFunction 镜像 cmd/go 对顶层 Test 函数的名称、签名和泛型约束。

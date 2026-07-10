@@ -71,17 +71,22 @@ func TestReplaceREADMEStatsOnlyTouchesInlineMarker(t *testing.T) {
 func TestReplaceREADMEStatsRejectsInvalidMarkers(t *testing.T) {
 	t.Parallel()
 
+	markerRow := "| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " |"
 	cases := map[string]string{
-		"no markers":             "no markers",
-		"missing end":            statsBeginMarker + "missing end",
-		"reversed":               statsEndMarker + "reversed" + statsBeginMarker,
-		"duplicate markers":      statsBeginMarker + "one" + statsEndMarker + statsBeginMarker + "two" + statsEndMarker,
-		"wrong row":              readmeFixture("| Other | " + statsBeginMarker + "stale" + statsEndMarker + " |"),
-		"markers outside row":    readmeFixture("| Architecture Tests | stale |") + statsBeginMarker + "stale" + statsEndMarker,
-		"multiline markers":      readmeFixture("| Architecture Tests | " + statsBeginMarker + "stale\n" + statsEndMarker + " |"),
-		"code fence pseudo row":  readmeFixture("```\n| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " |\n```"),
-		"indented duplicate row": readmeFixture("| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " |\n  | Architecture Tests | duplicate |"),
-		"third table cell":       readmeFixture("| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " | unexpected |"),
+		"no markers":               "no markers",
+		"missing end":              statsBeginMarker + "missing end",
+		"reversed":                 statsEndMarker + "reversed" + statsBeginMarker,
+		"duplicate markers":        statsBeginMarker + "one" + statsEndMarker + statsBeginMarker + "two" + statsEndMarker,
+		"wrong row":                readmeFixture("| Other | " + statsBeginMarker + "stale" + statsEndMarker + " |"),
+		"markers outside row":      readmeFixture("| Architecture Tests | stale |") + statsBeginMarker + "stale" + statsEndMarker,
+		"multiline markers":        readmeFixture("| Architecture Tests | " + statsBeginMarker + "stale\n" + statsEndMarker + " |"),
+		"code fence pseudo row":    readmeFixture("```\n| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " |\n```"),
+		"indented duplicate row":   readmeFixture("| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " |\n  | Architecture Tests | duplicate |"),
+		"third table cell":         readmeFixture("| Architecture Tests | " + statsBeginMarker + "stale" + statsEndMarker + " | unexpected |"),
+		"blank before marker row":  readmeFixture("\n" + markerRow),
+		"paragraph before marker":  readmeFixture("README prose\n" + markerRow),
+		"different trailing table": readmeFixture("\n| Other Metric | Value |\n|--------------|-------|\n| Other | stale |\n" + markerRow),
+		"h1 section boundary":      "before\n## Code Quality\n\n| Metric | Value |\n|--------|-------|\n| Other | stale |\n# New Section\n\n| Metric | Value |\n|--------|-------|\n" + markerRow + "\nafter\n",
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -89,6 +94,36 @@ func TestReplaceREADMEStatsRejectsInvalidMarkers(t *testing.T) {
 				t.Fatalf("replaceREADMEStats(%q) succeeded, want marker error", input)
 			}
 		})
+	}
+}
+
+func TestRunRejectsGeneratedParentSymlinkEscape(t *testing.T) {
+	root, registry := archtestMapRunFixture(t)
+	external := t.TempDir()
+	if err := os.RemoveAll(filepath.Join(root, "docs")); err != nil {
+		t.Fatalf("remove generated docs fixture: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "docs")); err != nil {
+		t.Skipf("create generated parent symlink fixture: %v", err)
+	}
+	if err := runWithRegistry(root, registry, false); err == nil {
+		t.Fatal("run accepted generated artifact parent symlink escape")
+	}
+	escapedMap := filepath.Join(external, filepath.FromSlash(strings.TrimPrefix(ruleMapPath, "docs/")))
+	if _, err := os.Stat(escapedMap); !os.IsNotExist(err) {
+		t.Fatalf("escaped generated artifact was written outside repository: %v", err)
+	}
+}
+
+func TestSyncGeneratedFilesRejectsLexicalEscape(t *testing.T) {
+	root := t.TempDir()
+	external := filepath.Join(t.TempDir(), "generated.md")
+	err := syncGeneratedFiles(root, []generatedArtifact{{path: external, content: "escaped\n"}}, false)
+	if err == nil {
+		t.Fatal("syncGeneratedFiles accepted artifact outside repository root")
+	}
+	if _, statErr := os.Stat(external); !os.IsNotExist(statErr) {
+		t.Fatalf("generated artifact was written outside repository: %v", statErr)
 	}
 }
 
@@ -136,7 +171,7 @@ func TestSyncGeneratedFilesRollsBackOnSecondCommitFailure(t *testing.T) {
 		}
 		return os.Rename(oldPath, newPath)
 	}}
-	err := syncGeneratedFilesWithOps([]generatedArtifact{
+	err := syncGeneratedFilesWithOps(root, []generatedArtifact{
 		{path: first, content: "new first\n"},
 		{path: second, content: "new second\n"},
 	}, false, ops)
@@ -177,7 +212,7 @@ func TestSyncGeneratedFilesReportsCommitAndRollbackFailures(t *testing.T) {
 			return os.Rename(oldPath, newPath)
 		}
 	}}
-	err := syncGeneratedFilesWithOps([]generatedArtifact{{path: first, content: "new first\n"}, {path: second, content: "new second\n"}}, false, ops)
+	err := syncGeneratedFilesWithOps(root, []generatedArtifact{{path: first, content: "new first\n"}, {path: second, content: "new second\n"}}, false, ops)
 	if err == nil || !strings.Contains(err.Error(), "synthetic commit failure") || !strings.Contains(err.Error(), "synthetic rollback failure") {
 		t.Fatalf("double failure error = %v, want commit and rollback causes", err)
 	}

@@ -96,8 +96,8 @@ type BackendBoundaryRegistry struct {
 - `--check` 只读比较并在漂移时非零退出。
 - 只从 `DefaultBackendBoundaryRegistry()` 生成 `docs/doc/codemap/13-archtest-boundaries.md`。
 - 规则地图输出：owner、canonical rule、kind、文件范围、allow/deny/scope/exception 摘要，以及每个后端顶层目录的 rule/guard 归属。
-- 使用包含 `GOFLAGS=-tags` 的当前 Go build context 选择源文件；专项 guard 再合并 registry 声明的 `BuildTags`。随后以 AST 镜像 `cmd/go` 的顶层 Test 签名规则统计 `internal/archtest/**/*_test.go` 中的测试函数和包含这些测试的文件数；README 文案明确标注为源码 AST 统计，不再声称等同于 `go test -list`。
-- README 只允许替换唯一未围栏 `## Code Quality` 指标表中、严格两列的唯一 Architecture Tests 行内固定 marker 区间；marker 缺失、重复、跨行、顺序错误、缩进副本、代码围栏伪行、额外单元格或错误章节必须失败，不得猜测表格位置或重建整张表：
+- 使用包含 `GOFLAGS=-tags` 的当前 Go build context 选择源文件；GOFLAGS 按 `cmd/internal/quoted.Split` 的整字段引号语义解析，只接受 `-tags=<value>` / `--tags=<value>`，非 flag 字段、拆分的 `-tags value` 和未闭合引号必须 fail-fast；重复设置以最后一个为准。专项 guard 再合并 registry 声明的 `BuildTags`。随后以 AST 镜像 `cmd/go` 的顶层 Test 签名规则统计 `internal/archtest/**/*_test.go` 中的测试函数和包含这些测试的文件数；README 文案明确标注为源码 AST 统计，不再声称等同于 `go test -list`。
+- README 只允许替换唯一未围栏 `## Code Quality` 指标表中、严格两列的唯一 Architecture Tests 行内固定 marker 区间；一级或二级标题均终止当前二级章节，目标行必须紧接在以精确指标表头和分隔行开头的连续 Markdown 表格块中。marker 缺失、重复、跨行、顺序错误、缩进副本、代码围栏伪行、额外单元格、表格断裂或错误章节必须失败，不得猜测表格位置或重建整张表：
 
 ```markdown
 | Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: ...<!-- END GENERATED ARCHTEST STATS --> |
@@ -105,7 +105,7 @@ type BackendBoundaryRegistry struct {
 
 - 输出按 surface、rule ID、guard path 排序，禁止依赖 map 迭代顺序。
 - 生成内容不写入当前时间、绝对路径或其他每次运行变化的字段。
-- 规则地图和 README 先全部预读并写入同目录临时文件，再逐文件原子替换；批次提交失败时尽力回滚已替换目标。若回滚本身失败，必须同时返回提交原因与回滚原因并明确提示可能存在半刷新，禁止虚假声称跨文件强原子性。
+- 规则地图和 README 在任何读写前先校验词法目标路径及最近现存父目录的真实解析路径均位于仓库根内，拒绝父目录 symlink 逃逸；随后全部预读并写入同目录临时文件，再逐文件原子替换。批次提交失败时尽力回滚已替换目标。若回滚本身失败，必须同时返回提交原因与回滚原因并明确提示可能存在半刷新，禁止虚假声称跨文件强原子性。
 
 Makefile 接线：
 
