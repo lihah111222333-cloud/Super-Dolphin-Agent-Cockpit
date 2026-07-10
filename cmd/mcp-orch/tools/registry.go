@@ -15,11 +15,11 @@ import (
 
 // ToolPorts 按工具消费面拆分 orchestration 依赖，避免 registry 持有完整服务边界。
 type ToolPorts struct {
-	AgentLaunch            agentLaunchPort
+	AgentLaunch            contract.AgentLaunchPort
 	AgentMessenger         SendMessagePorts
-	AgentLifecycle         contract.AgentLifecyclePort
-	AgentRecovery          agentRecoverPort
-	AgentInterrupt         agentInterruptPort
+	AgentStopWait          contract.AgentStopWaitPort
+	AgentRecovery          contract.AgentRecoveryPort
+	AgentInterrupt         contract.AgentInterruptPort
 	AgentList              AgentListPorts
 	AgentReports           agentReportPort
 	DAGCreate              contract.DAGCreateRuntime

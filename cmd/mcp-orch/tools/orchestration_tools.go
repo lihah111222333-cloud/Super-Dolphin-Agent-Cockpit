@@ -96,12 +96,6 @@ type agentSnapshotLister interface {
 	ListAgents(context.Context) ([]contract.AgentSnapshot, error)
 }
 
-type agentLaunchPort interface {
-	agentSnapshotLister
-	LaunchAgent(context.Context, contract.LaunchRequest) error
-	Snapshot(context.Context, string) (contract.AgentSnapshot, error)
-}
-
 // AgentListPorts 分开保存 list_agents 的快照读和可选报告补水端口。
 type AgentListPorts struct {
 	Snapshots agentSnapshotLister
@@ -155,13 +149,13 @@ func defaultLaunchAgentDisabledTools() ([]string, error) {
 }
 
 // HandleLaunchAgent 注册 launch_agent 工具处理器，默认使用当前可执行文件重启子进程。
-func HandleLaunchAgent(svc agentLaunchPort) ToolHandler {
+func HandleLaunchAgent(svc contract.AgentLaunchPort) ToolHandler {
 	return handleLaunchAgentWithExeFn(svc, os.Executable)
 }
 
 // handleLaunchAgentWithExeFn 构造启动请求并处理同步快照启动或异步后台启动。
 // agent_id 预留必须覆盖整个启动窗口，防止并发请求同时启动同一逻辑 agent。
-func handleLaunchAgentWithExeFn(svc agentLaunchPort, exeFn func() (string, error)) ToolHandler {
+func handleLaunchAgentWithExeFn(svc contract.AgentLaunchPort, exeFn func() (string, error)) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestForHandler(ctx, svc, in, exeFn)
 		if err != nil {
@@ -218,7 +212,7 @@ func handleLaunchAgentWithExeFn(svc agentLaunchPort, exeFn func() (string, error
 
 // launchRequestForHandler 先做调用者深度校验，再把 handler 输入转成启动请求。
 // 深度校验必须在 reserve/launch 前发生，避免子 agent 通过旧名或短名进入后续流程。
-func launchRequestForHandler(ctx context.Context, svc agentLaunchPort, in LaunchAgentInput, exeFn func() (string, error)) (contract.LaunchRequest, error) {
+func launchRequestForHandler(ctx context.Context, svc contract.AgentLaunchPort, in LaunchAgentInput, exeFn func() (string, error)) (contract.LaunchRequest, error) {
 	if err := rejectChildAgentDelegation(ctx, svc); err != nil {
 		return contract.LaunchRequest{}, err
 	}
@@ -231,7 +225,7 @@ func launchRequestForHandler(ctx context.Context, svc agentLaunchPort, in Launch
 
 // rejectChildAgentDelegation 用可信工具作用域判断调用者深度。
 // 第一版只允许根 agent 派生直接子 agent；已有 parent_id 的子 agent 再委派会被工具层阻断。
-func rejectChildAgentDelegation(ctx context.Context, svc agentLaunchPort) error {
+func rejectChildAgentDelegation(ctx context.Context, svc contract.AgentLaunchPort) error {
 	scope, ok := mcpcommon.ToolScopeFromContext(ctx)
 	if !ok || strings.TrimSpace(scope.AgentID) == "" {
 		return nil
@@ -250,7 +244,7 @@ func rejectChildAgentDelegation(ctx context.Context, svc agentLaunchPort) error 
 
 // matchingAgentID 在已有快照里查找同一逻辑 agent id。
 // 活跃 agent 直接复用，stopping/archived 状态则 fail-fast，避免同名重启覆盖未收尾状态。
-func matchingAgentID(ctx context.Context, svc agentLaunchPort, agentID string) (contract.AgentSnapshot, bool, error) {
+func matchingAgentID(ctx context.Context, svc contract.AgentLaunchPort, agentID string) (contract.AgentSnapshot, bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return contract.AgentSnapshot{}, false, nil
@@ -321,7 +315,7 @@ func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID strin
 
 // reserveLaunchAgentID 在进程内登记启动中的 agent id，并返回释放函数。
 // 这个锁只覆盖本进程并发；已有运行态 ID 仍以 orchestration service 快照为准。
-func reserveLaunchAgentID(ctx context.Context, svc agentLaunchPort, requested string) (string, func(), bool, error) {
+func reserveLaunchAgentID(ctx context.Context, svc contract.AgentLaunchPort, requested string) (string, func(), bool, error) {
 	existing, activeExisting, err := existingLaunchAgentIDs(ctx, svc)
 	if err != nil {
 		return "", nil, false, err
@@ -356,7 +350,7 @@ func reserveLaunchAgentID(ctx context.Context, svc agentLaunchPort, requested st
 
 // existingLaunchAgentIDs 汇总 runtime id、agent_id 和 launch_id，供新启动避开冲突。
 // activeExisting 只记录会阻塞复用的状态，历史 stopped/archived 仍由上层给出明确错误。
-func existingLaunchAgentIDs(ctx context.Context, svc agentLaunchPort) (map[string]struct{}, map[string]struct{}, error) {
+func existingLaunchAgentIDs(ctx context.Context, svc contract.AgentLaunchPort) (map[string]struct{}, map[string]struct{}, error) {
 	existing := make(map[string]struct{})
 	activeExisting := make(map[string]struct{})
 	if svc == nil {
@@ -426,7 +420,7 @@ func HandleSendMessage(ports SendMessagePorts) ToolHandler {
 }
 
 // HandleStopAgent 停止或归档 agent，并可等待 list_agents 快照进入终态。
-func HandleStopAgent(svc contract.AgentLifecyclePort) ToolHandler {
+func HandleStopAgent(svc contract.AgentStopWaitPort) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in stopAgentInput) (map[string]any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {

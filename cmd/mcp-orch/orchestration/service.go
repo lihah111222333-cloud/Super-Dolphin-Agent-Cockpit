@@ -450,7 +450,7 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
-	Store    taskdag.Store `optional:"true"`
+	Store    taskdag.WakeupDispatchStore `optional:"true"`
 	Launcher WakeupLauncher
 	Logger   *slog.Logger `optional:"true"`
 }

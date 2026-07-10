@@ -54,9 +54,9 @@ func TestDashboardOrchestrationReaderAllowsMissingPort(t *testing.T) {
 }
 
 func TestDashboardOrchestrationReaderPortComposesNarrowPorts(t *testing.T) {
-	lifecycle := &recordingAgentLifecyclePort{}
+	state := &recordingAgentStateReader{}
 	port := provideDashboardOrchestrationReaderPort(dashboardOrchestrationReaderPortParams{
-		Lifecycle: lifecycle,
+		State: state,
 	})
 	if port == nil {
 		t.Fatal("provideDashboardOrchestrationReaderPort() = nil, want port")
@@ -73,7 +73,7 @@ func TestDashboardOrchestrationReaderPortComposesNarrowPorts(t *testing.T) {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	requireAgentSnapshot(t, snapshot, "agent-2")
-	requireStringCalls(t, lifecycle.calls, []string{"ListAgents", "Snapshot:agent-2"})
+	requireStringCalls(t, state.calls, []string{"ListAgents", "Snapshot:agent-2"})
 }
 
 func TestDashboardOrchestrationReportReaderPortUsesNarrowPort(t *testing.T) {
@@ -191,41 +191,21 @@ func (p *recordingDashboardReaderPort) GetReport(_ context.Context, agentID stri
 	return contract.AgentReportResult{AgentID: agentID}, nil
 }
 
-type recordingAgentLifecyclePort struct {
+type recordingAgentStateReader struct {
 	calls []string
 }
 
-func (p *recordingAgentLifecyclePort) LaunchAgent(context.Context, contract.LaunchRequest) error {
-	p.calls = append(p.calls, "LaunchAgent")
-	return nil
-}
-
-func (p *recordingAgentLifecyclePort) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
+func (p *recordingAgentStateReader) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
 	p.calls = append(p.calls, "ListAgents")
 	return []contract.AgentSnapshot{{AgentID: "agent-1"}}, nil
 }
 
-func (p *recordingAgentLifecyclePort) StopAgent(_ context.Context, agentID string) error {
-	p.calls = append(p.calls, "StopAgent:"+agentID)
-	return nil
-}
-
-func (p *recordingAgentLifecyclePort) InterruptAgent(_ context.Context, agentID string, source string) (contract.AgentStateResult, error) {
-	p.calls = append(p.calls, "InterruptAgent:"+agentID+":"+source)
-	return contract.AgentStateResult{}, nil
-}
-
-func (p *recordingAgentLifecyclePort) Recover(_ context.Context, agentID string) error {
-	p.calls = append(p.calls, "Recover:"+agentID)
-	return nil
-}
-
-func (p *recordingAgentLifecyclePort) Snapshot(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+func (p *recordingAgentStateReader) Snapshot(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
 	p.calls = append(p.calls, "Snapshot:"+agentID)
 	return contract.AgentSnapshot{AgentID: agentID}, nil
 }
 
-func (p *recordingAgentLifecyclePort) GetState(_ context.Context, agentID string) (contract.AgentStateResult, error) {
+func (p *recordingAgentStateReader) GetState(_ context.Context, agentID string) (contract.AgentStateResult, error) {
 	p.calls = append(p.calls, "GetState:"+agentID)
 	return contract.AgentStateResult{}, nil
 }

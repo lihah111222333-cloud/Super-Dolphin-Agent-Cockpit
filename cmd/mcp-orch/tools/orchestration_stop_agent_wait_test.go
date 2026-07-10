@@ -140,7 +140,7 @@ func stopAgentSchemaProperties(t *testing.T) map[string]any {
 }
 
 type stopWaitService struct {
-	contract.AgentLifecyclePort
+	contract.AgentStopWaitPort
 	snapshots    []contract.AgentSnapshot
 	archiveCalls int
 	listCalls    int

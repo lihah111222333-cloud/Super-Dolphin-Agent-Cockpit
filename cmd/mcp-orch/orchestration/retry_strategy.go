@@ -352,7 +352,7 @@ func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, n
 }
 
 // listDispatcherNodesForRun 读取当前 run 的 runtime node，避免误用 DAG 模板节点。
-func listDispatcherNodesForRun(ctx context.Context, store taskdag.Store, dagKey string, runID int64) ([]taskdag.Node, error) {
+func listDispatcherNodesForRun(ctx context.Context, store taskdag.WakeupDispatchStore, dagKey string, runID int64) ([]taskdag.Node, error) {
 	if runID <= 0 {
 		return nil, fmt.Errorf("run_id required for dispatcher node lookup")
 	}

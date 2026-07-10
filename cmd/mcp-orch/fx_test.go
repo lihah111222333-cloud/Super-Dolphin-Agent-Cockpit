@@ -9,6 +9,8 @@ import (
 	"go/token"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,13 +18,11 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeupreclaim"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	orchtools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -57,48 +57,8 @@ func (stubRuntimeLockHandle) Renew(context.Context) error { return nil }
 func (stubRuntimeLockHandle) Unlock(context.Context) error { return nil }
 
 func TestParentFxStartup(t *testing.T) {
-	// orchestration 子包不再导出整体 Module；根入口按独立 provider 组装。
-	// 这里镜像 buildOrchestrationOptions 的生产组合，防止父级 fx 启动缺依赖。
-	orchAssembly := fx.Module("orchestration",
-		fx.Provide(
-			fx.Annotate(
-				orchestration.ProvideService,
-				fx.As(fx.Self()),
-				fx.As(new(contract.AgentLifecyclePort)),
-				fx.As(new(contract.AgentRuntimePort)),
-				fx.As(new(contract.AgentReportPort)),
-				fx.As(new(contract.TurnSubmissionPort)),
-				fx.As(new(contract.DAGCreateRuntime)),
-				fx.As(new(contract.DAGRuntime)),
-				fx.As(new(contract.DAGDeleteRuntime)),
-				fx.As(new(contract.DAGNodeStatusRuntime)),
-				fx.As(new(contract.DAGNodeDispatchRuntime)),
-				fx.As(new(orchestration.ScheduledDAGStartService)),
-				fx.As(new(orchestration.WakeupLauncher)),
-				fx.As(new(orchestration.HookConsumerRuntime)),
-				fx.As(new(orchestration.HookReportPort)),
-				fx.As(new(orchestration.AgentLaunchSnapshotter)),
-				fx.As(new(orchestration.StopAgentService)),
-				fx.As(new(orchestration.RunnerLifecyclePort)),
-				fx.As(new(orchestration.RunnerRuntimePort)),
-				fx.As(new(orchestration.TurnLifecyclePort)),
-				fx.As(new(orchestration.ApprovalLifecyclePort)),
-			),
-			orchestration.ProvideHookAfterHandler,
-			orchestration.ProvideRPCFacade,
-		),
-		fx.Invoke(orchestration.RegisterTurnLifecycle),
-		fx.Invoke(orchestration.RegisterApprovalLifecycle),
-		// Runner provider 消费 *WakeupDispatcher 单例；测试装配必须同时提供 dispatcher。
-		fx.Provide(orchestration.ProvideWakeupDispatcher),
-		fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
-		fx.Provide(fx.Annotate(wakeupreclaim.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
-		fx.Provide(fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`))),
-	)
-	type consumeRunners struct {
-		fx.In
-		Runners []platformrunner.Runner `group:"runners"`
-	}
+	// lifecycle group 必须由生产装配提供，测试不能镜像 fx.As 绑定。
+	orchAssembly := orchestrationLifecycleOptions()
 	app := fx.New(
 		fx.NopLogger,
 		orchAssembly,
@@ -113,15 +73,7 @@ func TestParentFxStartup(t *testing.T) {
 			// service 强依赖 RunStore，父级启动测试也必须补齐 stub provider。
 			func() taskdagstore.RunStore { return &stubRunStore{} },
 			func() taskdagstore.ScheduledStartStore { return &stubScheduledStartStore{} },
-			func() orchcron.DAGScheduleStore { return stubDAGScheduleStore{} },
-			func() orchcron.RuntimeLocker { return stubRuntimeLocker{} },
 		),
-		fx.Invoke(func(in consumeRunners) error {
-			if len(in.Runners) < 3 {
-				return errors.New("scheduled DAG cron runner is not wired")
-			}
-			return nil
-		}),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -129,6 +81,25 @@ func TestParentFxStartup(t *testing.T) {
 		t.Fatalf("app.Start() error = %v", err)
 	}
 	t.Cleanup(func() { _ = app.Stop(context.Background()) })
+}
+
+func TestNewMCPOrchAppBuildsCompleteGraph(t *testing.T) {
+	t.Setenv("PROJECT_ROOT", t.TempDir())
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP", "test")
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_PROFILE", "")
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "127.0.0.1:0")
+	previousStdout := mcpStdout.Swap(os.Stdout)
+	t.Cleanup(func() { mcpStdout.Store(previousStdout) })
+
+	for _, remoteAddr := range []string{"", "127.0.0.1:65535"} {
+		t.Run(remoteAddr, func(t *testing.T) {
+			t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join(t.TempDir(), "mcp-orch.db"))
+			app := newMCPOrchApp(remoteAddr)
+			if err := app.Err(); err != nil {
+				t.Fatalf("newMCPOrchApp(%q).Err() = %v", remoteAddr, err)
+			}
+		})
+	}
 }
 
 func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
@@ -140,14 +111,25 @@ func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
 	if fn == nil {
 		t.Fatal("buildOrchestrationOptions not found")
 	}
-	if !funcBodyContainsIdent(fn, "provideSQLDAGScheduleStore") {
-		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQL schedule store")
+	if !funcBodyContainsIdent(fn, "orchestrationDAGOptions") {
+		t.Fatal("buildOrchestrationOptions must include orchestrationDAGOptions")
 	}
-	if !funcBodyContainsIdent(fn, "provideSQLiteRuntimeLocker") {
-		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQLite runtime locker")
+	dagFile, err := parser.ParseFile(token.NewFileSet(), "fx_orchestration_dag.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse fx_orchestration_dag.go: %v", err)
 	}
-	if !funcBodyAnnotatesRunner(fn, "provideScheduledDAGCronRunner") {
-		t.Fatal("buildOrchestrationOptions must annotate provideScheduledDAGCronRunner into group:\"runners\"")
+	dagOptions := findFuncDecl(dagFile, "orchestrationDAGOptions")
+	if dagOptions == nil {
+		t.Fatal("orchestrationDAGOptions not found")
+	}
+	if !funcBodyContainsIdent(dagOptions, "provideSQLDAGScheduleStore") {
+		t.Fatal("orchestrationDAGOptions must provide scheduled DAG SQL schedule store")
+	}
+	if !funcBodyContainsIdent(dagOptions, "provideSQLiteRuntimeLocker") {
+		t.Fatal("orchestrationDAGOptions must provide scheduled DAG SQLite runtime locker")
+	}
+	if !funcBodyAnnotatesRunner(dagOptions, "provideScheduledDAGCronRunner") {
+		t.Fatal("orchestrationDAGOptions must annotate provideScheduledDAGCronRunner into group:\"runners\"")
 	}
 }
 
@@ -160,11 +142,18 @@ func TestRunIncludesDBMigrationLifecycleModule(t *testing.T) {
 	if fn == nil {
 		t.Fatal("run not found")
 	}
-	if !funcBodyContainsSelector(fn, "platformdb", "Module") {
-		t.Fatal("run must include platformdb.Module so standalone mcp-orch creates and migrates a fresh database")
+	if !funcBodyContainsIdent(fn, "newMCPOrchApp") {
+		t.Fatal("run must construct the application through newMCPOrchApp")
 	}
-	if funcBodyContainsIdent(fn, "registerPoolLifecycle") {
-		t.Fatal("run must not use the close-only pool lifecycle instead of platformdb.Module")
+	appBuilder := findFuncDecl(file, "newMCPOrchApp")
+	if appBuilder == nil {
+		t.Fatal("newMCPOrchApp not found")
+	}
+	if !funcBodyContainsSelector(appBuilder, "platformdb", "Module") {
+		t.Fatal("newMCPOrchApp must include platformdb.Module so standalone mcp-orch creates and migrates a fresh database")
+	}
+	if funcBodyContainsIdent(appBuilder, "registerPoolLifecycle") {
+		t.Fatal("newMCPOrchApp must not use the close-only pool lifecycle instead of platformdb.Module")
 	}
 }
 

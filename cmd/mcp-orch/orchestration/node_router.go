@@ -24,7 +24,7 @@ import (
 // NodeExecutorRouter 根据 node_type 派发 DAG wakeup。
 // router 负责读节点、构造 RunContext 和必要的状态写回；executor 只执行节点，不处理 wakeup claim/retry/fail。
 type NodeExecutorRouter struct {
-	store            taskdag.Store
+	store            taskdag.DAGDetailStore
 	agentExec        *nodeexec.AgentExecutor
 	autoExec         *nodeexec.AutomationExecutor
 	sharedFileReader nodeexec.SharedFileReader
@@ -44,7 +44,7 @@ var (
 //   - sharedFileReader/Writer nil → 仅在节点 cfg 引用 sharedfile 时 nodeexec 层归
 //     validation；纯 inputs.from_nodes 节点不受影响。
 func NewNodeExecutorRouter(
-	store taskdag.Store,
+	store taskdag.DAGDetailStore,
 	agentExec *nodeexec.AgentExecutor,
 	autoExec *nodeexec.AutomationExecutor,
 	sharedFileReader nodeexec.SharedFileReader,

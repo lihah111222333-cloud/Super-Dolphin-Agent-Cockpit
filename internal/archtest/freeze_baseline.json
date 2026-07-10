@@ -5,12 +5,6 @@
     "tests": {}
   },
   "priority_ssa": {
-    "cmd/mcp-orch/fx.go:179:priority_ssa_wide_port:type conversion in buildOrchestrationOptions uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/fx.go",
-      "line": 179,
-      "detail": "type conversion in buildOrchestrationOptions uses broad port taskdag.Store"
-    },
     "cmd/mcp-orch/notify/dispatch_retry_alert.go:19:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
       "rule": "priority_ssa_wide_port",
       "file": "cmd/mcp-orch/notify/dispatch_retry_alert.go",
@@ -59,95 +53,11 @@
       "line": 0,
       "detail": "type conversion in init uses broad port taskdag.Store"
     },
-    "cmd/mcp-orch/orchestration/dag_subscriber_module.go:21:priority_ssa_wide_port:parameter store in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/dag_subscriber_module.go",
-      "line": 21,
-      "detail": "parameter store in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/dag_subscriber_module.go:21:priority_ssa_wide_port:type conversion in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/dag_subscriber_module.go",
-      "line": 21,
-      "detail": "type conversion in ProvideDAGSubscriberNodeFlowStore uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/node_router.go:27:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/node_router.go",
-      "line": 27,
-      "detail": "field store uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/node_router.go:47:priority_ssa_wide_port:parameter store in NewNodeExecutorRouter uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/node_router.go",
-      "line": 47,
-      "detail": "parameter store in NewNodeExecutorRouter uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/node_router.go:58:priority_ssa_wide_port:storage propagation in NewNodeExecutorRouter uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/node_router.go",
-      "line": 58,
-      "detail": "storage propagation in NewNodeExecutorRouter uses broad port taskdag.Store"
-    },
     "cmd/mcp-orch/orchestration/nodeexec/ops.go:115:priority_ssa_error_string:error string match strings.Contains": {
       "rule": "priority_ssa_error_string",
       "file": "cmd/mcp-orch/orchestration/nodeexec/ops.go",
       "line": 115,
       "detail": "error string match strings.Contains"
-    },
-    "cmd/mcp-orch/orchestration/retry_strategy.go:355:priority_ssa_wide_port:parameter store in listDispatcherNodesForRun uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/retry_strategy.go",
-      "line": 355,
-      "detail": "parameter store in listDispatcherNodesForRun uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/retry_strategy.go:355:priority_ssa_wide_port:type conversion in listDispatcherNodesForRun uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/retry_strategy.go",
-      "line": 355,
-      "detail": "type conversion in listDispatcherNodesForRun uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeup_dispatcher.go:73:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeup_dispatcher.go",
-      "line": 73,
-      "detail": "field store uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeup_dispatcher.go:84:priority_ssa_wide_port:parameter store in NewWakeupDispatcher uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeup_dispatcher.go",
-      "line": 84,
-      "detail": "parameter store in NewWakeupDispatcher uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeup_dispatcher.go:91:priority_ssa_wide_port:storage propagation in NewWakeupDispatcher uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeup_dispatcher.go",
-      "line": 91,
-      "detail": "storage propagation in NewWakeupDispatcher uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:145:priority_ssa_wide_port:field Store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
-      "line": 145,
-      "detail": "field Store uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:48:priority_ssa_wide_port:field store uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
-      "line": 48,
-      "detail": "field store uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:56:priority_ssa_wide_port:parameter store in NewWakeupReclaimer uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
-      "line": 56,
-      "detail": "parameter store in NewWakeupReclaimer uses broad port taskdag.Store"
-    },
-    "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go:68:priority_ssa_wide_port:storage propagation in NewWakeupReclaimer uses broad port taskdag.Store": {
-      "rule": "priority_ssa_wide_port",
-      "file": "cmd/mcp-orch/orchestration/wakeupreclaim/reclaimer.go",
-      "line": 68,
-      "detail": "storage propagation in NewWakeupReclaimer uses broad port taskdag.Store"
     },
     "internal/module/memory/ui_rpc.go:484:priority_ssa_error_string:error string match strings.Contains": {
       "rule": "priority_ssa_error_string",

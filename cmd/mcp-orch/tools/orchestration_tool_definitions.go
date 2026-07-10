@@ -36,7 +36,7 @@ func orchestrationToolDefinitions(ports ToolPorts) []ToolDefinition {
 			"wait_report": BooleanSchema("Optional. When true, send a follow-up only to an idle agent, then wait for a new report_seq after the pre-submit report. It does not interrupt or queue work."),
 			"timeout_ms":  IntegerSchema("Optional maximum wait in milliseconds when wait_report=true. Defaults to the RPC request timeout."),
 		}, "message"), HandleSendMessage(ports.AgentMessenger)),
-		stopAgentToolDefinition(ports.AgentLifecycle),
+		stopAgentToolDefinition(ports.AgentStopWait),
 		defineTool("recover_agent", "Recover a stopped or failed orchestration agent and return its latest snapshot.", ObjectSchema(map[string]Schema{
 			"pos":      StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -72,7 +72,7 @@ func orchestrationToolDefinitions(ports ToolPorts) []ToolDefinition {
 	)
 }
 
-func stopAgentToolDefinition(svc contract.AgentLifecyclePort) ToolDefinition {
+func stopAgentToolDefinition(svc contract.AgentStopWaitPort) ToolDefinition {
 	return defineTool("stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
 		"pos":        StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 		"agent_id":   StringSchema("Target orchestration agent ID."),

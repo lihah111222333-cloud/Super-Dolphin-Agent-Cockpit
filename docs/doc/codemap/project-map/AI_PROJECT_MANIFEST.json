@@ -1,17 +1,17 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
-  "generated_at": "2026-07-09",
+  "generated_at": "2026-07-10",
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4243,
+  "files": 4252,
   "domains": {
-    "docs-agent": 866,
-    "other": 502,
+    "docs-agent": 869,
+    "other": 504,
     "app-ui": 426,
     "platform-provider": 1010,
-    "orchestration": 415,
+    "orchestration": 419,
     "modules": 717,
     "store-sql": 307
   },
@@ -29,8 +29,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 415,
-        "size_kb": 93.1,
+        "file_count": 419,
+        "size_kb": 94,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -57,25 +57,25 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 866,
-        "size_kb": 154,
+        "file_count": 869,
+        "size_kb": 154.6,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 502,
-        "size_kb": 95.6,
+        "file_count": 504,
+        "size_kb": 96.1,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 7,
-    "cmd": 655,
-    "docs": 863,
+    "cmd": 659,
+    "docs": 866,
     "frontend-app": 424,
-    "internal": 1999,
+    "internal": 2001,
     "migrations": 112,
     "pkg": 25,
     "scripts": 109,

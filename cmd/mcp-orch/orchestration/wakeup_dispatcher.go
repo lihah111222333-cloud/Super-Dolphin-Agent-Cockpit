@@ -70,7 +70,7 @@ type WakeupLauncher interface {
 
 // WakeupDispatcher 负责 claim due wakeup、投递执行、按结果 retry/fail/mark sent。
 type WakeupDispatcher struct {
-	store    taskdag.Store
+	store    taskdag.WakeupDispatchStore
 	launcher WakeupLauncher // 非 DAG wakeup 的启动入口；DAG wakeup 优先走 nodeRouter。
 	logger   *slog.Logger
 	cfg      WakeupDispatcherConfig
@@ -81,7 +81,7 @@ type WakeupDispatcher struct {
 }
 
 // NewWakeupDispatcher 创建负责投递 DAG wakeup 的调度器。
-func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error) {
+func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error) {
 	if store == nil {
 		return nil, errors.New("wakeup dispatcher: store required")
 	}

@@ -10,17 +10,16 @@ import (
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
-// reclaimStubStore 是 wakeup lease 回收测试用的 taskdag.Store 假实现。
-// 只覆盖 ReclaimStaleDispatchingWakeups，未覆盖方法通过 nil 嵌入暴露误调用。
+// reclaimStubStore 是 wakeup lease 回收测试用的精确端口假实现。
 type reclaimStubStore struct {
-	taskdag.Store // 嵌入 nil，让未覆盖方法触发 panic（暴露遗漏）
-
 	calls       int
 	rowsReplies []int64 // FIFO；空时默认返回 0
 	err         error
 	recoveryErr error
 	callSeen    chan struct{}
 }
+
+var _ taskdag.WakeupReclaimStore = (*reclaimStubStore)(nil)
 
 func (s *reclaimStubStore) ReclaimStaleDispatchingWakeups(_ context.Context) (int64, error) {
 	s.calls++
@@ -45,23 +44,9 @@ func (s *reclaimStubStore) MarkDispatchIncompleteNodesWithoutActiveWakeup(contex
 	return nil, s.recoveryErr
 }
 
-type reclaimStoreWithoutRecovery struct {
-	taskdag.Store
-}
-
-func (s reclaimStoreWithoutRecovery) ReclaimStaleDispatchingWakeups(context.Context) (int64, error) {
-	return 0, nil
-}
-
 func TestNewWakeupReclaimerRejectsNilStore(t *testing.T) {
 	if _, err := wakeupreclaim.NewWakeupReclaimer(nil, nil, wakeupreclaim.WakeupReclaimerConfig{}); err == nil {
 		t.Fatalf("err = nil, want error for nil store")
-	}
-}
-
-func TestNewWakeupReclaimerRejectsStoreWithoutDispatchRecovery(t *testing.T) {
-	if _, err := wakeupreclaim.NewWakeupReclaimer(reclaimStoreWithoutRecovery{}, nil, wakeupreclaim.WakeupReclaimerConfig{}); err == nil {
-		t.Fatalf("err = nil, want error for store without dispatch incomplete recovery")
 	}
 }
 

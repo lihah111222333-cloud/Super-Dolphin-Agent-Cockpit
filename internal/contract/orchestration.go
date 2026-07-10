@@ -128,15 +128,41 @@ type DAGNodeDispatchRuntime interface {
 	DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
 }
 
-// AgentLifecyclePort 是 agent 生命周期工具和适配器应优先消费的窄端口。
-type AgentLifecyclePort interface {
-	LaunchAgent(ctx context.Context, req LaunchRequest) error
+// AgentLaunchPort 是 agent 启动流程所需的最小端口，包含重复启动判断与启动后快照读取。
+type AgentLaunchPort interface {
 	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
-	StopAgent(ctx context.Context, agentID string) error
-	InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error)
-	Recover(ctx context.Context, agentID string) error
+	LaunchAgent(ctx context.Context, req LaunchRequest) error
+	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
+}
+
+// AgentStateReader 是 agent 列表、快照和运行状态读取的最小端口。
+type AgentStateReader interface {
+	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
 	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
 	GetState(ctx context.Context, agentID string) (AgentStateResult, error)
+}
+
+// AgentStopPort 是停止 agent 的最小写入端口。
+type AgentStopPort interface {
+	StopAgent(ctx context.Context, agentID string) error
+}
+
+// AgentStopWaitPort 是 stop_agent 等待终态所需的停止和同源快照列表端口。
+type AgentStopWaitPort interface {
+	AgentStopPort
+	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
+	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
+}
+
+// AgentInterruptPort 是中断当前 agent turn 的最小写入端口。
+type AgentInterruptPort interface {
+	InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error)
+}
+
+// AgentRecoveryPort 是恢复 agent 前后读取快照所需的最小端口。
+type AgentRecoveryPort interface {
+	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
+	Recover(ctx context.Context, agentID string) error
 }
 
 // AgentRuntimePort 是 provider/thread 运行时元数据同步的窄端口。

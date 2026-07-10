@@ -16,12 +16,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
-// ProvideDAGSubscriberNodeFlowStore 把聚合 taskdag.Store 收窄为 DAG subscriber 需要的 NodeFlowStore。
-// 这里直接返回窄接口，避免订阅器依赖完整 store；接口满足关系由 taskdag 包的编译期断言守住。
-func ProvideDAGSubscriberNodeFlowStore(store taskdag.Store) taskdag.NodeFlowStore {
-	return store
-}
-
 // DAGSubscriberMetrics 是 DAG turn.completed subscriber 的计数器快照。
 type DAGSubscriberMetrics struct {
 	CompleteDone, CompleteFailed, IdempotentSkipped, LookupNoNode, LookupDirtyData, LookupFailed int64

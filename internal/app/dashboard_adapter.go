@@ -49,16 +49,16 @@ type dashboardOrchestrationReportReaderPort interface {
 type dashboardOrchestrationReaderPortParams struct {
 	fx.In
 
-	Lifecycle contract.AgentLifecyclePort `optional:"true"`
+	State contract.AgentStateReader `optional:"true"`
 }
 
 // provideDashboardOrchestrationReaderPort 暴露 dashboard 需要的 agent 生命周期读端口。
 func provideDashboardOrchestrationReaderPort(p dashboardOrchestrationReaderPortParams) dashboardOrchestrationSnapshotReaderPort {
-	if p.Lifecycle == nil {
+	if p.State == nil {
 		return nil
 	}
 	return dashboardOrchestrationReaderPortAdapter{
-		lifecycle: p.Lifecycle,
+		state: p.State,
 	}
 }
 
@@ -99,7 +99,7 @@ type dashboardOrchestrationReportReader struct {
 }
 
 type dashboardOrchestrationReaderPortAdapter struct {
-	lifecycle contract.AgentLifecyclePort
+	state contract.AgentStateReader
 }
 
 type dashboardOrchestrationReportReaderPortAdapter struct {
@@ -108,12 +108,12 @@ type dashboardOrchestrationReportReaderPortAdapter struct {
 
 // ListAgents 从 agent 生命周期端口读取列表快照。
 func (a dashboardOrchestrationReaderPortAdapter) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {
-	return a.lifecycle.ListAgents(ctx)
+	return a.state.ListAgents(ctx)
 }
 
 // Snapshot 从 agent 生命周期端口读取单 agent 快照。
 func (a dashboardOrchestrationReaderPortAdapter) Snapshot(ctx context.Context, agentID string) (contract.AgentSnapshot, error) {
-	return a.lifecycle.Snapshot(ctx, agentID)
+	return a.state.Snapshot(ctx, agentID)
 }
 
 // GetReport 从 agent report 端口读取报告。

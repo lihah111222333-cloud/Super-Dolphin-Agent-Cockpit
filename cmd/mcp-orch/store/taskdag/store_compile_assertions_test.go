@@ -42,6 +42,8 @@ var (
 	_ DispatchNodeStore               = (*store)(nil)
 	_ DispatchIncompleteRecoveryStore = (*store)(nil)
 	_ WakeupStore                     = (*store)(nil)
+	_ WakeupDispatchStore             = (*store)(nil)
+	_ WakeupReclaimStore              = (*store)(nil)
 	_ WakeupLeaseRenewer              = (*store)(nil)
 	_ WorkerLeaseStore                = (*store)(nil)
 	_ Store                           = (*store)(nil)

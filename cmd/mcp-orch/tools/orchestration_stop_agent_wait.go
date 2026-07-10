@@ -11,7 +11,7 @@ import (
 )
 
 // stopAgentResult 在旧 stop/archive 返回上按需追加等待结果；wait 省略时必须保持原有 wire shape。
-func stopAgentResult(ctx context.Context, svc contract.AgentLifecyclePort, agentID string, archived bool, in stopAgentInput) (map[string]any, error) {
+func stopAgentResult(ctx context.Context, svc contract.AgentStopWaitPort, agentID string, archived bool, in stopAgentInput) (map[string]any, error) {
 	result := map[string]any{"agent_id": agentID, "archived": archived}
 	if in.Wait == nil || !*in.Wait {
 		return successResult(result), nil
@@ -26,7 +26,7 @@ func stopAgentResult(ctx context.Context, svc contract.AgentLifecyclePort, agent
 }
 
 // waitForStopAgentSettlement 轮询 list_agents 同源快照，直到目标进入终态或从列表消失。
-func waitForStopAgentSettlement(ctx context.Context, svc contract.AgentLifecyclePort, agentID string, archived bool, timeoutMS int) (string, error) {
+func waitForStopAgentSettlement(ctx context.Context, svc contract.AgentStopWaitPort, agentID string, archived bool, timeoutMS int) (string, error) {
 	timeout, err := stopAgentWaitTimeout(timeoutMS)
 	if err != nil {
 		return "", err
@@ -70,7 +70,7 @@ func stopAgentWaitTimeout(timeoutMS int) (time.Duration, error) {
 
 // stopAgentSettlementState 从 list_agents 同源快照读取目标 agent 状态。
 // 返回 found=false 表示快照里已不可见，调用方按 stop/archive 语义收口。
-func stopAgentSettlementState(ctx context.Context, svc contract.AgentLifecyclePort, agentID string) (string, bool, error) {
+func stopAgentSettlementState(ctx context.Context, svc contract.AgentStopWaitPort, agentID string) (string, bool, error) {
 	agents, err := listAgentSnapshots(ctx, svc)
 	if err != nil {
 		return "", false, err

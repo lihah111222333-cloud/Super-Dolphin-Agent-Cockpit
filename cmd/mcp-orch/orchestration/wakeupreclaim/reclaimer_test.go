@@ -18,6 +18,7 @@ import (
 
 type wakeupRecoveryTestStore interface {
 	taskdag.Store
+	taskdag.DispatchIncompleteRecoveryStore
 	taskdag.RunStore
 	taskdag.RunNodeReadStore
 }

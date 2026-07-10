@@ -10,8 +10,8 @@ import (
 // TestDispatcherWiringGuard 守护 dispatcher-wiring batch (5 reviewer P0 #1) 的
 // 接通不被悄悄回退。校验三件事：
 //  1. wakeup_dispatcher.go 把 NodeExecutorRouter 接进了 handleClaimed 路径；
-//  2. fx.go 同时 Provide AgentExecutor / AutomationExecutor / NodeExecutorRouter
-//     + WireWakeupDispatcherRouter invoke；
+//  2. Fx execution option group Provide AgentExecutor / AutomationExecutor /
+//     NodeExecutorRouter，DAG option group 注册 dispatcher router wiring；
 //  3. node_router.go 的关键 case 分支（agent / automation / hybrid）都还在
 //     — 任一被悄悄删了就让本测试红。
 //
@@ -27,7 +27,6 @@ func TestDispatcherWiringGuard(t *testing.T) {
 	root := repoRootForGuardTests(t)
 
 	for _, tc := range dispatcherWiringGuardCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assertDispatcherWiringMarkers(t, root, tc)
@@ -46,8 +45,8 @@ func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
 		wakeupDispatcherWiringCase(),
 		nodeExecutorDispatchRouteCase(),
 		{
-			name: "fx.go provides nodeexec executors + router wiring",
-			path: filepath.Join("cmd", "mcp-orch", "fx.go"),
+			name: "fx execution option provides nodeexec executors + router",
+			path: filepath.Join("cmd", "mcp-orch", "fx_orchestration_execution.go"),
 			mustHave: []string{
 				// production fx 必须 Provide AgentExecutor + AutomationExecutor
 				// round-3 后 AgentExecutor 走 orchestration.ProvideAgentExecutor 包
@@ -68,9 +67,14 @@ func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
 				// fail-loud 在 validation "reader/writer not wired"。
 				"orchestration.NewStoreSharedFileReader",
 				"orchestration.NewStoreSharedFileWriter",
-				// dispatcher 单例 provider 必须存在
+			},
+		},
+		{
+			name: "fx DAG option provides dispatcher + router wiring",
+			path: filepath.Join("cmd", "mcp-orch", "fx_orchestration_dag.go"),
+			mustHave: []string{
+				// dispatcher 单例 provider 与 router wiring 必须同属 DAG 组。
 				"orchestration.ProvideWakeupDispatcher",
-				// 装接 router 的 invoke 必须 wire 在 root assembly
 				"orchestration.WireWakeupDispatcherRouter",
 			},
 		},

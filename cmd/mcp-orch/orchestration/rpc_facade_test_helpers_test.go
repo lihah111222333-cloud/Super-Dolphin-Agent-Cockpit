@@ -3,7 +3,9 @@ package orchestration
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 type rpcFacadeTestService interface {
-	contract.AgentLifecyclePort
+	contract.AgentLaunchPort
+	contract.AgentStateReader
+	contract.AgentStopPort
 	contract.TurnSubmissionPort
 	contract.AgentRuntimePort
 	contract.AgentReportPort
@@ -15,7 +17,9 @@ type rpcFacadeTestService interface {
 
 func testRPCFacadeParams(svc rpcFacadeTestService) RPCFacadeParams {
 	return RPCFacadeParams{
-		Lifecycle:  svc,
+		Launch:     svc,
+		State:      svc,
+		Stop:       svc,
 		Turns:      svc,
 		Runtime:    svc,
 		Reports:    svc,

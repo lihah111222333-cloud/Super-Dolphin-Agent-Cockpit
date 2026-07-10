@@ -10,6 +10,11 @@ var Module = fx.Module("store.taskdag",
 	fx.Provide(
 		NewStoreFromDB,
 		ProvideOrchestrationStore,
+		ProvideDAGDetailStore,
+		ProvideNodeFlowStore,
+		ProvideWakeupStore,
+		ProvideWakeupDispatchStore,
+		ProvideWakeupReclaimStore,
 		// ProvideRunStore 把同一 *store 实例并行登记为 RunStore binding，
 		// 修复 RunStore wiring bug：消费方 (orchestration.serviceParams) 可命中此 provider。
 		// 编译期由 store_compile_assertions_test.go 的 var _ RunStore = (*store)(nil) 守住。
@@ -47,6 +52,24 @@ func ProvideNodeSpawningThreadLookup(store Store) NodeSpawningThreadLookup {
 
 // ProvideOrchestrationStore 提供 orchestration DAG 存储窄接口。
 func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
+
+// ProvideDAGDetailStore 提供节点路由器读取 DAG 元数据所需的窄接口。
+func ProvideDAGDetailStore(store Store) DAGDetailStore { return store }
+
+// ProvideNodeFlowStore 提供 DAG 完成/失败下游推进所需的窄接口。
+func ProvideNodeFlowStore(store Store) NodeFlowStore { return store }
+
+// ProvideWakeupStore 提供 wakeup dispatcher 所需的窄接口。
+func ProvideWakeupStore(store Store) WakeupStore { return store }
+
+// ProvideWakeupDispatchStore 提供 dispatcher 投递和 smart retry 所需的组合窄接口。
+func ProvideWakeupDispatchStore(store Store) WakeupDispatchStore { return store }
+
+// ProvideWakeupReclaimStore 提供 wakeup 周期回收与半写节点恢复所需的组合窄接口。
+// *store 的实现关系由 store_compile_assertions_test.go 守住。
+func ProvideWakeupReclaimStore(store Store) WakeupReclaimStore {
+	return store.(WakeupReclaimStore)
+}
 
 // ProvideRunStore 通过 type-assertion 从聚合 Store 中取出 RunStore 窄接口。
 // 断言安全性：*store 编译期实现 RunStore（参 store_compile_assertions_test.go），

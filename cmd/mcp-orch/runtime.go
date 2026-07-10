@@ -159,7 +159,11 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 type newRegistryParams struct {
 	fx.In
 
-	AgentLifecycle  contract.AgentLifecyclePort
+	AgentLaunch     contract.AgentLaunchPort
+	AgentState      contract.AgentStateReader
+	AgentStopWait   contract.AgentStopWaitPort
+	AgentRecovery   contract.AgentRecoveryPort
+	AgentInterrupt  contract.AgentInterruptPort
 	AgentReports    contract.AgentReportPort
 	TurnSubmission  contract.TurnSubmissionPort
 	DAGCreate       contract.DAGCreateRuntime
@@ -205,12 +209,12 @@ func newRegistry(p newRegistryParams) tools.Registry {
 // toolPortsFromRegistryParams 把 fx 注入的 contract 窄口装配为工具 registry 的端口集合。
 func toolPortsFromRegistryParams(p newRegistryParams) tools.ToolPorts {
 	return tools.ToolPorts{
-		AgentLaunch:            p.AgentLifecycle,
-		AgentMessenger:         newSendMessagePorts(p.AgentLifecycle, p.AgentReports, p.TurnSubmission),
-		AgentLifecycle:         p.AgentLifecycle,
-		AgentRecovery:          p.AgentLifecycle,
-		AgentInterrupt:         p.AgentLifecycle,
-		AgentList:              newAgentListPorts(p.AgentLifecycle, p.AgentReports),
+		AgentLaunch:            p.AgentLaunch,
+		AgentMessenger:         newSendMessagePorts(p.AgentState, p.AgentReports, p.TurnSubmission),
+		AgentStopWait:          p.AgentStopWait,
+		AgentRecovery:          p.AgentRecovery,
+		AgentInterrupt:         p.AgentInterrupt,
+		AgentList:              newAgentListPorts(p.AgentState, p.AgentReports),
 		AgentReports:           p.AgentReports,
 		DAGCreate:              p.DAGCreate,
 		DAGRuntime:             p.DAGRuntime,
@@ -225,27 +229,27 @@ func toolPortsFromRegistryParams(p newRegistryParams) tools.ToolPorts {
 
 // newSendMessagePorts 在依赖完整时返回 send_message 的分离端口集合。
 func newSendMessagePorts(
-	lifecycle contract.AgentLifecyclePort,
+	state contract.AgentStateReader,
 	reports contract.AgentReportPort,
 	turns contract.TurnSubmissionPort,
 ) tools.SendMessagePorts {
-	if lifecycle == nil || reports == nil || turns == nil {
+	if state == nil || reports == nil || turns == nil {
 		return tools.SendMessagePorts{}
 	}
 	return tools.SendMessagePorts{
-		Snapshots: lifecycle,
+		Snapshots: state,
 		Reports:   reports,
 		Turns:     turns,
 	}
 }
 
 // newAgentListPorts 在依赖完整时返回 list_agents 的分离端口集合。
-func newAgentListPorts(lifecycle contract.AgentLifecyclePort, reports contract.AgentReportPort) tools.AgentListPorts {
-	if lifecycle == nil || reports == nil {
+func newAgentListPorts(state contract.AgentStateReader, reports contract.AgentReportPort) tools.AgentListPorts {
+	if state == nil || reports == nil {
 		return tools.AgentListPorts{}
 	}
 	return tools.AgentListPorts{
-		Snapshots: lifecycle,
+		Snapshots: state,
 		Reports:   reports,
 	}
 }

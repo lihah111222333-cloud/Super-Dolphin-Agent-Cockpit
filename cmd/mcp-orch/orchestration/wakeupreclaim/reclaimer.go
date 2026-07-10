@@ -45,30 +45,24 @@ func (c WakeupReclaimerConfig) ConfigOrDefaults() WakeupReclaimerConfig {
 // WakeupReclaimer 是 lease 过期回收后台 runner。
 // Run 是阻塞主循环，调用方通过 run.Group 或 goroutine 管理其生命周期。
 type WakeupReclaimer struct {
-	store            taskdag.Store
-	dispatchRecovery taskdag.DispatchIncompleteRecoveryStore
-	logger           *slog.Logger
-	cfg              WakeupReclaimerConfig
+	store  taskdag.WakeupReclaimStore
+	logger *slog.Logger
+	cfg    WakeupReclaimerConfig
 }
 
 // NewWakeupReclaimer 构造 reclaimer。
 // store 必传；logger 为 nil 时使用全局 logger；cfg 零值会补齐默认回收间隔。
-func NewWakeupReclaimer(store taskdag.Store, logger *slog.Logger, cfg WakeupReclaimerConfig) (*WakeupReclaimer, error) {
+func NewWakeupReclaimer(store taskdag.WakeupReclaimStore, logger *slog.Logger, cfg WakeupReclaimerConfig) (*WakeupReclaimer, error) {
 	if store == nil {
 		return nil, errors.New("wakeup reclaimer: store required")
 	}
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	recovery, ok := store.(taskdag.DispatchIncompleteRecoveryStore)
-	if !ok {
-		return nil, errors.New("wakeup reclaimer: store must implement dispatch incomplete recovery")
-	}
 	return &WakeupReclaimer{
-		store:            store,
-		dispatchRecovery: recovery,
-		logger:           logger,
-		cfg:              cfg.ConfigOrDefaults(),
+		store:  store,
+		logger: logger,
+		cfg:    cfg.ConfigOrDefaults(),
 	}, nil
 }
 
@@ -114,7 +108,7 @@ func (r *WakeupReclaimer) ReclaimOnce(ctx context.Context) (int64, error) {
 		r.logger.Info("wakeup reclaimer: reclaimed stale dispatching wakeups",
 			"rows", rows)
 	}
-	marked, err := r.dispatchRecovery.MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx)
+	marked, err := r.store.MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx)
 	if err != nil {
 		r.logger.Warn("wakeup reclaimer: dispatch incomplete recovery failed",
 			"error", err)
@@ -142,8 +136,8 @@ func nodeRunIDForLog(node taskdag.Node) int64 {
 type ProvideWakeupReclaimerRunnerIn struct {
 	fx.In
 
-	Store  taskdag.Store `optional:"true"`
-	Logger *slog.Logger  `optional:"true"`
+	Store  taskdag.WakeupReclaimStore `optional:"true"`
+	Logger *slog.Logger               `optional:"true"`
 }
 
 // ProvideWakeupReclaimerRunner 暴露 wakeup reclaim 后台 runner。

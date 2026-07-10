@@ -235,9 +235,25 @@ type WakeupStore interface {
 	GetWakeup(ctx context.Context, id int64) (*Wakeup, error)
 }
 
+// WakeupDispatchStore 是 wakeup dispatcher 的精确端口。
+// smart retry 的运行节点读取保持为可选 RunNodeReadStore，以保留旧的显式错误路径。
+type WakeupDispatchStore interface {
+	ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)
+	MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error)
+	RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64, error)
+	FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error)
+	GetDAG(ctx context.Context, dagKey string) (*DAG, error)
+}
+
 // DispatchIncompleteRecoveryStore 是启动/周期恢复扫描使用的窄端口。
 // 它不嵌入 Store，避免普通 wakeup 测试 stub 被迫实现恢复扫描方法。
 type DispatchIncompleteRecoveryStore interface {
+	MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx context.Context) ([]Node, error)
+}
+
+// WakeupReclaimStore 是周期回收 runner 所需的精确端口。
+type WakeupReclaimStore interface {
+	ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error)
 	MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx context.Context) ([]Node, error)
 }
 

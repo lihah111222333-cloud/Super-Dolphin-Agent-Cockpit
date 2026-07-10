@@ -67,7 +67,9 @@ func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 type RPCFacadeParams struct {
 	fx.In
 
-	Lifecycle  contract.AgentLifecyclePort
+	Launch     contract.AgentLaunchPort
+	State      contract.AgentStateReader
+	Stop       contract.AgentStopPort
 	Turns      contract.TurnSubmissionPort
 	Runtime    contract.AgentRuntimePort
 	Reports    contract.AgentReportPort
@@ -83,13 +85,13 @@ func ProvideRPCFacade(ports RPCFacadeParams) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"agent/launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
 			req := launchRequestFromParams(p)
-			if err := ports.Lifecycle.LaunchAgent(ctx, req); err != nil {
+			if err := ports.Launch.LaunchAgent(ctx, req); err != nil {
 				return nil, err
 			}
 			return map[string]any{"success": true, "agent_id": strings.TrimSpace(req.AgentID), "status": "running"}, nil
 		}),
 		"agent/submit": rpc.StrictHandler(func(ctx context.Context, p submitParams) (any, error) {
-			req, err := submissionFromParams(ctx, ports.Lifecycle, p)
+			req, err := submissionFromParams(ctx, ports.State, p)
 			if err != nil {
 				return nil, err
 			}
@@ -99,7 +101,7 @@ func ProvideRPCFacade(ports RPCFacadeParams) rpc.HandlerMapResult {
 			return map[string]bool{"success": true}, nil
 		}),
 		"agent/submitPrompt": rpc.StrictHandler(func(ctx context.Context, p submitPromptParams) (any, error) {
-			req, err := submissionFromParams(ctx, ports.Lifecycle, submitParams(p))
+			req, err := submissionFromParams(ctx, ports.State, submitParams(p))
 			if err != nil {
 				return nil, err
 			}
@@ -109,13 +111,13 @@ func ProvideRPCFacade(ports RPCFacadeParams) rpc.HandlerMapResult {
 			return map[string]bool{"success": true}, nil
 		}),
 		"agent/stop": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
-			return nil, ports.Lifecycle.StopAgent(ctx, p.AgentID)
+			return nil, ports.Stop.StopAgent(ctx, p.AgentID)
 		}),
 		"agent/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return ports.Lifecycle.ListAgents(ctx)
+			return ports.State.ListAgents(ctx)
 		}),
 		"agent/snapshot": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
-			return ports.Lifecycle.Snapshot(ctx, p.AgentID)
+			return ports.State.Snapshot(ctx, p.AgentID)
 		}),
 		"orchestration/reportRuntime": rpc.StrictHandler(func(ctx context.Context, p runtimeReportParams) (any, error) {
 			if err := ports.Runtime.UpdateRuntime(ctx, runtimeReportFromParams(p)); err != nil {
@@ -124,7 +126,7 @@ func ProvideRPCFacade(ports RPCFacadeParams) rpc.HandlerMapResult {
 			return map[string]bool{"success": true}, nil
 		}),
 		"agent/getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
-			return ports.Lifecycle.GetState(ctx, p.AgentID)
+			return ports.State.GetState(ctx, p.AgentID)
 		}),
 		"agent/getReport": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return ports.Reports.GetReport(ctx, p.AgentID)
@@ -175,7 +177,7 @@ func launchRequestFromParams(p launchParams) LaunchRequest {
 }
 
 // submissionFromParams 将 submit RPC 入参转换为 TurnSubmission，并补齐当前 thread id。
-func submissionFromParams(ctx context.Context, snapshots contract.AgentLifecyclePort, p submitParams) (TurnSubmission, error) {
+func submissionFromParams(ctx context.Context, snapshots contract.AgentStateReader, p submitParams) (TurnSubmission, error) {
 	agentID := strings.TrimSpace(p.AgentID)
 	items, err := inputItemsFromSubmitParams(p)
 	if err != nil {
@@ -227,7 +229,7 @@ func decodeInputItems(raw json.RawMessage) ([]shareddto.InputItem, error) {
 }
 
 // submissionThreadID 从 snapshot 获取当前 provider thread，失败时退回 agentID 作为兼容 thread id。
-func submissionThreadID(ctx context.Context, snapshots contract.AgentLifecyclePort, agentID string) string {
+func submissionThreadID(ctx context.Context, snapshots contract.AgentStateReader, agentID string) string {
 	snapshot, err := snapshots.Snapshot(ctx, agentID)
 	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {
 		return snapshot.ThreadID
