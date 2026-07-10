@@ -333,7 +333,7 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	12418	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	12671	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1444806	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
@@ -429,6 +429,7 @@ docs/plans/2026-07-09-suiyuan-mcp-faithful-chat-redesign.md	docs	docs-agent	doc	
 docs/plans/2026-07-09-ui-test-mcp-scenario-migration.md	docs	docs-agent	doc	1967	历史计划与迁移执行文档	docs,plans,2026,07,09,ui,test,mcp,scenario,migration,历史计划与迁移执行文档
 docs/plans/2026-07-10-backend-boundary-ai-governance.md	docs	docs-agent	doc	13452	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,boundary,ai,governance,历史计划与迁移执行文档
 docs/plans/2026-07-10-backend-boundary-p2-parallel-remediation.md	docs	docs-agent	doc	5829	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,boundary,p2,parallel,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-10-backend-guard-applies-to.md	docs	docs-agent	doc	6566	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,guard,applies,to,历史计划与迁移执行文档
 docs/plans/2026-07-10-chat-project-thread-navigation.md	docs	docs-agent	doc	18681	历史计划与迁移执行文档	docs,plans,2026,07,10,chat,project,thread,navigation,历史计划与迁移执行文档
 docs/plans/2026-07-10-chat-turn-process-composer-redesign.md	docs	docs-agent	doc	15379	历史计划与迁移执行文档	docs,plans,2026,07,10,chat,turn,process,composer,redesign,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-refactor.md	docs	docs-agent	doc	15138	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,refactor,历史计划与迁移执行文档

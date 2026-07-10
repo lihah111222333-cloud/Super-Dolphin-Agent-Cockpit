@@ -47,17 +47,17 @@
 
 ## Specialized guards
 
-| Guard | Test file | Build tags | Runnable tests | Reason |
-|---|---|---|---|---|
-| `backend_boundary_single_source` | `internal/archtest/backend_boundary_single_source_test.go` | — | `TestBackendBoundaryRuleFactsHaveOneSource` | canonical backend boundary facts must not be duplicated by procedural evaluators |
-| `backend_surface_governance` | `internal/archtest/backend_boundary_governance_test.go` | — | `TestValidateDefaultBackendBoundaryGovernance` | the governance guard fails when a backend top-level Go surface is missing or stale |
-| `code_size_budget` | `internal/guards/code_size_guard_test.go` | — | `TestCodeSizeBudgetBaselineIsActionable` | the repository guard keeps code size baselines non-empty and enforcing |
-| `dependency_direction` | `internal/archtest/dependency_direction_test.go` | — | `TestDependencyDirection` | dependency direction tests protect typed backend layer relationships |
-| `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | the desktop composition root must retain a valid Fx graph |
-| `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | public pkg libraries must reject both repository internals and command entrypoints |
-| `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | the repository guard rejects hidden rollback skip markers in Go tests |
-| `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | the tagged RPC runtime suite validates the backend process boundary end to end |
-| `ui_wails_boundary` | `internal/archtest/ui_wails_guard_test.go` | — | `TestUIWailsActiveAgentPredicateFromContract`<br>`TestUIWailsNoDirectUIStateImport` | Wails UI bindings consume contract-facing state instead of module implementations |
+| Guard | Test file | Build tags | Runnable tests | Applies to | Reason |
+|---|---|---|---|---|---|
+| `backend_boundary_single_source` | `internal/archtest/backend_boundary_single_source_test.go` | — | `TestBackendBoundaryRuleFactsHaveOneSource` | `internal/archtest` | canonical backend boundary facts must not be duplicated by procedural evaluators |
+| `backend_surface_governance` | `internal/archtest/backend_boundary_governance_test.go` | — | `TestValidateDefaultBackendBoundaryGovernance` | `internal/archtest` | the governance guard fails when a backend top-level Go surface is missing or stale |
+| `code_size_budget` | `internal/guards/code_size_guard_test.go` | — | `TestCodeSizeBudgetBaselineIsActionable` | `internal/guards` | the repository guard keeps code size baselines non-empty and enforcing |
+| `dependency_direction` | `internal/archtest/dependency_direction_test.go` | — | `TestDependencyDirection` | `internal/mcpserver` | dependency direction tests protect typed backend layer relationships |
+| `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | `internal/app` | the desktop composition root must retain a valid Fx graph |
+| `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | `pkg/dagmetrics`<br>`pkg/dreammetrics`<br>`pkg/logger`<br>`pkg/skillmetrics` | public pkg libraries must reject both repository internals and command entrypoints |
+| `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | `internal/guards` | the repository guard rejects hidden rollback skip markers in Go tests |
+| `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | `internal/e2e` | the tagged RPC runtime suite validates the backend process boundary end to end |
+| `ui_wails_boundary` | `internal/archtest/ui_wails_guard_test.go` | — | `TestUIWailsActiveAgentPredicateFromContract`<br>`TestUIWailsNoDirectUIStateImport` | `internal/ui` | Wails UI bindings consume contract-facing state instead of module implementations |
 
 ## Governed backend surfaces
 

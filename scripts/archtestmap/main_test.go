@@ -22,12 +22,29 @@ func TestRenderRuleMapIsDeterministic(t *testing.T) {
 	if got != want {
 		t.Fatal("rule map depends on registry insertion order")
 	}
-	if strings.Index(got, "`cmd/agent-runtime`") > strings.Index(got, "`pkg/skillmetrics`") {
+	guardTable, surfaceTable := generatedBoundaryMapTables(t, got)
+	if strings.Index(surfaceTable, "`cmd/agent-runtime`") > strings.Index(surfaceTable, "`pkg/skillmetrics`") {
 		t.Fatal("surface table is not sorted by path")
 	}
 	if !strings.Contains(got, "policies across") {
 		t.Fatal("large import policy sets are not summarized for AI readability")
 	}
+	if !strings.Contains(guardTable, "| Guard | Test file | Build tags | Runnable tests | Applies to | Reason |") {
+		t.Fatal("guard table does not expose typed surface applicability")
+	}
+	if !strings.Contains(guardTable, "`backend_surface_governance`") || !strings.Contains(guardTable, "`internal/archtest`") {
+		t.Fatal("guard table does not render canonical guard applicability")
+	}
+}
+
+func generatedBoundaryMapTables(t *testing.T, output string) (string, string) {
+	t.Helper()
+	guardStart := strings.Index(output, "## Specialized guards")
+	surfaceStart := strings.Index(output, "## Governed backend surfaces")
+	if guardStart < 0 || surfaceStart <= guardStart {
+		t.Fatalf("generated boundary map is missing ordered guard/surface sections:\n%s", output)
+	}
+	return output[guardStart:surfaceStart], output[surfaceStart:]
 }
 
 func TestCollectArchtestStatsUsesRunnableTopLevelTests(t *testing.T) {
@@ -264,7 +281,13 @@ func archtestMapRunFixture(t *testing.T) (string, archtest.BackendBoundaryRegist
 	writeTestFile(t, root, readmePath, readmeFixture("| Architecture Tests | "+statsBeginMarker+"stale"+statsEndMarker+" |"))
 	writeTestFile(t, root, ruleMapPath, "stale map\n")
 	registry := archtest.DefaultBackendBoundaryRegistry()
-	registry.Guards = []archtest.BackendBoundaryGuard{{ID: "fixture_guard", File: "internal/archtest/guard_test.go", TestNames: []string{"TestFixtureGuard"}, Reason: "fixture guard"}}
+	registry.Guards = []archtest.BackendBoundaryGuard{{
+		ID:        "fixture_guard",
+		File:      "internal/archtest/guard_test.go",
+		TestNames: []string{"TestFixtureGuard"},
+		AppliesTo: []archtest.BoundarySurfaceID{"internal/archtest"},
+		Reason:    "fixture guard",
+	}}
 	registry.Surfaces = []archtest.BackendBoundarySurface{
 		{Path: "internal/archtest", GuardIDs: []archtest.BoundaryGuardID{"fixture_guard"}, Reason: "fixture archtest"},
 		{Path: "internal/service", RuleIDs: []archtest.BoundaryRuleID{"fx_assembly_scope"}, Reason: "fixture service"},

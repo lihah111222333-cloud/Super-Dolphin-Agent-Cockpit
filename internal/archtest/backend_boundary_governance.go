@@ -15,17 +15,73 @@ import (
 	"unicode/utf8"
 )
 
+// defaultBackendBoundaryGuards 集中登记专项守卫入口及其可证明适用的后端 surface。
 func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
 	return []BackendBoundaryGuard{
-		{ID: "backend_surface_governance", File: "internal/archtest/backend_boundary_governance_test.go", TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"}, Reason: "the governance guard fails when a backend top-level Go surface is missing or stale"},
-		{ID: "backend_boundary_single_source", File: "internal/archtest/backend_boundary_single_source_test.go", TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"}, Reason: "canonical backend boundary facts must not be duplicated by procedural evaluators"},
-		{ID: "rpc_runtime_e2e", File: "internal/e2e/rpc_runtime/runtime_e2e_test.go", TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"}, BuildTags: []string{"e2e"}, Reason: "the tagged RPC runtime suite validates the backend process boundary end to end"},
-		{ID: "code_size_budget", File: "internal/guards/code_size_guard_test.go", TestNames: []string{"TestCodeSizeBudgetBaselineIsActionable"}, Reason: "the repository guard keeps code size baselines non-empty and enforcing"},
-		{ID: "rollback_skip_markers", File: "internal/guards/rollback_skip_guard_test.go", TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"}, Reason: "the repository guard rejects hidden rollback skip markers in Go tests"},
-		{ID: "dependency_direction", File: "internal/archtest/dependency_direction_test.go", TestNames: []string{"TestDependencyDirection"}, Reason: "dependency direction tests protect typed backend layer relationships"},
-		{ID: "fx_graph", File: "internal/archtest/fx_graph_test.go", TestNames: []string{"TestFxValidateApp"}, Reason: "the desktop composition root must retain a valid Fx graph"},
-		{ID: "pkg_public_boundary", File: "internal/archtest/backend_boundary_guard_coverage_test.go", TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"}, Reason: "public pkg libraries must reject both repository internals and command entrypoints"},
-		{ID: "ui_wails_boundary", File: "internal/archtest/ui_wails_guard_test.go", TestNames: []string{"TestUIWailsNoDirectUIStateImport", "TestUIWailsActiveAgentPredicateFromContract"}, Reason: "Wails UI bindings consume contract-facing state instead of module implementations"},
+		{
+			ID:        "backend_surface_governance",
+			File:      "internal/archtest/backend_boundary_governance_test.go",
+			TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"},
+			AppliesTo: []BoundarySurfaceID{"internal/archtest"},
+			Reason:    "the governance guard fails when a backend top-level Go surface is missing or stale",
+		},
+		{
+			ID:        "backend_boundary_single_source",
+			File:      "internal/archtest/backend_boundary_single_source_test.go",
+			TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"},
+			AppliesTo: []BoundarySurfaceID{"internal/archtest"},
+			Reason:    "canonical backend boundary facts must not be duplicated by procedural evaluators",
+		},
+		{
+			ID:        "rpc_runtime_e2e",
+			File:      "internal/e2e/rpc_runtime/runtime_e2e_test.go",
+			TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"},
+			BuildTags: []string{"e2e"},
+			AppliesTo: []BoundarySurfaceID{"internal/e2e"},
+			Reason:    "the tagged RPC runtime suite validates the backend process boundary end to end",
+		},
+		{
+			ID:        "code_size_budget",
+			File:      "internal/guards/code_size_guard_test.go",
+			TestNames: []string{"TestCodeSizeBudgetBaselineIsActionable"},
+			AppliesTo: []BoundarySurfaceID{"internal/guards"},
+			Reason:    "the repository guard keeps code size baselines non-empty and enforcing",
+		},
+		{
+			ID:        "rollback_skip_markers",
+			File:      "internal/guards/rollback_skip_guard_test.go",
+			TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"},
+			AppliesTo: []BoundarySurfaceID{"internal/guards"},
+			Reason:    "the repository guard rejects hidden rollback skip markers in Go tests",
+		},
+		{
+			ID:        "dependency_direction",
+			File:      "internal/archtest/dependency_direction_test.go",
+			TestNames: []string{"TestDependencyDirection"},
+			AppliesTo: []BoundarySurfaceID{"internal/mcpserver"},
+			Reason:    "dependency direction tests protect typed backend layer relationships",
+		},
+		{
+			ID:        "fx_graph",
+			File:      "internal/archtest/fx_graph_test.go",
+			TestNames: []string{"TestFxValidateApp"},
+			AppliesTo: []BoundarySurfaceID{"internal/app"},
+			Reason:    "the desktop composition root must retain a valid Fx graph",
+		},
+		{
+			ID:        "pkg_public_boundary",
+			File:      "internal/archtest/backend_boundary_guard_coverage_test.go",
+			TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"},
+			AppliesTo: []BoundarySurfaceID{"pkg/dagmetrics", "pkg/dreammetrics", "pkg/logger", "pkg/skillmetrics"},
+			Reason:    "public pkg libraries must reject both repository internals and command entrypoints",
+		},
+		{
+			ID:        "ui_wails_boundary",
+			File:      "internal/archtest/ui_wails_guard_test.go",
+			TestNames: []string{"TestUIWailsNoDirectUIStateImport", "TestUIWailsActiveAgentPredicateFromContract"},
+			AppliesTo: []BoundarySurfaceID{"internal/ui"},
+			Reason:    "Wails UI bindings consume contract-facing state instead of module implementations",
+		},
 	}
 }
 
@@ -90,6 +146,7 @@ func validateBackendBoundaryGovernanceRegistry(registry BackendBoundaryRegistry)
 	guards, violations := validateBackendBoundaryGuardDescriptors(registry.Guards)
 	surfaceViolations, references := validateBackendBoundarySurfaceDescriptors(registry.Surfaces, rules, guards)
 	violations = append(violations, surfaceViolations...)
+	violations = append(violations, validateBackendBoundaryGuardApplicability(registry.Guards, registry.Surfaces)...)
 	for id := range guards {
 		if references[id] == 0 {
 			violations = append(violations, fmt.Sprintf("guard %q is not referenced by any backend surface", id))
@@ -128,6 +185,7 @@ func validateBackendBoundaryGuardFields(label string, guard BackendBoundaryGuard
 	if len(guard.TestNames) == 0 {
 		violations = append(violations, label+" test_names is empty")
 	}
+	violations = append(violations, validateBackendBoundaryGuardAppliesTo(label, guard.AppliesTo)...)
 	seen := make(map[string]bool, len(guard.TestNames))
 	for _, name := range guard.TestNames {
 		if !isGoTestName(name) {
@@ -138,6 +196,24 @@ func validateBackendBoundaryGuardFields(label string, guard BackendBoundaryGuard
 		seen[name] = true
 	}
 	violations = append(violations, validateBackendBoundaryGuardBuildTags(label, guard.BuildTags)...)
+	return violations
+}
+
+// validateBackendBoundaryGuardAppliesTo 拒绝空、非规范或重复的 guard 适用 surface。
+func validateBackendBoundaryGuardAppliesTo(label string, surfaces []BoundarySurfaceID) []string {
+	if len(surfaces) == 0 {
+		return []string{label + " applies_to is empty"}
+	}
+	seen := make(map[BoundarySurfaceID]bool, len(surfaces))
+	var violations []string
+	for _, surface := range surfaces {
+		if !isCanonicalBackendBoundarySurface(string(surface)) {
+			violations = append(violations, fmt.Sprintf("%s applies_to path %q is not a canonical backend surface", label, surface))
+		} else if seen[surface] {
+			violations = append(violations, fmt.Sprintf("%s duplicate applies_to surface %q", label, surface))
+		}
+		seen[surface] = true
+	}
 	return violations
 }
 
@@ -229,6 +305,55 @@ func validateBackendBoundarySurfaceGuards(label string, ids []BoundaryGuardID, k
 		references[id]++
 	}
 	return violations
+}
+
+// validateBackendBoundaryGuardApplicability 证明 guard 的 applies_to 与 surface 的 GuardIDs 双向一致。
+func validateBackendBoundaryGuardApplicability(guards []BackendBoundaryGuard, surfaces []BackendBoundarySurface) []string {
+	knownSurfaces := make(map[BoundarySurfaceID]bool, len(surfaces))
+	references := make(map[BoundarySurfaceID]map[BoundaryGuardID]bool, len(surfaces))
+	for _, surface := range surfaces {
+		id := BoundarySurfaceID(surface.Path)
+		knownSurfaces[id] = true
+		references[id] = boundaryGuardIDSet(surface.GuardIDs)
+	}
+	applicability := make(map[BoundaryGuardID]map[BoundarySurfaceID]bool, len(guards))
+	var violations []string
+	for _, guard := range guards {
+		applicability[guard.ID] = boundarySurfaceIDSet(guard.AppliesTo)
+		for _, surface := range guard.AppliesTo {
+			if !knownSurfaces[surface] {
+				violations = append(violations, fmt.Sprintf("guard %q applies_to unknown backend surface %q", guard.ID, surface))
+				continue
+			}
+			if !references[surface][guard.ID] {
+				violations = append(violations, fmt.Sprintf("guard %q applies_to surface %q but surface does not reference guard", guard.ID, surface))
+			}
+		}
+	}
+	for _, surface := range surfaces {
+		for _, guardID := range surface.GuardIDs {
+			if !applicability[guardID][BoundarySurfaceID(surface.Path)] {
+				violations = append(violations, fmt.Sprintf("surface %q guard %q is not declared in guard applies_to", surface.Path, guardID))
+			}
+		}
+	}
+	return violations
+}
+
+func boundaryGuardIDSet(ids []BoundaryGuardID) map[BoundaryGuardID]bool {
+	result := make(map[BoundaryGuardID]bool, len(ids))
+	for _, id := range ids {
+		result[id] = true
+	}
+	return result
+}
+
+func boundarySurfaceIDSet(ids []BoundarySurfaceID) map[BoundarySurfaceID]bool {
+	result := make(map[BoundarySurfaceID]bool, len(ids))
+	for _, id := range ids {
+		result[id] = true
+	}
+	return result
 }
 
 func isCanonicalBackendBoundaryGuardFile(path string) bool {

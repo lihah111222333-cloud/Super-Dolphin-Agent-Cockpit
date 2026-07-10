@@ -139,9 +139,20 @@ func renderRules(out *strings.Builder, rules []archtest.BackendBoundaryRule) {
 func renderGuards(out *strings.Builder, guards []archtest.BackendBoundaryGuard) {
 	items := append([]archtest.BackendBoundaryGuard(nil), guards...)
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	out.WriteString("## Specialized guards\n\n| Guard | Test file | Build tags | Runnable tests | Reason |\n|---|---|---|---|---|\n")
+	out.WriteString("## Specialized guards\n\n")
+	out.WriteString("| Guard | Test file | Build tags | Runnable tests | Applies to | Reason |\n")
+	out.WriteString("|---|---|---|---|---|---|\n")
 	for _, guard := range items {
-		fmt.Fprintf(out, "| `%s` | `%s` | %s | %s | %s |\n", guard.ID, guard.File, renderCodeList(guard.BuildTags), renderCodeList(guard.TestNames), escapeMarkdown(guard.Reason))
+		fmt.Fprintf(
+			out,
+			"| `%s` | `%s` | %s | %s | %s | %s |\n",
+			guard.ID,
+			guard.File,
+			renderCodeList(guard.BuildTags),
+			renderCodeList(guard.TestNames),
+			renderSurfaceIDs(guard.AppliesTo),
+			escapeMarkdown(guard.Reason),
+		)
 	}
 	out.WriteString("\n")
 }
@@ -195,6 +206,14 @@ func renderRuleIDs(ids []archtest.BoundaryRuleID) string {
 }
 
 func renderGuardIDs(ids []archtest.BoundaryGuardID) string {
+	items := make([]string, 0, len(ids))
+	for _, id := range ids {
+		items = append(items, "`"+string(id)+"`")
+	}
+	return renderSortedItems(items)
+}
+
+func renderSurfaceIDs(ids []archtest.BoundarySurfaceID) string {
 	items := make([]string, 0, len(ids))
 	for _, id := range ids {
 		items = append(items, "`"+string(id)+"`")

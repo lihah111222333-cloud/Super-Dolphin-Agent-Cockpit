@@ -26,6 +26,19 @@ func TestValidateBackendBoundaryGovernanceRejectsUnregisteredSurface(t *testing.
 	assertGovernanceViolation(t, root, registry, "unregistered backend surface \"internal/unregistered\"")
 }
 
+func TestValidateBackendBoundaryGovernanceRejectsGuardSurfaceMismatch(t *testing.T) {
+	t.Parallel()
+
+	root, registry := validBackendBoundaryGovernanceFixture(t)
+	registry.Surfaces[0].GuardIDs = []archtest.BoundaryGuardID{"backend_surface_governance"}
+	assertGovernanceViolation(
+		t,
+		root,
+		registry,
+		"surface \"cmd/tool\" guard \"backend_surface_governance\" is not declared in guard applies_to",
+	)
+}
+
 func TestValidateBackendBoundaryGovernanceRejectsInvalidReferences(t *testing.T) {
 	t.Parallel()
 
@@ -88,6 +101,7 @@ func TestValidateBackendBoundaryGovernanceRejectsInvalidDescriptors(t *testing.T
 					ID:        "orphan_guard",
 					File:      "internal/archtest/special_guard_test.go",
 					TestNames: []string{"TestSpecialGuard"},
+					AppliesTo: []archtest.BoundarySurfaceID{"internal/archtest"},
 					Reason:    "synthetic orphan guard",
 				})
 			},
@@ -118,6 +132,41 @@ func TestValidateBackendBoundaryGovernanceRejectsInvalidDescriptors(t *testing.T
 	})
 }
 
+func TestValidateBackendBoundaryGovernanceRejectsInvalidGuardApplicability(t *testing.T) {
+	t.Parallel()
+
+	runGovernanceMutationCases(t, []governanceMutationCase{
+		{
+			name: "empty guard applies_to",
+			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+				registry.Guards[0].AppliesTo = nil
+			},
+			want: "guard[0] applies_to is empty",
+		},
+		{
+			name: "duplicate guard applies_to",
+			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+				registry.Guards[0].AppliesTo = append(registry.Guards[0].AppliesTo, registry.Guards[0].AppliesTo[0])
+			},
+			want: "guard[0] duplicate applies_to surface \"internal/archtest\"",
+		},
+		{
+			name: "unknown guard applies_to",
+			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+				registry.Guards[0].AppliesTo = []archtest.BoundarySurfaceID{"internal/missing"}
+			},
+			want: "guard \"backend_surface_governance\" applies_to unknown backend surface \"internal/missing\"",
+		},
+		{
+			name: "missing reverse guard reference",
+			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+				registry.Guards[0].AppliesTo = append(registry.Guards[0].AppliesTo, "cmd/tool")
+			},
+			want: "guard \"backend_surface_governance\" applies_to surface \"cmd/tool\" but surface does not reference guard",
+		},
+	})
+}
+
 type governanceMutationCase struct {
 	name   string
 	mutate func(*archtest.BackendBoundaryRegistry)
@@ -140,14 +189,11 @@ func TestBackendBoundaryGovernanceRegistryReturnsDeepCopy(t *testing.T) {
 
 	first := archtest.DefaultBackendBoundaryRegistry()
 	second := archtest.DefaultBackendBoundaryRegistry()
-	if len(first.Guards) == 0 || len(first.Surfaces) == 0 || len(first.Guards[0].TestNames) == 0 || len(first.Surfaces[0].RuleIDs) == 0 {
-		t.Fatalf("default governance fixture is incomplete: %#v", first)
-	}
+	assertDefaultGovernanceFixtureComplete(t, first)
 	first.Guards[0].TestNames[0] = "TestMutated"
+	first.Guards[0].AppliesTo[0] = "internal/mutated"
 	first.Surfaces[0].RuleIDs[0] = "mutated_rule"
-	if second.Guards[0].TestNames[0] == "TestMutated" || second.Surfaces[0].RuleIDs[0] == "mutated_rule" {
-		t.Fatal("default registry shares nested governance slices")
-	}
+	assertGovernanceNestedSlicesUnchanged(t, second)
 	for index := range first.Guards {
 		if len(first.Guards[index].BuildTags) == 0 {
 			continue
@@ -159,6 +205,32 @@ func TestBackendBoundaryGovernanceRegistryReturnsDeepCopy(t *testing.T) {
 		return
 	}
 	t.Fatal("default registry has no tagged guard to exercise deep copy")
+}
+
+func assertDefaultGovernanceFixtureComplete(t *testing.T, registry archtest.BackendBoundaryRegistry) {
+	t.Helper()
+	if len(registry.Guards) == 0 || len(registry.Surfaces) == 0 {
+		t.Fatalf("default governance fixture has no guards or surfaces: %#v", registry)
+	}
+	if len(registry.Guards[0].TestNames) == 0 || len(registry.Guards[0].AppliesTo) == 0 {
+		t.Fatalf("default governance guard fixture is incomplete: %#v", registry.Guards[0])
+	}
+	if len(registry.Surfaces[0].RuleIDs) == 0 {
+		t.Fatalf("default governance surface fixture is incomplete: %#v", registry.Surfaces[0])
+	}
+}
+
+func assertGovernanceNestedSlicesUnchanged(t *testing.T, registry archtest.BackendBoundaryRegistry) {
+	t.Helper()
+	if registry.Guards[0].TestNames[0] == "TestMutated" {
+		t.Fatal("default registry shares guard test names")
+	}
+	if registry.Guards[0].AppliesTo[0] == "internal/mutated" {
+		t.Fatal("default registry shares guard applies_to surfaces")
+	}
+	if registry.Surfaces[0].RuleIDs[0] == "mutated_rule" {
+		t.Fatal("default registry shares surface rule IDs")
+	}
 }
 
 func TestDefaultGovernanceUsesDirectGuardsForTestOnlySurfaces(t *testing.T) {
@@ -185,8 +257,19 @@ func TestDefaultGovernanceUsesDirectGuardsForTestOnlySurfaces(t *testing.T) {
 			if !ok || !strings.HasPrefix(guard.File, surfacePath+"/") {
 				t.Errorf("surface %q guard %q resolves to %q, want a direct test under the surface", surfacePath, guardID, guard.File)
 			}
+			assertGuardAppliesToSurface(t, guard, surfacePath)
 		}
 	}
+}
+
+func assertGuardAppliesToSurface(t *testing.T, guard archtest.BackendBoundaryGuard, surface string) {
+	t.Helper()
+	for _, appliesTo := range guard.AppliesTo {
+		if string(appliesTo) == surface {
+			return
+		}
+	}
+	t.Errorf("surface %q guard %q does not declare applies_to", surface, guard.ID)
 }
 
 func TestDiscoverRunnableGoTestsMatchesGoToolSelectionAndSignatures(t *testing.T) {
@@ -319,7 +402,13 @@ func TestValidateBackendBoundaryGovernanceRejectsGuardParentSymlinkEscape(t *tes
 		t.Skipf("create parent symlink fixture: %v", err)
 	}
 	registry := archtest.DefaultBackendBoundaryRegistry()
-	registry.Guards = []archtest.BackendBoundaryGuard{{ID: "external_guard", File: "internal/archtest/guard_test.go", TestNames: []string{"TestExternalGuard"}, Reason: "synthetic external guard"}}
+	registry.Guards = []archtest.BackendBoundaryGuard{{
+		ID:        "external_guard",
+		File:      "internal/archtest/guard_test.go",
+		TestNames: []string{"TestExternalGuard"},
+		AppliesTo: []archtest.BoundarySurfaceID{"internal/archtest"},
+		Reason:    "synthetic external guard",
+	}}
 	registry.Surfaces = []archtest.BackendBoundarySurface{{Path: "internal/archtest", GuardIDs: []archtest.BoundaryGuardID{"external_guard"}, Reason: "synthetic escaped surface"}}
 	assertGovernanceViolation(t, root, registry, "must resolve to a regular file within the repository internal tree")
 }

@@ -9,6 +9,9 @@ type BoundaryRuleID string
 // BoundaryGuardID 标识一个有真实 Go 测试入口的专项边界守卫。
 type BoundaryGuardID string
 
+// BoundarySurfaceID 标识一个由 registry 治理的后端顶层目录。
+type BoundarySurfaceID string
+
 // BoundaryRuleKind 标识规则求值方式。
 type BoundaryRuleKind string
 
@@ -71,6 +74,7 @@ type BackendBoundaryGuard struct {
 	File      string
 	TestNames []string
 	BuildTags []string
+	AppliesTo []BoundarySurfaceID
 	Reason    string
 }
 
@@ -565,7 +569,14 @@ func cloneBackendBoundaryRegistry(registry BackendBoundaryRegistry) BackendBound
 		cloned.Rules[i] = cloneBackendBoundaryRule(rule)
 	}
 	for i, guard := range registry.Guards {
-		cloned.Guards[i] = BackendBoundaryGuard{ID: guard.ID, File: guard.File, TestNames: append([]string(nil), guard.TestNames...), BuildTags: append([]string(nil), guard.BuildTags...), Reason: guard.Reason}
+		cloned.Guards[i] = BackendBoundaryGuard{
+			ID:        guard.ID,
+			File:      guard.File,
+			TestNames: append([]string(nil), guard.TestNames...),
+			BuildTags: append([]string(nil), guard.BuildTags...),
+			AppliesTo: append([]BoundarySurfaceID(nil), guard.AppliesTo...),
+			Reason:    guard.Reason,
+		}
 	}
 	for i, surface := range registry.Surfaces {
 		cloned.Surfaces[i] = BackendBoundarySurface{Path: surface.Path, RuleIDs: append([]BoundaryRuleID(nil), surface.RuleIDs...), GuardIDs: append([]BoundaryGuardID(nil), surface.GuardIDs...), Reason: surface.Reason}
