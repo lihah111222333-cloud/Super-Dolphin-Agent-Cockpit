@@ -144,6 +144,32 @@ func TestSyncGeneratedFilesRejectsLexicalEscape(t *testing.T) {
 	}
 }
 
+func TestSyncGeneratedFilesRejectsGeneratedDirectoryRaceSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	targetDir := filepath.Join(root, "docs", "generated")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("create generated target directory: %v", err)
+	}
+	external := t.TempDir()
+	target := filepath.Join(targetDir, "artifact.md")
+	ops := generatedFileOps{
+		rename: renameGeneratedArtifact,
+		afterValidate: func() error {
+			if err := os.RemoveAll(targetDir); err != nil {
+				return err
+			}
+			return os.Symlink(external, targetDir)
+		},
+	}
+	err := syncGeneratedFilesWithOps(root, []generatedArtifact{{path: target, content: "escaped\n"}}, false, ops)
+	if err == nil {
+		t.Error("generated refresh followed a directory symlink inserted after validation")
+	}
+	if _, statErr := os.Stat(filepath.Join(external, "artifact.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("generated refresh wrote outside repository after directory race: %v", statErr)
+	}
+}
+
 func TestRunCheckReportsDriftWithoutWriting(t *testing.T) {
 	root, registry := archtestMapRunFixture(t)
 	beforeREADME := mustReadTestFile(t, filepath.Join(root, readmePath))
@@ -181,12 +207,12 @@ func TestSyncGeneratedFilesRollsBackOnSecondCommitFailure(t *testing.T) {
 		}
 	}
 	renames := 0
-	ops := generatedFileOps{rename: func(oldPath, newPath string) error {
+	ops := generatedFileOps{rename: func(root *os.Root, oldPath, newPath string) error {
 		renames++
 		if renames == 2 {
 			return errors.New("synthetic second commit failure")
 		}
-		return os.Rename(oldPath, newPath)
+		return root.Rename(oldPath, newPath)
 	}}
 	err := syncGeneratedFilesWithOps(root, []generatedArtifact{
 		{path: first, content: "new first\n"},
@@ -218,7 +244,7 @@ func TestSyncGeneratedFilesReportsCommitAndRollbackFailures(t *testing.T) {
 		}
 	}
 	renames := 0
-	ops := generatedFileOps{rename: func(oldPath, newPath string) error {
+	ops := generatedFileOps{rename: func(root *os.Root, oldPath, newPath string) error {
 		renames++
 		switch renames {
 		case 2:
@@ -226,7 +252,7 @@ func TestSyncGeneratedFilesReportsCommitAndRollbackFailures(t *testing.T) {
 		case 3:
 			return errors.New("synthetic rollback failure")
 		default:
-			return os.Rename(oldPath, newPath)
+			return root.Rename(oldPath, newPath)
 		}
 	}}
 	err := syncGeneratedFilesWithOps(root, []generatedArtifact{{path: first, content: "new first\n"}, {path: second, content: "new second\n"}}, false, ops)

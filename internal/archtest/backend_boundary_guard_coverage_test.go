@@ -197,6 +197,18 @@ func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 			source:  "package main\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/notify\"\n",
 		},
 		{
+			name:    "agent_runtime_to_module",
+			ruleID:  "command_narrow_import_surface",
+			relPath: "cmd/agent-runtime/main.go",
+			source:  "package main\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n",
+		},
+		{
+			name:    "dto_to_provider",
+			ruleID:  "internal_support_narrow_import_surface",
+			relPath: "internal/dto/agent/leak.go",
+			source:  "package agent\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/provider/shared\"\n",
+		},
+		{
 			name:    "provider_shared_to_store",
 			ruleID:  "provider_no_store",
 			relPath: "internal/provider/shared/leak.go",

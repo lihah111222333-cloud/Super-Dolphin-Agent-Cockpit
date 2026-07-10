@@ -66,6 +66,8 @@ type BackendBoundaryRegistry struct {
 	Rules    []BackendBoundaryRule
 	Guards   []BackendBoundaryGuard
 	Surfaces []BackendBoundarySurface
+
+	canonicalSource string
 }
 
 // BackendBoundaryGuard 描述专项守卫的稳定入口和治理原因。
@@ -146,6 +148,8 @@ type BoundaryEvaluation struct {
 
 const backendBoundaryModulePath = "github.com/anthropic-ai/super-agent-v3"
 
+const defaultBackendBoundaryRegistrySource = "internal/archtest/backend_boundary_registry.go"
+
 // DefaultBackendBoundaryRegistry 返回可由调用方安全修改的默认规则深拷贝。
 func DefaultBackendBoundaryRegistry() BackendBoundaryRegistry {
 	return cloneBackendBoundaryRegistry(defaultBackendBoundaryRegistry())
@@ -209,48 +213,116 @@ func CrossDomainBoundaryRuleIDs() []BoundaryRuleID {
 func defaultBackendBoundaryRegistry() BackendBoundaryRegistry {
 	patterns := defaultBackendBoundaryPatterns()
 	return BackendBoundaryRegistry{
-		Owners:   defaultBackendBoundaryOwners(patterns),
-		Rules:    defaultBackendBoundaryRules(patterns),
-		Guards:   defaultBackendBoundaryGuards(),
-		Surfaces: defaultBackendBoundarySurfaces(),
+		Owners:          defaultBackendBoundaryOwners(patterns),
+		Rules:           defaultBackendBoundaryRules(patterns),
+		Guards:          defaultBackendBoundaryGuards(),
+		Surfaces:        defaultBackendBoundarySurfaces(),
+		canonicalSource: defaultBackendBoundaryRegistrySource,
 	}
 }
 
+// defaultBackendBoundaryGuards 集中登记专项守卫入口及其可证明适用的后端 surface。
+func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
+	return []BackendBoundaryGuard{
+		{ID: "backend_surface_governance", File: "internal/archtest/backend_boundary_governance_test.go", TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"}, AppliesTo: []BoundarySurfaceID{"internal/archtest"}, Reason: "the governance guard fails when a backend top-level Go surface is missing or stale"},
+		{ID: "backend_boundary_single_source", File: "internal/archtest/backend_boundary_single_source_test.go", TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"}, AppliesTo: []BoundarySurfaceID{"internal/archtest"}, Reason: "canonical backend boundary facts must not be duplicated by procedural evaluators"},
+		{ID: "rpc_runtime_e2e", File: "internal/e2e/rpc_runtime/runtime_e2e_test.go", TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"}, BuildTags: []string{"e2e"}, AppliesTo: []BoundarySurfaceID{"internal/e2e"}, Reason: "the tagged RPC runtime suite validates the backend process boundary end to end"},
+		{ID: "code_size_budget", File: "internal/guards/code_size_guard_test.go", TestNames: []string{"TestCodeSizeBudgetBaselineIsActionable"}, AppliesTo: []BoundarySurfaceID{"internal/guards"}, Reason: "the repository guard keeps code size baselines non-empty and enforcing"},
+		{ID: "rollback_skip_markers", File: "internal/guards/rollback_skip_guard_test.go", TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"}, AppliesTo: []BoundarySurfaceID{"internal/guards"}, Reason: "the repository guard rejects hidden rollback skip markers in Go tests"},
+		{ID: "dependency_direction", File: "internal/archtest/dependency_direction_test.go", TestNames: []string{"TestDependencyDirection"}, AppliesTo: []BoundarySurfaceID{"internal/mcpserver"}, Reason: "dependency direction tests protect typed backend layer relationships"},
+		{ID: "fx_graph", File: "internal/archtest/fx_graph_test.go", TestNames: []string{"TestFxValidateApp"}, AppliesTo: []BoundarySurfaceID{"internal/app"}, Reason: "the desktop composition root must retain a valid Fx graph"},
+		{ID: "pkg_public_boundary", File: "internal/archtest/backend_boundary_guard_coverage_test.go", TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"}, AppliesTo: []BoundarySurfaceID{"pkg/dagmetrics", "pkg/dreammetrics", "pkg/logger", "pkg/skillmetrics"}, Reason: "public pkg libraries must reject both repository internals and command entrypoints"},
+		{ID: "ui_wails_boundary", File: "internal/archtest/ui_wails_guard_test.go", TestNames: []string{"TestUIWailsNoDirectUIStateImport", "TestUIWailsActiveAgentPredicateFromContract"}, AppliesTo: []BoundarySurfaceID{"internal/ui"}, Reason: "Wails UI bindings consume contract-facing state instead of module implementations"},
+	}
+}
+
+// defaultBackendBoundarySurfaces 显式登记当前后端一级目录的 canonical rule 与专项 guard 归属。
+func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
+	return []BackendBoundarySurface{
+		backendBoundarySurface("cmd/agent-runtime", "agent runtime process assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/agent-terminal", "agent terminal process assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
+		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
+		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/app", "desktop composition root", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"fx_graph"}),
+		backendBoundarySurface("internal/archtest", "architecture governance implementation", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"backend_surface_governance", "backend_boundary_single_source"}),
+		backendBoundarySurface("internal/contract", "stable DTO and port contracts", []BoundaryRuleID{"contract_reverse_pollution"}, nil),
+		backendBoundarySurface("internal/devtools", "backend developer tooling", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/dto", "transport-neutral data transfer objects", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/e2e", "backend end-to-end test surface", nil, []BoundaryGuardID{"rpc_runtime_e2e"}),
+		backendBoundarySurface("internal/guards", "repository-level test guard surface", nil, []BoundaryGuardID{"code_size_budget", "rollback_skip_markers"}),
+		backendBoundarySurface("internal/mcpserver", "shared MCP server implementations", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"dependency_direction"}),
+		backendBoundarySurface("internal/module", "business module ownership", []BoundaryRuleID{"module_horizontal_deep_import", "module_no_direct_db_imports", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/platform", "infrastructure runtime layer", []BoundaryRuleID{"platform_no_module", "platform_no_store", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/provider", "provider adapter runtime", []BoundaryRuleID{"provider_no_store", "provider_no_platform_db", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/store", "persistence anti-corruption layer", []BoundaryRuleID{"store_dependency_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/testutil", "shared backend test support", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/ui", "Wails backend binding layer", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"ui_wails_boundary"}),
+		backendBoundarySurface("internal/util", "shared backend utilities", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("pkg/dagmetrics", "public DAG metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
+		backendBoundarySurface("pkg/dreammetrics", "public dream metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
+		backendBoundarySurface("pkg/logger", "public logging library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
+		backendBoundarySurface("pkg/skillmetrics", "public skill metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
+	}
+}
+
+func backendBoundarySurface(path, reason string, rules []BoundaryRuleID, guards []BoundaryGuardID) BackendBoundarySurface {
+	return BackendBoundarySurface{Path: path, RuleIDs: rules, GuardIDs: guards, Reason: reason}
+}
+
 type backendBoundaryPatterns struct {
-	contract  []string
-	module    []string
-	provider  []string
-	platform  []string
-	sidecar   []string
-	sqlc      []string
-	store     []string
-	storeMod  []string
-	storeRoot []string
-	fx        []string
-	mcpOrch   []string
-	mcpIDA    []string
-	hooks     []string
-	mcpctrl   []string
-	pkg       []string
+	contract        []string
+	module          []string
+	provider        []string
+	platform        []string
+	sidecar         []string
+	agentRuntime    []string
+	agentTerminal   []string
+	releaseManifest []string
+	updater         []string
+	devtools        []string
+	dto             []string
+	testutil        []string
+	util            []string
+	sqlc            []string
+	store           []string
+	storeMod        []string
+	storeRoot       []string
+	fx              []string
+	mcpOrch         []string
+	mcpIDA          []string
+	hooks           []string
+	mcpctrl         []string
+	pkg             []string
 }
 
 func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 	return backendBoundaryPatterns{
-		contract:  []string{"internal/contract/**/*.go"},
-		module:    []string{"internal/module/**/*.go"},
-		provider:  []string{"internal/provider/**/*.go"},
-		platform:  []string{"internal/platform/**/*.go"},
-		sidecar:   []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
-		sqlc:      []string{"internal/**/*.go", "cmd/**/*.go"},
-		store:     []string{"internal/store/**/*.go"},
-		storeMod:  []string{"internal/store/**/module.go"},
-		storeRoot: []string{"internal/store/module.go"},
-		fx:        []string{"internal/**/*.go", "cmd/**/*.go"},
-		mcpOrch:   []string{"cmd/mcp-orch/**/*.go"},
-		mcpIDA:    []string{"cmd/mcp-ida/**/*.go"},
-		hooks:     []string{"internal/platform/hooks/**/*.go"},
-		mcpctrl:   []string{"internal/platform/mcpcontrol/**/*.go"},
-		pkg:       []string{"pkg/**/*.go"},
+		contract:        []string{"internal/contract/**/*.go"},
+		module:          []string{"internal/module/**/*.go"},
+		provider:        []string{"internal/provider/**/*.go"},
+		platform:        []string{"internal/platform/**/*.go"},
+		sidecar:         []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
+		agentRuntime:    []string{"cmd/agent-runtime/**/*.go"},
+		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
+		releaseManifest: []string{"cmd/super-dolphin-release-manifest/**/*.go"},
+		updater:         []string{"cmd/super-dolphin-updater/**/*.go"},
+		devtools:        []string{"internal/devtools/**/*.go"},
+		dto:             []string{"internal/dto/**/*.go"},
+		testutil:        []string{"internal/testutil/**/*.go"},
+		util:            []string{"internal/util/**/*.go"},
+		sqlc:            []string{"internal/**/*.go", "cmd/**/*.go"},
+		store:           []string{"internal/store/**/*.go"},
+		storeMod:        []string{"internal/store/**/module.go"},
+		storeRoot:       []string{"internal/store/module.go"},
+		fx:              []string{"internal/**/*.go", "cmd/**/*.go"},
+		mcpOrch:         []string{"cmd/mcp-orch/**/*.go"},
+		mcpIDA:          []string{"cmd/mcp-ida/**/*.go"},
+		hooks:           []string{"internal/platform/hooks/**/*.go"},
+		mcpctrl:         []string{"internal/platform/mcpcontrol/**/*.go"},
+		pkg:             []string{"pkg/**/*.go"},
 	}
 }
 
@@ -259,6 +331,8 @@ func defaultBackendBoundaryOwners(patterns backendBoundaryPatterns) []BackendBou
 		{ID: "contract_boundary", FilePatterns: patterns.contract, Reason: "contract is the stable DTO and port surface; it must not depend on implementation packages"},
 		{ID: "module_boundary", FilePatterns: patterns.module, Reason: "business modules own their internals and must communicate through contract or DTO ports"},
 		{ID: "mcp_sidecar_boundary", FilePatterns: patterns.sidecar, Reason: "MCP sidecars are standalone entrypoints with only narrow shared internal dependencies"},
+		{ID: "command_boundary", FilePatterns: commandBoundaryPatterns(patterns), Reason: "standalone commands import only their registered host or runtime seams"},
+		{ID: "internal_support_boundary", FilePatterns: internalSupportBoundaryPatterns(patterns), Reason: "shared support packages keep narrow, per-source internal dependency surfaces"},
 		{ID: "provider_runtime", FilePatterns: patterns.provider, Reason: "provider adapters own transport/runtime integration and must not reach into persistence internals"},
 		{ID: "platform_runtime", FilePatterns: patterns.platform, Reason: "platform packages provide infrastructure primitives and must not depend upward on business or store ownership"},
 		{ID: "sqlc_boundary", FilePatterns: patterns.sqlc, Reason: "sqlc generated code stays behind store and platform persistence boundaries"},
@@ -276,6 +350,8 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultModuleSiblingRule(patterns),
 		defaultModuleDatabaseRule(patterns),
 		defaultMCPSidecarRule(patterns),
+		defaultCommandNarrowImportRule(patterns),
+		defaultInternalSupportNarrowImportRule(patterns),
 		defaultProviderStoreRule(patterns),
 		defaultProviderDatabaseRule(patterns),
 		defaultPlatformModuleRule(patterns),
@@ -351,6 +427,28 @@ func defaultMCPSidecarRule(patterns backendBoundaryPatterns) BackendBoundaryRule
 		}, "sidecars must not reach app host, module, provider, agent terminal, or RPC host internals"),
 		SkipTestFiles:      true,
 		DependencyPackages: []string{"cmd/mcp-orch", "cmd/mcp-lsp", "cmd/mcp-ida"},
+	}
+}
+
+func defaultCommandNarrowImportRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{
+		ID:           "command_narrow_import_surface",
+		Owner:        "command_boundary",
+		Reason:       "standalone commands may import only their registered application or runtime seams",
+		Kind:         BoundaryRuleAllowInternalImports,
+		FilePatterns: commandBoundaryPatterns(patterns),
+		Allow:        commandNarrowAllowPolicies(patterns),
+	}
+}
+
+func defaultInternalSupportNarrowImportRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{
+		ID:           "internal_support_narrow_import_surface",
+		Owner:        "internal_support_boundary",
+		Reason:       "support packages may import only descendants and explicitly registered shared seams",
+		Kind:         BoundaryRuleAllowInternalImports,
+		FilePatterns: internalSupportBoundaryPatterns(patterns),
+		Allow:        internalSupportNarrowAllowPolicies(patterns),
 	}
 }
 
@@ -555,12 +653,67 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 	return policies
 }
 
+func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.releaseManifest, patterns.updater)
+}
+
+func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
+	return combineBoundaryPatterns(patterns.devtools, patterns.dto, patterns.testutil, patterns.util)
+}
+
+func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImportPolicy {
+	owner := BoundaryOwnerID("command_boundary")
+	policies := boundaryPolicies(owner, patterns.agentRuntime, []string{
+		"internal/app",
+		"internal/platform/rlimit",
+		"internal/platform/runtimeenv",
+	}, "agent runtime host or process primitive")
+	policies = append(policies, boundaryPolicies(owner, patterns.agentTerminal, []string{
+		"internal/app",
+		"internal/platform/rlimit",
+		"internal/platform/runtimeenv",
+	}, "agent terminal host or process primitive")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
+		"internal/module/appupdate",
+	}, "release manifest update contract")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.updater, []string{
+		"internal/util/ctxutil",
+	}, "updater context primitive")...)
+	return policies
+}
+
+func internalSupportNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImportPolicy {
+	owner := BoundaryOwnerID("internal_support_boundary")
+	policies := boundaryPolicies(owner, patterns.devtools, []string{
+		"internal/devtools",
+		"internal/platform/config",
+		"internal/platform/db",
+	}, "developer tool implementation or SQLite smoke seam")
+	policies = append(policies, boundaryPolicies(owner, patterns.dto, []string{
+		"internal/dto",
+	}, "DTO descendant")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.testutil, []string{
+		"internal/contract",
+		"internal/testutil",
+	}, "test contract or testutil descendant")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.util, []string{
+		"internal/dto/provider",
+		"internal/platform/config",
+		"internal/platform/runtimesafe",
+		"internal/platform/sessionpaths",
+		"internal/platform/shared",
+		"internal/util",
+	}, "utility descendant or registered DTO/platform seam")...)
+	return policies
+}
+
 func cloneBackendBoundaryRegistry(registry BackendBoundaryRegistry) BackendBoundaryRegistry {
 	cloned := BackendBoundaryRegistry{
-		Owners:   make([]BackendBoundaryOwner, len(registry.Owners)),
-		Rules:    make([]BackendBoundaryRule, len(registry.Rules)),
-		Guards:   make([]BackendBoundaryGuard, len(registry.Guards)),
-		Surfaces: make([]BackendBoundarySurface, len(registry.Surfaces)),
+		Owners:          make([]BackendBoundaryOwner, len(registry.Owners)),
+		Rules:           make([]BackendBoundaryRule, len(registry.Rules)),
+		Guards:          make([]BackendBoundaryGuard, len(registry.Guards)),
+		Surfaces:        make([]BackendBoundarySurface, len(registry.Surfaces)),
+		canonicalSource: registry.canonicalSource,
 	}
 	for i, owner := range registry.Owners {
 		cloned.Owners[i] = BackendBoundaryOwner{ID: owner.ID, FilePatterns: append([]string(nil), owner.FilePatterns...), Reason: owner.Reason}

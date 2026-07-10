@@ -10,120 +10,19 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
-// defaultBackendBoundaryGuards 集中登记专项守卫入口及其可证明适用的后端 surface。
-func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
-	return []BackendBoundaryGuard{
-		{
-			ID:        "backend_surface_governance",
-			File:      "internal/archtest/backend_boundary_governance_test.go",
-			TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"},
-			AppliesTo: []BoundarySurfaceID{"internal/archtest"},
-			Reason:    "the governance guard fails when a backend top-level Go surface is missing or stale",
-		},
-		{
-			ID:        "backend_boundary_single_source",
-			File:      "internal/archtest/backend_boundary_single_source_test.go",
-			TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"},
-			AppliesTo: []BoundarySurfaceID{"internal/archtest"},
-			Reason:    "canonical backend boundary facts must not be duplicated by procedural evaluators",
-		},
-		{
-			ID:        "rpc_runtime_e2e",
-			File:      "internal/e2e/rpc_runtime/runtime_e2e_test.go",
-			TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"},
-			BuildTags: []string{"e2e"},
-			AppliesTo: []BoundarySurfaceID{"internal/e2e"},
-			Reason:    "the tagged RPC runtime suite validates the backend process boundary end to end",
-		},
-		{
-			ID:        "code_size_budget",
-			File:      "internal/guards/code_size_guard_test.go",
-			TestNames: []string{"TestCodeSizeBudgetBaselineIsActionable"},
-			AppliesTo: []BoundarySurfaceID{"internal/guards"},
-			Reason:    "the repository guard keeps code size baselines non-empty and enforcing",
-		},
-		{
-			ID:        "rollback_skip_markers",
-			File:      "internal/guards/rollback_skip_guard_test.go",
-			TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"},
-			AppliesTo: []BoundarySurfaceID{"internal/guards"},
-			Reason:    "the repository guard rejects hidden rollback skip markers in Go tests",
-		},
-		{
-			ID:        "dependency_direction",
-			File:      "internal/archtest/dependency_direction_test.go",
-			TestNames: []string{"TestDependencyDirection"},
-			AppliesTo: []BoundarySurfaceID{"internal/mcpserver"},
-			Reason:    "dependency direction tests protect typed backend layer relationships",
-		},
-		{
-			ID:        "fx_graph",
-			File:      "internal/archtest/fx_graph_test.go",
-			TestNames: []string{"TestFxValidateApp"},
-			AppliesTo: []BoundarySurfaceID{"internal/app"},
-			Reason:    "the desktop composition root must retain a valid Fx graph",
-		},
-		{
-			ID:        "pkg_public_boundary",
-			File:      "internal/archtest/backend_boundary_guard_coverage_test.go",
-			TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"},
-			AppliesTo: []BoundarySurfaceID{"pkg/dagmetrics", "pkg/dreammetrics", "pkg/logger", "pkg/skillmetrics"},
-			Reason:    "public pkg libraries must reject both repository internals and command entrypoints",
-		},
-		{
-			ID:        "ui_wails_boundary",
-			File:      "internal/archtest/ui_wails_guard_test.go",
-			TestNames: []string{"TestUIWailsNoDirectUIStateImport", "TestUIWailsActiveAgentPredicateFromContract"},
-			AppliesTo: []BoundarySurfaceID{"internal/ui"},
-			Reason:    "Wails UI bindings consume contract-facing state instead of module implementations",
-		},
-	}
-}
-
-// defaultBackendBoundarySurfaces 显式登记当前后端一级目录的 canonical rule 与专项 guard 归属。
-func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
-	return []BackendBoundarySurface{
-		backendBoundarySurface("cmd/agent-runtime", "agent runtime process assembly", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/agent-terminal", "agent terminal process assembly", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
-		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
-		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/app", "desktop composition root", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"fx_graph"}),
-		backendBoundarySurface("internal/archtest", "architecture governance implementation", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"backend_surface_governance", "backend_boundary_single_source"}),
-		backendBoundarySurface("internal/contract", "stable DTO and port contracts", []BoundaryRuleID{"contract_reverse_pollution"}, nil),
-		backendBoundarySurface("internal/devtools", "backend developer tooling", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/dto", "transport-neutral data transfer objects", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/e2e", "backend end-to-end test surface", nil, []BoundaryGuardID{"rpc_runtime_e2e"}),
-		backendBoundarySurface("internal/guards", "repository-level test guard surface", nil, []BoundaryGuardID{"code_size_budget", "rollback_skip_markers"}),
-		backendBoundarySurface("internal/mcpserver", "shared MCP server implementations", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"dependency_direction"}),
-		backendBoundarySurface("internal/module", "business module ownership", []BoundaryRuleID{"module_horizontal_deep_import", "module_no_direct_db_imports", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/platform", "infrastructure runtime layer", []BoundaryRuleID{"platform_no_module", "platform_no_store", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/provider", "provider adapter runtime", []BoundaryRuleID{"provider_no_store", "provider_no_platform_db", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/store", "persistence anti-corruption layer", []BoundaryRuleID{"store_dependency_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/testutil", "shared backend test support", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/ui", "Wails backend binding layer", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"ui_wails_boundary"}),
-		backendBoundarySurface("internal/util", "shared backend utilities", []BoundaryRuleID{"fx_assembly_scope"}, nil),
-		backendBoundarySurface("pkg/dagmetrics", "public DAG metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
-		backendBoundarySurface("pkg/dreammetrics", "public dream metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
-		backendBoundarySurface("pkg/logger", "public logging library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
-		backendBoundarySurface("pkg/skillmetrics", "public skill metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
-	}
-}
-
-func backendBoundarySurface(path, reason string, rules []BoundaryRuleID, guards []BoundaryGuardID) BackendBoundarySurface {
-	return BackendBoundarySurface{Path: path, RuleIDs: rules, GuardIDs: guards, Reason: reason}
-}
-
 // ValidateBackendBoundaryGovernance 校验后端顶层目录、canonical rule 与真实专项测试入口的一致性。
 func ValidateBackendBoundaryGovernance(root string, registry BackendBoundaryRegistry) []string {
-	violations := ValidateBackendBoundaryRegistry(registry)
+	positions, err := canonicalBackendBoundaryRegistryPositions(root, registry)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	violations := prefixBackendBoundaryRegistryViolations(registry, positions, ValidateBackendBoundaryRegistry(registry))
 	actual, err := discoverBackendBoundarySurfaces(root)
 	if err != nil {
 		violations = append(violations, fmt.Sprintf("discover backend surfaces: %v", err))
@@ -135,6 +34,167 @@ func ValidateBackendBoundaryGovernance(root string, registry BackendBoundaryRegi
 	violations = append(violations, validateBackendBoundaryGuardFiles(root, registry.Guards)...)
 	sort.Strings(violations)
 	return violations
+}
+
+func canonicalBackendBoundaryRegistryPositions(root string, registry BackendBoundaryRegistry) (map[string][]token.Position, error) {
+	if !isCanonicalBackendBoundaryRegistryShape(registry) {
+		return nil, nil
+	}
+	sourcePath := filepath.Join(root, filepath.FromSlash(registry.canonicalSource))
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("%s: read canonical backend boundary registry source: %w", registry.canonicalSource, err)
+	}
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, sourcePath, source, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%s: parse canonical backend boundary registry source: %w", registry.canonicalSource, err)
+	}
+	return extractBackendBoundaryRegistryPositions(fileSet, file, registry)
+}
+
+func isCanonicalBackendBoundaryRegistryShape(registry BackendBoundaryRegistry) bool {
+	if registry.canonicalSource != defaultBackendBoundaryRegistrySource {
+		return false
+	}
+	canonical := defaultBackendBoundaryRegistry()
+	return len(registry.Owners) == len(canonical.Owners) &&
+		len(registry.Rules) == len(canonical.Rules) &&
+		len(registry.Guards) == len(canonical.Guards) &&
+		len(registry.Surfaces) == len(canonical.Surfaces)
+}
+
+// extractBackendBoundaryRegistryPositions 按 canonical section/index 提取物理源码位置，源码结构漂移时立即失败。
+func extractBackendBoundaryRegistryPositions(fileSet *token.FileSet, file *ast.File, registry BackendBoundaryRegistry) (map[string][]token.Position, error) {
+	helpers, err := backendBoundaryRegistrySectionHelpers(file)
+	if err != nil {
+		return nil, fmt.Errorf("%s: locate canonical registry sections: %w", registry.canonicalSource, err)
+	}
+	sections := []struct {
+		field string
+		label string
+		count int
+	}{
+		{field: "Owners", label: "owner", count: len(registry.Owners)},
+		{field: "Rules", label: "rule", count: len(registry.Rules)},
+		{field: "Guards", label: "guard", count: len(registry.Guards)},
+		{field: "Surfaces", label: "surface", count: len(registry.Surfaces)},
+	}
+	positions := make(map[string][]token.Position, len(sections))
+	for _, section := range sections {
+		entries, err := backendBoundaryRegistryHelperEntries(file, helpers[section.field])
+		if err != nil {
+			return nil, fmt.Errorf("%s: locate %s entries: %w", registry.canonicalSource, section.field, err)
+		}
+		if len(entries) != section.count {
+			return nil, fmt.Errorf("%s: %s source entries=%d registry entries=%d", registry.canonicalSource, section.field, len(entries), section.count)
+		}
+		for _, entry := range entries {
+			positions[section.label] = append(positions[section.label], fileSet.PositionFor(entry.Pos(), false))
+		}
+	}
+	return positions, nil
+}
+
+// backendBoundaryRegistrySectionHelpers 从 registry composite literal 解析四个 section 的 helper，避免复制 helper 名称事实。
+func backendBoundaryRegistrySectionHelpers(file *ast.File) (map[string]string, error) {
+	function := backendBoundaryNamedFunction(file, "defaultBackendBoundaryRegistry")
+	literal, err := backendBoundaryReturnedComposite(function)
+	if err != nil {
+		return nil, err
+	}
+	helpers := make(map[string]string)
+	for _, element := range literal.Elts {
+		keyValue, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, keyOK := keyValue.Key.(*ast.Ident)
+		call, callOK := keyValue.Value.(*ast.CallExpr)
+		if !keyOK || !callOK {
+			continue
+		}
+		helper, ok := call.Fun.(*ast.Ident)
+		if ok {
+			helpers[key.Name] = helper.Name
+		}
+	}
+	for _, field := range []string{"Owners", "Rules", "Guards", "Surfaces"} {
+		if helpers[field] == "" {
+			return nil, fmt.Errorf("section %s is not initialized by a helper call", field)
+		}
+	}
+	return helpers, nil
+}
+
+func backendBoundaryRegistryHelperEntries(file *ast.File, helperName string) ([]ast.Expr, error) {
+	literal, err := backendBoundaryReturnedComposite(backendBoundaryNamedFunction(file, helperName))
+	if err != nil {
+		return nil, fmt.Errorf("helper %s: %w", helperName, err)
+	}
+	return literal.Elts, nil
+}
+
+func backendBoundaryNamedFunction(file *ast.File, name string) *ast.FuncDecl {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Name.Name == name {
+			return function
+		}
+	}
+	return nil
+}
+
+// backendBoundaryReturnedComposite 只接受直接返回的 composite literal，使不受支持的 registry 结构变更 fail-fast。
+func backendBoundaryReturnedComposite(function *ast.FuncDecl) (*ast.CompositeLit, error) {
+	if function == nil || function.Body == nil {
+		return nil, fmt.Errorf("function declaration is missing")
+	}
+	for _, statement := range function.Body.List {
+		returned, ok := statement.(*ast.ReturnStmt)
+		if !ok || len(returned.Results) != 1 {
+			continue
+		}
+		literal, ok := returned.Results[0].(*ast.CompositeLit)
+		if ok {
+			return literal, nil
+		}
+	}
+	return nil, fmt.Errorf("direct composite return is missing")
+}
+
+func prefixBackendBoundaryRegistryViolations(registry BackendBoundaryRegistry, positions map[string][]token.Position, violations []string) []string {
+	result := make([]string, len(violations))
+	for index, violation := range violations {
+		section, entry, ok := backendBoundaryRegistryViolationEntry(violation)
+		if !ok {
+			result[index] = violation
+			continue
+		}
+		if positions == nil {
+			result[index] = "synthetic registry: " + violation
+			continue
+		}
+		position := positions[section][entry]
+		result[index] = fmt.Sprintf("%s:%d:%d: %s", registry.canonicalSource, position.Line, position.Column, violation)
+	}
+	return result
+}
+
+func backendBoundaryRegistryViolationEntry(violation string) (string, int, bool) {
+	for _, section := range []string{"owner", "rule", "guard", "surface"} {
+		prefix := section + "["
+		if !strings.HasPrefix(violation, prefix) {
+			continue
+		}
+		end := strings.IndexByte(violation[len(prefix):], ']')
+		if end < 0 {
+			return "", 0, false
+		}
+		entry, err := strconv.Atoi(violation[len(prefix) : len(prefix)+end])
+		return section, entry, err == nil
+	}
+	return "", 0, false
 }
 
 // validateBackendBoundaryGovernanceRegistry 检查不依赖文件系统的 guard 与 surface 引用不变量。

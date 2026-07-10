@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -38,6 +39,7 @@ type readmeHeading struct {
 type generatedArtifact struct {
 	path    string
 	content string
+	update  func(string) (string, error)
 }
 
 type generatedFileState struct {
@@ -53,7 +55,8 @@ type stagedGeneratedArtifact struct {
 }
 
 type generatedFileOps struct {
-	rename func(string, string) error
+	rename        func(*os.Root, string, string) error
+	afterValidate func() error
 }
 
 func main() {
@@ -86,17 +89,11 @@ func runWithRegistry(root string, registry archtest.BackendBoundaryRegistry, che
 	if err != nil {
 		return err
 	}
-	readme, err := os.ReadFile(filepath.Join(root, readmePath))
-	if err != nil {
-		return fmt.Errorf("read %s: %w", readmePath, err)
-	}
-	updatedREADME, err := replaceREADMEStats(string(readme), stats)
-	if err != nil {
-		return fmt.Errorf("update %s: %w", readmePath, err)
-	}
 	return syncGeneratedFiles(root, []generatedArtifact{
 		{path: filepath.Join(root, ruleMapPath), content: renderRuleMap(registry)},
-		{path: filepath.Join(root, readmePath), content: updatedREADME},
+		{path: filepath.Join(root, readmePath), update: func(input string) (string, error) {
+			return replaceREADMEStats(input, stats)
+		}},
 	}, check)
 }
 
@@ -432,15 +429,25 @@ func syncGeneratedFile(path, content string, check bool) error {
 
 // syncGeneratedFiles 逐文件原子替换，并在批次失败时尽力回滚已替换目标。
 func syncGeneratedFiles(root string, artifacts []generatedArtifact, check bool) error {
-	return syncGeneratedFilesWithOps(root, artifacts, check, generatedFileOps{rename: os.Rename})
+	return syncGeneratedFilesWithOps(root, artifacts, check, generatedFileOps{rename: renameGeneratedArtifact})
 }
 
 // syncGeneratedFilesWithOps 注入 rename 仅用于验证第二次提交失败时的回滚路径。
-func syncGeneratedFilesWithOps(root string, artifacts []generatedArtifact, check bool, ops generatedFileOps) error {
-	if err := validateGeneratedArtifactPaths(root, artifacts); err != nil {
+func syncGeneratedFilesWithOps(root string, artifacts []generatedArtifact, check bool, ops generatedFileOps) (resultErr error) {
+	rootPath, relativeArtifacts, err := prepareGeneratedArtifacts(root, artifacts)
+	if err != nil {
 		return err
 	}
-	changed, err := changedGeneratedArtifacts(artifacts)
+	rootHandle, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return fmt.Errorf("open generated root %s: %w", root, err)
+	}
+	defer func() {
+		if closeErr := rootHandle.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close generated root %s: %w", root, closeErr))
+		}
+	}()
+	changed, err := changedGeneratedArtifacts(rootHandle, relativeArtifacts, ops.afterValidate)
 	if err != nil || len(changed) == 0 {
 		return err
 	}
@@ -450,15 +457,20 @@ func syncGeneratedFilesWithOps(root string, artifacts []generatedArtifact, check
 	if ops.rename == nil {
 		return fmt.Errorf("generated file rename operation is nil")
 	}
-	staged, err := stageGeneratedArtifacts(changed)
+	staged, err := stageGeneratedArtifacts(rootHandle, changed)
 	if err != nil {
 		return err
 	}
-	defer cleanupGeneratedTemps(staged)
+	defer cleanupGeneratedTemps(rootHandle, staged)
+	return commitGeneratedArtifacts(rootHandle, staged, ops)
+}
+
+// commitGeneratedArtifacts 顺序提交暂存文件，失败时只回滚已提交前缀并保留双重失败上下文。
+func commitGeneratedArtifacts(root *os.Root, staged []stagedGeneratedArtifact, ops generatedFileOps) error {
 	for index := range staged {
-		if err := ops.rename(staged[index].tempPath, staged[index].path); err != nil {
+		if err := ops.rename(root, staged[index].tempPath, staged[index].path); err != nil {
 			commitErr := fmt.Errorf("commit generated file %s: %w", staged[index].path, err)
-			rollbackErr := rollbackGeneratedArtifacts(staged[:index], ops)
+			rollbackErr := rollbackGeneratedArtifacts(root, staged[:index], ops)
 			if rollbackErr != nil {
 				return errors.Join(commitErr, fmt.Errorf("generated rollback incomplete; outputs may be partially refreshed: %w", rollbackErr))
 			}
@@ -466,6 +478,34 @@ func syncGeneratedFilesWithOps(root string, artifacts []generatedArtifact, check
 		}
 	}
 	return nil
+}
+
+func renameGeneratedArtifact(root *os.Root, oldPath, newPath string) error {
+	return root.Rename(oldPath, newPath)
+}
+
+// prepareGeneratedArtifacts 在打开 os.Root 前保留既有词法与父 symlink 预检，并把目标转换为 root-relative 路径。
+func prepareGeneratedArtifacts(root string, artifacts []generatedArtifact) (string, []generatedArtifact, error) {
+	if err := validateGeneratedArtifactPaths(root, artifacts); err != nil {
+		return "", nil, err
+	}
+	rootAbsolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve generated root %s: %w", root, err)
+	}
+	relative := make([]generatedArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		pathAbsolute, err := filepath.Abs(artifact.path)
+		if err != nil {
+			return "", nil, fmt.Errorf("resolve generated artifact path %s: %w", artifact.path, err)
+		}
+		pathRelative, err := filepath.Rel(rootAbsolute, pathAbsolute)
+		if err != nil {
+			return "", nil, fmt.Errorf("make generated artifact root-relative %s: %w", artifact.path, err)
+		}
+		relative = append(relative, generatedArtifact{path: filepath.Clean(pathRelative), content: artifact.content, update: artifact.update})
+	}
+	return rootAbsolute, relative, nil
 }
 
 // validateGeneratedArtifactPaths 在读取或写入前确认所有目标的现存父路径解析后仍位于仓库内。
@@ -546,7 +586,7 @@ func generatedPathWithin(root, path string) bool {
 }
 
 // changedGeneratedArtifacts 预读整批目标，保证任何暂存或提交前已取得完整旧状态。
-func changedGeneratedArtifacts(artifacts []generatedArtifact) ([]stagedGeneratedArtifact, error) {
+func changedGeneratedArtifacts(root *os.Root, artifacts []generatedArtifact, afterValidate func() error) ([]stagedGeneratedArtifact, error) {
 	seen := make(map[string]bool, len(artifacts))
 	changed := make([]stagedGeneratedArtifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
@@ -554,21 +594,32 @@ func changedGeneratedArtifacts(artifacts []generatedArtifact) ([]stagedGenerated
 			return nil, fmt.Errorf("duplicate generated artifact path: %s", artifact.path)
 		}
 		seen[artifact.path] = true
-		state, err := readGeneratedFileState(artifact.path)
+		state, err := readGeneratedFileState(root, artifact.path)
 		if err != nil {
 			return nil, err
+		}
+		if artifact.update != nil {
+			artifact.content, err = artifact.update(string(state.content))
+			if err != nil {
+				return nil, fmt.Errorf("render generated file %s: %w", artifact.path, err)
+			}
 		}
 		if state.exists && string(state.content) == artifact.content {
 			continue
 		}
 		changed = append(changed, stagedGeneratedArtifact{generatedArtifact: artifact, original: state})
 	}
+	if afterValidate != nil {
+		if err := afterValidate(); err != nil {
+			return nil, fmt.Errorf("after generated artifact validation: %w", err)
+		}
+	}
 	return changed, nil
 }
 
 // readGeneratedFileState 读取普通生成文件的内容、权限和存在状态。
-func readGeneratedFileState(path string) (generatedFileState, error) {
-	info, err := os.Lstat(path)
+func readGeneratedFileState(root *os.Root, path string) (generatedFileState, error) {
+	info, err := root.Lstat(path)
 	if os.IsNotExist(err) {
 		return generatedFileState{mode: 0o644}, nil
 	}
@@ -578,19 +629,19 @@ func readGeneratedFileState(path string) (generatedFileState, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return generatedFileState{}, fmt.Errorf("generated target is not a regular file: %s", path)
 	}
-	content, err := os.ReadFile(path)
+	content, err := root.ReadFile(path)
 	if err != nil {
 		return generatedFileState{}, fmt.Errorf("read generated file %s: %w", path, err)
 	}
 	return generatedFileState{content: content, mode: info.Mode().Perm(), exists: true}, nil
 }
 
-func stageGeneratedArtifacts(artifacts []stagedGeneratedArtifact) ([]stagedGeneratedArtifact, error) {
+func stageGeneratedArtifacts(root *os.Root, artifacts []stagedGeneratedArtifact) ([]stagedGeneratedArtifact, error) {
 	staged := append([]stagedGeneratedArtifact(nil), artifacts...)
 	for index := range staged {
-		tempPath, err := writeGeneratedTemp(staged[index].path, []byte(staged[index].content), staged[index].original.mode)
+		tempPath, err := writeGeneratedTemp(root, staged[index].path, []byte(staged[index].content), staged[index].original.mode)
 		if err != nil {
-			cleanupGeneratedTemps(staged)
+			cleanupGeneratedTemps(root, staged)
 			return nil, err
 		}
 		staged[index].tempPath = tempPath
@@ -599,20 +650,38 @@ func stageGeneratedArtifacts(artifacts []stagedGeneratedArtifact) ([]stagedGener
 }
 
 // writeGeneratedTemp 在目标目录完整写入并同步临时文件，目标文件此时仍保持不变。
-func writeGeneratedTemp(path string, content []byte, mode fs.FileMode) (string, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func writeGeneratedTemp(root *os.Root, path string, content []byte, mode fs.FileMode) (string, error) {
+	if err := root.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("create generated directory for %s: %w", path, err)
 	}
-	temp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	temp, tempPath, err := createGeneratedTemp(root, path)
 	if err != nil {
 		return "", fmt.Errorf("create generated temp for %s: %w", path, err)
 	}
-	tempPath := temp.Name()
 	if err := writeAndCloseGeneratedTemp(temp, content, mode); err != nil {
-		_ = os.Remove(tempPath)
+		_ = root.Remove(tempPath)
 		return "", fmt.Errorf("stage generated file %s: %w", path, err)
 	}
 	return tempPath, nil
+}
+
+// createGeneratedTemp 在目标目录以随机 basename 和 O_EXCL 建立暂存文件，碰撞时重新取名。
+func createGeneratedTemp(root *os.Root, path string) (*os.File, string, error) {
+	for range 16 {
+		var suffix [12]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, "", err
+		}
+		tempPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s.tmp-%x", filepath.Base(path), suffix))
+		temp, err := root.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			return temp, tempPath, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+	}
+	return nil, "", fmt.Errorf("exhausted generated temp name attempts for %s", path)
 }
 
 func writeAndCloseGeneratedTemp(temp *os.File, content []byte, mode fs.FileMode) error {
@@ -631,10 +700,10 @@ func writeAndCloseGeneratedTemp(temp *os.File, content []byte, mode fs.FileMode)
 	return temp.Close()
 }
 
-func rollbackGeneratedArtifacts(committed []stagedGeneratedArtifact, ops generatedFileOps) error {
+func rollbackGeneratedArtifacts(root *os.Root, committed []stagedGeneratedArtifact, ops generatedFileOps) error {
 	var rollbackErrors []error
 	for index := len(committed) - 1; index >= 0; index-- {
-		if err := restoreGeneratedArtifact(committed[index], ops); err != nil {
+		if err := restoreGeneratedArtifact(root, committed[index], ops); err != nil {
 			rollbackErrors = append(rollbackErrors, err)
 		}
 	}
@@ -642,28 +711,28 @@ func rollbackGeneratedArtifacts(committed []stagedGeneratedArtifact, ops generat
 }
 
 // restoreGeneratedArtifact 把已经提交的生成物恢复到事务开始前状态。
-func restoreGeneratedArtifact(artifact stagedGeneratedArtifact, ops generatedFileOps) error {
+func restoreGeneratedArtifact(root *os.Root, artifact stagedGeneratedArtifact, ops generatedFileOps) error {
 	if !artifact.original.exists {
-		if err := os.Remove(artifact.path); err != nil && !os.IsNotExist(err) {
+		if err := root.Remove(artifact.path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove generated file during rollback %s: %w", artifact.path, err)
 		}
 		return nil
 	}
-	tempPath, err := writeGeneratedTemp(artifact.path, artifact.original.content, artifact.original.mode)
+	tempPath, err := writeGeneratedTemp(root, artifact.path, artifact.original.content, artifact.original.mode)
 	if err != nil {
 		return fmt.Errorf("stage generated rollback %s: %w", artifact.path, err)
 	}
-	defer os.Remove(tempPath)
-	if err := ops.rename(tempPath, artifact.path); err != nil {
+	defer root.Remove(tempPath)
+	if err := ops.rename(root, tempPath, artifact.path); err != nil {
 		return fmt.Errorf("restore generated file %s: %w", artifact.path, err)
 	}
 	return nil
 }
 
-func cleanupGeneratedTemps(artifacts []stagedGeneratedArtifact) {
+func cleanupGeneratedTemps(root *os.Root, artifacts []stagedGeneratedArtifact) {
 	for _, artifact := range artifacts {
 		if artifact.tempPath != "" {
-			_ = os.Remove(artifact.tempPath)
+			_ = root.Remove(artifact.tempPath)
 		}
 	}
 }

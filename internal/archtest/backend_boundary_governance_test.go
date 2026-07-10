@@ -3,6 +3,9 @@ package archtest_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,6 +19,192 @@ func TestValidateDefaultBackendBoundaryGovernance(t *testing.T) {
 	if len(violations) > 0 {
 		t.Fatalf("default backend boundary governance is invalid:\n%s", strings.Join(violations, "\n"))
 	}
+}
+
+func TestValidateBackendBoundaryGovernanceReportsCanonicalPositions(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		marker string
+		label  string
+		mutate func(*archtest.BackendBoundaryRegistry)
+	}{
+		{name: "owner", marker: `{ID: "contract_boundary"`, label: "owner[0] reason is empty", mutate: func(registry *archtest.BackendBoundaryRegistry) { registry.Owners[0].Reason = "" }},
+		{name: "rule", marker: "defaultContractReversePollutionRule(patterns),", label: "rule[0] reason is empty", mutate: func(registry *archtest.BackendBoundaryRegistry) { registry.Rules[0].Reason = "" }},
+		{name: "guard", marker: `{ID: "backend_surface_governance"`, label: "guard[0] reason is empty", mutate: func(registry *archtest.BackendBoundaryRegistry) { registry.Guards[0].Reason = "" }},
+		{name: "surface", marker: `backendBoundarySurface("cmd/agent-runtime"`, label: "surface[0] reason is empty", mutate: func(registry *archtest.BackendBoundaryRegistry) { registry.Surfaces[0].Reason = "" }},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			registry := archtest.DefaultBackendBoundaryRegistry()
+			testCase.mutate(&registry)
+			violations := archtest.ValidateBackendBoundaryGovernance(repoRoot(t), registry)
+			assertCanonicalRegistryPosition(t, violations, testCase.label, testCase.marker)
+		})
+	}
+}
+
+func TestValidateBackendBoundaryGovernanceSyntheticPositionFallback(t *testing.T) {
+	t.Parallel()
+
+	registry := archtest.BackendBoundaryRegistry{
+		Owners: []archtest.BackendBoundaryOwner{{ID: "synthetic", FilePatterns: []string{"internal/synthetic/**/*.go"}}},
+	}
+	violations := archtest.ValidateBackendBoundaryGovernance(t.TempDir(), registry)
+	got := strings.Join(violations, "\n")
+	if !strings.Contains(got, "synthetic registry: owner[0] reason is empty") {
+		t.Fatalf("synthetic registry violation has no explicit fallback label: %s", got)
+	}
+	if strings.Contains(got, "backend_boundary_registry.go:") {
+		t.Fatalf("synthetic registry fabricated a canonical source position: %s", got)
+	}
+}
+
+func TestValidateBackendBoundaryGovernanceFailsWhenCanonicalPositionSourceMissing(t *testing.T) {
+	t.Parallel()
+
+	violations := archtest.ValidateBackendBoundaryGovernance(t.TempDir(), archtest.DefaultBackendBoundaryRegistry())
+	got := strings.Join(violations, "\n")
+	if !strings.Contains(got, "internal/archtest/backend_boundary_registry.go") || !strings.Contains(got, "read canonical backend boundary registry source") {
+		t.Fatalf("missing canonical source did not fail fast with context: %s", got)
+	}
+}
+
+func assertCanonicalRegistryPosition(t *testing.T, violations []string, label, marker string) {
+	t.Helper()
+	pattern := regexp.MustCompile(`^internal/archtest/backend_boundary_registry\.go:([1-9][0-9]*):([1-9][0-9]*): ` + regexp.QuoteMeta(label) + `$`)
+	for _, violation := range violations {
+		match := pattern.FindStringSubmatch(violation)
+		if match == nil {
+			continue
+		}
+		line, err := strconv.Atoi(match[1])
+		if err != nil {
+			t.Fatalf("parse reported source line %q: %v", match[1], err)
+		}
+		source, err := os.ReadFile(filepath.Join(repoRoot(t), "internal/archtest/backend_boundary_registry.go"))
+		if err != nil {
+			t.Fatalf("read canonical registry source: %v", err)
+		}
+		lines := strings.Split(string(source), "\n")
+		if line > len(lines) || !strings.Contains(lines[line-1], marker) {
+			t.Fatalf("reported position %s does not identify physical entry containing %q", violation, marker)
+		}
+		return
+	}
+	t.Fatalf("no canonical position for %q in violations: %v", label, violations)
+}
+
+func TestDefaultBackendBoundaryGovernanceRequiresSemanticRulesForFXOnlySurfaces(t *testing.T) {
+	t.Parallel()
+
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	assertSemanticSurfaceMappings(t, registry)
+	assertSemanticRuleDescriptors(t, registry)
+}
+
+func assertSemanticSurfaceMappings(t *testing.T, registry archtest.BackendBoundaryRegistry) {
+	t.Helper()
+	wantRules := map[string]archtest.BoundaryRuleID{
+		"cmd/agent-runtime":                  "command_narrow_import_surface",
+		"cmd/agent-terminal":                 "command_narrow_import_surface",
+		"cmd/super-dolphin-release-manifest": "command_narrow_import_surface",
+		"cmd/super-dolphin-updater":          "command_narrow_import_surface",
+		"internal/devtools":                  "internal_support_narrow_import_surface",
+		"internal/dto":                       "internal_support_narrow_import_surface",
+		"internal/testutil":                  "internal_support_narrow_import_surface",
+		"internal/util":                      "internal_support_narrow_import_surface",
+	}
+
+	for _, surface := range registry.Surfaces {
+		wantRule, ok := wantRules[surface.Path]
+		if !ok {
+			continue
+		}
+		delete(wantRules, surface.Path)
+		if !containsBoundaryRuleID(surface.RuleIDs, wantRule) {
+			t.Errorf("surface %q rules = %v, want semantic rule %q", surface.Path, surface.RuleIDs, wantRule)
+		}
+	}
+	if len(wantRules) > 0 {
+		t.Fatalf("semantic governance surfaces are missing: %v", wantRules)
+	}
+}
+
+func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBoundaryRegistry) {
+	t.Helper()
+	wantPolicies := map[archtest.BoundaryRuleID]map[string][]string{
+		"command_narrow_import_surface": {
+			"cmd/agent-runtime/**/*.go":                  {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
+			"cmd/agent-terminal/**/*.go":                 {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
+			"cmd/super-dolphin-release-manifest/**/*.go": {"internal/module/appupdate"},
+			"cmd/super-dolphin-updater/**/*.go":          {"internal/util/ctxutil"},
+		},
+		"internal_support_narrow_import_surface": {
+			"internal/devtools/**/*.go": {"internal/devtools", "internal/platform/config", "internal/platform/db"},
+			"internal/dto/**/*.go":      {"internal/dto"},
+			"internal/testutil/**/*.go": {"internal/contract", "internal/testutil"},
+			"internal/util/**/*.go": {
+				"internal/dto/provider",
+				"internal/platform/config",
+				"internal/platform/runtimesafe",
+				"internal/platform/sessionpaths",
+				"internal/platform/shared",
+				"internal/util",
+			},
+		},
+	}
+
+	for id, want := range wantPolicies {
+		rule, ok := registry.Rule(id)
+		if !ok {
+			t.Errorf("semantic rule %q is missing", id)
+			continue
+		}
+		if rule.Kind != archtest.BoundaryRuleAllowInternalImports {
+			t.Errorf("semantic rule %q kind = %q, want %q", id, rule.Kind, archtest.BoundaryRuleAllowInternalImports)
+		}
+		if len(rule.FilePatterns) == 0 || len(rule.Allow) == 0 {
+			t.Errorf("semantic rule %q is an empty placeholder: %#v", id, rule)
+		}
+		assertSemanticRulePolicies(t, rule, want)
+	}
+}
+
+func assertSemanticRulePolicies(t *testing.T, rule archtest.BackendBoundaryRule, want map[string][]string) {
+	t.Helper()
+	wantPairs := make(map[string]bool)
+	for pattern, prefixes := range want {
+		for _, prefix := range prefixes {
+			wantPairs[pattern+"\x00"+prefix] = true
+		}
+	}
+	for _, pattern := range rule.FilePatterns {
+		if _, ok := want[pattern]; !ok {
+			t.Errorf("semantic rule %q has unexpected file pattern %q", rule.ID, pattern)
+		}
+	}
+	if len(rule.FilePatterns) != len(want) {
+		t.Errorf("semantic rule %q file patterns = %v, want exact patterns %v", rule.ID, rule.FilePatterns, want)
+	}
+	for _, policy := range rule.Allow {
+		pair := policy.FilePattern + "\x00" + policy.ImportPrefix
+		if !wantPairs[pair] {
+			t.Errorf("semantic rule %q has unexpected allow policy %q -> %q", rule.ID, policy.FilePattern, policy.ImportPrefix)
+		}
+		delete(wantPairs, pair)
+		if policy.Reason == "" {
+			t.Errorf("semantic rule %q allow policy %q -> %q has no reason", rule.ID, policy.FilePattern, policy.ImportPrefix)
+		}
+	}
+	if len(wantPairs) > 0 {
+		t.Errorf("semantic rule %q is missing exact allow policies: %v", rule.ID, wantPairs)
+	}
+}
+
+func containsBoundaryRuleID(ids []archtest.BoundaryRuleID, want archtest.BoundaryRuleID) bool {
+	return slices.Contains(ids, want)
 }
 
 func TestValidateBackendBoundaryGovernanceRejectsUnregisteredSurface(t *testing.T) {
