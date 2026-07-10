@@ -168,55 +168,8 @@ func assertCanonicalBoundaryRule(t *testing.T, root string, ruleID archtest.Boun
 func assertModuleSiblingDependencyRules(t *testing.T, root string) {
 	t.Helper()
 	t.Run("rule16_module_siblings_no_concrete_imports", func(t *testing.T) {
-		assertModuleSiblingsNoConcreteImports(t, root)
+		assertCanonicalBoundaryRule(t, root, "module_horizontal_deep_import")
 	})
-}
-
-func assertModuleSiblingsNoConcreteImports(t *testing.T, root string) {
-	t.Helper()
-
-	if !dirExists(root, "internal/module") {
-		t.Skip("directory not yet created")
-	}
-	var violations []string
-	for _, file := range parseImportFiles(t, root, "internal/module") {
-		owner, ok := moduleOwnerForImportCheck(file.RelPath)
-		if !ok {
-			continue
-		}
-		violations = append(violations, moduleSiblingImportViolations(file, owner)...)
-	}
-	failIfViolations(t, violations)
-}
-
-func moduleOwnerForImportCheck(relPath string) (string, bool) {
-	if strings.HasSuffix(relPath, "_test.go") || filepath.Base(relPath) == "module.go" {
-		return "", false
-	}
-	parts := strings.Split(filepath.ToSlash(relPath), "/")
-	if len(parts) < 3 || parts[0] != "internal" || parts[1] != "module" {
-		return "", false
-	}
-	return parts[2], true
-}
-
-func moduleSiblingImportViolations(file parsedFile, owner string) []string {
-	var violations []string
-	for _, imp := range file.Imports {
-		importModule, ok := importedModuleName(imp)
-		if ok && importModule != owner {
-			violations = append(violations, fmt.Sprintf("%s imports sibling module %s", file.RelPath, imp))
-		}
-	}
-	return violations
-}
-
-func importedModuleName(imp string) (string, bool) {
-	if !strings.HasPrefix(imp, internalPrefix("internal/module/")) {
-		return "", false
-	}
-	importRel := strings.TrimPrefix(imp, internalPrefix("internal/module/"))
-	return strings.Split(importRel, "/")[0], true
 }
 
 func assertModuleDBIsolationRules(t *testing.T, root string) {

@@ -243,13 +243,21 @@ func defaultModuleDatabaseRule(patterns backendBoundaryPatterns) BackendBoundary
 
 func defaultMCPSidecarRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
 	return BackendBoundaryRule{
-		ID:                 "mcp_sidecar_narrow_import_surface",
-		Owner:              "mcp_sidecar_boundary",
-		Reason:             "cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services",
-		Kind:               BoundaryRuleAllowInternalImports,
-		FilePatterns:       patterns.sidecar,
-		Allow:              mcpSidecarAllowPolicies(),
-		Deny:               boundaryPolicies("mcp_sidecar_boundary", patterns.sidecar, []string{"internal/app", "internal/module", "internal/provider", "cmd/agent-terminal"}, "sidecars must not reach app host, module, provider, or agent terminal internals"),
+		ID:           "mcp_sidecar_narrow_import_surface",
+		Owner:        "mcp_sidecar_boundary",
+		Reason:       "cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services",
+		Kind:         BoundaryRuleAllowInternalImports,
+		FilePatterns: patterns.sidecar,
+		Allow:        mcpSidecarAllowPolicies(),
+		Deny: boundaryPolicies("mcp_sidecar_boundary", patterns.sidecar, []string{
+			"internal/app",
+			"internal/module",
+			"internal/provider",
+			"cmd/agent-terminal",
+			"internal/platform/rpc/server",
+			"internal/platform/rpc/push",
+			"internal/platform/rpc/notification",
+		}, "sidecars must not reach app host, module, provider, agent terminal, or RPC host internals"),
 		SkipTestFiles:      true,
 		DependencyPackages: []string{"cmd/mcp-orch", "cmd/mcp-lsp", "cmd/mcp-ida"},
 	}

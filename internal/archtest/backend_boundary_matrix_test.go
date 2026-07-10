@@ -17,6 +17,14 @@ var backendBoundaryMatrixRuleIDs = []archtest.BoundaryRuleID{
 	"store_sqlc_store_platform_only",
 }
 
+type boundaryViolationFixture struct {
+	name     string
+	ruleID   archtest.BoundaryRuleID
+	relPath  string
+	source   string
+	wantHits []string
+}
+
 func TestBackendBoundaryMatrix(t *testing.T) {
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	if violations := archtest.ValidateBackendBoundaryRegistry(registry); len(violations) > 0 {
@@ -64,13 +72,7 @@ func TestBackendBoundaryMatrixRejectsGenericStatefulSidecarAllowlist(t *testing.
 
 func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 	registry := archtest.DefaultBackendBoundaryRegistry()
-	cases := []struct {
-		name     string
-		ruleID   archtest.BoundaryRuleID
-		relPath  string
-		source   string
-		wantHits []string
-	}{
+	cases := []boundaryViolationFixture{
 		{
 			name:    "contract_reverse_pollution",
 			ruleID:  "contract_reverse_pollution",
@@ -104,6 +106,7 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 `,
 			wantHits: []string{"cmd/mcp-orch/main.go imports", "internal/module/thread"},
 		},
+		mcpRPCHostImportFixture(),
 		{
 			name:    "platform_module_reverse_dependency",
 			ruleID:  "platform_no_module",
@@ -123,7 +126,6 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 			wantHits: []string{"internal/module/thread/service.go imports", "internal/store/sqlc"},
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "fixture.go")
@@ -141,6 +143,18 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 				}
 			}
 		})
+	}
+}
+
+func mcpRPCHostImportFixture() boundaryViolationFixture {
+	return boundaryViolationFixture{
+		name:    "mcp_sidecar_rpc_host_import",
+		ruleID:  "mcp_sidecar_narrow_import_surface",
+		relPath: "cmd/mcp-orch/main.go",
+		source: `package fixture
+import _ "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc/server"
+`,
+		wantHits: []string{"cmd/mcp-orch/main.go imports", "internal/platform/rpc/server"},
 	}
 }
 

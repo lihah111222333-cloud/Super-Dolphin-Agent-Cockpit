@@ -80,6 +80,8 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 	switch fn.Name.Name {
 	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
 		return []string{rel + ": local default boundary registry duplicates the canonical registry"}
+	case "moduleOwnerForImportCheck", "moduleSiblingImportViolations", "importedModuleName":
+		return []string{rel + ": local module sibling evaluator duplicates the canonical registry"}
 	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":
 		return []string{rel + ": local MCP sidecar allowlist helper " + fn.Name.Name + " duplicates the canonical registry"}
 	default:

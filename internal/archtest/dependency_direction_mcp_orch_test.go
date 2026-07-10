@@ -28,6 +28,13 @@ func TestMCPSidecarTransitiveBoundaryRejectsLSPModuleDependency(t *testing.T) {
 	}
 }
 
+func TestMCPSidecarTransitiveBoundaryRejectsRPCHostDependency(t *testing.T) {
+	violations := mcpSidecarTransitiveViolations(t, archtest.DefaultBackendBoundaryRegistry(), "cmd/mcp-orch", []string{modulePath + "/internal/platform/rpc/server"})
+	if !strings.Contains(strings.Join(violations, "\n"), "rule=mcp_sidecar_narrow_import_surface") {
+		t.Fatalf("transitive RPC host dependency did not violate canonical sidecar rule: %v", violations)
+	}
+}
+
 func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	t.Helper()
 	files := parseImportFiles(t, root, mcpOrchPkg)
