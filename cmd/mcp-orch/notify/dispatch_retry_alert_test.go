@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -154,5 +156,26 @@ func TestDispatchRetryAlertNotifierWebhookCapture(t *testing.T) {
 	}
 	if !strings.Contains(bodies[0], "dag\\\\-alert") || !strings.Contains(bodies[0], "node\\\\-hot") {
 		t.Fatalf("webhook body missing retry alert context:\n%s", bodies[0])
+	}
+}
+
+func TestDispatchRetryAlertBodyFormatsRetryCountAsInt64(t *testing.T) {
+	source, err := os.ReadFile("dispatch_retry_alert.go")
+	if err != nil {
+		t.Fatalf("read dispatch retry alert source: %v", err)
+	}
+	if strings.Contains(string(source), "strconv.Itoa(int(alert.RetryCount))") {
+		t.Fatal("RetryCount must not narrow int64 to int before formatting")
+	}
+}
+
+func TestBuildDispatchRetryAlertBodyPreservesMaxRetryCount(t *testing.T) {
+	body := buildDispatchRetryAlertBody(orchestration.DispatchRetryAlert{
+		DagKey:     "dag-alert",
+		NodeKey:    "node-hot",
+		RetryCount: math.MaxInt64,
+	}, nil, nil)
+	if !strings.Contains(body, "Process retry count: 9223372036854775807") {
+		t.Fatalf("retry count was not preserved in alert body:\n%s", body)
 	}
 }

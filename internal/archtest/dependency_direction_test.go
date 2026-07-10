@@ -108,16 +108,12 @@ func assertModuleImplsNoFX(t *testing.T, root string) {
 
 func assertProviderCannotImportStore(t *testing.T, root string) {
 	t.Helper()
-
-	rule := mustBoundaryRule(t, boundaryRuleProviderNoStore)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+	assertCanonicalBoundaryRule(t, root, "provider_no_store")
 }
 
 func assertProviderCannotImportPlatformDB(t *testing.T, root string) {
 	t.Helper()
-
-	rule := mustBoundaryRule(t, boundaryRuleProviderNoPlatformDB)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+	assertCanonicalBoundaryRule(t, root, "provider_no_platform_db")
 }
 
 func assertProviderExternalWhitelist(t *testing.T, root string) {
@@ -152,16 +148,21 @@ func providerExternalWhitelistViolations(file parsedFile) []string {
 
 func assertPlatformCannotImportModule(t *testing.T, root string) {
 	t.Helper()
-
-	rule := mustBoundaryRule(t, boundaryRulePlatformNoModule)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+	assertCanonicalBoundaryRule(t, root, "platform_no_module")
 }
 
 func assertPlatformCannotImportStore(t *testing.T, root string) {
 	t.Helper()
+	assertCanonicalBoundaryRule(t, root, "platform_no_store")
+}
 
-	rule := mustBoundaryRule(t, boundaryRulePlatformNoStore)
-	assertBoundaryNoDisallowedImports(t, parseBoundaryRuleFiles(t, root, rule), rule)
+func assertCanonicalBoundaryRule(t *testing.T, root string, ruleID archtest.BoundaryRuleID) {
+	t.Helper()
+	evaluation, err := archtest.EvaluateBackendBoundary(root, archtest.DefaultBackendBoundaryRegistry(), ruleID)
+	if err != nil {
+		t.Fatalf("EvaluateBackendBoundary(%s): %v", ruleID, err)
+	}
+	failIfViolations(t, evaluation.Violations)
 }
 
 func assertModuleSiblingDependencyRules(t *testing.T, root string) {

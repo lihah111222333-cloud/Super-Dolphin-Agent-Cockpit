@@ -14,6 +14,7 @@ import (
 
 var backendBoundaryRuleConsumerFiles = []string{
 	"internal/archtest/backend_boundary_matrix_test.go",
+	"internal/archtest/boundary_registry_test.go",
 	"internal/archtest/dependency_direction_test.go",
 	"internal/archtest/dependency_direction_mcp_orch_test.go",
 }
@@ -77,8 +78,8 @@ func backendBoundaryConsumerDeclarationViolations(rel string, declaration ast.De
 
 func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl) []string {
 	switch fn.Name.Name {
-	case "defaultBackendBoundaryMatrix":
-		return []string{rel + ": local defaultBackendBoundaryMatrix duplicates the canonical registry"}
+	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
+		return []string{rel + ": local default boundary registry duplicates the canonical registry"}
 	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":
 		return []string{rel + ": local MCP sidecar allowlist helper " + fn.Name.Name + " duplicates the canonical registry"}
 	default:
@@ -105,10 +106,22 @@ func backendBoundaryConsumerSpecFactViolations(rel string, spec ast.Spec) []stri
 }
 
 func backendBoundaryConsumerTypeFactViolations(rel string, item *ast.TypeSpec) []string {
-	if _, ok := item.Type.(*ast.StructType); !ok || !strings.HasPrefix(item.Name.Name, "backendBoundary") {
+	if _, ok := item.Type.(*ast.StructType); !ok || !isLocalBoundaryPolicyType(item.Name.Name) {
 		return nil
 	}
 	return []string{rel + ": local backend boundary struct " + item.Name.Name + " duplicates registry rule facts"}
+}
+
+func isLocalBoundaryPolicyType(name string) bool {
+	if strings.HasPrefix(name, "backendBoundary") {
+		return true
+	}
+	switch name {
+	case "boundaryRegistry", "boundaryOwner", "boundaryImportRule", "boundaryException":
+		return true
+	default:
+		return false
+	}
 }
 
 func backendBoundaryConsumerValueFactViolations(rel string, item *ast.ValueSpec) []string {

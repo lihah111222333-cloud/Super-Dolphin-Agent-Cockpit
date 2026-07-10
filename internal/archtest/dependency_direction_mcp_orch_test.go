@@ -17,6 +17,17 @@ import (
 const mcpOrchRPCHostSymbols = ",ApprovalManager,CallbackClient,Dispatch,HTTPRoute,HTTPRouteResult,Module,NewApprovalManager,NewPushBridge,NewServer,NotifyAll,NotifyClient,OnConnect,Params,PushBridge,Register,Run,Server,WSHandler,"
 const mcpOrchPkg = "cmd/" + "mcp-orch"
 
+func TestMCPSidecarTransitiveBoundaryCoversRegisteredPackages(t *testing.T) {
+	assertMCPSidecarTransitiveImportBoundary(t, repoRoot(t), archtest.DefaultBackendBoundaryRegistry())
+}
+
+func TestMCPSidecarTransitiveBoundaryRejectsLSPModuleDependency(t *testing.T) {
+	violations := mcpSidecarTransitiveViolations(t, archtest.DefaultBackendBoundaryRegistry(), "cmd/mcp-lsp", []string{modulePath + "/internal/module/thread"})
+	if !strings.Contains(strings.Join(violations, "\n"), "rule=mcp_sidecar_narrow_import_surface") {
+		t.Fatalf("transitive LSP module dependency did not violate canonical sidecar rule: %v", violations)
+	}
+}
+
 func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	t.Helper()
 	files := parseImportFiles(t, root, mcpOrchPkg)
@@ -28,7 +39,7 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 		assertMCPOrchDirectImportBoundary(t, files, registry)
 	})
 	t.Run("transitive_internal_boundary", func(t *testing.T) {
-		assertMCPOrchTransitiveImportBoundary(t, root, registry)
+		assertMCPSidecarTransitiveImportBoundary(t, root, registry)
 	})
 	t.Run("rpc_client_mode_only", func(t *testing.T) { assertNoRPCHostSelectors(t, files) })
 	t.Run("module_no_reverse_mcp_imports", func(t *testing.T) {
@@ -57,32 +68,49 @@ func assertMCPOrchDirectImportBoundary(t *testing.T, files []parsedFile, registr
 	failIfViolations(t, violations)
 }
 
-func assertMCPOrchTransitiveImportBoundary(t *testing.T, root string, registry archtest.BackendBoundaryRegistry) {
+func assertMCPSidecarTransitiveImportBoundary(t *testing.T, root string, registry archtest.BackendBoundaryRegistry) {
 	t.Helper()
-	imports := mcpOrchBoundaryImports(goListDeps(t, root, mcpOrchPkg))
-	if len(imports) == 0 {
-		return
+	rule, ok := registry.Rule("mcp_sidecar_narrow_import_surface")
+	if !ok {
+		t.Fatal("canonical mcp sidecar rule is not registered")
 	}
-	path := filepath.Join(t.TempDir(), "mcp_orch_transitive.go")
-	if err := os.WriteFile(path, []byte(mcpOrchImportFixtureSource(imports)), 0o600); err != nil {
+	if len(rule.DependencyPackages) == 0 {
+		t.Fatal("canonical mcp sidecar rule has zero dependency packages")
+	}
+	for _, relPkg := range rule.DependencyPackages {
+		t.Run(relPkg, func(t *testing.T) {
+			violations := mcpSidecarTransitiveViolations(t, registry, relPkg, goListDeps(t, root, relPkg))
+			failIfViolations(t, violations)
+		})
+	}
+}
+
+func mcpSidecarTransitiveViolations(t *testing.T, registry archtest.BackendBoundaryRegistry, relPkg string, dependencies []string) []string {
+	t.Helper()
+	imports := mcpSidecarBoundaryImports(relPkg, dependencies)
+	if len(imports) == 0 {
+		t.Fatalf("%s has zero internal/cmd transitive imports", relPkg)
+	}
+	path := filepath.Join(t.TempDir(), "mcp_sidecar_transitive.go")
+	if err := os.WriteFile(path, []byte(mcpSidecarImportFixtureSource(imports)), 0o600); err != nil {
 		t.Fatalf("write transitive fixture: %v", err)
 	}
 	violations, err := archtest.EvaluateBackendBoundaryFile(
 		path,
-		mcpOrchPkg+"/main.go",
+		relPkg+"/main.go",
 		registry,
 		"mcp_sidecar_narrow_import_surface",
 	)
 	if err != nil {
-		t.Fatalf("EvaluateBackendBoundaryFile(transitive): %v", err)
+		t.Fatalf("EvaluateBackendBoundaryFile(%s transitive): %v", relPkg, err)
 	}
-	failIfViolations(t, violations)
+	return violations
 }
 
-func mcpOrchBoundaryImports(dependencies []string) []string {
+func mcpSidecarBoundaryImports(relPkg string, dependencies []string) []string {
 	var imports []string
 	for _, dependency := range dependencies {
-		if !isMCPOrchBoundaryImport(dependency) {
+		if !isMCPSidecarBoundaryImport(relPkg, dependency) {
 			continue
 		}
 		imports = append(imports, dependency)
@@ -90,14 +118,14 @@ func mcpOrchBoundaryImports(dependencies []string) []string {
 	return imports
 }
 
-func isMCPOrchBoundaryImport(dependency string) bool {
-	if strings.HasPrefix(dependency, modulePath+"/"+mcpOrchPkg) {
+func isMCPSidecarBoundaryImport(relPkg, dependency string) bool {
+	if strings.HasPrefix(dependency, modulePath+"/"+relPkg) {
 		return false
 	}
 	return strings.HasPrefix(dependency, modulePath+"/internal/") || strings.HasPrefix(dependency, modulePath+"/cmd/")
 }
 
-func mcpOrchImportFixtureSource(imports []string) string {
+func mcpSidecarImportFixtureSource(imports []string) string {
 	var source strings.Builder
 	source.WriteString("package fixture\nimport (\n")
 	for _, importPath := range imports {

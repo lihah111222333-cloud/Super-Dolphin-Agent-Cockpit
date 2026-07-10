@@ -121,10 +121,10 @@ func buildDispatchRetryAlertBody(alert orchestration.DispatchRetryAlert, node *t
 		b.WriteString(")")
 	}
 	b.WriteString("\nRetry attempts: ")
-	b.WriteString(strconv.Itoa(int(alert.AttemptCount)))
+	b.WriteString(strconv.FormatInt(int64(alert.AttemptCount), 10))
 	if alert.RetryCount > 0 {
 		b.WriteString("\nProcess retry count: ")
-		b.WriteString(strconv.Itoa(int(alert.RetryCount)))
+		b.WriteString(strconv.FormatInt(alert.RetryCount, 10))
 	}
 	if errText := strings.TrimSpace(alert.LastError); errText != "" {
 		b.WriteString("\nLast error: ")
