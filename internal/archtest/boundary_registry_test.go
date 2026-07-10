@@ -95,6 +95,43 @@ func TestBoundaryRegistryRejectsInvalidEntries(t *testing.T) {
 	}
 }
 
+func TestBoundaryRegistryRejectsDetachedImportPolicies(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*archtest.BackendBoundaryRegistry)
+		want   string
+	}{
+		{name: "owner differs from rule owner", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			rule := mustMutableBackendBoundaryRule(t, registry, "provider_no_store")
+			rule.Deny[0].Owner = "module_boundary"
+		}, want: "owner must match rule owner"},
+		{name: "file pattern outside rule", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			rule := mustMutableBackendBoundaryRule(t, registry, "provider_no_store")
+			rule.Deny[0].FilePattern = "internal/module/**/*.go"
+		}, want: "file_pattern must be registered in rule file_patterns"},
+		{name: "unsupported rule glob", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			registry.Rules[0].FilePatterns[0] = "internal/contract/*.go"
+		}, want: "unsupported file pattern syntax"},
+		{name: "stateful sidecar ancestor allowance", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			rule := mustMutableBackendBoundaryRule(t, registry, "mcp_sidecar_narrow_import_surface")
+			rule.Allow = append(rule.Allow, archtest.BoundaryImportPolicy{
+				Owner: rule.Owner, FilePattern: rule.FilePatterns[0], ImportPrefix: "internal/platform",
+				Reason: "orchestration sidecar broad runtime primitive",
+			})
+		}, want: "stateful sidecar allowance must not use ancestor import prefix"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := archtest.DefaultBackendBoundaryRegistry()
+			tc.mutate(&registry)
+			violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(registry), "\n")
+			if !strings.Contains(violations, tc.want) {
+				t.Fatalf("ValidateBackendBoundaryRegistry() missing %q in:\n%s", tc.want, violations)
+			}
+		})
+	}
+}
+
 func TestBackendBoundaryRegistryValidation(t *testing.T) {
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	if violations := archtest.ValidateBackendBoundaryRegistry(registry); len(violations) > 0 {

@@ -57,6 +57,13 @@ func TestMCPSidecarBoundaryDescriptorsStayAligned(t *testing.T) {
 	if !ok {
 		t.Fatal("canonical MCP sidecar boundary rule is missing")
 	}
+	unregistered, err := unregisteredMCPSidecarDirectories(repoRootForGuardTests(t), rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unregistered) > 0 {
+		t.Fatalf("MCP sidecar directories are missing from canonical boundary rule: %s", strings.Join(unregistered, ", "))
+	}
 	filePatterns := make(map[string]bool, len(rule.FilePatterns))
 	for _, pattern := range rule.FilePatterns {
 		filePatterns[pattern] = true
@@ -75,6 +82,24 @@ func TestMCPSidecarBoundaryDescriptorsStayAligned(t *testing.T) {
 	assertBoundaryPatternSetContains(t, allowPatterns, filePatterns, "rule file patterns")
 }
 
+func TestMCPSidecarBoundaryRejectsUnregisteredDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cmd", "mcp-shadow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := DefaultBackendBoundaryRegistry().Rule("mcp_sidecar_narrow_import_surface")
+	if !ok {
+		t.Fatal("canonical MCP sidecar boundary rule is missing")
+	}
+	unregistered, err := unregisteredMCPSidecarDirectories(root, rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unregistered) != 1 || unregistered[0] != "cmd/mcp-shadow" {
+		t.Fatalf("unregistered MCP sidecar discovery got %v", unregistered)
+	}
+}
+
 func assertBoundaryPatternSetContains(t *testing.T, expected, actual map[string]bool, actualLabel string) {
 	t.Helper()
 	for pattern := range expected {
@@ -82,6 +107,29 @@ func assertBoundaryPatternSetContains(t *testing.T, expected, actual map[string]
 			t.Errorf("MCP sidecar pattern %q is missing from %s", pattern, actualLabel)
 		}
 	}
+}
+
+// unregisteredMCPSidecarDirectories 将实际 cmd/mcp-* 目录与 canonical 规则覆盖做精确对账。
+func unregisteredMCPSidecarDirectories(root string, rule BackendBoundaryRule) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "cmd"))
+	if err != nil {
+		return nil, err
+	}
+	registered := make(map[string]bool, len(rule.FilePatterns))
+	for _, pattern := range rule.FilePatterns {
+		registered[strings.TrimSuffix(pattern, "/**/*.go")] = true
+	}
+	var unregistered []string
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "mcp-") {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join("cmd", entry.Name()))
+		if !registered[rel] {
+			unregistered = append(unregistered, rel)
+		}
+	}
+	return unregistered, nil
 }
 
 func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {

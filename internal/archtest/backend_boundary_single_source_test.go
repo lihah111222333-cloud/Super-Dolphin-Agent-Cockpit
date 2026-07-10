@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,11 +15,11 @@ import (
 
 func TestBackendBoundaryRuleFactsAutoDiscoverRenamedConsumer(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, "internal", "archtest")
+	dir := filepath.Join(root, "internal", "archtest", "nested")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const source = `package archtest_test
+	const source = `package nested
 
 type localPolicyRecord struct {
 	ID           string
@@ -32,7 +33,7 @@ func assemblePolicySnapshot() localPolicyRecord {
 	return localPolicyRecord{ID: "synthetic_rule", Owner: "synthetic_owner", Reason: "duplicate", FilePatterns: []string{"internal/**/*.go"}, Deny: []string{"internal/store"}}
 }
 `
-	rel := "internal/archtest/new_consumer_test.go"
+	rel := "internal/archtest/nested/new_consumer.go"
 	if err := os.WriteFile(filepath.Join(root, rel), []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +51,20 @@ func assemblePolicySnapshot() localPolicyRecord {
 	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
 	if !strings.Contains(violations, "local backend boundary struct localPolicyRecord") {
 		t.Fatalf("renamed local registry facts must be rejected, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsRejectsLegacySQLCEvaluator(t *testing.T) {
+	const source = `package archtest_test
+func TestSqlcBoundary(t *testing.T) {}
+`
+	node, err := parser.ParseFile(token.NewFileSet(), "legacy_sqlc_test.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := strings.Join(backendBoundaryConsumerFactViolations("legacy_sqlc_test.go", node), "\n")
+	if !strings.Contains(violations, "local SQLC evaluator duplicates the canonical registry") {
+		t.Fatalf("legacy SQLC evaluator must be rejected, got:\n%s", violations)
 	}
 }
 
@@ -85,17 +100,37 @@ func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 
 func discoverBackendBoundaryRuleConsumerFiles(root string) ([]string, error) {
 	const archtestDir = "internal/archtest"
-	entries, err := os.ReadDir(filepath.Join(root, archtestDir))
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", archtestDir, err)
+	excluded := map[string]bool{
+		archtestDir + "/backend_boundary_evaluator.go":          true,
+		archtestDir + "/backend_boundary_registry.go":           true,
+		archtestDir + "/backend_boundary_single_source_test.go": true,
 	}
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") || name == "backend_boundary_single_source_test.go" {
-			continue
+	var files []string
+	err := filepath.WalkDir(filepath.Join(root, archtestDir), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		files = append(files, filepath.ToSlash(filepath.Join(archtestDir, name)))
+		if entry.IsDir() {
+			if entry.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if !excluded[rel] {
+			files = append(files, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("discover backend boundary consumers under %s: %w", archtestDir, err)
 	}
 	return files, nil
 }
@@ -135,6 +170,8 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 	switch fn.Name.Name {
 	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
 		return []string{rel + ": local default boundary registry duplicates the canonical registry"}
+	case "TestSqlcBoundary":
+		return []string{rel + ": local SQLC evaluator duplicates the canonical registry"}
 	case "moduleOwnerForImportCheck", "moduleSiblingImportViolations", "importedModuleName":
 		return []string{rel + ": local module sibling evaluator duplicates the canonical registry"}
 	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":

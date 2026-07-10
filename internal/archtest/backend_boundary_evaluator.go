@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,8 +47,8 @@ func validateBackendBoundaryRule(label string, rule BackendBoundaryRule, owners 
 	violations := validateBackendBoundaryRuleHeader(label, rule, owners, ruleIDs)
 	violations = append(violations, validateBoundaryPatterns(label+" file_patterns", rule.FilePatterns)...)
 	violations = append(violations, validateBackendBoundaryRuleRequirements(label, rule)...)
-	violations = append(violations, validateBoundaryImportPolicies(label+" allow", rule.Allow, owners, true)...)
-	violations = append(violations, validateBoundaryImportPolicies(label+" deny", rule.Deny, owners, false)...)
+	violations = append(violations, validateBoundaryImportPolicies(label+" allow", rule, rule.Allow, owners, true)...)
+	violations = append(violations, validateBoundaryImportPolicies(label+" deny", rule, rule.Deny, owners, false)...)
 	violations = append(violations, validateBoundaryFilePolicies(label+" scope_allow", rule, owners)...)
 	violations = append(violations, validateBoundaryExceptions(label+" exception", rule, owners)...)
 	violations = append(violations, validateBoundaryPolicyConflicts(label, rule)...)
@@ -100,6 +101,7 @@ func ruleRequiresDeny(kind BoundaryRuleKind) bool {
 	return kind == BoundaryRuleDenyImports || kind == BoundaryRuleScopedImport
 }
 
+// validateBoundaryPatterns 校验规则模式非空、唯一，并且仅使用求值器支持的 glob 语法。
 func validateBoundaryPatterns(label string, patterns []string) []string {
 	if len(patterns) == 0 {
 		return []string{label + " are empty"}
@@ -112,6 +114,9 @@ func validateBoundaryPatterns(label string, patterns []string) []string {
 			violations = append(violations, fmt.Sprintf("%s[%d] is empty", label, i))
 			continue
 		}
+		if !isSupportedBackendBoundaryPattern(trimmed) {
+			violations = append(violations, fmt.Sprintf("%s[%d] has unsupported file pattern syntax %q", label, i, trimmed))
+		}
 		if seen[trimmed] {
 			violations = append(violations, fmt.Sprintf("%s[%d] duplicates %q", label, i, trimmed))
 		}
@@ -120,25 +125,26 @@ func validateBoundaryPatterns(label string, patterns []string) []string {
 	return violations
 }
 
+func isSupportedBackendBoundaryPattern(pattern string) bool {
+	if !strings.ContainsAny(pattern, "*?[]") {
+		return true
+	}
+	for _, suffix := range []string{"/**/*.go", "/**"} {
+		if base, ok := strings.CutSuffix(pattern, suffix); ok {
+			return base != "" && !strings.ContainsAny(base, "*?[]")
+		}
+	}
+	return false
+}
+
 // validateBoundaryImportPolicies 校验导入策略的 owner、文件范围和前缀唯一性。
-func validateBoundaryImportPolicies(label string, policies []BoundaryImportPolicy, owners map[BoundaryOwnerID]bool, checkStatefulSidecarReason bool) []string {
+func validateBoundaryImportPolicies(label string, rule BackendBoundaryRule, policies []BoundaryImportPolicy, owners map[BoundaryOwnerID]bool, checkStatefulSidecarReason bool) []string {
 	seen := make(map[string]bool, len(policies))
 	var violations []string
 	for i, policy := range policies {
 		item := fmt.Sprintf("%s[%d]", label, i)
-		violations = append(violations, validateBoundaryPolicyOwner(item, policy.Owner, owners)...)
-		if strings.TrimSpace(policy.FilePattern) == "" {
-			violations = append(violations, item+" file_pattern is empty")
-		}
-		if strings.TrimSpace(policy.ImportPrefix) == "" {
-			violations = append(violations, item+" import_prefix is empty")
-		}
-		if strings.TrimSpace(policy.Reason) == "" {
-			violations = append(violations, item+" reason is empty")
-		}
-		if checkStatefulSidecarReason && statefulSidecarAllowanceIsGeneric(policy) {
-			violations = append(violations, item+" stateful sidecar allowance must name its sidecar")
-		}
+		violations = append(violations, validateBoundaryImportPolicyFields(item, rule, policy, owners)...)
+		violations = append(violations, validateStatefulSidecarAllowance(item, policy, checkStatefulSidecarReason)...)
 		key := string(policy.Owner) + "\x00" + policy.FilePattern + "\x00" + policy.ImportPrefix
 		if seen[key] {
 			violations = append(violations, item+" duplicates import policy")
@@ -146,6 +152,45 @@ func validateBoundaryImportPolicies(label string, policies []BoundaryImportPolic
 		seen[key] = true
 	}
 	return violations
+}
+
+// validateBoundaryImportPolicyFields 校验普通导入策略与所属规则的归属、范围和说明字段。
+func validateBoundaryImportPolicyFields(item string, rule BackendBoundaryRule, policy BoundaryImportPolicy, owners map[BoundaryOwnerID]bool) []string {
+	violations := validateBoundaryPolicyOwner(item, policy.Owner, owners)
+	if policy.Owner != rule.Owner {
+		violations = append(violations, item+" owner must match rule owner")
+	}
+	if strings.TrimSpace(policy.FilePattern) == "" {
+		violations = append(violations, item+" file_pattern is empty")
+	} else if !backendBoundaryPatternIsRegistered(rule.FilePatterns, policy.FilePattern) {
+		violations = append(violations, item+" file_pattern must be registered in rule file_patterns")
+	}
+	if strings.TrimSpace(policy.ImportPrefix) == "" {
+		violations = append(violations, item+" import_prefix is empty")
+	}
+	if strings.TrimSpace(policy.Reason) == "" {
+		violations = append(violations, item+" reason is empty")
+	}
+	return violations
+}
+
+// validateStatefulSidecarAllowance 阻止 stateful 依赖以通用原因或祖先前缀扩大许可。
+func validateStatefulSidecarAllowance(item string, policy BoundaryImportPolicy, enabled bool) []string {
+	if !enabled {
+		return nil
+	}
+	var violations []string
+	if statefulSidecarAllowanceIsGeneric(policy) {
+		violations = append(violations, item+" stateful sidecar allowance must name its sidecar")
+	}
+	if statefulSidecarAllowanceUsesAncestorPrefix(policy) {
+		violations = append(violations, item+" stateful sidecar allowance must not use ancestor import prefix")
+	}
+	return violations
+}
+
+func backendBoundaryPatternIsRegistered(patterns []string, candidate string) bool {
+	return slices.Contains(patterns, candidate)
 }
 
 // statefulSidecarAllowanceIsGeneric 防止 db 和 metrics 白名单以通用原因逃避 sidecar 审计。
@@ -159,6 +204,18 @@ func statefulSidecarAllowanceIsGeneric(policy BoundaryImportPolicy) bool {
 	}
 	sidecar := strings.TrimSuffix(strings.TrimPrefix(policy.FilePattern, "cmd/mcp-"), "/**/*.go")
 	return !strings.Contains(strings.ToLower(policy.Reason), statefulSidecarReasonName(sidecar)+" sidecar")
+}
+
+func statefulSidecarAllowanceUsesAncestorPrefix(policy BoundaryImportPolicy) bool {
+	if !strings.HasPrefix(policy.FilePattern, "cmd/mcp-") {
+		return false
+	}
+	for _, protected := range []string{"internal/platform/db", "internal/platform/metrics"} {
+		if policy.ImportPrefix != protected && boundaryImportPrefixMatches(protected, policy.ImportPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func boundaryImportPrefixMatches(got, want string) bool {

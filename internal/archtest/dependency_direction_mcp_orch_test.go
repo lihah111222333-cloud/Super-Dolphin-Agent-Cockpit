@@ -126,10 +126,18 @@ func mcpSidecarBoundaryImports(relPkg string, dependencies []string) []string {
 }
 
 func isMCPSidecarBoundaryImport(relPkg, dependency string) bool {
-	if strings.HasPrefix(dependency, modulePath+"/"+relPkg) {
+	ownPrefix := modulePath + "/" + relPkg
+	if dependency == ownPrefix || strings.HasPrefix(dependency, ownPrefix+"/") {
 		return false
 	}
 	return strings.HasPrefix(dependency, modulePath+"/internal/") || strings.HasPrefix(dependency, modulePath+"/cmd/")
+}
+
+func TestMCPSidecarBoundaryImportDoesNotTreatSiblingPrefixAsOwn(t *testing.T) {
+	dependency := modulePath + "/cmd/mcp-lsp-shadow"
+	if !isMCPSidecarBoundaryImport("cmd/mcp-lsp", dependency) {
+		t.Fatalf("same-prefix sibling dependency %q must remain visible to boundary evaluation", dependency)
+	}
 }
 
 func mcpSidecarImportFixtureSource(imports []string) string {
