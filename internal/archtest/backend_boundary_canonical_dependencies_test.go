@@ -129,6 +129,7 @@ func TestFXAssemblyScopesUseTypedPathMatchers(t *testing.T) {
 		{name: "nested module file", relPath: "internal/module/thread/module.go", wantAllow: true},
 		{name: "direct command entrypoint", relPath: "cmd/agent-terminal/main.go", wantAllow: true},
 		{name: "direct command helper", relPath: "cmd/agent-terminal/frontend.go", wantAllow: false},
+		{name: "another direct command helper", relPath: "cmd/agent-terminal/helper.go", wantAllow: false},
 		{name: "nested non module file", relPath: "internal/module/thread/service.go", wantAllow: false},
 		{name: "nested command implementation", relPath: "cmd/agent-terminal/internal/main.go", wantAllow: false},
 	}
