@@ -36,8 +36,8 @@ is_direct_test_path() {
   local path="$1"
   case "$path" in
     *_test.go|*_test.py|test_*.py) return 0 ;;
-    *.test.js|*.test.jsx|*.test.ts|*.test.tsx) return 0 ;;
-    *.spec.js|*.spec.jsx|*.spec.ts|*.spec.tsx) return 0 ;;
+    *.test.js|*.test.jsx|*.test.ts|*.test.tsx|*.test.mjs) return 0 ;;
+    *.spec.js|*.spec.jsx|*.spec.ts|*.spec.tsx|*.spec.mjs) return 0 ;;
     tests/*|*/tests/*) return 0 ;;
   esac
   return 1
@@ -106,6 +106,7 @@ fixture_matches_production_dir() {
   [[ "$owner" == "$prod_dir"/* ]] && return 0
   parent_package_matches_production_dir "$owner" "$prod_dir" && return 0
   repository_tooling_test_matches_production_dir "$owner" "$prod_dir" && return 0
+  frontend_app_integration_test_matches_production_dir "$owner" "$prod_dir" && return 0
   return 1
 }
 
@@ -137,6 +138,21 @@ repository_tooling_test_matches_production_dir() {
   case "$prod_dir" in
     .|.githooks|scripts)
       return 0
+      ;;
+  esac
+  return 1
+}
+
+frontend_app_integration_test_matches_production_dir() {
+  local owner="$1"
+  local prod_dir="$2"
+  case "$owner" in
+    frontend-app|frontend-app/scripts)
+      case "$prod_dir" in
+        frontend-app/src|frontend-app/src/*)
+          return 0
+          ;;
+      esac
       ;;
   esac
   return 1
@@ -244,7 +260,7 @@ fail_missing_cached_test() {
 ❌ fix 提交缺少锁定 bug 的测试
   subject: $subject
   规则: fix/hotfix/bugfix/修复 提交必须在同一提交修改测试、fixture、golden 或 snapshot。
-  常见路径: *_test.go, *.test.ts, *.spec.ts, tests/**, testdata/**, fixtures/**, golden/**, __snapshots__/**
+  常见路径: *_test.go, *.test.ts, *.test.mjs, *.spec.ts, *.spec.mjs, tests/**, testdata/**, fixtures/**, golden/**, __snapshots__/**
 EOF
 }
 

@@ -97,7 +97,8 @@ internal/foo/bar.go
   规则: fix/hotfix/bugfix/修复 提交必须在同一提交修改测试、fixture、golden 或 snapshot。
 ```
 
-给同一个提交补上能复现并锁定该 bug 的 `*_test.go`、`*.test.ts`、`tests/**`、`testdata/**`、`fixtures/**`、`golden/**` 或 snapshot 变更后重新 commit。
+给同一个提交补上能复现并锁定该 bug 的 `*_test.go`、`*.test.ts`、`*.test.mjs`、`tests/**`、`testdata/**`、`fixtures/**`、`golden/**` 或 snapshot 变更后重新 commit。
+`frontend-app/src/**` 的 UI 修复也可以用同提交的 `frontend-app/scripts/*.test.mjs` 集成/契约测试锁定。
 
 ### pre-push（包级测试失败）
 
