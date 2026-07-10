@@ -136,6 +136,48 @@ func TestBackendBoundaryRegistryRejectsGenericStatefulSidecarAllowlist(t *testin
 	}
 }
 
+func TestBackendBoundaryRegistryRejectsBroadException(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	rule := mustMutableBackendBoundaryRule(t, &registry, "module_no_direct_db_imports")
+	rule.Exceptions = append(rule.Exceptions, archtest.BoundaryException{
+		ID:           "broad_module_database_exception",
+		Owner:        rule.Owner,
+		FilePattern:  "internal/module/**/*.go",
+		ImportPrefix: "database/sql",
+		Class:        archtest.BoundaryExceptionPermanent,
+		Reason:       "synthetic broad exception",
+	})
+	violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(registry), "\n")
+	if !strings.Contains(violations, "exception file_pattern must be exact") {
+		t.Fatalf("broad exception must fail validation, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRegistryRejectsBroadScopeAllow(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	rule := mustMutableBackendBoundaryRule(t, &registry, "store_sqlc_store_platform_only")
+	rule.ScopeAllow = append(rule.ScopeAllow, archtest.BoundaryFilePolicy{
+		Owner:       rule.Owner,
+		FilePattern: "internal/module/**/*.go",
+		Reason:      "synthetic broad scope allow",
+	})
+	violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(registry), "\n")
+	if !strings.Contains(violations, "scope_allow file_pattern is not a registered scope") {
+		t.Fatalf("broad scope allow must fail validation, got:\n%s", violations)
+	}
+}
+
+func mustMutableBackendBoundaryRule(t *testing.T, registry *archtest.BackendBoundaryRegistry, id archtest.BoundaryRuleID) *archtest.BackendBoundaryRule {
+	t.Helper()
+	for i := range registry.Rules {
+		if registry.Rules[i].ID == id {
+			return &registry.Rules[i]
+		}
+	}
+	t.Fatalf("canonical backend boundary rule %q is not registered", id)
+	return nil
+}
+
 func TestBackendBoundaryRegistryReturnsDeepCopy(t *testing.T) {
 	first := archtest.DefaultBackendBoundaryRegistry()
 	second := archtest.DefaultBackendBoundaryRegistry()

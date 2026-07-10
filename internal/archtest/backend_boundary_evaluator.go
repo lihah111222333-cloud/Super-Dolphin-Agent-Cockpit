@@ -48,8 +48,8 @@ func validateBackendBoundaryRule(label string, rule BackendBoundaryRule, owners 
 	violations = append(violations, validateBackendBoundaryRuleRequirements(label, rule)...)
 	violations = append(violations, validateBoundaryImportPolicies(label+" allow", rule.Allow, owners, true)...)
 	violations = append(violations, validateBoundaryImportPolicies(label+" deny", rule.Deny, owners, false)...)
-	violations = append(violations, validateBoundaryFilePolicies(label+" scope_allow", rule.ScopeAllow, owners)...)
-	violations = append(violations, validateBoundaryExceptions(label+" exception", rule.Exceptions, owners)...)
+	violations = append(violations, validateBoundaryFilePolicies(label+" scope_allow", rule, owners)...)
+	violations = append(violations, validateBoundaryExceptions(label+" exception", rule, owners)...)
 	violations = append(violations, validateBoundaryPolicyConflicts(label, rule)...)
 	return violations
 }
@@ -172,19 +172,29 @@ func statefulSidecarReasonName(sidecar string) string {
 	return sidecar
 }
 
-func validateBoundaryFilePolicies(label string, policies []BoundaryFilePolicy, owners map[BoundaryOwnerID]bool) []string {
-	seen := make(map[string]bool, len(policies))
+// validateBoundaryFilePolicies 校验范围放行只能使用 registry 注册的 scope，且归属和规则覆盖一致。
+func validateBoundaryFilePolicies(label string, rule BackendBoundaryRule, owners map[BoundaryOwnerID]bool) []string {
+	seen := make(map[string]bool, len(rule.ScopeAllow))
 	var violations []string
-	for i, policy := range policies {
+	for i, policy := range rule.ScopeAllow {
 		item := fmt.Sprintf("%s[%d]", label, i)
 		violations = append(violations, validateBoundaryPolicyOwner(item, policy.Owner, owners)...)
+		if policy.Owner != rule.Owner {
+			violations = append(violations, item+" owner must match rule owner")
+		}
 		if strings.TrimSpace(policy.FilePattern) == "" {
 			violations = append(violations, item+" file_pattern is empty")
+		}
+		expectedPattern, knownScope := boundaryScopeFilePattern(policy.Scope)
+		if !knownScope || policy.FilePattern != expectedPattern {
+			violations = append(violations, item+" scope_allow file_pattern is not a registered scope")
+		} else if !matchesAnyBackendBoundaryPattern(rule.FilePatterns, policy.FilePattern) {
+			violations = append(violations, item+" registered scope is outside rule file_patterns")
 		}
 		if strings.TrimSpace(policy.Reason) == "" {
 			violations = append(violations, item+" reason is empty")
 		}
-		key := string(policy.Owner) + "\x00" + policy.FilePattern
+		key := string(policy.Owner) + "\x00" + string(policy.Scope) + "\x00" + policy.FilePattern
 		if seen[key] {
 			violations = append(violations, item+" duplicates file policy")
 		}
@@ -194,19 +204,27 @@ func validateBoundaryFilePolicies(label string, policies []BoundaryFilePolicy, o
 }
 
 // validateBoundaryExceptions 校验例外的精确范围和临时例外的移除条件。
-func validateBoundaryExceptions(label string, exceptions []BoundaryException, owners map[BoundaryOwnerID]bool) []string {
-	seen := make(map[string]bool, len(exceptions))
+func validateBoundaryExceptions(label string, rule BackendBoundaryRule, owners map[BoundaryOwnerID]bool) []string {
+	seen := make(map[string]bool, len(rule.Exceptions))
 	var violations []string
-	for i, exception := range exceptions {
+	for i, exception := range rule.Exceptions {
 		item := fmt.Sprintf("%s[%d]", label, i)
-		violations = append(violations, validateBoundaryException(item, exception, seen, owners)...)
+		violations = append(violations, validateBoundaryException(item, rule, exception, seen, owners)...)
 		seen[exception.ID] = true
 	}
 	return violations
 }
 
 // validateBoundaryException 验证单个例外的唯一标识、归属、精确范围与生命周期字段。
-func validateBoundaryException(item string, exception BoundaryException, seen map[string]bool, owners map[BoundaryOwnerID]bool) []string {
+func validateBoundaryException(item string, rule BackendBoundaryRule, exception BoundaryException, seen map[string]bool, owners map[BoundaryOwnerID]bool) []string {
+	violations := validateBoundaryExceptionIdentity(item, rule, exception, seen, owners)
+	violations = append(violations, validateBoundaryExceptionScope(item, rule, exception)...)
+	violations = append(violations, validateBoundaryExceptionLifecycle(item, exception)...)
+	return violations
+}
+
+// validateBoundaryExceptionIdentity 校验例外 ID 与规则 owner 的一致性。
+func validateBoundaryExceptionIdentity(item string, rule BackendBoundaryRule, exception BoundaryException, seen map[string]bool, owners map[BoundaryOwnerID]bool) []string {
 	var violations []string
 	if strings.TrimSpace(exception.ID) == "" {
 		violations = append(violations, item+" id is empty")
@@ -214,12 +232,33 @@ func validateBoundaryException(item string, exception BoundaryException, seen ma
 		violations = append(violations, item+" duplicate exception "+exception.ID)
 	}
 	violations = append(violations, validateBoundaryPolicyOwner(item, exception.Owner, owners)...)
+	if exception.Owner != rule.Owner {
+		violations = append(violations, item+" owner must match rule owner")
+	}
+	return violations
+}
+
+// validateBoundaryExceptionScope 校验例外只能收窄既有规则的文件与导入范围。
+func validateBoundaryExceptionScope(item string, rule BackendBoundaryRule, exception BoundaryException) []string {
+	var violations []string
 	if strings.TrimSpace(exception.FilePattern) == "" {
 		violations = append(violations, item+" file_pattern is empty")
+	} else if strings.ContainsAny(exception.FilePattern, "*?[]") {
+		violations = append(violations, item+" exception file_pattern must be exact")
+	} else if !matchesAnyBackendBoundaryPattern(rule.FilePatterns, exception.FilePattern) {
+		violations = append(violations, item+" exception file_pattern is outside rule file_patterns")
 	}
 	if strings.TrimSpace(exception.ImportPrefix) == "" {
 		violations = append(violations, item+" import_prefix is empty")
+	} else if !exceptionMatchesRuleDeny(rule, exception) {
+		violations = append(violations, item+" import_prefix is outside rule deny policies")
 	}
+	return violations
+}
+
+// validateBoundaryExceptionLifecycle 校验例外原因、分类和临时移除条件。
+func validateBoundaryExceptionLifecycle(item string, exception BoundaryException) []string {
+	var violations []string
 	if strings.TrimSpace(exception.Reason) == "" {
 		violations = append(violations, item+" reason is empty")
 	}
@@ -230,6 +269,16 @@ func validateBoundaryException(item string, exception BoundaryException, seen ma
 		violations = append(violations, item+" temporary exception missing remove_when")
 	}
 	return violations
+}
+
+func exceptionMatchesRuleDeny(rule BackendBoundaryRule, exception BoundaryException) bool {
+	for _, deny := range rule.Deny {
+		if matchesBackendBoundaryPattern(deny.FilePattern, exception.FilePattern) &&
+			matchesBackendBoundaryImportPrefix(exception.ImportPrefix, deny.ImportPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateBoundaryPolicyOwner(label string, owner BoundaryOwnerID, owners map[BoundaryOwnerID]bool) []string {

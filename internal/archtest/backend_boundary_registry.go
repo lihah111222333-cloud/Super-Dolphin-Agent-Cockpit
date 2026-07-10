@@ -9,6 +9,9 @@ type BoundaryRuleID string
 // BoundaryRuleKind 标识规则求值方式。
 type BoundaryRuleKind string
 
+// BoundaryScopeID 标识经过 registry 注册的文件范围。
+type BoundaryScopeID string
+
 const (
 	// BoundaryRuleDenyImports 拒绝匹配文件导入指定前缀。
 	BoundaryRuleDenyImports BoundaryRuleKind = "deny_imports"
@@ -18,6 +21,13 @@ const (
 	BoundaryRuleModuleSiblings BoundaryRuleKind = "module_siblings"
 	// BoundaryRuleScopedImport 只允许指定文件范围导入被拒绝前缀。
 	BoundaryRuleScopedImport BoundaryRuleKind = "scoped_import"
+)
+
+const (
+	// BoundaryScopeStore 允许持久化 store 包消费受限实现。
+	BoundaryScopeStore BoundaryScopeID = "store"
+	// BoundaryScopePlatformDB 允许平台数据库包消费受限实现。
+	BoundaryScopePlatformDB BoundaryScopeID = "platform_db"
 )
 
 // BoundaryExceptionClass 标识例外的生命周期。
@@ -69,6 +79,7 @@ type BoundaryImportPolicy struct {
 // BoundaryFilePolicy 描述只按文件范围生效的审计策略。
 type BoundaryFilePolicy struct {
 	Owner       BoundaryOwnerID
+	Scope       BoundaryScopeID
 	FilePattern string
 	Reason      string
 }
@@ -288,10 +299,28 @@ func defaultSQLCStoreRule(patterns backendBoundaryPatterns) BackendBoundaryRule 
 		FilePatterns: patterns.sqlc,
 		Deny:         boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{"internal/store/sqlc"}, "sqlc imports are restricted to persistence seams"),
 		ScopeAllow: []BoundaryFilePolicy{
-			{Owner: "sqlc_boundary", FilePattern: "internal/store/**/*.go", Reason: "store packages are the canonical anti-corruption wrappers around sqlc"},
-			{Owner: "sqlc_boundary", FilePattern: "internal/platform/db/**/*.go", Reason: "platform DB schema verification may inspect sqlc-backed persistence boundaries"},
+			boundaryFilePolicy("sqlc_boundary", BoundaryScopeStore, "store packages are the canonical anti-corruption wrappers around sqlc"),
+			boundaryFilePolicy("sqlc_boundary", BoundaryScopePlatformDB, "platform DB schema verification may inspect sqlc-backed persistence boundaries"),
 		},
 		SkipTestFiles: true,
+	}
+}
+
+// boundaryFilePolicy 从注册范围派生文件模式，避免调用方另建宽泛白名单。
+func boundaryFilePolicy(owner BoundaryOwnerID, scope BoundaryScopeID, reason string) BoundaryFilePolicy {
+	// 未注册 scope 故意保留空 pattern，由统一 registry validator 在求值前失败关闭。
+	pattern, _ := boundaryScopeFilePattern(scope)
+	return BoundaryFilePolicy{Owner: owner, Scope: scope, FilePattern: pattern, Reason: reason}
+}
+
+func boundaryScopeFilePattern(scope BoundaryScopeID) (string, bool) {
+	switch scope {
+	case BoundaryScopeStore:
+		return "internal/store/**/*.go", true
+	case BoundaryScopePlatformDB:
+		return "internal/platform/db/**/*.go", true
+	default:
+		return "", false
 	}
 }
 

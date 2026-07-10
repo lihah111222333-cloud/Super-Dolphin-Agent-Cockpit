@@ -12,20 +12,58 @@ import (
 	"testing"
 )
 
-var backendBoundaryRuleConsumerFiles = []string{
-	"internal/archtest/backend_boundary_matrix_test.go",
-	"internal/archtest/boundary_registry_test.go",
-	"internal/archtest/dependency_direction_test.go",
-	"internal/archtest/dependency_direction_mcp_orch_test.go",
+func TestBackendBoundaryRuleFactsAutoDiscoverRenamedConsumer(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "internal", "archtest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const source = `package archtest_test
+
+type localPolicyRecord struct {
+	ID           string
+	Owner        string
+	Reason       string
+	FilePatterns []string
+	Deny         []string
+}
+
+func assemblePolicySnapshot() localPolicyRecord {
+	return localPolicyRecord{ID: "synthetic_rule", Owner: "synthetic_owner", Reason: "duplicate", FilePatterns: []string{"internal/**/*.go"}, Deny: []string{"internal/store"}}
+}
+`
+	rel := "internal/archtest/new_consumer_test.go"
+	if err := os.WriteFile(filepath.Join(root, rel), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := discoverBackendBoundaryRuleConsumerFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != rel {
+		t.Fatalf("automatic consumer discovery got %v, want [%s]", files, rel)
+	}
+	node, err := parseBackendBoundaryRuleConsumer(root, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
+	if !strings.Contains(violations, "local backend boundary struct localPolicyRecord") {
+		t.Fatalf("renamed local registry facts must be rejected, got:\n%s", violations)
+	}
 }
 
 // TestBackendBoundaryRuleFactsHaveOneSource prevents consumers from reintroducing registry policy facts.
 func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 	t.Helper()
 	root := repoRoot(t)
+	consumerFiles, err := discoverBackendBoundaryRuleConsumerFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var violations []string
 	ruleIDSources := map[string][]string{}
-	for _, rel := range backendBoundaryRuleConsumerFiles {
+	for _, rel := range consumerFiles {
 		node, err := parseBackendBoundaryRuleConsumer(root, rel)
 		if err != nil {
 			t.Fatal(err)
@@ -43,6 +81,23 @@ func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 	if len(violations) > 0 {
 		t.Fatalf("backend boundary policy facts must come only from DefaultBackendBoundaryRegistry:\n%s", strings.Join(violations, "\n"))
 	}
+}
+
+func discoverBackendBoundaryRuleConsumerFiles(root string) ([]string, error) {
+	const archtestDir = "internal/archtest"
+	entries, err := os.ReadDir(filepath.Join(root, archtestDir))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", archtestDir, err)
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") || name == "backend_boundary_single_source_test.go" {
+			continue
+		}
+		files = append(files, filepath.ToSlash(filepath.Join(archtestDir, name)))
+	}
+	return files, nil
 }
 
 func parseBackendBoundaryRuleConsumer(root, rel string) (*ast.File, error) {
@@ -84,9 +139,20 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 		return []string{rel + ": local module sibling evaluator duplicates the canonical registry"}
 	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":
 		return []string{rel + ": local MCP sidecar allowlist helper " + fn.Name.Name + " duplicates the canonical registry"}
-	default:
+	}
+	if fn.Body == nil || strings.HasPrefix(fn.Name.Name, "Test") {
 		return nil
 	}
+	var violations []string
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		literal, ok := node.(*ast.CompositeLit)
+		if ok && hasBackendBoundaryPolicyLiteralShape(literal) {
+			violations = append(violations, rel+": function "+fn.Name.Name+" declares local backend boundary policy facts")
+			return false
+		}
+		return true
+	})
+	return violations
 }
 
 func backendBoundaryConsumerGroupFactViolations(rel string, group *ast.GenDecl) []string {
@@ -108,10 +174,51 @@ func backendBoundaryConsumerSpecFactViolations(rel string, spec ast.Spec) []stri
 }
 
 func backendBoundaryConsumerTypeFactViolations(rel string, item *ast.TypeSpec) []string {
-	if _, ok := item.Type.(*ast.StructType); !ok || !isLocalBoundaryPolicyType(item.Name.Name) {
+	structType, ok := item.Type.(*ast.StructType)
+	if !ok || (!isLocalBoundaryPolicyType(item.Name.Name) && !hasBackendBoundaryPolicyStructShape(structType)) {
 		return nil
 	}
 	return []string{rel + ": local backend boundary struct " + item.Name.Name + " duplicates registry rule facts"}
+}
+
+func hasBackendBoundaryPolicyStructShape(structType *ast.StructType) bool {
+	fields := make(map[string]bool)
+	for _, field := range structType.Fields.List {
+		for _, name := range field.Names {
+			fields[name.Name] = true
+		}
+	}
+	if fields["Owners"] && fields["Rules"] {
+		return true
+	}
+	return fields["ID"] && fields["Owner"] && fields["Reason"] && hasAnyBoundaryPolicyField(fields)
+}
+
+func hasBackendBoundaryPolicyLiteralShape(literal *ast.CompositeLit) bool {
+	fields := make(map[string]bool)
+	for _, element := range literal.Elts {
+		item, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := item.Key.(*ast.Ident)
+		if ok {
+			fields[key.Name] = true
+		}
+	}
+	if fields["Owners"] && fields["Rules"] {
+		return true
+	}
+	return fields["ID"] && fields["Owner"] && fields["Reason"] && hasAnyBoundaryPolicyField(fields)
+}
+
+func hasAnyBoundaryPolicyField(fields map[string]bool) bool {
+	for _, name := range []string{"FilePatterns", "Allow", "Deny", "ScopeAllow", "Exceptions", "DependencyPackages", "ImportPrefix"} {
+		if fields[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func isLocalBoundaryPolicyType(name string) bool {

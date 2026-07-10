@@ -50,6 +50,40 @@ func TestBackendBoundaryGuardsFailClosed(t *testing.T) {
 	}
 }
 
+func TestMCPSidecarBoundaryDescriptorsStayAligned(t *testing.T) {
+	t.Parallel()
+
+	rule, ok := DefaultBackendBoundaryRegistry().Rule("mcp_sidecar_narrow_import_surface")
+	if !ok {
+		t.Fatal("canonical MCP sidecar boundary rule is missing")
+	}
+	filePatterns := make(map[string]bool, len(rule.FilePatterns))
+	for _, pattern := range rule.FilePatterns {
+		filePatterns[pattern] = true
+	}
+	dependencyPatterns := make(map[string]bool, len(rule.DependencyPackages))
+	for _, pkg := range rule.DependencyPackages {
+		dependencyPatterns[pkg+"/**/*.go"] = true
+	}
+	allowPatterns := make(map[string]bool, len(rule.Allow))
+	for _, policy := range rule.Allow {
+		allowPatterns[policy.FilePattern] = true
+	}
+	assertBoundaryPatternSetContains(t, filePatterns, dependencyPatterns, "dependency packages")
+	assertBoundaryPatternSetContains(t, filePatterns, allowPatterns, "import allowances")
+	assertBoundaryPatternSetContains(t, dependencyPatterns, filePatterns, "rule file patterns")
+	assertBoundaryPatternSetContains(t, allowPatterns, filePatterns, "rule file patterns")
+}
+
+func assertBoundaryPatternSetContains(t *testing.T, expected, actual map[string]bool, actualLabel string) {
+	t.Helper()
+	for pattern := range expected {
+		if !actual[pattern] {
+			t.Errorf("MCP sidecar pattern %q is missing from %s", pattern, actualLabel)
+		}
+	}
+}
+
 func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 	t.Parallel()
 
