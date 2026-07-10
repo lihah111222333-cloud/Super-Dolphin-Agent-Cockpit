@@ -5,13 +5,13 @@
 - Owners: 13
 - Canonical rules: 19
 - Specialized guards: 9
-- Governed backend surfaces: 26
+- Governed backend surfaces: 27
 
 ## Rule owners
 
 | Owner | File patterns | Reason |
 |---|---|---|
-| `command_boundary` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | standalone commands import only their registered host or runtime seams |
+| `command_boundary` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/codex-worktree-setup/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | standalone commands import only their registered host or runtime seams |
 | `contract_boundary` | `internal/contract/**/*.go` | contract is the stable DTO and port surface; it must not depend on implementation packages |
 | `fx_assembly` | `cmd/**/*.go`<br>`internal/**/*.go` | Fx belongs only to typed assembly scopes |
 | `internal_support_boundary` | `internal/devtools/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | shared support packages keep narrow, per-source internal dependency surfaces |
@@ -29,7 +29,7 @@
 
 | Rule | Owner | Kind | Files | Allow | Deny | Scope allow | Exceptions | Reason |
 |---|---|---|---|---|---|---|---|---|
-| `command_narrow_import_surface` | `command_boundary` | `allow_internal_imports` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | `cmd/agent-runtime/**/*.go` → `internal/app`<br>`cmd/agent-runtime/**/*.go` → `internal/platform/rlimit`<br>`cmd/agent-runtime/**/*.go` → `internal/platform/runtimeenv`<br>`cmd/agent-terminal/**/*.go` → `internal/app`<br>`cmd/agent-terminal/**/*.go` → `internal/platform/rlimit`<br>`cmd/agent-terminal/**/*.go` → `internal/platform/runtimeenv`<br>`cmd/super-dolphin-release-manifest/**/*.go` → `internal/module/appupdate`<br>`cmd/super-dolphin-updater/**/*.go` → `internal/util/ctxutil` | — | — | — | standalone commands may import only their registered application or runtime seams |
+| `command_narrow_import_surface` | `command_boundary` | `allow_internal_imports` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/codex-worktree-setup/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | 10 policies across 5 file patterns | — | — | — | standalone commands may import only their registered application or runtime seams |
 | `contract_reverse_pollution` | `contract_boundary` | `deny_imports` | `internal/contract/**/*.go` | — | `internal/contract/**/*.go` → `cmd`<br>`internal/contract/**/*.go` → `frontend-app`<br>`internal/contract/**/*.go` → `internal/module`<br>`internal/contract/**/*.go` → `internal/provider`<br>`internal/contract/**/*.go` → `internal/store`<br>`internal/contract/**/*.go` → `internal/ui` | — | — | contract may only define stable DTOs and ports, never depend on implementation details |
 | `fx_assembly_scope` | `fx_assembly` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `go.uber.org/fx`<br>`internal/**/*.go` → `go.uber.org/fx` | `cmd/*/main.go` (`fx_command_entrypoint`)<br>`cmd/mcp-ida/**/*.go` (`fx_mcp_ida`)<br>`cmd/mcp-lsp/fx.go` (`fx_mcp_lsp`)<br>`cmd/mcp-orch/**/*.go` (`fx_mcp_orch`)<br>`internal/**/module.go` (`fx_module_file`)<br>`internal/app/**/*.go` (`fx_internal_app`) | — | Fx imports belong only to registered assembly entrypoints |
 | `hooks_no_mcpcontrol` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/mcpcontrol` | — | — | hooks publish contracts instead of importing MCP control implementations |
@@ -69,6 +69,7 @@
 |---|---|---|---|
 | `cmd/agent-runtime` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | agent runtime process assembly |
 | `cmd/agent-terminal` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | agent terminal process assembly |
+| `cmd/codex-worktree-setup` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | Codex worktree LSP bootstrap command |
 | `cmd/mcp-ida` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_ida_family` | — | IDA MCP sidecar boundary |
 | `cmd/mcp-lsp` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface` | — | LSP MCP sidecar boundary |
 | `cmd/mcp-orch` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_orch_family` | — | orchestration MCP sidecar boundary |

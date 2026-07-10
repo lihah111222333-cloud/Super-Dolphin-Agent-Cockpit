@@ -1,6 +1,15 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-runtime/main_test.go	cmd	other	go-test	3587	Agent runtime command entry and tests	cmd,agent,runtime,main,test,Agent,command,entry,and,tests
 cmd/agent-runtime/main.go	cmd	other	go-source	1143	Agent runtime command entry and tests	cmd,agent,runtime,main,Agent,command,entry,and,tests
+cmd/codex-worktree-setup/atomic_unix.go	cmd	other	go-source	381	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,atomic,unix,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/atomic_windows.go	cmd	other	go-source	483	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,atomic,windows,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/main.go	cmd	other	go-source	2300	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/setup_config.go	cmd	other	go-source	9632	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,config,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/setup_paths.go	cmd	other	go-source	4535	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,paths,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/setup_probe.go	cmd	other	go-source	7291	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,probe,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/setup_test.go	cmd	other	go-test	6532	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/setup.go	cmd	other	go-source	4410	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	6226	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,integration,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6944	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9997	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
@@ -50,11 +59,11 @@ internal/archtest/archguard_ignore_test.go	internal	other	go-test	1641	架构守
 internal/archtest/archguard_ignore.go	internal	other	go-source	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other	go-test	7924	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,canonical,dependencies,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	35384	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	25183	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	25361	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_governance.go	internal	other	go-source	29836	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	11170	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	7355	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	40597	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	41078	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_test.go	internal	other	go-test	28626	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/baseline_shrink_test.go	internal	other	go-test	4503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,test,架构守卫,ratchet,与冻结规则
 internal/archtest/baseline_shrink.go	internal	other	go-source	2465	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,架构守卫,ratchet,与冻结规则
@@ -360,7 +369,7 @@ internal/util/safego/safego.go	internal	other	go-source	710	Internal shared util
 internal/util/toolresults/path_test.go	internal	other	go-test	706	Internal shared utility packages	internal,util,toolresults,path,test,Internal,shared,utility,packages
 internal/util/toolresults/path.go	internal	other	go-source	716	Internal shared utility packages	internal,util,toolresults,path,Internal,shared,utility,packages
 internal/util/util.go	internal	other	go-source	1698	Internal shared utility packages	internal,util,Internal,shared,utility,packages
-Makefile	(root)	other	file	15162	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	15247	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	5884	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3359	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库

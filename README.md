@@ -34,6 +34,8 @@ pkg/                     # Reusable public libraries
   `SUPER_DOLPHIN_SQLITE_PATH` to use a different local file.
 - Node.js 20+ (for frontend)
 - OpenAI Codex CLI (`codex`) installed + authenticated — required for the current new UI desktop provider flow
+- `gopls` (`go install golang.org/x/tools/gopls@latest`) for Codex Go navigation
+- TypeScript language-server companions (`npm install -g typescript-language-server typescript@5.9.3`) for Codex JS/TS navigation
 - Claude Code CLI (`claude`) installed + authenticated — only required for legacy/provider-integration work that explicitly targets Claude
 
 ### Clone & Setup
@@ -84,6 +86,36 @@ First-run side effects (auto, no manual step):
   default, or under an explicit provider home `skills/` directory when
   configured.
 - Legacy `.claude/settings.json` nativefilter deny entries are not written or cleared during provider launch; skill visibility now comes from provider-native mirrors, not settings injection.
+
+### Codex Git Worktree LSP Setup
+
+After entering each newly created linked worktree, prepare and verify its local
+LSP sidecar before starting implementation:
+
+```bash
+# Unix/macOS convenience target; on Windows use the Go command below directly.
+make codex-worktree-ready
+# Equivalent on every platform:
+go run ./cmd/codex-worktree-setup ready
+go run ./cmd/codex-worktree-setup verify
+```
+
+`ready` rebuilds `bin/mcp-lsp` from the current worktree and writes the managed
+server block to this worktree's `.codex/config.toml`; both are ignored local
+artifacts. It never reuses a binary or configuration from another checkout and
+does not modify the global `~/.codex/config.toml`. Both commands fail fast when
+required paths, language servers, configuration, or MCP tools are invalid.
+`verify` also performs real `file(diagnostics)` calls against one Go file and
+one frontend JavaScript file, so an executable-looking but unusable language
+server fails readiness instead of producing a false PASS.
+
+After `ready` and `verify` pass, start a **new Codex task** so Codex loads the
+worktree-local MCP server, then confirm it is enabled:
+
+```bash
+codex mcp get lsp
+codex mcp list
+```
 
 ### Optional: Codex Fast Mode
 

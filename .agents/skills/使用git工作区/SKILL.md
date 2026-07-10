@@ -57,6 +57,18 @@ cd "$path"
 git status --short
 ```
 
+立即准备并验证当前 worktree 自己的 Codex LSP：
+
+```bash
+# Unix/macOS 可使用 make codex-worktree-ready；Windows 直接运行以下 Go 命令。
+go run ./cmd/codex-worktree-setup ready
+go run ./cmd/codex-worktree-setup verify
+```
+
+- 两条命令都必须成功；失败时立即停止并报告，不得用其他 checkout 的 binary、config 或无 LSP 模式兜底。
+- `ready` 只构建当前 worktree 的 `bin/mcp-lsp` 并更新当前 worktree 被忽略的 `.codex/config.toml`，不得修改全局 `~/.codex/config.toml`。
+- 验证成功后必须启动一个新的 Codex task，让 Codex 重新加载 worktree-local MCP server；旧 task 不能作为验收依据。
+
 当前默认不安装 hooks。只有用户或控制器明确要求验证 hook 安装/提交链路时，才在对应 worktree 内运行 `make install-hooks`。
 
 如果 `.worktrees/` 意外未被忽略，停止并请用户确认是否允许修改 `.gitignore`。不要自动修改 `.gitignore`，更不要自动提交治理文件。

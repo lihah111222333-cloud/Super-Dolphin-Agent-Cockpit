@@ -241,6 +241,7 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 	return []BackendBoundarySurface{
 		backendBoundarySurface("cmd/agent-runtime", "agent runtime process assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/agent-terminal", "agent terminal process assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/codex-worktree-setup", "Codex worktree LSP bootstrap command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
@@ -280,6 +281,7 @@ type backendBoundaryPatterns struct {
 	sidecar         []string
 	agentRuntime    []string
 	agentTerminal   []string
+	codexWorktree   []string
 	releaseManifest []string
 	updater         []string
 	devtools        []string
@@ -307,6 +309,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		sidecar:         []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
 		agentRuntime:    []string{"cmd/agent-runtime/**/*.go"},
 		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
+		codexWorktree:   []string{"cmd/codex-worktree-setup/**/*.go"},
 		releaseManifest: []string{"cmd/super-dolphin-release-manifest/**/*.go"},
 		updater:         []string{"cmd/super-dolphin-updater/**/*.go"},
 		devtools:        []string{"internal/devtools/**/*.go"},
@@ -654,7 +657,7 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 }
 
 func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.releaseManifest, patterns.updater)
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.releaseManifest, patterns.updater)
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
@@ -673,6 +676,10 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/platform/rlimit",
 		"internal/platform/runtimeenv",
 	}, "agent terminal host or process primitive")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.codexWorktree, []string{
+		"internal/platform/config",
+		"internal/util/pathutil",
+	}, "Codex worktree setup runtime primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)
