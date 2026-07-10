@@ -15,6 +15,7 @@ import (
 // ValidateBackendBoundaryRegistry 返回所有可静态发现的 registry 配置错误。
 func ValidateBackendBoundaryRegistry(registry BackendBoundaryRegistry) []string {
 	owners := make(map[BoundaryOwnerID]bool, len(registry.Owners))
+	ownerPatterns := make(map[BoundaryOwnerID][]string, len(registry.Owners))
 	var violations []string
 	for i, owner := range registry.Owners {
 		label := fmt.Sprintf("owner[%d]", i)
@@ -24,6 +25,7 @@ func ValidateBackendBoundaryRegistry(registry BackendBoundaryRegistry) []string 
 			violations = append(violations, label+" duplicate owner "+string(owner.ID))
 		} else {
 			owners[owner.ID] = true
+			ownerPatterns[owner.ID] = append([]string(nil), owner.FilePatterns...)
 		}
 		if strings.TrimSpace(owner.Reason) == "" {
 			violations = append(violations, label+" reason is empty")
@@ -34,7 +36,7 @@ func ValidateBackendBoundaryRegistry(registry BackendBoundaryRegistry) []string 
 	ruleIDs := make(map[BoundaryRuleID]bool, len(registry.Rules))
 	for i, rule := range registry.Rules {
 		label := fmt.Sprintf("rule[%d]", i)
-		violations = append(violations, validateBackendBoundaryRule(label, rule, owners, ruleIDs)...)
+		violations = append(violations, validateBackendBoundaryRule(label, rule, owners, ownerPatterns, ruleIDs)...)
 		if strings.TrimSpace(string(rule.ID)) != "" {
 			ruleIDs[rule.ID] = true
 		}
@@ -43,15 +45,27 @@ func ValidateBackendBoundaryRegistry(registry BackendBoundaryRegistry) []string 
 }
 
 // validateBackendBoundaryRule 校验单条规则的头字段、策略和例外，防止坏配置进入求值器。
-func validateBackendBoundaryRule(label string, rule BackendBoundaryRule, owners map[BoundaryOwnerID]bool, ruleIDs map[BoundaryRuleID]bool) []string {
+func validateBackendBoundaryRule(label string, rule BackendBoundaryRule, owners map[BoundaryOwnerID]bool, ownerPatterns map[BoundaryOwnerID][]string, ruleIDs map[BoundaryRuleID]bool) []string {
 	violations := validateBackendBoundaryRuleHeader(label, rule, owners, ruleIDs)
 	violations = append(violations, validateBoundaryPatterns(label+" file_patterns", rule.FilePatterns)...)
+	violations = append(violations, validateBoundaryRuleOwnerPatterns(label, rule, ownerPatterns)...)
 	violations = append(violations, validateBackendBoundaryRuleRequirements(label, rule)...)
 	violations = append(violations, validateBoundaryImportPolicies(label+" allow", rule, rule.Allow, owners, true)...)
 	violations = append(violations, validateBoundaryImportPolicies(label+" deny", rule, rule.Deny, owners, false)...)
 	violations = append(violations, validateBoundaryFilePolicies(label+" scope_allow", rule, owners)...)
 	violations = append(violations, validateBoundaryExceptions(label+" exception", rule, owners)...)
 	violations = append(violations, validateBoundaryPolicyConflicts(label, rule)...)
+	return violations
+}
+
+func validateBoundaryRuleOwnerPatterns(label string, rule BackendBoundaryRule, ownerPatterns map[BoundaryOwnerID][]string) []string {
+	registered := ownerPatterns[rule.Owner]
+	var violations []string
+	for i, pattern := range rule.FilePatterns {
+		if !slices.Contains(registered, pattern) {
+			violations = append(violations, fmt.Sprintf("%s file_patterns[%d] rule file_pattern must be registered in owner file_patterns", label, i))
+		}
+	}
 	return violations
 }
 
@@ -167,6 +181,8 @@ func validateBoundaryImportPolicyFields(item string, rule BackendBoundaryRule, p
 	}
 	if strings.TrimSpace(policy.ImportPrefix) == "" {
 		violations = append(violations, item+" import_prefix is empty")
+	} else if normalizeBackendBoundaryImportPrefix(policy.ImportPrefix) != policy.ImportPrefix {
+		violations = append(violations, item+" import_prefix must use canonical form")
 	}
 	if strings.TrimSpace(policy.Reason) == "" {
 		violations = append(violations, item+" reason is empty")
@@ -219,6 +235,8 @@ func statefulSidecarAllowanceUsesAncestorPrefix(policy BoundaryImportPolicy) boo
 }
 
 func boundaryImportPrefixMatches(got, want string) bool {
+	got = normalizeBackendBoundaryImportPrefix(got)
+	want = normalizeBackendBoundaryImportPrefix(want)
 	return got == want || strings.HasPrefix(got, want+"/")
 }
 
@@ -700,7 +718,7 @@ func matchesBackendBoundaryPattern(pattern, rel string) bool {
 
 // matchesBackendBoundaryImportPrefix 统一处理仓库内前缀、cmd 前缀和外部完整导入路径。
 func matchesBackendBoundaryImportPrefix(imp, prefix string) bool {
-	prefix = strings.Trim(prefix, "/")
+	prefix = normalizeBackendBoundaryImportPrefix(prefix)
 	if prefix == "frontend-app" {
 		return strings.Contains(imp, "/frontend-app") || strings.HasPrefix(imp, "frontend-app")
 	}
@@ -708,6 +726,11 @@ func matchesBackendBoundaryImportPrefix(imp, prefix string) bool {
 		prefix = backendBoundaryModulePath + "/" + prefix
 	}
 	return imp == prefix || strings.HasPrefix(imp, prefix+"/")
+}
+
+func normalizeBackendBoundaryImportPrefix(prefix string) string {
+	prefix = strings.Trim(prefix, "/")
+	return strings.TrimPrefix(prefix, backendBoundaryModulePath+"/")
 }
 
 func isBackendBoundaryInternalOrCmdImport(imp string) bool {

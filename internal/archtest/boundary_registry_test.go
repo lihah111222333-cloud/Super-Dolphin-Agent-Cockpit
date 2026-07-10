@@ -119,6 +119,28 @@ func TestBoundaryRegistryRejectsDetachedImportPolicies(t *testing.T) {
 				Reason: "orchestration sidecar broad runtime primitive",
 			})
 		}, want: "stateful sidecar allowance must not use ancestor import prefix"},
+		{name: "leading slash import prefix", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			rule := mustMutableBackendBoundaryRule(t, registry, "mcp_sidecar_narrow_import_surface")
+			rule.Allow = append(rule.Allow, archtest.BoundaryImportPolicy{
+				Owner: rule.Owner, FilePattern: rule.FilePatterns[0], ImportPrefix: "/internal/platform",
+				Reason: "orchestration sidecar broad runtime primitive",
+			})
+		}, want: "import_prefix must use canonical form"},
+		{name: "module path import prefix", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			rule := mustMutableBackendBoundaryRule(t, registry, "mcp_sidecar_narrow_import_surface")
+			rule.Allow = append(rule.Allow, archtest.BoundaryImportPolicy{
+				Owner: rule.Owner, FilePattern: rule.FilePatterns[0],
+				ImportPrefix: "github.com/anthropic-ai/super-agent-v3/internal/platform",
+				Reason:       "orchestration sidecar broad runtime primitive",
+			})
+		}, want: "import_prefix must use canonical form"},
+		{name: "rule scope outside owner", mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			rule := mustMutableBackendBoundaryRule(t, registry, "contract_reverse_pollution")
+			rule.FilePatterns = []string{"internal/module/**/*.go"}
+			for i := range rule.Deny {
+				rule.Deny[i].FilePattern = rule.FilePatterns[0]
+			}
+		}, want: "rule file_pattern must be registered in owner file_patterns"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

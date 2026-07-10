@@ -295,7 +295,7 @@ func storePackageModuleImportAllowed(relPath, imp string) bool {
 func assertToolingRuntimeCannotImportUIStateDirectly(t *testing.T, root string) {
 	t.Helper()
 
-	dirs := existingDirs(root, "cmd/mcp-lsp", "cmd/mcp-orch", "cmd/mcp-ida", "internal/mcpserver/common")
+	dirs := existingDirs(root, "internal/mcpserver/common")
 	if len(dirs) == 0 {
 		t.Skip("tooling runtime directories not yet created")
 	}
@@ -340,25 +340,6 @@ func fxImportAllowed(relPath string) bool {
 
 func assertMCPServerDependencyRules(t *testing.T, root string) {
 	t.Helper()
-	t.Run("rule7_cmd_mcp_lsp_family", func(t *testing.T) {
-		if !dirExists(root, "cmd/mcp-lsp") {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{
-			internalPrefix("cmd/mcp-orch"),
-			internalPrefix("cmd/mcp-ida"),
-			internalPrefix("internal/app"),
-			internalPrefix("internal/ui/"),
-		})
-	})
-
-	t.Run("rule7b_cmd_mcp_lsp_cannot_import_module", func(t *testing.T) {
-		if !dirExists(root, "cmd/mcp-lsp") {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{internalPrefix("internal/module/")})
-	})
-
 	t.Run("rule8_mcpserver_orch_family", func(t *testing.T) {
 		if !dirExists(root, "internal/mcpserver/orch") {
 			t.Skip("directory not yet created")

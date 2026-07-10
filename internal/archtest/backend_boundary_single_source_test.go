@@ -56,15 +56,50 @@ func assemblePolicySnapshot() localPolicyRecord {
 
 func TestBackendBoundaryRuleFactsRejectsLegacySQLCEvaluator(t *testing.T) {
 	const source = `package archtest_test
-func TestSqlcBoundary(t *testing.T) {}
+func TestSQLCBoundaryLegacy(t *testing.T) {}
 `
-	node, err := parser.ParseFile(token.NewFileSet(), "legacy_sqlc_test.go", source, 0)
+	rel := "internal/archtest/sqlc_boundary_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	violations := strings.Join(backendBoundaryConsumerFactViolations("legacy_sqlc_test.go", node), "\n")
+	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
 	if !strings.Contains(violations, "local SQLC evaluator duplicates the canonical registry") {
 		t.Fatalf("legacy SQLC evaluator must be rejected, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsRejectsMixedSQLCEvaluator(t *testing.T) {
+	const source = `package archtest_test
+func TestSQLCBoundaryMixed(t *testing.T) {
+	archtest.EvaluateBackendBoundary(root, registry, "store_sqlc_store_platform_only")
+	_ = internalPrefix("internal/store/sqlc")
+}
+`
+	rel := "internal/archtest/sqlc_boundary_test.go"
+	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
+	if !strings.Contains(violations, "local SQLC evaluator duplicates the canonical registry") {
+		t.Fatalf("mixed canonical and legacy SQLC evaluator must be rejected, got:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryRuleFactsRejectsProceduralSidecarEvaluator(t *testing.T) {
+	const source = `package archtest_test
+func legacySidecarRule(t *testing.T, root string) {
+	assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{internalPrefix("internal/module")})
+}
+`
+	node, err := parser.ParseFile(token.NewFileSet(), "dependency_direction_test.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := strings.Join(backendBoundaryConsumerFactViolations("dependency_direction_test.go", node), "\n")
+	if !strings.Contains(violations, "procedural MCP sidecar evaluator duplicates the canonical registry") {
+		t.Fatalf("procedural MCP sidecar evaluator must be rejected, got:\n%s", violations)
 	}
 }
 
@@ -167,15 +202,8 @@ func backendBoundaryConsumerDeclarationViolations(rel string, declaration ast.De
 }
 
 func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl) []string {
-	switch fn.Name.Name {
-	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
-		return []string{rel + ": local default boundary registry duplicates the canonical registry"}
-	case "TestSqlcBoundary":
-		return []string{rel + ": local SQLC evaluator duplicates the canonical registry"}
-	case "moduleOwnerForImportCheck", "moduleSiblingImportViolations", "importedModuleName":
-		return []string{rel + ": local module sibling evaluator duplicates the canonical registry"}
-	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":
-		return []string{rel + ": local MCP sidecar allowlist helper " + fn.Name.Name + " duplicates the canonical registry"}
+	if violation := backendBoundarySpecialFunctionViolation(rel, fn); violation != "" {
+		return []string{violation}
 	}
 	if fn.Body == nil || strings.HasPrefix(fn.Name.Name, "Test") {
 		return nil
@@ -190,6 +218,100 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 		return true
 	})
 	return violations
+}
+
+func backendBoundarySpecialFunctionViolation(rel string, fn *ast.FuncDecl) string {
+	if rel == "internal/archtest/sqlc_boundary_test.go" && strings.HasPrefix(fn.Name.Name, "Test") && !usesCanonicalSQLCBoundaryRule(fn) {
+		return rel + ": local SQLC evaluator duplicates the canonical registry"
+	}
+	if declaresProceduralMCPSidecarBoundary(fn) {
+		return rel + ": procedural MCP sidecar evaluator duplicates the canonical registry"
+	}
+	switch fn.Name.Name {
+	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
+		return rel + ": local default boundary registry duplicates the canonical registry"
+	case "moduleOwnerForImportCheck", "moduleSiblingImportViolations", "importedModuleName":
+		return rel + ": local module sibling evaluator duplicates the canonical registry"
+	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":
+		return rel + ": local MCP sidecar allowlist helper " + fn.Name.Name + " duplicates the canonical registry"
+	default:
+		return ""
+	}
+}
+
+func usesCanonicalSQLCBoundaryRule(fn *ast.FuncDecl) bool {
+	if fn.Body == nil {
+		return false
+	}
+	var callsEvaluator, namesRule bool
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && backendBoundaryCallName(call.Fun) == "EvaluateBackendBoundary" {
+			callsEvaluator = true
+		}
+		if value, ok := backendBoundaryStringLiteral(node); ok && value == "store_sqlc_store_platform_only" {
+			namesRule = true
+		}
+		return true
+	})
+	return callsEvaluator && namesRule && !containsLegacySQLCBoundaryFacts(fn)
+}
+
+func containsLegacySQLCBoundaryFacts(fn *ast.FuncDecl) bool {
+	legacy := false
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok {
+			switch backendBoundaryCallName(call.Fun) {
+			case "parseImportFiles", "internalPrefix":
+				legacy = true
+			}
+		}
+		if value, ok := backendBoundaryStringLiteral(node); ok && value == "internal/store/sqlc" {
+			legacy = true
+		}
+		return !legacy
+	})
+	return legacy
+}
+
+func declaresProceduralMCPSidecarBoundary(fn *ast.FuncDecl) bool {
+	if fn.Body == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || backendBoundaryCallName(call.Fun) != "assertNoImportPrefixes" {
+			return true
+		}
+		ast.Inspect(call, func(child ast.Node) bool {
+			if value, ok := backendBoundaryStringLiteral(child); ok && strings.HasPrefix(value, "cmd/mcp-") {
+				found = true
+			}
+			return !found
+		})
+		return !found
+	})
+	return found
+}
+
+func backendBoundaryCallName(expr ast.Expr) string {
+	switch item := expr.(type) {
+	case *ast.Ident:
+		return item.Name
+	case *ast.SelectorExpr:
+		return item.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func backendBoundaryStringLiteral(node ast.Node) (string, bool) {
+	literal, ok := node.(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(literal.Value)
+	return value, err == nil
 }
 
 func backendBoundaryConsumerGroupFactViolations(rel string, group *ast.GenDecl) []string {
