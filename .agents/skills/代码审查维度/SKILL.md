@@ -10,7 +10,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 
 ## 详细模式
 
-详细模式是默认审查口径，适用于全域审查、环形审查、重要 PR、子代理发现裁决、生产风险复核和修复计划拆分。它不是把 18 维机械扫一遍，而是先定边界，再按改动面选择高风险维度深挖。
+详细模式是默认审查口径，适用于全域审查、环形审查、重要 PR、子代理发现裁决、生产风险复核和修复计划拆分。它不是把 19 维机械扫一遍，而是先定边界，再按改动面选择高风险维度深挖。
 
 1. 先看 `git status --short`，记录已有 dirty 文件，后续不得回退或混入 unrelated drift。
 2. 路径发现按 README、`docs/doc/codemap/README.md`、相关 codemap、`docs/doc/codemap/ai-index.json`、源码和同包测试顺序。
@@ -26,7 +26,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 4. 如果当前 HEAD 变化或子代理基线过旧，必须重新取证，不沿用 stale PASS。
 5. 输出前说明本轮覆盖了哪些维度、哪些维度不适用，以及不适用的理由。
 
-## 18 维详细审查表
+## 19 维详细审查表
 
 | # | 维度 | 详细审查重点 | 常见证据 |
 |---|---|---|---|
@@ -48,6 +48,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 | D16 | Git/Workflow | owned files、atomic commit、分支/worktree、stage 边界、hook、pre-push、generated drift 都要清楚。禁止 `git add .`、混入无关 dirty、回退用户修改、把 docs-only 和生产修复揉在一个不透明提交里。 | `git status --short`、diff、staged diff、hook 输出、workflow artifacts |
 | D17 | 字段守卫 | 生产字段新增后，消费侧未登记必须有测试失败；检查事实源自校验、枚举、注册表、豁免、fail-first、CI/pre-push 和禁止兜底。重点查手工字段清单被当事实源、mapper/select/snapshot/DTO 漏字段、无效豁免、降低 baseline 或删 snapshot 绕过。 | 反射/AST/schema 枚举、registry、roundtrip tests、fail-first 证据 |
 | D18 | DRY | 重复实现、重复事实源和复制粘贴后局部改名都要审。重点查 provider/tool/schema/DTO/mapper/prompt/UI 状态机/错误处理/脚本是否散落相同规则；相同规则应集中到单一事实源、registry、小型 helper 或明确的共享测试。DRY 不能破坏 D01 架构边界，不能为了抽象跨层穿透、隐藏真实差异或引入过度泛化。 | `rg` 重复片段、调用层级、registry/helper、同类测试、diff 对照 |
+| D19 | 唯一真相源（SSOT） | 每个规则、schema、状态或治理清单必须只有一个可写的权威 owner；文档、mirror、index、manifest、缓存和兼容表只能单向派生或只读消费。重点查双写、多处手改、生成物反向成为 owner、冲突时静默选一份、生成或漂移检查未进入强制门禁。 | canonical owner/registry/schema、生成器输入输出、check mode、幂等 diff、drift/fail-fast 测试 |
 
 ## 维度参考要求
 
@@ -73,6 +74,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 | D16 | 当前 git/workflow 证据 | `git status --short`、staged diff、hook、owned-file 边界 |
 | D17 | 生产字段和消费登记点 | 自动枚举、registry/mapper 覆盖、豁免、fail-first 测试 |
 | D18 | 重复规则或重复实现出现的位置 | `rg`/LSP 引用、单一事实源候选、同包测试和边界理由 |
+| D19 | 当前声称权威的 owner 与所有派生/复制面 | owner 唯一性、单向生成链、只读消费者、幂等生成和 drift 门禁 |
 
 ## D01 类型分类
 
@@ -316,11 +318,35 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 - Prompt/UI 场景：prompt 规则、表单项、状态机、toast、thread card、tool result panel 或 session status 只差 label、字段名或单位。
 - 脚本/守卫场景：多个脚本重复路径过滤、stale token、diff check、hook 逻辑，修改一处不能同步约束其他入口。
 
+## D19 类型分类
+
+- 权威 owner 缺失：同一概念没有明确 canonical 位置，消费者只能根据路径、时间或调用顺序猜测哪份有效。
+- 双事实源/双写：registry、schema、store、配置、文档或 manifest 中有两个以上可独立写入的权威副本。
+- 派生物反客为主：mirror、缓存、生成文档、index、baseline 或兼容层被手改，或反向覆盖 canonical owner。
+- 漂移门禁缺口：生成链不确定、不幂等、无 check mode，或冲突时默认值、缓存、旧字段和 fallback 掩盖漂移。
+
+## D19 唯一真相源要求
+
+1. 对每个被审规则、schema、状态、治理清单或可持久化业务事实，必须能指出唯一 canonical owner 及其写入边界；“多份都算”或依赖读取顺序不算有 owner。
+2. 其他表示必须是从 owner 单向生成、投影、缓存或镜像的只读消费面；不得让派生面独立接受业务写入或反向覆盖 owner。
+3. 更改必须先修改 owner，再由确定性、幂等生成器刷新派生物；手改生成文档、mirror、index、manifest 或 cache 按漂移处理。
+4. 迁移和兼容期可以暂时双读，但必须明确 owner、单向同步方向、冲突时的 fail-fast 规则与删除旧面的退出条件；禁止无期限双写。
+5. 消费者发现 owner 与派生面冲突、生成输入不完整或无法判定新旧时，必须明确报错并阻断；禁止按默认值、时间戳、搜索顺序或 fallback 静默选一份。
+6. 唯一性和漂移检查必须进入自动化测试及 CI、pre-push 或仓库强制门禁；至少证明第二 owner、手改派生物或生成漂移会 fail。
+7. D18 回答“实现是否重复”，D19 回答“权威决策能否从多个地方产生”。即使没有复制代码，两个可写 store 也违反 D19；必要的 adapter 重复若只读同一 owner，则不因 D19 单独判错。
+
+## D19 典型症状/判定场景
+
+- Registry/文档场景：Go registry、JSON/YAML manifest 和 Markdown 规则表都可手改，无法证明哪个生成另外两个。
+- Schema/类型场景：数据库 schema、sqlc DTO、API/tool schema、前端类型和 mapper 各自定义字段，新增字段时任一副本不会自动报错。
+- 运行时状态场景：memory、store、provider session、thread event 和 UI store 都能改写同一状态，冲突后靠最后写入或时间戳决定结果。
+- Skill/生成物场景：`.agents/skills`、provider mirror、codemap/index、README marker 或 embed 产物被独立修改，校验器不能拦截 drift。
+
 ## 使用方式
 
 ### 环形审查
 
-多个 agent 并发审查时，先把 18 维分配到不同 agent，但每个 agent 都必须先读本技能和任务边界。汇总时按源码证据裁决，不按票数直接合并；冲突 finding 必须回到当前 HEAD 复核。
+多个 agent 并发审查时，先把 19 维分配到不同 agent，但每个 agent 都必须先读本技能和任务边界。汇总时按源码证据裁决，不按票数直接合并；冲突 finding 必须回到当前 HEAD 复核。
 
 ### 单任务快审
 
