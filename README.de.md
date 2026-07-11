@@ -1,12 +1,39 @@
 # Super Dolphin Agent
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
+
+> [!IMPORTANT]
+> **🤖 100% KI-geschrieben und geschützt**
+> Dieses gesamte Repository – einschließlich aller Go-Backend-Logik, des React-Frontends, der AST/SSA-Schutzregeln auf Compiler-Ebene und dieser Dokumentation – wurde **ausschließlich von KI-Agenten** unter menschlicher Architekturführung geschrieben und refaktoriert. Es dient als Live-Proof-of-Concept für das Self-Guarding-Repository-Muster.
 
 **KI-native Software-Governance und Kontrollplattform für Multi-Agenten-Entwicklung.**
 
 Super Dolphin Agent ist für Softwareprojekte konzipiert, die überwiegend von KI-Agenten gewartet werden. Die Desktop-Kontrollplattform vereint Multi-Agenten-Sitzungen, Tool-Ausführung, MCP-Orchestrierung, mehrsprachiges LSP, Zeitplanung, Memory, Provider-native Skills, Echtzeit-Ereignisströme und maschinell erzwungene Engineering-Grenzen.
 
 Die englische [README.md](README.md) ist die normative Quelle. Bei Abweichungen in Produktbedeutung, Befehlen, Pfaden, Umgebungsvariablen, Regel-IDs oder Lizenzangaben gilt die englische Fassung.
+
+## Was es wirklich tut
+
+Super Dolphin Agent ist kein Chatbot, kein Template für Cursor-Regeln und kein API-Wrapper. Es ist eine **lokale Desktop-Laufzeitumgebung und eine Governance-Firewall auf Compiler-Ebene**, die entwickelt wurde, damit KI-Agenten Software autonom entwickeln und warten können, ohne die Codebasis in ein Chaos zu verwandeln.
+
+Es löst das Problem der **"Black-Box-KI-Entropie"**, indem es das System in drei koordinierte Teile aufteilt:
+
+1. **Das lokale Kontrollzentrum (Desktop-App)**: Eine Wails-basierte Desktop-Schnittstelle (`cmd/agent-terminal`), mit der Sie Multi-Agenten-Sitzungen ausführen und anzeigen, Tool-Ausführungen überwachen, automatisierte Cron-Jobs in natürlicher Sprache planen, SQLite-gestützten Vektorspeicher verwalten und Log-Dateien des KI-Arbeitsbereichs in Echtzeit streamen können.
+2. **Die Code-Intelligenz-Engine (LSP- und MCP-Sidecars)**:
+   - **LSP-Sidecar (`cmd/mcp-lsp`)**: Ein generisches mehrsprachiges Language Server Protocol (LSP)-Sidecar, das Ihr Repository indiziert und der KI präzise, strukturierte Code-Definitionen, Referenzen und Typhierarchien zur Verfügung stellt, anstatt auf fragile Textsuche angewiesen zu sein.
+   - **Orchestrierungs-Sidecar (`cmd/mcp-orch`)**: Koordiniert Modellkontextprotokolle (MCP) und verwaltet Tool-Ausführungs-DAGs, um sicherzustellen, dass die KI Dateien über eine sichere, strukturierte Schnittstelle liest und schreibt und nicht über beliebige Bash-Skripte.
+3. **Das Immunsystem (AST/SSA-Unit-Tests)**: Direkt in Ihre Go-Testsuite (`internal/archtest`) integriert, kompiliert es modifizierten Code in die Static Single Assignment (SSA)-Zwischendarstellung auf Compiler-Ebene von Go, um Datenflussprüfungen durchzuführen. Dadurch werden gängige KI-Antipatterns (Ignorieren von Fehlern, Einschleusen von Deadlocks oder Verletzen von Onion-Architekturgrenzen) blockiert, bevor sie in Git committet werden können.
+
+### Referenz auf Produktionsniveau (Erlernen von Code-Schutz/Antikorruption)
+
+Super Dolphin Agent ist ein Multi-Agenten-Orchestrierungssystem auf Produktionsniveau. Obwohl es für reale Produktions-Workloads konzipiert ist, dient es als erstklassiges Referenz-Repository, aus dem Entwickler lernen können:
+
+1. **Wie man den Schmerz des Vibe Coding löst (Immune Software Engineering)**: Es bietet einen vollständigen, produktionserprobten Bauplan zum Schutz einer Codebasis vor KI-gesteuerter Entropie. Es zeigt, wie man AST-Regeln schreibt, SSA-Aufrufdiagramme erstellt und sich automatisch verkleinernde Qualitäts-Ratschen in Standard-Go-Unit-Tests ausführt.
+2. **Multi-Agenten-Architektur auf Produktionsniveau**: Die Codebasis selbst ist eine saubere, mit Dependency Injection (`fx`) und Verträgen versehene (`internal/contract`) Implementierung einer Multi-Agenten-Kontrollplattform. Sie enthält klare Referenzmuster für:
+   - Starten, Stoppen und Wiederherstellen von concurrent Agent-Worker-Goroutinen.
+   - Erzeugen von Stdio-MCP-Sidecar-Prozessen und Übersetzen von reinem JSON-RPC in typisierte Go-Strukturen.
+   - Erhalten des Thread-Verlaufs in projektlokalen JSONL-Datenbanken.
+   - Implementieren der SQLite-basierten Vektorspeichersuche.
 
 <!-- sd:why -->
 ## Für KI-Wartung entworfen

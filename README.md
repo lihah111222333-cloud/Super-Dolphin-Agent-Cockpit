@@ -1,12 +1,39 @@
 # Super Dolphin Agent
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
+
+> [!IMPORTANT]
+> **🤖 100% AI-Written & Guarded**
+> This entire repository—including all Go backend logic, the React frontend, the AST/SSA compiler-level guardrails, and this documentation—was written and refactored **exclusively by AI agents** under human architectural guidance. It serves as the live proof of concept for the Self-Guarding Repository pattern.
 
 **AI-native software governance and multi-agent development control plane.**
 
 Super Dolphin Agent is built for software projects maintained primarily by AI agents. It combines multi-agent sessions, tool execution, MCP orchestration, multi-language LSP, scheduling, memory, provider-native skills, real-time event streaming, and machine-enforced engineering boundaries in one desktop control plane.
 
 The English README is the canonical source. Translations preserve the same product meaning, commands, paths, environment variables, rule IDs, and license identity.
+
+## What it actually does
+
+Super Dolphin Agent is not a chatbot, a cursor rules template, or a prompt wrapper. It is a **local desktop runtime environment and compiler-grade governance firewall** designed to let AI agents autonomously develop and maintain software without turning the codebase into a mess.
+
+It solves the **"Black Box AI Entropy"** problem by splitting the system into three coordinated parts:
+
+1. **The Local Control Center (Desktop App)**: A Wails-based desktop interface (`cmd/agent-terminal`) that lets you run and view multi-agent sessions, monitor tool executions, schedule natural-language cron jobs, manage sqlite-backed vector memory, and stream AI workspace logs in real time.
+2. **The Code Intelligence Engine (LSP & MCP Sidecars)**:
+   - **LSP Sidecar (`cmd/mcp-lsp`)**: A generic multi-language Language Server Protocol sidecar that indexes your repository and feeds precise, structured code definitions, references, and type hierarchies to the AI, replacing fragile textual search.
+   - **Orchestration Sidecar (`cmd/mcp-orch`)**: Coordinates model context protocols (MCP) and manages tool execution DAGs, ensuring the AI can read and write files through a secure, structured interface rather than arbitrary bash scripts.
+3. **The Immune System (AST/SSA Unit Tests)**: Embedded directly into your Go test suite (`internal/archtest`), it compiles modified code into Go's compiler-level Static Single Assignment (SSA) intermediate representation to run data-flow checks, blocking common AI anti-patterns (swallowing errors, introducing deadlocks, or breaching onion-architecture boundaries) before they can be committed to Git.
+
+### A Production-Grade Reference (Learn Anti-Corruption)
+
+Super Dolphin Agent is a production-grade multi-agent orchestration system. While built for real-world production workloads, it serves as a gold-standard reference repository for developers to learn:
+
+1. **How to solve the pain of Vibe Coding (Immune Software Engineering)**: It provides a complete, production-verified blueprint for protecting a codebase from AI-driven entropy. It shows how to write AST rules, build SSA call graphs, and run auto-shrinking quality ratchets inside standard Go unit tests.
+2. **Production-grade Multi-Agent Architecture**: The codebase itself is a clean, dependency-injected (`fx`), contract-first (`internal/contract`) implementation of a multi-agent control plane. It contains clear reference patterns for:
+   - Starting, stopping, and recovering concurrent agent worker goroutines.
+   - Spawning stdio MCP sidecar processes and translating raw JSON-RPC to typed Go structures.
+   - Preserving thread history in project-local JSONL databases.
+   - Implementing SQLite-based vector memory search.
 
 <!-- sd:why -->
 ## AI-Maintained by Design
@@ -23,15 +50,15 @@ The maintenance loop is designed around bounded context:
 
 This replaces the fragile assumption that either a human or an AI must keep the whole codebase in memory.
 
-### Origin: From V2 Entropy to Super Dolphin
+### Origin: Confronting AI Code Rot
 
-Super Dolphin Agent began on March 19, 2026 as a clean-slate migration from `go-agent-v2`. V2 had already proved the product: agent sessions, tools, providers, events, recovery, and a desktop experience all worked. Its failure was not lack of features. Its failure was that successful local additions gradually destroyed global legibility.
+Super Dolphin Agent began on March 19, 2026 as a clean-slate migration from `go-agent-v2`, our proprietary, closed-source prototype that combined automated quantitative trading with multi-agent desktop controls. The prototype had proved the product's value: agent sessions, tools, providers, events, recovery, and the desktop experience all worked. However, it was built entirely by AI agents using only *soft constraints* (Markdown guidelines and system prompts). 
 
-In V2, more than 80 RPC methods accumulated hand-written binding, validation, capability checks, logging, error mapping, and parallel registration paths. Lifecycle truth was split across several manager files, an effective state layered over the stored state, an implicit side state machine, and asynchronous recovery side effects. A central event handler grew to 557 lines; the bus namespace grew to dozens of message and topic constants; manual application assembly exceeded 200 lines. The code still ran, but answering “where is the authoritative behavior?” became progressively harder.
+Without hard, repository-enforced guardrails, successful local additions gradually destroyed global legibility. Over time, more than 80 RPC methods accumulated hand-written binding, validation, capability checks, logging, and parallel registration paths. Lifecycle control was scattered across multiple manager files, with asynchronous recovery side effects and an implicit side state machine. A central event handler grew to 557 lines; manual application assembly exceeded 200 lines. The code still ran, but answering "where is the authoritative behavior?" became progressively harder.
 
-That is what this project means by **software corruption**: not bad developers and not necessarily broken output, but a system whose local parts can still work while its contracts, ownership, and change boundaries become implicit. Fast AI iteration amplifies this failure mode because every plausible local patch can add another hidden path.
+This is what we define as **AI Code Rot (or AI Entropy)**: not bad developers and not necessarily broken runtime output, but a system whose local parts still function while its global contracts, dependency boundaries, and code quality degrade. Fast AI iteration amplifies this failure mode because every plausible local patch can add another hidden path, eventually locking the repository in a state where AI agents hit context limits and can no longer make safe changes.
 
-The original V3 decision rejected in-place surgery on roughly 83,000 lines. The old system stayed as behavioral evidence while capabilities were migrated function by function into explicit contracts. Super Dolphin is the result of turning those lessons into executable structure:
+The original V3 decision rejected in-place surgery on the ~83,000-line prototype. The old system remained as behavioral evidence while capabilities were migrated function by function into explicit contracts. Super Dolphin is the result of turning those lessons into a public, open-source paradigm where the repository itself acts as the immune system:
 
 | V2 entropy | Super Dolphin response |
 |---|---|

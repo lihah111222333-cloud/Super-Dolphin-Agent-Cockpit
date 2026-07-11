@@ -1,12 +1,39 @@
 # Super Dolphin Agent
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
+
+> [!IMPORTANT]
+> **🤖 100% Escrito y Protegido por IA**
+> Todo este repositorio (incluyendo la lógica del backend en Go, el frontend en React, las reglas de protección a nivel de compilador AST/SSA y esta documentación) fue escrito y refactorizado **exclusivamente por agentes de IA** bajo la guía arquitectónica de humanos. Sirve como prueba viviente del patrón de Repositorio Autoprotegido (Self-Guarding Repo Pattern).
 
 **Gobernanza de software nativa de IA y plano de control para desarrollo multiagente.**
 
 Super Dolphin Agent está diseñado para proyectos de software mantenidos principalmente por agentes de IA. Integra sesiones multiagente, ejecución de herramientas, orquestación MCP, LSP multilenguaje, planificación, memoria, skills nativas del Provider, eventos en tiempo real y límites de ingeniería aplicados por máquina en un único plano de control de escritorio.
 
 El [README.md](README.md) en inglés es la fuente normativa. Si existe alguna diferencia en el significado del producto, los comandos, las rutas, las variables de entorno, los rule IDs o la licencia, prevalece la versión inglesa.
+
+## ¿Qué hace realmente?
+
+Super Dolphin Agent no es un chatbot, una plantilla de cursor rules ni un wrapper de API. Es un **entorno de ejecución de escritorio local y un cortafuegos de gobernanza a nivel de compilador** diseñado para permitir que los agentes de IA desarrollen y mantengan software de forma autónoma sin convertir el código fuente en un caos.
+
+Resuelve el problema de la **"Entropía de la IA de Caja Negra"** dividiendo el sistema en tres partes coordinadas:
+
+1. **El Centro de Control Local (Aplicación de Escritorio)**: Una interfaz de escritorio basada en Wails (`cmd/agent-terminal`) que permite ejecutar y visualizar sesiones multiagente, monitorear la ejecución de herramientas, programar tareas cron en lenguaje natural, gestionar la memoria vectorial basada en SQLite y transmitir los logs del espacio de trabajo de la IA en tiempo real.
+2. **El Motor de Inteligencia de Código (Sidecars LSP y MCP)**:
+   - **Sidecar LSP (`cmd/mcp-lsp`)**: Un sidecar genérico multilenguaje del Protocolo de Servidor de Lenguaje (LSP) que indexa su repositorio y proporciona definiciones de código precisas y estructuradas, referencias y jerarquías de tipos a la IA, reemplazando las frágiles búsquedas de texto.
+   - **Sidecar de Orquestación (`cmd/mcp-orch`)**: Coordina los protocolos de contexto de modelo (MCP) y gestiona los DAG de ejecución de herramientas, asegurando que la IA lea y escriba archivos a través de una interfaz segura y estructurada en lugar de scripts bash arbitrarios.
+3. **El Sistema Inmune (Pruebas Unitarias AST/SSA)**: Integrado directamente en su suite de pruebas de Go (`internal/archtest`), compila el código modificado en la representación intermedia de Asignación Única Estática (SSA) a nivel de compilador de Go para ejecutar comprobaciones de flujo de datos, bloqueando los antipatrones comunes de la IA (ignorar errores, introducir bloqueos mutuos o violar los límites de la arquitectura de cebolla) antes de que puedan ser confirmados en Git.
+
+### Referencia de Nivel de Producción (Aprender Anticorrupción)
+
+Super Dolphin Agent es un sistema de orquestación multiagente de nivel de producción. Aunque está diseñado para cargas de trabajo reales en producción, sirve como un repositorio de referencia de alto estándar para que los desarrolladores aprendan:
+
+1. **Cómo resolver el dolor del Vibe Coding (Ingeniería de Software Inmune)**: Proporciona un plano completo y verificado en producción para proteger un código fuente de la entropía impulsada por la IA. Muestra cómo escribir reglas AST, construir grafos de llamadas SSA y ejecutar trinquetes de calidad que se encogen automáticamente dentro de las pruebas unitarias estándar de Go.
+2. **Arquitectura Multiagente de nivel de producción**: El código en sí es una implementación limpia, con inyección de dependencias (`fx`) y basada en contratos (`internal/contract`) de un plano de control multiagente. Contiene patrones de referencia claros para:
+   - Iniciar, detener y recuperar goroutines de trabajadores de agentes concurrentes.
+   - Generar procesos sidecar stdio MCP y traducir JSON-RPC plano a estructuras Go tipadas.
+   - Preservar el historial de hilos en bases de datos JSONL locales del proyecto.
+   - Implementar la búsqueda de memoria vectorial basada en SQLite.
 
 <!-- sd:why -->
 ## Diseñado para mantenimiento por IA
