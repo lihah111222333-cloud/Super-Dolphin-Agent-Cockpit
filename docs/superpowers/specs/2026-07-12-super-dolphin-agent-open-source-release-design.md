@@ -110,12 +110,19 @@ internal/devtools/sourceexport
   - Git object enumeration
   - path and content admission
   - deterministic copy
-  - receipt generation
+  - staged-tree generation
+  - receipt sealing
   - exported-tree verification
              |
              v
 empty external output directory
-  - public source tree
+  - staged public source tree
+             |
+             v
+public-profile codemap/project-map/capcontract refresh
+             |
+             v
+sealed public source tree
   - OPEN_SOURCE_EXPORT.json
              |
              v
@@ -175,22 +182,25 @@ human-reviewed publication candidate
 可测试 CLI，提供：
 
 ```text
-super-dolphin-source-export export --repo <abs> --commit <sha> --policy <path> --out <abs>
+super-dolphin-source-export stage --repo <abs> --commit <sha> --policy <path> --out <abs>
+super-dolphin-source-export seal --dir <abs> --policy <path> --commit <sha>
 super-dolphin-source-export verify --dir <abs> --policy <path>
 ```
 
-正式 `export` 必须要求：
+正式 `stage` 必须要求：
 
 - `--repo` 是可信 Git worktree 根。
 - `--commit` 解析为单一 commit。
 - 工作区和 index 干净；否则返回 `SOURCE_DIRTY`，避免用户误判未提交变更已被导出。
 - `--out` 不在仓库根内，且不存在或为空。
 
-CLI 不提供 `--force`、`--skip-checks`、`--ignore-dirty` 或遇错继续模式。
+`stage` 不复制 private-view 的 codemap index、project-map 和 capability manifest 生成物。候选目录必须先运行固定的 public profile 生成器；`seal` 随后校验生成物存在、重新应用公开策略并写入最终收据。`verify` 只接受已经 seal 的目录。
+
+CLI 不提供 `--force`、`--skip-checks`、`--ignore-dirty` 或遇错继续模式，也不从策略读取或执行任意命令。
 
 ### 7.5 `OPEN_SOURCE_EXPORT.json`
 
-导出候选根目录的机器可读收据，包含：
+由 `seal` 写入导出候选根目录的机器可读收据，包含：
 
 - receipt schema version
 - public project identity
@@ -212,7 +222,11 @@ make demo-governance
 make bootstrap
 ```
 
-`open-source-export` 在 Go CLI 成功后对候选运行 verify 和 gitleaks。缺少 gitleaks 时正式公开导出失败并输出精确安装指令；单元测试不依赖本机 gitleaks。
+`open-source-export` 固定串联 `stage`、候选目录内的 `public-generated-refresh`、`seal`、`verify` 和 gitleaks。`public-generated-refresh` 只运行仓库内固定的 codemap、project-map 和 capcontract public profile，不接受策略提供的命令。缺少 gitleaks 时正式公开导出失败并输出精确安装指令；单元测试不依赖本机 gitleaks。
+
+### 7.7 公开生成物
+
+private-view 的 `docs/doc/codemap/ai-index.json`、project-map 和 capability manifest 可能引用明确不公开的计划与历史材料，因此不得直接进入候选。相关生成器增加 `--profile public`，仅扫描 staged tree 内的公开路径并在候选目录写出公开视图。相同 staged tree 和 profile 必须产生逐字节稳定的生成物；生成完成前不得 seal。
 
 ## 8. 公开白名单
 
@@ -409,6 +423,8 @@ guard 不宣称自动判断翻译语义质量；翻译内容由人工审阅，�
 - 非空输出目录和位于源仓内的输出目录失败。
 - 工作区或 index dirty 时正式导出失败。
 - receipt 稳定排序；缺失、多余、篡改和 mode 变化均使 verify 失败。
+- stage 不携带 private-view 生成物；缺少 public-profile 生成物时 seal 失败。
+- public profile 生成物不得引用 deny 或未分类路径。
 - 写入中途失败不会留下可被 verify 接受的候选。
 
 ### 17.2 README 与 community guard
@@ -448,7 +464,7 @@ go vet ./...
 
 - 产品名、仓库 URL、Go module、README 和 Apache-2.0 许可一致。
 - 六语言 README 具有闭环语言导航、相同机器事实和有效链接。
-- 当前 commit 能生成一个默认拒绝、无禁止目录、无旧身份、无未登记文件的公开候选。
+- 当前 commit 能经过 stage、public-profile 生成物刷新和 seal，得到一个默认拒绝、无禁止目录、无旧身份、无未登记文件的公开候选。
 - `OPEN_SOURCE_EXPORT.json` 能发现候选中的任何增删改或 mode 漂移。
 - `make demo-governance` 产生真实、稳定的 RED→GREEN 证据。
 - bootstrap 在缺失依赖时 fail-fast，在满足依赖时完成构建和 smoke test，不修改全局状态。
