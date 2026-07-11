@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
@@ -212,7 +213,7 @@ func (a *datasourceV2ImportStoreAdapter) requireStore() error {
 }
 
 func requireDatasourceV2StoreAdapterStore(store datasourcev2store.Store) error {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return datasourcev2.ErrStoreNotConfigured
 	}
 	return nil

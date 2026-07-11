@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -23,7 +24,7 @@ var (
 
 // provideUIStatePreferenceStore 把 UI preference Store 收窄为 uistate 领域端口。
 func provideUIStatePreferenceStore(store uipreference.Store) uistate.PreferenceStore {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &uiStatePreferenceStoreAdapter{store: store}
@@ -31,7 +32,7 @@ func provideUIStatePreferenceStore(store uipreference.Store) uistate.PreferenceS
 
 // provideUIStateSharedFileReader 把 shared file Store 收窄为 uistate 领域端口。
 func provideUIStateSharedFileReader(reader sharedfilestore.Reader) uistate.SharedFileReader {
-	if isNilBusinessStore(reader) {
+	if storeguard.IsNil(reader) {
 		return nil
 	}
 	return &uiStateSharedFileReaderAdapter{reader: reader}
@@ -39,7 +40,7 @@ func provideUIStateSharedFileReader(reader sharedfilestore.Reader) uistate.Share
 
 // provideUIStateBindingLookup 把 binding Store 收窄为 uistate 查询端口。
 func provideUIStateBindingLookup(store bindingstore.Store) uistate.BindingLookup {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &uiStateBindingLookupAdapter{store: store}

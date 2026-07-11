@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 type memorySharedFileStoreTestDouble struct {
@@ -66,12 +67,12 @@ func TestMemorySharedFileProvidersPreserveOptionalNil(t *testing.T) {
 // TestMemorySharedFileAdapterFieldCoverage 用 one-hot 输入覆盖 filter 与文件 DTO 的全部字段。
 func TestMemorySharedFileAdapterFieldCoverage(t *testing.T) {
 	t.Run("list_filter", func(t *testing.T) {
-		assertBusinessStoreAdapterFieldsMap(t, func(filter sharedfileport.ListFilter) (sharedfilestore.ListFilter, error) {
+		storeadaptertest.AssertFieldsMapE(t, func(filter sharedfileport.ListFilter) (sharedfilestore.ListFilter, error) {
 			return toStoreMemorySharedFileListFilter(filter), nil
 		})
 	})
 	t.Run("shared_file", func(t *testing.T) {
-		assertBusinessStoreAdapterFieldsMap(t, func(file sharedfilestore.SharedFile) (sharedfileport.File, error) {
+		storeadaptertest.AssertFieldsMapE(t, func(file sharedfilestore.SharedFile) (sharedfileport.File, error) {
 			return fromStoreMemorySharedFile(file), nil
 		})
 	})

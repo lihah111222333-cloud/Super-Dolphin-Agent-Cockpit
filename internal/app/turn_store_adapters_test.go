@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 var _ turn.DedupeStore = (*turnDedupeStoreAdapter)(nil)
@@ -69,7 +70,7 @@ func TestTurnDedupeStoreAdapterFieldCoverage(t *testing.T) {
 }
 
 func testTurnDedupeUpsertFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(params turn.DedupeUpsertParams) (turndedupe.UpsertParams, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(params turn.DedupeUpsertParams) (turndedupe.UpsertParams, error) {
 		var captured turndedupe.UpsertParams
 		store := provideTurnDedupeStore(&turnDedupeStoreStub{upsert: func(_ context.Context, stored turndedupe.UpsertParams) error {
 			captured = stored
@@ -81,7 +82,7 @@ func testTurnDedupeUpsertFieldCoverage(t *testing.T) {
 }
 
 func testTurnDedupeBindFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(params turn.DedupeBindProviderTurnIDParams) (turndedupe.BindProviderTurnIDParams, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(params turn.DedupeBindProviderTurnIDParams) (turndedupe.BindProviderTurnIDParams, error) {
 		var captured turndedupe.BindProviderTurnIDParams
 		store := provideTurnDedupeStore(&turnDedupeStoreStub{bindProvider: func(_ context.Context, stored turndedupe.BindProviderTurnIDParams) error {
 			captured = stored
@@ -93,7 +94,7 @@ func testTurnDedupeBindFieldCoverage(t *testing.T) {
 }
 
 func testTurnDedupeEntryFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(entry turndedupe.Entry) (turn.DedupeEntry, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(entry turndedupe.Entry) (turn.DedupeEntry, error) {
 		store := provideTurnDedupeStore(&turnDedupeStoreStub{getLive: func(context.Context, string) (turndedupe.Entry, error) {
 			return entry, nil
 		}})

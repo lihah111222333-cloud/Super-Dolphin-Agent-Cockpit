@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
 )
@@ -19,7 +20,7 @@ var _ feedback.Writer = (*feedbackStoreAdapter)(nil)
 
 // provideFeedbackWriter 把 Store 的读写能力收窄为 feedback 模块拥有的写端口。
 func provideFeedbackWriter(store feedbackstore.Store) feedback.Writer {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &feedbackStoreAdapter{store: store}
@@ -27,7 +28,7 @@ func provideFeedbackWriter(store feedbackstore.Store) feedback.Writer {
 
 // Insert 在 App 组合边界完成 Store DTO 与 feedback 领域 DTO 的双向转换。
 func (a *feedbackStoreAdapter) Insert(ctx context.Context, event feedback.Event) (feedback.Event, error) {
-	if a == nil || isNilBusinessStore(a.store) {
+	if a == nil || storeguard.IsNil(a.store) {
 		return feedback.Event{}, errFeedbackStoreAdapterMissing
 	}
 	stored, err := a.store.Insert(ctx, feedbackEventToStore(event))

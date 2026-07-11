@@ -13,6 +13,7 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 type uiStatePreferenceStoreTestDouble struct {
@@ -90,7 +91,7 @@ func TestUIStateStoreAdapterProvidersPreserveNil(t *testing.T) {
 // TestUIStatePreferenceAdapterMapsFields 固定偏好写入和列表的全部领域字段。
 func TestUIStatePreferenceAdapterMapsFields(t *testing.T) {
 	t.Parallel()
-	assertBusinessStoreAdapterFieldsMap(t, func(value uistate.PreferenceUpsertParams) (uipreference.UpsertParams, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(value uistate.PreferenceUpsertParams) (uipreference.UpsertParams, error) {
 		return toStoreUIStatePreferenceUpsert(value), nil
 	})
 	row := uipreference.UIPreference{Cwd: "/repo", Key: "theme", Value: json.RawMessage(`{"dark":true}`)}

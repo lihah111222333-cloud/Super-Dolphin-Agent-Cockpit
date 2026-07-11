@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
@@ -46,7 +47,7 @@ var errCronStoreAdapterMissing = errors.New("cron: store adapter missing require
 
 // newCronStoreAdapter 在 App 组合边界构造共享 root adapter；cron Store 是 required 依赖。
 func newCronStoreAdapter(store cronstore.Store) (*cronStoreAdapter, error) {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil, errCronStoreAdapterMissing
 	}
 	jobs := &cronJobStoreAdapter{store: store}

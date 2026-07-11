@@ -7,6 +7,7 @@ import (
 
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 type datasourceV2StoreTestState struct {
@@ -272,7 +273,7 @@ func TestDatasourceV2StoreAdapterFieldCoverage(t *testing.T) {
 
 func assertDatasourceV2FieldsMap[Source, Target any](t *testing.T, mapper func(Source) Target) {
 	t.Helper()
-	assertBusinessStoreAdapterFieldsMap(t, func(source Source) (Target, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(source Source) (Target, error) {
 		return mapper(source), nil
 	})
 }

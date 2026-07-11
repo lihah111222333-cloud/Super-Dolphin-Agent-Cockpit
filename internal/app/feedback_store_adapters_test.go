@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 var _ feedback.Writer = (*feedbackStoreAdapter)(nil)
@@ -46,7 +47,7 @@ func TestFeedbackStoreAdapterContract(t *testing.T) {
 // TestFeedbackStoreAdapterFieldCoverage 用 one-hot 输入自动证明两侧全部导出字段都被双向映射。
 func TestFeedbackStoreAdapterFieldCoverage(t *testing.T) {
 	t.Run("domain_to_store", func(t *testing.T) {
-		assertBusinessStoreAdapterFieldsMap(t, func(event feedback.Event) (feedbackstore.Event, error) {
+		storeadaptertest.AssertFieldsMapE(t, func(event feedback.Event) (feedbackstore.Event, error) {
 			var captured feedbackstore.Event
 			writer := provideFeedbackWriter(feedbackStoreStub{insert: func(_ context.Context, stored feedbackstore.Event) (feedbackstore.Event, error) {
 				captured = stored
@@ -57,7 +58,7 @@ func TestFeedbackStoreAdapterFieldCoverage(t *testing.T) {
 		})
 	})
 	t.Run("store_to_domain", func(t *testing.T) {
-		assertBusinessStoreAdapterFieldsMap(t, func(stored feedbackstore.Event) (feedback.Event, error) {
+		storeadaptertest.AssertFieldsMapE(t, func(stored feedbackstore.Event) (feedback.Event, error) {
 			writer := provideFeedbackWriter(feedbackStoreStub{insert: func(context.Context, feedbackstore.Event) (feedbackstore.Event, error) {
 				return stored, nil
 			}})

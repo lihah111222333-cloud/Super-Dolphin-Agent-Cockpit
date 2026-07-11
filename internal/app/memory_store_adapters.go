@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
@@ -23,7 +24,7 @@ var _ sharedfileport.Deleter = (*memorySharedFileDeleterAdapter)(nil)
 
 // provideMemorySharedFileReader 把 Store reader 投影为 memory-owned 窄端口。
 func provideMemorySharedFileReader(reader sharedfilestore.Reader) sharedfileport.Reader {
-	if isNilBusinessStore(reader) {
+	if storeguard.IsNil(reader) {
 		return nil
 	}
 	return &memorySharedFileReaderAdapter{reader: reader}
@@ -31,7 +32,7 @@ func provideMemorySharedFileReader(reader sharedfilestore.Reader) sharedfileport
 
 // provideMemorySharedFileDeleter 把 Store deleter 投影为 memory-owned 窄端口。
 func provideMemorySharedFileDeleter(deleter sharedfilestore.Deleter) sharedfileport.Deleter {
-	if isNilBusinessStore(deleter) {
+	if storeguard.IsNil(deleter) {
 		return nil
 	}
 	return &memorySharedFileDeleterAdapter{deleter: deleter}

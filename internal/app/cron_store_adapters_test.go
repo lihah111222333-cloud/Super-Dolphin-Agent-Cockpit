@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 type cronStoreTestState struct {
@@ -256,7 +257,7 @@ func TestCronStoreAdapterFieldCoverage(t *testing.T) {
 
 func assertCronStoreFieldsMap[Source, Target any](t *testing.T, mapper func(Source) Target) {
 	t.Helper()
-	assertBusinessStoreAdapterFieldsMap(t, func(source Source) (Target, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(source Source) (Target, error) {
 		return mapper(source), nil
 	})
 }

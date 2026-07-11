@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/personalization"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 var _ personalization.PreferenceStore = (*personalizationPreferenceStoreAdapter)(nil)
@@ -58,7 +59,7 @@ func TestPersonalizationStoreAdapterNilSemantics(t *testing.T) {
 
 // TestPersonalizationStoreAdapterFieldCoverage 自动覆盖偏好写入 DTO 的全部导出字段。
 func TestPersonalizationStoreAdapterFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(params personalization.PreferenceUpsertParams) (uipreference.UpsertParams, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(params personalization.PreferenceUpsertParams) (uipreference.UpsertParams, error) {
 		var captured uipreference.UpsertParams
 		port := providePersonalizationPreferenceStore(&personalizationPreferenceStoreStub{upsert: func(_ context.Context, stored uipreference.UpsertParams) error {
 			captured = stored

@@ -19,6 +19,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 type dashboardAgentStatusRoot struct {
@@ -222,55 +223,55 @@ func TestDashboardDBQueryAdapterCopiesArgumentsAndRows(t *testing.T) {
 
 // TestDashboardStoreAdapterFieldCoverage one-hot 覆盖全部 Store/domain DTO 与输入映射。
 func TestDashboardStoreAdapterFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(v agentstatusstore.AgentStatus) (dashboard.AgentStatus, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v agentstatusstore.AgentStatus) (dashboard.AgentStatus, error) {
 		return mapDashboardAgentStatuses([]agentstatusstore.AgentStatus{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v ailogstore.AILog) (dashboard.AILog, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v ailogstore.AILog) (dashboard.AILog, error) {
 		return mapDashboardAILogs([]ailogstore.AILog{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v ailogstore.StatusCount) (dashboard.AILogStatusCount, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v ailogstore.StatusCount) (dashboard.AILogStatusCount, error) {
 		return mapDashboardAILogStatusCounts([]ailogstore.StatusCount{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v auditlogstore.AuditEvent) (dashboard.AuditEvent, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v auditlogstore.AuditEvent) (dashboard.AuditEvent, error) {
 		return mapDashboardAuditEvents([]auditlogstore.AuditEvent{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v buslogstore.BusExceptionLog) (dashboard.BusExceptionLog, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v buslogstore.BusExceptionLog) (dashboard.BusExceptionLog, error) {
 		return mapDashboardBusLog(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v systemlogstore.SystemLog) (dashboard.SystemLog, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v systemlogstore.SystemLog) (dashboard.SystemLog, error) {
 		return mapDashboardSystemLogs([]systemlogstore.SystemLog{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v commandcardstore.CommandCard) (dashboard.CommandCard, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v commandcardstore.CommandCard) (dashboard.CommandCard, error) {
 		return mapDashboardCommandCards([]commandcardstore.CommandCard{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v promptstore.PromptTemplate) (dashboard.PromptTemplate, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v promptstore.PromptTemplate) (dashboard.PromptTemplate, error) {
 		return mapDashboardPromptTemplates([]promptstore.PromptTemplate{v})[0], nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v sharedfilestore.SharedFile) (dashboard.SharedFile, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v sharedfilestore.SharedFile) (dashboard.SharedFile, error) {
 		return mapDashboardSharedFile(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.AILogFilter) (ailogstore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.AILogFilter) (ailogstore.ListFilter, error) {
 		return toStoreDashboardAILogFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.AuditLogFilter) (auditlogstore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.AuditLogFilter) (auditlogstore.ListFilter, error) {
 		return toStoreDashboardAuditLogFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.BusLogFilter) (buslogstore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.BusLogFilter) (buslogstore.ListFilter, error) {
 		return toStoreDashboardBusLogFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.SystemLogFilter) (systemlogstore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.SystemLogFilter) (systemlogstore.ListFilter, error) {
 		return toStoreDashboardSystemLogFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.CommandCardFilter) (commandcardstore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.CommandCardFilter) (commandcardstore.ListFilter, error) {
 		return toStoreDashboardCommandCardFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.PromptTemplateFilter) (promptstore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.PromptTemplateFilter) (promptstore.ListFilter, error) {
 		return toStoreDashboardPromptTemplateFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.SharedFileFilter) (sharedfilestore.ListFilter, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.SharedFileFilter) (sharedfilestore.ListFilter, error) {
 		return toStoreDashboardSharedFileFilter(v), nil
 	})
-	assertBusinessStoreAdapterFieldsMap(t, func(v dashboard.SharedFileUpsertParams) (sharedfilestore.UpsertParams, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.SharedFileUpsertParams) (sharedfilestore.UpsertParams, error) {
 		return toStoreDashboardSharedFileUpsert(v), nil
 	})
 }

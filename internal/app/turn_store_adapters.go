@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 )
@@ -17,7 +18,7 @@ var _ turn.DedupeStore = (*turnDedupeStoreAdapter)(nil)
 
 // provideTurnDedupeStore 保持 optional 语义，底层 Store 缺失或 typed nil 时返回 nil 领域端口。
 func provideTurnDedupeStore(store turndedupe.Store) turn.DedupeStore {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &turnDedupeStoreAdapter{store: store}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -44,7 +45,7 @@ var (
 
 // providePromptStore 在 App 组合边界把 concrete Store 收窄为 prompt 领域端口。
 func providePromptStore(store promptstore.Store) (prompt.Store, error) {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil, prompt.ErrStoreNotConfigured
 	}
 	return newPromptStoreAdapter(store), nil
@@ -62,7 +63,7 @@ func newPromptStoreAdapter(store promptstore.Store) *promptStoreAdapter {
 
 // providePromptPreferenceReader 把 UI preference Store 收窄为 prompt 的只读端口。
 func providePromptPreferenceReader(store uipreference.Store) (prompt.PreferenceReader, error) {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil, errPromptPreferenceStoreNotConfigured
 	}
 	return &promptPreferenceReaderAdapter{store: store}, nil
@@ -70,7 +71,7 @@ func providePromptPreferenceReader(store uipreference.Store) (prompt.PreferenceR
 
 // providePromptSharedFileReader 把 shared file Store 收窄为 prompt 的内容读取端口。
 func providePromptSharedFileReader(store sharedfilestore.Reader) (prompt.SharedFileReader, error) {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil, errPromptSharedFileStoreNotConfigured
 	}
 	return &promptSharedFileReaderAdapter{store: store}, nil
@@ -81,11 +82,11 @@ func (a *promptStoreAdapter) WithTx(ctx context.Context, fn func(prompt.Store) e
 	if fn == nil {
 		return prompt.ErrStoreTxCallbackRequired
 	}
-	if a == nil || isNilBusinessStore(a.store) {
+	if a == nil || storeguard.IsNil(a.store) {
 		return prompt.ErrStoreNotConfigured
 	}
 	return a.store.WithTx(ctx, func(txStore promptstore.Store) error {
-		if isNilBusinessStore(txStore) {
+		if storeguard.IsNil(txStore) {
 			return prompt.ErrStoreNotConfigured
 		}
 		return fn(newPromptStoreAdapter(txStore))

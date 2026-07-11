@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
@@ -47,7 +48,7 @@ var (
 
 // provideDashboardAgentStatusReader 把 agent status Store 收窄为 dashboard 读端口。
 func provideDashboardAgentStatusReader(store agentstatusstore.Store) dashboard.AgentStatusReader {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &dashboardAgentStatusAdapter{store: store}
@@ -55,7 +56,7 @@ func provideDashboardAgentStatusReader(store agentstatusstore.Store) dashboard.A
 
 // provideDashboardAILogReader 把 AI log Store 收窄为 dashboard 读端口。
 func provideDashboardAILogReader(store ailogstore.Store) dashboard.AILogReader {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &dashboardAILogAdapter{store: store}
@@ -63,7 +64,7 @@ func provideDashboardAILogReader(store ailogstore.Store) dashboard.AILogReader {
 
 // provideDashboardAuditLogReader 把 audit log Store 收窄为 dashboard 读端口。
 func provideDashboardAuditLogReader(store auditlogstore.Store) dashboard.AuditLogReader {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &dashboardAuditLogAdapter{store: store}
@@ -71,7 +72,7 @@ func provideDashboardAuditLogReader(store auditlogstore.Store) dashboard.AuditLo
 
 // provideDashboardBusLogReader 把 bus log Store 收窄为 dashboard 读端口。
 func provideDashboardBusLogReader(store buslogstore.Store) dashboard.BusLogReader {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &dashboardBusLogAdapter{store: store}
@@ -79,7 +80,7 @@ func provideDashboardBusLogReader(store buslogstore.Store) dashboard.BusLogReade
 
 // provideDashboardSystemLogReader 把 system log Store 收窄为 dashboard 读端口。
 func provideDashboardSystemLogReader(store systemlogstore.Store) dashboard.SystemLogReader {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &dashboardSystemLogAdapter{store: store}
@@ -87,7 +88,7 @@ func provideDashboardSystemLogReader(store systemlogstore.Store) dashboard.Syste
 
 // provideDashboardDBQueryExecutor 用隔离 adapter 暴露 dashboard 查询端口。
 func provideDashboardDBQueryExecutor(store dbquerystore.Store) dashboard.DBQueryExecutor {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil
 	}
 	return &dashboardDBQueryAdapter{store: store}
@@ -95,7 +96,7 @@ func provideDashboardDBQueryExecutor(store dbquerystore.Store) dashboard.DBQuery
 
 // provideDashboardCommandCardReader 把 command card reader 收窄为 dashboard 端口。
 func provideDashboardCommandCardReader(reader commandcardstore.Reader) dashboard.CommandCardReader {
-	if isNilBusinessStore(reader) {
+	if storeguard.IsNil(reader) {
 		return nil
 	}
 	return &dashboardCommandCardAdapter{reader: reader}
@@ -103,7 +104,7 @@ func provideDashboardCommandCardReader(reader commandcardstore.Reader) dashboard
 
 // provideDashboardPromptTemplateReader 把 prompt reader 收窄为 dashboard 端口。
 func provideDashboardPromptTemplateReader(reader promptstore.Reader) dashboard.PromptTemplateReader {
-	if isNilBusinessStore(reader) {
+	if storeguard.IsNil(reader) {
 		return nil
 	}
 	return &dashboardPromptTemplateAdapter{reader: reader}
@@ -111,11 +112,11 @@ func provideDashboardPromptTemplateReader(reader promptstore.Reader) dashboard.P
 
 // provideDashboardSharedFileReader 保留 concrete reader 的可选写能力。
 func provideDashboardSharedFileReader(reader sharedfilestore.Reader) dashboard.SharedFileReader {
-	if isNilBusinessStore(reader) {
+	if storeguard.IsNil(reader) {
 		return nil
 	}
 	base := &dashboardSharedFileAdapter{reader: reader}
-	if writer, ok := reader.(sharedfilestore.Upserter); ok && !isNilBusinessStore(writer) {
+	if writer, ok := reader.(sharedfilestore.Upserter); ok && !storeguard.IsNil(writer) {
 		return &dashboardSharedFileStoreAdapter{dashboardSharedFileAdapter: base, writer: writer}
 	}
 	return base

@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 var _ insight.Reader = (*insightStoreAdapter)(nil)
@@ -95,7 +96,7 @@ func TestInsightStoreAdapterFieldCoverage(t *testing.T) {
 }
 
 func testInsightRecordFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(row insightstore.Insight) (insight.Record, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(row insightstore.Insight) (insight.Record, error) {
 		reader, err := provideInsightReader(&insightStoreStub{listRecent: func(context.Context, int32) ([]insightstore.Insight, error) {
 			return []insightstore.Insight{row}, nil
 		}})
@@ -111,7 +112,7 @@ func testInsightRecordFieldCoverage(t *testing.T) {
 }
 
 func testInsightUpsertFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(params insight.UpsertParams) (insightstore.UpsertParams, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(params insight.UpsertParams) (insightstore.UpsertParams, error) {
 		var captured insightstore.UpsertParams
 		writer, err := provideInsightWriter(&insightStoreStub{upsert: func(_ context.Context, stored insightstore.UpsertParams) (insightstore.Insight, error) {
 			captured = stored
@@ -126,7 +127,7 @@ func testInsightUpsertFieldCoverage(t *testing.T) {
 }
 
 func testInsightApprovalFieldCoverage(t *testing.T) {
-	assertBusinessStoreAdapterFieldsMap(t, func(row insightstore.ApprovalRow) (insight.ApprovalRow, error) {
+	storeadaptertest.AssertFieldsMapE(t, func(row insightstore.ApprovalRow) (insight.ApprovalRow, error) {
 		reader, err := provideInsightReader(&insightStoreStub{listApproval: func(context.Context, string, int32) ([]insightstore.ApprovalRow, error) {
 			return []insightstore.ApprovalRow{row}, nil
 		}})

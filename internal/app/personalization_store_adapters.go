@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/personalization"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -48,7 +49,7 @@ func (a *personalizationPreferenceStoreAdapter) Upsert(ctx context.Context, para
 
 // validate 确保方法调用时底层 Store 已真实装配。
 func (a *personalizationPreferenceStoreAdapter) validate() error {
-	if a == nil || isNilBusinessStore(a.store) {
+	if a == nil || storeguard.IsNil(a.store) {
 		return errPersonalizationPreferenceStoreRequired
 	}
 	return nil

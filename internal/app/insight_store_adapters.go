@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
@@ -38,7 +39,7 @@ func provideInsightWriter(store insightstore.Store) (insight.Writer, error) {
 
 // newInsightStoreAdapter 校验 required Store 并构造同时实现读写端口的适配器。
 func newInsightStoreAdapter(store insightstore.Store) (*insightStoreAdapter, error) {
-	if isNilBusinessStore(store) {
+	if storeguard.IsNil(store) {
 		return nil, errInsightStoreAdapterMissing
 	}
 	return &insightStoreAdapter{store: store}, nil
@@ -94,7 +95,7 @@ func (a *insightStoreAdapter) ListObservedApprovalRequests(ctx context.Context, 
 
 // validate 确保适配器和 required Store 均可调用。
 func (a *insightStoreAdapter) validate() error {
-	if a == nil || isNilBusinessStore(a.store) {
+	if a == nil || storeguard.IsNil(a.store) {
 		return errInsightStoreAdapterMissing
 	}
 	return nil

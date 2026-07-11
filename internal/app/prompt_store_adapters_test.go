@@ -13,6 +13,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
 )
 
 type promptStoreTestState struct {
@@ -367,7 +368,7 @@ func TestPromptStoreAdapterFieldCoverage(t *testing.T) {
 
 func assertPromptFieldsMap[Source, Target any](t *testing.T, mapper func(Source) Target) {
 	t.Helper()
-	assertBusinessStoreAdapterFieldsMap(t, func(source Source) (Target, error) { return mapper(source), nil })
+	storeadaptertest.AssertFieldsMapE(t, func(source Source) (Target, error) { return mapper(source), nil })
 }
 
 // TestPromptStoreAdapterCopiesMutableFields 固定 RawMessage 与时间指针双向隔离。
