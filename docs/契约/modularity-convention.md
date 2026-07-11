@@ -339,7 +339,7 @@ super-agent-v3/
 | Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / capability / manifest | `contract`、`dto`、`platform` |
 | MCP 公共层 | `internal/mcpserver/common` | MCP binary 共享协议 / bootstrap 壳层；允许 `cmd/mcp-*` 复用，但不应承载宿主业务 runtime | `contract`、`dto`、`platform/{config,db}` |
 | 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口；commandcard/prompt/sharedfile 已迁至 `cmd/mcp-orch/store/*` | `platform/db`、`internal/store/sqlc` |
-| 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；不再内嵌 MCP stdio tool binary | `contract`、`dto`、`platform`、`provider/unified`、`store` |
+| 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；拥有模块私有 Port/DTO，不再内嵌 MCP stdio tool binary | `contract`、`dto`、允许的 `platform` 能力、provider 语义端口、模块自有 Port；禁止依赖 `internal/store/*` |
 | UI 视图层 | `internal/ui/*` | 运行时事件投影、timeline、dashboard SSE / code_open 等视图适配 | `contract`、`dto`、`platform`、`provider`、`module` |
 | 契约层 | `internal/contract/*` | 纯接口、事件、常量 | 无运行时依赖 |
 | DTO 层 | `internal/dto/*` | 纯数据结构 | 无运行时依赖 |
@@ -1319,6 +1319,8 @@ func TestThreadModuleMustNotDependOnRPCModule(t *testing.T) {
 - `provider` concrete driver 只允许被 `internal/provider/*` 内部包 import
 - MCP schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`，不得落在 `internal/module/*`、`internal/store/*`、`internal/platform/*`、`internal/contract/*` 或其他 `internal/*` 核心层
 - `cmd/mcp-orch` 本地持有 orchestration runtime、store 层与 sqlc 层；不得把执行面重新挂回宿主，也不得依赖 `internal/store/*`、`internal/store/sqlc/*`
+- `internal/module/*` 只能依赖 `contract`、`dto`、允许的 `platform` 能力、provider 语义端口和模块自有 Port；不得直接 import `internal/store/*`
+- `internal/store/*` 的具体实现只能在 `internal/app` 或独立 `cmd` 组合根中通过 adapter 注入；桌面进程由 `internal/app` 负责 Store DTO 与 Module DTO 的逐字段转换
 - `module/*` 对外暴露接口，不暴露实现
 - 不允许在 `cmd/` 里临时手工 new service 绕过 `fx`
 

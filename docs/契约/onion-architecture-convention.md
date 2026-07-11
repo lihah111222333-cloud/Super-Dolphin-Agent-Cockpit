@@ -17,7 +17,9 @@
 *   **位置**: `internal/module/*`
 *   **职责**: 封装系统最核心的业务逻辑（如 Turn 编排、Memory 处理、Skill 执行）。
 *   **契约规则**:
-    *   **零外层依赖**：严禁 `import` 任何 `internal/mcpserver`、`internal/provider` 或 `cmd` 包。
+    *   **零外层实现依赖**：严禁 `import` 任何 `internal/mcpserver`、provider concrete driver 或 `cmd` 包；只允许已登记的 provider 语义端口。
+    *   **零持久化实现依赖**：严禁 `import` 任何 `internal/store` 包；Module 只依赖 `contract`、`dto`、允许的 `platform` 能力、provider 语义端口和模块自有 Port。
+    *   **Port 所有权**：单一 Module 私有的持久化 Port 与领域 DTO 由消费它的 Module 定义，不下沉到 `internal/contract`。
     *   **接口隔离**：领域层只向外暴露 `Interface`（服务契约）和 `DTO`（数据传输对象），所有具体的实现细节（如 `type service struct`）必须保持私有。
     *   **不可知性**：领域层不关心请求是通过 HTTP、CLI 还是 MCP 协议进来的。
 
@@ -26,7 +28,7 @@
 *   **职责**: 负责领域层抽象与具体数据库操作之间的转译。
 *   **契约规则**:
     *   屏蔽底层持久化细节，严禁将由 `sqlc` 生成的底层数据类型或 `*sqlc.Queries` 泄露给 `internal/module`。
-    *   输入和输出必须转换为标准的领域层 DTO。
+    *   Store 不得反向 import Module；Store DTO 与 Module DTO 的转换由组合根中的 adapter 负责。
 
 ### 2.3 基础设施层 (Infrastructure Platform Layer)
 *   **位置**: `internal/platform/*`
@@ -45,7 +47,8 @@
 *   **位置**: `cmd/*`
 *   **职责**: 应用程序的执行入口。
 *   **契约规则**:
-    *   通过 `go.uber.org/fx` 依赖注入容器，在这里将外层的具体实现（Infrastructure, Store, Provider）注入到内层（Module）所需的接口中，完成最终的装配。
+    *   桌面进程以 `internal/app` 为组合根，独立服务以各自 `cmd` 为组合根；通过 `go.uber.org/fx` 将 Store 实现包装为 Module-owned Port 后注入 Module。
+    *   App adapter 负责 Module DTO 与 Store DTO 的逐字段转换，未知或缺失的必需依赖必须使装配失败。
 
 ---
 
