@@ -1,6 +1,6 @@
 # 04 App 核心与契约层代码地图
 
-> 扫描范围：`internal/app/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/{rpc,hooks,mcpcontrol,toolbridge}`、`internal/provider/{unified,claudecli,codexapp}`、`internal/module/{dashboard,feedback,memory,prompt,skill,thread,turn,uistate}`、`internal/module/turn/observation`、`internal/module/{cron,notify,insight}`、`internal/ui/wails`、`cmd/mcp-orch`。
+> 本卷是**手工维护的当前架构说明**；`codemap` / `project-map` 生成器只刷新索引与引用，不生成本文件正文。扫描范围：`internal/app/*.go`、`internal/app/internal/storeguard/nil.go`、`internal/app/{storeadapter,runtimeadapter}/**/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/{rpc,hooks,mcpcontrol,toolbridge}`、`internal/provider/{unified,codexapp}`、`internal/module/{dashboard,feedback,memory,prompt,skill,thread,turn,uistate}`、`internal/module/turn/observation`、`internal/module/{cron,notify,insight}`、`internal/ui/wails`、`cmd/mcp-orch`。
 
 ## 1. 模块概述
 
@@ -15,6 +15,8 @@
   - `contract.RuntimeReporter`
   - `thread.OrchestrationFacade`
 - 桌面模式额外叠加 `uiwails.Module`，并通过 `fx.Populate` 取出 `*application.App` 和 `*uiwails.WailsLifecycle`。
+
+当前根层（仅 `internal/app/*.go`，排除测试与子目录）是 **11 个生产 Go 文件 / 1887 行**。Store 与运行时消费适配器已经下沉到 `internal/app/storeadapter` 和 `internal/app/runtimeadapter`，不计入这组根层指标。
 
 **关键边界：** `app.Module` 明确 **不内嵌 `cmd/mcp-orch/orchestration.Module`**。源码注释也写明：agent orchestration 由独立 `mcp-orch` MCP 服务承载；桌面进程只暴露控制面与适配层，避免桌面二进制被再次拉起成子进程。
 
@@ -40,62 +42,43 @@
 ```mermaid
 flowchart TD
   app["app.Module\nfx.Options"]
-  app --> local["fx.Provide\nNewLogger\npidregistry.New\nAsRPCRunner\nnewThreadOrchestrationFacade\nnewRuntimeReporter"]
-  app --> config["config.Module"]
-  app --> db["db.Module"]
-  app --> bus["bus.Module"]
-  app --> rpc["rpc.Module"]
-  app --> hooks["platform.hooks.Module"]
-  app --> keepalive["platform.cachekeepalive.Module"]
-  app --> mcpcontrol["mcpcontrol.Module"]
-  app --> runner["runner.Module"]
-  app --> sm["statemachine.Module"]
+  app --> local["root providers / invokes\nlogger · pidregistry · ports · trace\nAsRPCRunner · DAG facade · runtime reporter"]
+  app --> platform["platform Modules\nconfig · db · bus · rpc · hooks\ncachekeepalive · mcpcontrol · runner\nstatemachine · observability · toolbridge"]
   app --> store["store.Module"]
-  store --> s1["store.agentstatus"]
-  store --> s2["store.ailog"]
-  store --> s3["store.auditlog"]
-  store --> s4["store.binding"]
-  store --> s5["store.buslog"]
-  store --> s6["store.commandcard"]
-  store --> s7["store.cron"]
-  store --> s8["store.cwdlock"]
-  store --> s9["store.dbquery"]
-  store --> s10["store.feedback"]
-  store --> s11["store.hookstore"]
-  store --> s12["store.insight"]
-  store --> s13["store.interaction"]
-  store --> s14["store.prompt"]
-  store --> s15["store.routingtest"]
-  store --> s16["store.sharedfile"]
-  store --> s18["store.systemlog"]
-  store --> s19["store.tasktrace"]
-  store --> s20["store.thread"]
-  store --> s21["store.topologyapproval"]
-  store --> s22["store.turndedupe"]
-  store --> s23["store.uipreference"]
-  app --> dashboard["dashboard.Module\nfx.Options"]
-  app --> feedback["feedback.Module"]
-  app --> memory["memory.Module"]
-  memory --> mema["memory-agent.Module"]
-  memory --> memn["memory.nested.Module"]
-  memory --> memr["memory.retrieval.Module"]
-  memory --> memt["memory.team.Module"]
-  app --> prompt["prompt.Module"]
-  app --> skill["skill.Module"]
-  app --> thread["thread.Module"]
-  app --> turn["turn.Module"]
-  app --> turnobs["turnobservation.Module"]
-  app --> cron["cron.Module"]
-  app --> notify["notify.Module"]
-  app --> insight["insight.Module"]
-  app --> uistate["uistate.Module\nfx.Options"]
-  app --> unified["provider.unified.Module"]
-  app --> claude["provider.claudecli.Module"]
-  app --> codex["provider.codexapp.Module"]
-  app --> toolbridge["toolbridge.Module"]
+  app --> storeadapter["storeadapter.Module\nfx.Options"]
+  storeadapter --> sa1["cron"]
+  storeadapter --> sa2["dashboard"]
+  storeadapter --> sa3["datasourcev2"]
+  storeadapter --> sa4["feedback"]
+  storeadapter --> sa5["insight"]
+  storeadapter --> sa6["memory"]
+  storeadapter --> sa7["personalization"]
+  storeadapter --> sa8["prompt"]
+  storeadapter --> sa9["skill"]
+  storeadapter --> sa10["thread"]
+  storeadapter --> sa11["turn"]
+  storeadapter --> sa12["uistate"]
+  app --> business["business Modules\ndashboard · datasource/v2 · feedback · mcpserver\nmemory · prompt · personalization · observability\nappupdate · skill · thread · turn/observation\ncron · notify · insight · uistate · workflowtemplate"]
+  app --> provider["provider Modules\nunified · codexapp"]
+  app --> runtimeadapter["runtimeadapter.Module\nfx.Options"]
+  runtimeadapter --> ra1["mcpcontrol"]
+  runtimeadapter --> ra2["toolbridge"]
+  runtimeadapter --> ra3["cachekeepalive"]
+  runtimeadapter --> ra4["builtintools"]
+  app --> sharedfile["sharedFileAdapterModule"]
+  app -. explicit E2E env only .-> fixture["promptIntentE2EFixtureModule"]
   app -. desktop only .-> wails["ui.wails.Module"]
   app -. not embedded .-> orch["cmd/mcp-orch/orchestration.Module"]
 ```
+
+#### Adapter Module 的 scope 语义
+
+- `storeadapter.Module` 是透明 `fx.Options` aggregator，只列出 12 个实际 child；除根 aggregator 外，普通 child 不横向导入 sibling。
+- `runtimeadapter.Module` 同样是透明 `fx.Options` aggregator，并按 `mcpcontrol → toolbridge → cachekeepalive → builtintools` 展开 4 个 child。
+- `internal/app/internal/storeguard` 只承载实际 adapter 复用的 typed-nil / fail-fast 检查，不拥有业务映射或 Store 语义。
+- `threadadapter.Module` 使用“外层 `fx.Options` + 内层 `fx.Module("threadadapter", fx.Provide(...))`”：Store/provider 构造器属于命名 child module，而 `fx.Invoke(registerThreadPromptProvidersFromApp)` 留在调用者 root scope，以消费根图中的 prompt registrar/catalog。
+- `toolbridgeadapter.Module` 也使用“外层 `fx.Options` + 内层 `fx.Module("toolbridgeadapter", fx.Provide(...))`”：窄 store/provider 端口留在命名 child module；readiness providers、`fx.Decorate(decorateSessionStarterWithToolbridgeReadiness)` 与 `fx.Invoke(bindToolbridgeCodexHandlers)` 保留在调用者 root scope，维持跨模块可见性和装配顺序。
+- canonical 边界事实仍只来自 Go registry：owner `app_adapter_boundary`、rule `app_adapter_narrow_import_surface`（`AllowInternalImports`、`SkipTestFiles=true`）覆盖两个 adapter 生产树，进入 Onion / Cross rule sets 与 `internal/app` surface；当前 evaluator 命中 31 个生产 Go 文件，并由 governance 与三类污染 fixture 锁定逐文件 allow。
 
 ### 1.2 `internal/contract` 文件速览
 
@@ -308,10 +291,11 @@ var Module = fx.Module("provider.unified",
 
 ```mermaid
 graph TD
-  app[app.Module] --> core[config db bus rpc hooks]
-  app --> infra[mcpcontrol runner statemachine store]
-  app --> biz[dashboard feedback memory prompt skill thread turn turnobservation cron notify insight uistate]
-  app --> provider[unified claudecli codexapp toolbridge]
+  app[app.Module] --> core[config db bus rpc hooks cachekeepalive mcpcontrol runner statemachine observability toolbridge]
+  app --> persistence[store.Module + storeadapter.Module]
+  app --> biz[dashboard datasource/v2 feedback mcpserver memory prompt personalization appupdate skill thread turn/observation cron notify insight uistate workflowtemplate]
+  app --> provider[unified codexapp]
+  app --> runtime[runtimeadapter.Module]
   app --> bridge[AsRPCRunner facades reporters]
 ```
 
@@ -382,7 +366,7 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | `contract.TeamMemoryManager` | `memory.provideTeamMemoryManagerContract` | `memory/nested.NewClaudeMdSourcesProvider`、`memory.NewRulesProvider` |
 | `contract.ThreadMetadataStore` | `store/thread.NewMetadataStore` | `memory` 生命周期 / team sync |
 | `contract.RuntimeReporter` | `app.newRuntimeReporter` | `provider/claudecli.NewDriverFactory`、`provider/codexapp.NewDriverFactory` |
-| `thread.OrchestrationFacade` | `app.newThreadOrchestrationFacade` | `module/thread.NewService` |
+| `thread.OrchestrationFacade` | `app.newMCPOrchOrchestrationFacade` | `module/thread.NewService` |
 
 > 另：`contract.MemoryService` 不属于 `app.Module` 根图；它由 `cmd/mcp-orch/memory.NewService` 在 standalone `run()` 图中注入 `tools.NewRegistry` / `memory_read`。
 
@@ -520,7 +504,7 @@ func (r noopRuntimeReporter) ReportRuntime(_ context.Context, report contract.Ru
 ### 5.5 `internal/app/thread_orchestration_adapter.go`
 
 ```go
-func newThreadOrchestrationFacade(p threadOrchestrationParams) thread.OrchestrationFacade
+func newMCPOrchOrchestrationFacade(p threadOrchestrationParams) thread.OrchestrationFacade
 func (a threadOrchestrationAdapter) LaunchAgent(ctx context.Context, req thread.LaunchAgentRequest) error
 func (a threadOrchestrationAdapter) StopAgent(ctx context.Context, agentID string) error
 func (a threadOrchestrationAdapter) Recover(ctx context.Context, agentID string) error
@@ -791,20 +775,42 @@ type SessionResolver interface {
 - `bus.Module`
 - `rpc.Module`
 - `hooks.Module`
+- `cachekeepalive.Module`
 - `mcpcontrol.Module`
 - `platformrunner.Module`
 - `statemachine.Module`
+- `platformobservability.Module`
+- `toolbridge.Module`
 
 **Store 层**
 
 - `store.Module`
+- `storeadapter.Module`，透明聚合以下 12 个 child：
+  - `cronadapter.Module`
+  - `dashboardadapter.Module`
+  - `datasourcev2adapter.Module`
+  - `feedbackadapter.Module`
+  - `insightadapter.Module`
+  - `memoryadapter.Module`
+  - `personalizationadapter.Module`
+  - `promptadapter.Module`
+  - `skilladapter.Module`
+  - `threadadapter.Module`
+  - `turnadapter.Module`
+  - `uistateadapter.Module`
 
 **业务模块层**
 
 - `dashboard.Module`
+- `datasource.Module`
+- `datasourcev2.Module`
 - `feedback.Module`
+- `mcpserver.Module`
 - `memory.Module`
 - `prompt.Module`
+- `personalization.Module`
+- `moduleobservability.Module`
+- `appupdate.Module`
 - `skill.Module`
 - `thread.Module`
 - `turn.Module`
@@ -813,21 +819,27 @@ type SessionResolver interface {
 - `notify.Module`
 - `insight.Module`
 - `uistate.Module`
+- `workflowtemplate.Module`
 
 **Provider / 集成层**
 
 - `unified.Module`
-- `claudecli.Module`
 - `codexapp.Module`
-- `toolbridge.Module` — 通过 `provideHostToolRegistry` 组装 `CompositeHostToolRegistry`，生产图只聚合 `MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`；`skill_read_section` 不再暴露给 Codex dynamic tools。
+- `runtimeadapter.Module`，按顺序透明展开 4 个 child：`mcpcontroladapter.Module`、`toolbridgeadapter.Module`、`cachekeepaliveadapter.Module`、`builtintoolsadapter.Module`。
+- `sharedFileAdapterModule()`。
+- `promptIntentE2EFixtureModule()` 只在 `PROMPT_INTENT_E2E_DREAM_FIXTURE` 与 `PROMPT_INTENT_E2E_FIXTURE_HARNESS=1` 同时满足时返回 `e2efixture.Module`，否则不改变生产图。
 
 **本地提供者 / 适配器**
 
 - `NewLogger`
 - `pidregistry.New`
+- dashboard / uistate orchestration read ports 与 trace recorders
 - `AsRPCRunner`
-- `newThreadOrchestrationFacade`
+- `newMCPOrchDAGRuntime`
+- `newMCPOrchOrchestrationFacade`
 - `newRuntimeReporter`
+- `thread.NewSessionLifecyclePort` / `thread.NewSessionStatusPort` / `newSessionPorts`
+- `newToolbridgeHandlerRef`、`bindToolbridgeHandlerRef`
 
 **桌面模式额外叠加**
 
@@ -867,11 +879,16 @@ type SessionResolver interface {
 ```text
 internal/app
   ├─ NewApp / Run / RunDesktop
-  ├─ Module = 平台模块 + store + 业务模块 + provider 模块 + 适配器
+  ├─ Module = 平台模块 + store.Module + storeadapter.Module + 业务模块 + provider 模块 + runtimeadapter.Module
+  ├─ storeadapter.Module
+  │    └─ cron / dashboard / datasourcev2 / feedback / insight / memory /
+  │       personalization / prompt / skill / thread / turn / uistate
+  ├─ runtimeadapter.Module
+  │    └─ mcpcontrol / toolbridge / cachekeepalive / builtintools
   ├─ AsRPCRunner ------------------------------------┐
   ├─ [desktop] uiwails.NewHTTPAssetServer -----------┴--> group:"runners" --> BindRuntime --> RunGroup
   ├─ newRuntimeReporter -------------------------------> contract.RuntimeReporter --> providers
-  └─ newThreadOrchestrationFacade ----------------------> thread.OrchestrationFacade --> thread.Service
+  └─ newMCPOrchOrchestrationFacade ---------------------> thread.OrchestrationFacade --> thread.Service
 
 internal/contract
   ├─ approval         -> rpc / turn 审批流
@@ -915,6 +932,10 @@ store/thread
 | 包 | 测试文件 | 核心 Test* | freeze |
 | --- | --- | --- | --- |
 | `app` | `runner_test.go` | `TestBindRuntimeDrainsExtractionBeforeCancel` | — |
+| `app` | `modules_graph_test.go` | `TestAppModuleGraphIsClosed`、`TestAppModuleGraphProvidesAdapterPorts`、`TestAppModuleGraphProvidesMCPControlSystemLogSink` | — |
+| `archtest` | `app_adapter_package_boundary_test.go` | `TestAppRootDoesNotOwnLeafStoreAdapters` | — |
+| `archtest` | `backend_boundary_governance_test.go` | `TestAppAdapterBoundaryUsesAuditedProductionImports`、`TestAppAdapterProductionAllowRegistryRejectsTestOnlyImports` | canonical registry |
+| `archtest` | `backend_boundary_guard_coverage_test.go` | `TestAppAdapterBoundaryFixturesRejectCrossDomainPollution` | canonical evaluator fixtures |
 | `archtest` | `interface_isolation_guard_test.go` | `TestInterfaceIsolationBudgets`、`TestSkillServiceConsumersUseNarrowPorts`、`TestTaskDAGStoreConsumersUseNarrowPort` | 58f19fa 接口隔离预算 |
 
 补充：`04` 这卷自身没有额外 freeze 豁免；当前 `internal/archtest/freeze_registry.go:19-28` 只给 `internal/provider/codexapp` 留有 P25 临时预算，接口隔离另由 `internal/archtest/interface_isolation_guard_test.go` 管住。
@@ -926,7 +947,10 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 | --- | --- | --- | --- | --- |
-| 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | `grep` `modules.go`；必要时跑 `internal/app/runner_test.go` |
+| 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | LSP `structure → inspect → xref → file`；`./scripts/test_with_guard.sh ./internal/app/... -run 'TestAppModuleGraph' -count=1` |
+| Store adapter child | 新增或调整业务模块所需的 store 窄端口 | 1. 在 `internal/app/storeadapter/<domain>` 保留真实 store → owner port 投影；2. 用 child `Module` 导出 providers；3. 只把 child 加到 `storeadapter.Module`；4. 普通 child 不导入 sibling。 | `internal/app/storeadapter/module.go`、对应 child `module.go` / `adapter.go` | `./scripts/test_with_guard.sh ./internal/app/storeadapter/... -count=1`；再跑 canonical adapter guard |
+| Runtime adapter child | platform/provider 需要 store/module 具体实现桥接 | 1. 在 `internal/app/runtimeadapter/<consumer>` 提供窄端口；2. 简单 child 用 `fx.Module`；3. 需要 root decorate/invoke 时采用 toolbridge 的外层 `fx.Options` 结构；4. 登记到 `runtimeadapter.Module`。 | `internal/app/runtimeadapter/module.go`、对应 `adapter.go` | `./scripts/test_with_guard.sh ./internal/app/runtimeadapter/... -count=1`；再跑根 Module 图测试 |
+| App adapter canonical guard | adapter 新增真实 production import 或 child | 1. 更新 Go registry 中 `app_adapter_boundary` / `app_adapter_narrow_import_surface`；2. 保持逐文件精确 allow，禁止宽 `internal/module` / `internal/store` / adapter 根前缀；3. 同步 governance 与污染 fixture。 | `internal/archtest/backend_boundary_registry_app_adapter.go`、governance / coverage tests | `./scripts/test_with_guard.sh ./internal/archtest -run 'TestAppAdapter|TestAppRootDoesNotOwnLeafStoreAdapters' -count=1` |
 | RPC 收编 | 新模块需要暴露 JSON-RPC / Wails RPC | 1. 返回 `rpc.HandlerMapResult`；2. 在模块侧提供 `New*Handlers`；3. 由 `internal/platform/rpc.registerAllHandlers` 统一收编。 | `internal/platform/rpc/module.go`、`registerAllHandlers` | `internal/platform/rpc/server_minimal_test.go` |
 | freeze | 适配层膨胀 / bridge 临时收口触发架构 guard | 1. 优先把 helper / adapter 收回 owning module；2. 对照 `freeze_registry.go` 找当前真值；3. 用 `TestCodeSizeGuard` 校验是否需要同步调整 freeze。 | `internal/archtest/freeze_registry.go`、`internal/archtest/code_size_guard_test.go` | `go test ./internal/archtest -run TestCodeSizeGuard` |
 | 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestSkillService|TestTaskDAG'` |
@@ -938,6 +962,6 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 - 已修正 `RuntimeReporter` 的实现说明：`cmd/mcp-orch/orchestration` 中确有 `runtimeReporter` 辅助类型，但它定义在 `service.go` 内，**当前并未进入 Fx 导出图**；桌面态真正接线的是 `internal/app` 下两种 reporter。  
 - 已修正跨 Fx 图的依赖描述：`turn.NewOrchestrationTurnStarter` / `unified.NewSessionCleaner` 会在 `app.Module` 中导出，但当前生产 `mcp-orch` standalone 图分别实际注入的是 `newNoopTurnStarter` / `newNoopSessionCleaner`。  
 - 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。  
-- 已澄清适配器模式的真实落点：`newThreadOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。  
+- 已澄清适配器模式的真实落点：`newMCPOrchOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。
 - 已核对 `internal/app/modules.go`：根模块清单与文档一致，仍然 **不内嵌 orchestration module**；桌面态仅通过 optional 依赖和 noop 适配器感知 orchestration。  
 - 2026-04-29 已按接口隔离提交 58f19fa 同步维护口径：`skill.Service` / `taskdag.Store` 的拆分真值在 owner-local `contract.go` 与 `interface_isolation_guard_test.go`，04 不再把这类局部端口描述成 `internal/contract` 的扩展面。
