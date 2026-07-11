@@ -46,7 +46,7 @@
 | Task 2 scroll intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `af2c245409afa6f269b32250d256d7fa7162cbe8`；实现、验证与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
 | Task 3 recovery accepted | `GREEN` | Phase A RED 保留；Phase B 已实现并完成前端全量验证 |
 | Task 4 crash containment | `GREEN` | Phase A RED 完整保留；Phase B 最小实现、全量门禁与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
-| Task 5 approval-only | `TODO` | 依赖 Task 4 |
+| Task 5 approval-only | `PHASE_A` | clean baseline 已锁定；正在做 LSP discovery 与 test-only RED，禁止生产实现 |
 | Task 6 shell discovery | `TODO` | 依赖 Task 5 |
 | Task 7 layer tokens | `TODO` | 依赖 Task 6 |
 | Task 8 integration | `TODO` | 依赖 Task 1-7 |
@@ -875,3 +875,208 @@ M  docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md
 - breadcrumb ring是唯一action history owner；`safeLogFields`仍是清洗真相；crash report是唯一窄投影与listener lifecycle owner；boundary只做React containment。
 - 主工作区整棵dirty diff fingerprint已在提交前只读复核为 `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，计划文件内容SHA-256为 `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；main仍只含该计划文件modified且相对origin ahead 3，两者哈希口径不同。
 - Task 4 仅在文档diagnostics/validator、显式stage、原子提交hook、post-commit clean和主工作区fingerprint复核完成后结束；随后停止，不进入Task 5，也不push。
+
+## Task 5 — Approval-only 决策面
+
+### STATE
+
+`GREEN`（聚焦、全量、lint、build、LSP、truth-source 与 dirty-boundary 均已独立复核；本记录所在原子提交完成 Task 5，未进入 Task 6，未 push）
+
+Phase A BASE / HEAD 为 `765cc74ec413e0239b25a356af7d80e0f46894df`；分支 `codex/reasonix-frontend-absorption-20260711` 开始时 clean。主工作区保持 `main...origin/main [ahead 3]`，唯一 dirty 文件仍是 `docs/plans/2026-07-11-reasonix-frontend-architecture-absorption.md`；整棵 dirty diff fingerprint 为 `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，计划文件内容 SHA-256 为 `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。两种哈希口径不同，本 worktree 对 main 只读。
+
+### DAG
+
+```text
+Task 4 commit 765cc74ec413e0239b25a356af7d80e0f46894df
+  -> Task 5 Phase A clean baseline / main hash lock
+  -> LSP approval wire + store exactly-once truth discovery
+  -> LSP composer mounted/disabled + focus owner discovery
+  -> plan-only approval model/shelf/integration RED tests
+  -> exact 8-file RED + targeted lint + diagnostics
+  -> Task 5 serial production slices / focused GREEN
+  -> main agent App.test direct-integration migration / full gates
+  -> serial resume final LSP + truth-source + boundary audit
+  -> explicit Task 5 stage / this atomic commit
+  -X-> Task 6 / push
+```
+
+### RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | worktree `git status` / `git rev-parse HEAD` | 0 | branch clean；BASE / HEAD `765cc74ec413e0239b25a356af7d80e0f46894df` |
+| 2 | main只读status / whole-diff SHA / plan-file SHA | 0 | ahead 3且仅计划文档dirty；两个既有哈希未变 |
+| 3 | `approvalDecision.test.js` 单独运行 | 1 | 唯一失败为计划模块 `./approvalDecision.js` 不存在；0 tests collected，无fixture或环境错误 |
+| 4 | `ApprovalDecisionShelf.test.jsx` 单独运行 | 1 | 唯一失败为计划模块 `./ApprovalDecisionShelf.jsx` 不存在；0 tests collected，无React/jsdom错误 |
+| 5 | 两个A1测试 targeted ESLint | 0 | 无 error/warning；测试语法与API contract有效 |
+| 6 | LSP diagnostics 两个A1测试与本执行记录 | 0 | `No diagnostics found`、total 0 |
+| 7 | A1.5两个测试分别重跑 + targeted ESLint | expected RED / lint 0 | 两套仍分别只因对应production module missing而0 tests；布尔classifier与false-result retry合同未引入测试自身错误 |
+| 8 | `ComposerDock.test.jsx` A2a单文件 | 1 | 7 tests中6 passed / 1 failed；唯一新增test产生8个soft contract failures：external inputRef pending/settled各1、inert、aria-disabled、发送/附件/模型/项目四控制；node identity、draft保留与settled属性移除断言已通过 |
+| 9 | `ChatPage.core.test.jsx` A2b单文件最终RED | 1 | 30 tests中26 passed / 4 failed；同线程approval消失/terminal两例均仅缺focus；A→B仅缺composer inert；source contract仅缺唯一ref声明、inputRef传递与ref focus三项；thread switch no-focus及全部26个既有tests通过，无timeout/act warning |
+| 10 | A2c exact三文件串行RED | 1 | 3 files failed；24 tests中14 passed / 10 failed。`TimelineMessage` 9/10、grouping 5/6，均仅新增“直接消费approvalDecision adapter”source contract失败，既有approval显示/分组行为保持green；`ChatApprovalMessage` 8/8均按预期因Shelf选择→显式确认、pending exactly-once、false/reject retry、terminal/invalid fail-closed及新adapter/legacy re-export契约尚未实现而失败 |
+| 11 | A2c targeted ESLint + `git diff --check` + LSP diagnostics | 0 | 三个A2c测试lint 0；diff whitespace check 0；三个测试与本执行记录均 `No diagnostics found`、total 0 |
+| 12 | A2c停止点主工作区只读复核 | 0 | 仍为 `main...origin/main [ahead 3]` 且仅原计划文档modified；whole-diff SHA与plan-file SHA分别保持 `2195780...16d` / `6bbe18c...061` |
+| 13 | A3计划原样exact 8 files串行最终RED | 1 | 8 files中1 passed / 7 failed；271 tests中256 passed / 15 failed，另有2个missing-production suites各0 tests。`useClientStore.test.js` 整文件210 tests全green；失败只分布于计划新增approval model/Shelf、ChatApproval migration、Timeline/grouping adapter source contract、Composer pending inert/ref与ChatPage focus/inert/source contract |
+| 14 | store exactly-once测试名定向复核 | 0 | `keeps approval RPC submission idempotent per request id while in flight`：1 passed / 209 skipped；断言同request第二次in-flight调用resolve false、backend RPC恰好1次、map保留首次`approved:true/inFlight:true`，首次完成后resolve true并清理map entry |
+| 15 | 全部7个changed tests targeted ESLint + `git diff --check` | 0 | lint无error/warning；diff whitespace check 0 |
+| 16 | 全部7个changed tests + 执行记录 LSP diagnostics | 0 | `No diagnostics found`、total 0 |
+| 17 | A3 dirty / HEAD / main最终边界复核 | 0 | HEAD仍为Task4 commit `765cc74e...94df`，index empty；dirty严格为本执行记录和7个计划test，production无改动。main仍ahead3且仅原计划文档dirty，whole-diff与plan-file SHA完整值保持不变 |
+| 18 | A4 Shelf success-gap 单文件RED | 1 | 唯一failed suite仍为计划production `ApprovalDecisionShelf.jsx` missing，0 tests collected；新增fixture未造成新的解析、React或环境错误 |
+| 19 | A4 Shelf test ESLint + LSP diagnostics + `git diff --check` | 0 | targeted lint 0；Shelf test与执行记录 `No diagnostics found`、total 0；diff whitespace check 0 |
+| 20 | B1.1 `approvalDecision.test.js` 单slice GREEN + lint/LSP | 0 | 1 file / 4 tests passed；production+test targeted ESLint 0，`git diff --check` 0，LSP structure可见仅test API三个export及internal validator，diagnostics `No diagnostics found`、total 0 |
+| 21 | B1.2 `ApprovalDecisionShelf.test.jsx` 单slice GREEN + lint/LSP | 0 | 1 file / 8 expanded tests passed（含terminal approved/rejected两个case）；production+test targeted ESLint 0，`git diff --check` 0；LSP definition跳转到domain submission validator、xref仅Shelf test、diagnostics `No diagnostics found`、total 0 |
+| 22 | B1.2 request-switch stale settlement RED→GREEN | 0 | 新增old request resolve/reject两个竞态case：首轮9/10，唯一RED为旧reject把error写入新request；token gate首版虽10/10但render期ref读写触发2个`react-hooks/refs` error，改为`useLayoutEffect`切换owner token且event捕获后，最终1 file / 10 tests、target lint、diff check均0，LSP diagnostics total 0 |
+| 23 | B1.3 `ChatApprovalMessage.test.jsx` 计划停止点 | expected 1 | 8 tests中7 passed / 1 failed；唯一失败精确为主审要求暂留的legacy `chatApprovalModel.js` 仍含旧逻辑而非pure re-export。strict invalid、selection/confirm、terminal、pending exactly-once、false retry、reject/onError与15s timeout其余7项GREEN；target lint / diff check 0，LSP definition/xref确认adapter调用，diagnostics total 0 |
+| 24 | B1.4 approval consumer/legacy 收敛 | 0 | ChatApproval + Timeline + grouping exact三套3 files / 24 tests GREEN；LSP xref定位adapter在Conversation/Timeline/grouping所有production consumer，legacy文本仅剩3个test的4条negative/source-contract证据，production refs 0且文件已删除；7个target code/test lint、truth grep、diff check均0，5个production diagnostics total 0 |
+| 25 | B1.5 Composer + ProjectSelector 能力链 | 0 | Composer首轮6/7暴露React19 inert空串被移除及ProjectSelector断链；修正boolean inert后唯一RED仍为project button。主审授权扩边后ProjectSelector新增2 tests首轮3/5，随后正式`isDisabled`能力到4/5但open→disabled未关闭，layout effect owner close后5/5；Composer + ProjectSelector最终2 files / 12 tests，Composer单套7/7 GREEN。5个target files lint、diff check、LSP diagnostics均0；code-size `files=355,frozen=0`；fieldset/DOM query grep 0 |
+| 26 | B1.6 Conversation approval focus/composer wiring | 0 | 先修既有global failure fixture为strict pending + Shelf选择/确认，并增加“A settle同时出现新terminal B不得focus”行为锁；implementation前ChatPage 27/31，4个既有focus/inert/source RED。接线后ChatPage + Composer 2 files / 38 tests GREEN。首轮code-size仅拦Conversation 157>150；抽top-level busy helper并补node truthy guard后Conversation恰150行，code-size `files=355,frozen=0`；4 target files lint/diff 0，5 files diagnostics total 0 |
+| 27 | B1.7 计划exact 8 + ProjectSelector共9 files | 0 | 9 files / 291 tests passed；包含approval adapter 4、Shelf 10、ChatApproval 8、Timeline 10、grouping 6、Composer 7、store 210、ChatPage 31、ProjectSelector 5，0 skipped / 0 failed |
+| 28 | store exactly-once测试名定向复核 | 0 | `keeps approval RPC submission idempotent per request id while in flight`：1 passed / 209 skipped；第二次同ID in-flight返回false、RPC一次、首次结果完成后map清理证据保持GREEN |
+| 29 | 17个changed production/test targeted ESLint + contract/store/code-size guards | 0 | ESLint 0；contract/store全部9类ratchet 0/0；code-size `files=355,frozen=0`，Conversation结构证据仍为150行 |
+| 30 | 全部changed code/test/doc LSP diagnostics + truth/focus/forbidden grep + diff check | 0 | 18个现存changed文件/文档 diagnostics `No diagnostics found`、total 0；legacy production refs 0且文件不存在；adapter仅shared ID helper与exact三status；Shelf store/backend 0；generic forbidden 0；Conversation显式focus唯一1处、DOM query 0；`git diff --check` 0 |
+| 31 | B1.7 HEAD/index/dirty与main只读最终复核 | 0 | HEAD仍Task4 `765cc74e...94df`，index empty；worktree严格19条计划/授权扩边路径。main仍ahead3且仅原计划文档dirty，whole-diff SHA `2195780a...16d`、plan-file SHA `6bbe18cd...061`均完整值不变 |
+
+### PHASE A CONTRACT INTERPRETATION
+
+- “领域名是 approval，不出现 kind/capability/ask/plan”约束新领域文件、符号与抽象不得泛化为 DecisionKind/Capability/Ask/Plan；现有 wire truth 若以 `message.kind === 'approval'` 判别消息，strict adapter读取该 wire `kind` 是合法的，不会用全面源码正则阻断 wire contract。最终是否由 adapter读取kind或由已验证上游保证approval，须以本阶段LSP调用链证据裁决。
+- 本阶段只创建/修改计划列出的测试文件和本执行记录；生产文件保持BASE不变。所有RED必须归因于计划生产契约缺失，而不是测试拼写、fixture、jsdom、lint、diagnostics或非目标既有失败。
+
+### PHASE A1 RED EVIDENCE
+
+- `approvalDecision.test.js` 锁定：必须import并调用既有 `shared/api/approvalRequestId.js:positiveApprovalRequestIdFromFields`，不得创建第三份Number/parse解析；只接受positive integer request id、wire `kind: approval` 与精确 `pending/approved/rejected` status；choice只允许 `approve/reject`，terminal request禁止再次提交。领域源码允许读取wire kind，但禁止新建DecisionKind/Capability/Ask/Plan泛化符号。
+- `ApprovalDecisionShelf.test.jsx` 锁定：选择choice不会自动提交，必须显式“确认选择”；in-flight确认exactly-once并暴露aria-busy；失败后保留选择、显示alert并允许显式重试；组件通过props注入，不import client store/backend，也不建立泛化decision领域。
+- A1.5补充：混合timeline consumer通过非抛错布尔 `isApprovalMessage` 分类，approval wire返回true，tool/null/array返回false；只有已判定approval进入strict adapter后，非法request id/status才throw fail-closed。Shelf `onConfirm` resolve false与reject同属未settled：busy解除、choice保留且必须允许再次显式确认，但不要求暴露raw error。
+- A1 dirty路径严格为本执行记录和上述两个计划测试；没有创建两个production模块，没有修改既有测试或任何production文件，没有stage、commit、Task6或push。
+- A2a采用计划窄props `inputRef` / `approvalPending`：`inputRef` 只允许Conversation绑定真实textarea，`approvalPending` 只投影composer pending状态，不引入store读取。ComposerDock rerender test锁定pending false→true→false全过程textarea node identity与draft不变、external ref始终指向该node；pending根节点必须有native inert与 `aria-disabled=true`，并通过既有 `canUseProjectActions` 链禁用fixture中实际渲染的发送、附件、模型和项目选择四个控制，settled后移除inert/disabled语义。ChatPage integration不在A2a范围。
+- A2b只修改ChatPage core integration test：每个focus场景先把activeElement设为wrapper按钮并断言不是textarea；同一active thread的pending approval消失或变approved且没有新pending时，原textarea identity不变并获得focus；thread switch后的旧approval settle不得focus新thread composer；approval A变terminal但同时出现pending B时不得focus且composer继续inert。source contract只锁Conversation唯一 `composerInputRef` 声明、显式 `inputRef` prop和从该ref调用focus，并禁止 `document.querySelector/getElementById` DOM查找；不禁止既有reasoning `setTimeout`。
+- A2c把ChatApprovalMessage integration收敛为Shelf choice→confirm→wire boolean：选择不提交、确认后actions exactly-once、in-flight重复确认不放大、false/reject保留choice可重试、terminal禁用、invalid strict adapter fail-closed；既有reject/timeout错误回归继续保留。ChatApprovalMessage、TimelineMessage与grouping source contract都要求直接消费新approvalDecision adapter；旧chatApprovalModel只允许删除或无逻辑唯一re-export。Store现有 `useClientStore.test.js:6331-6353` 已准确覆盖 `approvalSubmitByRequestId` in-flight exactly-once、RPC一次和finally清理，本阶段不为数量修改6981行大test。
+- A2c exact命令只运行计划内三个integration/grouping测试：Timeline与grouping除各自新增source contract外全部既有行为通过；ChatApprovalMessage的8个RED都在旧的一键按钮/宽松解析/旧model import与计划Shelf交互之间，未出现fixture、环境或非目标测试错误。invalid approval采用strict adapter抛错实现fail-closed；terminal approval保留可见choice但全部disabled。生产代码仍未修改。
+- A3 final RED matrix：`approvalDecision` 与 `ApprovalDecisionShelf` 因两个计划production module不存在，各为failed suite / 0 collected；`ChatApprovalMessage` 8/8 RED；`TimelineMessage` 9/10与grouping 5/6仅adapter source contract RED；`ComposerDock` 6/7，仅一个soft-assert contract test RED；`ChatPage.core` 26/30，两个同线程settle focus、一个pending replacement inert、一个唯一ref/source contract RED；`useClientStore` 210/210 GREEN。合计271个已收集tests为256 pass / 15 fail，所有失败均落在计划锁定的尚未实现生产契约。
+- A3停止条件满足：未改`useClientStore.test.js`，其既有exactly-once测试提供真实store/RPC证据；未创建任何production module，未改既有production、guard、baseline、依赖或配置；未stage、commit、push，也未进入Task6。等待主审裁决后才可进入GREEN。
+- A4补锁store map cleanup与wire patch之间的UI窗口：同一request的`onConfirm` resolve true后，Shelf必须保持本地resolved并禁用choice/confirm，继续点击不得增加调用；仅当`requestId`变化时清空choice/resolved，新的pending request才允许重新选择并确认。`approved/rejected` terminal request初始三项控制全部disabled且任何点击不得调用`onConfirm`。false/reject仍按A1.5保持retryable，不得与successful local resolved混同。
+
+### PHASE B1.1 IMPLEMENTATION EVIDENCE
+
+- 新增唯一domain adapter `features/approval/model/approvalDecision.js`：boolean predicate对tool/null/array返回false；strict adapter只接受approval、shared helper验证的positive integer ID及精确pending/approved/rejected；submission只接受approve/reject且拒绝terminal。未复制Number/parse ID逻辑，未增加generic decision词汇或额外对外API。
+- 本slice只写adapter与本执行记录；Shelf、legacy/consumer、Conversation、Composer及store均未改，按主审检查点停止。
+
+### PHASE B1.2 IMPLEMENTATION EVIDENCE
+
+- 新增依赖注入Shelf，仅接收`request/onConfirm`；choice与显式确认分离，`approvalSubmissionFor`在调用transport前完成choice/terminal最终校验，没有复制request ID解析，也未import store/backend。
+- busy、successful local resolved均以requestId隔离：pending重复确认锁定；resolve false/reject保留choice并可重试；resolve true后同request三项控制持续disabled；requestId变化同步清空choice/busy/resolved/error；初始approved/rejected全disabled；reject错误以`role=alert`显示。
+- request owner另由每次requestId变化时在layout effect更新的opaque token隔离；async resolve、reject/error与finally busy cleanup都先核对当前token，因此旧request晚到的成功、错误或清理均不能污染新request，且不依赖render期ref读写。
+- 本slice没有修改adapter、legacy/consumer、Conversation、Composer、store、CSS或其他生产文件；未stage、commit、Task6或push，按主审检查点停止。
+
+### PHASE B1.3 IMPLEMENTATION EVIDENCE
+
+- `ChatApprovalMessage` render入口直接调用strict `approvalRequestFromMessage`，非法approval在渲染前throw；确认回调再用`approvalSubmissionFor`把Shelf的approve/reject映射为wire boolean，不再持有submitting/resolved/choice/error React state。
+- transport仍以15秒`Promise.race`负责timeout并在finally清timer；resolve false原样返回Shelf保持retryable；reject/timeout先调用`actions.onError('approval.failed', message)`，随后rethrow由Shelf显示`role=alert`并保留选择；resolve true交Shelf的request-scoped local resolved锁。缺少`actions.onApproval`时传undefined，Shelf全禁用。
+- 本slice按要求未改legacy model，因此ChatApproval单suite仅source contract保留1个预期RED；Timeline/grouping/Conversation/Composer/store/CSS与其他生产均未动，未stage、commit、Task6或push。
+
+### PHASE B1.4 IMPLEMENTATION EVIDENCE
+
+- Timeline、grouping与Conversation的现有`isApprovalMessage` import均直接指向`features/approval/model/approvalDecision.js`；ChatApproval已直接使用同一adapter，四个production consumers不存在第二truth source。
+- 删除`chatApprovalModel.js`而不保留compat逻辑。LSP legacy grep的4个结果全部位于source-contract tests，production scope的`rg`为0；新adapter xref明确返回Conversation、Timeline与grouping实际调用点。
+- Conversation本slice只换import，没有新增pending selector、focus owner逻辑或Composer props；Composer/store/CSS/其他生产未动，未stage、commit、Task6或push，按主审检查点停止。
+
+### PHASE B1.5 IMPLEMENTATION EVIDENCE
+
+- `ComposerDock`新增窄`inputRef/approvalPending`；internal object ref继续唯一服务drop effect，`useImperativeHandle`把同一真实textarea同步给外部object/callback ref并由React在unmount清空，不增加focus owner。pending切换不改变textarea identity或draft。
+- `effectiveCanUseProjectActions = canUseProjectActions && !approvalPending`统一派生canInterrupt/canSend/projectActionBlocked并传入ComposerMeta；pending root使用React19正确的boolean native inert与`aria-disabled=true`，send/attach/model/project四控制实际disabled，settle后属性与能力恢复。
+- 计划原假设“既有canUseProjectActions链已贯穿项目选择”与源码不符：ComposerMeta此前把prop命名为unused `_canUseProjectActions`，ProjectSelector没有disabled API。主审基于该证据授权最小扩边ComposerMeta、ProjectSelector及direct test；实现由唯一`projectActionBlocked`透传React Aria正式`isDisabled`，不使用fieldset或DOM hack。
+- ProjectSelector disabled时trigger/MenuTrigger均不可打开，select/add/remove callbacks均再次fail-closed；若菜单已open，layout effect同步关闭，恢复enabled不自动重开。WorkbenchSidebar/Header既有调用不传prop，保持默认enabled。Conversation/store/CSS/其他生产未动，未stage、commit、Task6或push。
+
+### PHASE B1.6 IMPLEMENTATION EVIDENCE
+
+- 同文件`approvalSnapshotFromMessages`只用`isApprovalMessage + approvalRequestFromMessage` strict遍历，输出当前latest pending与known request IDs；非法approval仍throw，不用try/catch或默认status。新增terminal B即使不是pending也会作为新identity阻止A settle抢焦点。
+- 同文件小hook只在previous pending→无pending、同thread、真实`node`存在、current node与原node严格同一且current known IDs没有新approval identity时调用`composerInputRef.current.focus()`；A→B pending、A settle+terminal B、thread switch均不focus。ref未绑定/已卸载时显式`node` guard阻止null===null后调用focus。
+- Conversation本体只有唯一`const composerInputRef = useRef(null)`，显式`inputRef={composerInputRef}`；没有DOM query/id或focus timer。既有唯一setTimeout仍只属于pending reasoning hint，不参与approval focus。approval snapshot/knownIds/focus逻辑均在top-level helper/hook，生产guard确认Conversation为150行。
+- `approvalPending`传ComposerDock，同时以`effectiveCanUseProjectActions`喂给`useComposerInteractions`的canUse/projectActionBlocked，conversation-level drag/drop链与dock send/attach/model/project/paste/drop能力一致阻断；Composer节点始终沿既有intro/docked位置挂载，不因approval条件分支替换。
+- ChatPage既有全局错误回归fixture按strict wire补`status: pending`并迁移到“同意→确认选择”，仍验证全局visible alert；未放宽adapter或保留旧按钮。未改store/CSS/其他生产，未跑全量/build，未stage、commit、Task6或push。
+
+### PHASE B1.7 FINAL FOCUSED GREEN
+
+- 计划exact 8 files原顺序加主审授权扩边`ProjectSelector.test.jsx`在同一串行Vitest进程获得9 files / 291 tests全GREEN；`useClientStore.test.js`整文件210/210包含真实store第二层，随后名称定向复核再次GREEN。
+- contract/store guard与production code-size guard均直接执行并保留输出；没有运行`npm test`全量、`npm run build`、dist sync或任何commit hook，不把聚焦GREEN冒充全量/build证据。
+- B1 dirty路径完整如下；`useClientStore.test.js`只运行未修改，未新增store/wire method/capability registry/overlay/generic decision，也未修改CSS、依赖、guard或baseline：
+
+```text
+M  docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md
+?? frontend-app/src/features/approval/model/approvalDecision.js
+?? frontend-app/src/features/approval/model/approvalDecision.test.js
+?? frontend-app/src/features/approval/ui/ApprovalDecisionShelf.jsx
+?? frontend-app/src/features/approval/ui/ApprovalDecisionShelf.test.jsx
+M  frontend-app/src/pages/chat/ChatPage.core.test.jsx
+M  frontend-app/src/pages/chat/components/ProjectSelector.jsx
+M  frontend-app/src/pages/chat/components/ProjectSelector.test.jsx
+M  frontend-app/src/pages/chat/composer/ComposerDock.jsx
+M  frontend-app/src/pages/chat/composer/ComposerDock.test.jsx
+M  frontend-app/src/pages/chat/composer/ComposerMeta.jsx
+M  frontend-app/src/pages/chat/thread/ChatApprovalMessage.jsx
+M  frontend-app/src/pages/chat/thread/ChatApprovalMessage.test.jsx
+M  frontend-app/src/pages/chat/thread/Conversation.jsx
+M  frontend-app/src/pages/chat/thread/TimelineMessage.jsx
+M  frontend-app/src/pages/chat/thread/TimelineMessage.test.jsx
+D  frontend-app/src/pages/chat/thread/chatApprovalModel.js
+M  frontend-app/src/pages/chat/thread/chatTurnGroupingModel.js
+M  frontend-app/src/pages/chat/thread/chatTurnGroupingModel.test.js
+```
+
+- 当前STATE保持未stage/未commit；Phase B1.7完成后停止等待主审，不进入Task6或push。
+
+### PHASE B2 FULL-GATE EVIDENCE
+
+- 子 agent 首次 `npm test` 的前置 guards、typecheck 与 RPC audit 已明确通过，但最终 Vitest summary 因 exec session 未保留而不可判定；该轮不记为 PASS 或 FAIL，也没有据此修改文件。
+- 主 agent 随后以保留 session 的同一 `npm test` 独立复跑，得到明确 exit 1：124 files 中 123 passed / 1 failed，1482 tests 中 1481 passed / 1 failed。唯一失败是 `App.test.jsx > submits timeline approval decisions from the React chat timeline` 仍查询旧的一键按钮 `同意审批 11`；生产 DOM 已正确呈现“同意 / 拒绝 / 确认选择”，不是生产逻辑或 adapter 失败。
+- 原串行 agent 的模型通道随后连续返回外部 401，主 agent 未启用第二个 agent，只最小迁移上述直接集成测试：先选择“同意”并证明 backend 尚未调用，再点击“确认选择”，成功后锁定choice与confirm均disabled。定向复核为1 passed / 189 skipped，target ESLint exit 0，`App.test.jsx` LSP diagnostics 0。
+- full `npm test`、build 与最终提交证据仍待 fresh 重跑；本节不得被解释为全量GREEN。
+- 主 agent 在上述定向修正后以保留 session 的 fresh `npm test` 再次复核：exit 0，124 files / 1482 tests全部通过；critical-skip、silent-async、contract/store九类ratchet、code-size `files=355/frozen=0`、contracts typecheck与RPC audit均在同一命令中PASS。
+- build 与最终提交证据仍待完成；只有本条可作为当前full-test GREEN证据。
+- 主 agent 随后执行 `npm run build`：exit 0，Vite转换5545 modules并完成frontend dist sync；`git status`/name-only复核没有新增tracked `dist` 或 `web-dist` diff，`git diff --check` exit 0。
+- 主 agent 在`App.test.jsx`最小迁移后重新执行全量 `npm run lint`：exit 0、无error/warning。
+- 原串行 agent 的外部401仍待恢复；主 agent 因此仅完成上述旧集成测试迁移与独立全量门禁，没有启用第二个并行实现者。恢复后的唯一串行替代 agent 没有重做实现，只承担最终审计、记录、显式 stage 与原子提交。
+
+```text
+M  docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md
+M  frontend-app/src/App.test.jsx
+M  frontend-app/src/pages/chat/ChatPage.core.test.jsx
+M  frontend-app/src/pages/chat/components/ProjectSelector.jsx
+M  frontend-app/src/pages/chat/components/ProjectSelector.test.jsx
+M  frontend-app/src/pages/chat/composer/ComposerDock.jsx
+M  frontend-app/src/pages/chat/composer/ComposerDock.test.jsx
+M  frontend-app/src/pages/chat/composer/ComposerMeta.jsx
+M  frontend-app/src/pages/chat/thread/ChatApprovalMessage.jsx
+M  frontend-app/src/pages/chat/thread/ChatApprovalMessage.test.jsx
+M  frontend-app/src/pages/chat/thread/Conversation.jsx
+M  frontend-app/src/pages/chat/thread/TimelineMessage.jsx
+M  frontend-app/src/pages/chat/thread/TimelineMessage.test.jsx
+D  frontend-app/src/pages/chat/thread/chatApprovalModel.js
+M  frontend-app/src/pages/chat/thread/chatTurnGroupingModel.js
+M  frontend-app/src/pages/chat/thread/chatTurnGroupingModel.test.js
+?? frontend-app/src/features/approval/model/approvalDecision.js
+?? frontend-app/src/features/approval/model/approvalDecision.test.js
+?? frontend-app/src/features/approval/ui/ApprovalDecisionShelf.jsx
+?? frontend-app/src/features/approval/ui/ApprovalDecisionShelf.test.jsx
+```
+
+### PHASE B3 SERIAL RESUME FINAL AUDIT / RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 32 | 恢复后的唯一串行替代 agent：`git status --porcelain=v1 -uall` / `git diff --cached --name-status` | 0 | dirty 恰为上方20条 Task 5计划/主审授权路径；index empty；HEAD仍为Task4 `765cc74ec413e0239b25a356af7d80e0f46894df`，没有额外diff |
+| 33 | LSP `grep` / `inspect(definition,hover)` / `xref(references)` / `file(read_file,diagnostics)` | 0 | shared request-id helper跳转到唯一实现；adapter references覆盖ChatApproval、Conversation、Timeline、grouping；19个现存changed code/test/doc diagnostics total 0；已删除legacy文件不伪造diagnostics |
+| 34 | truth-source / focus / forbidden grep + `git diff --check` | 0 | legacy production refs 0且旧文件不存在；request-id helper定义1份；status精确为pending/approved/rejected；Shelf store/backend import 0；approval generic禁词0；Conversation唯一composer ref/唯一focus且DOM query 0；diff check 0 |
+| 35 | 计划exact 8 files + 主审授权`ProjectSelector.test.jsx` | 0 | fresh 9 files / 291 tests passed，0 failed |
+| 36 | `npm test` | 0 | fresh guards、contracts typecheck、RPC audit全部PASS；124 files / 1482 tests passed，0 failed |
+| 37 | `npm run lint` | 0 | fresh ESLint全量无error/warning |
+| 38 | `npm run build` | 0 | fresh Vite 5545 modules；dist sync完成；随后status/name-only确认没有新增tracked `dist` / `web-dist` diff |
+| 39 | main只读status / whole-diff SHA / plan-file SHA | 0 | main仍ahead3且仅原计划文档dirty；whole-diff `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`；plan `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061` |
+| 40 | 首次`git commit -m "feat(frontend): harden approval decision flow"` | 1 | pre-commit的codemap/project-map refresh、AI maintenance、两轮124/1482、build/embed、archtest/full code guard、lint全部PASS；commit-msg只因仓库中文标题守卫拒绝英文title。没有`--no-verify`，HEAD仍Task4 |
+| 41 | 首次hook生成物diff / cached边界复核 | 0 | 唯一生成器`generate_ai_project_map.mjs --filesystem-scan`刷新5个project-map文件；4396→4399准确反映4个新增approval文件减1个legacy文件，app-ui索引同步source/test大小，docs-agent仅同步本记录大小；cached严格为Task5 20 paths + 5个生成物 |
+
+### PHASE B3 NON_TARGET_DIFF / TRUTH_SOURCE_CHECK / STOP
+
+- 原 agent 401 前的实现与RED/GREEN证据、主 agent 对旧`App.test.jsx`的最小迁移及fresh全量验证均原样保留；替代 agent 本轮没有改生产代码或测试，只修正本记录中B2的完整20-path边界、补充独立复核证据并执行原子提交。
+- 生成物责任保持不变：fresh build没有制造tracked `frontend-app/dist`或根`web-dist`差异；commit hook若刷新项目地图，只允许纳入该hook明确生成且语义归属本提交的文件，否则提交停止。
+- commit-msg失败后主 agent 明确批准按仓库规范将title收敛为`feat(frontend): 加固审批决策流程`；这是对仓库强制中文守卫的修正，不是绕过hook。首次hook产生的5个project-map文件属于同一生成器且与Task5文件增删/大小一一对应，因此随本提交纳入。
+- Task 5只在显式stage这20条路径、cached diff复核、commit hook通过、post-commit clean以及main两种hash再次不变后结束。完成后停止，不进入Task 6，不push。

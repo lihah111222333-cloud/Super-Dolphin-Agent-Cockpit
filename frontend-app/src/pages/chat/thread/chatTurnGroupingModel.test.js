@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { materializeTurnTimelineEntries } from './chatTurnGroupingModel.js';
 
@@ -29,6 +30,13 @@ describe('materializeTurnTimelineEntries', () => {
 
     expect(entries.find((entry) => entry.type === 'process')?.messages.map((item) => item.id)).toEqual(['thinking']);
     expect(entries.find((entry) => entry.message?.id === 'approval')?.type).toBe('message');
+  });
+
+  it('classifies approvals through the single approval adapter', () => {
+    const source = readFileSync('src/pages/chat/thread/chatTurnGroupingModel.js', 'utf8');
+
+    expect(source).toContain('features/approval/model/approvalDecision.js');
+    expect(source).not.toContain('./chatApprovalModel.js');
   });
 
   it('does not create an empty process group for a direct answer', () => {

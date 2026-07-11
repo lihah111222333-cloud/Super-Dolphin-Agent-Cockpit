@@ -3834,12 +3834,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     expect(await screen.findByTestId('approval-request-11')).toHaveTextContent('需要执行 deploy 命令');
-    fireEvent.click(screen.getByRole('button', { name: '同意审批 11' }));
+    fireEvent.click(screen.getByRole('button', { name: '同意' }));
+    expect(backend.respondApproval).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
     await waitFor(() => {
       expect(backend.respondApproval).toHaveBeenCalledWith({ requestId: 11, approved: true });
     });
-    expect(screen.getByRole('button', { name: '同意审批 11' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();
   });
 
   it('interrupts the selected conversation when Escape is pressed', async () => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button as AriaButton, MenuTrigger, Popover } from 'react-aria-components';
 import { ChevronDown, Folder } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
@@ -6,7 +6,7 @@ import { normalizeProjectPath, projectDisplayName, projectOptionsFor } from '../
 import { ProjectDropdown } from './ProjectDropdown.jsx';
 import './ProjectSelector.css';
 
-export function ProjectSelector({ copy = APP_COPY.zh.workbench, store, projectPath }) {
+export function ProjectSelector({ copy = APP_COPY.zh.workbench, store, projectPath, isDisabled = false }) {
   const [open, setOpen] = useState(false);
   const [portalContainer, setPortalContainer] = useState(null);
   const triggerRef = useRef(null);
@@ -28,7 +28,14 @@ export function ProjectSelector({ copy = APP_COPY.zh.workbench, store, projectPa
   const selectedButtonLabel = selected.value === '.'
     ? projectDisplayName(projectPath)
     : projectDisplayName(selected.full || selected.value);
+  useLayoutEffect(() => {
+    if (isDisabled) setOpen(false);
+  }, [isDisabled]);
   const setProjectMenuOpen = (isOpen) => {
+    if (isDisabled) {
+      setOpen(false);
+      return;
+    }
     setOpen(isOpen);
     if (isOpen) return;
     const focus = () => triggerRef.current?.focus?.();
@@ -38,20 +45,25 @@ export function ProjectSelector({ copy = APP_COPY.zh.workbench, store, projectPa
 
   const selectProject = (value) => {
     setOpen(false);
+    if (isDisabled) return false;
     return store.setActiveProjectPath?.(value);
   };
 
   const addProject = () => {
     setOpen(false);
+    if (isDisabled) return false;
     return store.addProjectFromPicker?.();
   };
 
-  const removeProject = (value) => store.removeProjectPath?.(value);
+  const removeProject = (value) => {
+    if (isDisabled) return false;
+    return store.removeProjectPath?.(value);
+  };
 
   return (
     <div className="project-select-wrap">
-      <MenuTrigger isOpen={open} onOpenChange={setProjectMenuOpen}>
-        <AriaButton ref={setTriggerNode} type="button" className="project-select" aria-label={copy.selectProject} title={selected.full === '.' ? projectPath : selected.full}>
+      <MenuTrigger isDisabled={isDisabled} isOpen={open} onOpenChange={setProjectMenuOpen}>
+        <AriaButton ref={setTriggerNode} type="button" className="project-select" aria-label={copy.selectProject} title={selected.full === '.' ? projectPath : selected.full} isDisabled={isDisabled}>
           <Folder size={15} />
           <span>{selectedButtonLabel}</span>
           <ChevronDown size={14} />

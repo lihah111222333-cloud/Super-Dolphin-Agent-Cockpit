@@ -53,6 +53,57 @@ const baseProps = {
 };
 
 describe('ComposerDock', () => {
+  it('keeps one textarea mounted while approval pending makes every composer action inert', () => {
+    const inputRef = React.createRef();
+    const store = createStore({
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+      setActiveProjectPath: vi.fn(),
+    });
+    function ApprovalComposerHarness({ approvalPending }) {
+      const [draft, setDraft] = React.useState('initial approval draft');
+      return (
+        <ComposerDock
+          {...baseProps}
+          approvalPending={approvalPending}
+          canUseProjectActions
+          composer={createComposer()}
+          draft={draft}
+          inputRef={inputRef}
+          setDraft={setDraft}
+          showProjectSelector
+          store={store}
+        />
+      );
+    }
+
+    const { rerender } = render(<ApprovalComposerHarness approvalPending={false} />);
+    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    fireEvent.change(textarea, { target: { value: 'draft kept through approval' } });
+    expect(textarea).toHaveValue('draft kept through approval');
+
+    rerender(<ApprovalComposerHarness approvalPending />);
+    const pendingTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const pendingDock = screen.getByTestId('composer-dock');
+    expect.soft(pendingTextarea).toBe(textarea);
+    expect.soft(pendingTextarea).toHaveValue('draft kept through approval');
+    expect.soft(inputRef.current).toBe(textarea);
+    expect.soft(pendingDock).toHaveAttribute('inert', '');
+    expect.soft(pendingDock).toHaveAttribute('aria-disabled', 'true');
+    for (const name of ['发送消息', '添加文件', '选择模型', '选择项目']) {
+      expect.soft(screen.getByRole('button', { name })).toBeDisabled();
+    }
+
+    rerender(<ApprovalComposerHarness approvalPending={false} />);
+    const settledTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const settledDock = screen.getByTestId('composer-dock');
+    expect.soft(settledTextarea).toBe(textarea);
+    expect.soft(settledTextarea).toHaveValue('draft kept through approval');
+    expect.soft(inputRef.current).toBe(textarea);
+    expect.soft(settledDock).not.toHaveAttribute('inert');
+    expect.soft(settledDock).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
   it('routes primary, attach, paste, and enter actions through props without reserved controls', () => {
     const composer = createComposer();
     const store = createStore();

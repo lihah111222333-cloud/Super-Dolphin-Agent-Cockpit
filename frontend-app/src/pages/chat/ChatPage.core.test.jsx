@@ -35,6 +35,19 @@ function scrollIntentMessages(text = '初始回复') {
   ];
 }
 
+function approvalMessage(requestId, status = 'pending') {
+  return {
+    id: `approval-${requestId}`,
+    kind: 'approval',
+    role: 'assistant',
+    requestId,
+    status,
+    text: `Approval ${requestId}`,
+    time: '2026-06-02T08:00:00Z',
+    done: status !== 'pending',
+  };
+}
+
   it('exports the chat page component', () => {
     expect(TestChatPageWrapper).toBeTypeOf('function');
   });
@@ -137,6 +150,7 @@ function scrollIntentMessages(text = '初始回复') {
         kind: 'approval',
         role: 'assistant',
         requestId: 5,
+        status: 'pending',
         title: 'Run command',
         text: 'Allow command execution?',
         time: '2026-06-15T08:00:00Z',
@@ -146,13 +160,126 @@ function scrollIntentMessages(text = '初始回复') {
     });
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
-    fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+    fireEvent.click(screen.getByRole('button', { name: '同意' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
     const alert = await screen.findByTestId('approval-action-feedback');
     expect(alert).toHaveAttribute('role', 'alert');
     expect(alert).toHaveClass('approval-action-feedback');
     expect(alert).not.toHaveClass('sr-only');
     expect(alert).toHaveTextContent('approval backend offline');
+  });
+
+  it.each([
+    ['disappears', []],
+    ['becomes terminal', [approvalMessage(5, 'approved')]],
+  ])('focuses the still-mounted composer when a same-thread pending approval %s', async (_label, settledMessages) => {
+    const pendingStore = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+    expect(document.activeElement).toBe(nonComposerControl);
+    expect(document.activeElement).not.toBe(originalTextarea);
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore(settledMessages)}
+        projectPath="/repo/app"
+      />,
+    );
+
+    const settledTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect(settledTextarea).toBe(originalTextarea);
+    await Promise.resolve();
+    expect(settledTextarea).toHaveFocus();
+  });
+
+  it('does not focus the new thread composer when an approval settles after a thread switch', async () => {
+    const threadOnePending = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={threadOnePending} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+    expect(document.activeElement).toBe(nonComposerControl);
+    expect(document.activeElement).not.toBe(originalTextarea);
+
+    const threadTwoStore = createActiveThreadStore([], {
+      activeThreadId: 'thread-2',
+      threads: [{ id: 'thread-2', name: '第二线程', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:01:00Z' }],
+      threadTimelineReadyByThread: { 'thread-1': true, 'thread-2': true },
+      timelinesByThread: {
+        'thread-1': [approvalMessage(5, 'approved')],
+        'thread-2': [],
+      },
+    });
+    rerender(<TestChatPageWrapper store={threadTwoStore} projectPath="/repo/app" />);
+    await Promise.resolve();
+
+    const threadTwoTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect(threadTwoTextarea).not.toHaveFocus();
+    expect(document.activeElement).toBe(nonComposerControl);
+  });
+
+  it('does not focus when a settled approval is replaced by a new pending approval', async () => {
+    const pendingStore = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+    expect(document.activeElement).toBe(nonComposerControl);
+    expect(document.activeElement).not.toBe(originalTextarea);
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore([
+          approvalMessage(5, 'approved'),
+          approvalMessage(6),
+        ])}
+        projectPath="/repo/app"
+      />,
+    );
+    await Promise.resolve();
+
+    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect.soft(textarea).toBe(originalTextarea);
+    expect.soft(textarea).not.toHaveFocus();
+    expect.soft(screen.getByTestId('composer-dock')).toHaveAttribute('inert', '');
+  });
+
+  it('does not focus when a pending approval settles alongside a new terminal approval', async () => {
+    const pendingStore = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore([
+          approvalMessage(5, 'approved'),
+          approvalMessage(6, 'rejected'),
+        ])}
+        projectPath="/repo/app"
+      />,
+    );
+    await Promise.resolve();
+
+    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect(textarea).toBe(originalTextarea);
+    expect(textarea).not.toHaveFocus();
+    expect(document.activeElement).toBe(nonComposerControl);
+  });
+
+  it('keeps Conversation as the only explicit composer focus owner', () => {
+    const source = readFileSync('src/pages/chat/thread/Conversation.jsx', 'utf8');
+
+    expect.soft(source.match(/const composerInputRef = useRef\(null\)/g) || []).toHaveLength(1);
+    expect.soft(source).toContain('inputRef={composerInputRef}');
+    expect.soft(source).toMatch(/composerInputRef\.current[\s\S]{0,40}\.focus\(/);
+    expect.soft(source).toMatch(/node\s*&&[\s\S]{0,80}previous\.node === node/);
+    expect.soft(source).not.toContain('document.querySelector');
+    expect.soft(source).not.toContain('document.getElementById');
   });
 
   it('keeps the generic title when active thread metadata is missing', () => {

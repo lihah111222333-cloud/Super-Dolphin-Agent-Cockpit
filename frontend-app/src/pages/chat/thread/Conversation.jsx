@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { approvalRequestFromMessage, isApprovalMessage } from '../../../features/approval/model/approvalDecision.js';
 import { workStatusForThread } from '../adapters/threadStateAdapter.js';
 import { ComposerDock } from '../composer/ComposerDock.jsx';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
@@ -7,7 +8,6 @@ import { runUIAction } from '../model/chatUiActions.js';
 import { firstText, firstTrimmedText, textValue, timeLabelFromTimestamp, trimmedText } from '../markdown/markdownMessageModel.js';
 import { TimelineLoadingPlaceholder, TimelineMessage } from './TimelineMessage.jsx';
 import { TurnProcessGroup } from './TurnProcessGroup.jsx';
-import { isApprovalMessage } from './chatApprovalModel.js';
 import { isReasoningMessage, syntheticReasoningMessage } from './chatReasoningModel.js';
 import { materializeTurnTimelineEntries } from './chatTurnGroupingModel.js';
 import { CONVERSATION_DROP_TARGET_ID, useComposerInteractions } from '../hooks/useComposerInteractions.js';
@@ -85,6 +85,70 @@ function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingRea
   ].join('\u0002');
 }
 
+function conversationIsBusy({ activeThread, activeThreadId, sending, statusEntry, timelineContentBlocked }) {
+  return workStatusForThread({
+    sending,
+    loading: timelineContentBlocked,
+    activeThreadId,
+    activeThread,
+    statusEntry,
+  }).busy;
+}
+
+function approvalSnapshotFromMessages(messages = []) {
+  const knownIds = new Set();
+  let pendingRequest = null;
+  for (const message of messages) {
+    if (!isApprovalMessage(message)) continue;
+    const request = approvalRequestFromMessage(message);
+    knownIds.add(request.requestId);
+    if (request.status === 'pending') pendingRequest = request;
+  }
+  return { knownIds, pendingRequest };
+}
+
+function hasNewApprovalIdentity(previousIds, currentIds) {
+  for (const requestId of currentIds) {
+    if (!previousIds.has(requestId)) return true;
+  }
+  return false;
+}
+
+function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }) {
+  const previousPendingRef = useRef(null);
+  useLayoutEffect(() => {
+    const previous = previousPendingRef.current;
+    const currentPending = snapshot.pendingRequest;
+    const node = composerInputRef.current;
+    if (
+      previous &&
+      !currentPending &&
+      previous.threadId === activeThreadId &&
+      node &&
+      previous.node === node &&
+      !hasNewApprovalIdentity(previous.knownIds, snapshot.knownIds)
+    ) {
+      composerInputRef.current.focus();
+    }
+    if (!currentPending) {
+      previousPendingRef.current = null;
+      return;
+    }
+    if (
+      !previous ||
+      previous.threadId !== activeThreadId ||
+      previous.requestId !== currentPending.requestId
+    ) {
+      previousPendingRef.current = {
+        threadId: activeThreadId,
+        requestId: currentPending.requestId,
+        node,
+        knownIds: snapshot.knownIds,
+      };
+    }
+  }, [activeThreadId, composerInputRef, snapshot]);
+}
+
 function Conversation(props) {
   const {
     copy = APP_COPY.zh.chat,
@@ -109,6 +173,7 @@ function Conversation(props) {
     sendMessage,
   } = props;
   const pendingReasoningTimerRef = useRef(null);
+  const composerInputRef = useRef(null);
   const [pendingReasoningHint, setPendingReasoningHint] = useState(false);
   if (activeTurn && pendingReasoningHint) {
     setPendingReasoningHint(false);
@@ -132,14 +197,7 @@ function Conversation(props) {
     }, 5000);
   }, []);
 
-  const threadStatus = workStatusForThread({
-    sending,
-    loading: timelineContentBlocked,
-    activeThreadId,
-    activeThread,
-    statusEntry,
-  });
-  const isBusy = threadStatus.busy;
+  const isBusy = conversationIsBusy({ activeThread, activeThreadId, sending, statusEntry, timelineContentBlocked });
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
   const lastUserMessage = [...messages].reverse().find((msg) => trimmedText(msg.role).toLowerCase() === 'user');
@@ -147,13 +205,17 @@ function Conversation(props) {
   const pendingReasoning = !introMode && !timelineBlocked && !hasProcessingAfterLastUser && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending: sending || justSent, isBusy, fallbackStartTime })
     : null;
+  const approvalSnapshot = approvalSnapshotFromMessages(messages);
+  const approvalPending = Boolean(approvalSnapshot.pendingRequest);
+  const effectiveCanUseProjectActions = canUseProjectActions && !approvalPending;
+  useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot: approvalSnapshot });
   const composerController = useComposerInteractions({
     attachments,
     attachPaths,
     attachDroppedFiles,
     removeAttachment,
-    projectActionBlocked: !canUseProjectActions,
-    canUseProjectActions,
+    projectActionBlocked: !effectiveCanUseProjectActions,
+    canUseProjectActions: effectiveCanUseProjectActions,
   });
   const autoScrollKey = timelineAutoScrollKey({
     activeThreadId,
@@ -192,6 +254,8 @@ function Conversation(props) {
       composer={composerController}
       copy={copy}
       floating={introMode}
+      inputRef={composerInputRef}
+      approvalPending={approvalPending}
       sendMessage={sendMessageAndScrollToBottom}
       showProviderToggle={!activeThreadId}
     />
@@ -270,6 +334,8 @@ function ConversationComposer({
   showProviderToggle,
   composer,
   canUseProjectActions,
+  inputRef,
+  approvalPending,
 }) {
   return (
     <ComposerDock
@@ -288,6 +354,8 @@ function ConversationComposer({
       showProjectSelector
       composer={composer}
       canUseProjectActions={canUseProjectActions}
+      inputRef={inputRef}
+      approvalPending={approvalPending}
     />
   );
 }
