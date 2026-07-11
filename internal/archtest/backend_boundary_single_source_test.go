@@ -282,9 +282,10 @@ func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 func discoverBackendBoundaryRuleConsumerFiles(root string) ([]string, error) {
 	const archtestDir = "internal/archtest"
 	excluded := map[string]bool{
-		archtestDir + "/backend_boundary_evaluator.go":          true,
-		archtestDir + "/backend_boundary_registry.go":           true,
-		archtestDir + "/backend_boundary_single_source_test.go": true,
+		archtestDir + "/backend_boundary_evaluator.go":            true,
+		archtestDir + "/backend_boundary_registry.go":             true,
+		archtestDir + "/backend_boundary_registry_app_adapter.go": true,
+		archtestDir + "/backend_boundary_single_source_test.go":   true,
 	}
 	var files []string
 	err := filepath.WalkDir(filepath.Join(root, archtestDir), func(path string, entry fs.DirEntry, walkErr error) error {

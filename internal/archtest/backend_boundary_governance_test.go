@@ -50,6 +50,130 @@ func TestBackendBoundaryModuleSurfaceIncludesNoStoreRule(t *testing.T) {
 	t.Fatal("internal/module backend boundary surface is missing")
 }
 
+func TestAppAdapterBoundaryUsesAuditedProductionImports(t *testing.T) {
+	const ruleID = archtest.BoundaryRuleID("app_adapter_narrow_import_surface")
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	rule, ok := registry.Rule(ruleID)
+	if !ok {
+		t.Fatal("app adapter boundary rule is missing")
+	}
+	assertAppAdapterRuleDescriptor(t, rule)
+	storeguardPolicies := assertAppAdapterAllowPolicies(t, rule)
+	evaluation := assertAppAdapterProductionImports(t, registry, ruleID)
+	assertAppAdapterRuleRegistrations(t, registry, ruleID)
+	t.Logf("app adapter production candidates=%d allow_policies=%d storeguard_users=%d", evaluation.ByRule[ruleID], len(rule.Allow), storeguardPolicies)
+}
+
+// assertAppAdapterRuleDescriptor 校验 typed rule 与 production-only 语义。
+func assertAppAdapterRuleDescriptor(t *testing.T, rule archtest.BackendBoundaryRule) {
+	t.Helper()
+	if rule.Owner != archtest.BoundaryOwnerID("app_adapter_boundary") {
+		t.Fatalf("app adapter rule owner = %q", rule.Owner)
+	}
+	if rule.Kind != archtest.BoundaryRuleAllowInternalImports {
+		t.Fatalf("app adapter rule kind = %q", rule.Kind)
+	}
+	if !rule.SkipTestFiles {
+		t.Fatal("app adapter rule must skip test files")
+	}
+}
+
+// assertAppAdapterAllowPolicies 从 canonical rule 统计 storeguard 使用者，并拒绝测试依赖泄漏。
+func assertAppAdapterAllowPolicies(t *testing.T, rule archtest.BackendBoundaryRule) int {
+	t.Helper()
+	storeguardPolicies := 0
+	for _, policy := range rule.Allow {
+		if policy.ImportPrefix == "internal/app/internal/storeguard" {
+			storeguardPolicies++
+			if strings.Contains(policy.FilePattern, "/skill/") || strings.Contains(policy.FilePattern, "/thread/") {
+				t.Fatalf("storeguard policy must not cover skill or thread adapter: %q", policy.FilePattern)
+			}
+		}
+		if isAppAdapterTestOnlyImport(policy.ImportPrefix) {
+			t.Fatalf("production app adapter allow registry contains test-only import %q", policy.ImportPrefix)
+		}
+		if isAppAdapterBroadImport(policy.ImportPrefix) {
+			t.Fatalf("production app adapter allow registry contains broad import %q", policy.ImportPrefix)
+		}
+		if isAppAdapterChildImport(policy.ImportPrefix) && !isAppAdapterAggregatorFile(policy.FilePattern) {
+			t.Fatalf("non-aggregator %q may not import sibling adapter %q", policy.FilePattern, policy.ImportPrefix)
+		}
+	}
+	if storeguardPolicies != 10 {
+		t.Fatalf("storeguard production policies = %d, want 10 actual adapter users", storeguardPolicies)
+	}
+	return storeguardPolicies
+}
+
+// isAppAdapterTestOnlyImport 识别不得进入 production allow registry 的测试依赖前缀。
+func isAppAdapterTestOnlyImport(prefix string) bool {
+	return prefix == "internal/testutil" || strings.HasPrefix(prefix, "internal/testutil/") || prefix == "go.uber.org/fx/fxtest"
+}
+
+// isAppAdapterBroadImport 拒绝会放开整个 module、store 或 adapter family 的前缀。
+func isAppAdapterBroadImport(prefix string) bool {
+	return prefix == "internal/module" || prefix == "internal/store" || prefix == "internal/app/storeadapter" || prefix == "internal/app/runtimeadapter"
+}
+
+// isAppAdapterChildImport 识别只允许由两个根 aggregator 使用的 adapter child imports。
+func isAppAdapterChildImport(prefix string) bool {
+	return strings.HasPrefix(prefix, "internal/app/storeadapter/") || strings.HasPrefix(prefix, "internal/app/runtimeadapter/")
+}
+
+func isAppAdapterAggregatorFile(pattern string) bool {
+	return pattern == "internal/app/storeadapter/module.go" || pattern == "internal/app/runtimeadapter/module.go"
+}
+
+func TestAppAdapterProductionAllowRegistryRejectsTestOnlyImports(t *testing.T) {
+	cases := map[string]bool{
+		"internal/testutil":              true,
+		"internal/testutil/storeadapter": true,
+		"go.uber.org/fx/fxtest":          true,
+		"internal/store/thread":          false,
+	}
+	for prefix, want := range cases {
+		if got := isAppAdapterTestOnlyImport(prefix); got != want {
+			t.Errorf("isAppAdapterTestOnlyImport(%q) = %v, want %v", prefix, got, want)
+		}
+	}
+}
+
+// assertAppAdapterProductionImports 由 canonical evaluator 证明规则命中生产候选且当前实现无违规。
+func assertAppAdapterProductionImports(t *testing.T, registry archtest.BackendBoundaryRegistry, ruleID archtest.BoundaryRuleID) archtest.BoundaryEvaluation {
+	t.Helper()
+	evaluation, err := archtest.EvaluateBackendBoundary(repoRoot(t), registry, ruleID)
+	if err != nil {
+		t.Fatalf("evaluate app adapter boundary: %v", err)
+	}
+	if evaluation.ByRule[ruleID] == 0 || evaluation.CandidateFiles == 0 {
+		t.Fatalf("app adapter production candidates = %#v", evaluation)
+	}
+	if len(evaluation.Violations) != 0 {
+		t.Fatalf("app adapter production imports violate the canonical registry:\n%s", strings.Join(evaluation.Violations, "\n"))
+	}
+	return evaluation
+}
+
+// assertAppAdapterRuleRegistrations 校验 Onion、Cross 与 internal/app surface 共用同一 canonical rule。
+func assertAppAdapterRuleRegistrations(t *testing.T, registry archtest.BackendBoundaryRegistry, ruleID archtest.BoundaryRuleID) {
+	t.Helper()
+	if !slices.Contains(archtest.OnionBoundaryRuleIDs(), ruleID) {
+		t.Errorf("onion rule set is missing %q", ruleID)
+	}
+	if !slices.Contains(archtest.CrossDomainBoundaryRuleIDs(), ruleID) {
+		t.Errorf("cross rule set is missing %q", ruleID)
+	}
+	for _, surface := range registry.Surfaces {
+		if surface.Path == "internal/app" {
+			if !slices.Contains(surface.RuleIDs, ruleID) {
+				t.Fatalf("internal/app rules = %v", surface.RuleIDs)
+			}
+			return
+		}
+	}
+	t.Fatal("internal/app backend boundary surface is missing")
+}
+
 func TestValidateBackendBoundaryGovernanceReportsCanonicalPositions(t *testing.T) {
 	t.Parallel()
 
