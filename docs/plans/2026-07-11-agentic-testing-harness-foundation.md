@@ -121,6 +121,8 @@ git commit -m "chore: 初始化 agentic testing harness 工作区"
 - Create: `packages/contracts/src/adapters.ts`
 - Create: `packages/contracts/src/candidate.ts`
 - Create: `packages/contracts/src/index.ts`
+- Create: `scripts/assert-build-output.mjs`
+- Modify: `package.json`
 - Modify: `tsconfig.json`
 - Test: `packages/contracts/src/protocol.test.ts`
 
@@ -178,11 +180,13 @@ export type SessionResultStatus =
 
 `ActionSchema` contains only `navigate`, `click`, `fill`, `select`, `check`, `press`, `upload`, `window`, `waitFor`, and `finish`. Actions that address UI elements use the `target` field; locator schemas use `kind` as their discriminator and support `role`, `testId`, `label`, and explicit `css`. Every locator requires `strict: true`. Do not introduce the alternate wire shape `locator: { type: ... }`. `TargetAdapter` exposes the approved lifecycle including `classifyAction`.
 
-The response envelope requires `schemaVersion`, `requestId`, `sessionId`, `revision`, `ok`, `data`, and `evidenceRefs` on success; failure replaces `data` with `{ code, message, details }`. Define one recursive `JsonValueSchema`/`JsonValue` contract and use it for all serialized open-value fields, including success `data`, error `details`, candidate oracle expectations, isolation attestation claims, and provision metadata. It must reject `undefined`, functions, `bigint`, non-finite numbers, and nested non-JSON values so every schema-valid envelope survives a JSON stringify/parse round trip.
+The response envelope requires `schemaVersion`, `requestId`, `sessionId`, `revision`, `ok`, `data`, and `evidenceRefs` on success; failure replaces `data` with `{ code, message, details }`. Define one recursive `JsonValueSchema`/`JsonValue` contract and use it for all serialized open-value fields, including success `data`, error `details`, candidate oracle expectations, isolation attestation claims, and provision metadata. It must reject `undefined`, functions, `bigint`, non-finite numbers, cyclic values, sparse or extended arrays, symbol/accessor/non-enumerable properties, class instances, `Map`, `Set`, `RegExp`, `Date`, custom `toJSON`, and nested non-JSON values. Plain objects may use only `Object.prototype` or a null prototype and enumerable string data properties. Every schema-valid envelope must preserve its data through a JSON stringify/parse round trip; TypeBox's permissive record check alone is insufficient.
 
 `isolation.ts` defines `IsolationProvider`, `IsolationAttestation`, and both `LightIsolationReceipt` and `HardIsolationReceipt`. It includes a `VMIsolationProvider` interface but no VM implementation. Pin `@sinclair/typebox@^0.34.41` in the contracts package.
 
 Exclude `src/**/*.test.ts` from `packages/contracts/tsconfig.json` so package build output never publishes test JavaScript or declarations. Keep tests under the root tooling/typecheck project instead.
+
+Root and package builds must recover production output even when `.tmp/*.tsbuildinfo` remains but `dist` has been deleted. Use forced or explicit clean build semantics. `scripts/assert-build-output.mjs` provides a cross-platform persistent guard: it requires `packages/contracts/dist/index.js` and `index.d.ts` and rejects emitted `*.test.js` or `*.test.d.ts`; root `build` and therefore `verify` must run it.
 
 After `packages/contracts/tsconfig.json` exists, replace the bootstrap root config with a solution config that still typechecks Vitest configuration and tests:
 
@@ -209,12 +213,12 @@ After `packages/contracts/tsconfig.json` exists, replace the bootstrap root conf
 ```bash
 npm test -- packages/contracts/src/protocol.test.ts
 npm run typecheck
+node -e "require('node:fs').rmSync('packages/contracts/dist', { recursive: true, force: true })"
 npm run build
-test ! -e packages/contracts/dist/protocol.test.js
-test ! -e packages/contracts/dist/protocol.test.d.ts
+node scripts/assert-build-output.mjs
 ```
 
-Expected: table-driven tests cover every action and locator variant, nested extra fields, missing `strict`, negative revisions, empty identifiers, JSON-only rejection, and serialization round trips. Tests PASS, TypeScript and build exit 0, and package build output contains no test files.
+Expected: table-driven tests cover every action and locator variant, nested extra fields, missing `strict`, negative revisions, empty identifiers, strict plain-JSON rejection, cycles, and serialization round trips. Tests PASS, TypeScript and build exit 0, a cached build restores deleted production entries, and package build output contains no test files.
 
 - [ ] **Step 5: Commit contracts**
 

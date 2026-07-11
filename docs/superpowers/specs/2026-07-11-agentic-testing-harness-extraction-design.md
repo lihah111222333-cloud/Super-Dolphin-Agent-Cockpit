@@ -160,7 +160,7 @@ stdin EOF、`SIGINT`、`SIGTERM`、格式错误的 JSONL 或未捕获的 runtime
 }
 ```
 
-失败 envelope 使用相同顶层字段，并包含稳定错误码、可操作消息和安全的 details。未知字段、未知动作、失效 session、缺少隔离证明或版本不兼容都 fail-fast。
+失败 envelope 使用相同顶层字段，并包含稳定错误码、可操作消息和安全的 details。Envelope 与其他持久化/跨进程开放值只接受 `JSON.parse` 可产生的有限递归数据；不得把 `undefined`、非有限数、函数、`bigint`、循环引用、稀疏数组、symbol/accessor 属性、class instance、`Map`、`Set`、`RegExp`、`Date` 或自定义 `toJSON` 伪装成 JSON object。未知字段、未知动作、失效 session、缺少隔离证明或版本不兼容都 fail-fast。
 
 ### 6.3 SDK
 
