@@ -51,6 +51,77 @@ describe('backend response validators', () => {
     })).toThrow('thread/fork response unsupported kickoff state automatic');
   });
 
+  it('accepts the exact Go UI state status map wire shapes', () => {
+    const response = {
+      threads: [],
+      statuses: { 'thread-1': 'running' },
+      statusHeadersByThread: { 'thread-1': 'Thinking' },
+      statusDetailsByThread: { 'thread-1': 'Inspecting state' },
+      interruptibleByThread: { 'thread-1': true },
+      activityStatsByThread: {
+        'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, toolCalls: { read: 4 } },
+      },
+      agentRuntimeById: { 'thread-1': { agentId: 'agent-1', state: 'running' } },
+    };
+
+    expect(validate(RPC_METHODS.UI_STATE_GET, response)).toBe(response);
+  });
+
+  it.each([
+    ['statuses', ['running'], 'statuses must be an object'],
+    ['statuses', { 'thread-1': { status: 'running' } }, 'statuses.thread-1 must be a string'],
+    ['statuses', { '': 'running' }, 'statuses thread id must be non-empty'],
+    ['statusHeadersByThread', { 'thread-1': false }, 'statusHeadersByThread.thread-1 must be a string'],
+    ['statusDetailsByThread', null, 'statusDetailsByThread must be an object'],
+    ['interruptibleByThread', { 'thread-1': 'true' }, 'interruptibleByThread.thread-1 must be a boolean'],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: '1', commands: 2, fileEdits: 3 } },
+      'activityStatsByThread.thread-1.lspCalls must be an integer',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, toolCalls: { read: 1.5 } } },
+      'activityStatsByThread.thread-1.toolCalls.read must be an integer',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: -1, commands: 2, fileEdits: 3 } },
+      'activityStatsByThread.thread-1.lspCalls must be a non-negative integer',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: 1, commands: -2, fileEdits: 3 } },
+      'activityStatsByThread.thread-1.commands must be a non-negative integer',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: 1, commands: 2, fileEdits: -3 } },
+      'activityStatsByThread.thread-1.fileEdits must be a non-negative integer',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, toolCalls: { read: -1 } } },
+      'activityStatsByThread.thread-1.toolCalls.read must be a non-negative integer',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, toolCalls: { '': 1 } } },
+      'activityStatsByThread.thread-1.toolCalls tool name must be non-blank',
+    ],
+    [
+      'activityStatsByThread',
+      { 'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, toolCalls: { '   ': 1 } } },
+      'activityStatsByThread.thread-1.toolCalls tool name must be non-blank',
+    ],
+    ['agentRuntimeById', { 'thread-1': [] }, 'agentRuntimeById.thread-1 must be an object'],
+  ])('rejects malformed Go UI state %s maps', (field, malformed, message) => {
+    expect(() => validate(RPC_METHODS.UI_STATE_GET, {
+      threads: [],
+      [field]: malformed,
+    })).toThrow(message);
+  });
+
   it('does not treat turn force-complete failure envelopes as success', () => {
     expect(validate(RPC_METHODS.TURN_FORCE_COMPLETE, {
       ok: false,

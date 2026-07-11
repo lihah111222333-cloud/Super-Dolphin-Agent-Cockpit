@@ -318,6 +318,76 @@ function snapshotActiveTurnByThread(state, payload, nextThreads) {
   return { [canonicalThreadId]: { ...normalizedActiveTurn, threadId: canonicalThreadId } };
 }
 
+function snapshotStatusMapValue(payload, mapKey, threadId, canonicalThreadId) {
+  const values = payload[mapKey];
+  if (values === undefined) return undefined;
+  if (hasOwn(values, threadId)) return values[threadId];
+  if (canonicalThreadId !== threadId && hasOwn(values, canonicalThreadId)) return values[canonicalThreadId];
+  return undefined;
+}
+
+function snapshotStatusRuntime(payload, runtimeById, threadId, canonicalThreadId, nextThreads) {
+  const candidates = [threadId, canonicalThreadId];
+  const thread = nextThreads.find((entry) => (
+    threadMatchesIdentifier(entry, threadId) || threadMatchesIdentifier(entry, canonicalThreadId)
+  ));
+  const threadAgentId = normalizeThreadId(thread?.agentId);
+  if (threadAgentId) candidates.push(threadAgentId);
+  for (const agent of Array.isArray(payload.agents) ? payload.agents : optionalUiArray()) {
+    const agentId = normalizeThreadId(agent?.id);
+    const agentThreadId = normalizeThreadId(agent?.thread_id);
+    if (agentThreadId === threadId || agentThreadId === canonicalThreadId || (threadAgentId && agentId === threadAgentId)) {
+      candidates.push(agentThreadId, agentId);
+    }
+  }
+  for (const candidate of candidates.filter((id, index, ids) => id && ids.indexOf(id) === index)) {
+    if (hasOwn(runtimeById, candidate)) return runtimeById[candidate];
+  }
+  return undefined;
+}
+
+function snapshotStatusEntry(value) {
+  if (typeof value === 'string') return { status: value };
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  throw new TypeError('stored thread status entry must be a string or object');
+}
+
+function snapshotStatuses(state, payload, nextThreads, runtimeById, options) {
+  const output = canonicalizeThreadValues(state.statuses, nextThreads, snapshotStatusEntry);
+  if (!hasOwn(payload, 'statuses')) return output;
+  if (!payload.statuses || typeof payload.statuses !== 'object' || Array.isArray(payload.statuses)) {
+    throw new TypeError('UI state statuses must be an object');
+  }
+  for (const [threadId, status] of Object.entries(payload.statuses)) {
+    if (!normalizeThreadId(threadId)) throw new TypeError('UI state statuses thread id must be non-empty');
+    if (typeof status !== 'string') throw new TypeError(`UI state statuses.${threadId} must be a string`);
+    const canonicalThreadId = canonicalizeThreadKey(threadId, nextThreads);
+    const entry = { status };
+    const statusHeader = snapshotStatusMapValue(payload, 'statusHeadersByThread', threadId, canonicalThreadId);
+    const statusDetails = snapshotStatusMapValue(payload, 'statusDetailsByThread', threadId, canonicalThreadId);
+    const interruptible = snapshotStatusMapValue(payload, 'interruptibleByThread', threadId, canonicalThreadId);
+    const activityStats = snapshotStatusMapValue(payload, 'activityStatsByThread', threadId, canonicalThreadId);
+    const agentRuntime = snapshotStatusRuntime(payload, runtimeById, threadId, canonicalThreadId, nextThreads);
+    if (statusHeader !== undefined && statusHeader !== '') entry.statusHeader = statusHeader;
+    if (statusDetails !== undefined && statusDetails !== '') entry.statusDetails = statusDetails;
+    if (interruptible !== undefined) entry.interruptible = interruptible;
+    if (activityStats !== undefined) entry.activityStats = normalizeActivityStats(activityStats);
+    if (agentRuntime !== undefined) entry.agentRuntime = agentRuntime;
+    const existing = output[canonicalThreadId];
+    if (
+      options.preserveLiveBusyStatus === true &&
+      isLiveBusyThreadStatus(existing?.status) &&
+      !isLiveBusyThreadStatus(entry.status)
+    ) continue;
+    if (existing?.status === entry.status) {
+      output[canonicalThreadId] = { ...existing, ...entry };
+      continue;
+    }
+    output[canonicalThreadId] = entry;
+  }
+  return output;
+}
+
 function buildSnapshotState(state, payload = {}, options = {}) {
   /*
    * 线程快照用来刷新列表、状态、指标和 diff。
@@ -347,7 +417,7 @@ function buildSnapshotState(state, payload = {}, options = {}) {
     threadMessagePaginationByThread: timelineState.threadMessagePaginationByThread,
     runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, timelineState.runtimeResultEntries),
     activeTurnByThread: snapshotActiveTurnByThread(state, payload, nextThreads),
-    statuses: { ...state.statuses, ...(payload.statuses || optionalUiObject()) },
+    statuses: snapshotStatuses(state, payload, nextThreads, maps.runtimeById, options),
     ...metrics,
     ...diffState,
   };
