@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -112,10 +113,9 @@ func TestRegisterTranslatorsPublishesProviderErrorForInvalidToolTimestamp(t *tes
 
 // TestToolCallEndReportsPersistFailure 确认 Claude 工具结束事件透传结果持久化失败诊断。
 func TestToolCallEndReportsPersistFailure(t *testing.T) {
-	providershared.SetCaptureToolResultHook(func(providershared.ToolResultMeta, string) providershared.ToolResultRecord {
-		return providershared.ToolResultRecord{Preview: "captured", PersistFailed: true, PersistError: "disk full"}
+	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+		return providershared.ToolResultRecord{Preview: "captured", PersistFailed: true, PersistError: "disk full"}, nil
 	})
-	t.Cleanup(func() { providershared.SetCaptureToolResultHook(nil) })
 	ev, ok := translateToolEvent(dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{"thread_id": "thread-1", "turn_id": "turn-1", "call_id": "call-1", "tool_name": "Read", "success": true, "result": "raw"}})
 	if !ok {
 		t.Fatal("translateToolEvent() ok=false, want ToolCallEnd")
@@ -123,6 +123,29 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 	end, ok := ev.(tooldto.ToolCallEnd)
 	if !ok || end.Result != "captured" || !end.PersistFailed || end.PersistError != "disk full" {
 		t.Fatalf("ToolCallEnd = %+v, want persist failure fields", ev)
+	}
+}
+
+// TestToolCallEndFailsWhenRuntimeCaptureFails 验证捕获依赖错误不会退化成成功事件。
+func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
+	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+		return providershared.ToolResultRecord{}, errors.New("capture unavailable")
+	})
+
+	ev, ok := translateToolEvent(dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{
+		"thread_id": "thread-1",
+		"turn_id":   "turn-1",
+		"call_id":   "call-1",
+		"tool_name": "Read",
+		"success":   true,
+		"result":    "raw",
+	}})
+	if !ok {
+		t.Fatal("translateToolEvent() ok = false, want ToolCallEnd")
+	}
+	end, ok := ev.(tooldto.ToolCallEnd)
+	if !ok || end.Success || !strings.Contains(end.Error, "capture unavailable") {
+		t.Fatalf("ToolCallEnd = %+v, want explicit capture failure", ev)
 	}
 }
 

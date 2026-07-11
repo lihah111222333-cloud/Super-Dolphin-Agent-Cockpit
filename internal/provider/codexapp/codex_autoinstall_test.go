@@ -36,6 +36,10 @@ func TestMain(m *testing.M) {
 	if os.Getenv(codexFakeHelperEnv) == "1" {
 		runFakeCodexProcess()
 	}
+	if err := configureDefaultRuntimeHooksForTest(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "configure codexapp runtime hooks: %v\n", err)
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
 }
 

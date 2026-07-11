@@ -47,6 +47,7 @@ func translateCodexFunctionCallBegin(payload map[string]any) (any, bool) {
 	}, true
 }
 
+// translateCodexMCPToolCallEnd 转换 MCP 工具终态，并显式上报结果捕获错误。
 func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 	item := codexToolItemPayload(payload)
 	switch strings.TrimSpace(stringValue(item, "type")) {
@@ -60,7 +61,11 @@ func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 	}
 	success, errorText := codexMCPToolResultOutcome(item)
 	preview := resultguard.ApplyCodexMCPPreview(success, errorText, codexMCPToolResultPreview(item), codexRolloutToolName(item), item)
-	result := captureCodexRolloutToolResult(header, eventTime(payload), preview)
+	result, captureErr := captureCodexRolloutToolResult(header, eventTime(payload), preview)
+	if captureErr != nil {
+		success = false
+		errorText = appendProviderRuntimeError(errorText, captureErr)
+	}
 	return tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
@@ -85,7 +90,11 @@ func translateCodexFunctionCallOutputEnd(payload map[string]any) (any, bool) {
 		return nil, false
 	}
 	success, errorText := codexFunctionCallOutputOutcome(item)
-	result := captureCodexRolloutToolResult(header, eventTime(payload), stringValue(item, "output"))
+	result, captureErr := captureCodexRolloutToolResult(header, eventTime(payload), stringValue(item, "output"))
+	if captureErr != nil {
+		success = false
+		errorText = appendProviderRuntimeError(errorText, captureErr)
+	}
 	return tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
@@ -285,17 +294,13 @@ func codexFunctionCallOutputOutcome(item map[string]any) (bool, string) {
 }
 
 // captureCodexRolloutToolResult 捕获 rollout/replay 工具结果并保留持久化诊断。
-// 空 hook 只回填 preview；非空 hook 返回的 PersistFailed/PersistError 不能被 fallback 覆盖。
-func captureCodexRolloutToolResult(header shareddto.ToolCallHeader, timestamp time.Time, preview string) providershared.ToolResultRecord {
-	result := providershared.CaptureToolResult(providershared.ToolResultMeta{
+// 运行时依赖缺失或捕获失败必须向 ToolCallEnd 返回显式错误。
+func captureCodexRolloutToolResult(header shareddto.ToolCallHeader, timestamp time.Time, preview string) (providershared.ToolResultRecord, error) {
+	return providershared.CaptureToolResult(providershared.ToolResultMeta{
 		ThreadID:  header.ThreadID,
 		TurnID:    header.TurnID,
 		CallID:    header.CallID,
 		ToolName:  header.ToolName,
 		Timestamp: timestamp,
 	}, preview)
-	if result.Preview == "" && result.PersistedPath == "" && !result.PersistFailed && result.PersistError == "" && !result.Truncated && result.OriginalSize == 0 {
-		result.Preview = preview
-	}
-	return result
 }

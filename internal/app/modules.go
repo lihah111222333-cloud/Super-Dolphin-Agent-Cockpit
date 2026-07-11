@@ -56,6 +56,7 @@ var Module = fx.Options(
 	fx.Provide(NewLogger),
 	fx.Provide(pidregistry.New),
 	fx.Provide(
+		provideProviderRuntimeHooks,
 		provideDashboardOrchestrationReaderPort,
 		provideDashboardOrchestrationReportReaderPort,
 		provideUIStateAgentLister,
@@ -86,7 +87,6 @@ var Module = fx.Options(
 	moduleobservability.Module,
 	appupdate.Module,
 	skill.Module,
-	fx.Invoke(initProviderHooks),
 	thread.Module,
 	turn.Module,
 	turnobservation.Module,
@@ -145,26 +145,30 @@ func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
 }
 
-// initProviderHooks 把 module 层能力接入 provider/shared 钩子。
-// provider 层通过这些钩子使用工具结果捕获和技能块裁剪，避免直接导入 module 包。
-func initProviderHooks() {
-	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
-		result := turn.CaptureToolResult(turn.ToolResultMeta{
-			ThreadID:  meta.ThreadID,
-			TurnID:    meta.TurnID,
-			CallID:    meta.CallID,
-			ToolName:  meta.ToolName,
-			Timestamp: meta.Timestamp,
-		}, raw)
-		return providershared.ToolResultRecord{
-			Preview:       result.Preview,
-			PersistedPath: result.PersistedPath,
-			PersistFailed: result.PersistFailed,
-			PersistError:  result.PersistError,
-			Truncated:     result.Truncated,
-			OriginalSize:  result.OriginalSize,
-		}
+// provideProviderRuntimeHooks 把 module 层能力收窄成 provider/shared 的完整运行时依赖。
+// 返回 readiness token 让 provider 模块通过 Fx 图显式依赖该装配，而不是依赖调用顺序。
+func provideProviderRuntimeHooks() (providershared.RuntimeHooksReady, error) {
+	return providershared.ConfigureRuntimeHooks(providershared.RuntimeHooks{
+		CaptureToolResult: func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+			result := turn.CaptureToolResult(turn.ToolResultMeta{
+				ThreadID:  meta.ThreadID,
+				TurnID:    meta.TurnID,
+				CallID:    meta.CallID,
+				ToolName:  meta.ToolName,
+				Timestamp: meta.Timestamp,
+			}, raw)
+			return providershared.ToolResultRecord{
+				Preview:       result.Preview,
+				PersistedPath: result.PersistedPath,
+				PersistFailed: result.PersistFailed,
+				PersistError:  result.PersistError,
+				Truncated:     result.Truncated,
+				OriginalSize:  result.OriginalSize,
+			}, nil
+		},
+		ResetToolResultScope: func(threadID, turnID string) error {
+			turn.ResetToolResultScope(threadID, turnID)
+			return nil
+		},
 	})
-	providershared.SetResetToolResultScopeHook(turn.ResetToolResultScope)
-	providershared.SetTrimSkillBlocksHook(skill.TrimInjectedSkillBlocks)
 }

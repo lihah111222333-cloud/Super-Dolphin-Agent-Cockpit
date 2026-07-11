@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -31,79 +32,59 @@ type ToolResultRecord struct {
 }
 
 // CaptureToolResultFunc 是工具结果捕获 hook 的函数签名。
-type CaptureToolResultFunc func(meta ToolResultMeta, raw string) ToolResultRecord
+type CaptureToolResultFunc func(meta ToolResultMeta, raw string) (ToolResultRecord, error)
 
 // ResetToolResultScopeFunc 是清理指定 thread/turn 工具结果作用域的函数签名。
-type ResetToolResultScopeFunc func(threadID, turnID string)
+type ResetToolResultScopeFunc func(threadID, turnID string) error
 
-var captureToolResultHook atomic.Pointer[CaptureToolResultFunc]
-var resetToolResultScopeHook atomic.Pointer[ResetToolResultScopeFunc]
-
-// SetCaptureToolResultHook 设置全局工具结果捕获 hook。
-// module/turn 在 fx init 注入实现；nil 会清空 hook，便于测试隔离。
-func SetCaptureToolResultHook(fn CaptureToolResultFunc) {
-	if fn == nil {
-		captureToolResultHook.Store(nil)
-		return
-	}
-	captureToolResultHook.Store(&fn)
+// RuntimeHooks 集中描述 provider 运行时依赖，必须由 Fx 根图一次性完整装配。
+type RuntimeHooks struct {
+	CaptureToolResult    CaptureToolResultFunc
+	ResetToolResultScope ResetToolResultScopeFunc
 }
 
-// SetResetToolResultScopeHook 设置全局工具结果作用域清理 hook。
-// 该 hook 用于 turn 结束或重置时释放 provider 层缓存。
-func SetResetToolResultScopeHook(fn ResetToolResultScopeFunc) {
-	if fn == nil {
-		resetToolResultScopeHook.Store(nil)
-		return
+// RuntimeHooksReady 是 provider 模块要求的 Fx readiness token。
+// 只有 ConfigureRuntimeHooks 完成全量校验后才能生成。
+type RuntimeHooksReady struct{}
+
+var runtimeHooks atomic.Pointer[RuntimeHooks]
+
+// ConfigureRuntimeHooks 原子发布完整 hook bundle，缺少任一核心能力都会阻断 Fx 装配。
+func ConfigureRuntimeHooks(hooks RuntimeHooks) (RuntimeHooksReady, error) {
+	if hooks.CaptureToolResult == nil {
+		return RuntimeHooksReady{}, fmt.Errorf("provider runtime hooks: capture tool result is required")
 	}
-	resetToolResultScopeHook.Store(&fn)
+	if hooks.ResetToolResultScope == nil {
+		return RuntimeHooksReady{}, fmt.Errorf("provider runtime hooks: reset tool result scope is required")
+	}
+	runtimeHooks.Store(&hooks)
+	return RuntimeHooksReady{}, nil
 }
 
 // CaptureToolResult 调用已注册的工具结果捕获 hook。
-// 未注册时返回零值记录，provider 调用方不需要关心模块是否已装配。
-func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
-	ptr := captureToolResultHook.Load()
-	if ptr == nil {
-		return ToolResultRecord{}
+// 根图未装配时立即失败，禁止返回零值记录掩盖工具结果丢失。
+func CaptureToolResult(meta ToolResultMeta, raw string) (ToolResultRecord, error) {
+	hooks, err := configuredRuntimeHooks()
+	if err != nil {
+		return ToolResultRecord{}, err
 	}
-	return (*ptr)(meta, raw)
+	return hooks.CaptureToolResult(meta, raw)
 }
 
 // ResetToolResultScope 调用已注册的作用域清理 hook。
-// 未注册时是 no-op，避免 provider 单测必须装配 turn 模块。
-func ResetToolResultScope(threadID, turnID string) {
-	ptr := resetToolResultScopeHook.Load()
-	if ptr == nil {
-		return
+// 根图未装配时立即失败，禁止静默保留跨 turn 缓存。
+func ResetToolResultScope(threadID, turnID string) error {
+	hooks, err := configuredRuntimeHooks()
+	if err != nil {
+		return err
 	}
-	(*ptr)(threadID, turnID)
+	return hooks.ResetToolResultScope(threadID, turnID)
 }
 
-// ---------------------------------------------------------------------------
-// 技能注入块裁剪 hook。
-// ---------------------------------------------------------------------------
-
-// TrimInjectedSkillBlocksFunc 是裁剪 prompt 中技能注入块的函数签名。
-type TrimInjectedSkillBlocksFunc func(text string) string
-
-var trimSkillBlocksHook atomic.Pointer[TrimInjectedSkillBlocksFunc]
-
-// SetTrimSkillBlocksHook 设置全局技能块裁剪 hook。
-// module/skill 在 fx init 注入实现；nil 会清空 hook。
-func SetTrimSkillBlocksHook(fn TrimInjectedSkillBlocksFunc) {
-	if fn == nil {
-		trimSkillBlocksHook.Store(nil)
-		return
+func configuredRuntimeHooks() (*RuntimeHooks, error) {
+	hooks := runtimeHooks.Load()
+	if hooks == nil {
+		return nil, fmt.Errorf("provider runtime hooks are not configured")
 	}
-	trimSkillBlocksHook.Store(&fn)
-}
-
-// TrimInjectedSkillBlocks 调用已注册的技能块裁剪 hook。
-// 未注册时返回原文，保证 provider 可独立运行。
-func TrimInjectedSkillBlocks(text string) string {
-	ptr := trimSkillBlocksHook.Load()
-	if ptr == nil {
-		return text
-	}
-	return (*ptr)(text)
+	return hooks, nil
 }

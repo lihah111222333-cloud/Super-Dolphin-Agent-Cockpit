@@ -206,11 +206,16 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 		}, true
 	case "turn:complete":
 		header := turnHeader(raw.Data)
-		providershared.ResetToolResultScope(header.ThreadID, header.TurnID)
+		success := dataBool(raw.Data, "success")
+		errorText := dataString(raw.Data, "error")
+		if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
+			success = false
+			errorText = appendProviderRuntimeError(errorText, err)
+		}
 		return turndto.TurnCompleted{
 			TurnHeader: header,
-			Success:    dataBool(raw.Data, "success"),
-			Error:      dataString(raw.Data, "error"),
+			Success:    success,
+			Error:      errorText,
 			Status:     dataString(raw.Data, "status"),
 			Reason:     dataString(raw.Data, "reason"),
 			Result:     dataString(raw.Data, "result"),
@@ -233,17 +238,23 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 		}, true
 	case "tool:use_end":
 		header := toolHeader(raw.Data)
-		result := providershared.CaptureToolResult(providershared.ToolResultMeta{
+		result, captureErr := providershared.CaptureToolResult(providershared.ToolResultMeta{
 			ThreadID:  header.ThreadID,
 			TurnID:    header.TurnID,
 			CallID:    header.CallID,
 			ToolName:  header.ToolName,
 			Timestamp: eventTime(raw.Data),
 		}, dataString(raw.Data, "result"))
+		success := dataBool(raw.Data, "success")
+		errorText := dataString(raw.Data, "error")
+		if captureErr != nil {
+			success = false
+			errorText = appendProviderRuntimeError(errorText, captureErr)
+		}
 		return tooldto.ToolCallEnd{
 			ToolCallHeader: header,
-			Success:        dataBool(raw.Data, "success"),
-			Error:          dataString(raw.Data, "error"),
+			Success:        success,
+			Error:          errorText,
 			Result:         result.Preview,
 			PersistedPath:  result.PersistedPath,
 			PersistFailed:  result.PersistFailed,
@@ -254,6 +265,17 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// appendProviderRuntimeError 保留 provider 原始失败，并附加运行时依赖错误。
+func appendProviderRuntimeError(current string, err error) string {
+	if err == nil {
+		return current
+	}
+	if strings.TrimSpace(current) == "" {
+		return err.Error()
+	}
+	return current + "; " + err.Error()
 }
 
 // agentSessionHeader 从事件 data 中抽取 agent/session 公共头。

@@ -13,6 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
@@ -215,5 +216,10 @@ var Module = fx.Module("provider.claudecli",
 		fx.Annotate(provideDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
 	),
-	fx.Invoke(RegisterTranslators),
+	fx.Invoke(registerTranslatorsWithRuntimeHooks),
 )
+
+// registerTranslatorsWithRuntimeHooks 让 Claude 事件面显式依赖 provider runtime hooks readiness。
+func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, _ providershared.RuntimeHooksReady) {
+	RegisterTranslators(dispatcher)
+}

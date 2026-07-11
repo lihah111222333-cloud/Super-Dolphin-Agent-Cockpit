@@ -17,6 +17,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
@@ -37,8 +38,13 @@ var Module = fx.Module("provider.codexapp",
 		// peer 启动、重启和退出收敛到这里，避免散落 goroutine 绕过生命周期管理。
 		fx.Annotate(provideDefaultPeerSupervisor, fx.ResultTags(`group:"runners"`)),
 	),
-	fx.Invoke(RegisterTranslators),
+	fx.Invoke(registerTranslatorsWithRuntimeHooks),
 )
+
+// registerTranslatorsWithRuntimeHooks 让 Codex 事件面显式依赖 provider runtime hooks readiness。
+func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, _ providershared.RuntimeHooksReady) {
+	RegisterTranslators(dispatcher)
+}
 
 // provideDefaultPeerSupervisor 构造生产使用的 PeerSupervisor runner。
 // 独立函数让 fx.Annotate 可以把具体类型收窄为 platformrunner.Runner。

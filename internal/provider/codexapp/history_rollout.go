@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sessionpaths"
-	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillblocks"
 )
 
 type rolloutLine struct {
@@ -244,10 +244,10 @@ func trimInjectedLSPHint(text string) string {
 	return text
 }
 
-// trimInjectedSkillBlock 委托共享包裁剪 provider 注入的技能块。
-// Claude 与 Codex 共用识别规则，新增 marker 形态只需在 rollout_markers.go 维护一次。
+// trimInjectedSkillBlock 委托公共纯函数裁剪 provider 注入的技能块。
+// Claude 与 Codex 共用识别规则，新增 marker 形态只需在 pkg/skillblocks 维护一次。
 func trimInjectedSkillBlock(text string) string {
-	return providershared.TrimInjectedSkillBlocks(text)
+	return skillblocks.TrimInjectedSkillBlocks(text)
 }
 
 func normalizeRolloutInputType(kind string) string {

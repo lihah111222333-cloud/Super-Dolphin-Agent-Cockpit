@@ -19,10 +19,14 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestCodexAppProviderContract(t *testing.T) {
+	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+		return providershared.ToolResultRecord{}, nil
+	})
 	contracttest.Run(t, CompleteCodexAppContractSpec())
 }
 

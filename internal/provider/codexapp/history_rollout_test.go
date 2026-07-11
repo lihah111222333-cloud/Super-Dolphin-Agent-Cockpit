@@ -1,15 +1,8 @@
 package codexapp
 
-import (
-	"testing"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
-	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
-)
+import "testing"
 
 func TestParseRolloutLineTrimsInjectedAndSystemNoise(t *testing.T) {
-	providershared.SetTrimSkillBlocksHook(skill.TrimInjectedSkillBlocks)
-	t.Cleanup(func() { providershared.SetTrimSkillBlocksHook(nil) })
 	raw := []byte(`{"timestamp":"2026-03-21T01:02:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\nignored\n</environment_context>\nhello world\n[skill:planner]\n摘要: do planning\n使用方式: use planner first\n已注入 LSP mandatory prefix"}]}}`)
 
 	msg, ok := parseRolloutLine(raw)

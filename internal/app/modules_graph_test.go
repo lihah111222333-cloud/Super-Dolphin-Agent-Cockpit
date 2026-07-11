@@ -26,6 +26,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 )
@@ -221,6 +222,12 @@ func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.
 		want      string
 	}{
 		{
+			name:      "codexapp missing runtime hooks",
+			module:    codexapp.Module,
+			omissions: []providerGraphOmission{omitRuntimeHooks},
+			want:      "shared.RuntimeHooksReady",
+		},
+		{
 			name:      "codexapp missing runtime reporter",
 			module:    codexapp.Module,
 			omissions: []providerGraphOmission{omitRuntimeReporter},
@@ -237,6 +244,12 @@ func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.
 			module:    codexapp.Module,
 			omissions: []providerGraphOmission{omitDependencyConfig, omitContractConfig},
 			want:      "codex dependency profile is required",
+		},
+		{
+			name:      "claudecli missing runtime hooks",
+			module:    claudecli.Module,
+			omissions: []providerGraphOmission{omitRuntimeHooks},
+			want:      "shared.RuntimeHooksReady",
 		},
 		{
 			name:      "claudecli missing runtime reporter",
@@ -375,6 +388,7 @@ type providerGraphOmission string
 
 const (
 	omitRuntimeReporter  providerGraphOmission = "runtime_reporter"
+	omitRuntimeHooks     providerGraphOmission = "runtime_hooks"
 	omitProviderMirror   providerGraphOmission = "provider_mirror"
 	omitSessionRecovery  providerGraphOmission = "session_recovery"
 	omitDependencyConfig providerGraphOmission = "dependency_config"
@@ -401,6 +415,9 @@ func providerProductionGraphOptions(module fx.Option, omissions ...providerGraph
 func appendProviderGraphCoreDependencies(opts []fx.Option, omitted map[providerGraphOmission]bool) []fx.Option {
 	if !omitted[omitRuntimeReporter] {
 		opts = append(opts, fx.Provide(func() contract.RuntimeReporter { return graphTestRuntimeReporter{} }))
+	}
+	if !omitted[omitRuntimeHooks] {
+		opts = append(opts, fx.Supply(providershared.RuntimeHooksReady{}))
 	}
 	if !omitted[omitProviderMirror] {
 		opts = append(opts, fx.Provide(func() contract.SkillMirrorReconciler { return graphTestSkillMirror{} }))

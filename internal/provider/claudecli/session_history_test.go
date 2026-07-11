@@ -3,14 +3,9 @@ package claudecli
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
-	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
 func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {
-	providershared.SetTrimSkillBlocksHook(skill.TrimInjectedSkillBlocks)
-	t.Cleanup(func() { providershared.SetTrimSkillBlocksHook(nil) })
 	t.Parallel()
 
 	messages := []Message{

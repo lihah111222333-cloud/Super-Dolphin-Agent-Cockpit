@@ -433,7 +433,7 @@ flowchart LR
 | `events.go` | `SkillsChanged` debounce 事件。 |
 | `exec*.go` | `command/exec` 安全执行与 token 化检查。 |
 | `approval*.go` / `trust.go` | 审批缓存、trust scope。 |
-| `rollout_markers.go` | rollout marker 文件。 |
+| `pkg/skillblocks/skillblocks.go` | Claude/Codex 共用的 rollout marker 解析与裁剪纯函数；位于公共叶子包，skill 模块不再通过全局 hook 注入。 |
 
 ---
 

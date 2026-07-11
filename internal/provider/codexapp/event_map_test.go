@@ -3,6 +3,7 @@ package codexapp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -548,7 +549,7 @@ func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *t
 }
 
 func TestToolCallEndReportsPersistFailure(t *testing.T) {
-	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
+	configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 		if meta.CallID != "call-grep" || meta.ToolName != "mcp__lsp__grep" {
 			t.Fatalf("capture meta = %+v, want call-grep/mcp__lsp__grep", meta)
 		}
@@ -562,9 +563,8 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 			PersistError:  "disk full",
 			Truncated:     true,
 			OriginalSize:  1234,
-		}
+		}, nil
 	})
-	t.Cleanup(func() { providershared.SetCaptureToolResultHook(nil) })
 
 	var got []any
 	translateCodexEvent(dto.RawProviderEvent{
@@ -608,6 +608,29 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 	}{`{"captured":true}`, "/tmp/tool-result.json", "disk full", true, true, 1234}
 	if summary != wantSummary {
 		t.Fatalf("ToolCallEnd capture fields = %+v, want %+v", summary, wantSummary)
+	}
+}
+
+// TestToolCallEndFailsWhenRuntimeCaptureFails 验证捕获依赖错误不会退化成成功事件。
+func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
+	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+		return providershared.ToolResultRecord{}, errors.New("capture unavailable")
+	})
+
+	ev, ok := translateToolEvent("tool.call.end", map[string]any{
+		"threadId": "thread-1",
+		"turnId":   "turn-1",
+		"callId":   "call-1",
+		"toolName": "Read",
+		"success":  true,
+		"result":   "raw",
+	})
+	if !ok {
+		t.Fatal("translateToolEvent() ok = false, want ToolCallEnd")
+	}
+	end, ok := ev.(tooldto.ToolCallEnd)
+	if !ok || end.Success || !strings.Contains(end.Error, "capture unavailable") {
+		t.Fatalf("ToolCallEnd = %+v, want explicit capture failure", ev)
 	}
 }
 

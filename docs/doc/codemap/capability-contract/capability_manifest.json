@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2243,
+    "total_functions": 2246,
     "total_methods": 1138,
     "total_interfaces": 184,
     "total_interface_methods": 364,
-    "total_exported": 1258,
-    "total_unexported": 2901,
-    "total_structs": 594
+    "total_exported": 1257,
+    "total_unexported": 2907,
+    "total_structs": 596
   },
   "packages": [
     {
@@ -38310,6 +38310,23 @@
           ]
         },
         {
+          "name": "appendProviderRuntimeError",
+          "exported": false,
+          "params": [
+            {
+              "name": "current",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "appendRuntimeContextToSnapshotBoundary",
           "exported": false,
           "params": [
@@ -40525,6 +40542,20 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "registerTranslatorsWithRuntimeHooks",
+          "exported": false,
+          "params": [
+            {
+              "name": "dispatcher",
+              "type": "*unified.EventDispatcher"
+            },
+            {
+              "name": "_",
+              "type": "providershared.RuntimeHooksReady"
+            }
           ]
         },
         {
@@ -44412,6 +44443,23 @@
           ]
         },
         {
+          "name": "appendProviderRuntimeError",
+          "exported": false,
+          "params": [
+            {
+              "name": "current",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "applyMcpLSPPeerWorkspaceEnv",
           "exported": false,
           "params": [
@@ -44952,7 +45000,8 @@
             }
           ],
           "returns": [
-            "providershared.ToolResultRecord"
+            "providershared.ToolResultRecord",
+            "error"
           ]
         },
         {
@@ -44969,7 +45018,8 @@
             }
           ],
           "returns": [
-            "providershared.ToolResultRecord"
+            "providershared.ToolResultRecord",
+            "error"
           ]
         },
         {
@@ -49037,6 +49087,20 @@
           ]
         },
         {
+          "name": "registerTranslatorsWithRuntimeHooks",
+          "exported": false,
+          "params": [
+            {
+              "name": "dispatcher",
+              "type": "*unified.EventDispatcher"
+            },
+            {
+              "name": "_",
+              "type": "providershared.RuntimeHooksReady"
+            }
+          ]
+        },
+        {
           "name": "releaseSessionPoolSlot",
           "exported": false,
           "params": [
@@ -50364,6 +50428,23 @@
           "returns": [
             "any",
             "bool"
+          ]
+        },
+        {
+          "name": "translateTurnTerminalEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "turndto.TurnCompleted"
           ]
         },
         {
@@ -59689,7 +59770,8 @@
             }
           ],
           "returns": [
-            "ToolResultRecord"
+            "ToolResultRecord",
+            "error"
           ]
         },
         {
@@ -59742,6 +59824,20 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "ConfigureRuntimeHooks",
+          "exported": true,
+          "params": [
+            {
+              "name": "hooks",
+              "type": "RuntimeHooks"
+            }
+          ],
+          "returns": [
+            "RuntimeHooksReady",
+            "error"
           ]
         },
         {
@@ -59926,6 +60022,9 @@
               "name": "turnID",
               "type": "string"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -59999,36 +60098,6 @@
           ]
         },
         {
-          "name": "SetCaptureToolResultHook",
-          "exported": true,
-          "params": [
-            {
-              "name": "fn",
-              "type": "CaptureToolResultFunc"
-            }
-          ]
-        },
-        {
-          "name": "SetResetToolResultScopeHook",
-          "exported": true,
-          "params": [
-            {
-              "name": "fn",
-              "type": "ResetToolResultScopeFunc"
-            }
-          ]
-        },
-        {
-          "name": "SetTrimSkillBlocksHook",
-          "exported": true,
-          "params": [
-            {
-              "name": "fn",
-              "type": "TrimInjectedSkillBlocksFunc"
-            }
-          ]
-        },
-        {
           "name": "SplitConfigStringSlice",
           "exported": true,
           "params": [
@@ -60078,19 +60147,6 @@
           ],
           "returns": [
             "[]string"
-          ]
-        },
-        {
-          "name": "TrimInjectedSkillBlocks",
-          "exported": true,
-          "params": [
-            {
-              "name": "text",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string"
           ]
         },
         {
@@ -60237,6 +60293,14 @@
           ],
           "returns": [
             "[]string",
+            "error"
+          ]
+        },
+        {
+          "name": "configuredRuntimeHooks",
+          "exported": false,
+          "returns": [
+            "*RuntimeHooks",
             "error"
           ]
         },
@@ -60937,6 +61001,14 @@
       "structs": [
         {
           "name": "ProviderStartupGateError",
+          "exported": true
+        },
+        {
+          "name": "RuntimeHooks",
+          "exported": true
+        },
+        {
+          "name": "RuntimeHooksReady",
           "exported": true
         },
         {

@@ -28,8 +28,8 @@ internal/app/frontend_embed_contract_test.go	internal	other	go-test	2482	root Fx
 internal/app/internal/storeguard/nil_test.go	internal	other	go-test	1681	adapter 共享的 typed-nil fail-fast 检查 helper	internal,app,storeguard,nil,test,adapter,共享的,typed-nil,fail-fast,检查,helper
 internal/app/internal/storeguard/nil.go	internal	other	go-source	561	adapter 共享的 typed-nil fail-fast 检查 helper	internal,app,storeguard,nil,adapter,共享的,typed-nil,fail-fast,检查,helper
 internal/app/modules_e2efixture_test.go	internal	other	go-test	3871	root Fx/app 装配、runner 与 graph closure	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,graph,closure
-internal/app/modules_graph_test.go	internal	other	go-test	18081	root Fx/app 装配、runner 与 graph closure	internal,app,modules,graph,test,root,Fx,装配,runner,与,closure
-internal/app/modules.go	internal	other	go-source	7361	root Fx/app 装配、runner 与 graph closure	internal,app,modules,root,Fx,装配,runner,与,graph,closure
+internal/app/modules_graph_test.go	internal	other	go-test	18719	root Fx/app 装配、runner 与 graph closure	internal,app,modules,graph,test,root,Fx,装配,runner,与,closure
+internal/app/modules.go	internal	other	go-source	7521	root Fx/app 装配、runner 与 graph closure	internal,app,modules,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,graph,closure
@@ -39,7 +39,7 @@ internal/app/observability_trace_adapters.go	internal	other	go-source	3023	root 
 internal/app/orchestration_adapter_ports_test.go	internal	other	go-test	10127	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,adapter,ports,test,root,Fx,装配,runner,与,graph,closure
 internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	16057	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,dag,runtime,adapter,test,root,Fx,装配,runner,与,graph,closure
 internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	12661	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,graph,closure
-internal/app/provider_hooks_contract_test.go	internal	other	go-test	1071	root Fx/app 装配、runner 与 graph closure	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,graph,closure
+internal/app/provider_hooks_contract_test.go	internal	other	go-test	931	root Fx/app 装配、runner 与 graph closure	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,graph,closure
 internal/app/runner_test.go	internal	other	go-test	7376	root Fx/app 装配、runner 与 graph closure	internal,app,runner,test,root,Fx,装配,与,graph,closure
 internal/app/runner.go	internal	other	go-source	8049	root Fx/app 装配、runner 与 graph closure	internal,app,runner,root,Fx,装配,与,graph,closure
 internal/app/runtime_reporter_adapter.go	internal	other	go-source	2586	root Fx/app 装配、runner 与 graph closure	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,graph,closure
@@ -120,7 +120,7 @@ internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test
 internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2084	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	7524	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	42025	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	42216	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_analyzer_test.go	internal	other	go-test	26114	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,analyzer,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_test.go	internal	other	go-test	6977	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_test.go	internal	other	go-test	27100	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,test,架构守卫,baseline,ratchet,与冻结规则
@@ -483,6 +483,8 @@ pkg/logger/trace_context_test.go	pkg	other	go-test	10008	统一日志、采样�
 pkg/logger/trace_context.go	pkg	other	go-source	751	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,统一日志,采样,relay,watchdog,与
 pkg/logger/truncate.go	pkg	other	go-source	581	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,truncate,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/watchdog.go	pkg	other	go-source	1702	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
+pkg/skillblocks/skillblocks_test.go	pkg	other	go-test	16763	可复用公共库	pkg,skillblocks,test,可复用公共库
+pkg/skillblocks/skillblocks.go	pkg	other	go-source	9983	可复用公共库	pkg,skillblocks,可复用公共库
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	2042	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
 run-new-ui-desktop.ps1	(root)	other	script	31794	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件

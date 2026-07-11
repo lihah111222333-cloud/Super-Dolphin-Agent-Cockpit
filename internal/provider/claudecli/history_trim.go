@@ -3,7 +3,7 @@ package claudecli
 import (
 	"strings"
 
-	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillblocks"
 )
 
 const claudeSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
@@ -52,16 +52,16 @@ func normalizeClaudeHistoryMessage(msg Message) (Message, bool) {
 }
 
 func trimInjectedClaudeLSPHint(text string) string {
-	if idx := strings.Index(text, "\n已注入"); idx >= 0 {
-		return text[:idx]
+	if before, _, ok := strings.Cut(text, "\n已注入"); ok {
+		return before
 	}
 	return text
 }
 
-// trimInjectedClaudeSkillBlock 委托共享包裁剪 provider 注入的技能块。
+// trimInjectedClaudeSkillBlock 委托公共纯函数裁剪 provider 注入的技能块。
 // Claude 和 Codex 必须共用识别规则，否则同一线程跨 provider 恢复时历史会不一致。
 func trimInjectedClaudeSkillBlock(text string) string {
-	return providershared.TrimInjectedSkillBlocks(text)
+	return skillblocks.TrimInjectedSkillBlocks(text)
 }
 
 func isClaudeSystemNoiseText(text string) bool {

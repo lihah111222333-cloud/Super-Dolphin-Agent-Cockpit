@@ -334,22 +334,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 // terminal event 会先重置 tool result scope，避免下一轮复用上一轮的工具结果缓存。
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
-		header := buildTurnHeader(payload)
-		providershared.ResetToolResultScope(header.ThreadID, header.TurnID)
-		success := turnTerminalSuccess(eventType, payload)
-		return turndto.TurnCompleted{
-			TurnHeader: header,
-			Success:    success,
-			Error:      turnTerminalError(success, payload),
-			Status:     stringValue(payload, "status"),
-			Reason:     stringValue(payload, "reason"),
-			// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
-			// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。
-			Result:     stringValue(payload, "result"),
-			Summary:    stringValue(payload, "summary"),
-			Message:    stringValue(payload, "message"),
-			StopReason: stringValue(payload, "stop_reason"),
-		}, true
+		return translateTurnTerminalEvent(eventType, payload), true
 	}
 	switch eventType {
 	case "turn/started", "turn.started":
@@ -397,6 +382,30 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 		return turnOutputDelta(payload, "stdout"), true
 	default:
 		return nil, false
+	}
+}
+
+// translateTurnTerminalEvent 构造终态事件，并把作用域清理失败提升为 turn 失败。
+func translateTurnTerminalEvent(eventType string, payload map[string]any) turndto.TurnCompleted {
+	header := buildTurnHeader(payload)
+	success := turnTerminalSuccess(eventType, payload)
+	errorText := turnTerminalError(success, payload)
+	if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
+		success = false
+		errorText = appendProviderRuntimeError(errorText, err)
+	}
+	return turndto.TurnCompleted{
+		TurnHeader: header,
+		Success:    success,
+		Error:      errorText,
+		Status:     stringValue(payload, "status"),
+		Reason:     stringValue(payload, "reason"),
+		// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
+		// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。
+		Result:     stringValue(payload, "result"),
+		Summary:    stringValue(payload, "summary"),
+		Message:    stringValue(payload, "message"),
+		StopReason: stringValue(payload, "stop_reason"),
 	}
 }
 
@@ -488,13 +497,17 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		}
 		header := buildToolCallHeader(payload)
 		success, errorText := toolEventEndOutcome(eventType, payload)
-		result := providershared.CaptureToolResult(providershared.ToolResultMeta{
+		result, captureErr := providershared.CaptureToolResult(providershared.ToolResultMeta{
 			ThreadID:  header.ThreadID,
 			TurnID:    header.TurnID,
 			CallID:    header.CallID,
 			ToolName:  header.ToolName,
 			Timestamp: eventTime(payload),
 		}, jsonPreview(payload, "result", "content"))
+		if captureErr != nil {
+			success = false
+			errorText = appendProviderRuntimeError(errorText, captureErr)
+		}
 		return tooldto.ToolCallEnd{
 			ToolCallHeader: header,
 			Success:        success,
@@ -524,6 +537,17 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// appendProviderRuntimeError 保留 provider 原始失败，并附加运行时依赖错误。
+func appendProviderRuntimeError(current string, err error) string {
+	if err == nil {
+		return current
+	}
+	if strings.TrimSpace(current) == "" {
+		return err.Error()
+	}
+	return current + "; " + err.Error()
 }
 
 func decodeRawEventPayload(data any) (map[string]any, error) {

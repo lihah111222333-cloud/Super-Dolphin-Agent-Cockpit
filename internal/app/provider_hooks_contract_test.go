@@ -1,44 +1,30 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
+
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
-func TestProviderHooksAreWiredThroughAppAssembly(t *testing.T) {
-	t.Parallel()
-
-	source := readProviderHooksContractFile(t, "internal", "app", "modules.go")
-	required := []string{
-		"providershared.SetCaptureToolResultHook",
-		"turn.CaptureToolResult",
-		"providershared.SetResetToolResultScopeHook",
-		"turn.ResetToolResultScope",
-		"providershared.SetTrimSkillBlocksHook",
-		"skill.TrimInjectedSkillBlocks",
+// TestProviderRuntimeHooksAreWiredThroughAppAssembly 验证根图适配器能发布完整依赖。
+func TestProviderRuntimeHooksAreWiredThroughAppAssembly(t *testing.T) {
+	if _, err := provideProviderRuntimeHooks(); err != nil {
+		t.Fatalf("provideProviderRuntimeHooks() error = %v", err)
 	}
-	for _, token := range required {
-		if !strings.Contains(source, token) {
-			t.Fatalf("modules.go missing provider hook contract token %q", token)
-		}
-	}
-}
 
-func readProviderHooksContractFile(t *testing.T, parts ...string) string {
-	t.Helper()
-
-	_, current, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
-	path := filepath.Join(append([]string{root}, parts...)...)
-	raw, err := os.ReadFile(path)
+	result, err := providershared.CaptureToolResult(providershared.ToolResultMeta{
+		ThreadID: "thread-1",
+		TurnID:   "turn-1",
+		CallID:   "call-1",
+		ToolName: "Read",
+	}, "result")
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatalf("CaptureToolResult() error = %v", err)
 	}
-	return string(raw)
+	if result.Preview != "result" {
+		t.Fatalf("CaptureToolResult().Preview = %q, want result", result.Preview)
+	}
+	if err := providershared.ResetToolResultScope("thread-1", "turn-1"); err != nil {
+		t.Fatalf("ResetToolResultScope() error = %v", err)
+	}
 }

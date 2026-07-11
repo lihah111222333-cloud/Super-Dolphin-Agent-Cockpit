@@ -395,6 +395,9 @@ func TestOnNotification_CodexRolloutResponseItemToolResultDispatchesToolEnd(t *t
 }
 
 func TestOnNotification_CodexRolloutResponseItemFunctionCallOutputDispatchesToolEnd(t *testing.T) {
+	configureCaptureRuntimeHookForTest(t, func(_ providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+		return providershared.ToolResultRecord{Preview: raw, OriginalSize: len(raw)}, nil
+	})
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
 	RegisterTranslators(dispatcher)
@@ -426,7 +429,7 @@ func TestOnNotification_CodexRolloutResponseItemFunctionCallOutputDispatchesTool
 	if !strings.Contains(end.Result, "smoke.go") {
 		t.Fatalf("Result = %q, want function_call_output text", end.Result)
 	}
-	assertToolCallEndPersistence(t, end, toolCallEndPersistenceSummary{})
+	assertToolCallEndPersistence(t, end, toolCallEndPersistenceSummary{originalSize: 34})
 }
 
 // TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure verifies function_call_output uses the shared persistence capture path.
@@ -497,7 +500,7 @@ func assertToolCallEndPersistence(t *testing.T, end tooldto.ToolCallEnd, want to
 // installFunctionCallOutputPersistFailureHook injects a failing capture hook for function_call_output tests.
 func installFunctionCallOutputPersistFailureHook(t *testing.T) {
 	t.Helper()
-	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
+	configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 		if meta.CallID != "call-file" || meta.ToolName != "file" {
 			t.Fatalf("capture meta = %+v, want call-file/file", meta)
 		}
@@ -511,9 +514,8 @@ func installFunctionCallOutputPersistFailureHook(t *testing.T) {
 			PersistError:  "disk full",
 			Truncated:     true,
 			OriginalSize:  2048,
-		}
+		}, nil
 	})
-	t.Cleanup(func() { providershared.SetCaptureToolResultHook(nil) })
 }
 
 func TestOnNotification_CodexRolloutFunctionCallOutputAfterResultDoesNotPublishNamelessEnd(t *testing.T) {

@@ -1,4 +1,5 @@
-package skill
+// Package skillblocks 解析并裁剪 provider 历史中的技能注入标记。
+package skillblocks
 
 import (
 	"regexp"
