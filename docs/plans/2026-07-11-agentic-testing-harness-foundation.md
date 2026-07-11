@@ -6,7 +6,7 @@
 
 **Architecture:** Contracts 提供唯一协议真值；Core 维护 session、revision、policy、budget 和 ledger；SDK 在单进程内装配 light isolation、Web adapter 和 Playwright runtime；CLI 保持 runtime handle 并把 SDK 能力映射为 JSONL；Skill 只驱动 CLI。Foundation 不实现写 session、Docker、Electron 或 Wails mock。
 
-**Tech Stack:** Node.js 20、npm workspaces、TypeScript 5.9、Vitest 4、Playwright 1.61、TypeBox、YAML、Jiti、ESLint。
+**Tech Stack:** Node.js 20.19.0+、22.13.0+ 或 24+、npm workspaces、TypeScript 5.9、Vitest 4、Playwright 1.61、TypeBox、YAML、Jiti、ESLint。
 
 **Verification Surface:** `packages/contracts`、`packages/core`、`packages/isolation`、`packages/runtime-playwright`、`packages/adapter-web`、`packages/sdk`、`packages/cli`、Web fixture、Codex Skill、fresh-install package smoke。
 
@@ -21,6 +21,7 @@
 **Files:**
 - Create: `/Users/l4place/Documents/agentic-testing-harness/package.json`
 - Create: `/Users/l4place/Documents/agentic-testing-harness/package-lock.json`
+- Create: `/Users/l4place/Documents/agentic-testing-harness/tsconfig.json`
 - Create: `/Users/l4place/Documents/agentic-testing-harness/tsconfig.base.json`
 - Create: `/Users/l4place/Documents/agentic-testing-harness/vitest.config.ts`
 - Create: `/Users/l4place/Documents/agentic-testing-harness/eslint.config.js`
@@ -48,7 +49,7 @@ Expected: `git branch --show-current` prints `codex/foundation`.
   "private": true,
   "type": "module",
   "workspaces": ["packages/*", "examples/*"],
-  "engines": { "node": ">=20" },
+  "engines": { "node": "^20.19.0 || ^22.13.0 || >=24" },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
@@ -56,7 +57,7 @@ Expected: `git branch --show-current` prints `codex/foundation`.
     "test": "vitest run",
     "test:unit": "vitest run packages",
     "test:e2e:web": "vitest run tests/e2e/web-session.test.ts",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build"
+    "verify": "npm run lint && npm run typecheck && npm test -- --passWithNoTests && npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -70,7 +71,22 @@ Expected: `git branch --show-current` prints `codex/foundation`.
 }
 ```
 
-Create `tsconfig.base.json` with `target: ES2022`, `module` and `moduleResolution: NodeNext`, `strict: true`, `declaration: true`, `composite: true`, `noUncheckedIndexedAccess: true`, and `exactOptionalPropertyTypes: true`. Configure Vitest to include `packages/**/*.test.ts` and `tests/**/*.test.ts`. Configure ESLint for Node ESM TypeScript and ignore `dist`, `runs`, and fixture build output.
+Create `tsconfig.base.json` with `target: ES2022`, `module` and `moduleResolution: NodeNext`, `strict: true`, `declaration: true`, `composite: true`, `noUncheckedIndexedAccess: true`, and `exactOptionalPropertyTypes: true`. Configure Vitest to include `packages/**/*.test.ts` and `tests/**/*.test.ts`. Configure ESLint for Node ESM TypeScript and ignore `dist`, `runs`, and fixture build output. README must state Node.js 20.19.0+、22.13.0+ 或 24+，与 ESLint 10 的真实 engine 范围一致，不得笼统声明支持 Node 21、Node 23 或较早的 Node 20/22。
+
+Create the root solution entry point required by the fixed `tsc -b` scripts:
+
+```json
+{
+  "extends": "./tsconfig.base.json",
+  "include": ["vitest.config.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": "./.tmp/tsconfig.tsbuildinfo"
+  }
+}
+```
+
+This bootstrap config gives `tsc -b` one real TypeScript input without adding fake product source. Task 2 replaces it with a solution config after the first package project exists; later package tasks append project references without changing the build command.
 
 - [ ] **Step 3: Install and prove the empty workspace is valid**
 
@@ -86,7 +102,7 @@ Expected: all commands exit 0 and `package-lock.json` is created.
 - [ ] **Step 4: Commit the workspace boundary**
 
 ```bash
-git add package.json package-lock.json tsconfig.base.json vitest.config.ts eslint.config.js .gitignore README.md
+git add package.json package-lock.json tsconfig.json tsconfig.base.json vitest.config.ts eslint.config.js .gitignore README.md
 git diff --cached --check
 git commit -m "chore: 初始化 agentic testing harness 工作区"
 ```
@@ -104,6 +120,7 @@ git commit -m "chore: 初始化 agentic testing harness 工作区"
 - Create: `packages/contracts/src/adapters.ts`
 - Create: `packages/contracts/src/candidate.ts`
 - Create: `packages/contracts/src/index.ts`
+- Modify: `tsconfig.json`
 - Test: `packages/contracts/src/protocol.test.ts`
 
 - [ ] **Step 1: Write failing protocol tests**
@@ -164,6 +181,17 @@ The response envelope requires `schemaVersion`, `requestId`, `sessionId`, `revis
 
 `isolation.ts` defines `IsolationProvider`, `IsolationAttestation`, and both `LightIsolationReceipt` and `HardIsolationReceipt`. It includes a `VMIsolationProvider` interface but no VM implementation. Pin `@sinclair/typebox@^0.34.41` in the contracts package.
 
+After `packages/contracts/tsconfig.json` exists, replace the bootstrap root config with:
+
+```json
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" }
+  ]
+}
+```
+
 - [ ] **Step 4: Run contract tests and typecheck**
 
 ```bash
@@ -176,7 +204,7 @@ Expected: tests PASS and TypeScript exits 0.
 - [ ] **Step 5: Commit contracts**
 
 ```bash
-git add packages/contracts package.json package-lock.json
+git add packages/contracts package.json package-lock.json tsconfig.json
 git diff --cached --check
 git commit -m "feat: 定义 harness 版本化能力契约"
 ```
@@ -706,7 +734,7 @@ Expected: FAIL because Skill, workflow, and package helper do not exist.
 
 - [ ] **Step 3: Implement Skill and reproducible CI**
 
-Skill instructions run `ath doctor`, select read mode for ordinary exploration, hold the stream process handle, send one JSON request at a time, stop on any contract/policy/isolation error, and report `explored` separately from `candidate` or `replay_passed`. CI installs Node 20, runs `npm ci`, runs `npx playwright install --with-deps chromium` on Linux, then lint/typecheck/test/build/package smoke. macOS and Windows run unit, Web fixture, and package smoke with `npx playwright install chromium`.
+Skill instructions run `ath doctor`, select read mode for ordinary exploration, hold the stream process handle, send one JSON request at a time, stop on any contract/policy/isolation error, and report `explored` separately from `candidate` or `replay_passed`. CI installs Node 20.19.0, runs `npm ci`, runs `npx playwright install --with-deps chromium` on Linux, then lint/typecheck/test/build/package smoke. macOS and Windows run unit, Web fixture, and package smoke with `npx playwright install chromium`.
 
 - [ ] **Step 4: Run the complete Foundation gate**
 

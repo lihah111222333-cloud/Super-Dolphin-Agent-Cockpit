@@ -6,7 +6,7 @@
 
 **Architecture:** 独立 npm workspace 以 contracts 为稳定边界，Core 管理 session、policy 和 evidence，SDK 装配 runtime、adapter 与 isolation，`ath session stream` 通过单个长连接 JSONL 进程向 Codex Skill 暴露能力。实现被拆成三个可独立验收的计划，禁止在 Foundation 尚未通过时并行开放写路径或迁移产品场景。
 
-**Tech Stack:** Node.js 20、TypeScript 5.9、npm workspaces、Vitest 4、Playwright 1.61、TypeBox、Docker、Electron、Codex `SKILL.md`。
+**Tech Stack:** Node.js 20.19.0+、22.13.0+ 或 24+、TypeScript 5.9、npm workspaces、Vitest 4、Playwright 1.61、TypeBox、Docker、Electron、Codex `SKILL.md`。
 
 **Verification Surface:** 独立仓库 contracts/core/SDK/CLI、Web/Electron/Wails mock fixtures、Docker 隔离与 adversarial tests、Super-Dolphin `frontend-app`、codemap 与 repo guards。
 
