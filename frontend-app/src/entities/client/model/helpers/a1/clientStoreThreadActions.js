@@ -47,6 +47,34 @@ import {
 } from './clientStoreSendModel.js';
 import { writeThreadInfoClipboard } from './clientStoreThreadClipboard.js';
 
+const APPROVAL_SUBMIT_TIMEOUT_MS = 15_000;
+const APPROVAL_SUBMIT_TIMEOUT_CODE = 'APPROVAL_SUBMIT_TIMEOUT';
+
+function approvalSubmitTimeoutError() {
+  const error = new Error('审批提交超时');
+  error.code = APPROVAL_SUBMIT_TIMEOUT_CODE;
+  return error;
+}
+
+function approvalSubmitIsTimeout(error) {
+  return error?.code === APPROVAL_SUBMIT_TIMEOUT_CODE;
+}
+
+async function respondApprovalWithinTimeout(params) {
+  let timeoutId = 0;
+  try {
+    return await Promise.race([
+      respondApprovalRPC(params),
+      new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(approvalSubmitTimeoutError()), APPROVAL_SUBMIT_TIMEOUT_MS);
+      }),
+    ]);
+  }
+  finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function promotedDashboardCommandState(state, request, started) {
   return {
     ...promotedDraftThreadState(state, request, started),
@@ -182,7 +210,7 @@ async function respondApprovalAction(runtime, item, approved) {
   }
   runtime.set((state) => approvalSubmitPatch(state, requestId, decision));
   try {
-    const result = await respondApprovalRPC({ requestId, approved: decision });
+    const result = await respondApprovalWithinTimeout({ requestId, approved: decision });
     if (result?.ok === false) {
       warnApprovalNotPending(runtime, requestId, decision);
       return false;
@@ -192,6 +220,7 @@ async function respondApprovalAction(runtime, item, approved) {
   }
   catch (error) {
     warnApprovalFailed(runtime, requestId, decision, error);
+    if (approvalSubmitIsTimeout(error)) throw error;
     return false;
   }
   finally {

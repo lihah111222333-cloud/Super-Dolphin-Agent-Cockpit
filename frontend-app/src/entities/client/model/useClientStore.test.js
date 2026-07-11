@@ -6378,6 +6378,63 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
   });
 
+  it('times out the owned approval attempt and keeps a retried request isolated from the late transport', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstApproval = deferred();
+      const secondApproval = deferred();
+      backend.respondApproval
+        .mockReturnValueOnce(firstApproval.promise)
+        .mockReturnValueOnce(secondApproval.promise);
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+      });
+
+      let firstOutcome;
+      const first = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+      const firstHandled = first.then(
+        (value) => { firstOutcome = { status: 'fulfilled', value }; },
+        (error) => { firstOutcome = { status: 'rejected', error }; },
+      );
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushPromises();
+
+      expect(firstOutcome).toMatchObject({
+        status: 'rejected',
+        error: { code: 'APPROVAL_SUBMIT_TIMEOUT', message: '审批提交超时' },
+      });
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+
+      const second = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+      await flushPromises();
+      expect(backend.respondApproval).toHaveBeenCalledTimes(2);
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
+        approved: true,
+        inFlight: true,
+      }));
+
+      firstApproval.resolve({ ok: true });
+      await flushPromises();
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
+        approved: true,
+        inFlight: true,
+      }));
+
+      secondApproval.resolve({ ok: true });
+      await expect(second).resolves.toBe(true);
+      await firstHandled;
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not call interrupt when the selected running thread has no active turn id', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

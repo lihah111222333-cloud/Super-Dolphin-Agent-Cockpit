@@ -174,6 +174,11 @@ describe('ChatApprovalMessage', () => {
     expect(legacySource).toMatch(/export\s*\{[\s\S]*\}\s*from\s*['"][^'"]*features\/approval\/model\/approvalDecision\.js['"]/);
     expect(legacySource).not.toMatch(/\bfunction\b|new Set\s*\(/);
   });
+
+  it('delegates approval timeout ownership to the client store', () => {
+    const source = readFileSync('src/pages/chat/thread/ChatApprovalMessage.jsx', 'utf8');
+    expect(source).not.toMatch(/Promise\.race|setTimeout|APPROVAL_TIMEOUT/);
+  });
 });
 
 describe('ChatApprovalMessage bug-locking', () => {
@@ -196,22 +201,22 @@ describe('ChatApprovalMessage bug-locking', () => {
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
   });
 
-  it('shows timeout errors and lets the user retry without auto double-submit', async () => {
-    vi.useFakeTimers();
-    const onApproval = vi.fn(() => new Promise(() => {})); // never resolves
+  it('shows store-owned timeout errors and lets the user retry explicitly', async () => {
+    const timeoutError = Object.assign(new Error('审批提交超时'), { code: 'APPROVAL_SUBMIT_TIMEOUT' });
+    const onApproval = vi.fn()
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce(true);
     const onError = vi.fn();
     render(
       <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
     );
     confirmChoice('同意');
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    // microtask flush so catch/finally in submitApproval completes
-    await act(async () => { await Promise.resolve(); });
-    expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时');
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时'));
     expect(screen.getByRole('alert')).toHaveTextContent('审批提交超时');
+    expect(screen.getByRole('button', { name: '同意' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
-    expect(onApproval).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(onApproval).toHaveBeenCalledTimes(2));
   });
 });

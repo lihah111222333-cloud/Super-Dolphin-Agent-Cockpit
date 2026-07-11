@@ -2,30 +2,19 @@ import { approvalRequestFromMessage, approvalSubmissionFor } from '../../../feat
 import { ApprovalDecisionShelf } from '../../../features/approval/ui/ApprovalDecisionShelf.jsx';
 import { MessageContent } from '../markdown/MarkdownMessage.jsx';
 
-const APPROVAL_TIMEOUT_MS = 15_000;
-
 function ChatApprovalMessage({ message, actions, formatTime }) {
   const request = approvalRequestFromMessage(message);
   const title = (message.title || message.command || '审批请求').toString().trim();
   const confirmApproval = typeof actions?.onApproval === 'function'
     ? async (choice) => {
         const submission = approvalSubmissionFor(request, choice);
-        let timeoutId = 0;
         try {
-          return await Promise.race([
-            actions.onApproval(message, submission.approved),
-            new Promise((_, reject) => {
-              timeoutId = window.setTimeout(() => reject(new Error('审批提交超时')), APPROVAL_TIMEOUT_MS);
-            }),
-          ]);
+          return await actions.onApproval(message, submission.approved);
         }
         catch (error) {
           const messageText = error instanceof Error ? error.message : String(error);
           actions.onError?.('approval.failed', messageText);
           throw error instanceof Error ? error : new Error(messageText);
-        }
-        finally {
-          window.clearTimeout(timeoutId);
         }
       }
     : undefined;
