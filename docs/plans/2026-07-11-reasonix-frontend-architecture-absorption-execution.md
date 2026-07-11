@@ -1729,3 +1729,127 @@ RED预期dirty边界严格为6个文件：新建2个test，修改4个既有test�
 
 - B2.3没有修改production、package、timeout或全局fallback；修复范围严格为setup及5个已批准test files，另更新本记录。
 - 到此立即停止：不build、不stage/commit，不进入Task 8、不push。等待主控复核与Task 7后续收口授权。
+
+## TASK 8 — INTEGRATION / FINAL EVIDENCE AUDIT
+
+### STATE
+
+`DONE — FINAL GATES PASSED / AWAITING ATOMIC COMMIT`（Task 7原子提交、前端全量门禁、UI MCP当前能力面、embed manifest、仓库generated/repository checks、LSP与11.3行为证据审计均已完成，已满足本计划11.5完成定义；此`DONE`只表示计划实现与最终门禁完成，**不表示已经merge或push**）
+
+### TASK 7 ATOMIC COMMIT / HOOK-OWNED GENERATED ARTIFACTS
+
+- Task 7提交为`fefa7d851a3daeb0d0170de6a6fbf6dc1a02fcb8`（`feat(frontend): 统一语义层级与 overlay host`），parent为Task 6提交`6791cb72039db21517719db384d69a4c75c4ea48`。
+- commit hook在原32条显式实现路径之外，由单一project-map generator写入并自动纳入以下5个生成物：
+  - `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`
+  - `docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json`
+  - `docs/doc/codemap/project-map/AI_PROJECT_MAP.md`
+  - `docs/doc/codemap/project-map/index/app-ui.tsv`
+  - `docs/doc/codemap/project-map/index/docs-agent.tsv`
+- 主控逐项审阅后接受其语义：manifest/map/drift同步本次新增及迁移后的前端模块、守卫与文档边；`app-ui.tsv`同步App/UI/overlay/layer-token相关源码与测试入口；`docs-agent.tsv`同步本执行记录。它们是hook-owned生成器输出，不是第二真相源、手工修补或允许amend/rewrite提交的理由。
+- commit hook完整通过：codemap/project-map refresh、lint、两轮128/128 files与1573/1573 tests、两轮build、frontend embed verify、code guards、archtest及提交信息/测试守卫；commit后worktree clean，未push。
+
+### 11.2 FRONTEND / UI MCP / EMBED GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 95 | `cd frontend-app && npm run lint` | 0 | ESLint全量通过 |
+| 96 | `cd frontend-app && npm test` | 0 | critical/silent-async/contract-store/code-size/z-index guards、contracts typecheck与RPC audit均PASS；Vitest 128/128 files、1573/1573 tests，Duration 77.55s |
+| 97 | `cd frontend-app && npm run build` | 0 | Vite production build处理5551 modules；dist同步成功 |
+| 98 | `cd frontend-app && npm run mcp:ui-test:acceptance` | 0 | `UI test MCP acceptance passed` |
+| 99 | `cd frontend-app && npm run mcp:ui-test:scenario` | 0 | `UI test MCP scenario passed: frontend_navigation_probe` |
+| 100 | `make frontend-embed-verify` | 0 | build/manifest逐文件一致；smoke SHA-256=`0fb374cd2b6c25a94907ba91bf861b125ec14aa4c354ae41489b8382d4a43f71` |
+
+scenario生成的临时证据为`frontend-app/.tmp/ui-test-mcp-scenarios/1783792670468-frontend_navigation_probe.json`。主控只读审阅确认`success=true`、9/9 steps passed、Error/Warning/Information/Hint四类diagnostics均为空，文件SHA-256为`146ba4ec48c1350d8e2d0df22c7558665508a796bf90408d66a727ffd1801a43`。它是本任务运行时临时证据，不属于正式生成产物；主控明确授权后，仅用精确文件删除清理该JSON，未删除或改写其他路径，随后worktree恢复clean。
+
+### 11.4 GENERATED CHECKS / REPOSITORY GUARDS
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 101 | `scripts/refresh_generated_artifacts.sh codemap --check` | 0 | archtest map/README up to date；`ai-index.json`为365 files、1464 total refs、350 sections、19 codemaps |
+| 102 | `scripts/refresh_generated_artifacts.sh project-map --check` | 0 | 10 files up to date，`drift=OK` |
+| 103 | `scripts/refresh_generated_artifacts.sh capcontract --check` | 0 | 41 packages、2243 functions、1138 methods、184 interfaces，up to date |
+| 104 | `make codemap-check` | 0 | 同一archtest-map与codemap生成器只读复检通过 |
+| 105 | `make project-map-check` | 0 | 10 files up to date，`drift=OK` |
+| 106 | `make capcontract-check` | 0 | capability contract manifest up to date |
+| 107 | `make guard` | 0 | 入口守卫与代码守卫全部通过；production/test frozen均0，priority SSA违规0；archtest输出17.094s与最终20.827s两轮均PASS |
+| 108 | `git diff --check` | 0 | 无whitespace错误；每项后status hash均保持empty-tree SHA |
+
+以上全部是只读`--check`/guard结果。本检查点没有执行refresh、没有修复生成物，也没有用`make guard`替代capcontract复检。
+
+#### FINAL GENERATED REFRESH ROUND 1
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 109 | pre-refresh `codemap --check` | 0 | 365 files、1464 refs、350 sections、19 codemaps，up to date |
+| 110 | pre-refresh `project-map --check` | 0 | 10 files up to date，`drift=OK`；没有预期的execution record尺寸漂移 |
+| 111 | pre-refresh `capcontract --check` | 0 | 41 packages、2243 functions、1138 methods、184 interfaces，up to date |
+| 112 | `scripts/refresh_generated_artifacts.sh project-map` | 0 | 4408 files、7 domains、`drift=OK`；未产生generated diff，dirty仍只有execution record |
+| 113 | post-refresh三项`--check` | 0 | codemap、project-map、capcontract全部保持up to date |
+| 114 | 三项make check | 0 | `make codemap-check`、`make project-map-check`、`make capcontract-check`全部通过 |
+| 115 | `make guard` | 0 | 入口/代码守卫通过，production/test frozen=0、priority SSA=0；archtest两轮19.473s与18.578s均PASS |
+| 116 | `git diff --check` / dirty review | 0 | 仅本执行记录109 insertions、0 deletions；没有generated或untracked额外路径 |
+
+主控随后从generator源码确认round 1无project-map diff的根因：project-map生成器不是读取worktree中的未暂存文本，而是通过`git ls-files -s`取得index条目，再用`git cat-file`读取对应index blob。round 1运行时本执行记录尚未stage，因此generator的输入仍是`HEAD@fefa7d851`中的旧blob；“10 files up to date / refresh无diff”只证明旧index输入自洽，不证明未暂存的新记录已进入生成输入。本结论不把round 1误写成对新文档blob的最终生成验证。
+
+### FINAL CHANGED INVENTORY / LSP DIAGNOSTICS
+
+实现范围锁定为Task 0提交`31c94421e82835560847723b29eb04bf70796543..fefa7d851a3daeb0d0170de6a6fbf6dc1a02fcb8`，共99条路径：
+
+| 分类 | 数量 | 判定 |
+|---|---:|---|
+| 现存production源码 | 52 | 37 JS/JSX/MJS、14 CSS、1 HTML |
+| 已删除legacy production | 1 | `src/pages/chat/thread/chatApprovalModel.js`，Git inventory为`D`且现存production引用0 |
+| tests / test support | 37 | 包含全局test setup与chat test support |
+| docs / generated | 8 | codemap/project-map与本执行记录 |
+| package manifest | 1 | `frontend-app/package.json` |
+
+- 当前LSP批量diagnostics：37个JS/JSX/MJS production、14个CSS、1个HTML均为`No diagnostics found`、total 0；11.3矩阵涉及的18个测试文件追加diagnostics同样total 0。
+- 所有52个现存production源码均取得逐文件零diagnostic证据；没有把build、lint、shell查询或guard当成diagnostics。
+
+### TASK 1–7 FINAL JS OWNER / XREF AUDIT
+
+| Task | 关键symbol与引用结论 | 旧owner / adapter / ref收敛 |
+|---:|---|---|
+| 1 | `createThreadOpenCoordinator` hover确认只暴露`begin/cancel/invalidate/isCurrent/canReleaseTarget`；xref 7条，唯一production实例在`createThreadSelectionActions`的单store closure | `openingStarted` production命中0；Sidebar只传opaque `selectionIntent`，monotonic id不进入业务store/snapshot |
+| 2 | `useScrollIntentManager` xref 5条，唯一production consumer为`Conversation`；单一`intentRef`控制stream/load/mutation/resize | `shouldStickToBottomRef`与`userScrolledRef` production命中0；旧平行stickiness owner已删除 |
+| 3 | `validateThreadRecoverResponse` xref为定义与`THREAD_RECOVER` map两处，严格消费`thread/recovered/mode`；`recoverActiveThreadRPC`声明xref为local closure与`Object.assign`两处，LSP grep定位唯一store action consumer | 只保留per-thread requesting map与action notice；header从active-thread pending派生，未新增长期recovered/conflict真相。dynamic runtime property call本身不建xref edge，已按执行记录用声明xref+LSP grep/read裁决 |
+| 4 | `AppErrorBoundary` definition成功、xref 13条；唯一production mount为`main.jsx`，顺序为`StrictMode -> AppErrorBoundary -> Profiler -> App` | render crash containment与reporter注入只有根owner；未复制dev harness collector或client/store依赖 |
+| 5 | `approvalRequestFromMessage` xref 13条覆盖`ChatApprovalMessage`与`Conversation`实际consumer | `chatApprovalModel.js`在Git inventory为删除，production LSP grep命中0，仅negative source-contract tests提及；新领域仍为approval-only adapter |
+| 6 | `createShellLayoutStore`从App import可definition/hover到唯一factory，xref 14条；production owner为`AppShell` lazy store | 旧`appShellModel` key、client base、`store.rightPanelWidth`、`store.setRightPanelWidth`均命中0；`rightPanelOpen`与`threadRailWidth`未迁移 |
+| 7 | `requiredOverlayRoot` xref 4条覆盖App与OverlayPortal；`OverlayPortal` xref 11条，唯一production consumer为`FocusTrapDialog`；`FocusTrapDialog` xref 47条并继续拥有focus/ARIA/Escape/restore | production `createPortal`仅OverlayPortal import+call两条；`portalContainer`与`document.body` fallback命中0；CSS token符号边见下方能力blocker |
+
+### 11.3 BEHAVIOR EVIDENCE MATRIX
+
+Vitest配置只排除`tests/e2e/**`等非unit目录；当前仓库恰有128个可发现测试文件，而11.2 fresh run为128/128 files、1573/1573 tests，因此下列测试文件均实际进入该轮运行。矩阵18个相关文件没有`.skip/.only/.todo`。
+
+| 行为 | fresh 1573-test run中的实际证据 |
+|---|---|
+| A/B/C快速线程选择 | `threadOpenCoordinator.test.js`：monotonic identity与matching cancel；`useClientStore.test.js`：distinct intents、stale sync/resolve/canonical-id不提交；补充`WorkbenchSidebarProjectTree.test.jsx`的cross-project A→B→A token传递 |
+| streaming上翻不抢滚动 | `scrollIntentModel.test.js`：stream/load/mutation/resize只在sticky时follow；`useScrollIntentManager.test.jsx`：单reading intent统一gate；`ChatPage.scroll.test.jsx`与`ChatPage.core.test.jsx`：stickiness disabled不抢滚动、End/显式bottom恢复 |
+| recover accepted/failed | `backendResponseValidators.test.js`：canonical recovery envelope；`threadLifecycleRuntime.test.js`与`useClientStore.test.js`：accepted、recovered=false、pending exactly-once、stale active gate；`chatHeaderModel.test.js`/`ChatPageHeader.test.jsx`：requesting与accepted文案且不声称recovered |
+| React render crash | `AppErrorBoundary.test.jsx`：contain/retry/reload与根顺序；`frontendCrashReport.test.js`：稳定脱敏payload、reporter failure containment、global handler幂等；`frontendBreadcrumbs.test.js`：shared sanitizer与bounded ring |
+| approval exactly-once/focus | `approvalDecision.test.js`：strict approval adapter；`ApprovalDecisionShelf.test.jsx`：选择/确认分离与pending duplicate block；`useClientStore.test.js`：request-id in-flight idempotence；`ChatPage.core.test.jsx`：thread switch、新pending/terminal竞态下focus唯一owner |
+| z-index层级 | `frontend-z-index-token-guard.test.mjs`：exact nine tokens、unknown/fallback/duplicate/global-selector失败fixture；`styles.test.js`：39条声明/11个文件、host唯一性/顺序/stacking-context；另有11.2 production build exit 0 |
+
+`mcp:ui-test:acceptance`只证明当前MCP contract、composer isolated submit与diagnostics；本轮默认scenario只证明`frontend_navigation_probe`的9步导航探针。它们**不是**线程竞态、timeline scroll、recovery、approval或render crash的替代证据；这些行为只由上表Vitest证据证明。
+
+### LSP CAPABILITY BLOCKERS — ACCEPTED AND LOCKED
+
+共同`work_dir`：`/Users/mima0000/Desktop/wj/super-agent-v3/.worktrees/reasonix-frontend-absorption-20260711`。
+
+1. **CSS custom-property跨文件symbol edge不可得**
+   - 先用`mcp__lsp.grep(action=text_search)`把目标收窄为`--z-overlay-popover`的唯一声明`frontend-app/src/shared/styles/LayerTokens.css:7:3`与消费`frontend-app/src/pages/chat/runtime/RuntimePanel.css:635:16`，并显式指定`language_id=css`。
+   - `mcp__lsp.inspect(action=definition, pos=frontend-app/src/pages/chat/runtime/RuntimePanel.css:635:18)`返回`total=0`、`no definition found`。
+   - `mcp__lsp.xref(action=references, pos=frontend-app/src/shared/styles/LayerTokens.css:7:5)`只返回声明自身1条，不返回跨文件消费。
+2. **HTML id与JS selector之间symbol edge不可得**
+   - 先用`mcp__lsp.grep(action=text_search)`把目标收窄到`frontend-app/index.html:11`的`overlay-root` host与`frontend-app/src/shared/ui/OverlayPortal.jsx:11`的selector，并用`mcp__lsp.file(action=read_file)`精读exact HTML，HTML调用显式指定`language_id=html`。
+   - `mcp__lsp.inspect(action=definition, pos=frontend-app/src/shared/ui/OverlayPortal.jsx:11:47)`返回`total=0`、`no definition found`。
+   - `mcp__lsp.xref(action=references, pos=frontend-app/index.html:11:14)`返回`total=0`、`no references found`。
+
+主控接受并锁定以上两个当前LSP capability blocker。z-index guard、styles tests、OverlayPortal tests与production build只是独立的语义/行为补充，**不是LSP definition/xref的替代品**，也不得把两个缺失symbol edge改写成PASS。
+
+### STOP / NEXT AUTHORIZED ACTION
+
+- 当前状态严格为`DONE — FINAL GATES PASSED / AWAITING ATOMIC COMMIT`；它表示本计划11.5完成定义已经满足，不表示Task 8记录已经commit，也不表示分支已经merge或push。
+- 本检查点只允许显式stage本执行记录，再运行规范project-map generator让它读取新的index blob，并审阅由该记录派生的精确生成diff；不得stage生成物、不得运行后续checks、不得commit或push。
+- 原子提交、merge与push仍需主控后续单独授权。
