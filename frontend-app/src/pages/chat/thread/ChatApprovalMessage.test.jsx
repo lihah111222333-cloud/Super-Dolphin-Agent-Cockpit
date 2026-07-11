@@ -106,7 +106,10 @@ describe('ChatApprovalMessage', () => {
     );
 
     confirmChoice('拒绝');
-    await waitFor(() => expect(onApproval).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(onApproval).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
+    });
     expect(screen.getByRole('button', { name: '拒绝' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
 
