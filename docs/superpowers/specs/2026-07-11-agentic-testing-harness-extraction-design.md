@@ -134,7 +134,7 @@ ath report <session-id>
 
 ```json
 {"schemaVersion":"1","requestId":"r1","type":"observe"}
-{"schemaVersion":"1","requestId":"r2","type":"act","revision":4,"data":{"action":{"type":"click","target":{"kind":"role","role":"button","name":"Save"}}}}
+{"schemaVersion":"1","requestId":"r2","type":"act","revision":4,"data":{"action":{"type":"click","target":{"kind":"role","role":"button","name":"Save","strict":true}}}}
 {"schemaVersion":"1","requestId":"r3","type":"finish"}
 ```
 

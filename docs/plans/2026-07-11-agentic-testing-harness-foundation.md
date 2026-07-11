@@ -112,6 +112,7 @@ git commit -m "chore: 初始化 agentic testing harness 工作区"
 **Files:**
 - Create: `packages/contracts/package.json`
 - Create: `packages/contracts/tsconfig.json`
+- Create: `packages/contracts/src/json-value.ts`
 - Create: `packages/contracts/src/errors.ts`
 - Create: `packages/contracts/src/actions.ts`
 - Create: `packages/contracts/src/protocol.ts`
@@ -137,7 +138,7 @@ describe('SessionRequestSchema', () => {
     })).toBe(true);
     expect(Value.Check(SessionRequestSchema, {
       schemaVersion: '1', requestId: 'r2', type: 'act', revision: 3,
-      data: { action: { type: 'click', target: { kind: 'role', role: 'button', name: 'Save' } } },
+      data: { action: { type: 'click', target: { kind: 'role', role: 'button', name: 'Save', strict: true } } },
     })).toBe(true);
   });
 
@@ -175,17 +176,28 @@ export type SessionResultStatus =
   | 'product_failed' | 'policy_blocked' | 'infrastructure_failed';
 ```
 
-`ActionSchema` contains only `navigate`, `click`, `fill`, `select`, `check`, `press`, `upload`, `window`, `waitFor`, and `finish`. Locator schemas support `role`, `testId`, `label`, and explicit `css`; every locator sets `strict: true`. `TargetAdapter` exposes the approved lifecycle including `classifyAction`.
+`ActionSchema` contains only `navigate`, `click`, `fill`, `select`, `check`, `press`, `upload`, `window`, `waitFor`, and `finish`. Actions that address UI elements use the `target` field; locator schemas use `kind` as their discriminator and support `role`, `testId`, `label`, and explicit `css`. Every locator requires `strict: true`. Do not introduce the alternate wire shape `locator: { type: ... }`. `TargetAdapter` exposes the approved lifecycle including `classifyAction`.
 
-The response envelope requires `schemaVersion`, `requestId`, `sessionId`, `revision`, `ok`, `data`, and `evidenceRefs` on success; failure replaces `data` with `{ code, message, details }`.
+The response envelope requires `schemaVersion`, `requestId`, `sessionId`, `revision`, `ok`, `data`, and `evidenceRefs` on success; failure replaces `data` with `{ code, message, details }`. Define one recursive `JsonValueSchema`/`JsonValue` contract and use it for all serialized open-value fields, including success `data`, error `details`, candidate oracle expectations, isolation attestation claims, and provision metadata. It must reject `undefined`, functions, `bigint`, non-finite numbers, and nested non-JSON values so every schema-valid envelope survives a JSON stringify/parse round trip.
 
 `isolation.ts` defines `IsolationProvider`, `IsolationAttestation`, and both `LightIsolationReceipt` and `HardIsolationReceipt`. It includes a `VMIsolationProvider` interface but no VM implementation. Pin `@sinclair/typebox@^0.34.41` in the contracts package.
 
-After `packages/contracts/tsconfig.json` exists, replace the bootstrap root config with:
+Exclude `src/**/*.test.ts` from `packages/contracts/tsconfig.json` so package build output never publishes test JavaScript or declarations. Keep tests under the root tooling/typecheck project instead.
+
+After `packages/contracts/tsconfig.json` exists, replace the bootstrap root config with a solution config that still typechecks Vitest configuration and tests:
 
 ```json
 {
-  "files": [],
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": "./.tmp/tsconfig.tsbuildinfo"
+  },
+  "include": [
+    "vitest.config.ts",
+    "packages/**/*.test.ts",
+    "tests/**/*.test.ts"
+  ],
   "references": [
     { "path": "./packages/contracts" }
   ]
@@ -197,9 +209,12 @@ After `packages/contracts/tsconfig.json` exists, replace the bootstrap root conf
 ```bash
 npm test -- packages/contracts/src/protocol.test.ts
 npm run typecheck
+npm run build
+test ! -e packages/contracts/dist/protocol.test.js
+test ! -e packages/contracts/dist/protocol.test.d.ts
 ```
 
-Expected: tests PASS and TypeScript exits 0.
+Expected: table-driven tests cover every action and locator variant, nested extra fields, missing `strict`, negative revisions, empty identifiers, JSON-only rejection, and serialization round trips. Tests PASS, TypeScript and build exit 0, and package build output contains no test files.
 
 - [ ] **Step 5: Commit contracts**
 
