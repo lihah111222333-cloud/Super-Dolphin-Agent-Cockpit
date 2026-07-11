@@ -227,8 +227,8 @@ frontend-app/src/pages/chat/markdown/markdownMessageModel.test.js	frontend-app	a
 frontend-app/src/pages/chat/markdown/markdownRendererModel.js	frontend-app	app-ui	js-source	14468	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,markdownRendererModel,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MermaidDiagram.jsx	frontend-app	app-ui	jsx	3636	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MermaidDiagram,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx	frontend-app	app-ui	jsx	6445	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MermaidDiagram,test,React,页面与路由级,UI
-frontend-app/src/pages/chat/model/chatHeaderModel.js	frontend-app	app-ui	js-source	1092	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHeaderModel,React,页面与路由级,UI
-frontend-app/src/pages/chat/model/chatHeaderModel.test.js	frontend-app	app-ui	js-test	2650	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHeaderModel,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/model/chatHeaderModel.js	frontend-app	app-ui	js-source	1262	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHeaderModel,React,页面与路由级,UI
+frontend-app/src/pages/chat/model/chatHeaderModel.test.js	frontend-app	app-ui	js-test	3099	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHeaderModel,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatUiActions.js	frontend-app	app-ui	js-source	65	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatUiActions,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatUiActions.test.js	frontend-app	app-ui	js-test	833	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatUiActions,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatUiActions.test.jsx	frontend-app	app-ui	jsx	833	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatUiActions,test,React,页面与路由级,UI
