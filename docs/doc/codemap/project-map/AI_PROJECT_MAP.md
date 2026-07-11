@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-11
 >
-> 已索引文件：**4382**
+> 已索引文件：**4401**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -29,7 +29,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1010 | 186.0 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 310 | 46.1 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 897 | 160.2 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 592 | 115.3 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 611 | 119.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -48,7 +48,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2084 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 2103 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 894 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 668 | 可执行入口与 MCP peer |
 | `frontend-app` | 430 | 当前 React/Vite 新 UI |
@@ -80,11 +80,13 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 |---:|---|---|---|
 | 1 | Root shell | `internal/app/modules.go` | NewLogger、pidregistry、config/db/bus/rpc/hooks/runner/observability；先读作基础设施供给层，不读作业务执行顺序。 |
 | 2 | Persistence and control plane | `internal/store、internal/platform/mcpcontrol、internal/mcpserver` | store 与 MCP 控制面先提供持久化、peer 注册、server/bootstrap 能力，后续 module 通过 contract 端口消费。 |
-| 3 | Business semantics | `internal/module/{dashboard,memory,prompt,skill,thread,turn,uistate}` | memory/prompt/skill 支撑 thread/turn；thread 负责 start/resume/fork 绑定真相源，turn 负责回合执行与审批调度，uistate 投影事件给 UI。 |
-| 4 | Provider and tools | `internal/provider/{unified,codexapp}、internal/platform/toolbridge` | unified 管 session/manifest，codexapp 提供 provider driver，toolbridge 把 host/MCP tools 暴露给 provider；claudecli 当前不在 root Module 中启用。 |
-| 5 | Root adapters | `internal/app/modules.go:fx.Provide` | AsRPCRunner、DAGRuntime、thread.OrchestrationFacade、RuntimeReporter、SessionPorts、keepalive lookups、native tool descriptors 是跨边界裁剪端口。 |
-| 6 | Runtime owner | `internal/app/app.go、internal/app/runner.go` | newFXApp/newDesktopFXApp 叠加 Module + BindRuntime；桌面态额外装 uiwails.Module；实际 start/stop 由 Fx 依赖图与 group:"runners" 决定。 |
-| 7 | Graph guards | `internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go` | ValidateApp 与定向 Populate 测试冻结 app 图闭合、thread/turn 配置、toolbridge lifecycle、datasource、workflowtemplate、orchestration facade 等供给点。 |
+| 3 | Store adapters | `internal/app/storeadapter` | 把 canonical Store 实现投影为业务 module 消费的窄端口；按 domain child 路由，业务映射留在各 child。 |
+| 4 | Business semantics | `internal/module/{dashboard,memory,prompt,skill,thread,turn,uistate}` | memory/prompt/skill 支撑 thread/turn；thread 负责 start/resume/fork 绑定真相源，turn 负责回合执行与审批调度，uistate 投影事件给 UI。 |
+| 5 | Provider and tools | `internal/provider/{unified,codexapp}、internal/platform/toolbridge` | unified 管 session/manifest，codexapp 提供 provider driver，toolbridge 把 host/MCP tools 暴露给 provider；claudecli 当前不在 root Module 中启用。 |
+| 6 | Runtime adapters | `internal/app/runtimeadapter` | 为 mcpcontrol/toolbridge/cachekeepalive/builtintools 等 runtime consumer 提供窄端口与 root-scope 接线。 |
+| 7 | Root adapters | `internal/app/modules.go:fx.Provide` | AsRPCRunner、DAGRuntime、thread.OrchestrationFacade、RuntimeReporter、SessionPorts 是仍由 root 持有的跨边界裁剪端口。 |
+| 8 | Runtime owner | `internal/app/app.go、internal/app/runner.go` | newFXApp/newDesktopFXApp 叠加 Module + BindRuntime；桌面态额外装 uiwails.Module；实际 start/stop 由 Fx 依赖图与 group:"runners" 决定。 |
+| 9 | Graph guards | `internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go` | ValidateApp 与定向 Populate 测试冻结 app 图闭合、thread/turn 配置、toolbridge lifecycle、datasource、workflowtemplate、orchestration facade 等供给点。 |
 
 ## 6. 快速定位路由
 
@@ -99,6 +101,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 修改 memory/prompt/skill | `internal/module/memory/` | `internal/module/prompt/` | `memory prompt skill canonical mirror` |
 | 修改 provider 接入 | `internal/provider/` | `internal/platform/toolbridge/` | `claude codex provider session manifest toolbridge` |
 | 理解 root Fx 装配顺序 | `internal/app/modules.go` | `internal/app/modules_graph_test.go` | `app module fx graph modules runtime order toolbridge provider` |
+| 修改 App adapter 分包 | `internal/app/storeadapter/` | `internal/app/runtimeadapter/` | `store runtime adapter` |
 | 修改控制面/bootstrap | `internal/platform/mcpcontrol/` | `internal/mcpserver/common/bootstrap/` | `peer register bootstrap hooks` |
 | 修改持久化/SQL | `internal/store/` | `sql/queries/` | `store sqlc migration queries` |
 | 修改代码地图 | `docs/doc/codemap/` | `scripts/codemap_index.go` | `codemap ai-index make codemap-refresh` |
@@ -110,11 +113,14 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 ## 7. 重点子系统地图
 
-### internal/app root assembly
+### internal/app assembly and adapters
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/app` | 74 | root Fx 装配、runtime bridge、toolbridge adapters 与 graph closure tests |
+| `internal/app/storeadapter` | 50 | 业务 Store 到 module 窄端口的适配器 |
+| `internal/app/runtimeadapter` | 9 | runtime consumer 的 Store/module 窄端口适配器 |
+| `internal/app/internal/storeguard` | 2 | adapter 共享的 typed-nil fail-fast 检查 helper |
+| `internal/app` | 89 | 全域汇总（root + adapter packages） |
 
 ### internal/module
 

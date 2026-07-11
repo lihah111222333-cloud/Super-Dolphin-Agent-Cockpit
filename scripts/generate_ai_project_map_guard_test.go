@@ -20,9 +20,20 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	writeFixTestGuardFile(t, root, ".mypy_cache/cache.json", "{}\n")
 	writeFixTestGuardFile(t, root, "docs/guide.md", "tracked docs\n")
 	writeFixTestGuardFile(t, root, ".agent/skills/demo/SKILL.md", "tracked but not docs\n")
+	writeFixTestGuardFile(t, root, "internal/app/storeadapter/prompt/adapter.go", "package promptadapter\n")
+	writeFixTestGuardFile(t, root, "internal/app/runtimeadapter/toolbridge/adapter.go", "package toolbridgeadapter\n")
+	writeFixTestGuardFile(t, root, "internal/app/internal/storeguard/nil.go", "package storeguard\n")
 	writeFixTestGuardFile(t, root, "internal/module/thread/thread.go", "package thread\n")
 	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
-	runFixTestGuardGit(t, root, "add", "docs/guide.md", ".agent/skills/demo/SKILL.md", "internal/module/thread/thread.go", "internal/provider/codexapp/provider.go")
+	runFixTestGuardGit(t, root, "add",
+		"docs/guide.md",
+		".agent/skills/demo/SKILL.md",
+		"internal/app/storeadapter/prompt/adapter.go",
+		"internal/app/runtimeadapter/toolbridge/adapter.go",
+		"internal/app/internal/storeguard/nil.go",
+		"internal/module/thread/thread.go",
+		"internal/provider/codexapp/provider.go",
+	)
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 project map fixture")
 
 	out, err := runProjectMapGenerator(t, root)
@@ -38,6 +49,7 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 
 	generated := readProjectMapOutputs(t, root)
 	assertOutputContainsAll(t, generated, "internal/app/app.go", "docs/guide.md")
+	assertAppAdapterProjectMapRoutes(t, generated)
 	assertOutputContainsAll(t, generated, "docs/guide.md\tdocs\tdocs-agent\tdoc\t13\t")
 	assertOutputOmitsAll(t, generated, ".agent/report", ".agents/report", ".agent/skills", ".local/", ".mypy_cache")
 	assertOutputContainsAll(t, generated,
@@ -54,10 +66,9 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 		"| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |",
 		"## 5. Root Fx 装配阅读顺序",
 		"`internal/app/modules.go` 是根装配清单，不是严格的业务执行时序",
-		"| 7 | Graph guards | `internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go` |",
 		"理解 root Fx 装配顺序",
 		"## 7. 重点子系统地图",
-		"### internal/app root assembly",
+		"### internal/app assembly and adapters",
 		"`internal/app`",
 		"`internal/module/thread`",
 		"`internal/provider/codexapp`",
@@ -73,6 +84,39 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	if _, ok := manifest.Domains["docs-agent"]; !ok {
 		t.Fatalf("manifest missing docs-agent domain: %#v", manifest.Domains)
 	}
+}
+
+func assertAppAdapterProjectMapRoutes(t *testing.T, generated string) {
+	t.Helper()
+	assertProjectMapPurpose(t, generated, "internal/app/storeadapter/prompt/adapter.go", "业务 Store 到 module 窄端口的适配器")
+	assertProjectMapPurpose(t, generated, "internal/app/runtimeadapter/toolbridge/adapter.go", "runtime consumer 的 Store/module 窄端口适配器")
+	assertProjectMapPurpose(t, generated, "internal/app/internal/storeguard/nil.go", "adapter 共享的 typed-nil fail-fast 检查 helper")
+	assertOutputContainsAll(t, generated,
+		"| 3 | Store adapters | `internal/app/storeadapter` |",
+		"| 6 | Runtime adapters | `internal/app/runtimeadapter` |",
+		"| 9 | Graph guards | `internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go` |",
+		"| 修改 App adapter 分包 | `internal/app/storeadapter/` | `internal/app/runtimeadapter/` | `store runtime adapter` |",
+		"| `internal/app/storeadapter` | 1 | 业务 Store 到 module 窄端口的适配器 |",
+		"| `internal/app/runtimeadapter` | 1 | runtime consumer 的 Store/module 窄端口适配器 |",
+		"| `internal/app/internal/storeguard` | 1 | adapter 共享的 typed-nil fail-fast 检查 helper |",
+		"| `internal/app` | 4 | 全域汇总（root + adapter packages） |",
+	)
+	assertOutputOmitsAll(t, generated, "keepalive lookups、native tool descriptors")
+}
+
+func assertProjectMapPurpose(t *testing.T, generated, path, want string) {
+	t.Helper()
+	for _, line := range strings.Split(generated, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 6 || fields[0] != path {
+			continue
+		}
+		if fields[5] != want {
+			t.Fatalf("project map purpose mismatch for %q: got %q, want %q", path, fields[5], want)
+		}
+		return
+	}
+	t.Fatalf("project map TSV row missing for %q", path)
 }
 
 func TestProjectMapGeneratorRequiresExplicitFilesystemScanWithoutGit(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -260,6 +261,53 @@ func functionParamType(t *testing.T, root, relPath, funcName, paramName string) 
 		}
 	}
 	return "", false
+}
+
+func singleFunctionFileInPackage(t *testing.T, root, packageRelPath, funcName string) string {
+	t.Helper()
+	dirPath := filepath.Join(root, filepath.FromSlash(packageRelPath))
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		t.Fatalf("read package %s: %v", packageRelPath, err)
+	}
+	var matches []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		relPath := filepath.ToSlash(filepath.Join(packageRelPath, name))
+		file := parseGoFileForInterfaceGuard(t, root, relPath)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Name.Name == funcName {
+				matches = append(matches, relPath)
+			}
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("%s: found %d production definitions of %s in %v; want exactly 1", packageRelPath, len(matches), funcName, matches)
+	}
+	return matches[0]
+}
+
+func TestSingleFunctionFileInPackageIgnoresTestFiles(t *testing.T) {
+	root := t.TempDir()
+	const packageRelPath = "internal/example"
+	dirPath := filepath.Join(root, filepath.FromSlash(packageRelPath))
+	if err := os.MkdirAll(dirPath, 0o755); err != nil {
+		t.Fatalf("mkdir package: %v", err)
+	}
+	const source = "package example\n\nfunc providePort() {}\n"
+	if err := os.WriteFile(filepath.Join(dirPath, "adapter.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("write production file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirPath, "adapter_test.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+	if got := singleFunctionFileInPackage(t, root, packageRelPath, "providePort"); got != "internal/example/adapter.go" {
+		t.Fatalf("singleFunctionFileInPackage=%q, want production file", got)
+	}
 }
 
 func parseGoFileForInterfaceGuard(t *testing.T, root, relPath string) *ast.File {

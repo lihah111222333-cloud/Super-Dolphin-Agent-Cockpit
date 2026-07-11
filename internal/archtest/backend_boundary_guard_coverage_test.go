@@ -237,6 +237,36 @@ func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 	}
 }
 
+func TestAppAdapterBoundaryFixturesRejectCrossDomainPollution(t *testing.T) {
+	t.Parallel()
+	const ruleID = BoundaryRuleID("app_adapter_narrow_import_surface")
+	cases := []struct {
+		name       string
+		relPath    string
+		importPath string
+		packageID  string
+	}{
+		{name: "cron_to_prompt_store", relPath: "internal/app/storeadapter/cron/adapter.go", importPath: "internal/store/prompt", packageID: "cronadapter"},
+		{name: "prompt_to_thread_adapter", relPath: "internal/app/storeadapter/prompt/adapter.go", importPath: "internal/app/storeadapter/thread", packageID: "promptadapter"},
+		{name: "domain_module_to_runtime_adapter", relPath: "internal/app/storeadapter/cron/module.go", importPath: "internal/app/runtimeadapter/toolbridge", packageID: "cronadapter"},
+	}
+	registry := DefaultBackendBoundaryRegistry()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "package " + tc.packageID + "\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/" + tc.importPath + "\"\n"
+			path := writeBackendBoundaryFixture(t, t.TempDir(), tc.relPath, source)
+			violations, err := EvaluateBackendBoundaryFile(path, tc.relPath, registry, ruleID)
+			if err != nil {
+				t.Fatalf("evaluate fixture: %v", err)
+			}
+			got := strings.Join(violations, "\n")
+			if !strings.Contains(got, "rule="+string(ruleID)) || !strings.Contains(got, tc.importPath) {
+				t.Fatalf("fixture %q did not report import %q through rule %q: %v", tc.relPath, tc.importPath, ruleID, violations)
+			}
+		})
+	}
+}
+
 func TestEvaluateBackendBoundaryFileReportsImportPosition(t *testing.T) {
 	t.Parallel()
 

@@ -160,7 +160,10 @@ const PURPOSE_RULES = [
   ['cmd/mcp-lsp/', '代码智能/LSP MCP peer'],
   ['cmd/mcp-ida/', 'IDA MCP peer 与逆向分析工具入口'],
 
-  ['internal/app/', 'root Fx/app 装配、runner 与 toolbridge adapters'],
+  ['internal/app/storeadapter/', '业务 Store 到 module 窄端口的适配器'],
+  ['internal/app/runtimeadapter/', 'runtime consumer 的 Store/module 窄端口适配器'],
+  ['internal/app/internal/storeguard/', 'adapter 共享的 typed-nil fail-fast 检查 helper'],
+  ['internal/app/', 'root Fx/app 装配、runner 与 graph closure'],
   ['internal/contract/', '跨模块稳定接口、事件和 DTO 边界'],
   ['internal/dto/', 'provider/shared DTO 与事件协议'],
   ['internal/module/dashboard/', 'dashboard 读模型与 UI RPC 服务'],
@@ -219,6 +222,7 @@ const QUICK_ROUTES = [
   ['修改 memory/prompt/skill', 'internal/module/memory/', 'internal/module/prompt/', 'memory prompt skill canonical mirror'],
   ['修改 provider 接入', 'internal/provider/', 'internal/platform/toolbridge/', 'claude codex provider session manifest toolbridge'],
   ['理解 root Fx 装配顺序', 'internal/app/modules.go', 'internal/app/modules_graph_test.go', 'app module fx graph modules runtime order toolbridge provider'],
+  ['修改 App adapter 分包', 'internal/app/storeadapter/', 'internal/app/runtimeadapter/', 'store runtime adapter'],
   ['修改控制面/bootstrap', 'internal/platform/mcpcontrol/', 'internal/mcpserver/common/bootstrap/', 'peer register bootstrap hooks'],
   ['修改持久化/SQL', 'internal/store/', 'sql/queries/', 'store sqlc migration queries'],
   ['修改代码地图', 'docs/doc/codemap/', 'scripts/codemap_index.go', 'codemap ai-index make codemap-refresh'],
@@ -249,16 +253,21 @@ const RUNTIME_ENTRY_ROWS = [
 const APP_ASSEMBLY_ROWS = [
   ['1', 'Root shell', 'internal/app/modules.go', 'NewLogger、pidregistry、config/db/bus/rpc/hooks/runner/observability；先读作基础设施供给层，不读作业务执行顺序。'],
   ['2', 'Persistence and control plane', 'internal/store、internal/platform/mcpcontrol、internal/mcpserver', 'store 与 MCP 控制面先提供持久化、peer 注册、server/bootstrap 能力，后续 module 通过 contract 端口消费。'],
-  ['3', 'Business semantics', 'internal/module/{dashboard,memory,prompt,skill,thread,turn,uistate}', 'memory/prompt/skill 支撑 thread/turn；thread 负责 start/resume/fork 绑定真相源，turn 负责回合执行与审批调度，uistate 投影事件给 UI。'],
-  ['4', 'Provider and tools', 'internal/provider/{unified,codexapp}、internal/platform/toolbridge', 'unified 管 session/manifest，codexapp 提供 provider driver，toolbridge 把 host/MCP tools 暴露给 provider；claudecli 当前不在 root Module 中启用。'],
-  ['5', 'Root adapters', 'internal/app/modules.go:fx.Provide', 'AsRPCRunner、DAGRuntime、thread.OrchestrationFacade、RuntimeReporter、SessionPorts、keepalive lookups、native tool descriptors 是跨边界裁剪端口。'],
-  ['6', 'Runtime owner', 'internal/app/app.go、internal/app/runner.go', 'newFXApp/newDesktopFXApp 叠加 Module + BindRuntime；桌面态额外装 uiwails.Module；实际 start/stop 由 Fx 依赖图与 group:"runners" 决定。'],
-  ['7', 'Graph guards', 'internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go', 'ValidateApp 与定向 Populate 测试冻结 app 图闭合、thread/turn 配置、toolbridge lifecycle、datasource、workflowtemplate、orchestration facade 等供给点。'],
+  ['3', 'Store adapters', 'internal/app/storeadapter', '把 canonical Store 实现投影为业务 module 消费的窄端口；按 domain child 路由，业务映射留在各 child。'],
+  ['4', 'Business semantics', 'internal/module/{dashboard,memory,prompt,skill,thread,turn,uistate}', 'memory/prompt/skill 支撑 thread/turn；thread 负责 start/resume/fork 绑定真相源，turn 负责回合执行与审批调度，uistate 投影事件给 UI。'],
+  ['5', 'Provider and tools', 'internal/provider/{unified,codexapp}、internal/platform/toolbridge', 'unified 管 session/manifest，codexapp 提供 provider driver，toolbridge 把 host/MCP tools 暴露给 provider；claudecli 当前不在 root Module 中启用。'],
+  ['6', 'Runtime adapters', 'internal/app/runtimeadapter', '为 mcpcontrol/toolbridge/cachekeepalive/builtintools 等 runtime consumer 提供窄端口与 root-scope 接线。'],
+  ['7', 'Root adapters', 'internal/app/modules.go:fx.Provide', 'AsRPCRunner、DAGRuntime、thread.OrchestrationFacade、RuntimeReporter、SessionPorts 是仍由 root 持有的跨边界裁剪端口。'],
+  ['8', 'Runtime owner', 'internal/app/app.go、internal/app/runner.go', 'newFXApp/newDesktopFXApp 叠加 Module + BindRuntime；桌面态额外装 uiwails.Module；实际 start/stop 由 Fx 依赖图与 group:"runners" 决定。'],
+  ['9', 'Graph guards', 'internal/app/modules_graph_test.go、internal/archtest/fx_graph_test.go', 'ValidateApp 与定向 Populate 测试冻结 app 图闭合、thread/turn 配置、toolbridge lifecycle、datasource、workflowtemplate、orchestration facade 等供给点。'],
 ];
 
 const SUBSYSTEM_PREFIX_GROUPS = [
-  ['internal/app root assembly', [
-    ['internal/app', 'root Fx 装配、runtime bridge、toolbridge adapters 与 graph closure tests'],
+  ['internal/app assembly and adapters', [
+    ['internal/app/storeadapter', '业务 Store 到 module 窄端口的适配器'],
+    ['internal/app/runtimeadapter', 'runtime consumer 的 Store/module 窄端口适配器'],
+    ['internal/app/internal/storeguard', 'adapter 共享的 typed-nil fail-fast 检查 helper'],
+    ['internal/app', '全域汇总（root + adapter packages）'],
   ]],
   ['internal/module', [
     ['internal/module/thread', 'thread start/resume/fork/stop 生命周期与绑定真相源'],

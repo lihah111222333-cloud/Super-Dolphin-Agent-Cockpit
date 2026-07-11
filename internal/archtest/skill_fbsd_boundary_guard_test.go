@@ -30,7 +30,7 @@ func legacySkillPipelineForbiddenChecks() []forbiddenFileCheck {
 			`internal/module/fbsd`, `internal/module/skillforge`, `internal/module/skilllibrary`,
 			`provideSkillLibraryConfig`, `provideSkillManifestRenderer`,
 		}},
-		{relPath: "internal/app/toolbridge_adapters.go", forbidden: []string{
+		{relPath: "internal/app/runtimeadapter/toolbridge/adapter.go", forbidden: []string{
 			`NewSkillReadSectionTool`, `SkillSectionReader`, `SkillCallRecorder`, `internal/module/skilllibrary`,
 		}},
 		{relPath: "internal/platform/toolbridge/module.go", forbidden: []string{

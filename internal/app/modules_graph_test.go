@@ -12,11 +12,13 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	cronmodule "github.com/anthropic-ai/super-agent-v3/internal/module/cron"
+	dashboardmodule "github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	promptmodule "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	threadmodule "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	uistatemodule "github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
@@ -143,81 +145,71 @@ func TestAppModuleGraphProvidesMemoryExtractionDrainer(t *testing.T) {
 	}
 }
 
-func TestToolbridgeCodexProductionBindingRequiresCriticalDependencies(t *testing.T) {
+// TestAppModuleGraphProvidesAdapterPorts 以单次 graph 验证固定 adapter 分包后的关键接口集合。
+func TestAppModuleGraphProvidesAdapterPorts(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		opts []fx.Option
-		want string
-	}{
-		{
-			name: "missing ServerManager",
-			opts: []fx.Option{
-				fx.Supply(newGraphTestCodexDriverFactory()),
-				fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
-			},
-			want: "*codexapp.ServerManager",
-		},
-		{
-			name: "missing DriverFactory",
-			opts: []fx.Option{
-				fx.Supply(&codexapp.ServerManager{}),
-				fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
-			},
-			want: "*codexapp.DriverFactory",
-		},
-		{
-			name: "missing toolbridge Handler",
-			opts: []fx.Option{
-				fx.Supply(&codexapp.ServerManager{}),
-				fx.Supply(newGraphTestCodexDriverFactory()),
-			},
-			want: "*toolbridge.Handler",
-		},
+	cases := appGraphAdapterPortCases()
+	targets := make([]any, len(cases))
+	names := make([]string, len(cases))
+	for i, tc := range cases {
+		targets[i] = tc.target
+		names[i] = tc.name
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			opts := append([]fx.Option{
-				toolbridgeCodexBindingModule(),
-				fx.Provide(func() contract.SessionStarter { return graphTestSessionStarter{} }),
-			}, tc.opts...)
-			err := fx.ValidateApp(opts...)
-			if err == nil {
-				t.Fatalf("fx.ValidateApp() error = nil, want missing %s", tc.want)
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("fx.ValidateApp() error = %v, want %s", err, tc.want)
-			}
-		})
+	opts := append(appGraphValidationOptions(), fx.Populate(targets...))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing adapter ports [%s]: %v", strings.Join(names, ", "), err)
 	}
 }
 
-func TestToolbridgeCodexProductionBindingWrapsSessionStarter(t *testing.T) {
-	t.Parallel()
+type appGraphPortCase struct {
+	name   string
+	target any
+}
 
-	inner := graphTestSessionStarter{}
-	var starter contract.SessionStarter
-	app := fx.New(
-		toolbridgeCodexBindingModule(),
-		fx.Provide(func() contract.SessionStarter { return inner }),
-		fx.Supply(&codexapp.ServerManager{}),
-		fx.Supply(newGraphTestCodexDriverFactory()),
-		fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
-		fx.Populate(&starter),
-		fx.NopLogger,
-	)
-	if err := app.Err(); err != nil {
-		t.Fatalf("fx.New() error = %v", err)
-	}
-	if starter == nil {
-		t.Fatal("contract.SessionStarter = nil, want readiness wrapped starter")
-	}
-	if starter == contract.SessionStarter(inner) {
-		t.Fatal("contract.SessionStarter was not wrapped with toolbridge readiness")
+func appGraphAdapterPortCases() []appGraphPortCase {
+	var cronStore cronmodule.Store
+	var cronSchedulerStore cronmodule.SchedulerStore
+	var dashboardAgentStatus dashboardmodule.AgentStatusReader
+	var dashboardAILog dashboardmodule.AILogReader
+	var dashboardAuditLog dashboardmodule.AuditLogReader
+	var dashboardBusLog dashboardmodule.BusLogReader
+	var dashboardSystemLog dashboardmodule.SystemLogReader
+	var dashboardDBQuery dashboardmodule.DBQueryExecutor
+	var dashboardCommandCard dashboardmodule.CommandCardReader
+	var dashboardPromptTemplate dashboardmodule.PromptTemplateReader
+	var dashboardSharedFile dashboardmodule.SharedFileReader
+	var promptStore promptmodule.Store
+	var threadStore threadmodule.ThreadStore
+	var threadBindingStore threadmodule.BindingStore
+	var threadPromptCatalog threadmodule.PromptCatalog
+	var turnDedupeStore turn.DedupeStore
+	var uiStatePreferenceStore uistatemodule.PreferenceStore
+	var uiStateSharedFileReader uistatemodule.SharedFileReader
+	var uiStateBindingLookup uistatemodule.BindingLookup
+	var readiness contract.ToolbridgeReadinessProbe
+
+	return []appGraphPortCase{
+		{name: "cron Store", target: &cronStore},
+		{name: "cron SchedulerStore", target: &cronSchedulerStore},
+		{name: "dashboard AgentStatusReader", target: &dashboardAgentStatus},
+		{name: "dashboard AILogReader", target: &dashboardAILog},
+		{name: "dashboard AuditLogReader", target: &dashboardAuditLog},
+		{name: "dashboard BusLogReader", target: &dashboardBusLog},
+		{name: "dashboard SystemLogReader", target: &dashboardSystemLog},
+		{name: "dashboard DBQueryExecutor", target: &dashboardDBQuery},
+		{name: "dashboard CommandCardReader", target: &dashboardCommandCard},
+		{name: "dashboard PromptTemplateReader", target: &dashboardPromptTemplate},
+		{name: "dashboard SharedFileReader", target: &dashboardSharedFile},
+		{name: "prompt Store", target: &promptStore},
+		{name: "thread ThreadStore", target: &threadStore},
+		{name: "thread BindingStore", target: &threadBindingStore},
+		{name: "thread PromptCatalog", target: &threadPromptCatalog},
+		{name: "turn DedupeStore", target: &turnDedupeStore},
+		{name: "uistate PreferenceStore", target: &uiStatePreferenceStore},
+		{name: "uistate SharedFileReader", target: &uiStateSharedFileReader},
+		{name: "uistate BindingLookup", target: &uiStateBindingLookup},
+		{name: "toolbridge readiness probe", target: &readiness},
 	}
 }
 
@@ -496,17 +488,3 @@ func appGraphValidationOptions() []fx.Option {
 type emptyFS struct{}
 
 func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }
-
-type graphTestSessionStarter struct{}
-
-func (graphTestSessionStarter) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
-	return nil, nil
-}
-
-func (graphTestSessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-	return nil, nil
-}
-
-func newGraphTestCodexDriverFactory() *codexapp.DriverFactory {
-	return codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
-}

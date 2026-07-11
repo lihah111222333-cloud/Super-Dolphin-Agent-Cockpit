@@ -10,7 +10,7 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 
 	root := repoRoot(t)
 	const moduleRelPath = "internal/module/dashboard/module.go"
-	const adapterRelPath = "internal/app/dashboard_store_adapters.go"
+	const adapterPackageRelPath = "internal/app/storeadapter/dashboard"
 	var violations []string
 
 	fieldChecks := []struct {
@@ -54,6 +54,7 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		{funcName: "provideDashboardSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
 	}
 	for _, check := range adapterChecks {
+		adapterRelPath := singleFunctionFileInPackage(t, root, adapterPackageRelPath, check.funcName)
 		actual, ok := functionParamType(t, root, adapterRelPath, check.funcName, check.paramName)
 		if !ok {
 			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", adapterRelPath, check.funcName, check.paramName))

@@ -5,10 +5,10 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4382,
+  "files": 4401,
   "domains": {
     "docs-agent": 897,
-    "other": 592,
+    "other": 611,
     "app-ui": 432,
     "platform-provider": 1010,
     "orchestration": 419,
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 592,
-        "size_kb": 115.3,
+        "file_count": 611,
+        "size_kb": 119.6,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -75,7 +75,7 @@
     "cmd": 668,
     "docs": 894,
     "frontend-app": 430,
-    "internal": 2084,
+    "internal": 2103,
     "migrations": 112,
     "pkg": 25,
     "scripts": 113,
@@ -138,6 +138,12 @@
       "primary": "internal/app/modules.go",
       "secondary": "internal/app/modules_graph_test.go",
       "keywords": "app module fx graph modules runtime order toolbridge provider"
+    },
+    {
+      "goal": "修改 App adapter 分包",
+      "primary": "internal/app/storeadapter/",
+      "secondary": "internal/app/runtimeadapter/",
+      "keywords": "store runtime adapter"
     },
     {
       "goal": "修改控制面/bootstrap",

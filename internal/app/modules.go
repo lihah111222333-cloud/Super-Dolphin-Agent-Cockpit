@@ -1,13 +1,14 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/runtimeadapter"
+	"github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
@@ -45,9 +46,6 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 const promptIntentE2EFixtureHarnessEnv = "PROMPT_INTENT_E2E_FIXTURE_HARNESS"
@@ -63,8 +61,6 @@ var Module = fx.Options(
 		provideUIStateAgentLister,
 		newDashboardOrchestrationReader,
 		newDashboardOrchestrationReportReader,
-		provideSkillMutationAuditStore,
-		provideSkillToolPersistence,
 	),
 	config.Module,
 	db.Module,
@@ -76,10 +72,9 @@ var Module = fx.Options(
 	platformrunner.Module,
 	statemachine.Module,
 	platformobservability.Module,
-	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder, provideMCPControlSystemLogSink),
+	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder),
 	store.Module,
-	threadStoreAdaptersModule(),
-	businessStoreAdaptersModule(),
+	storeadapter.Module,
 	dashboard.Module,
 	datasource.Module,
 	datasourcev2.Module,
@@ -107,8 +102,7 @@ var Module = fx.Options(
 	// claudecli.Module,
 	codexapp.Module,
 	toolbridge.Module, // 始终加载 provider 工具桥，供内置工具和 peer 调用共用。
-	toolbridgeAdaptersModule(),
-	toolbridgeCodexBindingModule(),
+	runtimeadapter.Module,
 	sharedFileAdapterModule(),
 
 	// DAG 编排由独立 mcp-orch MCP server 承担。
@@ -127,10 +121,6 @@ var Module = fx.Options(
 		thread.NewSessionLifecyclePort,
 		thread.NewSessionStatusPort,
 		newSessionPorts,
-		provideCacheKeepaliveBindingLookup,
-		provideCacheKeepaliveThreadLookup,
-		provideNativeToolDescriptors,
-		provideDisabledBuiltinToolsFn,
 	),
 	fx.Invoke(bindToolbridgeHandlerRef),
 )
@@ -148,74 +138,6 @@ func promptIntentE2EFixtureModule() fx.Option {
 		_ = os.Setenv("DREAM_PROVIDER_ORDER", e2efixture.ProviderName)
 	}
 	return e2efixture.Module
-}
-
-type cacheKeepaliveBindingLookupAdapter struct {
-	store bindingstore.Store
-}
-
-// provideCacheKeepaliveBindingLookup 把 binding store 裁剪成 keepalive 只读端口。
-func provideCacheKeepaliveBindingLookup(store bindingstore.Store) contract.CacheKeepaliveBindingLookup {
-	if store == nil {
-		return nil
-	}
-	return cacheKeepaliveBindingLookupAdapter{store: store}
-}
-
-// GetCacheKeepaliveBindingByAgentID 只暴露 keepalive 判断 live binding 需要的字段。
-func (a cacheKeepaliveBindingLookupAdapter) GetCacheKeepaliveBindingByAgentID(ctx context.Context, agentID string) (*contract.CacheKeepaliveBinding, error) {
-	binding, err := a.store.GetByAgentID(ctx, agentID)
-	if err != nil || binding == nil {
-		return nil, err
-	}
-	return &contract.CacheKeepaliveBinding{
-		AgentID:  binding.AgentID,
-		Archived: binding.Archived,
-	}, nil
-}
-
-type cacheKeepaliveThreadLookupAdapter struct {
-	store threadstore.Store
-}
-
-// provideCacheKeepaliveThreadLookup 把 thread store 裁剪成 keepalive 启动事件回查端口。
-func provideCacheKeepaliveThreadLookup(store threadstore.Store) contract.CacheKeepaliveThreadLookup {
-	if store == nil {
-		return nil
-	}
-	return cacheKeepaliveThreadLookupAdapter{store: store}
-}
-
-// GetCacheKeepaliveThreadByID 只返回 keepalive 反查 agentID 需要的线程身份字段。
-func (a cacheKeepaliveThreadLookupAdapter) GetCacheKeepaliveThreadByID(ctx context.Context, threadID string) (*contract.CacheKeepaliveThreadRef, error) {
-	thread, err := a.store.GetByThreadID(ctx, threadID)
-	if err != nil || thread == nil {
-		return nil, err
-	}
-	return &contract.CacheKeepaliveThreadRef{
-		ThreadID: thread.ThreadID,
-		AgentID:  thread.AgentID,
-	}, nil
-}
-
-// provideNativeToolDescriptors 从 unified registry 暴露原生工具描述。
-func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeToolDescriptor {
-	if registry == nil {
-		return nil
-	}
-	return registry.NativeTools()
-}
-
-// provideDisabledBuiltinToolsFn 将 UI 偏好的内置工具软过滤接入 prompt。
-// 这里做成函数桥接，避免 prompt 包直接依赖 uistate 包形成反向导入。
-func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.NativeToolDescriptor) prompt.DisabledBuiltinToolsFn {
-	index := make(map[string]contract.NativeToolDescriptor, len(tools))
-	for _, t := range tools {
-		index[t.ID] = t
-	}
-	return func(ctx context.Context, cwd, provider string) ([]string, error) {
-		return uistate.ResolveExplicitSoftFilteredBuiltinTools(ctx, prefs, cwd, tools, index, provider)
-	}
 }
 
 // AsRPCRunner 将 RPC server 注册为 platform runner。
