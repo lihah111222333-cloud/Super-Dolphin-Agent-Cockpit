@@ -432,19 +432,19 @@
   color: var(--error) !important;
 }
 
-.sa-window[data-theme="light"] .skills-editor-modal button {
+#overlay-root[data-theme="light"] .skills-editor-modal button {
   border-color: var(--border);
   background: var(--surface-2);
   color: var(--text-pri);
   box-shadow: none;
 }
 
-.sa-window[data-theme="light"] .skills-editor-modal button:hover:not(:disabled) {
+#overlay-root[data-theme="light"] .skills-editor-modal button:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface-3);
 }
 
-.sa-window[data-theme="light"] .skills-editor-modal button.ghost {
+#overlay-root[data-theme="light"] .skills-editor-modal button.ghost {
   background: transparent;
   color: var(--text-sec);
 }

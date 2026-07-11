@@ -1,6 +1,8 @@
 import { createElement, Profiler, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import './shared/styles/LayerTokens.css';
+
 // Base layers load first so page modules can override shared shell primitives.
 import './styles.css';
 import './AppChrome.css';

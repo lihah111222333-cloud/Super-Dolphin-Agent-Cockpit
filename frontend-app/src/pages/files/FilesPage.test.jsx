@@ -147,7 +147,7 @@ describe('FilesPage module', () => {
       return Promise.reject(new Error(`Unexpected shared file path: ${path}`));
     });
 
-    const { container } = renderFilesPage();
+    renderFilesPage();
 
     const firstCard = (await screen.findByText('first.md')).closest('article');
     const secondCard = screen.getByText('second.md').closest('article');
@@ -162,7 +162,7 @@ describe('FilesPage module', () => {
     });
     const latestDialog = await screen.findByRole('dialog', { name: '文件预览' });
     expect(within(latestDialog).getByText(secondPath)).toBeInTheDocument();
-    expect(container.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
+    expect(latestDialog.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
 
     await act(async () => {
       firstDetail.resolve({ path: firstPath, content: 'stale preview content', updatedAt: '2026-06-06T08:00:00Z' });
@@ -172,7 +172,7 @@ describe('FilesPage module', () => {
     const dialog = screen.getByRole('dialog', { name: '文件预览' });
     expect(within(dialog).getByText(secondPath)).toBeInTheDocument();
     expect(within(dialog).queryByText(firstPath)).not.toBeInTheDocument();
-    expect(container.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
-    expect(container.querySelector('.shared-file-content-preview')?.textContent).not.toContain('stale preview content');
+    expect(dialog.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
+    expect(dialog.querySelector('.shared-file-content-preview')?.textContent).not.toContain('stale preview content');
   });
 });

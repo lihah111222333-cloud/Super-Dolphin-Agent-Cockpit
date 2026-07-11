@@ -1320,3 +1320,412 @@ Task 5 commit 952ba9ea988a5478152533e1b6744fc1256f40f6
 - B4两次full历程均保留：首次full为3 suites / 26 tests失败并在test gate停止；B4.1补齐真实必需依赖后，B4.2 fresh full为126 files / 1533 tests全部通过。后一次GREEN不抹除前一次失败证据。
 - 原子提交边界精确为19个owned paths：本执行记录；7个production接线/旧truth删除文件；4个Shell production/unit文件；App/Core/model/support 4个既有test/support；preview/timeline/scroll 3个B4.1 suite。stage前后均不得混入生成物或非目标文件。
 - 最终动作只允许中文提交`feat(frontend): 统一壳层布局状态`。若首次commit hook刷新生成物并导致需要二次stage/commit，必须先报告精确diff并等待批准，不得自行重试；提交完成后要求worktree clean且main两个SHA不变。不进入Task 7、不push。
+
+## TASK 7 A0 — LAYER / PORTAL DISCOVERY LOCK
+
+### STATE
+
+`A0_COMPLETE / A1_AWAITING_MAIN_APPROVAL`（Task 7只冻结既有discovery、RED文件边界与分片顺序；计划外显式portal override已由主控裁决并锁定最小扩面；未创建或修改production/test/guard/package，未stage/commit/push）
+
+- Task 6已在隔离worktree提交，Task 7 BASE / HEAD为`6791cb72039db21517719db384d69a4c75c4ea48`，分支`codex/reasonix-frontend-absorption-20260711`，A0开始时clean。
+- production CSS当前共有39条裸`z-index`规则，分布在计划锁定的11个CSS文件；Task 7必须一次性迁移全部规则，禁止按数值阈值、baseline或allowlist留下例外。
+- `FocusTrapDialog`当前有7个production import、16个production实例；既有LSP证据在收窄到import binding后得到43个references。焦点、ARIA、Escape、overlay click与焦点恢复仍由`FocusTrapDialog`负责，DOM host职责不得复制到调用方。
+- 本地`react-aria` / `react-aria-components`依赖支持`UNSAFE_PortalProvider`；当前未显式提供全局container的`ModalOverlay`/`Popover`默认portal到`document.body`。计划组合锁定为App层provider统一React Aria overlays到唯一`#overlay-root`，自有`FocusTrapDialog`则委托`OverlayPortal`的`createPortal`。
+- 主工作区继续只读，但其现状已被外部并发工作改变：97个status entries，cached diff SHA-256为`d5587d263f0e57270e5a792f2b462d0329b2f533133203adfcb49d5889f90bc6`；本任务基线的unstaged whole-diff SHA-256仍为`2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，计划文件SHA-256仍为`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。外部staged内容不属于本任务，禁止读取后吸收、unstage、改写或提交。
+
+### DAG / STOP GATES
+
+```text
+Task 6 commit 6791cb72039db21517719db384d69a4c75c4ea48
+  -> Task 7 A0 discovery lock (this section)
+  -> [RESOLVED: ProjectSelector explicit portal container enters minimal migration]
+  -> A1 guard/style RED
+  -> main review / approval
+  -> A2 portal/focus/theme RED
+  -> main review / approval
+  -> B1 LayerTokens + z-index guard GREEN
+  -> main review / approval
+  -> B2 unique host + PortalProvider + OverlayPortal + theme projection GREEN
+  -> focused matrix / full gates / atomic commit
+  -X-> Task 8 / push until every preceding gate is independently approved
+```
+
+| Result gate | 当前结果 | 继续条件 |
+|---|---|---|
+| 39条规则 / 11文件完整枚举 | `PASS` | A1 guard必须证明全量扫描且无baseline/allowlist |
+| 9个token按语义context映射 | `PASS_AT_DISCOVERY` | B1逐selector迁移；不得从旧数值反推owner |
+| 唯一global host与theme owner | `PASS_AT_DISCOVERY` | `index.html`唯一sibling host；`App.jsx`仍是theme唯一writer |
+| React Aria与自有dialog portal策略 | `PASS / SCOPE_EXPANDED` | 删除`ProjectSelector`局部container ownership并以test锁定统一host |
+| theme selector迁移清单 | `PASS / CORRECTED_IN_A1.2` | 下方6条、两个CSS文件必须全部进入RED与GREEN |
+| test host策略 | `PASS_WITH_AUTHORIZATION_REQUIRED` | RED后由主控批准`test-setup.js`最小扩面，当前不得编辑 |
+| LSP证据 | `PARTIAL / BLOCKER_RECORDED` | JS import binding已有43 refs；CSS/HTML literal无法用xref证明，保留精确文本/AST guard证据 |
+| A1执行授权 | `READY / AWAITING_MAIN_COMMAND` | 主控逐片下达A1.1；`test-setup.js`留到RED后单独批准 |
+
+### 39-RULE SEMANTIC TOKEN MAP
+
+数值只允许在`frontend-app/src/shared/styles/LayerTokens.css`定义。下表按stacking context语义锁定分类，不记录或沿用旧数值；B1必须将39条现有规则逐条归类并由guard证明没有遗漏、未知token、重复定义或未使用token。
+
+| Token | Scope | 语义context / owner |
+|---|---|---|
+| `--z-local-behind` | local | 组件自身stacking context内、位于内容之后的装饰/背景层；owner仍是最近CSS selector |
+| `--z-local-raised` | local | 同一组件/页面context内需要高于普通兄弟元素的内容、控件或状态层 |
+| `--z-local-handle` | local | resize、drag或splitter hit target，只在所属panel/context内竞争 |
+| `--z-local-sticky` | local | scroll container内的sticky header/footer/fade，不得越过page stacking context |
+| `--z-shell-control` | shell-local | App shell/workbench内跨局部内容的rail、toggle或shell control，仍低于全局overlay host |
+| `--z-overlay-popover` | global overlay | 统一host内的React Aria menu/popover/tooltip类浮层 |
+| `--z-overlay-dialog` | global overlay | 统一host内的modal overlay与dialog内容；`FocusTrapDialog`只保留交互语义 |
+| `--z-overlay-lightbox` | global overlay | 统一host内的image/code preview等沉浸式查看层 |
+| `--z-overlay-critical` | global overlay | 统一host内必须高于其他overlay的终止性/关键阻断层，不得被普通page selector消费 |
+
+39条规则的文件owner精确锁定为：`AppChrome.css`、`AppShell.css`、`AppShellSidebarThreadActions.css`、`AppShellWorkbench.css`、`ChatMessages.css`、`ChatPage.css`、`ChatPageWorkbench.css`、`ComposerDock.css`、`RuntimePanel.css`、`MemoryPage.css`、`SkillsPage.css`。局部token继续由上述最近selector拥有；全局overlay token只能在`#overlay-root`承载的selector中使用。
+
+### GLOBAL / LOCAL OWNERSHIP AND PORTAL CONTRACT
+
+- `frontend-app/index.html`当前body只有`<div id="root"></div>`后接main script；GREEN必须新增且只新增一个与`#root`同级的`#overlay-root`。host、`html`、`body`均不得通过`transform`、`opacity`、`filter`、`perspective`、`contain`或`isolation`建立意外stacking context。
+- `App.jsx`继续通过现有`useColorTheme`拥有唯一theme truth。它必须fail-fast取得恰好一个`#overlay-root`，向App层`UNSAFE_PortalProvider`提供该node，并从同一theme值投影`data-theme`；禁止增加第二个theme store、setter或persistence。missing/duplicate host均阻断；unmount只清理自己写入的projection。
+- React Aria `ModalOverlay`/`Popover`统一消费App provider；`OverlayPortal.jsx`只负责验证唯一host并以`createPortal`挂载自有overlay，host缺失/重复立即抛错，禁止回退`document.body`或原地render。
+- `FocusTrapDialog.jsx`继续拥有focus/ARIA/Escape/backdrop click/focus restore，DOM挂载唯一委托`OverlayPortal`；不得自行创建host或保留非portal分支。
+- `ProjectSelector.jsx:11`当前局部`portalContainer` state初始为`null`，trigger callback在`:16-17`正常挂载时必从`.sa-window`取得`themeShell`，`:71`再通过`UNSTABLE_portalContainer={portalContainer || undefined}`覆盖App provider；它不是恒空分支。主控已批准将`ProjectSelector.jsx`与`ProjectSelector.test.jsx`纳入最小迁移：删除container state/callback/显式prop，使Popover继承统一provider；保留`triggerRef`、close-focus与disabled行为，并用test证明Popover挂到`#overlay-root`而不是`.sa-window`。该popover仍只能消费local/popover语义token，不得建立第二套global顺序。
+
+### THEME SELECTOR MIGRATION LOCK
+
+portal后下列6条selector失去`.sa-window`祖先，必须全部改为由唯一overlay host/theme projection驱动，并在`styles.test.js`中逐条枚举；禁止复制可独立漂移的light颜色值。前三条来自`ThemePolish.css`，后三条来自`PagePrimitivesPolish.css`：
+
+1. `.sa-window[data-theme="light"] .runtime-stat-tooltip`
+2. `.sa-window[data-theme="light"] .warning-log-popover`
+3. `.sa-window[data-theme="light"] .warning-log-popover code`
+4. `.sa-window[data-theme="light"] .skills-editor-modal button`
+5. `.sa-window[data-theme="light"] .skills-editor-modal button:hover:not(:disabled)`
+6. `.sa-window[data-theme="light"] .skills-editor-modal button.ghost`
+
+### TEST HOST / SETUP DECISION
+
+- `frontend-app/src/test-setup.js`当前只配置Testing Library与memory `localStorage`，没有`#overlay-root`或其他DOM host初始化；Vitest也不会加载`index.html`。
+- `FocusTrapDialog.test.jsx`是当前direct custom-overlay test；其他App/page/Markdown集成仍依赖默认body/测试DOM。GREEN若将所有overlay改为required host而不补测试环境，会让非目标suite因基础设施缺失失败，无法区分真实行为退化。
+- 因此把`frontend-app/src/test-setup.js`标记为“计划外但GREEN很可能必需的最小test-environment expansion”：统一创建与`index.html`同构的唯一`#overlay-root`；missing/duplicate用例在各自suite显式移除/制造重复并在结束后恢复。该扩面必须先由RED证据证明并经主控批准；A0/A1不得预先修改setup来掩盖预期失败。
+
+### EXACT RED FILES / SERIAL SHARDS
+
+所有RED只写测试，不创建production module，不改CSS、HTML、App runtime、package scripts或test setup；每片失败证据与dirty boundary经主控复核后才进入下一片。
+
+| 分片 | Create | Modify | 必须先看到的失败 |
+|---|---|---|---|
+| A1.1 guard contract RED | `frontend-app/scripts/frontend-z-index-token-guard.test.mjs` | 无 | 裸负数/0/低值均失败；已知token通过；未知、重复、未使用、overlay顺序错误失败；local/global fixture分开 |
+| A1.2 style/index RED | 无 | `frontend-app/src/styles.test.js` | `LayerTokens.css`不存在/未在其他production CSS前导入；39条裸值仍存在；`#overlay-root`缺失或非root sibling；stacking-context禁用属性与6条theme selector漏迁移均失败 |
+| A2.1 portal/focus RED | `frontend-app/src/shared/ui/OverlayPortal.test.jsx` | `frontend-app/src/shared/ui/FocusTrapDialog.test.jsx`、`frontend-app/src/pages/chat/components/ProjectSelector.test.jsx` | 内容未挂到唯一host、missing/duplicate未fail-fast、unmount未清理；FocusTrapDialog portal后focus/Tab/Escape/click/restore契约尚未满足；ProjectSelector Popover仍挂到`.sa-window`且局部container ownership未删除 |
+| A2.2 App provider/theme RED | 无 | `frontend-app/src/App.test.jsx` | App未向React Aria提供唯一host、light/dark未同步shell与host、独立写入/卸载/重挂载会留下stale projection |
+
+RED预期dirty边界严格为6个文件：新建2个test，修改4个既有test。`frontend-app/src/test-setup.js`只保留为GREEN候选，不得混入RED；`package.json`与guard production也不得在RED提前接线。
+
+### GREEN FILE BOUNDARY RESERVED BY PLAN（NOT AUTHORIZED IN A0）
+
+- Create：`frontend-app/src/shared/styles/LayerTokens.css`、`frontend-app/src/shared/ui/OverlayPortal.jsx`、`frontend-app/scripts/frontend-z-index-token-guard.mjs`。
+- Modify：`frontend-app/index.html`、`frontend-app/src/App.jsx`、`frontend-app/src/main.jsx`、`frontend-app/src/shared/ui/FocusTrapDialog.jsx`、`frontend-app/src/shared/styles/ThemePolish.css`、`frontend-app/src/shared/styles/PagePrimitivesPolish.css`、`frontend-app/src/pages/chat/components/ProjectSelector.jsx`、`frontend-app/package.json`以及上方11个z-index CSS文件。
+- Resolved scope expansion：`ProjectSelector.jsx/.test.jsx`已由主控批准纳入统一provider迁移；不再保留局部portal container。
+- Pending GREEN-only scope decision：`frontend-app/src/test-setup.js`（test environment最小扩面）。RED证明前不是owned edit path。
+
+### LSP EVIDENCE GAP / STOP
+
+- 既有JS证据通过收窄到`FocusTrapDialog` import binding获得43个references，支持7个production imports / 16 instances的影响面结论。
+- LSP `xref(references)`不为CSS声明值、selector或HTML id literal建立可复查的symbol edge；即使把`work_dir`收窄到本worktree并把目标收窄到单个CSS/HTML文件，仍不能用definition/xref证明39条`z-index`或`#overlay-root`结构。因此这两类证据必须由精确文本枚举、HTML/CSS AST style tests与全量guard共同闭环，不能把缺少LSP xref写成PASS。
+- A0到此停止：只允许本执行记录dirty；不进入A1、不创建测试、不改production/package/setup、不卡位stage/commit、不进入Task 8、不push。等待主控逐片下达A1继续指令；`test-setup.js`仍须在RED证据后单独批准。
+
+## TASK 7 A1.1 — Z-INDEX GUARD CONTRACT RED
+
+### STATE
+
+`RED`（只创建`frontend-z-index-token-guard.test.mjs`并更新本执行记录；production guard module不存在，单文件Vitest唯一因静态import missing而在collection阶段失败；未进入A1.2/GREEN）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | 既有Node guard fixture与LSP定位/精读 | 0 | 既有scripts tests使用Vitest静态import production pure exports并直接喂内存source/Map fixtures；A1.1沿用该模式，不shell真实仓库、不创建临时baseline |
+| 2 | create `scripts/frontend-z-index-token-guard.test.mjs` | 0 | 176行test-only；静态import`validateZIndexContract`，锁定纯函数输入`{ tokenSource, cssSources }`与稳定coded violation objects |
+| 3 | `node --check scripts/frontend-z-index-token-guard.test.mjs` | 0 | test module语法有效 |
+| 4 | `npx --no-install eslint scripts/frontend-z-index-token-guard.test.mjs` | 0 | repo-native target ESLint无error/warning；无需修改package或全局lint配置 |
+| 5 | `npx --no-install vitest run scripts/frontend-z-index-token-guard.test.mjs --no-file-parallelism --maxWorkers=1` | 1（expected RED） | 1 failed suite / 0 tests；唯一错误为line 2无法resolve`./frontend-z-index-token-guard.mjs`，production module不存在；无fixture parse、assertion或环境噪声 |
+| 6 | LSP structure / inspect / xref / read / diagnostics | 0 | structure完整识别19个展开后contract cases及helpers；import binding definition只能回到test import自身，xref仅import与`validate`helper call两处，符合target module尚不存在；test diagnostics `No diagnostics found`、total 0 |
+| 7 | worktree diff-check / status | 0 | `git diff --check`无输出；owned dirty恰为本执行记录与新guard test，index empty；没有guard production、LayerTokens、CSS、package、其他tests或setup diff |
+| 8 | main只读snapshot | 0 | main当前1个status entry且cached diff empty（SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`）；unstaged whole-diff仍`2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，计划SHA仍`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。A0观察到的外部97-entry staged状态已由外部自行撤离，本任务未触碰main |
+
+### CONTRACT LOCK
+
+- exact token set固定为9个：5个local/shell token与`popover < dialog < lightbox < critical`4个global overlay token；所有定义必须唯一且只存在于注入的LayerTokens source。
+- fixtures锁定裸`z-index`的`-1`、`0`、`1`、`9999`全部产生`z-index-bare-number`，不存在阈值豁免；只有exact known`var(--z-*)`通过，unknown和fallback forms分别产生稳定coded violations。
+- duplicate definition、production CSS外部定义、未使用token均失败；global顺序的重复值、逆序值和非数值均产生`overlay-order-invalid`。
+- global token selector必须显式位于`#overlay-root`下；普通page selector消费global token失败。local token允许普通selector，`ProjectSelector`类local popover明确不被强迫使用global token。
+- 同一CSS fixture同时包含global/local selectors；comment-only裸值不误报，带注释/换行的active裸负数仍必须命中。`baseline`、`allowlist`、`threshold`输入一律产生`policy-bypass-option`，禁止后续CLI悄悄引入ratchet/阈值语义。
+
+### STOP
+
+- 当前RED是预期功能缺失而不是测试语法错误：production module存在并导出`validateZIndexContract`后，19个contract cases才会实际执行；A1.1没有为获得更深失败而创建stub或临时production。
+- 到此立即停止：不进入A1.2，不创建guard production/LayerTokens，不改CSS/package/其他tests/setup，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 A1.2 — STYLE / INDEX CONTRACT RED
+
+### STATE
+
+`RED`（只修改`styles.test.js`与本执行记录；7个新contract cases完整collect，精确暴露当前LayerTokens/import、39条numeric z-index、overlay host与6条theme selector缺口；未改任何production）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 9 | `styles.test.js` source/parser最小扩展 | 0 | 新增optional LayerTokens source slot，missing只返回空source供单一断言失败，不在module top-level抛ENOENT；继续复用既有PostCSS root/source contract，未复制A1.1 guard parser |
+| 10 | `node --check src/styles.test.js` | 0 | test module语法有效 |
+| 11 | `npx --no-install eslint src/styles.test.js` | 0 | target ESLint无error/warning |
+| 12 | exact new describe Vitest | 1（expected RED） | 84 tests中5 failed / 2 passed / 77 skipped。五类失败精确为LayerTokens source空、main import缺失、39/39 active z-index仍为numeric、真实index缺`#overlay-root`、6条旧theme selector全保留且6条host selector全缺失 |
+| 13 | full `src/styles.test.js` Vitest | 1（expected RED） | 84 tests中6 failed / 78 passed；除上述5类外，唯一额外失败是既有cascade list已预先加入LayerTokens而main尚未import。fixture missing/duplicate/nested/misordered host分类与host stacking-context负面检查2/2通过；其余既有style tests无新增失败 |
+| 14 | LSP grep / structure / inspect / xref / read / diagnostics | 0 | grep定位唯一new describe；structure识别helpers/tests；调用点definition跳到`activeZIndexDeclarations@137-152`，xref严格为声明与contract call两处；精读7 cases；`styles.test.js` diagnostics `No diagnostics found`、total 0。首次definition使用漂移列号返回0，收窄到current call `285:27`后重试成功 |
+| 15 | final diagnostics / diff-check / main只读snapshot | 0 | 三个owned文件diagnostics total 0；`git diff --check`无输出，index empty且status恰为本记录、styles test与A1.1 guard test。main被外部并发改为10个status entries，cached仍empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，unstaged whole-diff变为`7eab22f74996b3953b0e92c1a5e28c75838a4e04d420cd81b0e6ff352dc226b2`，计划SHA仍`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未读取或触碰外部diff |
+
+### RED CONTRACT EVIDENCE
+
+- LayerTokens缺失被隔离为可断言空source；同一suite其余83 tests仍collect。`cssFiles`已把`src/shared/styles/LayerTokens.css`锁为第一项，因此既有cascade alignment与新exact-once/first-import contract都将在GREEN由同一个`main.jsx` import满足。
+- PostCSS active declaration遍历确认生产事实仍精确为39条、11文件，且invalid列表恰39条numeric值；final contract只接受9个exact known`var(--z-*)`，unknown/fallback同样进入invalid，不允许注释或inactive text影响active count。
+- test-local HTML semantic helper证明valid sibling/order fixture通过，missing、duplicate、nested与script-before-host fixtures分别给出稳定分类；真实`index.html`当前只得到`overlay-root-count`，没有被LayerTokens缺失mask。
+- `html`、`body`、`#overlay-root`六种禁用stacking properties当前扫描结果为空；该通过只证明没有意外context，不替代真实host缺失RED。
+- theme迁移纠正为两个CSS文件共6条：`ThemePolish.css`的runtime tooltip / warning popover / code三条，以及`PagePrimitivesPolish.css`的Skills modal button / hover / ghost三条。RED一次输出remaining-old 6与missing-host 6，禁止漏迁一半。
+
+### STOP
+
+- 当前owned dirty恰为本执行记录、A1.1新guard test与`styles.test.js`；A1.2没有创建production guard/LayerTokens，没有修改HTML/main/CSS/package/setup或其他tests。
+- 到此立即停止：不进入A2或GREEN，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 A2.1 — PORTAL / FOCUS TEST-ONLY RED
+
+### STATE
+
+`RED`（只创建`OverlayPortal.test.jsx`，修改`FocusTrapDialog.test.jsx`、`ProjectSelector.test.jsx`与本执行记录；OverlayPortal production module缺失，两个既有组件只在新portal ownership断言失败，原交互契约保持GREEN）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 16 | LSP locate / structure / read existing component/tests | 0 | 精读`FocusTrapDialog` focus/Tab/Escape/backdrop/restore实现与ProjectSelector local `portalContainer` owner；tests保持既有React Aria交互，不引入fake timers |
+| 17 | A2.1三文件test-only变更 | 0 | 每个suite显式创建并清理唯一`#overlay-root`；Focus suite另建caller container，Project suite由本地`UNSAFE_PortalProvider getContainer={() => host}`提供统一container；未改global setup |
+| 18 | 首次三suite串行运行 | 1 | OverlayPortal 0-test missing-module RED；Focus 1 portal placement失败 / 5 interaction通过；ProjectSelector因Vite下`import.meta.url`非`file:`而0-test collection失败。该URL错误不是目标RED，停止并只修test harness |
+| 19 | ProjectSelector raw-source读取纠正 | 0 | 仅将test读取改为repo既有`cwd()+path`模式；没有改production或断言语义 |
+| 20 | 三个target tests ESLint | 0 | 无error/warning |
+| 21 | 最终三suite串行Vitest | 1（expected RED） | 3 files failed；OverlayPortal suite 0 tests且唯一错误为`./OverlayPortal.jsx`无法resolve；Focus 6中1 failed / 5 passed；ProjectSelector 6中2 failed / 4 passed。已collect的12 tests合计3 failed / 9 passed，无act/timer/host-cleanup噪声 |
+| 22 | LSP grep / structure / inspect / xref / diagnostics | 0 | grep定位三suite 9个host契约点；structure识别Focus 6 cases与Project 6 cases；Focus JSX definition跳到production`FocusTrapDialog@61-147`；PortalProvider xref覆盖local d.ts与test wrapper；三test diagnostics `No diagnostics found`、total 0。首次inspect使用空白漂移行返回position-out-of-range，收窄到`25:6`后成功 |
+| 23 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty恰6文件：本记录、A1.1 guard test、A1.2 styles test及本阶段3 tests。main被外部并发改为1668个status entries，cached SHA `3fc51dcbf6b52220235f0188c9aee07a9a6c6076f27d513b2dbe48fc3d61e93b`，unstaged empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，main计划文件SHA变为`02e9d43c3673c6a48e09aaad47113b406b219cfcdcc22579a824d9026d66f4f8`；本任务未读取、改写、unstage或吸收这些外部变化 |
+
+### PORTAL / FOCUS CONTRACT EVIDENCE
+
+- `OverlayPortal.test.jsx`用caller与唯一host锁定children只存在于host、unmount清理；missing与duplicate id必须同步抛含`overlay-root`错误，且body/caller都不能出现fallback内容。静态import使当前production module缺失成为唯一collection RED，不创建stub绕过。
+- `FocusTrapDialog.test.jsx`每test自建caller与host。现有inline实现只让“host contains dialog / caller excludes dialog”失败；Escape、默认首焦点、`initialFocusSelector`、Tab最后到第一、Shift+Tab第一到最后、enabled backdrop close、`closeDisabled`阻断以及unmount恢复原active element共5 tests全部通过。
+- `ProjectSelector.test.jsx`保留disabled、open-disable-recovery、select/remove/add、Escape与focus restore 4项既有行为GREEN。新增raw-source contract精确命中`UNSTABLE_portalContainer`和local`portalContainer`仍存在；统一provider已提供`#overlay-root`，但当前explicit override仍把Popover挂在`.sa-window`，因此host ownership test按预期失败。
+- 三suite均在`afterEach`先cleanup React tree再移除自己的host/caller；没有修改`test-setup.js`，也没有让一个test的host泄漏给下一个test。
+
+### STOP
+
+- 当前RED将缺口隔离为三个production动作：创建`OverlayPortal.jsx`、让`FocusTrapDialog`委托它、删除ProjectSelector local portal override。App provider、index host与global setup仍不在本阶段授权范围。
+- 到此立即停止：不进入A2.2或GREEN，不创建production，不改App/index/CSS/package/setup/guard production，不stage/commit，不进入Task 8，不push。等待主控复核。
+
+## TASK 7 A2.2 — APP PROVIDER / THEME TEST-ONLY RED
+
+### STATE
+
+`RED`（只修改`App.test.jsx`与本执行记录；App全套199 tests精确为5 target failures / 194 existing passes，required host test infrastructure没有制造其他回归）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 24 | LSP定位App source/theme/boundary与现有tests | 0 | 精读`useColorTheme`唯一storage owner、AppShell/AppWindow render、既有theme toggle与`AppErrorBoundary` containment模式；A2.1 direct provider已足够，不扩真实App ProjectSelector fixture |
+| 25 | App test-local host lifecycle与4个contract areas | 0 | 文件级beforeEach创建唯一`#overlay-root`；afterEach显式cleanup React后删除所有test hosts。新增source/provider、projection lifecycle、missing/duplicate it.each；既有theme test扩展host同步/tamper，不改global setup |
+| 26 | `npx --no-install eslint src/App.test.jsx` | 0 | target ESLint无error/warning |
+| 27 | exact new/theme filter Vitest | 1（expected RED） | 主控删除“reporter不得含安全结构标识”的过度约束后fresh复跑；App共199 tests，5 target failed / 194 skipped。失败严格为provider/source缺失、projection lifecycle缺失、missing未contain、duplicate未contain、theme host初始同步缺失 |
+| 28 | full `src/App.test.jsx` Vitest | 1（expected RED） | 纠偏后fresh full仍为199 tests中5 failed / 194 passed，Duration 48.63s；其余既有App行为全部通过，证明test-local required host没有造成基础设施噪声 |
+| 29 | LSP grep / inspect / xref / read / diagnostics | 0 | grep定位唯一source contract与18个`appOverlayHost` lifecycle点；inspect从projection assertion回到test host declaration，xref覆盖setup、lifecycle、boundary与theme test；精读完整contract block；App test diagnostics `No diagnostics found`、total 0 |
+| 30 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty恰7文件：本记录、A1.1 guard test、A1.2 styles test、A2.1三tests、App test。main外部并发此刻为10个status entries，cached empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，unstaged SHA `3f5cf9232fb3b8c83997ab763e1d12433ab9c5212d2171e3bf6a741778b18427`，计划SHA恢复为`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务仍未触碰main |
+
+### APP PROVIDER / THEME CONTRACT EVIDENCE
+
+- source contract要求App直接从`react-aria`消费`UNSAFE_PortalProvider`，由`requiredOverlayRoot()`对`querySelectorAll('#overlay-root')`做唯一性验证，并把required node交给provider `getContainer`；明确禁止`document.body` fallback和overlay theme store/storage/persistence。
+- 既有`useColorTheme`仍是唯一owner。扩展theme test锁初始light、切dark、tamper host、再切light时shell与host同步，且backend preference call count保持0；当前只在host初始projection处失败。
+- lifecycle test锁普通unmount删除自己写入的`data-theme`，remount覆盖stale值；mounted期间被外部改为`external`后unmount不得删除，随后remount再次从唯一owner覆盖stale。当前App没有projection，首个light断言即RED。
+- missing/duplicate两种host错误都必须在App mount fail-fast，由既有`AppErrorBoundary`显示安全文案、隐藏shell，fallback DOM不得显示`overlay-root`原始标识，reporter则必须exactly once且允许保留安全结构诊断信息。test内spy只抑制预期React console输出并在finally恢复；当前App未验证host，因此两例都按预期只因安全fallback未出现而失败。
+- 没有增加真实App内ProjectSelector overlay用例：A2.1已用本地`UNSAFE_PortalProvider`直接证明provider container与explicit override冲突；在A2.2复制整条App/sidebar/menu fixture只会扩大测试噪声，不增加独立契约证据。
+
+### STOP
+
+- 当前A2 RED阶段累计只有7个owned test/doc文件；仍没有任何production、index、CSS、main entry、package、setup或guard production变更。
+- 到此立即停止：不进入GREEN，不stage/commit，不进入Task 8，不push。等待主控复核并决定GREEN分片。
+
+## TASK 7 B1.1 — Z-INDEX GUARD PURE MODULE GREEN
+
+### STATE
+
+`GREEN_AT_PURE_SCOPE`（只创建`frontend-z-index-token-guard.mjs`并更新本执行记录；A1.1的19个内存契约全部通过，真实仓库CLI仍因计划中的`LayerTokens.css`尚未创建而严格失败；未进入LayerTokens/CSS/HTML/App/portal迁移）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 31 | create `scripts/frontend-z-index-token-guard.mjs` | 0 | 同文件导出`validateZIndexContract({ tokenSource, cssSources, ...policy })`与可复用`runZIndexGuard`；PostCSS解析active declarations，正常契约失败返回稳定coded violation objects，parse/输入/I-O异常保持coded或原生fail-fast |
+| 32 | `node --check scripts/frontend-z-index-token-guard.mjs` | 0 | production guard module语法有效 |
+| 33 | target guard module + contract test ESLint | 0 | `npx --no-install eslint scripts/frontend-z-index-token-guard.mjs scripts/frontend-z-index-token-guard.test.mjs`无error/warning |
+| 34 | A1.1单suite Vitest | 0 | CLI导出按主控纠正为`runZIndexGuard`后fresh复跑：1 file / 19 tests passed，Duration 992ms；exact token set、定义唯一性/位置/使用、严格global顺序、裸值/unknown/fallback、overlay-root ancestor和policy bypass全部GREEN |
+| 35 | `node scripts/frontend-z-index-token-guard.mjs` | 1（expected migration RED） | CLI直接读取严格路径`src/shared/styles/LayerTokens.css`并扫描`src/**/*.css`；当前唯一错误为该计划production文件ENOENT，没有baseline/allowlist/threshold或软降级 |
+| 36 | source truth grep / direct execution shape | 0 | production module对`baseline|allowlist|threshold|>=8`搜索0 hits；导出pure validator与`runZIndexGuard`，用`realpathSync(process.argv[1])`和module URL robust判断直接执行 |
+| 37 | LSP grep / structure / inspect / xref / read / diagnostics | 0 | grep与document symbols定位validator/CLI runner；test import definition跳到production `validateZIndexContract@159-175`，xref覆盖声明、CLI runner与test import/helper共4处；精读pure validator与strict I-O runner；module/test diagnostics `No diagnostics found`、total 0 |
+| 38 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty恰8文件：本记录、A1.1 guard test、A1.2 styles test、A2.1三tests、App test与本阶段guard module。main仍为外部10个status entries，cached empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，unstaged SHA `3f5cf9232fb3b8c83997ab763e1d12433ab9c5212d2171e3bf6a741778b18427`，计划SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未触碰main |
+
+### GUARD IMPLEMENTATION EVIDENCE
+
+- token contract由同一固定9项表驱动；global token额外要求strict numeric且`popover < dialog < lightbox < critical`，重复、逆序与非数值都返回`overlay-order-invalid`，没有阈值或ratchet语义。
+- production CSS只接受exact known `var(--z-*)`；所有active裸数字（含负数与0）统一返回`z-index-bare-number`，unknown token、fallback form和其他表达式返回独立稳定code。comment-only文本由PostCSS active declaration遍历自然排除。
+- global token的每个selector分支都必须具备显式`#overlay-root` ancestor；selector splitter保留括号/属性中的逗号语义。任何额外policy key统一返回`policy-bypass-option`，调用方不能通过新参数偷偷绕过规则。
+- CLI从调用时`appRoot`严格读取唯一token source，并递归收集`src`下全部CSS；token source自身从production inputs排除。缺文件、目录或读取失败立即失败，不创建默认token、allowlist、baseline或空扫描fallback。
+
+### STOP
+
+- B1.1只授权guard pure module；真实CLI RED是后续LayerTokens/CSS迁移尚未发生的预期边界，不把它误报为整体GREEN。
+- 到此立即停止：不进入B1.2，不创建`LayerTokens.css`，不改CSS/index/main/App/portal/package/setup，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 B1.2 — LAYER TOKENS / CSS / STYLE-INDEX GREEN
+
+### STATE
+
+`GREEN`（创建唯一LayerTokens source，39条/11文件全部按真实owner迁移，四个global overlay rule显式限定`#overlay-root`，main/index/theme与旧style assertions同步；19/19、CLI和84/84均fresh通过。未进入App/portal production）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 39 | create `LayerTokens.css`; migrate main/index/theme/CSS/style assertions | 0 | 9个严格整数只在LayerTokens定义；main第一项CSS import；index唯一host与root同级且在script前；11个既有CSS保持39条active z-index；6条light overlay selector移到host |
+| 40 | edit checkpoint token inventory | 0 | 主控语义纠偏前计数为behind2/handle2/raised12/sticky10/shell9/global各1；四global host rule均已显式存在，numeric 0 |
+| 41 | 主控page owner纠偏 | 0 | Memory create menu、Composer model dropdown、chat toast/actions menu与scroll-bottom均改为`local-sticky`；最终计数behind2、handle2、raised11、sticky15、shell5、四global各1，总计39 |
+| 42 | 首轮A1.1 guard contract / CLI | 0 | 1 file / 19 tests passed（844ms）；真实CLI输出`frontend z-index token guard passed`，不再是LayerTokens ENOENT |
+| 43 | 首轮full styles | 1（fixture migration gap） | 84中83 passed / 1 failed；唯一失败是旧theme test把新LayerTokens的`:root`计作第二个theme root。生产层级、host、theme迁移和其余83 tests均GREEN |
+| 44 | migrate old theme-root selector assertion | 0 | 只把旧断言收窄为包含`--bg`的theme root exact-one；不放宽LayerTokens、39/11、token或host contract；随后styles 84/84通过 |
+| 45 | owner纠偏后fresh三组 | 0 | guard contract 19/19（528ms）；CLI PASS；styles 84/84（994ms）。修正后的page/local语义没有引入回归 |
+| 46 | target lint / syntax / truth queries | 0 | main/styles/guard target ESLint 0，guard/styles node-check 0；numeric z-index 0、unknown/fallback refs 0；9个定义只在LayerTokens；active shape仍39条/11文件 |
+| 47 | LSP locate / inspect / xref / read / diagnostics | 0 with CSS xref gap | grep定位global token定义与消费；structure识别LayerTokens唯一`:root`；main CSS import definition跳到LayerTokens。精读9值、global host rule、first import与index sibling/order；17个B1.2文件batch diagnostics `No diagnostics found`、total 0。CSS LS对custom property use两次收窄列号后仍不给definition，xref仅回当前use/definition自身，因此39条引用关系由PostCSS guard/style tests与truth query闭环，未将CSS xref缺口写成PASS |
+| 48 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty 24 entries，全部属于既有RED/doc/guard与本阶段批准路径。main外部状态变为1个staged entry，cached SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、unstaged empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，计划SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未触碰main |
+
+### FINAL TOKEN / OWNER EVIDENCE
+
+- local顺序固定为`behind(1) < raised(2) < handle(3) < sticky(4) < shell(5)`；global顺序固定为`popover(100) < dialog(200) < lightbox(300) < critical(400)`。数值没有复制到consumer，也没有fallback。
+- `local-behind`只用于drop-active低层装饰与mobile scrim；两个resizer只用`local-handle`；page-owned menu/dropdown/toast/action/scroll control使用`local-sticky`，没有冒充App shell owner。
+- `shell-control`只保留给titlebar/top-command project dropdown、thread action tooltip和mobile sidebar/workbench expand/toggle。modal/image panel内部使用`local-raised`。
+- 四个global mapping严格为warning log popover→popover、runtime stat tooltip→dialog、image lightbox→lightbox、modal overlay→critical；基础class rule不再含z-index，独立`#overlay-root .class` rule持有唯一global token。
+- token使用最终精确计数：behind 2、raised 11、handle 2、sticky 15、shell 5、popover/dialog/lightbox/critical各1；合计39，覆盖同一11个production CSS文件。
+
+### STOP
+
+- B1.2没有修改App/FocusTrap/ProjectSelector/OverlayPortal production，没有改package/test setup，没有stage/commit/push。
+- 到此立即停止：不进入B2 portal production，不运行full frontend suite/build，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 B1.3 — GUARD PACKAGE INTEGRATION TDD
+
+### STATE
+
+`GREEN`（只扩展既有guard contract test并把同一CLI接入既有`guard:critical-skip`链；20/20与完整critical guard链通过，`test:hook`仍从该链开始。未新建第二script truth）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 49 | package source contract test | 0 | test解析真实package scripts，要求CLI命令作为独立`&&`segment精确一次、无尾随参数、整条script无baseline/allowlist/threshold，且`test:hook`首项仍为`npm run guard:critical-skip` |
+| 50 | 首次单suite | 1（invalid harness RED） | Vite把`import.meta.url`变为非`file:` URL，导致0 tests collection失败；不是目标package接线RED，未改production/package断言，只切到repo既有`process.cwd()`路径读取 |
+| 51 | 有效TDD RED | 1（expected RED） | 20 tests中1 failed / 19 passed；唯一失败为critical command列表中缺少`node scripts/frontend-z-index-token-guard.mjs`，既有19项pure contract保持GREEN |
+| 52 | package single-truth wiring | 0 | 只在既有`guard:critical-skip`末尾用正常`&&`追加同一CLI；没有新建script key，`test`→`test:hook`→`guard:critical-skip`既有调用链不变 |
+| 53 | GREEN guard contract | 0 | 1 file / 20 tests passed，Duration 334ms |
+| 54 | `npm run guard:critical-skip` | 0 | critical skip、silent async、contract/store、code size与z-index五个guard依序全部PASS；z-index输出`frontend z-index token guard passed` |
+| 55 | JSON / lint / LSP | 0 | package JSON parse 0，guard test target ESLint 0；LSP grep/structure定位新contract，command constant hover与xref覆盖声明/4 references，精读test/package exact chain；两文件diagnostics `No diagnostics found`、total 0 |
+| 56 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty 25 entries，只比B1.2增加已批准package path。main仍为外部1个staged entry，cached SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、unstaged empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，计划SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未触碰main |
+
+### STOP
+
+- B1.3没有修改guard production、App/portal/FocusTrap/ProjectSelector production、CSS、test setup或其他package scripts；没有运行full `npm test`/build。
+- 到此立即停止：不进入B2，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 B2.1 — OVERLAY PORTAL / FOCUS TRAP GREEN
+
+### STATE
+
+`GREEN`（创建唯一portal primitive并让FocusTrapDialog只委托它；Overlay 3 + Focus 6共9 tests全部通过，原focus/ARIA/Escape/backdrop/restore逻辑保持。未进入App/ProjectSelector接线）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 57 | create `OverlayPortal.jsx` | 0 | 同模块export `requiredOverlayRoot`与`OverlayPortal`；每次render重新查询current document的exact-one host，document不可用/missing/duplicate/非HTMLElement统一抛固定安全错误；只调用ReactDOM `createPortal` |
+| 58 | wrap existing FocusTrapDialog DOM | 0 | 唯一return在原overlay div外增加一层`<OverlayPortal>`；dialog/backdrop DOM、refs、effects、focus trap、Escape、closeDisabled、restore逻辑未分叉或重写 |
+| 59 | first targeted tests | 0 | 2 files / 9 tests passed，Duration 1.04s；portal mount/ownership/unmount/missing/duplicate 3项与Focus现有6项全部GREEN |
+| 60 | first target ESLint | 1（static contract conflict） | 唯一错误为`react-refresh/only-export-components`拒绝组件文件同时导出required helper；本阶段明确要求同模块export且禁止新增第三文件，因此仅在helper export前加单行、单规则disable-next-line，无运行时变化 |
+| 61 | final lint + targeted tests | 0 | 四个target production/test文件ESLint 0；fresh 2 files / 9 tests passed，Duration 1.79s |
+| 62 | source truth | 0 | Overlay module仅有`querySelectorAll('#overlay-root')`、固定错误与`createPortal(children, requiredOverlayRoot())`；无create host、append、body/inline fallback、cache、theme/storage或DOM内容回显。Focus production只有import与唯一JSX wrapper，无第二host/createPortal分支 |
+| 63 | LSP locate / definition / xref / read / diagnostics | 0 | grep/structure定位两个exports；Focus import definition跳到`OverlayPortal@19-21`；OverlayPortal xref覆盖Focus与3个portal tests共11处，required helper xref仅声明和单一createPortal consumer；精读helper与完整Focus return；四文件diagnostics `No diagnostics found`、total 0 |
+| 64 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty 27 entries，只比B1.3增加新Overlay production与已批准Focus production。main仍为外部1个staged entry，cached SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、unstaged empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，计划SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未触碰main |
+
+### STOP
+
+- B2.1没有修改App/ProjectSelector production、index/CSS/package/test setup或其他tests；没有运行App/Project tests或full suite/build。
+- 到此立即停止：不进入B2.2，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 B2.2A — PROJECT SELECTOR UNIFIED PROVIDER GREEN
+
+### STATE
+
+`GREEN`（ProjectSelector删除局部portal owner与React Aria explicit override，自然继承父`UNSAFE_PortalProvider`；整套6 tests通过，open/disabled/actions/focus restore保持）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 65 | remove local portal owner | 0 | 删除`portalContainer` state、`setTriggerNode` callback、closest shell查询与`UNSTABLE_portalContainer`；清理无用`useCallback` import，AriaButton直接使用既有object `triggerRef`，Popover只保留class/placement |
+| 66 | ProjectSelector full suite | 0 | 1 file / 6 tests passed，Duration 1.69s；source ownership、disabled close/recovery、select/remove/add、Escape focus restore与provider host ownership全部GREEN |
+| 67 | target lint / code-size / source truth | 0 | production+test ESLint 0；frontend code size guard PASS（files=361, frozen=0）；production对portalContainer/override/callback/closest/document/body/host lookup/createPortal/useCallback搜索0 hits |
+| 68 | LSP locate / definition / xref / read / diagnostics | 0 | grep/structure定位object ref、open state与全部actions；test import definition跳到`ProjectSelector@9-70`；triggerRef xref恰声明、focus restore与AriaButton ref 3处；精读完整component；production/test diagnostics `No diagnostics found`、total 0。首次在JSX属性空白列做definition返回0，收窄到test import后成功 |
+| 69 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty 28 entries，只比B2.1增加已批准ProjectSelector production。main仍为外部1个staged entry，cached SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、unstaged empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，计划SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未触碰main |
+
+### STOP
+
+- B2.2a没有修改App/test setup、其他production/tests、CSS/index/package；没有运行App tests或full suite/build。
+- 到此立即停止：不进入App provider，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 B2.2B — APP PROVIDER / OVERLAY THEME PROJECTION GREEN
+
+### STATE
+
+`GREEN`（AppShell在既有theme/layout owners初始化后解析统一host，以无条件layout effect投影theme，并用同一React Aria provider包住UI-test/normal两分支；App 199/199与portal联合15/15通过）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 70 | App provider + projection implementation | 0 | 从`react-aria`导入`UNSAFE_PortalProvider`，从OverlayPortal单一真源导入`requiredOverlayRoot`；`useAppShellState`与`createShellLayoutStore`完成后才解析host，保持theme storage/layout init错误优先级 |
+| 71 | unconditional theme projection | 0 | `useLayoutEffect`位于uiTest分支前且每次render无条件调用；写入`shell.theme`，cleanup仅当host当前值仍等于该effect theme才删除，外部篡改被保留，下一次mount/effect仍覆盖stale |
+| 72 | provider branch unification | 0 | 单一`UNSAFE_PortalProvider getContainer={() => overlayRoot}`包住`UITestMCPShell`与`AppWindow`条件内容；无body fallback、第二host lookup、theme store/storage或条件hook |
+| 73 | App source contract correction | 0 | 删除“helper定义/querySelectorAll位于App”的错误断言；改为精确断言从OverlayPortal导入、单一调用、App内无helper定义/host query，同时保留provider/getContainer、existing theme owner与no fallback契约 |
+| 74 | first App full | 1（migration-owned test scope） | 199中197 passed / 2 failed；仅两项shared-file preview modal仍从render `container`查询，统一Focus portal后真实内容位于`appOverlayHost`。5项target provider/theme/boundary tests与其余192项均PASS |
+| 75 | approved App test ownership migration | 0 | 主控批准只把两处`.shared-file-content-preview`查询改为既有`appOverlayHost.querySelector`，没有扩成global screen/query fallback；随后App full 199/199通过（16.65s） |
+| 76 | portal integration matrix | 0 | OverlayPortal + FocusTrapDialog + ProjectSelector：3 files / 15 tests passed，Duration 1.77s |
+| 77 | lint correction / final App full | 0 | 首次lint只发现两处改scope后未使用的`container`解构；只删除该局部解构。App/App test target ESLint 0；fresh App 1 file / 199 tests passed，Duration 16.75s |
+| 78 | code-size / source truth | 0 | frontend code size guard PASS（files=361, frozen=0）；App仅有统一helper import/call、theme attribute投影与provider，未出现document.body/querySelectorAll/createElement或overlay独立store |
+| 79 | LSP locate / definition / xref / read / diagnostics | 0 | grep/structure定位AppShell新host/effect/provider；App import definition跳到`requiredOverlayRoot@7-17`，helper xref精确覆盖App import/call与OverlayPortal声明/call共4处；精读AppShell完整顺序与两分支；App/App test diagnostics `No diagnostics found`、total 0 |
+| 80 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty 29 entries，只比B2.2a增加已批准App production。main外部此刻变为clean，cached/unstaged均empty SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，计划SHA变为`02e9d43c3673c6a48e09aaad47113b406b219cfcdcc22579a824d9026d66f4f8`；本任务未触碰或吸收main变化 |
+
+### STOP
+
+- B2.2b没有修改test setup、其他production/tests、CSS/index/package；两处额外App test修改严格是portal后modal ownership迁移。
+- 到此立即停止：不运行full frontend suite/build，不stage/commit，不进入Task 8，不push。等待主控复核并下达下一分片。
+
+## TASK 7 B2.3 — GLOBAL TEST HOST / FULL-SUITE GREEN
+
+### STATE
+
+`GREEN`（以严格test-only host fixture覆盖非App suites，迁移显式portal tests的fixture ownership，并经系统化调试修复两处旧DOM ownership/order断言；fresh `npm test` 128/128 files、1573/1573 tests全绿）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 81 | 首次full `npm test`只读证据 | 1 | 前置guards/typecheck/RPC audit均PASS；Vitest 10 failed / 118 passed files，37 failed / 1536 passed tests，3 unhandled。普通失败统一为missing unique overlay-root，3 timeout也伴随同一uncaught OverlayPortal错误；运行前后status/diff hash不变 |
+| 82 | minimal global test fixture | 0 | `test-setup.js`从Vitest导入beforeEach；每test query exact selector，duplicate立即固定安全错误，missing才create+append，exact-one原样保留；不cleanup duplicate、不设置theme、不增加production fallback |
+| 83 | first setup-targeted matrix | 1（fixture ownership conflict） | App+Project通过，Focus 6/6失败、Overlay 2/3失败，共206/214；global hook先建host，而三个explicit suites仍无条件创建本地host，导致duplicate；Overlay missing负例移除本地host后仍残留global host。未运行full、未弱化production |
+| 84 | approved explicit fixture ownership migration | 0 | Overlay/Focus/Project beforeEach只领取setup提供的exact-one host并在缺失/非唯一时报固定test错误；caller仍本地创建。Overlay missing/duplicate继续由case内移除/追加，afterEach保持清理 |
+| 85 | corrected targeted matrix | 0 | App+Overlay+Focus+Project：4 files / 214 tests passed，Duration 19.30s |
+| 86 | second fresh `npm test` | 130（diagnostic STOP） | 前置guards/typecheck/RPC audit PASS；出现3个非host形态失败即按授权Ctrl-C：Workflow schedule两项各5s timeout，Files stale preview一项render-container query undefined；未自行扩面 |
+| 87 | systematic-debug phase 1 isolated reproduction | 1 each | Workflow独立3/3进程均相同2 timeout，wall 12.32/14.92/11.49s；Files独立3/3均line165 undefined，wall 1.008/0.996/0.998s；两文件同进程仍3 failed / 14 passed（wall 12.11s）。确认独立+组合稳定复现，不是full-order |
+| 88 | phase 1 data-flow finding | 0 | Workflow test用同名button列表`.at(-1)`依赖DOM顺序；portal host早于render container，modal confirm移到前方后`.at(-1)`重新点opener，applyDagOps不触发，waitFor按5000ms超时。Files modal已portal但test仍从render container找preview，故undefined；两业务production/test均未被Task7改动，变化只在shared portal seam |
+| 89 | single test-ownership fix | 0 | Workflow导入within，打开后按name取得dialog，再只从dialog内取得confirm；禁止getAll/at/order猜测。Files移除render container ownership，三处preview断言均从已取得latestDialog/dialog查询；未改timeout、fixture或production |
+| 90 | exact regression matrix | 0 | Workflow runtime + Files：2 files / 17 tests passed，Duration 2.60s；原5s schedule failures降为63/49ms，Files stale preview 33ms |
+| 91 | combined portal matrix | 0 | App+Overlay+Focus+Project+Workflow+Files：6 files / 231 tests passed，Duration 18.96s |
+| 92 | final fresh `npm test` | 0 | critical/silent-async/contract-store/code-size/z-index guards、contracts typecheck、RPC audit全部PASS；Vitest 128/128 files、1573/1573 tests passed，Duration 73.74s（tests 27.42s），无failed/unhandled |
+| 93 | lint / code-size / LSP | 0 | setup及5个受影响test files target ESLint 0；code-size PASS（files=361, frozen=0）。LSP grep定位dialog ownership assertions，Workflow modal与Files component definition成功，DagScheduleModal xref 4处、FilesPage xref 5处；精读两修复test与setup fixture；9个相关test/production文件diagnostics `No diagnostics found`、total 0。FocusTrapDialog首次xref返回0，改用Files JSX definition成功，不把缺失edge写成PASS |
+| 94 | diff-check / status / main只读snapshot | 0 | `git diff --check`无输出，index empty；累计owned dirty 32 entries。final full运行前后worktree status SHA均`b1f82908d465ff2224a158f710784f1e880f60e8c73e0f7dace53fc8481b3df7`、unstaged SHA均`7e9c3b7684ea8a80b24c231beeac48658e5e80a81e15574fc4cff46f86becf04`，证明无生成物漂移。main外部此刻2 entries，cached SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、unstaged SHA `6ea0ea8fc350c337d089bd442f06ff9e569edf91ded303d261ef730f766ab099`、计划SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；本任务未触碰main |
+
+### FINAL TEST OWNERSHIP EVIDENCE
+
+- production仍严格要求runtime唯一host；test setup只是Vitest环境fixture，不被App/OverlayPortal import，也不设置theme或吞掉duplicate。
+- 通用page tests依赖global exact-one fixture；需要验证missing/duplicate的Overlay suite显式领取同一host并在case内控制，下一test由global beforeEach重建。
+- modal内容/动作断言全部绑定已取得dialog，不再依赖portal前的render container或body sibling顺序；业务数据断言（cron payload、paused flag、stale preview exclusion）保持原样。
+
+### STOP
+
+- B2.3没有修改production、package、timeout或全局fallback；修复范围严格为setup及5个已批准test files，另更新本记录。
+- 到此立即停止：不build、不stage/commit，不进入Task 8、不push。等待主控复核与Task 7后续收口授权。

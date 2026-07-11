@@ -246,7 +246,7 @@ meter {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 20;
+  z-index: var(--z-local-sticky);
   min-width: 132px;
   border: 1px solid var(--line);
   border-radius: 8px;

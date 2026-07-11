@@ -1,7 +1,27 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { cwd } from 'node:process';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { UNSAFE_PortalProvider } from 'react-aria';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectSelector } from './ProjectSelector.jsx';
+
+const projectSelectorSource = readFileSync(path.join(cwd(), 'src/pages/chat/components/ProjectSelector.jsx'), 'utf8');
+let overlayHost;
+
+beforeEach(() => {
+  const hosts = document.querySelectorAll('#overlay-root');
+  overlayHost = hosts[0];
+  if (hosts.length !== 1 || !(overlayHost instanceof HTMLElement)) {
+    throw new Error('ProjectSelector tests require one overlay-root fixture.');
+  }
+});
+
+afterEach(() => {
+  cleanup();
+  overlayHost.remove();
+});
 
 function createStore(overrides = {}) {
   return {
@@ -14,15 +34,26 @@ function createStore(overrides = {}) {
   };
 }
 
-function renderProjectSelector(store, props = {}) {
-  return render(
-    <div className="sa-window" data-theme="light">
-      <ProjectSelector store={store} projectPath="/repo/app" {...props} />
-    </div>,
+function projectSelectorTree(store, props = {}) {
+  return (
+    <UNSAFE_PortalProvider getContainer={() => overlayHost}>
+      <div className="sa-window" data-theme="light">
+        <ProjectSelector store={store} projectPath="/repo/app" {...props} />
+      </div>
+    </UNSAFE_PortalProvider>
   );
 }
 
+function renderProjectSelector(store, props = {}) {
+  return render(projectSelectorTree(store, props));
+}
+
 describe('ProjectSelector', () => {
+  it('has no local portal container owner or React Aria portal override', () => {
+    expect(projectSelectorSource).not.toContain('UNSTABLE_portalContainer');
+    expect(projectSelectorSource).not.toMatch(/\bportalContainer\b/);
+  });
+
   it('keeps the disabled trigger closed without calling project actions', () => {
     const store = createStore();
     renderProjectSelector(store, { isDisabled: true });
@@ -44,19 +75,11 @@ describe('ProjectSelector', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     expect(await screen.findByRole('menu')).toBeInTheDocument();
 
-    rerender(
-      <div className="sa-window" data-theme="light">
-        <ProjectSelector store={store} projectPath="/repo/app" isDisabled />
-      </div>,
-    );
+    rerender(projectSelectorTree(store, { isDisabled: true }));
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: '选择项目' })).toBeDisabled();
 
-    rerender(
-      <div className="sa-window" data-theme="light">
-        <ProjectSelector store={store} projectPath="/repo/app" />
-      </div>,
-    );
+    rerender(projectSelectorTree(store));
     expect(screen.getByRole('button', { name: '选择项目' })).toBeEnabled();
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
@@ -95,7 +118,7 @@ describe('ProjectSelector', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('keeps the project menu inside the themed application shell', async () => {
+  it('mounts the project menu in overlay-root instead of the application shell', async () => {
     const store = createStore();
     const { container } = renderProjectSelector(store);
 
@@ -103,6 +126,7 @@ describe('ProjectSelector', () => {
     const popover = (await screen.findByRole('menu')).closest('.project-selector-popover');
 
     expect(popover).not.toBeNull();
-    expect(container.querySelector('.sa-window')).toContainElement(popover);
+    expect(overlayHost).toContainElement(popover);
+    expect(container.querySelector('.sa-window')).not.toContainElement(popover);
   });
 });

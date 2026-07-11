@@ -207,7 +207,7 @@
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 30;
+  z-index: var(--z-shell-control);
   width: max-content;
   min-width: 360px;
   max-width: min(520px, 86vw);

@@ -1,10 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { cwd } from 'node:process';
 import postcss from 'postcss';
 import { describe, expect, it } from 'vitest';
 
+const LAYER_TOKENS_FILE = 'src/shared/styles/LayerTokens.css';
 const cssFiles = [
+  LAYER_TOKENS_FILE,
   'src/styles.css',
   'src/AppChrome.css',
   'src/AppShell.css',
@@ -43,9 +45,74 @@ const cssFiles = [
 
 const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
 const appSource = readFileSync(path.join(cwd(), 'src/App.jsx'), 'utf8');
+const indexSource = readFileSync(path.join(cwd(), 'index.html'), 'utf8');
 const mainCssImports = [...mainSource.matchAll(/^import '\.\/([^']+\.css)';$/gm)].map((match) => `src/${match[1]}`);
-const css = cssFiles.map((file) => readFileSync(path.join(cwd(), file), 'utf8')).join('\n');
+const cssSources = new Map(cssFiles.map((file) => {
+  const filePath = path.join(cwd(), file);
+  if (file === LAYER_TOKENS_FILE && !existsSync(filePath)) return [file, ''];
+  return [file, readFileSync(filePath, 'utf8')];
+}));
+const css = [...cssSources.values()].join('\n');
 const root = postcss.parse(css);
+
+const EXPECTED_Z_INDEX_TOKENS = new Set([
+  '--z-local-behind',
+  '--z-local-raised',
+  '--z-local-handle',
+  '--z-local-sticky',
+  '--z-shell-control',
+  '--z-overlay-popover',
+  '--z-overlay-dialog',
+  '--z-overlay-lightbox',
+  '--z-overlay-critical',
+]);
+const EXPECTED_Z_INDEX_FILES = [
+  'src/AppChrome.css',
+  'src/AppShell.css',
+  'src/AppShellSidebarThreadActions.css',
+  'src/AppShellWorkbench.css',
+  'src/pages/chat/ChatMessages.css',
+  'src/pages/chat/ChatPage.css',
+  'src/pages/chat/ChatPageWorkbench.css',
+  'src/pages/chat/composer/ComposerDock.css',
+  'src/pages/chat/runtime/RuntimePanel.css',
+  'src/pages/memory/MemoryPage.css',
+  'src/pages/skills/SkillsPage.css',
+];
+const FORBIDDEN_HOST_STACKING_PROPERTIES = new Set([
+  'transform',
+  'opacity',
+  'filter',
+  'perspective',
+  'contain',
+  'isolation',
+]);
+const OVERLAY_THEME_SELECTOR_MIGRATIONS = [
+  [
+    '.sa-window[data-theme="light"] .runtime-stat-tooltip',
+    '#overlay-root[data-theme="light"] .runtime-stat-tooltip',
+  ],
+  [
+    '.sa-window[data-theme="light"] .warning-log-popover',
+    '#overlay-root[data-theme="light"] .warning-log-popover',
+  ],
+  [
+    '.sa-window[data-theme="light"] .warning-log-popover code',
+    '#overlay-root[data-theme="light"] .warning-log-popover code',
+  ],
+  [
+    '.sa-window[data-theme="light"] .skills-editor-modal button',
+    '#overlay-root[data-theme="light"] .skills-editor-modal button',
+  ],
+  [
+    '.sa-window[data-theme="light"] .skills-editor-modal button:hover:not(:disabled)',
+    '#overlay-root[data-theme="light"] .skills-editor-modal button:hover:not(:disabled)',
+  ],
+  [
+    '.sa-window[data-theme="light"] .skills-editor-modal button.ghost',
+    '#overlay-root[data-theme="light"] .skills-editor-modal button.ghost',
+  ],
+];
 
 function splitSelectors(selector) {
   const selectors = [];
@@ -65,6 +132,76 @@ function splitSelectors(selector) {
 
   if (current.trim()) selectors.push(current.trim());
   return selectors;
+}
+
+function activeZIndexDeclarations() {
+  const declarations = [];
+
+  for (const [file, source] of cssSources) {
+    const fileRoot = postcss.parse(source, { from: file });
+    fileRoot.walkDecls('z-index', (declaration) => {
+      declarations.push({
+        file,
+        selector: declaration.parent?.selector || '',
+        value: declaration.value,
+      });
+    });
+  }
+
+  return declarations;
+}
+
+function selectorOccurrences(selector) {
+  let count = 0;
+  root.walkRules((rule) => {
+    if (splitSelectors(rule.selector).includes(selector)) count += 1;
+  });
+  return count;
+}
+
+function indexHostViolations(source) {
+  const parsed = new DOMParser().parseFromString(source, 'text/html');
+  const roots = [...parsed.querySelectorAll('#root')];
+  const overlayRoots = [...parsed.querySelectorAll('#overlay-root')];
+  const violations = [];
+
+  if (roots.length !== 1) violations.push('root-count');
+  if (overlayRoots.length !== 1) violations.push('overlay-root-count');
+  if (roots.length !== 1 || overlayRoots.length !== 1) return violations;
+
+  const [appRoot] = roots;
+  const [overlayRoot] = overlayRoots;
+  if (appRoot.parentElement !== parsed.body || overlayRoot.parentElement !== parsed.body) {
+    violations.push('host-sibling');
+  }
+
+  const bodyChildren = [...parsed.body.children];
+  const appRootIndex = bodyChildren.indexOf(appRoot);
+  const overlayRootIndex = bodyChildren.indexOf(overlayRoot);
+  const scriptIndex = bodyChildren.findIndex((node) => node.tagName === 'SCRIPT');
+  if (!(appRootIndex < overlayRootIndex && overlayRootIndex < scriptIndex)) {
+    violations.push('host-order');
+  }
+
+  return violations;
+}
+
+function forbiddenHostStackingDeclarations() {
+  const violations = [];
+  const hostSelectors = new Set(['html', 'body', '#overlay-root']);
+
+  root.walkRules((rule) => {
+    const matchedSelectors = splitSelectors(rule.selector).filter((selector) => hostSelectors.has(selector));
+    if (matchedSelectors.length === 0) return;
+    rule.walkDecls((declaration) => {
+      if (!FORBIDDEN_HOST_STACKING_PROPERTIES.has(declaration.prop)) return;
+      for (const selector of matchedSelectors) {
+        violations.push({ selector, property: declaration.prop, value: declaration.value });
+      }
+    });
+  });
+
+  return violations;
 }
 
 function declarationsFor(selector) {
@@ -131,6 +268,61 @@ describe('css import order', () => {
     expect(mainSource).toContain('Base layers load first');
     expect(mainSource).toContain('Route and feature styles stay in navigation order');
     expect(mainSource).toContain('Late polish layers intentionally override');
+  });
+});
+
+describe('layer token and overlay host contract', () => {
+  it('requires the dedicated layer token source without masking the rest of this suite', () => {
+    expect(cssSources.get(LAYER_TOKENS_FILE)).not.toBe('');
+  });
+
+  it('imports the layer token source exactly once before every other production stylesheet', () => {
+    expect(mainCssImports.filter((file) => file === LAYER_TOKENS_FILE)).toEqual([LAYER_TOKENS_FILE]);
+    expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
+  });
+
+  it('keeps all 39 active z-index declarations in 11 files on exact known token references', () => {
+    const declarations = activeZIndexDeclarations();
+    const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
+    const invalid = declarations.filter((declaration) => {
+      const match = /^var\((--z-[a-z-]+)\)$/.exec(declaration.value);
+      return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
+    });
+
+    expect(declarations).toHaveLength(39);
+    expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
+    expect(invalid).toEqual([]);
+  });
+
+  it('classifies missing, duplicate, nested, and misordered overlay hosts', () => {
+    expect(indexHostViolations('<body><div id="root"></div><div id="overlay-root"></div><script></script></body>')).toEqual([]);
+    expect(indexHostViolations('<body><div id="root"></div><script></script></body>')).toContain('overlay-root-count');
+    expect(indexHostViolations('<body><div id="root"></div><div id="overlay-root"></div><div id="overlay-root"></div><script></script></body>')).toContain('overlay-root-count');
+    expect(indexHostViolations('<body><div id="root"><div id="overlay-root"></div></div><script></script></body>')).toContain('host-sibling');
+    expect(indexHostViolations('<body><div id="root"></div><script></script><div id="overlay-root"></div></body>')).toContain('host-order');
+  });
+
+  it('requires one root and one overlay-root as body siblings before the module script', () => {
+    expect(indexHostViolations(indexSource)).toEqual([]);
+  });
+
+  it('keeps html, body, and overlay-root free of accidental stacking contexts', () => {
+    expect(forbiddenHostStackingDeclarations()).toEqual([]);
+  });
+
+  it('moves every light overlay selector from the app shell to the overlay host', () => {
+    const remainingOldSelectors = [];
+    const missingHostSelectors = [];
+
+    for (const [oldSelector, hostSelector] of OVERLAY_THEME_SELECTOR_MIGRATIONS) {
+      if (selectorOccurrences(oldSelector) !== 0) remainingOldSelectors.push(oldSelector);
+      if (selectorOccurrences(hostSelector) !== 1) missingHostSelectors.push(hostSelector);
+    }
+
+    expect({ remainingOldSelectors, missingHostSelectors }).toEqual({
+      remainingOldSelectors: [],
+      missingHostSelectors: [],
+    });
   });
 });
 
@@ -481,7 +673,7 @@ describe('composer layout styles', () => {
     const logLine = declarationsFor('.warning-log-line');
 
     expect(panel.position).toBe('relative');
-    expect(Number(panel['z-index'])).toBeGreaterThan(20);
+    expect(panel['z-index']).toBe('var(--z-local-sticky)');
     expect(panel.overflow).toBe('hidden');
     expect(panel.background).toBe('var(--surface-2)');
     expect(toolbar.background).toBe('var(--surface-2)');
@@ -586,13 +778,15 @@ describe('theme-aware component styles', () => {
     const preview = declarationsFor('.message-image-preview');
     const hint = declarationsFor('.message-image-preview span');
     const lightbox = declarationsFor('.image-lightbox');
+    const hostLightbox = declarationsFor('#overlay-root .image-lightbox');
     const panel = declarationsFor('.image-lightbox-panel');
 
     expect(preview.cursor).toBe('zoom-in');
     expect(preview.background).toBe('transparent');
     expect(hint.opacity).toBe('0');
     expect(lightbox.position).toBe('fixed');
-    expect(lightbox['z-index']).toBe('80');
+    expect(lightbox['z-index']).toBeUndefined();
+    expect(hostLightbox['z-index']).toBe('var(--z-overlay-lightbox)');
     expect(panel.width).toBe('min(1180px, 94vw)');
     expect(panel['max-height']).toBe('92vh');
   });
@@ -1029,7 +1223,7 @@ describe('conversation content column styles', () => {
     expect(stitchScopedFloatingComposer.width).toBeUndefined();
     expect(stitchScopedFloatingComposer['max-width']).toBeUndefined();
     expect(stitchScopedFloatingComposer['pointer-events']).toBeUndefined();
-    expect(stitchScopedFloatingComposer['z-index']).toBe('18');
+    expect(stitchScopedFloatingComposer['z-index']).toBe('var(--z-local-sticky)');
     expect(floatingCard.width).toBe('100%');
     expect(floatingCard.margin).toBe('0 auto');
   });
@@ -1411,7 +1605,7 @@ describe('workbench shell styles', () => {
     expect(desktopToggle.display).toBe('none');
     expect(mobileToggle.display).toBe('inline-flex');
     expect(mobileToggle.position).toBe('fixed');
-    expect(mobileToggle['z-index']).toBe('45');
+    expect(mobileToggle['z-index']).toBe('var(--z-shell-control)');
     expect(mobileSidebar.position).toBe('fixed');
     expect(mobileSidebar['--workbench-sidebar-width']).toBe('min(320px, calc(100vw - 52px))');
     expect(mobileSidebar.width).toBe('var(--workbench-sidebar-width)');
@@ -1600,6 +1794,8 @@ describe('runtime activity panel styles', () => {
     const diff = declarationsFor('.diff-empty');
     const tooltip = declarationsFor('.runtime-stat-tooltip');
     const warningPopover = declarationsFor('.warning-log-popover');
+    const hostTooltip = declarationsFor('#overlay-root .runtime-stat-tooltip');
+    const hostWarningPopover = declarationsFor('#overlay-root .warning-log-popover');
 
     expect(panel['--activity-panel-height']).toBe('64px');
     expect(panel['--activity-panel-min-height']).toBe('64px');
@@ -1610,12 +1806,15 @@ describe('runtime activity panel styles', () => {
     expect(collapsedActivity['grid-template-rows']).toBe('minmax(0, 1fr)');
     expect(collapsedIcons.height).toBe('100%');
     expect(collapsedIcons['border-bottom']).toBe('0');
-    expect(Number(activity['z-index'])).toBeGreaterThan(Number(diff['z-index']));
+    expect(diff['z-index']).toBe('var(--z-local-raised)');
+    expect(activity['z-index']).toBe('var(--z-local-sticky)');
     expect(tooltip.position).toBe('fixed');
     expect(tooltip.left).toBe('var(--runtime-stat-tooltip-left, 12px)');
     expect(tooltip['max-height']).toBe('var(--runtime-stat-tooltip-max-height, min(280px, 42vh))');
-    expect(Number(tooltip['z-index'])).toBeGreaterThan(Number(activity['z-index']));
-    expect(Number(tooltip['z-index'])).toBeGreaterThan(Number(warningPopover['z-index']));
+    expect(tooltip['z-index']).toBeUndefined();
+    expect(warningPopover['z-index']).toBeUndefined();
+    expect(hostTooltip['z-index']).toBe('var(--z-overlay-dialog)');
+    expect(hostWarningPopover['z-index']).toBe('var(--z-overlay-popover)');
   });
 });
 
@@ -1683,6 +1882,7 @@ describe('runtime resize styles', () => {
   it('keeps warning log details inside hover popovers', () => {
     const line = declarationsFor('.warning-log-line');
     const popover = declarationsFor('.warning-log-popover');
+    const hostPopover = declarationsFor('#overlay-root .warning-log-popover');
     const code = declarationsFor('.warning-log-popover code');
 
     expect(line['white-space']).toBe('nowrap');
@@ -1692,7 +1892,8 @@ describe('runtime resize styles', () => {
     expect(popover.left).toBe('var(--warning-log-popover-left, 12px)');
     expect(popover.right).toBe('var(--warning-log-popover-right, 12px)');
     expect(popover['pointer-events']).toBe('auto');
-    expect(Number(popover['z-index'])).toBeGreaterThan(80);
+    expect(popover['z-index']).toBeUndefined();
+    expect(hostPopover['z-index']).toBe('var(--z-overlay-popover)');
     expect(code.display).toBe('block');
     expect(code['max-width']).toBe('100%');
     expect(code['overflow-wrap']).toBe('anywhere');
@@ -1721,8 +1922,8 @@ describe('light theme baseline usability', () => {
   it('uses light surfaces for runtime details instead of the dark console treatment', () => {
     const activity = declarationsFor('.sa-window[data-theme="light"] .runtime-activity-panel');
     const logs = declarationsFor('.sa-window[data-theme="light"] .log-lines');
-    const tooltip = declarationsFor('.sa-window[data-theme="light"] .runtime-stat-tooltip');
-    const popoverCode = declarationsFor('.sa-window[data-theme="light"] .warning-log-popover code');
+    const tooltip = declarationsFor('#overlay-root[data-theme="light"] .runtime-stat-tooltip');
+    const popoverCode = declarationsFor('#overlay-root[data-theme="light"] .warning-log-popover code');
     const diffLines = declarationsFor('.sa-window[data-theme="light"] .diff-file-lines');
 
     expect(activity['border-top-color']).toBe('var(--line)');
@@ -1768,7 +1969,7 @@ describe('light theme control surfaces', () => {
   });
 
   it('keeps skill editor controls and preview readable in light mode', () => {
-    const modalButton = declarationsFor('.sa-window[data-theme="light"] .skills-editor-modal button');
+    const modalButton = declarationsFor('#overlay-root[data-theme="light"] .skills-editor-modal button');
     const scopeButton = declarationsFor('.sa-window[data-theme="light"] .skills-scope-segmented button');
     const activeScopeButton = declarationsFor('.sa-window[data-theme="light"] .skills-scope-segmented button.active');
     const preview = declarationsFor('.sa-window[data-theme="light"] .skills-body-preview');
@@ -1883,15 +2084,17 @@ describe('suiyuan theme contract', () => {
   });
 
   it('defines one root dark token contract plus one light override contract', () => {
-    const rootSelectors = [];
+    const themeRootSelectors = [];
     root.walkRules((rule) => {
-      if (rule.selector === ':root') rootSelectors.push(rule);
+      if (rule.selector === ':root' && rule.nodes.some((node) => node.type === 'decl' && node.prop === '--bg')) {
+        themeRootSelectors.push(rule);
+      }
     });
 
     const dark = declarationsFor(':root');
     const light = declarationsFor('.sa-window[data-theme="light"]');
 
-    expect(rootSelectors).toHaveLength(1);
+    expect(themeRootSelectors).toHaveLength(1);
     expect(dark['--bg']).toBe('#131411');
     expect(dark['--surface']).toBe('#1b1c18');
     expect(dark['--surface-2']).toBe('#1e1f1b');

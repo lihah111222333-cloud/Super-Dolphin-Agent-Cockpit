@@ -1,5 +1,6 @@
-import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { UNSAFE_PortalProvider } from 'react-aria';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Bell,
@@ -37,6 +38,7 @@ import {
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import { runUIAction } from './shared/ui/runUIAction.js';
+import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
 import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
 import './AppChrome.css';
 import './AppShell.css';
@@ -665,8 +667,22 @@ function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = f
       ? requiredAppStoragePort('shell layout storage')
       : shellLayoutStorage,
   }));
-  if (uiTestMCPMode) return <UITestMCPShell />;
-  return <AppWindow shell={shell} shellLayoutStore={shellLayoutStore} store={store} />;
+  const overlayRoot = requiredOverlayRoot();
+  useLayoutEffect(() => {
+    overlayRoot.setAttribute('data-theme', shell.theme);
+    return () => {
+      if (overlayRoot.getAttribute('data-theme') === shell.theme) {
+        overlayRoot.removeAttribute('data-theme');
+      }
+    };
+  }, [overlayRoot, shell.theme]);
+  return (
+    <UNSAFE_PortalProvider getContainer={() => overlayRoot}>
+      {uiTestMCPMode
+        ? <UITestMCPShell />
+        : <AppWindow shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
+    </UNSAFE_PortalProvider>
+  );
 }
 
 function App(props) {
