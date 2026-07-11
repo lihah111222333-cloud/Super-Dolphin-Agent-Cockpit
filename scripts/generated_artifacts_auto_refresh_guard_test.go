@@ -169,7 +169,10 @@ func assertGeneratedArtifactsRefreshStatusAndUninstall(t *testing.T, fixture gen
 // newGeneratedArtifactsRefreshFixture 构造真实脚本执行边界，仅替换两个生成器入口和 launchctl 外部进程。
 func newGeneratedArtifactsRefreshFixture(t *testing.T) generatedArtifactsRefreshFixture {
 	t.Helper()
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve fixture temp dir: %v", err)
+	}
 	fixture := generatedArtifactsRefreshFixture{
 		superRoot:      filepath.Join(root, "super-agent-v3"),
 		wjbootRoot:     filepath.Join(root, "wjboot-v2"),
