@@ -867,6 +867,8 @@ App 保留一个共享 concrete root adapter，同时投影 `cron.Store` 与 `cr
 
 将当前 `datasourceV2StorePort`、document/chunk/import adapter 与 `WithTx` 包装移动到 `internal/app/datasource_v2_store_adapters.go`。把 datasource_v2 的消费接口和 DTO 导出为最小 Port surface；事务 callback 接收 Module-owned Port，App 在同一底层事务 Store 上重新构造 adapter。事务 callback 为 nil 时继续 fail-fast。
 
+导出面固定为 `datasourcev2.Store`、`ListDocumentsParams`、`ListChunksParams`、`SearchChunksParams`、`UpsertDocumentParams`、`UpdateDocumentParams`、`InsertChunkParams`、`MarkReadyParams`、`Document`、`TextChunk`、`TextChunkPage`、`SemanticChunk`，不得 alias `datasourcev2store`。同时把现有 `errDatasourceV2StoreNotConfigured` 导出为 `ErrStoreNotConfigured`，新增稳定 `ErrStoreTxCallbackRequired`；App 的 nil/typed-nil root Store、nil callback 和事务返回 nil/typed-nil Store 都必须在调用 domain callback 前 fail-fast。`Embedding []byte` 在 Search/Insert domain→Store 与 TextChunk/SemanticChunk Store→domain 两向复制，page/list 另建切片；任意 Store error 保持原对象与 `errors.Is`，Store 成功返回 nil Document 时转为明确错误而非解引用 panic。
+
 - [ ] **Step 6: 迁移 feedback 与 insight**
 
 将 `feedbackWriter` 导出为 `feedback.Writer`，将 `feedbackEvent` 导出为 `feedback.Event`；App adapter 保留逐字段 Event 转换。将 `insightReader` / `insightWriter` 导出为 `insight.Reader` / `insight.Writer`，移动 `insightStoreAdapter` 和 DTO/error 映射。nil Store 不得从当前显式错误退化为静默成功。
@@ -879,7 +881,11 @@ Memory 不新增或改写 `sharedfileport` DTO。`memoryHandlerFxDeps` 改为可
 
 - [ ] **Step 8: 迁移 prompt**
 
-把 `promptSharedFileReaderAdapter`、`promptStoreAdapter`、`promptIntentStoreAdapter` 和 uipreference 映射移到 `internal/app/prompt_store_adapters.go`。先导出 App 必须实现的 `PreferenceReader`、`SharedFileReader`、`Store` 以及其 `ListFilter`、`Template`、`TemplateSection`、`TemplateVersion`、`IntentDraft`、`IntentDraftListFilter` 等签名 DTO；逐方法检查不得残留 private 参数/返回类型。Prompt 模块保留 prompt-owned Port、intent DTO、runtime catalog DTO 和错误语义；App adapter 逐字段映射，不把 `promptstore`、`sharedfilestore`、`uipreference` 类型暴露回构造函数。
+把 `promptSharedFileReaderAdapter`、`promptStoreAdapter` 和 uipreference 映射移到 `internal/app/prompt_store_adapters.go`。先导出 App 必须实现的 `PreferenceReader`、`SharedFileReader`、`Store` 以及其 `ListFilter`、`Template`、`TemplateSection`、`TemplateVersion`、`IntentDraft`、`IntentDraftListFilter` 等签名 DTO；逐方法检查不得残留 private 参数/返回类型。Prompt 模块保留 prompt-owned Port、intent DTO、runtime catalog DTO 和错误语义；App adapter 逐字段映射，不把 `promptstore`、`sharedfilestore`、`uipreference` 类型暴露回构造函数。
+
+`promptIntentStoreAdapter` 只在 prompt-owned `Store` 与 `prompt/intent.Store` 之间转换，属于领域内 adapter，必须留在 prompt 模块；本步骤移到 App 的只有直接持有 `promptstore.Store`、`sharedfilestore.Reader`、`uipreference.Store` 的 concrete adapter。`promptHandlersParams`、`ServiceFxParams`、`promptStoreFromDependency` 与 handler dependency switch 只接受导出的 prompt Port，不再保留生产 `case promptstore.Store/sharedfilestore.Reader`。App 的三个 provider 使用 required Store 输入且不新增 App optional 标签；Prompt 消费 `PreferenceReader/SharedFileReader` 仍为 optional，Store 为 required。
+
+Prompt `Store.WithTx` 的 callback nil、事务 Store nil/typed nil必须在进入领域 callback 前 fail-fast；root prompt Store nil/typed nil constructor 立即返回错误。DTO 转换除 `json.RawMessage` 外还要复制 `TemplateVersion.SourceUpdatedAt *time.Time`，`ListSectionsByTemplateIDs` 输入 slice 也不得与 Store 共享。App 需要全字段 one-hot、双向 mutable copy、普通错误身份与跨包完整 Store 实现测试；反射 converter 只允许存在于 App 的 Store DTO 边界，prompt↔intent 的领域转换可保留模块内独立 helper。
 
 - [ ] **Step 9: 迁移 turn**
 
@@ -888,6 +894,8 @@ Turn 将 `turnDedupeStore` 导出为 `turn.DedupeStore`，将 `turnDedupeEntry`�
 - [ ] **Step 10: 迁移 uistate**
 
 将 `preferenceStore`、`sharedFileReader`、`bindingLookup` 和对应 DTO 导出为 uistate-owned Port。把 `preferenceStoreAdapter`、`sharedFileReaderAdapter`、`bindingAdapter` 移到 `internal/app/uistate_store_adapters.go`。`serviceParams.Bindings` 不再使用 `bindingstore.Store`，而是 typed `uistate.BindingLookup`；ID trim 行为保留在 App adapter 并增加字段断言测试。
+
+Uistate 新建 `persistence_port.go`，真实导出 `PreferenceReader`、`PreferenceStore`、`PreferenceUpsertParams`、`PreferenceEntry`、`SharedFileReader`、`SharedFile`、`BindingLookup`、`BindingEntry`；不得 alias Store DTO。App 的 uipreference/sharedfile/binding providers 以 required Store 输入直接注册、不新增 App optional 标签，直接 nil/typed nil保持现有 nil domain port语义；`serviceParams.Bindings` 继续 optional，preferences nil时的内存 fallback与 shared file nil-file→nil语义不变。Preference Get/Upsert/List 的 `json.RawMessage` 双向复制，Binding 全字段逐项 `TrimSpace`，Store错误保持原对象与 `errors.Is`，并用 external `app_test` 证明三个 Port 可跨包实现。
 
 ### B3. Lane B 验证与提交
 
