@@ -3,7 +3,7 @@
 > 由 `go run ./scripts/archtestmap` 从 `DefaultBackendBoundaryRegistry()` 自动生成。请勿手工维护本页事实。
 
 - Owners: 13
-- Canonical rules: 19
+- Canonical rules: 20
 - Specialized guards: 9
 - Governed backend surfaces: 26
 
@@ -41,6 +41,7 @@
 | `mcpserver_orch_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-orch/**/*.go` | — | `cmd/mcp-orch/**/*.go` → `internal/tool/ida`<br>`cmd/mcp-orch/**/*.go` → `internal/tool/lsp` | — | — | orchestration MCP servers must not depend on LSP or IDA tool families |
 | `module_horizontal_deep_import` | `module_boundary` | `module_siblings` | `internal/module/**/*.go` | — | — | — | — | module packages must not import sibling module internals; use contract DTOs or injected ports instead |
 | `module_no_direct_db_imports` | `module_boundary` | `deny_imports` | `internal/module/**/*.go` | — | `internal/module/**/*.go` → `database/sql`<br>`internal/module/**/*.go` → `github.com/jackc/pgx/v5/pgconn`<br>`internal/module/**/*.go` → `github.com/jackc/pgx/v5/pgxpool`<br>`internal/module/**/*.go` → `github.com/jackc/pgx/v5` | — | — | module production code must not own direct database imports outside audited skill persistence seams |
+| `module_no_store_imports` | `module_boundary` | `deny_imports` | `internal/module/**/*.go` | — | `internal/module/**/*.go` → `internal/store` | — | — | business modules own persistence ports and receive Store adapters from internal/app |
 | `pkg_no_internal_imports` | `public_pkg_boundary` | `deny_imports` | `pkg/**/*.go` | — | `pkg/**/*.go` → `cmd`<br>`pkg/**/*.go` → `internal` | — | — | public pkg libraries must not depend on repository internals or command entrypoints |
 | `platform_no_module` | `platform_runtime` | `deny_imports` | `internal/platform/**/*.go` | — | `internal/platform/**/*.go` → `internal/module` | — | — | platform infrastructure stays below business modules |
 | `platform_no_store` | `platform_runtime` | `deny_imports` | `internal/platform/**/*.go` | — | `internal/platform/**/*.go` → `internal/store` | — | — | platform infrastructure must not depend on product store subpackages |
@@ -82,10 +83,10 @@
 | `internal/e2e` | — | `rpc_runtime_e2e` | backend end-to-end test surface |
 | `internal/guards` | — | `code_size_budget`<br>`rollback_skip_markers` | repository-level test guard surface |
 | `internal/mcpserver` | `fx_assembly_scope` | `dependency_direction` | shared MCP server implementations |
-| `internal/module` | `fx_assembly_scope`<br>`module_horizontal_deep_import`<br>`module_no_direct_db_imports` | — | business module ownership |
-| `internal/platform` | `fx_assembly_scope`<br>`platform_no_module`<br>`platform_no_store` | — | infrastructure runtime layer |
+| `internal/module` | `fx_assembly_scope`<br>`module_horizontal_deep_import`<br>`module_no_direct_db_imports`<br>`module_no_store_imports` | — | business module ownership |
+| `internal/platform` | `fx_assembly_scope`<br>`hooks_no_mcpcontrol`<br>`hooks_no_platform_db`<br>`mcpcontrol_no_hooks`<br>`platform_no_module`<br>`platform_no_store` | — | infrastructure runtime layer |
 | `internal/provider` | `fx_assembly_scope`<br>`provider_no_platform_db`<br>`provider_no_store` | — | provider adapter runtime |
-| `internal/store` | `fx_assembly_scope`<br>`store_dependency_surface` | — | persistence anti-corruption layer |
+| `internal/store` | `fx_assembly_scope`<br>`store_dependency_surface`<br>`store_sqlc_store_platform_only` | — | persistence anti-corruption layer |
 | `internal/testutil` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | shared backend test support |
 | `internal/ui` | `fx_assembly_scope` | `ui_wails_boundary` | Wails backend binding layer |
 | `internal/util` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | shared backend utilities |

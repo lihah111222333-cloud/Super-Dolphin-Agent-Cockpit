@@ -21,6 +21,35 @@ func TestValidateDefaultBackendBoundaryGovernance(t *testing.T) {
 	}
 }
 
+func TestBackendBoundaryGovernanceRejectsOrphanCanonicalRule(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	ruleID := registry.Rules[0].ID
+	for index := range registry.Surfaces {
+		registry.Surfaces[index].RuleIDs = slices.DeleteFunc(
+			registry.Surfaces[index].RuleIDs,
+			func(id archtest.BoundaryRuleID) bool { return id == ruleID },
+		)
+	}
+	violations := strings.Join(archtest.ValidateBackendBoundaryGovernance(repoRoot(t), registry), "\n")
+	want := `rule "` + string(ruleID) + `" is not referenced by any backend surface`
+	if !strings.Contains(violations, want) {
+		t.Fatalf("orphan canonical rule was accepted:\n%s", violations)
+	}
+}
+
+func TestBackendBoundaryModuleSurfaceIncludesNoStoreRule(t *testing.T) {
+	for _, surface := range archtest.DefaultBackendBoundaryRegistry().Surfaces {
+		if surface.Path != "internal/module" {
+			continue
+		}
+		if !slices.Contains(surface.RuleIDs, archtest.BoundaryRuleID("module_no_store_imports")) {
+			t.Fatalf("internal/module rules = %v", surface.RuleIDs)
+		}
+		return
+	}
+	t.Fatal("internal/module backend boundary surface is missing")
+}
+
 func TestValidateBackendBoundaryGovernanceReportsCanonicalPositions(t *testing.T) {
 	t.Parallel()
 

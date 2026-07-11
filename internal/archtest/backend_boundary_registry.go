@@ -171,6 +171,7 @@ func OnionBoundaryRuleIDs() []BoundaryRuleID {
 		"contract_reverse_pollution",
 		"module_horizontal_deep_import",
 		"module_no_direct_db_imports",
+		"module_no_store_imports",
 		"provider_no_store",
 		"provider_no_platform_db",
 		"platform_no_module",
@@ -254,10 +255,10 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("internal/e2e", "backend end-to-end test surface", nil, []BoundaryGuardID{"rpc_runtime_e2e"}),
 		backendBoundarySurface("internal/guards", "repository-level test guard surface", nil, []BoundaryGuardID{"code_size_budget", "rollback_skip_markers"}),
 		backendBoundarySurface("internal/mcpserver", "shared MCP server implementations", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"dependency_direction"}),
-		backendBoundarySurface("internal/module", "business module ownership", []BoundaryRuleID{"module_horizontal_deep_import", "module_no_direct_db_imports", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/platform", "infrastructure runtime layer", []BoundaryRuleID{"platform_no_module", "platform_no_store", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/module", "business module ownership", []BoundaryRuleID{"module_horizontal_deep_import", "module_no_direct_db_imports", "module_no_store_imports", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/platform", "infrastructure runtime layer", []BoundaryRuleID{"platform_no_module", "platform_no_store", "hooks_no_mcpcontrol", "mcpcontrol_no_hooks", "hooks_no_platform_db", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/provider", "provider adapter runtime", []BoundaryRuleID{"provider_no_store", "provider_no_platform_db", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("internal/store", "persistence anti-corruption layer", []BoundaryRuleID{"store_dependency_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/store", "persistence anti-corruption layer", []BoundaryRuleID{"store_sqlc_store_platform_only", "store_dependency_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/testutil", "shared backend test support", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/ui", "Wails backend binding layer", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"ui_wails_boundary"}),
 		backendBoundarySurface("internal/util", "shared backend utilities", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
@@ -349,6 +350,7 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultContractReversePollutionRule(patterns),
 		defaultModuleSiblingRule(patterns),
 		defaultModuleDatabaseRule(patterns),
+		defaultModuleStoreRule(patterns),
 		defaultMCPSidecarRule(patterns),
 		defaultCommandNarrowImportRule(patterns),
 		defaultInternalSupportNarrowImportRule(patterns),
@@ -404,6 +406,23 @@ func defaultModuleDatabaseRule(patterns backendBoundaryPatterns) BackendBoundary
 			"github.com/jackc/pgx/v5/pgxpool",
 			"github.com/jackc/pgx/v5/pgconn",
 		}, "module code must not own direct database dependencies"),
+		SkipTestFiles: true,
+	}
+}
+
+func defaultModuleStoreRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{
+		ID:           "module_no_store_imports",
+		Owner:        "module_boundary",
+		Reason:       "business modules own persistence ports and receive Store adapters from internal/app",
+		Kind:         BoundaryRuleDenyImports,
+		FilePatterns: patterns.module,
+		Deny: boundaryPolicies(
+			"module_boundary",
+			patterns.module,
+			[]string{"internal/store"},
+			"module production code must not import Store implementations",
+		),
 		SkipTestFiles: true,
 	}
 }

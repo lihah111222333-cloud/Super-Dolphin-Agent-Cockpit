@@ -204,11 +204,16 @@ func validateBackendBoundaryGovernanceRegistry(registry BackendBoundaryRegistry)
 		rules[rule.ID] = true
 	}
 	guards, violations := validateBackendBoundaryGuardDescriptors(registry.Guards)
-	surfaceViolations, references := validateBackendBoundarySurfaceDescriptors(registry.Surfaces, rules, guards)
+	surfaceViolations, ruleReferences, guardReferences := validateBackendBoundarySurfaceDescriptors(registry.Surfaces, rules, guards)
 	violations = append(violations, surfaceViolations...)
 	violations = append(violations, validateBackendBoundaryGuardApplicability(registry.Guards, registry.Surfaces)...)
+	for id := range rules {
+		if ruleReferences[id] == 0 {
+			violations = append(violations, fmt.Sprintf("rule %q is not referenced by any backend surface", id))
+		}
+	}
 	for id := range guards {
-		if references[id] == 0 {
+		if guardReferences[id] == 0 {
 			violations = append(violations, fmt.Sprintf("guard %q is not referenced by any backend surface", id))
 		}
 	}
@@ -306,9 +311,14 @@ func isCanonicalGoBuildTag(tag string) bool {
 }
 
 // validateBackendBoundarySurfaceDescriptors 拒绝空机制、重复目录以及未知 rule/guard 引用。
-func validateBackendBoundarySurfaceDescriptors(items []BackendBoundarySurface, rules map[BoundaryRuleID]bool, guards map[BoundaryGuardID]bool) ([]string, map[BoundaryGuardID]int) {
+func validateBackendBoundarySurfaceDescriptors(
+	items []BackendBoundarySurface,
+	rules map[BoundaryRuleID]bool,
+	guards map[BoundaryGuardID]bool,
+) ([]string, map[BoundaryRuleID]int, map[BoundaryGuardID]int) {
 	seen := make(map[string]bool, len(items))
-	references := make(map[BoundaryGuardID]int, len(guards))
+	ruleReferences := make(map[BoundaryRuleID]int, len(rules))
+	guardReferences := make(map[BoundaryGuardID]int, len(guards))
 	var violations []string
 	for i, surface := range items {
 		label := fmt.Sprintf("surface[%d]", i)
@@ -318,12 +328,19 @@ func validateBackendBoundarySurfaceDescriptors(items []BackendBoundarySurface, r
 			violations = append(violations, fmt.Sprintf("%s duplicate backend surface %q", label, surface.Path))
 		}
 		seen[surface.Path] = true
-		violations = append(violations, validateBackendBoundarySurfaceFields(label, surface, rules, guards, references)...)
+		violations = append(violations, validateBackendBoundarySurfaceFields(label, surface, rules, guards, ruleReferences, guardReferences)...)
 	}
-	return violations, references
+	return violations, ruleReferences, guardReferences
 }
 
-func validateBackendBoundarySurfaceFields(label string, surface BackendBoundarySurface, rules map[BoundaryRuleID]bool, guards map[BoundaryGuardID]bool, references map[BoundaryGuardID]int) []string {
+func validateBackendBoundarySurfaceFields(
+	label string,
+	surface BackendBoundarySurface,
+	rules map[BoundaryRuleID]bool,
+	guards map[BoundaryGuardID]bool,
+	ruleReferences map[BoundaryRuleID]int,
+	guardReferences map[BoundaryGuardID]int,
+) []string {
 	var violations []string
 	if strings.TrimSpace(surface.Reason) == "" {
 		violations = append(violations, label+" reason is empty")
@@ -331,13 +348,18 @@ func validateBackendBoundarySurfaceFields(label string, surface BackendBoundaryS
 	if len(surface.RuleIDs) == 0 && len(surface.GuardIDs) == 0 {
 		violations = append(violations, fmt.Sprintf("%s %q has no canonical rules or specialized guards", label, surface.Path))
 	}
-	violations = append(violations, validateBackendBoundarySurfaceRules(label, surface.RuleIDs, rules)...)
-	violations = append(violations, validateBackendBoundarySurfaceGuards(label, surface.GuardIDs, guards, references)...)
+	violations = append(violations, validateBackendBoundarySurfaceRules(label, surface.RuleIDs, rules, ruleReferences)...)
+	violations = append(violations, validateBackendBoundarySurfaceGuards(label, surface.GuardIDs, guards, guardReferences)...)
 	return violations
 }
 
 // validateBackendBoundarySurfaceRules 拒绝 surface 中未知或重复的 canonical rule。
-func validateBackendBoundarySurfaceRules(label string, ids []BoundaryRuleID, known map[BoundaryRuleID]bool) []string {
+func validateBackendBoundarySurfaceRules(
+	label string,
+	ids []BoundaryRuleID,
+	known map[BoundaryRuleID]bool,
+	references map[BoundaryRuleID]int,
+) []string {
 	seen := make(map[BoundaryRuleID]bool, len(ids))
 	var violations []string
 	for _, id := range ids {
@@ -347,6 +369,9 @@ func validateBackendBoundarySurfaceRules(label string, ids []BoundaryRuleID, kno
 			violations = append(violations, fmt.Sprintf("%s duplicate rule %q", label, id))
 		}
 		seen[id] = true
+		if known[id] {
+			references[id]++
+		}
 	}
 	return violations
 }
