@@ -1099,6 +1099,19 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('keeps composer drafts isolated by selected thread and project cwd', async () => {
+    const reviewCapability = {
+      kind: 'skill',
+      key: 'skill:project::review:/repo/app/.agents/skills/review',
+      name: 'review',
+      label: 'Code Review',
+      availability: 'ready',
+      ref: {
+        name: 'review',
+        scope: 'project',
+        personalType: '',
+        path: '/repo/app/.agents/skills/review',
+      },
+    };
     resetClientStoreForTests({
       cwd: '/repo/app',
       projectScopeCwd: '/repo/app',
@@ -1111,6 +1124,7 @@ function registerBridgeEventHandlersForTest() {
       ],
       draft: 'draft for A',
       attachments: [{ path: '/tmp/a.txt', name: 'a.txt' }],
+      composerCapabilities: [reviewCapability],
     });
     backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
       activeThreadId: threadId,
@@ -1124,6 +1138,7 @@ function registerBridgeEventHandlersForTest() {
     await useClientStore.getState().setActiveThread('thread-b');
     expect(useClientStore.getState().draft).toBe('');
     expect(useClientStore.getState().attachments).toEqual([]);
+    expect(useClientStore.getState().composerCapabilities).toEqual([]);
 
     useClientStore.getState().setDraft('draft for B');
 
@@ -1131,6 +1146,12 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().draft).toBe('draft for A');
     expect(useClientStore.getState().attachments).toEqual([
       expect.objectContaining({ path: '/tmp/a.txt', name: 'a.txt' }),
+    ]);
+    expect(useClientStore.getState().composerCapabilities).toEqual([
+      expect.objectContaining({
+        key: reviewCapability.key,
+        availability: 'unverified',
+      }),
     ]);
 
     backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
@@ -1142,6 +1163,27 @@ function registerBridgeEventHandlersForTest() {
 
     expect(useClientStore.getState().draft).toBe('');
     expect(useClientStore.getState().attachments).toEqual([]);
+    expect(useClientStore.getState().composerCapabilities).toEqual([]);
+
+    backend.setActiveProject.mockResolvedValueOnce({
+      projects: ['/repo/app', '/repo/other'],
+      active: '/repo/app',
+    });
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: '',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-b', cwd: '/repo/app', name: 'Thread B', provider: 'codex', status: 'idle' },
+      ],
+    });
+    await useClientStore.getState().setActiveProjectPath('/repo/app');
+    await useClientStore.getState().setActiveThread('thread-a');
+    expect(useClientStore.getState().composerCapabilities).toEqual([
+      expect.objectContaining({
+        key: reviewCapability.key,
+        availability: 'unverified',
+      }),
+    ]);
   });
 
   it('does not keep the old active thread when the selected project sidebar has no active thread', async () => {

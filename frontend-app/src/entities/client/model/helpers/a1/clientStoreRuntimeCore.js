@@ -9,6 +9,7 @@ import { normalizeActiveProviderName, normalizeCodexIdentityValue, normalizeProv
 import { providerPreferenceKey } from '../providerPreferences.js';
 import { normalizeThreadId, normalizeBackendThreadId } from '../threadIdentity.js';
 import { composerDraftKey, normalizeComposerDraftSnapshot, isEmptyComposerDraftSnapshot } from '../../composerAttachments.js';
+import { restoreComposerCapabilities } from '../../capabilities/composerCapabilities.js';
 import {
   ASSISTANT_DELTA_FLUSH_MS,
   DEFAULT_PROVIDER,
@@ -156,7 +157,11 @@ function attachComposerDraftRuntime(runtime) {
 
   const restoreComposerDraft = (state, threadId) => {
     const key = composerDraftKey(state, threadId);
-    return normalizeComposerDraftSnapshot(composerDrafts.get(key));
+    const restored = normalizeComposerDraftSnapshot(composerDrafts.get(key));
+    return {
+      ...restored,
+      composerCapabilities: restoreComposerCapabilities(restored.composerCapabilities),
+    };
   };
 
   const clearComposerDraft = (state, threadId) => {
@@ -254,7 +259,14 @@ function attachScopeRuntime(runtime) {
     threadSyncGenerations.clear();
     set((state) => {
       const activeThreadId = preserveActiveThreadId ? normalizeBackendThreadId(state.activeThreadId) : '';
-      return clearedChatSurfaceState(state, activeThreadId, cwd);
+      const targetScope = { ...state, activeProject: cwd, cwd };
+      const restored = runtime.restoreComposerDraft(targetScope, activeThreadId);
+      return {
+        ...clearedChatSurfaceState(state, activeThreadId, cwd),
+        draft: restored.draft,
+        attachments: restored.attachments,
+        composerCapabilities: restored.composerCapabilities,
+      };
     });
   };
 

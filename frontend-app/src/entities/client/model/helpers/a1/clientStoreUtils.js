@@ -379,6 +379,7 @@ const baseState = {
   warningEntries: [],
   draft: '',
   attachments: [],
+  composerCapabilities: [],
   forkDraft: emptyForkDraft(),
   sending: false,
   logLevel: resolveInitialLevel(),

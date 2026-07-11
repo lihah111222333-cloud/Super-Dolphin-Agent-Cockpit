@@ -60,6 +60,7 @@ function beginOpeningThread(runtime, thread, deps, coordinator) {
     threads: deps.upsertExplicitThread(state.threads, { ...openingThread, id }, requestedId),
     draft: restored.draft,
     attachments: restored.attachments,
+    composerCapabilities: restored.composerCapabilities,
     threadStateLoadingByThread: setThreadLoading(state, id, true),
   }));
   return selectionIntent;
@@ -114,6 +115,7 @@ async function openResolvedThread(runtime, context, deps, coordinator) {
       pendingActiveThreadId: '',
       draft: restored.draft,
       attachments: restored.attachments,
+      composerCapabilities: restored.composerCapabilities,
     } : {}),
   }));
   try {
@@ -154,6 +156,7 @@ async function setActiveThread(runtime, threadId, options, deps, coordinator) {
       pendingActiveThreadId: '',
       draft: restored.draft,
       attachments: restored.attachments,
+      composerCapabilities: restored.composerCapabilities,
     });
     return undefined;
   }
@@ -174,6 +177,7 @@ async function activateExistingThread(runtime, context, deps, coordinator) {
       pendingActiveThreadId: '',
       draft: restored.draft,
       attachments: restored.attachments,
+      composerCapabilities: restored.composerCapabilities,
     });
     const synced = await runtime.get().syncThreadState(id, {
       includeArchived: true,
@@ -187,6 +191,7 @@ async function activateExistingThread(runtime, context, deps, coordinator) {
     pendingActiveThreadId: '',
     draft: restored.draft,
     attachments: restored.attachments,
+    composerCapabilities: restored.composerCapabilities,
     threadStateLoadingByThread: setThreadLoading(state, id, true),
   }));
   try {
@@ -213,6 +218,7 @@ function cancelOpeningThread(runtime, selectionIntent, coordinator) {
     pendingActiveThreadId: '',
     draft: restored.draft,
     attachments: restored.attachments,
+    composerCapabilities: restored.composerCapabilities,
     threadStateLoadingByThread: setThreadLoading(state, selectionIntent.targetThreadId, false),
   }));
   return true;
@@ -235,6 +241,7 @@ function newThread(runtime, deps, coordinator) {
     activeThreadId: '',
     draft: restored.draft,
     attachments: restored.attachments,
+    composerCapabilities: restored.composerCapabilities,
     actionNotice: deps.actionNotice('已创建新对话草稿', 'info'),
     ...invalidatedOpeningPatch(state, invalidatedIntent),
   }));

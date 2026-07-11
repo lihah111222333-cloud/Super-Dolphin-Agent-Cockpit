@@ -62,9 +62,40 @@ describe('composerAttachments', () => {
         kind: 'file',
         previewUrl: '',
       }],
+      composerCapabilities: [],
     });
     expect(isEmptyComposerDraftSnapshot(snapshot)).toBe(false);
-    expect(isEmptyComposerDraftSnapshot({ draft: '', attachments: [] })).toBe(true);
+    expect(isEmptyComposerDraftSnapshot({
+      draft: '', attachments: [], composerCapabilities: [],
+    })).toBe(true);
+  });
+
+  it('keeps a capability-only snapshot and deeply clones its identity', () => {
+    const capability = {
+      kind: 'skill',
+      key: 'skill:project::review:/repo/.agents/skills/review',
+      name: 'review',
+      label: 'Code Review',
+      availability: 'ready',
+      ref: {
+        name: 'review',
+        scope: 'project',
+        personalType: '',
+        path: '/repo/.agents/skills/review',
+      },
+    };
+    const snapshot = normalizeComposerDraftSnapshot({ composerCapabilities: [capability] });
+
+    expect(isEmptyComposerDraftSnapshot(snapshot)).toBe(false);
+    expect(snapshot.composerCapabilities).toEqual([{
+      kind: 'skill',
+      key: capability.key,
+      name: 'review',
+      label: 'Code Review',
+      ref: capability.ref,
+    }]);
+    capability.ref.path = '/changed';
+    expect(snapshot.composerCapabilities[0].ref.path).toBe('/repo/.agents/skills/review');
   });
 
   it('builds stable composer draft keys from cwd and thread id', () => {

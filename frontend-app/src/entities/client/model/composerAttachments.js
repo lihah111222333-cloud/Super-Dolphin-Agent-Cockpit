@@ -1,4 +1,5 @@
 import { optionalTextField, normalizeOptionalTextField, systemClockMillis } from './contractStoreModel.js';
+import { snapshotComposerCapabilities } from './capabilities/composerCapabilities.js';
 function optionalUiArray() {
   return [];
 }
@@ -15,7 +16,7 @@ const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
  * @typedef {{ path?: unknown, url?: unknown, name?: unknown, kind?: unknown, previewUrl?: unknown }} AttachmentLike
  * @typedef {AttachmentLike | ComposerAttachment} AttachmentObjectInput
  * @typedef {string | AttachmentObjectInput} AttachmentInput
- * @typedef {{ draft?: unknown, attachments?: AttachmentObjectInput[] }} ComposerDraftSnapshotInput
+ * @typedef {{ draft?: unknown, attachments?: AttachmentObjectInput[], composerCapabilities?: unknown[] }} ComposerDraftSnapshotInput
  * @typedef {{ activeProject?: unknown, cwd?: unknown, activeThreadId?: unknown }} ComposerScopeState
  * @typedef {{ path?: unknown, type?: unknown, name?: unknown }} DroppedFileLike
  * @typedef {{ type: 'text', text: string } | { type: 'localImage', path: string, url?: string } | { type: 'mention', name: string, path: string }} TurnInputItem
@@ -135,12 +136,13 @@ export function cloneComposerAttachments(attachments) {
 
 /**
  * @param {ComposerDraftSnapshotInput} [value]
- * @returns {{ draft: string, attachments: ComposerAttachment[] }}
+ * @returns {{ draft: string, attachments: ComposerAttachment[], composerCapabilities: object[] }}
  */
 export function normalizeComposerDraftSnapshot(value = {}) {
   return {
     draft: optionalTextField(value.draft),
     attachments: cloneComposerAttachments(value.attachments),
+    composerCapabilities: snapshotComposerCapabilities(value.composerCapabilities),
   };
 }
 
@@ -150,7 +152,9 @@ export function normalizeComposerDraftSnapshot(value = {}) {
  */
 export function isEmptyComposerDraftSnapshot(value = {}) {
   const draft = normalizeComposerDraftSnapshot(value);
-  return !draft.draft && draft.attachments.length === 0;
+  return !draft.draft
+    && draft.attachments.length === 0
+    && draft.composerCapabilities.length === 0;
 }
 
 /**
