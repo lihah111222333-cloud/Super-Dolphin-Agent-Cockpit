@@ -142,7 +142,7 @@ codex-worktree-ready:
 # 已知并行争抢的 E2E 包（pipe/WebSocket 进程资源）：
 #   internal/provider/claudecli, internal/provider/codexapp
 # 先并行跑其余包，再用 -p 1 串行跑这 2 个，避免全仓并行时的 flaky failure。
-DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp
+DEFERRED_TEST_PKGS := $(shell tr '\n' ' ' < scripts/ai_maintenance/deferred_e2e_packages.txt)
 TEST_WITH_GUARD := ./scripts/test_with_guard.sh
 # Explicit source-package roots keep generated package artifacts under dist/package out of Go package discovery.
 GO_PACKAGE_PATTERNS := ./cmd/... ./internal/... ./pkg/... ./scripts/...

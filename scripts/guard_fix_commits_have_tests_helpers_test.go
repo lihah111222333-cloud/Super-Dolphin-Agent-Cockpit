@@ -60,6 +60,29 @@ func commitPrePushGoOnlyChange(t *testing.T, root string) string {
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
+func assertPrePushExcludesDeferredE2EScope(t *testing.T) {
+	t.Helper()
+	fixture := newPrePushScopeFixture(t)
+	head := commitPrePushMixedFastAndDeferredE2EChange(t, fixture.root)
+	out := fixture.run(t, head)
+	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "pre-push OK")
+	assertOutputOmitsAll(t, out, "./internal/provider/claudecli", "./internal/provider/codexapp")
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1", "ai-maintenance --skip-deferred-e2e")
+	assertOutputOmitsAll(t, log, "go-test ./internal/provider/claudecli", "go-test ./internal/provider/codexapp")
+}
+
+func commitPrePushMixedFastAndDeferredE2EChange(t *testing.T, root string) string {
+	t.Helper()
+	writeFixTestGuardFile(t, root, "go.mod", "module example.com/prepushscope\n\ngo 1.22\n")
+	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
+	writeFixTestGuardFile(t, root, "internal/provider/claudecli/provider.go", "package claudecli\n")
+	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
+	runFixTestGuardGit(t, root, "add", "go.mod", "internal/app/app.go", "internal/provider/claudecli/provider.go", "internal/provider/codexapp/provider.go")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 provider package")
+	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+}
+
 func assertPrePushFrontendAppOnlyScope(t *testing.T) {
 	t.Helper()
 	fixture := newPrePushScopeFixture(t)
@@ -89,7 +112,7 @@ func assertPrePushDocsOnlyScope(t *testing.T) {
 	assertOutputOmitsAll(t, out, "go package tests", "frontend-app tests")
 	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "ai-maintenance --changed-file docs/readme.md")
+	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file docs/readme.md")
 	assertOutputOmitsAll(t, log, "go-test", "npm ", "node ", "npx ")
 }
 
@@ -151,7 +174,8 @@ func preparePrePushScopeRepo(t *testing.T) string {
 	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
 	writePrePushFakeGoTestScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh")
+	copyFixTestGuardRepoFile(t, root, "scripts/ai_maintenance/deferred_e2e_packages.txt", 0o644)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/deferred_e2e_packages.txt")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
 	return root
 }

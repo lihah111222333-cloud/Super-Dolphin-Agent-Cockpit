@@ -121,6 +121,7 @@ func runGates(args []string) error {
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
 	evidencePath := fs.String("evidence", "", "optional AI maintenance evidence file to validate")
 	printPlan := fs.Bool("print-plan", false, "print gate plan and exit")
+	skipDeferredE2E := fs.Bool("skip-deferred-e2e", false, "exclude deferred provider E2E packages from this gate run")
 	changed := multiFlag{}
 	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
 	if err := fs.Parse(args); err != nil {
@@ -135,6 +136,16 @@ func runGates(args []string) error {
 		}
 	}
 	plan := buildGatePlan(files)
+	if *skipDeferredE2E {
+		var err error
+		plan.AffectedGoPackages, err = excludeDeferredE2EGoPackages(
+			plan.AffectedGoPackages,
+			"scripts/ai_maintenance/deferred_e2e_packages.txt",
+		)
+		if err != nil {
+			return err
+		}
+	}
 	if *printPlan {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")

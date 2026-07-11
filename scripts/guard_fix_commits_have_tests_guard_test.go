@@ -525,6 +525,10 @@ func TestPrePushScopesPackageTestsByChangedLanguage(t *testing.T) {
 		assertPrePushGoOnlyScope(t)
 	})
 
+	t.Run("deferred E2E packages are excluded", func(t *testing.T) {
+		assertPrePushExcludesDeferredE2EScope(t)
+	})
+
 	t.Run("frontend app only runs frontend app package tests", func(t *testing.T) {
 		assertPrePushFrontendAppOnlyScope(t)
 	})

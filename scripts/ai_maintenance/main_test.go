@@ -100,6 +100,25 @@ func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 	)
 }
 
+func TestExcludeDeferredE2EGoPackagesKeepsFastPackages(t *testing.T) {
+	packages, err := excludeDeferredE2EGoPackages([]string{
+		"./internal/app",
+		"./internal/provider/claudecli",
+		"./internal/provider/codexapp",
+		"./scripts/ai_maintenance",
+	}, "deferred_e2e_packages.txt")
+	if err != nil {
+		t.Fatalf("exclude deferred E2E packages: %v", err)
+	}
+
+	assertStringSetContains(t, packages, "./internal/app", "./scripts/ai_maintenance")
+	for _, packageName := range packages {
+		if packageName == "./internal/provider/claudecli" || packageName == "./internal/provider/codexapp" {
+			t.Fatalf("deferred E2E package remained in pre-push scope: %q", packageName)
+		}
+	}
+}
+
 func TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands(t *testing.T) {
 	plan := buildGatePlan([]string{"frontend-app/src/App.jsx"})
 	path := writeEvidence(t, `

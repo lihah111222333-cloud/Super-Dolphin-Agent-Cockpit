@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-11
 >
-> 已索引文件：**4401**
+> 已索引文件：**4403**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -29,7 +29,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1010 | 186.0 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 310 | 46.1 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 897 | 160.2 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 611 | 119.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 613 | 120.0 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -52,7 +52,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `docs` | 894 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 668 | 可执行入口与 MCP peer |
 | `frontend-app` | 430 | 当前 React/Vite 新 UI |
-| `scripts` | 113 | 工程自动化脚本 |
+| `scripts` | 115 | 工程自动化脚本 |
 | `migrations` | 112 | 数据库 migration |
 | `sql` | 30 | SQL query 源文件 |
 | `pkg` | 25 | 可复用公共库 |
