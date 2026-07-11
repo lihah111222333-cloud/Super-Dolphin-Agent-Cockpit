@@ -101,7 +101,7 @@ function approvalSnapshotFromMessages(messages = []) {
   for (const message of messages) {
     if (!isApprovalMessage(message)) continue;
     const request = approvalRequestFromMessage(message);
-    knownIds.add(request.requestId);
+    if (!request.displayOnly) knownIds.add(request.requestId);
     if (request.status === 'pending') pendingRequest = request;
   }
   return { knownIds, pendingRequest };

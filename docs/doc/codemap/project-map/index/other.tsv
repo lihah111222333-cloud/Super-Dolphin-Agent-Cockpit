@@ -380,7 +380,7 @@ internal/dto/shared/event.go	internal	other	go-source	4569	provider/shared DTO �
 internal/dto/shared/input.go	internal	other	go-source	1210	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
 internal/dto/task/event.go	internal	other	go-source	724	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
 internal/dto/thread/event.go	internal	other	go-source	4374	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议
-internal/dto/tool/event.go	internal	other	go-source	2938	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
+internal/dto/tool/event.go	internal	other	go-source	2987	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
 internal/dto/turn/event.go	internal	other	go-source	2912	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
 internal/dto/turn/model.go	internal	other	go-source	883	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
 internal/dto/turn/progress.go	internal	other	go-source	2537	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议

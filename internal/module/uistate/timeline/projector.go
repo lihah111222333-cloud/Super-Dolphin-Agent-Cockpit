@@ -325,6 +325,9 @@ func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.T
 			it.Kind = "approval"
 			it.Status = status
 			it.Done = true
+			if ev.RequestID > 0 {
+				it.RequestID = ev.RequestID
+			}
 			if strings.TrimSpace(it.Ts) == "" {
 				it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 			}
@@ -343,6 +346,7 @@ func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.T
 			Kind:      "approval",
 			Status:    status,
 			CallID:    strings.TrimSpace(ev.CallID),
+			RequestID: ev.RequestID,
 			Tool:      strings.TrimSpace(ev.ToolName),
 			ToolName:  strings.TrimSpace(ev.ToolName),
 			ItemType:  strings.TrimSpace(ev.Kind),

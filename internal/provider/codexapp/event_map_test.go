@@ -207,6 +207,33 @@ func TestTranslateCodexEventIgnoresClaudeColonTurnEvents(t *testing.T) {
 	}
 }
 
+func TestTranslateToolApprovalResolvedPreservesRequestID(t *testing.T) {
+	event, ok := translateToolEvent("approval/resolved", map[string]any{
+		"requestId": int64(73),
+		"threadId":  "thread-1",
+		"callId":    "call-1",
+		"approved":  true,
+	})
+	if !ok {
+		t.Fatal("translateToolEvent() ok = false, want true")
+	}
+	resolved, ok := event.(tooldto.ToolApprovalResolved)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolApprovalResolved", event)
+	}
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("marshal resolved approval: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal resolved approval: %v", err)
+	}
+	if payload["request_id"] != float64(73) {
+		t.Fatalf("request_id = %#v, want 73", payload["request_id"])
+	}
+}
+
 func TestTranslateToolEventUsesNameFieldForDynamicToolBegin(t *testing.T) {
 	var got []any
 	translateCodexEvent(dto.RawProviderEvent{

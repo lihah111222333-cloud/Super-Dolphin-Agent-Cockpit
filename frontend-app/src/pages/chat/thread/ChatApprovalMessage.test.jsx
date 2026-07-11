@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
+import { Conversation } from './Conversation.jsx';
 
 function confirmChoice(choiceLabel) {
   fireEvent.click(screen.getByRole('button', { name: choiceLabel }));
@@ -61,6 +62,50 @@ describe('ChatApprovalMessage', () => {
     expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '拒绝' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();
+  });
+
+  it('renders a terminal approval without request identity as display-only', () => {
+    render(
+      <ChatApprovalMessage
+        message={{ id: 'approval-fallback', kind: 'approval', status: 'rejected', command: 'Fallback resolved' }}
+        actions={{ onApproval: vi.fn() }}
+        formatTime={() => '--:--'}
+      />
+    );
+
+    expect(screen.getByText('审批结果已提交')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '拒绝' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();
+  });
+
+  it('lets Conversation consume a display-only terminal approval', () => {
+    render(
+      <Conversation
+        messages={[{ id: 'approval-fallback', kind: 'approval', status: 'approved', command: 'Fallback resolved' }]}
+        sending={false}
+        activeThreadId="thread-1"
+        activeThread={{ id: 'thread-1', status: 'idle' }}
+        statusEntry={null}
+        activeTurn={null}
+        timelineBlocked={false}
+        messageActions={{ onApproval: vi.fn() }}
+        store={{ smoothStreaming: false }}
+        draft=""
+        setDraft={vi.fn()}
+        sendMessage={vi.fn()}
+        attachments={[]}
+        attachPaths={vi.fn()}
+        attachDroppedFiles={vi.fn()}
+        removeAttachment={vi.fn()}
+        selectFiles={vi.fn()}
+        projectPath="/tmp/project"
+        modelThreadId="thread-1"
+      />
+    );
+
+    expect(screen.getAllByText('Fallback resolved')).toHaveLength(2);
+    expect(screen.getByText('审批结果已提交')).toBeInTheDocument();
   });
 
   it('fails closed before rendering malformed approval request ids', () => {

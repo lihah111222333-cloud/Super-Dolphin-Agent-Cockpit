@@ -2,6 +2,7 @@ package timeline_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -42,6 +43,37 @@ func TestRegisterSubscriptions_ApprovalRequestAndResolve(t *testing.T) {
 		return hasApprovedApprovalItem(svc.GetByThread("t1"))
 	}, "expected approval request item to be updated after approval resolved")
 	assertApprovalDoneItem(t, svc.GetByThread("t1")[0])
+}
+
+func TestRegisterSubscriptions_ApprovalResolveFallbackPreservesRequestID(t *testing.T) {
+	tests := []struct {
+		name      string
+		requestID int64
+	}{
+		{name: "canonical request identity", requestID: 41},
+		{name: "display only terminal", requestID: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, dispatcher, _ := newTimelineSubscriptionFixture(t, 0)
+			ev := approvalResolvedEvent("call-fallback", "file_edit", "", true)
+			if tt.requestID > 0 {
+				if err := json.Unmarshal([]byte(`{"request_id":41}`), &ev); err != nil {
+					t.Fatalf("unmarshal resolved approval request identity: %v", err)
+				}
+			}
+
+			event.Publish(dispatcher, ev)
+			waitForCondition(t, func() bool {
+				return hasApprovedApprovalItem(svc.GetByThread("t1"))
+			}, "expected terminal approval fallback item")
+			item := svc.GetByThread("t1")[0]
+			if item.RequestID != tt.requestID {
+				t.Fatalf("fallback RequestID = %d, want %d", item.RequestID, tt.requestID)
+			}
+		})
+	}
 }
 
 func TestRegisterSubscriptions_ToolAndApprovalShareCallID(t *testing.T) {
@@ -393,7 +425,7 @@ func timelineHasCallID(svc timeline.Service, threadID string, index int, callID 
 func expectThreadUpdates(t *testing.T, updated <-chan string, count int, want string) {
 	t.Helper()
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if threadID := mustReceiveThreadUpdate(t, updated); threadID != want {
 			t.Fatalf("updated[%d] = %q, want %q", i, threadID, want)
 		}

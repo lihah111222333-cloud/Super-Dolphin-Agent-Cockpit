@@ -43,6 +43,7 @@ func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision con
 	}
 	event.Publish(pending.dispatcher, tooldto.ToolApprovalResolved{
 		ToolApprovalHeader: approvalHeader(pending.request, approvalResolvedAt(decision)),
+		RequestID:          int64Value(pending.requestID),
 		Approved:           decisionApproved(decision),
 		Decision:           decisionReason(decision, err),
 		Kind:               strings.TrimSpace(pending.request.Kind),

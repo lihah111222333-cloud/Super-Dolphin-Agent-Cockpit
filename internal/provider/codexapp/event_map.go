@@ -510,6 +510,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	case "approval/resolved", "tool.approval.resolved":
 		return tooldto.ToolApprovalResolved{
 			ToolApprovalHeader: buildToolApprovalHeader(payload),
+			RequestID:          int64Value(payload, "requestId", "request_id"),
 			Approved:           boolValue(payload, "approved"),
 			Decision:           stringValue(payload, "decision"),
 			ReviewedBy:         stringValue(payload, "reviewedBy", "reviewed_by"),

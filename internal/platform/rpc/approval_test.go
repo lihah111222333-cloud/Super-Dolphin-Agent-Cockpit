@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -92,6 +93,17 @@ func TestCleanupPublishesResolvedTimeoutEvent(t *testing.T) {
 	event := awaitResolvedEvent(t, resolved)
 	if event.CallID != "call-1" {
 		t.Fatalf("resolved callID = %q, want %q", event.CallID, "call-1")
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal resolved approval event: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal resolved approval event: %v", err)
+	}
+	if payload["request_id"] != float64(*pending.requestID) {
+		t.Fatalf("resolved request_id = %#v, want %d", payload["request_id"], *pending.requestID)
 	}
 	if event.Decision != ErrApprovalTimeout("approval timed out").Error() {
 		t.Fatalf("resolved decision = %q, want %q", event.Decision, ErrApprovalTimeout("approval timed out").Error())

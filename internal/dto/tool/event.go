@@ -38,6 +38,7 @@ type ToolApprovalRequested struct {
 // ToolApprovalResolved 报告工具调用审批已给出最终决策。
 type ToolApprovalResolved struct {
 	shared.ToolApprovalHeader
+	RequestID  int64  `json:"request_id,omitempty"`
 	Approved   bool   `json:"approved"`
 	Decision   string `json:"decision,omitempty"`
 	ReviewedBy string `json:"reviewed_by,omitempty"`
