@@ -16,25 +16,13 @@ type Service interface {
 	SaveProfile(ctx context.Context, cwd string, profile Profile) (ProfileResult, error)
 }
 
-// preferenceStore 是 personalization 需要的最小偏好持久化端口。
-type preferenceStore interface {
-	GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error)
-	Upsert(ctx context.Context, params preferenceUpsertParams) error
-}
-
-type preferenceUpsertParams struct {
-	Cwd   string
-	Key   string
-	Value json.RawMessage
-}
-
 // service 是 Service 接口的内部实现，依赖窄持久化端口保存资料。
 type service struct {
-	prefs preferenceStore
+	prefs PreferenceStore
 }
 
 // NewService 创建项目级个性化服务。该服务只读写 UI 偏好端口，不持有额外全局状态。
-func NewService(prefs preferenceStore) Service {
+func NewService(prefs PreferenceStore) Service {
 	return &service{prefs: prefs}
 }
 
@@ -85,7 +73,7 @@ func (s *service) SaveProfile(ctx context.Context, cwd string, profile Profile) 
 	if err != nil {
 		return ProfileResult{}, fmt.Errorf("personalization: encode profile: %w", err)
 	}
-	if err := s.prefs.Upsert(ctx, preferenceUpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
+	if err := s.prefs.Upsert(ctx, PreferenceUpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
 		return ProfileResult{}, fmt.Errorf("personalization: save profile: %w", err)
 	}
 	return ProfileResult{Profile: normalized}, nil

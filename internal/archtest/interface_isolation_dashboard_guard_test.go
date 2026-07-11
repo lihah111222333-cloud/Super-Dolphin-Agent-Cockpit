@@ -10,6 +10,7 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 
 	root := repoRoot(t)
 	const moduleRelPath = "internal/module/dashboard/module.go"
+	const adapterRelPath = "internal/app/dashboard_store_adapters.go"
 	var violations []string
 
 	fieldChecks := []struct {
@@ -42,24 +43,24 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		paramName string
 		want      string
 	}{
-		{funcName: "adaptAgentStatusReader", paramName: "store", want: "agentstatusstore.Store"},
-		{funcName: "adaptSystemLogReader", paramName: "store", want: "systemlogstore.Store"},
-		{funcName: "adaptAuditLogReader", paramName: "store", want: "auditlogstore.Store"},
-		{funcName: "adaptBusLogReader", paramName: "store", want: "buslogstore.Store"},
-		{funcName: "adaptAILogReader", paramName: "store", want: "ailogstore.Store"},
-		{funcName: "adaptDBQueryExecutor", paramName: "store", want: "dbquerystore.Store"},
-		{funcName: "adaptCommandCardReader", paramName: "reader", want: "commandcardstore.Reader"},
-		{funcName: "adaptPromptTemplateReader", paramName: "reader", want: "promptstore.Reader"},
-		{funcName: "adaptSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
+		{funcName: "provideDashboardAgentStatusReader", paramName: "store", want: "agentstatusstore.Store"},
+		{funcName: "provideDashboardSystemLogReader", paramName: "store", want: "systemlogstore.Store"},
+		{funcName: "provideDashboardAuditLogReader", paramName: "store", want: "auditlogstore.Store"},
+		{funcName: "provideDashboardBusLogReader", paramName: "store", want: "buslogstore.Store"},
+		{funcName: "provideDashboardAILogReader", paramName: "store", want: "ailogstore.Store"},
+		{funcName: "provideDashboardDBQueryExecutor", paramName: "store", want: "dbquerystore.Store"},
+		{funcName: "provideDashboardCommandCardReader", paramName: "reader", want: "commandcardstore.Reader"},
+		{funcName: "provideDashboardPromptTemplateReader", paramName: "reader", want: "promptstore.Reader"},
+		{funcName: "provideDashboardSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
 	}
 	for _, check := range adapterChecks {
-		actual, ok := functionParamType(t, root, moduleRelPath, check.funcName, check.paramName)
+		actual, ok := functionParamType(t, root, adapterRelPath, check.funcName, check.paramName)
 		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", moduleRelPath, check.funcName, check.paramName))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", adapterRelPath, check.funcName, check.paramName))
 			continue
 		}
 		if actual != check.want {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s must be the only %s adapter input, got %s", moduleRelPath, check.funcName, check.paramName, check.want, actual))
+			violations = append(violations, fmt.Sprintf("%s: %s.%s must be the only %s adapter input, got %s", adapterRelPath, check.funcName, check.paramName, check.want, actual))
 		}
 	}
 	failIfViolations(t, violations)

@@ -21,8 +21,8 @@ type service struct {
 	logger                *slog.Logger
 	threads               contract.ThreadLister
 	agents                AgentLister
-	preferences           preferenceStore
-	bindings              bindingLookup
+	preferences           PreferenceStore
+	bindings              BindingLookup
 	runtimeConfig         runtimeConfigLookup
 	mu                    sync.RWMutex
 	projectsMu            sync.Mutex
@@ -47,45 +47,8 @@ type AgentLister interface {
 	ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error)
 }
 
-type bindingLookup interface {
-	ListAgentThreadBindings(ctx context.Context) ([]bindingEntry, error)
-}
-
 type runtimeConfigLookup interface {
 	ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
-}
-
-type preferenceValueReader interface {
-	GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error)
-}
-
-type preferenceStore interface {
-	preferenceValueReader
-	Upsert(ctx context.Context, params preferenceUpsertParams) error
-	List(ctx context.Context, cwd string) ([]preferenceEntry, error)
-}
-
-type preferenceUpsertParams struct {
-	Cwd   string
-	Key   string
-	Value json.RawMessage
-}
-
-type preferenceEntry struct {
-	Cwd   string
-	Key   string
-	Value json.RawMessage
-}
-
-type bindingEntry struct {
-	AgentID          string
-	Provider         string
-	ProviderThreadID string
-	CodexThreadID    string
-	RolloutPath      string
-	SessionUUID      string
-	CodexHome        string
-	Cwd              string
 }
 
 type preferenceScopeKey struct{}
@@ -107,8 +70,8 @@ func NewService(
 	logger *slog.Logger,
 	threads contract.ThreadLister,
 	agents AgentLister,
-	preferences preferenceStore,
-	bindings bindingLookup,
+	preferences PreferenceStore,
+	bindings BindingLookup,
 	runtimeCfg runtimeConfigLookup,
 	options ...ServiceOption,
 ) (*service, Service, error) {
@@ -371,7 +334,7 @@ func (s *service) fallbackPreferencesLocked(scope string) map[string]any {
 	}
 	return values
 }
-func loadPreferencesFromStore(ctx context.Context, store preferenceStore, scope string) (map[string]any, error) {
+func loadPreferencesFromStore(ctx context.Context, store PreferenceStore, scope string) (map[string]any, error) {
 	rows, err := store.List(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -382,12 +345,12 @@ func loadPreferencesFromStore(ctx context.Context, store preferenceStore, scope 
 	}
 	return values, nil
 }
-func storePreference(ctx context.Context, store preferenceStore, scope, key string, value any) error {
+func storePreference(ctx context.Context, store PreferenceStore, scope, key string, value any) error {
 	raw, err := marshalPreferenceValue(value)
 	if err != nil {
 		return err
 	}
-	return store.Upsert(ctx, preferenceUpsertParams{
+	return store.Upsert(ctx, PreferenceUpsertParams{
 		Cwd:   scope,
 		Key:   key,
 		Value: raw,

@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
 // TestDatasourceV2GetReturnsFirstPageOnly 固定 get 只返回首个 chunk 页及后续游标。
@@ -74,10 +72,10 @@ func TestDatasourceV2GetCapsResponseBytes(t *testing.T) {
 }
 
 // datasourceV2StoreChunks builds ready text chunks for datasource_v2 service tests.
-func datasourceV2StoreChunks(documentID int64, contents ...string) []datasourcev2store.TextChunk {
-	chunks := make([]datasourcev2store.TextChunk, 0, len(contents))
+func datasourceV2StoreChunks(documentID int64, contents ...string) []TextChunk {
+	chunks := make([]TextChunk, 0, len(contents))
 	for i, content := range contents {
-		chunks = append(chunks, datasourcev2store.TextChunk{
+		chunks = append(chunks, TextChunk{
 			ID:             int64(i + 1),
 			DocumentID:     documentID,
 			ChunkIndex:     int32(i),

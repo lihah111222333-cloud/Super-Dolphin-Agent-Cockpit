@@ -55,12 +55,12 @@ func TestSchedulerPublishesHappyPathTransitions(t *testing.T) {
 	s.WithDispatcher(dispatcher)
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := jobRecord{
+	job := JobRecord{
 		ID: "job-1", Name: "daily", Prompt: "x", ScheduleExpr: "0 9 * * *",
 		Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "t", NextRunAt: now,
 	}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 
 	out, cleanup := collectRunStateEvents(t, dispatcher)
@@ -103,9 +103,9 @@ func TestSchedulerPublishesFailedOnStartTurnError(t *testing.T) {
 	s.WithDispatcher(dispatcher)
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 
 	out, cleanup := collectRunStateEvents(t, dispatcher)
@@ -134,9 +134,9 @@ func TestSchedulerNoPublishWhenDispatcherUnset(t *testing.T) {
 	// no WithDispatcher
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {
 		t.Fatalf("RunTick = %v", err)

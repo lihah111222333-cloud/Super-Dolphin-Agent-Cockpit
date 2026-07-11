@@ -53,7 +53,7 @@ func TestCronProgressSubscribersRegisterCancelAndDeliver(t *testing.T) {
 	var mu sync.Mutex
 	var listCalls int
 	store := &recordingCronStore{
-		listJobsFn: func(context.Context) ([]jobRecord, error) {
+		listJobsFn: func(context.Context) ([]JobRecord, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			listCalls++
@@ -90,7 +90,7 @@ func TestCronProgressWorkerWarnsAndCountsStaleTerminal(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	store := &recordingCronStore{
-		listUnresolvedFn: func(context.Context) ([]runRecord, error) {
+		listUnresolvedFn: func(context.Context) ([]RunRecord, error) {
 			return nil, nil
 		},
 	}

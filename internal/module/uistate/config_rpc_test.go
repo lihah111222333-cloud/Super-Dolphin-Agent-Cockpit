@@ -52,7 +52,7 @@ func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenc
 		preferenceStubKey("/repo", lspPromptHintOverrideKey):                             mustJSONRaw(t, "custom prompt"),
 		preferenceStubKey(projectRoot, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
 	}}
-	sharedFiles := &sharedFileStoreStub{files: map[string]sharedFile{
+	sharedFiles := &sharedFileStoreStub{files: map[string]SharedFile{
 		lspPromptHintDefaultPath: {Path: lspPromptHintDefaultPath, Content: "default prompt"},
 	}}
 	threads := &configThreadServiceStub{getConfigResult: dto.ThreadConfig{
@@ -306,8 +306,8 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 
 func newConfigTestServer(
 	cfg *contract.Config,
-	prefs preferenceStore,
-	sharedFiles sharedFileReader,
+	prefs PreferenceStore,
+	sharedFiles SharedFileReader,
 	threads contract.ThreadConfigReader,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
@@ -341,7 +341,7 @@ func (s *uiPreferenceStoreStub) GetValue(_ context.Context, cwd, key string) (js
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-func (s *uiPreferenceStoreStub) Upsert(_ context.Context, params preferenceUpsertParams) error {
+func (s *uiPreferenceStoreStub) Upsert(_ context.Context, params PreferenceUpsertParams) error {
 	if s.values == nil {
 		s.values = map[string]json.RawMessage{}
 	}
@@ -349,22 +349,22 @@ func (s *uiPreferenceStoreStub) Upsert(_ context.Context, params preferenceUpser
 	return nil
 }
 
-func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]preferenceEntry, error) {
-	rows := []preferenceEntry{}
+func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]PreferenceEntry, error) {
+	rows := []PreferenceEntry{}
 	for rawKey, value := range s.values {
 		rowCwd, rowKey := splitPreferenceStubKey(rawKey)
 		if rowCwd == cwd {
-			rows = append(rows, preferenceEntry{Cwd: rowCwd, Key: rowKey, Value: append(json.RawMessage(nil), value...)})
+			rows = append(rows, PreferenceEntry{Cwd: rowCwd, Key: rowKey, Value: append(json.RawMessage(nil), value...)})
 		}
 	}
 	return rows, nil
 }
 
 type sharedFileStoreStub struct {
-	files map[string]sharedFile
+	files map[string]SharedFile
 }
 
-func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*sharedFile, error) {
+func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*SharedFile, error) {
 	if s.files == nil {
 		return nil, platformdb.ErrNotFound
 	}

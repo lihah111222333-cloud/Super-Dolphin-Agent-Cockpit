@@ -65,7 +65,7 @@ type E2EHealthResult struct {
 }
 
 // Store 是 prompt intent 读写草稿、模板和 section 的窄持久化边界。
-// 父 prompt 包在 module.go 中把真实 store 适配为该接口，intent 子包不直接感知 store DTO。
+// App 组合边界先把 concrete Store 适配为父 prompt 领域端口，再由父领域适配到本接口。
 type Store interface {
 	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
 	WithTx(ctx context.Context, fn func(txStore Store) error) error

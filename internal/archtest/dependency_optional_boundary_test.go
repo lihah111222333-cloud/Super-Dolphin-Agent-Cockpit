@@ -279,7 +279,7 @@ func (k optionalDependencyBudgetKey) String() string {
 func optionalDependencyBudgets() map[optionalDependencyBudgetKey]int {
 	budgets := map[optionalDependencyBudgetKey]int{
 		{owner: "internal/app", category: optionalDependencyAbsence}:                 2,
-		{owner: "internal/app", category: optionalAdjunct}:                           9,
+		{owner: "internal/app", category: optionalAdjunct}:                           10,
 		{owner: "internal/platform/toolbridge", category: optionalDependencyAbsence}: 8,
 		{owner: "internal/platform/toolbridge", category: optionalAdjunct}:           11,
 		{owner: "internal/provider/claudecli", category: optionalAdjunct}:            4,
@@ -355,6 +355,7 @@ func registeredOptionalDependencyAppClassifications() map[string]optionalDepende
 		return dependency(name, profile, "internal/app", path+": "+evidence)
 	}
 	return map[string]optionalDependencyClassification{
+		"internal/app/business_store_adapters_module.go:optional_tag:provideTurnDedupeStore":            appAdjunct("internal/app/business_store_adapters_module.go", "turn dedupe persistence is optional; provideTurnDedupeStore returns nil so turn continues with its process-local tracker"),
 		"internal/app/dashboard_adapter.go:optional_tag:State":                                          appAdjunct("internal/app/dashboard_adapter.go", "provideDashboardOrchestrationReaderPort returns nil unless AgentStateReader is present; dashboard read entrypoints fail-fast on nil reader"),
 		"internal/app/dashboard_adapter.go:optional_tag:Reports":                                        appAdjunct("internal/app/dashboard_adapter.go", "provideDashboardOrchestrationReportReaderPort returns nil unless AgentReportPort is present; dashboard report entrypoints fail-fast on nil reader"),
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Runtime":                                 appDependency("internal/app/runtime_reporter_adapter.go", "runtime_reporter.orchestration_service", contract.DependencyProfileDesktopHost, "provideRuntimeUpdater narrows AgentRuntimePort to UpdateRuntime before newRuntimeReporter gates absent updater through dependency policy"),

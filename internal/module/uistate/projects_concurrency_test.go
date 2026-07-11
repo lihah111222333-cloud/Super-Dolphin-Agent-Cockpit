@@ -73,7 +73,7 @@ func (s *slowProjectPreferenceStore) GetValue(_ context.Context, cwd, key string
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-func (s *slowProjectPreferenceStore) Upsert(_ context.Context, params preferenceUpsertParams) error {
+func (s *slowProjectPreferenceStore) Upsert(_ context.Context, params PreferenceUpsertParams) error {
 	time.Sleep(s.delay)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -81,17 +81,17 @@ func (s *slowProjectPreferenceStore) Upsert(_ context.Context, params preference
 	return nil
 }
 
-func (s *slowProjectPreferenceStore) List(_ context.Context, cwd string) ([]preferenceEntry, error) {
+func (s *slowProjectPreferenceStore) List(_ context.Context, cwd string) ([]PreferenceEntry, error) {
 	time.Sleep(s.delay)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows := make([]preferenceEntry, 0, len(s.values))
+	rows := make([]PreferenceEntry, 0, len(s.values))
 	for rawKey, value := range s.values {
 		rowCwd, rowKey := splitProjectPrefKey(rawKey)
 		if rowCwd != cwd {
 			continue
 		}
-		rows = append(rows, preferenceEntry{
+		rows = append(rows, PreferenceEntry{
 			Cwd:   rowCwd,
 			Key:   rowKey,
 			Value: append(json.RawMessage(nil), value...),

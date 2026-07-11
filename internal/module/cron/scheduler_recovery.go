@@ -14,11 +14,11 @@ import (
 const recoverDanglingRunsBatchLimit int32 = 128
 
 type terminalRunLookupStore interface {
-	GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error)
+	GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (RunRecord, error)
 }
 
 type unresolvedRunsPageStore interface {
-	ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]runRecord, error)
+	ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]RunRecord, error)
 }
 
 // CompleteTurn 将 turn 终态事件写回当前追踪该 turnID 的 cron run。
@@ -51,46 +51,46 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 
 // terminalRunByTurnID 定位可被终态事件收尾的 unresolved run。
 // running 走专用查询，submitted 则回看未解决 run，避免终态事件抢在 Observe 前到达时丢失收尾。
-func (s *Scheduler) terminalRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+func (s *Scheduler) terminalRunByTurnID(ctx context.Context, turnID string) (RunRecord, error) {
 	lookupStore, ok := s.store.(terminalRunLookupStore)
 	if !ok {
-		return runRecord{}, errors.New("cron: store does not implement submitted/running turn lookup")
+		return RunRecord{}, errors.New("cron: store does not implement submitted/running turn lookup")
 	}
 	run, err := lookupStore.GetSubmittedOrRunningRunByTurnID(ctx, turnID)
 	if err == nil {
 		return run, nil
 	}
-	if !errors.Is(err, errStoreJobRunNotFound) {
-		return runRecord{}, err
+	if !errors.Is(err, ErrStoreJobRunNotFound) {
+		return RunRecord{}, err
 	}
-	return runRecord{}, fmt.Errorf("cron: submitted/running run for turn %q not found: %w", turnID, errStoreJobRunNotFound)
+	return RunRecord{}, fmt.Errorf("cron: submitted/running run for turn %q not found: %w", turnID, ErrStoreJobRunNotFound)
 }
 
 // validateTerminalFence 在 run 终态落库前确认 job 当前 claim 仍然指向同一个 turn。
 // 旧 turn 的迟到事件必须停在这里，不能继续 CAS run 或释放新的 job claim。
-func validateTerminalFence(job jobRecord, run runRecord, turnID string) error {
+func validateTerminalFence(job JobRecord, run RunRecord, turnID string) error {
 	if run.JobID != job.ID || run.TurnID != turnID || job.ActiveTurnID != turnID || strings.TrimSpace(job.ClaimToken) == "" {
 		return fmt.Errorf("%w: job_id=%s run_id=%s turn_id=%s active_turn_id=%s",
-			errStoreClaimTokenMismatch, job.ID, run.ID, turnID, job.ActiveTurnID)
+			ErrStoreClaimTokenMismatch, job.ID, run.ID, turnID, job.ActiveTurnID)
 	}
 	return nil
 }
 
 // markTerminalFailed 将 submitted/running run 标记为 failed 并计算下一次重试时间。
-func (s *Scheduler) markTerminalFailed(ctx context.Context, job jobRecord, run runRecord, terminalErr string) error {
+func (s *Scheduler) markTerminalFailed(ctx context.Context, job JobRecord, run RunRecord, terminalErr string) error {
 	now := s.now().UTC()
 	nextRetryAt, nextRunAt, err := s.nextRetryAndRun(job, now)
 	if err != nil {
 		return err
 	}
-	if err := s.store.CASRunStatus(ctx, casRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFailed,
 		Error: terminalErr, UpdatedAt: now,
 	}); err != nil {
 		return err
 	}
 	s.publishRunState(job.ID, run.ID, statusFailed, run.TurnID, terminalErr, run.ScheduledAt)
-	return s.store.MarkFailed(ctx, markFailedParams{
+	return s.store.MarkFailed(ctx, MarkFailedParams{
 		ID:                   job.ID,
 		ClaimToken:           job.ClaimToken,
 		RunID:                run.ID,
@@ -107,7 +107,7 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job jobRecord, run r
 }
 
 // markFinished 将 submitted/running run 标记为 finished 并推算 job 的下一次运行时间。
-func (s *Scheduler) markFinished(ctx context.Context, job jobRecord, run runRecord, turnID string, scheduledAt time.Time) error {
+func (s *Scheduler) markFinished(ctx context.Context, job JobRecord, run RunRecord, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil {
@@ -116,13 +116,13 @@ func (s *Scheduler) markFinished(ctx context.Context, job jobRecord, run runReco
 	if nextRunAt.IsZero() {
 		return errors.New("cron: computed next_run_at is zero")
 	}
-	if err := s.store.CASRunStatus(ctx, casRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFinished, UpdatedAt: now,
 	}); err != nil {
 		return err
 	}
 	s.publishRunState(job.ID, run.ID, statusFinished, turnID, "", scheduledAt)
-	return s.store.MarkFinished(ctx, markFinishedParams{
+	return s.store.MarkFinished(ctx, MarkFinishedParams{
 		ID:                   job.ID,
 		ClaimToken:           job.ClaimToken,
 		RunID:                run.ID,
@@ -137,7 +137,7 @@ func (s *Scheduler) markFinished(ctx context.Context, job jobRecord, run runReco
 // nextRetryAndRun 计算失败后的 retry 时间和下一次正常 cron 时间。
 // retry 耗尽或会越过下一次正常 schedule 时返回零值 retry，但仍返回新的 next_run_at，
 // 避免 MarkFailed 保留旧 due 时间导致同一失败 run 被下一轮 tick 立刻重复领取。
-func (s *Scheduler) nextRetryAndRun(job jobRecord, now time.Time) (time.Time, time.Time, error) {
+func (s *Scheduler) nextRetryAndRun(job JobRecord, now time.Time) (time.Time, time.Time, error) {
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
@@ -160,7 +160,7 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 	}
 	now := s.now().UTC()
 	for _, job := range jobs {
-		err := s.store.RenewLease(ctx, leaseParams{
+		err := s.store.RenewLease(ctx, LeaseParams{
 			ID:             job.ID,
 			ClaimToken:     job.ClaimToken,
 			LeaseExpiresAt: now.Add(s.cfg.LeaseTTL),
@@ -218,7 +218,7 @@ func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
 }
 
 // recoverDanglingRun 按 run 状态分发到对应的恢复函数，未知状态直接跳过。
-func (s *Scheduler) recoverDanglingRun(ctx context.Context, run runRecord) error {
+func (s *Scheduler) recoverDanglingRun(ctx context.Context, run RunRecord) error {
 	job, err := s.store.GetJobByID(ctx, run.JobID)
 	if err != nil {
 		return err
@@ -236,7 +236,7 @@ func (s *Scheduler) recoverDanglingRun(ctx context.Context, run runRecord) error
 }
 
 // recoverSubmittingRun 恢复停在提交中的 cron run。
-func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job jobRecord, run runRecord) error {
+func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job JobRecord, run RunRecord) error {
 	if run.TurnID != "" {
 		return s.observeRecoveredSubmittedRun(ctx, job, run, run.TurnID)
 	}
@@ -249,7 +249,7 @@ func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job jobRecord, run
 	if !observed.Found || observed.TurnID == "" {
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: provider dedupe lookup missed"))
 	}
-	if err := s.store.SetRunTurn(ctx, setRunTurnParams{
+	if err := s.store.SetRunTurn(ctx, SetRunTurnParams{
 		ID: run.ID, ThreadID: run.ThreadID, AgentID: run.AgentID,
 		TurnID: observed.TurnID, SubmittedAt: s.now().UTC(), UpdatedAt: s.now().UTC(),
 	}); err != nil {
@@ -259,7 +259,7 @@ func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job jobRecord, run
 }
 
 // recoverSubmittedRun 恢复 submitted 状态的 run，turn_id 缺失时直接标记为失败。
-func (s *Scheduler) recoverSubmittedRun(ctx context.Context, job jobRecord, run runRecord) error {
+func (s *Scheduler) recoverSubmittedRun(ctx context.Context, job JobRecord, run RunRecord) error {
 	if run.TurnID == "" {
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: submitted run missing turn_id"))
 	}
@@ -267,7 +267,7 @@ func (s *Scheduler) recoverSubmittedRun(ctx context.Context, job jobRecord, run 
 }
 
 // recoverRunningRun 恢复 running 状态的 run，租约过期或 Observe 失败时转为 observe_lost。
-func (s *Scheduler) recoverRunningRun(ctx context.Context, job jobRecord, run runRecord) error {
+func (s *Scheduler) recoverRunningRun(ctx context.Context, job JobRecord, run RunRecord) error {
 	if run.TurnID == "" {
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: running run missing turn_id"))
 	}
@@ -282,33 +282,33 @@ func (s *Scheduler) recoverRunningRun(ctx context.Context, job jobRecord, run ru
 }
 
 // observeRecoveredSubmittedRun 恢复时 Observe 已提交的 turn 并推进状态到 running。
-func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job jobRecord, run runRecord, turnID string) error {
+func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job JobRecord, run RunRecord, turnID string) error {
 	if err := s.submitter.Observe(ctx, turnID); err != nil {
 		return s.finalizeRecoveredObserveLost(ctx, job, run, turnID, err)
 	}
 	// 恢复也用 CAS 保持状态往前走。若终态事件抢先写入，这里会失败并暴露出来。
 	if run.Status == statusSubmitting {
-		if err := s.store.CASRunStatus(ctx, casRunStatusParams{ID: run.ID, ExpectedStatus: statusSubmitting, NextStatus: statusSubmitted, UpdatedAt: s.now().UTC()}); err != nil {
+		if err := s.store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: statusSubmitting, NextStatus: statusSubmitted, UpdatedAt: s.now().UTC()}); err != nil {
 			return err
 		}
 	}
-	return s.store.CASRunStatus(ctx, casRunStatusParams{ID: run.ID, ExpectedStatus: statusSubmitted, NextStatus: statusRunning, UpdatedAt: s.now().UTC()})
+	return s.store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: statusSubmitted, NextStatus: statusRunning, UpdatedAt: s.now().UTC()})
 }
 
 // finalizeRecoveredFailure 将恢复时确认失败的 run 标记为 failed 并更新 job 状态。
-func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job jobRecord, run runRecord, err error) error {
+func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job JobRecord, run RunRecord, err error) error {
 	now := s.now().UTC()
 	nextRetryAt, nextRunAt, scheduleErr := s.nextRetryAndRun(job, now)
 	if scheduleErr != nil {
 		return scheduleErr
 	}
-	if casErr := s.store.CASRunStatus(ctx, casRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFailed, Error: err.Error(), UpdatedAt: now}); casErr != nil {
+	if casErr := s.store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFailed, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitting->failed failed",
 			slog.String("run_id", run.ID),
 			slog.String("error", casErr.Error()),
 		)
 	}
-	return s.store.MarkFailed(ctx, markFailedParams{
+	return s.store.MarkFailed(ctx, MarkFailedParams{
 		ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: run.TurnID,
 		LastRunAt: run.ScheduledAt, LastTurnID: run.TurnID, LastStatus: statusFailed,
 		LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, NextRetryAt: nextRetryAt, Now: now,
@@ -316,20 +316,20 @@ func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job jobRecord,
 }
 
 // finalizeRecoveredObserveLost 将恢复时无法追踪的 run 标记为 observe_lost，不触发重试。
-func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job jobRecord, run runRecord, turnID string, err error) error {
+func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job JobRecord, run RunRecord, turnID string, err error) error {
 	now := s.now().UTC()
 	_, nextRunAt, scheduleErr := s.nextRetryAndRun(job, now)
 	if scheduleErr != nil {
 		return scheduleErr
 	}
 	// 恢复期的 observe_lost 也不自动 retry；旧 turn 状态未知时，新 turn 会造成重复。
-	if casErr := s.store.CASRunStatus(ctx, casRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusObserveLost, Error: err.Error(), UpdatedAt: now}); casErr != nil {
+	if casErr := s.store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusObserveLost, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitted->observe_lost failed",
 			slog.String("run_id", run.ID),
 			slog.String("error", casErr.Error()),
 		)
 	}
-	return s.store.MarkFailed(ctx, markFailedParams{
+	return s.store.MarkFailed(ctx, MarkFailedParams{
 		ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: turnID,
 		LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: statusObserveLost,
 		LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, Now: now,
@@ -351,7 +351,7 @@ func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID strin
 		if job.ActiveTurnID != turnID {
 			continue
 		}
-		return s.store.ExtendClaim(ctx, leaseParams{ID: job.ID, ClaimToken: job.ClaimToken, LeaseExpiresAt: now.Add(s.cfg.LeaseTTL), Now: now})
+		return s.store.ExtendClaim(ctx, LeaseParams{ID: job.ID, ClaimToken: job.ClaimToken, LeaseExpiresAt: now.Add(s.cfg.LeaseTTL), Now: now})
 	}
 	return nil
 }

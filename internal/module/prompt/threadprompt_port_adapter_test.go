@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 type threadPromptStoreTestAdapter struct {
-	store promptstore.Store
+	store Store
 }
 
-func adaptPromptStoreForThreadPromptTest(store promptstore.Store) threadprompt.PromptStore {
+func adaptPromptStoreForThreadPromptTest(store Store) threadprompt.PromptStore {
 	return &threadPromptStoreTestAdapter{store: store}
 }
 
 func (a *threadPromptStoreTestAdapter) List(ctx context.Context, filter threadprompt.PromptListFilter) ([]threadprompt.PromptTemplate, error) {
-	rows, err := a.store.List(ctx, promptstore.ListFilter{AgentKey: filter.AgentKey, Keyword: filter.Keyword, CWD: filter.CWD, Limit: filter.Limit})
+	rows, err := a.store.List(ctx, ListFilter{AgentKey: filter.AgentKey, Keyword: filter.Keyword, CWD: filter.CWD, Limit: filter.Limit})
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +33,7 @@ func (a *threadPromptStoreTestAdapter) Get(ctx context.Context, promptKey string
 }
 
 func (a *threadPromptStoreTestAdapter) InsertVersion(ctx context.Context, row threadprompt.PromptTemplateVersion) (int64, error) {
-	return a.store.InsertVersion(ctx, promptstore.PromptTemplateVersion{
+	return a.store.InsertVersion(ctx, TemplateVersion{
 		ID: row.ID, PromptKey: row.PromptKey, Title: row.Title, AgentKey: row.AgentKey,
 		ToolName: row.ToolName, PromptText: row.PromptText, Variables: cloneThreadPromptTestJSON(row.Variables),
 		Tags: cloneThreadPromptTestJSON(row.Tags), Description: row.Description, Enabled: row.Enabled,
@@ -63,7 +62,7 @@ func (a *threadPromptStoreTestAdapter) ListDefaultRuleSections(ctx context.Conte
 	return promptSectionsForThreadPromptTest(rows), err
 }
 
-func promptTemplatesForThreadPromptTest(rows []promptstore.PromptTemplate) []threadprompt.PromptTemplate {
+func promptTemplatesForThreadPromptTest(rows []Template) []threadprompt.PromptTemplate {
 	out := make([]threadprompt.PromptTemplate, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, promptTemplateForThreadPromptTest(row))
@@ -71,7 +70,7 @@ func promptTemplatesForThreadPromptTest(rows []promptstore.PromptTemplate) []thr
 	return out
 }
 
-func promptTemplateForThreadPromptTest(row promptstore.PromptTemplate) threadprompt.PromptTemplate {
+func promptTemplateForThreadPromptTest(row Template) threadprompt.PromptTemplate {
 	return threadprompt.PromptTemplate{
 		ID: row.ID, PromptKey: row.PromptKey, Title: row.Title, AgentKey: row.AgentKey,
 		ToolName: row.ToolName, PromptText: row.PromptText, WhenToUse: row.WhenToUse,
@@ -82,7 +81,7 @@ func promptTemplateForThreadPromptTest(row promptstore.PromptTemplate) threadpro
 	}
 }
 
-func promptSectionsForThreadPromptTest(rows []promptstore.PromptTemplateSection) []threadprompt.PromptTemplateSection {
+func promptSectionsForThreadPromptTest(rows []TemplateSection) []threadprompt.PromptTemplateSection {
 	out := make([]threadprompt.PromptTemplateSection, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, threadprompt.PromptTemplateSection{

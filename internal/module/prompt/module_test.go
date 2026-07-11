@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 type promptHandlerCollector struct {
@@ -21,7 +21,7 @@ type promptHandlerCollector struct {
 	Maps []handler.Map `group:"rpc_handlers"`
 }
 
-type noopPromptStore struct{ promptstore.Store }
+type noopPromptStore struct{ Store }
 
 type unknownPromptHandlerDependency struct{}
 
@@ -41,7 +41,7 @@ func TestNewPromptHandlersExposeLegacyPromptsMethods(t *testing.T) {
 		fx.NopLogger,
 		fx.Supply(&contract.Config{}),
 		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
-		fx.Provide(func() promptstore.Store { return noopPromptStore{} }),
+		fx.Provide(func() Store { return noopPromptStore{} }),
 		Module,
 		fx.Populate(&collected),
 	)
@@ -64,9 +64,7 @@ func TestNewPromptHandlersExposeLegacyPromptsMethods(t *testing.T) {
 
 	merged := handler.Map{}
 	for _, handlers := range collected.Maps {
-		for method, fn := range handlers {
-			merged[method] = fn
-		}
+		maps.Copy(merged, handlers)
 	}
 	for _, method := range []string{"prompts/list", "prompt-assets/list", "prompts/get", "prompts/write", "prompts/delete"} {
 		if merged[method] == nil {

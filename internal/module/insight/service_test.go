@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func newTestService(t *testing.T, store insightReader) Service {
+func newTestService(t *testing.T, store Reader) Service {
 	t.Helper()
 	return NewService(slog.Default(), store)
 }
@@ -34,7 +34,7 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 	t.Parallel()
 	skills, _ := json.Marshal([]string{"a", "b"})
 	success := false
-	row := insightRecord{
+	row := Record{
 		ID:             42,
 		ThreadID:       "t",
 		LocalTurnID:    "lt",
@@ -47,11 +47,11 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 		SkillsSelected: skills,
 	}
 	store := &fakeInsightStore{
-		listRecentFn: func(_ context.Context, limit int32) ([]insightRecord, error) {
+		listRecentFn: func(_ context.Context, limit int32) ([]Record, error) {
 			if limit != 5 {
 				t.Fatalf("limit forward failed: %d", limit)
 			}
-			return []insightRecord{row}, nil
+			return []Record{row}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -85,9 +85,9 @@ func TestServiceListObservedApprovalRequestsForwards(t *testing.T) {
 	t.Parallel()
 	var gotThread string
 	store := &fakeInsightStore{
-		listApprovalsFn: func(_ context.Context, threadID string, _ int32) ([]insightApprovalRow, error) {
+		listApprovalsFn: func(_ context.Context, threadID string, _ int32) ([]ApprovalRow, error) {
 			gotThread = threadID
-			return []insightApprovalRow{{ID: 1, ThreadID: threadID, ApprovalRequests: 2}}, nil
+			return []ApprovalRow{{ID: 1, ThreadID: threadID, ApprovalRequests: 2}}, nil
 		},
 	}
 	svc := newTestService(t, store)

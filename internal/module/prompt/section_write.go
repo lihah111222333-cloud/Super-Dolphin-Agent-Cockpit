@@ -9,12 +9,12 @@ import (
 // recall 写入会先做同 cwd 去重锁，防止并发请求生成重复 topic。
 func writePromptSectionInTx(
 	ctx context.Context,
-	store promptStore,
+	store Store,
 	requestScope, promptKey string,
 	req PromptSectionWriteRequest,
-) (*promptTemplateSection, error) {
-	var saved *promptTemplateSection
-	err := store.WithTx(ctx, func(txStore promptStore) error {
+) (*TemplateSection, error) {
+	var saved *TemplateSection
+	err := store.WithTx(ctx, func(txStore Store) error {
 		template, gerr := txStore.Get(ctx, promptKey)
 		if gerr != nil {
 			return gerr
@@ -29,7 +29,7 @@ func writePromptSectionInTx(
 				return err
 			}
 		}
-		section, uerr := txStore.UpsertSection(ctx, promptTemplateSection{
+		section, uerr := txStore.UpsertSection(ctx, TemplateSection{
 			TemplateID:  template.ID,
 			SectionKey:  req.SectionKey,
 			Region:      req.Region,

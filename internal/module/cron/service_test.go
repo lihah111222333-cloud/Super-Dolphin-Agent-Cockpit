@@ -40,21 +40,21 @@ func newIdentityConfig(t *testing.T) json.RawMessage {
 // fakeStore is a lightweight recording double for the narrow Store
 // interface the module consumes.
 type fakeStore struct {
-	createFn         func(context.Context, createJobParams) (jobRecord, error)
-	getByIDFn        func(context.Context, string) (jobRecord, error)
-	listFn           func(context.Context) ([]jobRecord, error)
+	createFn         func(context.Context, CreateJobParams) (JobRecord, error)
+	getByIDFn        func(context.Context, string) (JobRecord, error)
+	listFn           func(context.Context) ([]JobRecord, error)
 	deleteFn         func(context.Context, string) error
-	updateFn         func(context.Context, updateJobScheduleParams) error
+	updateFn         func(context.Context, UpdateJobScheduleParams) error
 	setEnabledFn     func(context.Context, string, bool, time.Time) error
-	listRunsByJobFn  func(context.Context, string, int32) ([]runRecord, error)
+	listRunsByJobFn  func(context.Context, string, int32) ([]RunRecord, error)
 	patchNextRunAtFn func(context.Context, string, time.Time, time.Time) error
 }
 
-func (f *fakeStore) CreateJob(ctx context.Context, p createJobParams) (jobRecord, error) {
+func (f *fakeStore) CreateJob(ctx context.Context, p CreateJobParams) (JobRecord, error) {
 	if f.createFn != nil {
 		return f.createFn(ctx, p)
 	}
-	return jobRecord{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
+	return JobRecord{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
 }
 func (f *fakeStore) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
 	if f.patchNextRunAtFn != nil {
@@ -63,13 +63,13 @@ func (f *fakeStore) PatchNextRunAt(ctx context.Context, id string, nextRunAt tim
 	return nil
 }
 
-func (f *fakeStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
+func (f *fakeStore) GetJobByID(ctx context.Context, id string) (JobRecord, error) {
 	if f.getByIDFn != nil {
 		return f.getByIDFn(ctx, id)
 	}
-	return jobRecord{ID: id}, nil
+	return JobRecord{ID: id}, nil
 }
-func (f *fakeStore) ListJobs(ctx context.Context) ([]jobRecord, error) {
+func (f *fakeStore) ListJobs(ctx context.Context) ([]JobRecord, error) {
 	if f.listFn != nil {
 		return f.listFn(ctx)
 	}
@@ -81,7 +81,7 @@ func (f *fakeStore) DeleteJob(ctx context.Context, id string) error {
 	}
 	return nil
 }
-func (f *fakeStore) UpdateJobSchedule(ctx context.Context, p updateJobScheduleParams) error {
+func (f *fakeStore) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams) error {
 	if f.updateFn != nil {
 		return f.updateFn(ctx, p)
 	}
@@ -93,7 +93,7 @@ func (f *fakeStore) SetJobEnabled(ctx context.Context, id string, enabled bool, 
 	}
 	return nil
 }
-func (f *fakeStore) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]runRecord, error) {
+func (f *fakeStore) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]RunRecord, error) {
 	if f.listRunsByJobFn != nil {
 		return f.listRunsByJobFn(ctx, jobID, limit)
 	}
@@ -173,11 +173,11 @@ func TestCreateJobRejectsNonCodexProvider(t *testing.T) {
 
 func TestCreateJobDefaultsProviderToCodex(t *testing.T) {
 	t.Parallel()
-	var got createJobParams
+	var got CreateJobParams
 	store := &fakeStore{
-		createFn: func(_ context.Context, p createJobParams) (jobRecord, error) {
+		createFn: func(_ context.Context, p CreateJobParams) (JobRecord, error) {
 			got = p
-			return jobRecord{ID: p.ID, Provider: p.Provider}, nil
+			return JobRecord{ID: p.ID, Provider: p.Provider}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -262,11 +262,11 @@ func TestCreateAndUpdateRejectInvalidScheduleInputs(t *testing.T) {
 			t.Run(tc.name+"/"+op, func(t *testing.T) {
 				t.Parallel()
 				store := &fakeStore{
-					createFn: func(context.Context, createJobParams) (jobRecord, error) {
+					createFn: func(context.Context, CreateJobParams) (JobRecord, error) {
 						t.Fatalf("CreateJob reached store for invalid %s", tc.wantError)
-						return jobRecord{}, nil
+						return JobRecord{}, nil
 					},
-					updateFn: func(context.Context, updateJobScheduleParams) error {
+					updateFn: func(context.Context, UpdateJobScheduleParams) error {
 						t.Fatalf("UpdateJob reached store for invalid %s", tc.wantError)
 						return nil
 					},
@@ -306,11 +306,11 @@ func TestCreateAndUpdateRejectInvalidScheduleInputs(t *testing.T) {
 
 func TestCreateJobDefaultsNextRunAtAndScheduleType(t *testing.T) {
 	t.Parallel()
-	var got createJobParams
+	var got CreateJobParams
 	store := &fakeStore{
-		createFn: func(_ context.Context, p createJobParams) (jobRecord, error) {
+		createFn: func(_ context.Context, p CreateJobParams) (JobRecord, error) {
 			got = p
-			return jobRecord{ID: p.ID}, nil
+			return JobRecord{ID: p.ID}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -336,11 +336,11 @@ func TestCreateJobDefaultsNextRunAtAndScheduleType(t *testing.T) {
 
 func TestCreateJobDedupesAndTrimsSkills(t *testing.T) {
 	t.Parallel()
-	var got createJobParams
+	var got CreateJobParams
 	store := &fakeStore{
-		createFn: func(_ context.Context, p createJobParams) (jobRecord, error) {
+		createFn: func(_ context.Context, p CreateJobParams) (JobRecord, error) {
 			got = p
-			return jobRecord{ID: p.ID}, nil
+			return JobRecord{ID: p.ID}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -370,8 +370,8 @@ func TestCreateJobDedupesAndTrimsSkills(t *testing.T) {
 func TestGetJobMapsNotFound(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		getByIDFn: func(context.Context, string) (jobRecord, error) {
-			return jobRecord{}, errStoreJobNotFound
+		getByIDFn: func(context.Context, string) (JobRecord, error) {
+			return JobRecord{}, ErrStoreJobNotFound
 		},
 	}
 	svc := newTestService(t, store)
@@ -384,8 +384,8 @@ func TestGetJobMapsNotFound(t *testing.T) {
 func TestListJobsPassesThrough(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		listFn: func(context.Context) ([]jobRecord, error) {
-			return []jobRecord{{ID: "a"}, {ID: "b"}}, nil
+		listFn: func(context.Context) ([]JobRecord, error) {
+			return []JobRecord{{ID: "a"}, {ID: "b"}}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -446,11 +446,11 @@ func TestUpdateJobReValidatesIdentity(t *testing.T) {
 func TestListJobRunsPassesThrough(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		listRunsByJobFn: func(_ context.Context, _ string, limit int32) ([]runRecord, error) {
+		listRunsByJobFn: func(_ context.Context, _ string, limit int32) ([]RunRecord, error) {
 			if limit == 0 {
 				t.Fatal("service must forward caller's limit, not rewrite to store default")
 			}
-			return []runRecord{{ID: "r1", Status: statusPending}}, nil
+			return []RunRecord{{ID: "r1", Status: statusPending}}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -469,13 +469,13 @@ func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
 	cases := []struct {
 		name  string
 		field string
-		row   jobRecord
+		row   JobRecord
 		call  func(*service) error
 	}{
 		{
 			name:  "create corrupt config",
 			field: "config",
-			row:   jobRecord{ID: "job-create", Name: "daily", Config: []byte(`{bad`), Skills: []byte(`[]`)},
+			row:   JobRecord{ID: "job-create", Name: "daily", Config: []byte(`{bad`), Skills: []byte(`[]`)},
 			call: func(svc *service) error {
 				_, err := svc.CreateJob(context.Background(), CreateJobRequest{
 					Name:         "daily",
@@ -490,7 +490,7 @@ func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
 		{
 			name:  "get corrupt skills",
 			field: "skills",
-			row:   jobRecord{ID: "job-get", Config: []byte(`{}`), Skills: []byte(`["ok"`), Name: "daily"},
+			row:   JobRecord{ID: "job-get", Config: []byte(`{}`), Skills: []byte(`["ok"`), Name: "daily"},
 			call: func(svc *service) error {
 				_, err := svc.GetJob(context.Background(), "job-get")
 				return err
@@ -499,7 +499,7 @@ func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
 		{
 			name:  "list corrupt config",
 			field: "config",
-			row:   jobRecord{ID: "job-list", Config: []byte(`{"unterminated"`), Skills: []byte(`[]`), Name: "daily"},
+			row:   JobRecord{ID: "job-list", Config: []byte(`{"unterminated"`), Skills: []byte(`[]`), Name: "daily"},
 			call: func(svc *service) error {
 				_, err := svc.ListJobs(context.Background())
 				return err
@@ -510,14 +510,14 @@ func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := &fakeStore{
-				createFn: func(context.Context, createJobParams) (jobRecord, error) {
+				createFn: func(context.Context, CreateJobParams) (JobRecord, error) {
 					return tc.row, nil
 				},
-				getByIDFn: func(context.Context, string) (jobRecord, error) {
+				getByIDFn: func(context.Context, string) (JobRecord, error) {
 					return tc.row, nil
 				},
-				listFn: func(context.Context) ([]jobRecord, error) {
-					return []jobRecord{tc.row}, nil
+				listFn: func(context.Context) ([]JobRecord, error) {
+					return []JobRecord{tc.row}, nil
 				},
 			}
 			svc := newTestService(t, store)
@@ -567,7 +567,7 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(1_700_000_000, 0).UTC()
 
-	job := jobRecord{
+	job := JobRecord{
 		ID:            "job-1",
 		Name:          "daily",
 		Prompt:        "check",
@@ -588,7 +588,7 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 	var gotID string
 	var gotNextRunAt time.Time
 	store := &fakeStore{
-		getByIDFn: func(_ context.Context, id string) (jobRecord, error) {
+		getByIDFn: func(_ context.Context, id string) (JobRecord, error) {
 			if id != "job-1" {
 				t.Fatalf("unexpected id %q", id)
 			}
@@ -615,8 +615,8 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 func TestRunOnceReturnsErrNotFound(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		getByIDFn: func(context.Context, string) (jobRecord, error) {
-			return jobRecord{}, errStoreJobNotFound
+		getByIDFn: func(context.Context, string) (JobRecord, error) {
+			return JobRecord{}, ErrStoreJobNotFound
 		},
 	}
 	svc := newTestService(t, store)
@@ -637,8 +637,8 @@ func TestRunOnceRejectsEmptyID(t *testing.T) {
 func TestRunOnceRejectsDisabledJob(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		getByIDFn: func(context.Context, string) (jobRecord, error) {
-			return jobRecord{ID: "job-1", Enabled: false}, nil
+		getByIDFn: func(context.Context, string) (JobRecord, error) {
+			return JobRecord{ID: "job-1", Enabled: false}, nil
 		},
 	}
 	svc := newTestService(t, store)

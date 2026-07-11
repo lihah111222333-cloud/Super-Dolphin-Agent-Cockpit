@@ -7,7 +7,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,7 +51,7 @@ func TestPromptWritePreservesIntentRecallTagFromOrdinaryEdit(t *testing.T) {
 	template.Tags = withPromptScopeTag(json.RawMessage(`["intent:recall","pricing"]`), "/repo/a")
 	template.WhenToUse = "Use when answering pricing questions."
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_pricing": {TemplateID: 7, SectionKey: "recall_pricing", TriggerType: "recall", RecallTopic: "pricing", Body: "old pricing", Enabled: true},
 	}
 	svc := newPromptService(store)
@@ -81,7 +80,7 @@ func TestPromptWriteInfersRecallIntentFromExistingRecallSection(t *testing.T) {
 	template.Tags = withPromptScopeTag(json.RawMessage(`["pricing"]`), "/repo/a")
 	template.WhenToUse = "Use when answering pricing questions."
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_pricing": {TemplateID: 7, SectionKey: "recall_pricing", TriggerType: "recall", RecallTopic: "pricing", Body: "old pricing", Enabled: true},
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
@@ -116,7 +115,7 @@ func TestPromptWriteInfersRecallIntentIgnoringDisabledDirectSections(t *testing.
 	template.PromptText = ""
 	template.Tags = withPromptScopeTag(json.RawMessage(`["pricing"]`), "/repo/a")
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"workflow":       {TemplateID: 7, SectionKey: "workflow", TriggerType: "always", Body: "old direct body", Enabled: false},
 		"recall_pricing": {TemplateID: 7, SectionKey: "recall_pricing", TriggerType: "recall", RecallTopic: "pricing", Body: "old pricing", Enabled: true},
 	}
@@ -142,12 +141,12 @@ func TestPromptSectionsForTemplatesRejectsOutsideCWD(t *testing.T) {
 	other := scopedPromptTemplate("main/other", "/repo/b")
 	other.ID = 9
 	store.templates[other.PromptKey] = other
-	store.sections[9] = map[string]promptstore.PromptTemplateSection{
+	store.sections[9] = map[string]TemplateSection{
 		"workflow": {TemplateID: 9, SectionKey: "workflow", Body: "other project content", Enabled: true},
 	}
 	svc := newPromptService(store)
 
-	_, err := svc.ListPromptSectionsByTemplates(context.Background(), "/repo/a", []promptTemplate{promptTemplateFromStore(other)})
+	_, err := svc.ListPromptSectionsByTemplates(context.Background(), "/repo/a", []Template{other})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "outside cwd scope")
 	require.Zero(t, store.listSectionsByTemplateIDsCalls)

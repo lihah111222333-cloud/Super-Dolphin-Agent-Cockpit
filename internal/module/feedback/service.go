@@ -3,45 +3,25 @@ package feedback
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// feedbackEvent 是 feedback 服务写入持久层所需的模块内事件投影。
-type feedbackEvent struct {
-	ID              int64
-	ThreadID        string
-	TurnID          string
-	AgentKey        string
-	PromptVersionID *int64
-	EventType       string
-	Actor           string
-	Payload         json.RawMessage
-	CreatedAt       time.Time
-}
-
-// feedbackWriter 提供 feedback 服务记录事件所需的最小写入口。
-type feedbackWriter interface {
-	Insert(ctx context.Context, ev feedbackEvent) (feedbackEvent, error)
-}
-
-// service 是 feedback 模块的内部实现，通过 feedbackWriter 持久化事件。
+// service 是 feedback 模块的内部实现，通过 Writer 持久化事件。
 type service struct {
 	logger *slog.Logger
-	store  feedbackWriter
+	store  Writer
 }
 
 var _ Service = (*service)(nil)
 
 // NewService 创建 feedback 事件记录服务。
 // logger 缺失时使用包默认 logger；store 缺失不会在构造时兜底，Record 会 fail-fast。
-func NewService(logger *slog.Logger, store feedbackWriter) Service {
+func NewService(logger *slog.Logger, store Writer) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -62,7 +42,7 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, 
 	if threadID == "" || eventType == "" {
 		return RecordResult{}, errors.New("feedback/record: thread_id and event_type are required")
 	}
-	ev, err := s.store.Insert(ctx, feedbackEvent{
+	ev, err := s.store.Insert(ctx, Event{
 		ThreadID:        threadID,
 		TurnID:          strings.TrimSpace(req.TurnID),
 		AgentKey:        strings.TrimSpace(req.AgentKey),

@@ -21,15 +21,15 @@ import (
 // PromptService 是 dashboard/RPC 层使用的 prompt 持久化接口。
 // SetEnabled 暂不进入该接口，直到 store/service 合约补齐端到端实现。
 type PromptService interface {
-	ListPrompts(ctx context.Context, cwd, keyword string) ([]promptTemplate, error)
-	ListPromptSectionsByTemplates(ctx context.Context, cwd string, templates []promptTemplate) (map[int64][]promptTemplateSection, error)
-	GetPrompt(ctx context.Context, cwd, key string) (*promptTemplate, error)
-	WritePrompt(ctx context.Context, cwd string, prompt PromptWriteRequest) (*promptTemplate, error)
+	ListPrompts(ctx context.Context, cwd, keyword string) ([]Template, error)
+	ListPromptSectionsByTemplates(ctx context.Context, cwd string, templates []Template) (map[int64][]TemplateSection, error)
+	GetPrompt(ctx context.Context, cwd, key string) (*Template, error)
+	WritePrompt(ctx context.Context, cwd string, prompt PromptWriteRequest) (*Template, error)
 	DeletePrompt(ctx context.Context, cwd, key string, scope ...string) error
 	// ListSections / WriteSection / DeleteSection 只服务高级调试 UI。
 	// 普通编辑仍走模板级 PromptText；section 写入会影响缓存前缀、动态尾部和 enable_when 注入边界。
-	ListSections(ctx context.Context, cwd, promptKey string) ([]promptTemplateSection, error)
-	WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptTemplateSection, error)
+	ListSections(ctx context.Context, cwd, promptKey string) ([]TemplateSection, error)
+	WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*TemplateSection, error)
 	DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string, scope ...string) error
 }
 
@@ -70,7 +70,7 @@ type PromptSectionWriteRequest struct {
 
 // promptService 把 RPC 调用桥接到 prompt store，并负责 section cache 失效。
 type promptService struct {
-	store    promptStore
+	store    Store
 	sections contract.SectionInvalidator
 	builtin  contract.BuiltinPromptRegistry
 }
@@ -235,13 +235,13 @@ func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service
 }
 
 // newPromptService 创建不带 builtin registry 的 prompt RPC 服务，主要用于测试和基础装配。
-func newPromptService(store any, sections ...contract.SectionInvalidator) PromptService {
+func newPromptService(store Store, sections ...contract.SectionInvalidator) PromptService {
 	return newPromptServiceWithBuiltin(store, nil, sections...)
 }
 
 // newPromptServiceWithBuiltin 创建带 builtin registry 的 prompt RPC 服务，用于拒绝修改内置 prompt。
 func newPromptServiceWithBuiltin(
-	store any,
+	store Store,
 	builtin contract.BuiltinPromptRegistry,
 	sections ...contract.SectionInvalidator,
 ) PromptService {
@@ -249,7 +249,7 @@ func newPromptServiceWithBuiltin(
 	if len(sections) > 0 {
 		sectionInvalidator = sections[0]
 	}
-	return &promptService{store: promptStoreFromDependency(store), sections: sectionInvalidator, builtin: builtin}
+	return &promptService{store: store, sections: sectionInvalidator, builtin: builtin}
 }
 
 // buildPromptHandlersWithService 注册 prompt 相关 JSON-RPC handlers，并从 deps 中拾取可选依赖。
@@ -304,7 +304,7 @@ func handlePromptGet(ctx context.Context, promptSvc PromptService, p promptGetPa
 	if err != nil {
 		return nil, err
 	}
-	sectionsByTemplateID, err := promptSvc.ListPromptSectionsByTemplates(ctx, p.Cwd, []promptTemplate{*template})
+	sectionsByTemplateID, err := promptSvc.ListPromptSectionsByTemplates(ctx, p.Cwd, []Template{*template})
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +365,7 @@ func stringValue(value *string) string {
 }
 
 // validatePromptDiscoverability 要求新 prompt 必须有 when_to_use，更新且未显式修改时沿用旧值。
-func validatePromptDiscoverability(template promptTemplate, current *promptTemplate, explicit bool) error {
+func validatePromptDiscoverability(template Template, current *Template, explicit bool) error {
 	if strings.TrimSpace(template.WhenToUse) != "" || current != nil && !explicit {
 		return nil
 	}
@@ -444,7 +444,7 @@ func deletePromptSectionWithOptionalScope(ctx context.Context, promptSvc PromptS
 }
 
 // promptSectionItemsFromStore 将 store sections 批量转换为 RPC 响应。
-func promptSectionItemsFromStore(sections []promptTemplateSection, promptKey string) []promptSectionRPCItem {
+func promptSectionItemsFromStore(sections []TemplateSection, promptKey string) []promptSectionRPCItem {
 	out := make([]promptSectionRPCItem, 0, len(sections))
 	for _, sec := range sections {
 		out = append(out, promptSectionItemFromStore(sec, promptKey))
@@ -453,7 +453,7 @@ func promptSectionItemsFromStore(sections []promptTemplateSection, promptKey str
 }
 
 // promptSectionItemFromStore 将单个 store section 转换为 RPC 响应。
-func promptSectionItemFromStore(section promptTemplateSection, promptKey string) promptSectionRPCItem {
+func promptSectionItemFromStore(section TemplateSection, promptKey string) promptSectionRPCItem {
 	return promptSectionRPCItem{
 		ID:          section.ID,
 		PromptID:    promptKey,
@@ -472,8 +472,8 @@ func promptSectionItemFromStore(section promptTemplateSection, promptKey string)
 
 // promptItemsFromTemplatesWithSections 将模板转换为 RPC items，并优先用 section preview 展示内容。
 func promptItemsFromTemplatesWithSections(
-	templates []promptTemplate,
-	sectionsByTemplateID map[int64][]promptTemplateSection,
+	templates []Template,
+	sectionsByTemplateID map[int64][]TemplateSection,
 ) []promptRPCItem {
 	items := make([]promptRPCItem, 0, len(templates))
 	for _, template := range templates {
@@ -488,7 +488,7 @@ func promptItemsFromTemplatesWithSections(
 }
 
 // promptItemFromTemplate 将 store 模板转换为前端可见字段，并过滤内部 scope tags。
-func promptItemFromTemplate(template promptTemplate) promptRPCItem {
+func promptItemFromTemplate(template Template) promptRPCItem {
 	return promptRPCItem{
 		ID:          template.PromptKey,
 		Name:        template.Title,
@@ -507,7 +507,7 @@ func promptItemFromTemplate(template promptTemplate) promptRPCItem {
 }
 
 // promptItemFromTemplateWithFullSections 返回编辑页需要的完整 section 内容。
-func promptItemFromTemplateWithFullSections(template promptTemplate, sections []promptTemplateSection) promptRPCItem {
+func promptItemFromTemplateWithFullSections(template Template, sections []TemplateSection) promptRPCItem {
 	template = promptTemplateWithInferredSectionIntent(template, sections)
 	item := promptItemFromTemplate(template)
 	if content := promptEditableSectionsContent(template, sections); content != "" {
@@ -517,7 +517,7 @@ func promptItemFromTemplateWithFullSections(template promptTemplate, sections []
 }
 
 // promptTemplateIDs 提取去重后的非零 template IDs，用于批量查询 sections。
-func promptTemplateIDs(templates []promptTemplate) []int64 {
+func promptTemplateIDs(templates []Template) []int64 {
 	ids := make([]int64, 0, len(templates))
 	seen := map[int64]struct{}{}
 	for _, template := range templates {
@@ -534,16 +534,16 @@ func promptTemplateIDs(templates []promptTemplate) []int64 {
 }
 
 // promptSectionsContentPreview 生成列表页使用的短 section 内容预览。
-func promptSectionsContentPreview(sections []promptTemplateSection) string {
+func promptSectionsContentPreview(sections []TemplateSection) string {
 	return promptSectionsContent(sections, promptListContentPreviewMaxRunes)
 }
 
 // promptSectionsContent 按 region/ordinal/id 排序拼接非 recall section，可按 maxRunes 截断。
-func promptSectionsContent(sections []promptTemplateSection, maxRunes int) string {
+func promptSectionsContent(sections []TemplateSection, maxRunes int) string {
 	if len(sections) == 0 {
 		return ""
 	}
-	sorted := make([]promptTemplateSection, len(sections))
+	sorted := make([]TemplateSection, len(sections))
 	copy(sorted, sections)
 	sort.SliceStable(sorted, func(i, j int) bool { return promptPreviewSectionLess(sorted[i], sorted[j]) })
 	blocks := make([]string, 0, len(sorted))
@@ -563,7 +563,7 @@ func promptSectionsContent(sections []promptTemplateSection, maxRunes int) strin
 }
 
 // promptEditableSectionsContent 返回编辑页内容；recall 模板只展示 recall section 正文。
-func promptEditableSectionsContent(template promptTemplate, sections []promptTemplateSection) string {
+func promptEditableSectionsContent(template Template, sections []TemplateSection) string {
 	if promptTemplateIntentKind(template) == "recall" {
 		return promptRecallSectionsContent(sections)
 	}
@@ -571,11 +571,11 @@ func promptEditableSectionsContent(template promptTemplate, sections []promptTem
 }
 
 // promptRecallSectionsContent 只拼接启用的 recall section，避免普通动态 section 混入知识正文。
-func promptRecallSectionsContent(sections []promptTemplateSection) string {
+func promptRecallSectionsContent(sections []TemplateSection) string {
 	if len(sections) == 0 {
 		return ""
 	}
-	sorted := make([]promptTemplateSection, len(sections))
+	sorted := make([]TemplateSection, len(sections))
 	copy(sorted, sections)
 	sort.SliceStable(sorted, func(i, j int) bool { return promptPreviewSectionLess(sorted[i], sorted[j]) })
 	blocks := make([]string, 0, len(sorted))
@@ -591,7 +591,7 @@ func promptRecallSectionsContent(sections []promptTemplateSection) string {
 }
 
 // promptPreviewSectionLess 定义 section preview 的稳定排序规则。
-func promptPreviewSectionLess(left, right promptTemplateSection) bool {
+func promptPreviewSectionLess(left, right TemplateSection) bool {
 	if left.TemplateID != right.TemplateID {
 		return left.TemplateID < right.TemplateID
 	}
@@ -608,7 +608,7 @@ func promptPreviewSectionLess(left, right promptTemplateSection) bool {
 }
 
 // promptPreviewSectionBody 返回列表预览可展示的 section 正文，跳过 recall 和禁用项。
-func promptPreviewSectionBody(section promptTemplateSection) string {
+func promptPreviewSectionBody(section TemplateSection) string {
 	if !section.Enabled || strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall") {
 		return ""
 	}

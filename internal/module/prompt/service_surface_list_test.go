@@ -12,7 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -187,10 +186,10 @@ func TestPromptAssetsRPCListReturnsFullEditableAssetContent(t *testing.T) {
 	store.templates[expert.PromptKey] = expert
 	store.templates[recall.PromptKey] = recall
 	longWorkflow := strings.Repeat("W", promptListContentPreviewMaxRunes+25)
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"workflow": {ID: 1, TemplateID: 7, SectionKey: "workflow", Region: "dynamic", Ordinal: 20, Body: longWorkflow, Enabled: true, TriggerType: "always"},
 	}
-	store.sections[8] = map[string]promptstore.PromptTemplateSection{
+	store.sections[8] = map[string]TemplateSection{
 		"recall_sqlc": {ID: 2, TemplateID: 8, SectionKey: "recall_sqlc", Region: "dynamic", Ordinal: 100, Body: "Read source SQL before generated sqlc output.", Enabled: true, TriggerType: "recall", RecallTopic: "sqlc-workflow"},
 	}
 
@@ -311,7 +310,7 @@ func TestPromptsRPCGetReturnsFullSectionContent(t *testing.T) {
 	template.ID = 7
 	template.PromptText = "legacy monolith"
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"identity": {ID: 1, TemplateID: 7, SectionKey: "identity", Region: "static", Ordinal: 0, Body: strings.Repeat("A", 220), Enabled: true},
 		"recall":   {ID: 2, TemplateID: 7, SectionKey: "recall", Region: "dynamic", Ordinal: 1, Body: "hidden recall", TriggerType: "recall", Enabled: true},
 		"workflow": {ID: 3, TemplateID: 7, SectionKey: "workflow", Region: "dynamic", Ordinal: 2, Body: "workflow body", Enabled: true},
@@ -340,7 +339,7 @@ func TestPromptsRPCGetReturnsRecallAssetContent(t *testing.T) {
 	template.PromptText = ""
 	template.Tags = withPromptScopeTag(json.RawMessage(`["intent:recall"]`), "/repo/a")
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_sqlc": {ID: 1, TemplateID: 7, SectionKey: "recall_sqlc", Region: "dynamic", Ordinal: 100, Body: "Recall body copied from asset manager.", Enabled: true, TriggerType: "recall", RecallTopic: "sqlc-workflow"},
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
@@ -411,7 +410,7 @@ func TestPromptsRPCWriteUpdatesSectionedExpertExecutionContent(t *testing.T) {
 	template.PromptText = ""
 	template.Tags = withPromptScopeTag(json.RawMessage(`["intent:expert"]`), "/repo/a")
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"workflow": {TemplateID: 7, SectionKey: "workflow", Region: "dynamic", Ordinal: 20, Body: "old workflow", Enabled: true, TriggerType: "always"},
 		"output":   {TemplateID: 7, SectionKey: "output", Region: "dynamic", Ordinal: 40, Body: "old output", Enabled: true, TriggerType: "always"},
 	}
@@ -440,7 +439,7 @@ func TestPromptsRPCWriteUpdatesRecallRuntimeContentSection(t *testing.T) {
 	template.PromptText = ""
 	template.Tags = withPromptScopeTag(json.RawMessage(`["intent:recall"]`), "/repo/a")
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {TemplateID: 7, SectionKey: "recall_sqlc_workflow", Region: "dynamic", Ordinal: 100, Body: "old recall body", Enabled: true, TriggerType: "recall", RecallTopic: "sqlc-workflow"},
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
@@ -471,7 +470,7 @@ func TestPromptsRPCWriteUpdatesDefaultRuleRuntimeContentSection(t *testing.T) {
 	template.AgentKey = "default_rule"
 	template.Tags = withPromptScopeTag(json.RawMessage(`["intent:default_rule"]`), "/repo/a")
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"project_rule": {TemplateID: 7, SectionKey: "project_rule", Region: "dynamic", Ordinal: 100, Body: "old project rule", Enabled: true, TriggerType: "always"},
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
@@ -506,9 +505,9 @@ func TestPromptsRPCWriteFeedsLLMDiscoverySections(t *testing.T) {
 		}
 		store.templates[key] = tpl
 	}
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{"workflow": {TemplateID: 7, SectionKey: "workflow", Region: "dynamic", Ordinal: 20, Body: "old workflow", Enabled: true, TriggerType: "always"}}
-	store.sections[8] = map[string]promptstore.PromptTemplateSection{"recall_sqlc": {TemplateID: 8, SectionKey: "recall_sqlc", Region: "dynamic", Ordinal: 100, Body: "old recall", Enabled: true, TriggerType: "recall", RecallTopic: "sqlc-workflow"}}
-	store.sections[9] = map[string]promptstore.PromptTemplateSection{"project_rule": {TemplateID: 9, SectionKey: "project_rule", Region: "dynamic", Ordinal: 100, Body: "old rule", Enabled: true, TriggerType: "always"}}
+	store.sections[7] = map[string]TemplateSection{"workflow": {TemplateID: 7, SectionKey: "workflow", Region: "dynamic", Ordinal: 20, Body: "old workflow", Enabled: true, TriggerType: "always"}}
+	store.sections[8] = map[string]TemplateSection{"recall_sqlc": {TemplateID: 8, SectionKey: "recall_sqlc", Region: "dynamic", Ordinal: 100, Body: "old recall", Enabled: true, TriggerType: "recall", RecallTopic: "sqlc-workflow"}}
+	store.sections[9] = map[string]TemplateSection{"project_rule": {TemplateID: 9, SectionKey: "project_rule", Region: "dynamic", Ordinal: 100, Body: "old rule", Enabled: true, TriggerType: "always"}}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(buildPromptHandlersWithService(newPromptService(store), store).Handlers)
 
@@ -578,8 +577,8 @@ func TestPromptsRPCWriteAppliesEnabledFalse(t *testing.T) {
 	require.False(t, listed[promptKey].Enabled)
 }
 
-func sectionPreviewTestSections() map[string]promptstore.PromptTemplateSection {
-	return map[string]promptstore.PromptTemplateSection{
+func sectionPreviewTestSections() map[string]TemplateSection {
+	return map[string]TemplateSection{
 		"identity":    {ID: 1, TemplateID: 7, SectionKey: "identity", Region: "static", Ordinal: 0, Body: "Identity body", Enabled: true, TriggerType: "always"},
 		"workflow":    {ID: 2, TemplateID: 7, SectionKey: "workflow", Region: "dynamic", Ordinal: 10, Body: "Workflow body", Enabled: true, TriggerType: "keyword"},
 		"recall_sqlc": {ID: 3, TemplateID: 7, SectionKey: "recall_sqlc", Region: "dynamic", Ordinal: 20, Body: "Recall pack body must stay hidden", Enabled: true, TriggerType: "recall", RecallTopic: "sqlc-workflow"},
@@ -639,7 +638,7 @@ func writePromptJSON(t *testing.T, server *platformrpc.Server, raw string) {
 	require.NoError(t, err)
 }
 
-func registeredThreadPromptProviders(t *testing.T, store promptstore.Store) map[string]contract.DynamicSectionProvider {
+func registeredThreadPromptProviders(t *testing.T, store Store) map[string]contract.DynamicSectionProvider {
 	t.Helper()
 	reg := &captureDynamicProviders{items: map[string]contract.DynamicSectionProvider{}}
 	require.NoError(t, threadprompt.RegisterProviders(reg, threadprompt.NewRuntimeCatalog(adaptPromptStoreForThreadPromptTest(store), nil)))
@@ -655,9 +654,9 @@ func (c *captureDynamicProviders) RegisterDynamicProvider(provider contract.Dyna
 	return nil
 }
 
-func promptAssetDraftForTest(draftKey, cwd, kind, status, card string) promptstore.PromptIntentDraft {
+func promptAssetDraftForTest(draftKey, cwd, kind, status, card string) IntentDraft {
 	now := time.Unix(1_700_000_000, 0).UTC()
-	return promptstore.PromptIntentDraft{
+	return IntentDraft{
 		DraftKey:      draftKey,
 		CWD:           cwd,
 		Kind:          kind,

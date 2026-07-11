@@ -15,13 +15,13 @@ import (
 // 该类型无额外状态，可安全跨 goroutine 共享。
 type service struct {
 	logger *slog.Logger
-	store  insightReader
+	store  Reader
 }
 
 var _ Service = (*service)(nil)
 
 // NewService 构建 Service。logger 为 nil 时回退到包默认 logger。
-func NewService(logger *slog.Logger, store insightReader) Service {
+func NewService(logger *slog.Logger, store Reader) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -82,7 +82,7 @@ func (s *service) ListObservedApprovalRequests(ctx context.Context, threadID str
 
 // toSnapshots 批量将 store.Insight 行映射为 RPC 侧 Snapshot DTO。
 // JSON 友好的时间格式化和可空 Success 统一在此处理，确保两个 List 方法结果一致。
-func toSnapshots(rows []insightRecord) []Snapshot {
+func toSnapshots(rows []Record) []Snapshot {
 	out := make([]Snapshot, len(rows))
 	for i, r := range rows {
 		out[i] = toSnapshot(r)
@@ -91,7 +91,7 @@ func toSnapshots(rows []insightRecord) []Snapshot {
 }
 
 // toSnapshot 将单条 store.Insight 行转换为 Snapshot DTO。
-func toSnapshot(r insightRecord) Snapshot {
+func toSnapshot(r Record) Snapshot {
 	var skills []string
 	if len(r.SkillsSelected) > 0 {
 		_ = json.Unmarshal(r.SkillsSelected, &skills)

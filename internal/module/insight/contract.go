@@ -38,21 +38,21 @@ const (
 	insightStatusStalled     = "stalled"
 )
 
-// insightWriter 是 flusher 写入会话观测结果的最小持久化端口。
-type insightWriter interface {
-	Upsert(ctx context.Context, params insightUpsertParams) (insightRecord, error)
+// Writer 是 flusher 写入会话观测结果的最小持久化端口。
+type Writer interface {
+	Upsert(ctx context.Context, params UpsertParams) (Record, error)
 }
 
-// insightReader 是 dashboard service 读取会话观测结果的最小持久化端口。
-type insightReader interface {
-	ListByThread(ctx context.Context, threadID string, limit int32) ([]insightRecord, error)
-	ListRecent(ctx context.Context, limit int32) ([]insightRecord, error)
-	ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]insightApprovalRow, error)
+// Reader 是 dashboard service 读取会话观测结果的最小持久化端口。
+type Reader interface {
+	ListByThread(ctx context.Context, threadID string, limit int32) ([]Record, error)
+	ListRecent(ctx context.Context, limit int32) ([]Record, error)
+	ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error)
 }
 
-// insightRecord 是单个 turn 的聚合观测结果。
+// Record 是单个 turn 的聚合观测结果。
 // Success 使用 *bool 区分未知和 false，避免未观测成功状态被误当作失败。
-type insightRecord struct {
+type Record struct {
 	ID                       int64
 	ThreadID                 string
 	AgentID                  string
@@ -83,9 +83,9 @@ type insightRecord struct {
 	UpdatedAt                time.Time
 }
 
-// insightUpsertParams 是 insightWriter.Upsert 的写入参数。
+// UpsertParams 是 Writer.Upsert 的写入参数。
 // SkillsSelected 为空时由下层 store 保留既有值，便于采集器分批刷新 token 或终态字段。
-type insightUpsertParams struct {
+type UpsertParams struct {
 	ThreadID                 string
 	AgentID                  string
 	SessionID                string
@@ -115,9 +115,9 @@ type insightUpsertParams struct {
 	UpdatedAt                time.Time
 }
 
-// insightApprovalRow 是 ListObservedApprovalRequests 的轻量投影。
+// ApprovalRow 是 ListObservedApprovalRequests 的轻量投影。
 // 它只包含已观测到审批请求的 turn，调用方计算均值或分位数时无需再过滤未观测行。
-type insightApprovalRow struct {
+type ApprovalRow struct {
 	ID               int64
 	ThreadID         string
 	AgentID          string

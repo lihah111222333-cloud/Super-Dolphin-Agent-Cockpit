@@ -44,7 +44,7 @@ func TestPromptIntentCommitExpertWritesTemplateAndSections(t *testing.T) {
 	require.Equal(t, "SQLC Reviewer", saved.Title)
 	require.Equal(t, "main", saved.AgentKey)
 	require.JSONEq(t, `["intent:expert","scope.cwd:/repo/a"]`, string(saved.Tags))
-	require.False(t, promptstore.IsRuntimeAssetTemplate(saved))
+	require.False(t, isRuntimeAssetTemplateForTest(saved))
 	require.Len(t, store.sections[saved.ID], 4)
 	require.Equal(t, contract.InvalidateClear, rec.reason)
 	require.Equal(t, []string{contract.DynamicSectionAvailableExperts}, rec.names)
@@ -98,7 +98,7 @@ func TestPromptIntentCommitRecallWritesScopedRecallSection(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &result))
 	saved := store.templates[result.PromptKey]
 	require.JSONEq(t, `["intent:recall","scope.cwd:/repo/a"]`, string(saved.Tags))
-	require.True(t, promptstore.IsRuntimeAssetTemplate(saved))
+	require.True(t, isRuntimeAssetTemplateForTest(saved))
 	require.Len(t, store.sections[saved.ID], 1)
 	section := store.sections[saved.ID]["recall_sqlc_workflow"]
 	require.Equal(t, "recall", section.TriggerType)
@@ -131,7 +131,7 @@ func TestPromptIntentCommitRecallSQLiteSavesOldDraftWithoutEnableWhen(t *testing
 	})
 	require.NoError(t, err)
 
-	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(promptStoreForTest(store)), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/recall/sqlite",
 		Cwd:      "/repo/a",
 	})
@@ -211,7 +211,7 @@ func TestPromptIntentCommitRejectsSiblingReadyDrafts(t *testing.T) {
 	otherInput := promptIntentDraftForTest("intent/expert/other", "/repo/a", "expert", "ready_to_save", expertJSON, nil)
 	otherInput.RawInput = "different raw input"
 	otherInput.OriginHash = "different-origin-hash"
-	for _, draft := range []promptstore.PromptIntentDraft{selected, siblingExpert, siblingRecall, otherInput} {
+	for _, draft := range []IntentDraft{selected, siblingExpert, siblingRecall, otherInput} {
 		store.drafts[draft.DraftKey] = draft
 	}
 
@@ -236,7 +236,7 @@ func TestPromptIntentCommitRecallAllowsProjectOverrideOfGlobalTopic(t *testing.T
 	global.Title = "Global SQLC Knowledge"
 	global.Tags = json.RawMessage(`["intent:recall","scope.global"]`)
 	store.templates[global.PromptKey] = global
-	store.sections[global.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[global.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  global.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -274,7 +274,7 @@ func TestPromptIntentCommitGlobalRecallAllowsProjectTopicOverride(t *testing.T) 
 	project.Title = "Project SQLC Knowledge"
 	project.Tags = json.RawMessage(`["intent:recall","scope.cwd:/repo/a"]`)
 	store.templates[project.PromptKey] = project
-	store.sections[project.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[project.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  project.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -330,7 +330,7 @@ func TestPromptIntentCommitDefaultRuleWritesProjectRuleSection(t *testing.T) {
 	saved := store.templates[result.PromptKey]
 	require.Equal(t, "default_rule", saved.AgentKey)
 	require.JSONEq(t, `["intent:default_rule","scope.cwd:/repo/a"]`, string(saved.Tags))
-	require.True(t, promptstore.IsRuntimeAssetTemplate(saved))
+	require.True(t, isRuntimeAssetTemplateForTest(saved))
 	require.Equal(t, "Run focused tests before reporting completion.", store.sections[saved.ID]["project_rule"].Body)
 	require.Equal(t, []string{contract.DynamicSectionProjectDefaultRules}, rec.names)
 }

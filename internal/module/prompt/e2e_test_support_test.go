@@ -6,10 +6,10 @@ import (
 
 	contractpkg "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 type capturingSessionBridge struct {
@@ -17,19 +17,19 @@ type capturingSessionBridge struct {
 	startReq dto.StartSessionRequest
 }
 
-type e2ePromptStore struct{ promptstore.Store }
+type e2ePromptStore struct{ promptpkg.Store }
 
-func newE2EPromptStore() promptstore.Store { return e2ePromptStore{} }
+func newE2EPromptStore() promptpkg.Store { return e2ePromptStore{} }
 
-func (e2ePromptStore) List(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+func (e2ePromptStore) List(context.Context, promptpkg.ListFilter) ([]promptpkg.Template, error) {
 	return nil, nil
 }
 
-func (e2ePromptStore) ListRecallSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+func (e2ePromptStore) ListRecallSections(context.Context, string) ([]promptpkg.TemplateSection, error) {
 	return nil, nil
 }
 
-func (e2ePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+func (e2ePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptpkg.TemplateSection, error) {
 	return nil, nil
 }
 

@@ -7,16 +7,16 @@ import (
 )
 
 type fakeStore struct {
-	inserts      []feedbackEvent
+	inserts      []Event
 	nextID       int64
 	insertErr    error
 	lastThreadID string
 }
 
-func (f *fakeStore) Insert(_ context.Context, ev feedbackEvent) (feedbackEvent, error) {
+func (f *fakeStore) Insert(_ context.Context, ev Event) (Event, error) {
 	f.lastThreadID = ev.ThreadID
 	if f.insertErr != nil {
-		return feedbackEvent{}, f.insertErr
+		return Event{}, f.insertErr
 	}
 	f.nextID++
 	ev.ID = f.nextID

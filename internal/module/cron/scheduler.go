@@ -24,7 +24,7 @@ const (
 )
 
 // StartTurnRequest 是 scheduler 传给 turn 层的最小输入集。
-// 不直接暴露 jobRecord，避免 turn 层依赖调度内部字段；新增字段时，也要检查
+// 不直接暴露 JobRecord，避免 turn 层依赖调度内部字段；新增字段时，也要检查
 // buildStartTurnRequest、buildPrepareInput 和首次 bootstrap 是否需要带上。
 type StartTurnRequest struct {
 	JobID        string
@@ -193,18 +193,7 @@ type Scheduler struct {
 }
 
 type submittedTurnStore interface {
-	SubmitRunWithActiveTurn(ctx context.Context, params submitRunWithActiveTurnParams) error
-}
-
-type submitRunWithActiveTurnParams struct {
-	RunID        string
-	JobID        string
-	ClaimToken   string
-	ActiveTurnID string
-	ThreadID     string
-	AgentID      string
-	SubmittedAt  time.Time
-	Now          time.Time
+	SubmitRunWithActiveTurn(ctx context.Context, params SubmitRunWithActiveTurnParams) error
 }
 
 // NewScheduler 创建 cron 调度器并注入存储和 turn 依赖。
@@ -262,9 +251,9 @@ func (s *Scheduler) RunTick(ctx context.Context) error {
 }
 
 // claimOneDueJob 领取一个当前到期的 cron job，使用 atomic CAS 防止并发重复领取。
-func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]jobRecord, error) {
+func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]JobRecord, error) {
 	now := s.now().UTC()
-	return s.store.ClaimDueJobsForUpdate(ctx, claimDueJobsForUpdateParams{
+	return s.store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
 		Now:            now,
 		ClaimedBy:      s.cfg.ClaimedBy,
 		LeaseExpiresAt: now.Add(s.cfg.LeaseTTL),
@@ -277,7 +266,7 @@ func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]jobRecord, error) {
 // 任何终态分支都必须释放 claim；成功完成时由 markFinished 推算下一次 next_run_at。
 // 正常只走 pending -> submitting -> submitted -> running，后续靠终态事件结束。
 // StartTurn/Observe 失败各有固定落点，不要回退重提。
-func (s *Scheduler) driveJob(ctx context.Context, job jobRecord) error {
+func (s *Scheduler) driveJob(ctx context.Context, job JobRecord) error {
 	now := s.now().UTC()
 	scheduledAt := scheduledAtForJob(job, now)
 	run, dedupe, err := s.createPendingRun(ctx, job, scheduledAt, now)
@@ -302,7 +291,7 @@ func (s *Scheduler) driveJob(ctx context.Context, job jobRecord) error {
 }
 
 // scheduledAtForJob 按优先级选取本次运行的 scheduled_at：retry > next_run_at > now。
-func scheduledAtForJob(job jobRecord, now time.Time) time.Time {
+func scheduledAtForJob(job JobRecord, now time.Time) time.Time {
 	if !job.NextRetryAt.IsZero() {
 		return job.NextRetryAt
 	}
@@ -313,12 +302,12 @@ func scheduledAtForJob(job jobRecord, now time.Time) time.Time {
 }
 
 // createPendingRun 插入 pending 状态的 cron run，生成唯一 idempotency_key 和 dedupe_key。
-func (s *Scheduler) createPendingRun(ctx context.Context, job jobRecord, scheduledAt, now time.Time) (runRecord, string, error) {
+func (s *Scheduler) createPendingRun(ctx context.Context, job JobRecord, scheduledAt, now time.Time) (RunRecord, string, error) {
 	idempotencyKey := s.newID()
 	dedupe := DedupeKey(job.ID, scheduledAt, idempotencyKey)
 	// 每个 run 都生成自己的 idempotency_key；dedupe_key 也只属于这次提交。
 	// 别复用 job 级值，否则 retry/RunOnce 会互相影响。
-	run, err := s.store.InsertRun(ctx, insertRunParams{
+	run, err := s.store.InsertRun(ctx, InsertRunParams{
 		ID:             s.newID(),
 		JobID:          job.ID,
 		ScheduledAt:    scheduledAt,
@@ -336,7 +325,7 @@ func (s *Scheduler) createPendingRun(ctx context.Context, job jobRecord, schedul
 
 // markRunSubmitting 将 run 状态从 pending 原子推进到 submitting。
 func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, scheduledAt time.Time) error {
-	if err := s.store.CASRunStatus(ctx, casRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, CASRunStatusParams{
 		ID:             runID,
 		ExpectedStatus: statusPending,
 		NextStatus:     statusSubmitting,
@@ -349,7 +338,7 @@ func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, 
 }
 
 // buildStartTurnRequest 从 job 行和本次 run 信息构造 StartTurnRequest。
-func buildStartTurnRequest(job jobRecord, runID, dedupe string, scheduledAt time.Time) (StartTurnRequest, error) {
+func buildStartTurnRequest(job JobRecord, runID, dedupe string, scheduledAt time.Time) (StartTurnRequest, error) {
 	skills, err := decodeSkillList(job.Skills)
 	if err != nil {
 		return StartTurnRequest{}, err
@@ -373,13 +362,13 @@ func buildStartTurnRequest(job jobRecord, runID, dedupe string, scheduledAt time
 }
 
 // persistSubmittedTurn 保存已提交 turn 和 cron run 的绑定关系。
-func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job jobRecord, run runRecord, result StartTurnResult) error {
+func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job JobRecord, run RunRecord, result StartTurnResult) error {
 	updatedAt := s.now().UTC()
 	submitStore, ok := s.store.(submittedTurnStore)
 	if !ok {
 		return errors.New("cron: store does not implement atomic submitted turn persistence")
 	}
-	if err := submitStore.SubmitRunWithActiveTurn(ctx, submitRunWithActiveTurnParams{
+	if err := submitStore.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
 		RunID:        run.ID,
 		JobID:        job.ID,
 		ClaimToken:   job.ClaimToken,
@@ -396,13 +385,13 @@ func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job jobRecord, run
 }
 
 // observeStartedTurn 调用 Observe 将已提交 turn 纳入追踪，失败时转为 observe_lost。
-func (s *Scheduler) observeStartedTurn(ctx context.Context, job jobRecord, run runRecord, result StartTurnResult) error {
+func (s *Scheduler) observeStartedTurn(ctx context.Context, job JobRecord, run RunRecord, result StartTurnResult) error {
 	if err := s.submitter.Observe(ctx, result.TurnID); err != nil {
 		// 到这里 turn 已被 provider 接收。Observe 失败时只能记为
 		// observe_lost，不能再启动一个新 turn。
 		return s.finalizeObserveLost(ctx, job, run, result, err)
 	}
-	if err := s.store.CASRunStatus(ctx, casRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, CASRunStatusParams{
 		ID:             run.ID,
 		ExpectedStatus: statusSubmitted,
 		NextStatus:     statusRunning,
@@ -415,18 +404,18 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job jobRecord, run r
 }
 
 // finalizeFailure 在 StartTurn 失败时将 run 标记为 failed 并计算下一次重试时间。
-func (s *Scheduler) finalizeFailure(ctx context.Context, job jobRecord, run runRecord, scheduledAt time.Time, startErr error) error {
+func (s *Scheduler) finalizeFailure(ctx context.Context, job JobRecord, run RunRecord, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
 	nextRetry, nextRunAt, err := s.nextRetryAndRun(job, now)
 	if err != nil {
 		return err
 	}
 	// run 级 CAS 失败不阻断 job 级 MarkFailed，但要记录，便于排查收尾期 DB 抖动。
-	s.casLogPublish(ctx, casRunStatusParams{
+	s.casLogPublish(ctx, CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: statusSubmitting, NextStatus: statusFailed,
 		Error: startErr.Error(), UpdatedAt: now,
 	}, "submitting->failed", job.ID, run.ID, statusFailed, "", startErr.Error(), scheduledAt)
-	return s.store.MarkFailed(ctx, markFailedParams{
+	return s.store.MarkFailed(ctx, MarkFailedParams{
 		ID:                   job.ID,
 		ClaimToken:           job.ClaimToken,
 		RunID:                run.ID,
@@ -443,18 +432,18 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job jobRecord, run runR
 }
 
 // finalizeObserveLost 在 Observe 失败后将 run 标记为 observe_lost，不触发自动重试。
-func (s *Scheduler) finalizeObserveLost(ctx context.Context, job jobRecord, run runRecord, result StartTurnResult, observeErr error) error {
+func (s *Scheduler) finalizeObserveLost(ctx context.Context, job JobRecord, run RunRecord, result StartTurnResult, observeErr error) error {
 	now := s.now().UTC()
 	_, nextRunAt, err := s.nextRetryAndRun(job, now)
 	if err != nil {
 		return err
 	}
 	// observe_lost 需要人工看，不能自动 retry。无法跟踪旧 turn 时重试会制造重复任务。
-	s.casLogPublish(ctx, casRunStatusParams{
+	s.casLogPublish(ctx, CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: statusSubmitted, NextStatus: statusObserveLost,
 		Error: observeErr.Error(), UpdatedAt: now,
 	}, "submitted->observe_lost", job.ID, run.ID, statusObserveLost, result.TurnID, observeErr.Error(), run.ScheduledAt)
-	return s.store.MarkFailed(ctx, markFailedParams{
+	return s.store.MarkFailed(ctx, MarkFailedParams{
 		ID:                   job.ID,
 		ClaimToken:           job.ClaimToken,
 		RunID:                run.ID,

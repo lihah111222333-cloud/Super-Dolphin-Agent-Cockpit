@@ -7,7 +7,7 @@ import (
 )
 
 // AgentStatus 是 dashboard/agentStatus 对前端暴露的 agent 状态快照。
-// 字段和 JSON 名称保持原 store DTO 形状，store 只在 module.go adapter 中转换。
+// 字段和 JSON 名称保持既有 wire 形状，Store 只在 App 组合边界 adapter 中转换。
 type AgentStatus struct {
 	AgentID     string          `json:"agent_id"`
 	AgentName   string          `json:"agent_name"`
@@ -27,7 +27,7 @@ type AILogFilter struct {
 }
 
 // AILog 是 dashboard/aiLogs 系列接口返回的 AI 日志 wire 条目。
-// 该结构保留无 json tag 的字段命名，以兼容历史 store DTO 的编码输出。
+// 该结构保留无 json tag 的既有 wire 字段形状，由 App adapter 逐字段映射。
 type AILog struct {
 	ID           int64
 	Ts           time.Time
@@ -156,7 +156,7 @@ type SystemLogFilter struct {
 }
 
 // SystemLog 是 dashboard 内部映射到 LogEntry 的 system log 行。
-// 该类型不直接暴露给前端，但字段名保持 store DTO，便于 adapter 逐字段转换。
+// 该类型不直接暴露给前端，但保持既有 wire 字段形状，由 App adapter 逐字段映射。
 type SystemLog struct {
 	ID           int64
 	Ts           time.Time

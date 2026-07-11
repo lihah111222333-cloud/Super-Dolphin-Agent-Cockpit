@@ -13,16 +13,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
 func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *testing.T) {
 	t.Parallel()
 
 	store := &promptDatasourceV2Store{
-		semanticChunks: []datasourcev2store.SemanticChunk{
+		semanticChunks: []datasourcev2.SemanticChunk{
 			{
-				TextChunk: datasourcev2store.TextChunk{
+				TextChunk: datasourcev2.TextChunk{
 					ID:             501,
 					DocumentID:     101,
 					ChunkIndex:     7,
@@ -38,7 +37,7 @@ func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *te
 				Distance:   0.01,
 			},
 			{
-				TextChunk: datasourcev2store.TextChunk{
+				TextChunk: datasourcev2.TextChunk{
 					ID:             502,
 					DocumentID:     202,
 					ChunkIndex:     2,
@@ -59,7 +58,7 @@ func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *te
 	var assembly contract.PromptAssemblyService
 	app := fxtest.New(t,
 		fx.Supply(&contract.Config{}),
-		fx.Supply(fx.Annotate(store, fx.As(new(datasourcev2store.Store)))),
+		fx.Supply(fx.Annotate(store, fx.As(new(datasourcev2.Store)))),
 		prompt.Module,
 		datasourcev2.Module,
 		fx.Populate(&assembly),
@@ -106,7 +105,7 @@ func TestPromptAssemblyDoesNotLeakDatasourceV2SourcePathWhenFileNameMissing(t *t
 	chunk := promptSemanticChunkForTest(303, 1, "", "source path should not appear")
 	chunk.SourcePath = secretPath
 
-	start, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2store.SemanticChunk{chunk})
+	start, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2.SemanticChunk{chunk})
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
@@ -125,7 +124,7 @@ func TestPromptAssemblyTruncatesDatasourceV2ChunkAndReportsDiagnostic(t *testing
 	t.Parallel()
 
 	chunk := strings.Repeat("A", 64*1024) + "TAIL_SHOULD_NOT_APPEAR"
-	start, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2store.SemanticChunk{
+	start, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2.SemanticChunk{
 		promptSemanticChunkForTest(1, 0, "large.txt", chunk),
 	})
 	if err != nil {
@@ -146,7 +145,7 @@ func TestPromptAssemblyTruncatesDatasourceV2ChunkAndReportsDiagnostic(t *testing
 func TestPromptAssemblyTruncatesDatasourceV2TotalBudgetAndReportsDiagnostic(t *testing.T) {
 	t.Parallel()
 
-	chunks := make([]datasourcev2store.SemanticChunk, 0, 10)
+	chunks := make([]datasourcev2.SemanticChunk, 0, 10)
 	for i := range 10 {
 		chunks = append(chunks, promptSemanticChunkForTest(int64(i+1), int32(i), fmt.Sprintf("chunk-%02d.txt", i), strings.Repeat(fmt.Sprintf("%d", i), 12*1024)))
 	}
@@ -169,7 +168,7 @@ func TestPromptAssemblyTruncatesDatasourceV2TotalBudgetAndReportsDiagnostic(t *t
 func TestPromptAssemblyFailsWhenDatasourceV2PromptBudgetRemovesEveryChunk(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2store.SemanticChunk{
+	_, _, err := assembleDatasourceV2PromptForTest(t, []datasourcev2.SemanticChunk{
 		promptSemanticChunkForTest(1, 0, "empty.txt", strings.Repeat(" ", 64)),
 	})
 	if err == nil {
@@ -183,45 +182,45 @@ func TestPromptAssemblyFailsWhenDatasourceV2PromptBudgetRemovesEveryChunk(t *tes
 type promptDatasourceV2Store struct {
 	promptDatasourceV2UnusedStore
 
-	semanticChunks []datasourcev2store.SemanticChunk
-	capturedSearch datasourcev2store.SearchChunksParams
+	semanticChunks []datasourcev2.SemanticChunk
+	capturedSearch datasourcev2.SearchChunksParams
 }
 
 type promptDatasourceV2UnusedStore struct{}
 
-func (promptDatasourceV2UnusedStore) WithTx(context.Context, func(datasourcev2store.Store) error) error {
+func (promptDatasourceV2UnusedStore) WithTx(context.Context, func(datasourcev2.Store) error) error {
 	return errors.New("unexpected datasource_v2 prompt test write transaction")
 }
 
 func (promptDatasourceV2UnusedStore) ListDocuments(
 	context.Context,
-	datasourcev2store.ListDocumentsParams,
-) ([]datasourcev2store.Document, error) {
+	datasourcev2.ListDocumentsParams,
+) ([]datasourcev2.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test list documents")
 }
 
-func (promptDatasourceV2UnusedStore) GetDocument(context.Context, int64) (*datasourcev2store.Document, error) {
+func (promptDatasourceV2UnusedStore) GetDocument(context.Context, int64) (*datasourcev2.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test get document")
 }
 
 func (promptDatasourceV2UnusedStore) ListChunksPage(
 	context.Context,
-	datasourcev2store.ListChunksParams,
-) (datasourcev2store.TextChunkPage, error) {
-	return datasourcev2store.TextChunkPage{}, errors.New("unexpected datasource_v2 prompt test list chunks")
+	datasourcev2.ListChunksParams,
+) (datasourcev2.TextChunkPage, error) {
+	return datasourcev2.TextChunkPage{}, errors.New("unexpected datasource_v2 prompt test list chunks")
 }
 
 func (s *promptDatasourceV2Store) SearchChunks(
 	_ context.Context,
-	params datasourcev2store.SearchChunksParams,
-) ([]datasourcev2store.SemanticChunk, error) {
+	params datasourcev2.SearchChunksParams,
+) ([]datasourcev2.SemanticChunk, error) {
 	s.capturedSearch = params
-	return append([]datasourcev2store.SemanticChunk(nil), s.semanticChunks...), nil
+	return append([]datasourcev2.SemanticChunk(nil), s.semanticChunks...), nil
 }
 
 func assembleDatasourceV2PromptForTest(
 	t *testing.T,
-	chunks []datasourcev2store.SemanticChunk,
+	chunks []datasourcev2.SemanticChunk,
 ) (contract.StartAssembly, *promptDatasourceV2Store, error) {
 	t.Helper()
 
@@ -229,7 +228,7 @@ func assembleDatasourceV2PromptForTest(
 	var assembly contract.PromptAssemblyService
 	app := fxtest.New(t,
 		fx.Supply(&contract.Config{}),
-		fx.Supply(fx.Annotate(store, fx.As(new(datasourcev2store.Store)))),
+		fx.Supply(fx.Annotate(store, fx.As(new(datasourcev2.Store)))),
 		prompt.Module,
 		datasourcev2.Module,
 		fx.Populate(&assembly),
@@ -244,9 +243,9 @@ func assembleDatasourceV2PromptForTest(
 	return start, store, err
 }
 
-func promptSemanticChunkForTest(documentID int64, chunkIndex int32, fileName, content string) datasourcev2store.SemanticChunk {
-	return datasourcev2store.SemanticChunk{
-		TextChunk: datasourcev2store.TextChunk{
+func promptSemanticChunkForTest(documentID int64, chunkIndex int32, fileName, content string) datasourcev2.SemanticChunk {
+	return datasourcev2.SemanticChunk{
+		TextChunk: datasourcev2.TextChunk{
 			ID:             documentID*100 + int64(chunkIndex),
 			DocumentID:     documentID,
 			ChunkIndex:     chunkIndex,
@@ -265,15 +264,15 @@ func promptSemanticChunkForTest(documentID int64, chunkIndex int32, fileName, co
 
 func (promptDatasourceV2UnusedStore) UpsertImporting(
 	context.Context,
-	datasourcev2store.UpsertDocumentParams,
-) (*datasourcev2store.Document, error) {
+	datasourcev2.UpsertDocumentParams,
+) (*datasourcev2.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test import")
 }
 
 func (promptDatasourceV2UnusedStore) UpdateDocument(
 	context.Context,
-	datasourcev2store.UpdateDocumentParams,
-) (*datasourcev2store.Document, error) {
+	datasourcev2.UpdateDocumentParams,
+) (*datasourcev2.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test update")
 }
 
@@ -285,14 +284,14 @@ func (promptDatasourceV2UnusedStore) DeleteChunks(context.Context, int64) error 
 	return errors.New("unexpected datasource_v2 prompt test delete chunks")
 }
 
-func (promptDatasourceV2UnusedStore) InsertChunk(context.Context, datasourcev2store.InsertChunkParams) error {
+func (promptDatasourceV2UnusedStore) InsertChunk(context.Context, datasourcev2.InsertChunkParams) error {
 	return errors.New("unexpected datasource_v2 prompt test insert chunk")
 }
 
 func (promptDatasourceV2UnusedStore) MarkReady(
 	context.Context,
-	datasourcev2store.MarkReadyParams,
-) (*datasourcev2store.Document, error) {
+	datasourcev2.MarkReadyParams,
+) (*datasourcev2.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test mark ready")
 }
 

@@ -51,14 +51,22 @@ const (
 )
 
 var (
-	errStoreJobNotFound             = errors.New("cron: job not found")
-	errStoreJobRunNotFound          = errors.New("cron: job run not found")
-	errStoreClaimTokenMismatch      = errors.New("cron: claim token mismatch (lease lost)")
-	errStoreStatusTransitionRefused = errors.New("cron: status transition refused (CAS mismatch)")
-	errStoreEmptyID                 = errors.New("cron: id is required")
-	errStoreEmptyCWD                = errors.New("cron: cwd is required")
-	errStoreEmptyProvider           = errors.New("cron: provider is required")
-	errStoreEmptyScheduleExpr       = errors.New("cron: schedule_expr is required")
+	// ErrStoreJobNotFound 表示持久化端口未找到任务。
+	ErrStoreJobNotFound = errors.New("cron: job not found")
+	// ErrStoreJobRunNotFound 表示持久化端口未找到运行记录。
+	ErrStoreJobRunNotFound = errors.New("cron: job run not found")
+	// ErrStoreClaimTokenMismatch 表示任务租约已丢失。
+	ErrStoreClaimTokenMismatch = errors.New("cron: claim token mismatch (lease lost)")
+	// ErrStoreStatusTransitionRefused 表示运行状态 CAS 前置状态不匹配。
+	ErrStoreStatusTransitionRefused = errors.New("cron: status transition refused (CAS mismatch)")
+	// ErrStoreEmptyID 表示持久化请求缺少 ID。
+	ErrStoreEmptyID = errors.New("cron: id is required")
+	// ErrStoreEmptyCWD 表示持久化请求缺少工作目录。
+	ErrStoreEmptyCWD = errors.New("cron: cwd is required")
+	// ErrStoreEmptyProvider 表示持久化请求缺少 provider。
+	ErrStoreEmptyProvider = errors.New("cron: provider is required")
+	// ErrStoreEmptyScheduleExpr 表示持久化请求缺少调度表达式。
+	ErrStoreEmptyScheduleExpr = errors.New("cron: schedule_expr is required")
 )
 
 // CreateJobRequest 是 CreateJob 的已校验输入。
@@ -149,7 +157,8 @@ type Run struct {
 	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
-type jobRecord struct {
+// JobRecord 是持久化端口返回给 cron service 与 scheduler 的完整任务记录。
+type JobRecord struct {
 	ID              string
 	Name            string
 	Prompt          string
@@ -184,7 +193,8 @@ type jobRecord struct {
 	UpdatedAt       time.Time
 }
 
-type runRecord struct {
+// RunRecord 是持久化端口返回给 cron scheduler 的运行记录。
+type RunRecord struct {
 	ID             string
 	JobID          string
 	ScheduledAt    time.Time
@@ -200,7 +210,8 @@ type runRecord struct {
 	UpdatedAt      time.Time
 }
 
-type createJobParams struct {
+// CreateJobParams 是 cron service 写入新任务的领域参数。
+type CreateJobParams struct {
 	ID            string
 	Name          string
 	Prompt        string
@@ -220,7 +231,8 @@ type createJobParams struct {
 	UpdatedAt     time.Time
 }
 
-type updateJobScheduleParams struct {
+// UpdateJobScheduleParams 是 cron service 覆盖任务调度配置的领域参数。
+type UpdateJobScheduleParams struct {
 	ID            string
 	Name          string
 	Prompt        string
@@ -239,7 +251,8 @@ type updateJobScheduleParams struct {
 	UpdatedAt     time.Time
 }
 
-type claimDueJobsForUpdateParams struct {
+// ClaimDueJobsForUpdateParams 是 scheduler 原子认领到期任务的领域参数。
+type ClaimDueJobsForUpdateParams struct {
 	Now            time.Time
 	ClaimedBy      string
 	LeaseExpiresAt time.Time
@@ -247,14 +260,16 @@ type claimDueJobsForUpdateParams struct {
 	MaxClaim       int32
 }
 
-type leaseParams struct {
+// LeaseParams 是 scheduler 续租或延长 claim 的领域参数。
+type LeaseParams struct {
 	ID             string
 	ClaimToken     string
 	LeaseExpiresAt time.Time
 	Now            time.Time
 }
 
-type markFinishedParams struct {
+// MarkFinishedParams 是 scheduler 完成任务并释放 claim 的领域参数。
+type MarkFinishedParams struct {
 	ID                   string
 	ClaimToken           string
 	RunID                string
@@ -265,7 +280,8 @@ type markFinishedParams struct {
 	Now                  time.Time
 }
 
-type markFailedParams struct {
+// MarkFailedParams 是 scheduler 记录失败并安排重试的领域参数。
+type MarkFailedParams struct {
 	ID                   string
 	ClaimToken           string
 	RunID                string
@@ -280,7 +296,8 @@ type markFailedParams struct {
 	Now                  time.Time
 }
 
-type setActiveTurnParams struct {
+// SetActiveTurnParams 是 scheduler 绑定当前活跃 turn 的领域参数。
+type SetActiveTurnParams struct {
 	ID           string
 	ClaimToken   string
 	ActiveTurnID string
@@ -289,7 +306,20 @@ type setActiveTurnParams struct {
 	Now          time.Time
 }
 
-type insertRunParams struct {
+// SubmitRunWithActiveTurnParams 将 run turn、job active turn 与 submitted 状态绑定为同一事务。
+type SubmitRunWithActiveTurnParams struct {
+	RunID        string
+	JobID        string
+	ClaimToken   string
+	ActiveTurnID string
+	ThreadID     string
+	AgentID      string
+	SubmittedAt  time.Time
+	Now          time.Time
+}
+
+// InsertRunParams 是 scheduler 创建单次运行记录的领域参数。
+type InsertRunParams struct {
 	ID             string
 	JobID          string
 	ScheduledAt    time.Time
@@ -300,7 +330,8 @@ type insertRunParams struct {
 	UpdatedAt      time.Time
 }
 
-type casRunStatusParams struct {
+// CASRunStatusParams 是 scheduler 比较交换运行状态的领域参数。
+type CASRunStatusParams struct {
 	ID             string
 	ExpectedStatus string
 	NextStatus     string
@@ -308,7 +339,8 @@ type casRunStatusParams struct {
 	UpdatedAt      time.Time
 }
 
-type setRunTurnParams struct {
+// SetRunTurnParams 是 scheduler 绑定运行记录与实际 turn 的领域参数。
+type SetRunTurnParams struct {
 	ID          string
 	ThreadID    string
 	AgentID     string
@@ -320,31 +352,31 @@ type setRunTurnParams struct {
 // Store 是 cron service 使用的持久化最小接口。
 // 保持窄接口可以让测试只 stub CRUD 面，也避免 service 直接依赖 scheduler 专用 store 方法。
 type Store interface {
-	CreateJob(ctx context.Context, params createJobParams) (jobRecord, error)
-	GetJobByID(ctx context.Context, id string) (jobRecord, error)
-	ListJobs(ctx context.Context) ([]jobRecord, error)
+	CreateJob(ctx context.Context, params CreateJobParams) (JobRecord, error)
+	GetJobByID(ctx context.Context, id string) (JobRecord, error)
+	ListJobs(ctx context.Context) ([]JobRecord, error)
 	DeleteJob(ctx context.Context, id string) error
-	UpdateJobSchedule(ctx context.Context, params updateJobScheduleParams) error
+	UpdateJobSchedule(ctx context.Context, params UpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
 	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
-	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]runRecord, error)
+	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]RunRecord, error)
 }
 
 // SchedulerStore 是 scheduler 状态机使用的持久化端口。
-// 它只暴露 claim、run CAS、续租和恢复所需动作，store DTO 在 module.go 里统一转换。
+// 它只暴露 claim、run CAS、续租和恢复所需动作，Store DTO 由 App 防腐层统一转换。
 type SchedulerStore interface {
-	ClaimDueJobsForUpdate(ctx context.Context, params claimDueJobsForUpdateParams) ([]jobRecord, error)
-	RenewLease(ctx context.Context, params leaseParams) error
-	ExtendClaim(ctx context.Context, params leaseParams) error
-	MarkFinished(ctx context.Context, params markFinishedParams) error
-	MarkFailed(ctx context.Context, params markFailedParams) error
-	SetActiveTurn(ctx context.Context, params setActiveTurnParams) error
+	ClaimDueJobsForUpdate(ctx context.Context, params ClaimDueJobsForUpdateParams) ([]JobRecord, error)
+	RenewLease(ctx context.Context, params LeaseParams) error
+	ExtendClaim(ctx context.Context, params LeaseParams) error
+	MarkFinished(ctx context.Context, params MarkFinishedParams) error
+	MarkFailed(ctx context.Context, params MarkFailedParams) error
+	SetActiveTurn(ctx context.Context, params SetActiveTurnParams) error
 
-	InsertRun(ctx context.Context, params insertRunParams) (runRecord, error)
-	CASRunStatus(ctx context.Context, params casRunStatusParams) error
-	SetRunTurn(ctx context.Context, params setRunTurnParams) error
-	GetRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error)
-	ListUnresolvedRuns(ctx context.Context) ([]runRecord, error)
-	GetJobByID(ctx context.Context, id string) (jobRecord, error)
-	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]jobRecord, error)
+	InsertRun(ctx context.Context, params InsertRunParams) (RunRecord, error)
+	CASRunStatus(ctx context.Context, params CASRunStatusParams) error
+	SetRunTurn(ctx context.Context, params SetRunTurnParams) error
+	GetRunningRunByTurnID(ctx context.Context, turnID string) (RunRecord, error)
+	ListUnresolvedRuns(ctx context.Context) ([]RunRecord, error)
+	GetJobByID(ctx context.Context, id string) (JobRecord, error)
+	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]JobRecord, error)
 }

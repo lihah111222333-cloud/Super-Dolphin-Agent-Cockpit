@@ -87,9 +87,9 @@ func TestCommitPromptIntentDraft_ConcurrentSubmit(t *testing.T) {
 	draftA.RawInput, draftA.OriginHash = rawInput, originHash
 	draftB := promptIntentDraftForTest("intent/expert/concurrent-b", "/repo/concurrent", "expert", "ready_to_save", cardB, nil)
 	draftB.RawInput, draftB.OriginHash = rawInput, originHash
-	_, err = storeA.UpsertIntentDraft(ctx, draftA)
+	_, err = storeA.UpsertIntentDraft(ctx, promptIntentDraftToStoreForTest(draftA))
 	require.NoError(t, err)
-	_, err = storeA.UpsertIntentDraft(ctx, draftB)
+	_, err = storeA.UpsertIntentDraft(ctx, promptIntentDraftToStoreForTest(draftB))
 	require.NoError(t, err)
 
 	start := make(chan struct{})
@@ -99,11 +99,11 @@ func TestCommitPromptIntentDraft_ConcurrentSubmit(t *testing.T) {
 	registerPromptGoroutineCleanup(t, workersDone, "prompt intent commit")
 	wg.Go(func() {
 		<-start
-		_, errs[0] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeA), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
+		_, errs[0] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(promptStoreForTest(storeA)), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
 	})
 	wg.Go(func() {
 		<-start
-		_, errs[1] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeB), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
+		_, errs[1] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(promptStoreForTest(storeB)), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
 	})
 	close(start)
 	wg.Wait()

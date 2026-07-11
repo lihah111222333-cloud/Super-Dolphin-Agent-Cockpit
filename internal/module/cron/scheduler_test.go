@@ -25,47 +25,47 @@ type recordingCronStore struct {
 	recordingCronCompatibilityStore
 
 	mu                      sync.Mutex
-	claimFn                 func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error)
-	casStatusFn             func(context.Context, casRunStatusParams) error
-	markFailedFn            func(context.Context, markFailedParams) error
-	renewLeaseFn            func(context.Context, leaseParams) error
-	listJobsFn              func(context.Context) ([]jobRecord, error)
-	listUnresolvedFn        func(context.Context) ([]runRecord, error)
-	getRunningRunByTurnIDFn func(context.Context, string) (runRecord, error)
-	getRunByTurnIDFn        func(context.Context, string) (runRecord, error)
-	listUnresolvedPageFn    func(context.Context, int32, string) ([]runRecord, error)
-	listJobsClaimedByFn     func(context.Context, string) ([]jobRecord, error)
+	claimFn                 func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error)
+	casStatusFn             func(context.Context, CASRunStatusParams) error
+	markFailedFn            func(context.Context, MarkFailedParams) error
+	renewLeaseFn            func(context.Context, LeaseParams) error
+	listJobsFn              func(context.Context) ([]JobRecord, error)
+	listUnresolvedFn        func(context.Context) ([]RunRecord, error)
+	getRunningRunByTurnIDFn func(context.Context, string) (RunRecord, error)
+	getRunByTurnIDFn        func(context.Context, string) (RunRecord, error)
+	listUnresolvedPageFn    func(context.Context, int32, string) ([]RunRecord, error)
+	listJobsClaimedByFn     func(context.Context, string) ([]JobRecord, error)
 
-	casCalls []casRunStatusParams
+	casCalls []CASRunStatusParams
 }
 
 type recordingCronRunWriteStore struct {
-	insertRunFn             func(context.Context, insertRunParams) (runRecord, error)
-	setRunTurnFn            func(context.Context, setRunTurnParams) error
-	setActiveTurnFn         func(context.Context, setActiveTurnParams) error
-	submitRunWithActiveTurn func(context.Context, submitRunWithActiveTurnParams) error
+	insertRunFn             func(context.Context, InsertRunParams) (RunRecord, error)
+	setRunTurnFn            func(context.Context, SetRunTurnParams) error
+	setActiveTurnFn         func(context.Context, SetActiveTurnParams) error
+	submitRunWithActiveTurn func(context.Context, SubmitRunWithActiveTurnParams) error
 }
 
 type recordingCronTerminalStore struct {
-	getJobFn       func(context.Context, string) (jobRecord, error)
-	markFinishedFn func(context.Context, markFinishedParams) error
+	getJobFn       func(context.Context, string) (JobRecord, error)
+	markFinishedFn func(context.Context, MarkFinishedParams) error
 }
 
 type recordingCronCompatibilityStore struct{}
 
-func (s *recordingCronStore) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
+func (s *recordingCronStore) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
 	if s.claimFn != nil {
 		return s.claimFn(ctx, p)
 	}
 	return nil, nil
 }
-func (s *recordingCronRunWriteStore) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
+func (s *recordingCronRunWriteStore) InsertRun(ctx context.Context, p InsertRunParams) (RunRecord, error) {
 	if s.insertRunFn != nil {
 		return s.insertRunFn(ctx, p)
 	}
-	return runRecord{ID: p.ID, JobID: p.JobID, Status: p.Status, DedupeKey: p.DedupeKey}, nil
+	return RunRecord{ID: p.ID, JobID: p.JobID, Status: p.Status, DedupeKey: p.DedupeKey}, nil
 }
-func (s *recordingCronStore) CASRunStatus(ctx context.Context, p casRunStatusParams) error {
+func (s *recordingCronStore) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	s.mu.Lock()
 	s.casCalls = append(s.casCalls, p)
 	s.mu.Unlock()
@@ -74,50 +74,50 @@ func (s *recordingCronStore) CASRunStatus(ctx context.Context, p casRunStatusPar
 	}
 	return nil
 }
-func (s *recordingCronRunWriteStore) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
+func (s *recordingCronRunWriteStore) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	if s.setRunTurnFn != nil {
 		return s.setRunTurnFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronRunWriteStore) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
+func (s *recordingCronRunWriteStore) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error {
 	if s.setActiveTurnFn != nil {
 		return s.setActiveTurnFn(ctx, p)
 	}
 	return nil
 }
 
-func (s *recordingCronRunWriteStore) SubmitRunWithActiveTurn(ctx context.Context, p submitRunWithActiveTurnParams) error {
+func (s *recordingCronRunWriteStore) SubmitRunWithActiveTurn(ctx context.Context, p SubmitRunWithActiveTurnParams) error {
 	if s.submitRunWithActiveTurn != nil {
 		return s.submitRunWithActiveTurn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronTerminalStore) MarkFinished(ctx context.Context, p markFinishedParams) error {
+func (s *recordingCronTerminalStore) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	if s.markFinishedFn != nil {
 		return s.markFinishedFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronStore) MarkFailed(ctx context.Context, p markFailedParams) error {
+func (s *recordingCronStore) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	if s.markFailedFn != nil {
 		return s.markFailedFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronStore) RenewLease(ctx context.Context, p leaseParams) error {
+func (s *recordingCronStore) RenewLease(ctx context.Context, p LeaseParams) error {
 	if s.renewLeaseFn != nil {
 		return s.renewLeaseFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronTerminalStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
+func (s *recordingCronTerminalStore) GetJobByID(ctx context.Context, id string) (JobRecord, error) {
 	if s.getJobFn != nil {
 		return s.getJobFn(ctx, id)
 	}
-	return jobRecord{}, nil
+	return JobRecord{}, nil
 }
-func (s *recordingCronStore) ListJobs(ctx context.Context) ([]jobRecord, error) {
+func (s *recordingCronStore) ListJobs(ctx context.Context) ([]JobRecord, error) {
 	if s.listJobsFn != nil {
 		return s.listJobsFn(ctx)
 	}
@@ -125,11 +125,11 @@ func (s *recordingCronStore) ListJobs(ctx context.Context) ([]jobRecord, error) 
 }
 
 // Unused store methods keep the programmable double compatible with older scheduler tests.
-func (recordingCronCompatibilityStore) CreateJob(context.Context, createJobParams) (jobRecord, error) {
-	return jobRecord{}, nil
+func (recordingCronCompatibilityStore) CreateJob(context.Context, CreateJobParams) (JobRecord, error) {
+	return JobRecord{}, nil
 }
 func (recordingCronCompatibilityStore) DeleteJob(context.Context, string) error { return nil }
-func (recordingCronCompatibilityStore) UpdateJobSchedule(context.Context, updateJobScheduleParams) error {
+func (recordingCronCompatibilityStore) UpdateJobSchedule(context.Context, UpdateJobScheduleParams) error {
 	return nil
 }
 func (recordingCronCompatibilityStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
@@ -138,17 +138,17 @@ func (recordingCronCompatibilityStore) SetJobEnabled(context.Context, string, bo
 func (recordingCronCompatibilityStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
 	return nil
 }
-func (recordingCronCompatibilityStore) ExtendClaim(context.Context, leaseParams) error { return nil }
+func (recordingCronCompatibilityStore) ExtendClaim(context.Context, LeaseParams) error { return nil }
 func (recordingCronCompatibilityStore) ReleaseClaim(context.Context, string, string, time.Time) error {
 	return nil
 }
-func (s *recordingCronStore) ListUnresolvedRuns(ctx context.Context) ([]runRecord, error) {
+func (s *recordingCronStore) ListUnresolvedRuns(ctx context.Context) ([]RunRecord, error) {
 	if s.listUnresolvedFn != nil {
 		return s.listUnresolvedFn(ctx)
 	}
 	return nil, nil
 }
-func (s *recordingCronStore) GetRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+func (s *recordingCronStore) GetRunningRunByTurnID(ctx context.Context, turnID string) (RunRecord, error) {
 	if s.getRunningRunByTurnIDFn != nil {
 		return s.getRunningRunByTurnIDFn(ctx, turnID)
 	}
@@ -157,7 +157,7 @@ func (s *recordingCronStore) GetRunningRunByTurnID(ctx context.Context, turnID s
 	if s.listUnresolvedFn != nil {
 		runs, err := s.listUnresolvedFn(ctx)
 		if err != nil {
-			return runRecord{}, err
+			return RunRecord{}, err
 		}
 		for _, run := range runs {
 			if run.TurnID == turnID && run.Status == statusRunning {
@@ -165,10 +165,10 @@ func (s *recordingCronStore) GetRunningRunByTurnID(ctx context.Context, turnID s
 			}
 		}
 	}
-	return runRecord{}, errStoreJobRunNotFound
+	return RunRecord{}, ErrStoreJobRunNotFound
 }
 
-func (s *recordingCronStore) GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error) {
+func (s *recordingCronStore) GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (RunRecord, error) {
 	if s.getRunByTurnIDFn != nil {
 		return s.getRunByTurnIDFn(ctx, turnID)
 	}
@@ -178,7 +178,7 @@ func (s *recordingCronStore) GetSubmittedOrRunningRunByTurnID(ctx context.Contex
 	if s.listUnresolvedFn != nil {
 		runs, err := s.listUnresolvedFn(ctx)
 		if err != nil {
-			return runRecord{}, err
+			return RunRecord{}, err
 		}
 		for _, run := range runs {
 			if run.TurnID == turnID && (run.Status == statusSubmitted || run.Status == statusRunning) {
@@ -186,17 +186,17 @@ func (s *recordingCronStore) GetSubmittedOrRunningRunByTurnID(ctx context.Contex
 			}
 		}
 	}
-	return runRecord{}, errStoreJobRunNotFound
+	return RunRecord{}, ErrStoreJobRunNotFound
 }
 
-func (s *recordingCronStore) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]runRecord, error) {
+func (s *recordingCronStore) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]RunRecord, error) {
 	if s.listUnresolvedPageFn != nil {
 		return s.listUnresolvedPageFn(ctx, limit, cursor)
 	}
 	return nil, nil
 }
 
-func (s *recordingCronStore) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]jobRecord, error) {
+func (s *recordingCronStore) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]JobRecord, error) {
 	if s.listJobsClaimedByFn != nil {
 		return s.listJobsClaimedByFn(ctx, claimedBy)
 	}
@@ -207,7 +207,7 @@ func (s *recordingCronStore) ListJobsClaimedBy(ctx context.Context, claimedBy st
 		if err != nil {
 			return nil, err
 		}
-		var out []jobRecord
+		var out []JobRecord
 		for _, j := range all {
 			if j.ClaimedBy == claimedBy && j.ClaimToken != "" {
 				out = append(out, j)
@@ -290,7 +290,7 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 	s := newTestScheduler(t, store, sub)
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := jobRecord{
+	job := JobRecord{
 		ID:           "job-1",
 		Name:         "daily",
 		Prompt:       "check",
@@ -301,8 +301,8 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 		ClaimToken:   "claim-token-xyz",
 		NextRunAt:    now,
 	}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 
 	if err := s.RunTick(context.Background()); err != nil {
@@ -336,15 +336,15 @@ func TestPersistSubmittedTurnAtomicWithActiveTurn(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{
 		recordingCronRunWriteStore: recordingCronRunWriteStore{
-			submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
+			submitRunWithActiveTurn: func(context.Context, SubmitRunWithActiveTurnParams) error {
 				return errors.New("active turn write failed")
 			},
 		},
 	}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
 	err := s.persistSubmittedTurn(context.Background(),
-		jobRecord{ID: "job-1", ClaimToken: "claim-token"},
-		runRecord{ID: "run-1", JobID: "job-1", ScheduledAt: s.now()},
+		JobRecord{ID: "job-1", ClaimToken: "claim-token"},
+		RunRecord{ID: "run-1", JobID: "job-1", ScheduledAt: s.now()},
 		StartTurnResult{TurnID: "turn-1"})
 	if err == nil || !strings.Contains(err.Error(), "active turn write failed") {
 		t.Fatalf("persistSubmittedTurn err = %v, want active turn failure", err)
@@ -362,12 +362,12 @@ func TestSetActiveTurnFailureDoesNotPublishSubmitted(t *testing.T) {
 	defer func() { _ = dispatcher.Close() }()
 	store := &recordingCronStore{
 		recordingCronRunWriteStore: recordingCronRunWriteStore{
-			submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
+			submitRunWithActiveTurn: func(context.Context, SubmitRunWithActiveTurnParams) error {
 				return errors.New("active turn write failed")
 			},
 		},
-		claimFn: func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-			return []jobRecord{{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "claim-token"}}, nil
+		claimFn: func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+			return []JobRecord{{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "claim-token"}}, nil
 		},
 	}
 	s := newTestScheduler(t, store, &programmableSubmitter{}).WithDispatcher(dispatcher)
@@ -390,21 +390,21 @@ func TestTerminalEarlyArrivalDoesNotBecomePermanentStale(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "claim-token"}
-	run := runRecord{ID: "run-1", JobID: job.ID, Status: statusSubmitting, ScheduledAt: s.now()}
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "claim-token"}
+	run := RunRecord{ID: "run-1", JobID: job.ID, Status: statusSubmitting, ScheduledAt: s.now()}
 	var terminalErr error
-	var finished markFinishedParams
-	store.submitRunWithActiveTurn = func(_ context.Context, p submitRunWithActiveTurnParams) error {
+	var finished MarkFinishedParams
+	store.submitRunWithActiveTurn = func(_ context.Context, p SubmitRunWithActiveTurnParams) error {
 		run.TurnID, run.Status = p.ActiveTurnID, statusSubmitted
 		job.ActiveTurnID = p.ActiveTurnID
 		terminalErr = s.CompleteTurn(context.Background(), p.ActiveTurnID, true, "")
 		return nil
 	}
-	store.casStatusFn = func(context.Context, casRunStatusParams) error { run.Status = statusFinished; return nil }
-	store.getRunByTurnIDFn = func(context.Context, string) (runRecord, error) { return run, nil }
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+	store.casStatusFn = func(context.Context, CASRunStatusParams) error { run.Status = statusFinished; return nil }
+	store.getRunByTurnIDFn = func(context.Context, string) (RunRecord, error) { return run, nil }
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
 		finished = p
 		return nil
 	}
@@ -430,17 +430,17 @@ func TestSchedulerStartTurnFailureMarksFailed(t *testing.T) {
 	}
 	s := newTestScheduler(t, store, sub)
 
-	var failed markFailedParams
-	store.markFailedFn = func(_ context.Context, p markFailedParams) error {
+	var failed MarkFailedParams
+	store.markFailedFn = func(_ context.Context, p MarkFailedParams) error {
 		failed = p
 		return nil
 	}
-	job := jobRecord{
+	job := JobRecord{
 		ID: "job-1", ScheduleExpr: "0 9 * * *", ClaimToken: "tok", NextRunAt: s.now(),
 		MaxAttempts: 3,
 	}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {
 		t.Fatalf("RunTick error = %v", err)
@@ -459,12 +459,12 @@ func TestSchedulerCorruptSkillsDecodeMarksFailedWithoutStartTurn(t *testing.T) {
 	sub := &programmableSubmitter{}
 	s := newTestScheduler(t, store, sub)
 
-	var failed markFailedParams
-	store.markFailedFn = func(_ context.Context, p markFailedParams) error {
+	var failed MarkFailedParams
+	store.markFailedFn = func(_ context.Context, p MarkFailedParams) error {
 		failed = p
 		return nil
 	}
-	job := jobRecord{
+	job := JobRecord{
 		ID:           "job-1",
 		ScheduleExpr: "0 9 * * *",
 		Timezone:     "UTC",
@@ -473,8 +473,8 @@ func TestSchedulerCorruptSkillsDecodeMarksFailedWithoutStartTurn(t *testing.T) {
 		Skills:       json.RawMessage("{bad}"),
 		MaxAttempts:  1,
 	}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 
 	if err := s.RunTick(context.Background()); err != nil {
@@ -499,14 +499,14 @@ func TestSchedulerObserveFailureMarksObserveLost(t *testing.T) {
 	}
 	s := newTestScheduler(t, store, sub)
 
-	var failed markFailedParams
-	store.markFailedFn = func(_ context.Context, p markFailedParams) error {
+	var failed MarkFailedParams
+	store.markFailedFn = func(_ context.Context, p MarkFailedParams) error {
 		failed = p
 		return nil
 	}
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", ClaimToken: "tok", NextRunAt: s.now()}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", ClaimToken: "tok", NextRunAt: s.now()}
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {
 		t.Fatalf("RunTick error = %v", err)
@@ -525,12 +525,12 @@ func TestSchedulerDoesNotFinishLongTurnUntilTerminalEvent(t *testing.T) {
 	sub := &programmableSubmitter{}
 	s := newTestScheduler(t, store, sub)
 
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
 	markFinishedCalls := 0
-	store.markFinishedFn = func(context.Context, markFinishedParams) error {
+	store.markFinishedFn = func(context.Context, MarkFinishedParams) error {
 		markFinishedCalls++
 		return nil
 	}
@@ -551,12 +551,12 @@ func TestSchedulerTerminalEventMarksFinished(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	var finished markFinishedParams
-	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	var finished MarkFinishedParams
+	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
 		finished = p
 		return nil
 	}
@@ -577,12 +577,12 @@ func TestCronTerminalEventFinalizesSubmittedRun(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	var finished markFinishedParams
-	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	var finished MarkFinishedParams
+	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
 		finished = p
 		return nil
 	}
@@ -604,20 +604,20 @@ func TestTerminalRunByTurnIDUsesPointLookup(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
-	store.getRunByTurnIDFn = func(_ context.Context, turnID string) (runRecord, error) {
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
+	store.getRunByTurnIDFn = func(_ context.Context, turnID string) (RunRecord, error) {
 		if turnID != "turn-1" {
 			t.Fatalf("turnID = %q, want turn-1", turnID)
 		}
 		return run, nil
 	}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) {
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) {
 		t.Fatal("terminal lookup fell back to full unresolved scan")
 		return nil, nil
 	}
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	store.markFinishedFn = func(context.Context, markFinishedParams) error { return nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	store.markFinishedFn = func(context.Context, MarkFinishedParams) error { return nil }
 
 	if err := s.CompleteTurn(context.Background(), "turn-1", true, ""); err != nil {
 		t.Fatalf("CompleteTurn error = %v", err)
@@ -628,7 +628,7 @@ func TestSchedulerRejectsStaleTerminalWhenJobActiveTurnMovedToNewClaim(t *testin
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{
+	job := JobRecord{
 		ID:           "job-1",
 		ScheduleExpr: "0 9 * * *",
 		Timezone:     "UTC",
@@ -636,16 +636,16 @@ func TestSchedulerRejectsStaleTerminalWhenJobActiveTurnMovedToNewClaim(t *testin
 		ActiveTurnID: "turn-new",
 		NextRunAt:    s.now(),
 	}
-	run := runRecord{ID: "run-old", JobID: job.ID, TurnID: "turn-old", Status: statusRunning, ScheduledAt: s.now().Add(-time.Hour)}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+	run := RunRecord{ID: "run-old", JobID: job.ID, TurnID: "turn-old", Status: statusRunning, ScheduledAt: s.now().Add(-time.Hour)}
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
 		t.Fatalf("stale terminal reached MarkFinished with params %+v", p)
 		return nil
 	}
 
 	err := s.CompleteTurn(context.Background(), "turn-old", true, "")
-	if !errors.Is(err, errStoreClaimTokenMismatch) {
+	if !errors.Is(err, ErrStoreClaimTokenMismatch) {
 		t.Fatalf("CompleteTurn error = %v, want ErrClaimTokenMismatch", err)
 	}
 	if len(store.casCalls) != 0 {
@@ -657,7 +657,7 @@ func TestSchedulerTerminalEventRejectsInvalidScheduleInsteadOfReusingNextRunAt(t
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{
+	job := JobRecord{
 		ID:           "job-1",
 		ScheduleExpr: "not a cron",
 		Timezone:     "UTC",
@@ -665,10 +665,10 @@ func TestSchedulerTerminalEventRejectsInvalidScheduleInsteadOfReusingNextRunAt(t
 		ActiveTurnID: "turn-1",
 		NextRunAt:    s.now().Add(24 * time.Hour),
 	}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
 		t.Fatalf("MarkFinished reused old next_run_at on invalid schedule: %+v", p)
 		return nil
 	}
@@ -683,12 +683,12 @@ func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now(), MaxAttempts: 1}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	var failed markFailedParams
-	store.markFailedFn = func(_ context.Context, p markFailedParams) error {
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now(), MaxAttempts: 1}
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	var failed MarkFailedParams
+	store.markFailedFn = func(_ context.Context, p MarkFailedParams) error {
 		failed = p
 		return nil
 	}
@@ -714,7 +714,7 @@ func TestSchedulerStartFailureRejectsInvalidRetrySchedule(t *testing.T) {
 		},
 	}
 	s := newTestScheduler(t, store, sub)
-	job := jobRecord{
+	job := JobRecord{
 		ID:           "job-1",
 		ScheduleExpr: "not a cron",
 		Timezone:     "UTC",
@@ -722,10 +722,10 @@ func TestSchedulerStartFailureRejectsInvalidRetrySchedule(t *testing.T) {
 		NextRunAt:    s.now().Add(24 * time.Hour),
 		MaxAttempts:  3,
 	}
-	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
-		return []jobRecord{job}, nil
+	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
+		return []JobRecord{job}, nil
 	}
-	store.markFailedFn = func(_ context.Context, p markFailedParams) error {
+	store.markFailedFn = func(_ context.Context, p MarkFailedParams) error {
 		t.Fatalf("MarkFailed reused old next_run_at on invalid schedule: %+v", p)
 		return nil
 	}
@@ -740,12 +740,12 @@ func TestCronTerminalSubscriberMarksFinished(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) { return []runRecord{run}, nil }
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
-	finished := make(chan markFinishedParams, 1)
-	store.markFinishedFn = func(_ context.Context, p markFinishedParams) error {
+	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now()}
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	finished := make(chan MarkFinishedParams, 1)
+	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
 		finished <- p
 		return nil
 	}
@@ -771,17 +771,17 @@ func TestRecoverDanglingRunsProcessesBatches(t *testing.T) {
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
 	pageCalls := 0
-	store.listUnresolvedFn = func(context.Context) ([]runRecord, error) {
+	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) {
 		t.Fatal("startup recovery used full unresolved scan")
 		return nil, nil
 	}
-	store.listUnresolvedPageFn = func(_ context.Context, limit int32, cursor string) ([]runRecord, error) {
+	store.listUnresolvedPageFn = func(_ context.Context, limit int32, cursor string) ([]RunRecord, error) {
 		if limit <= 0 {
 			t.Fatalf("page limit = %d, want positive cap", limit)
 		}
 		pageCalls++
 		if cursor == "" && pageCalls == 1 {
-			return []runRecord{{ID: "run-1", JobID: "job-1", TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}}, nil
+			return []RunRecord{{ID: "run-1", JobID: "job-1", TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}}, nil
 		}
 		if cursor == "run-1" && pageCalls == 2 {
 			return nil, nil
@@ -789,8 +789,8 @@ func TestRecoverDanglingRunsProcessesBatches(t *testing.T) {
 		t.Fatalf("unexpected recovery cursor %q", cursor)
 		return nil, nil
 	}
-	store.getJobFn = func(_ context.Context, id string) (jobRecord, error) {
-		return jobRecord{ID: id, ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", LeaseExpiresAt: s.now().Add(time.Hour)}, nil
+	store.getJobFn = func(_ context.Context, id string) (JobRecord, error) {
+		return JobRecord{ID: id, ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", LeaseExpiresAt: s.now().Add(time.Hour)}, nil
 	}
 	if err := s.RecoverDanglingRuns(context.Background()); err != nil {
 		t.Fatalf("RecoverDanglingRuns error = %v", err)
@@ -805,8 +805,8 @@ func TestRecoverDanglingRunsProcessesBatches(t *testing.T) {
 func TestRenewLeasesOnlyBumpsOwnedJobs(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{
-		listJobsFn: func(context.Context) ([]jobRecord, error) {
-			return []jobRecord{
+		listJobsFn: func(context.Context) ([]JobRecord, error) {
+			return []JobRecord{
 				{ID: "mine", ClaimedBy: "test", ClaimToken: "t-me"},
 				{ID: "theirs", ClaimedBy: "other-scheduler", ClaimToken: "t-other"},
 				{ID: "free", ClaimedBy: "", ClaimToken: ""},
@@ -814,7 +814,7 @@ func TestRenewLeasesOnlyBumpsOwnedJobs(t *testing.T) {
 		},
 	}
 	var renewed []string
-	store.renewLeaseFn = func(_ context.Context, p leaseParams) error {
+	store.renewLeaseFn = func(_ context.Context, p LeaseParams) error {
 		renewed = append(renewed, p.ID)
 		return nil
 	}

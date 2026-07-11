@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
+	promptmodule "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	threadmodule "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
@@ -46,6 +47,19 @@ func TestAppModuleGraphProvidesTurnThreadStateConfigReader(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&reader))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing turn thread runtime reader: %v", err)
+	}
+}
+
+// TestAppModuleGraphProvidesPromptStorePorts 验证 App graph 拥有 prompt 的三个持久化端口适配器。
+func TestAppModuleGraphProvidesPromptStorePorts(t *testing.T) {
+	t.Parallel()
+
+	var store promptmodule.Store
+	var preferences promptmodule.PreferenceReader
+	var sharedFiles promptmodule.SharedFileReader
+	opts := append(appGraphValidationOptions(), fx.Populate(&store, &preferences, &sharedFiles))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing prompt Store ports: %v", err)
 	}
 }
 

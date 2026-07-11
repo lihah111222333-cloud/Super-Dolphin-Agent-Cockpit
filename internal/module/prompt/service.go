@@ -54,8 +54,8 @@ type service struct {
 	claudeMdProvider contract.ClaudeMdSourceProvider
 	flight           singleflight.Group
 
-	prefs           promptPreferenceReader
-	sharedFiles     promptSharedFileReader
+	prefs           PreferenceReader
+	sharedFiles     SharedFileReader
 	disabledToolsFn DisabledBuiltinToolsFn
 
 	dynamicMu sync.RWMutex
@@ -66,7 +66,7 @@ type service struct {
 type ServiceOption func(*service)
 
 // WithPromptHintSources 注入用于解析 LSP prompt hint 的偏好存储和共享文件读取器。
-func WithPromptHintSources(prefs promptPreferenceReader, sharedFiles promptSharedFileReader) ServiceOption {
+func WithPromptHintSources(prefs PreferenceReader, sharedFiles SharedFileReader) ServiceOption {
 	return func(s *service) {
 		s.prefs = prefs
 		s.sharedFiles = sharedFiles
@@ -125,15 +125,15 @@ func (s *service) Sections() []PromptSection {
 func (s *promptService) ListPrompts(
 	ctx context.Context,
 	cwd, keyword string,
-) ([]promptTemplate, error) {
+) ([]Template, error) {
 	if s.store == nil {
-		return []promptTemplate{}, nil
+		return []Template{}, nil
 	}
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
 		return nil, err
 	}
-	templates, err := s.store.List(ctx, promptListFilter{
+	templates, err := s.store.List(ctx, ListFilter{
 		Keyword: strings.TrimSpace(keyword),
 		CWD:     requestScope,
 		Limit:   promptRPCLimit,
@@ -148,9 +148,9 @@ func (s *promptService) ListPrompts(
 func (s *promptService) ListPromptSectionsByTemplates(
 	ctx context.Context,
 	cwd string,
-	templates []promptTemplate,
-) (map[int64][]promptTemplateSection, error) {
-	sectionsByTemplateID := map[int64][]promptTemplateSection{}
+	templates []Template,
+) (map[int64][]TemplateSection, error) {
+	sectionsByTemplateID := map[int64][]TemplateSection{}
 	if s.store == nil || len(templates) == 0 {
 		return sectionsByTemplateID, nil
 	}
@@ -184,7 +184,7 @@ func (s *promptService) ListPromptSectionsByTemplates(
 func (s *promptService) GetPrompt(
 	ctx context.Context,
 	cwd, key string,
-) (*promptTemplate, error) {
+) (*Template, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -211,7 +211,7 @@ func (s *promptService) WritePrompt(
 	ctx context.Context,
 	cwd string,
 	prompt PromptWriteRequest,
-) (*promptTemplate, error) {
+) (*Template, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -222,8 +222,8 @@ func (s *promptService) WritePrompt(
 	if err := rejectBuiltinPromptMutation(s.builtin, prompt.ID); err != nil {
 		return nil, err
 	}
-	var template *promptTemplate
-	err = s.store.WithTx(ctx, func(txStore promptStore) error {
+	var template *Template
+	err = s.store.WithTx(ctx, func(txStore Store) error {
 		next, err := upsertPrompt(ctx, txStore, s.builtin, requestScope, prompt)
 		if err != nil {
 			return err
@@ -239,7 +239,7 @@ func (s *promptService) WritePrompt(
 }
 
 // ListSections 先校验父 prompt 可见性，再返回其可编辑 section 列表。
-func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]promptTemplateSection, error) {
+func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]TemplateSection, error) {
 	template, err := s.GetPrompt(ctx, cwd, promptKey)
 	if err != nil {
 		return nil, err
@@ -248,7 +248,7 @@ func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string)
 }
 
 // WriteSection 更新用户 prompt 的单个 section，并在成功后清空 section asset catalog。
-func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptTemplateSection, error) {
+func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*TemplateSection, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -291,7 +291,7 @@ func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, secti
 	if err := rejectBuiltinPromptMutation(s.builtin, pKey); err != nil {
 		return err
 	}
-	err = s.store.WithTx(ctx, func(txStore promptStore) error {
+	err = s.store.WithTx(ctx, func(txStore Store) error {
 		template, gerr := txStore.Get(ctx, pKey)
 		if gerr != nil {
 			return gerr
@@ -324,7 +324,7 @@ func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string, scope
 	if err := rejectBuiltinPromptMutation(s.builtin, promptKey); err != nil {
 		return err
 	}
-	err = s.store.WithTx(ctx, func(txStore promptStore) error {
+	err = s.store.WithTx(ctx, func(txStore Store) error {
 		current, err := txStore.Get(ctx, promptKey)
 		if err != nil {
 			return err
@@ -382,10 +382,10 @@ func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) 
 
 // filterVisiblePrompts 过滤掉当前 cwd 不可见的模板，保护项目级 prompt 不跨目录泄露。
 func filterVisiblePrompts(
-	templates []promptTemplate,
+	templates []Template,
 	cwd string,
-) []promptTemplate {
-	items := make([]promptTemplate, 0, len(templates))
+) []Template {
+	items := make([]Template, 0, len(templates))
 	for _, template := range templates {
 		if promptVisibleForRead(template, cwd) {
 			items = append(items, template)
@@ -395,18 +395,18 @@ func filterVisiblePrompts(
 }
 
 // promptVisibleForRead 判断模板是否可被当前 cwd 读取。
-func promptVisibleForRead(template promptTemplate, cwd string) bool {
+func promptVisibleForRead(template Template, cwd string) bool {
 	return promptVisibleForCWD(template, cwd)
 }
 
 // upsertPrompt 执行 prompt upsert 的事务内流程：校验、归档旧版本、生成 key 并写入内容 section。
 func upsertPrompt(
 	ctx context.Context,
-	store promptStore,
+	store Store,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	p PromptWriteRequest,
-) (*promptTemplate, error) {
+) (*Template, error) {
 	if err := validatePromptWrite(p); err != nil {
 		return nil, err
 	}
@@ -443,9 +443,9 @@ func upsertPrompt(
 // lookupPromptForMutation 读取待修改模板；空 id 表示创建新模板。
 func lookupPromptForMutation(
 	ctx context.Context,
-	store promptStore,
+	store Store,
 	id string,
-) (*promptTemplate, error) {
+) (*Template, error) {
 	key := strings.TrimSpace(id)
 	if key == "" {
 		return nil, nil
@@ -456,10 +456,10 @@ func lookupPromptForMutation(
 // resolvePromptKey 为新模板生成稳定 key，遇到 builtin 或已存在 key 时追加纳秒后缀避让。
 func resolvePromptKey(
 	ctx context.Context,
-	store promptStore,
+	store Store,
 	builtin contract.BuiltinPromptRegistry,
 	p PromptWriteRequest,
-	current *promptTemplate,
+	current *Template,
 ) (string, error) {
 	if current != nil {
 		return current.PromptKey, nil
@@ -504,15 +504,15 @@ func builtinPromptExists(builtin contract.BuiltinPromptRegistry, promptKey strin
 func buildPromptTemplate(
 	p PromptWriteRequest,
 	cwd, key string,
-	current *promptTemplate,
-) (promptTemplate, error) {
+	current *Template,
+) (Template, error) {
 	baseTags := clientTagsOrDefault(p.Tags, nil)
 	scope := promptScopeForWrite(current, cwd, p.Scope, p.ScopeSet)
 	whenToUse := ""
 	if p.WhenToUseSet {
 		whenToUse = strings.TrimSpace(p.WhenToUse)
 	}
-	template := promptTemplate{
+	template := Template{
 		PromptKey:      key,
 		Title:          strings.TrimSpace(p.Name),
 		AgentKey:       promptAgentType(p.AgentType),
@@ -530,7 +530,7 @@ func buildPromptTemplate(
 	if p.MatchWhenSet {
 		matchWhen, err := sanitizeTemplateMatchWhen(p.MatchWhen)
 		if err != nil {
-			return promptTemplate{}, err
+			return Template{}, err
 		}
 		template.MatchWhen = matchWhen
 	}
@@ -554,7 +554,7 @@ func buildPromptTemplate(
 }
 
 // promptEnabledForWrite 解析 enabled 字段，缺省更新时继承旧值、创建时默认启用。
-func promptEnabledForWrite(p PromptWriteRequest, current *promptTemplate) bool {
+func promptEnabledForWrite(p PromptWriteRequest, current *Template) bool {
 	if p.Enabled != nil {
 		return *p.Enabled
 	}
@@ -565,7 +565,7 @@ func promptEnabledForWrite(p PromptWriteRequest, current *promptTemplate) bool {
 }
 
 // promptTextForWrite 区分省略 content 和显式清空 content，避免 PATCH 式更新误删正文。
-func promptTextForWrite(p PromptWriteRequest, current *promptTemplate) string {
+func promptTextForWrite(p PromptWriteRequest, current *Template) string {
 	if current != nil && !p.ContentSet && p.Content == "" {
 		return current.PromptText
 	}
@@ -598,8 +598,8 @@ func sanitizeTemplateMatchWhen(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 // archivePrompt 写入 prompt 当前版本快照，供更新和删除前保留审计历史。
-func archivePrompt(ctx context.Context, store promptStore, current promptTemplate) error {
-	_, err := store.InsertVersion(ctx, promptTemplateVersion{
+func archivePrompt(ctx context.Context, store Store, current Template) error {
+	_, err := store.InsertVersion(ctx, TemplateVersion{
 		PromptKey:       current.PromptKey,
 		Title:           current.Title,
 		AgentKey:        current.AgentKey,

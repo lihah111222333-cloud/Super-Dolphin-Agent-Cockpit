@@ -144,7 +144,7 @@ func (s *profilePreferenceStore) GetValue(_ context.Context, cwd, key string) (j
 	return append(json.RawMessage(nil), value...), nil
 }
 
-func (s *profilePreferenceStore) Upsert(_ context.Context, params preferenceUpsertParams) error {
+func (s *profilePreferenceStore) Upsert(_ context.Context, params PreferenceUpsertParams) error {
 	if s.err != nil {
 		return s.err
 	}

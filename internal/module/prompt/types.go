@@ -4,10 +4,18 @@ package prompt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+)
+
+var (
+	// ErrStoreNotConfigured 表示 prompt 持久化领域端口未完成装配。
+	ErrStoreNotConfigured = errors.New("prompt store is not configured")
+	// ErrStoreTxCallbackRequired 表示事务调用缺少领域 callback。
+	ErrStoreTxCallbackRequired = errors.New("prompt store tx callback is required")
 )
 
 // PromptRegion 标识 prompt section 位于 cacheable prefix 还是动态 tail。
@@ -75,48 +83,50 @@ type TurnAssembly = contract.TurnAssembly
 // PromptAssemblySnapshot 是可持久化的 prompt 组装快照。
 type PromptAssemblySnapshot = contract.PromptAssemblySnapshot
 
-// promptPreferenceReader 是 prompt hint 读取用户偏好的最小边界。
-type promptPreferenceReader interface {
+// PreferenceReader 是 prompt hint 读取用户偏好的最小边界。
+type PreferenceReader interface {
 	GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error)
 }
 
-// promptSharedFileReader 是 prompt hint 读取共享文件正文的最小边界。
-type promptSharedFileReader interface {
+// SharedFileReader 是 prompt hint 读取共享文件正文的最小边界。
+type SharedFileReader interface {
 	GetContent(ctx context.Context, path string) (string, error)
 }
 
-// promptStore 是 prompt 模块内部使用的持久化 port。
-// module.go 负责把 store/prompt 的 concrete 实现适配成该 port，业务文件不能直接感知 store DTO。
-type promptStore interface {
-	List(ctx context.Context, filter promptListFilter) ([]promptTemplate, error)
-	WithTx(ctx context.Context, fn func(txStore promptStore) error) error
-	Get(ctx context.Context, promptKey string) (*promptTemplate, error)
+// Store 是 prompt 模块拥有的持久化领域端口。
+// App 组合边界负责把 concrete Store 适配为该端口，业务文件不能直接感知 Store DTO。
+type Store interface {
+	List(ctx context.Context, filter ListFilter) ([]Template, error)
+	WithTx(ctx context.Context, fn func(txStore Store) error) error
+	Get(ctx context.Context, promptKey string) (*Template, error)
 	Delete(ctx context.Context, promptKey string) error
-	InsertVersion(ctx context.Context, version promptTemplateVersion) (int64, error)
-	CreatePromptTemplate(ctx context.Context, template promptTemplate) (*promptTemplate, error)
-	Upsert(ctx context.Context, template promptTemplate) (*promptTemplate, error)
-	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]promptTemplateSection, error)
-	ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]promptTemplateSection, error)
-	ListRecallSections(ctx context.Context, cwd string) ([]promptTemplateSection, error)
-	ListDefaultRuleSections(ctx context.Context, cwd string) ([]promptTemplateSection, error)
-	UpsertSection(ctx context.Context, section promptTemplateSection) (*promptTemplateSection, error)
+	InsertVersion(ctx context.Context, version TemplateVersion) (int64, error)
+	CreatePromptTemplate(ctx context.Context, template Template) (*Template, error)
+	Upsert(ctx context.Context, template Template) (*Template, error)
+	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]TemplateSection, error)
+	ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]TemplateSection, error)
+	ListRecallSections(ctx context.Context, cwd string) ([]TemplateSection, error)
+	ListDefaultRuleSections(ctx context.Context, cwd string) ([]TemplateSection, error)
+	UpsertSection(ctx context.Context, section TemplateSection) (*TemplateSection, error)
 	DeleteSection(ctx context.Context, templateID int64, sectionKey string) error
 	UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error
-	UpsertIntentDraft(ctx context.Context, draft promptIntentDraft) (*promptIntentDraft, error)
-	GetIntentDraft(ctx context.Context, cwd, draftKey string) (*promptIntentDraft, error)
-	ListIntentDrafts(ctx context.Context, filter promptIntentDraftListFilter) ([]promptIntentDraft, error)
-	UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*promptIntentDraft, error)
+	UpsertIntentDraft(ctx context.Context, draft IntentDraft) (*IntentDraft, error)
+	GetIntentDraft(ctx context.Context, cwd, draftKey string) (*IntentDraft, error)
+	ListIntentDrafts(ctx context.Context, filter IntentDraftListFilter) ([]IntentDraft, error)
+	UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*IntentDraft, error)
 	LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error
 }
 
-type promptListFilter struct {
+// ListFilter 限定 prompt 模板列表的 agent、关键词、cwd 与显式上限。
+type ListFilter struct {
 	AgentKey string
 	Keyword  string
 	CWD      string
 	Limit    int32
 }
 
-type promptTemplate struct {
+// Template 是 prompt 模块拥有的模板领域视图。
+type Template struct {
 	ID             int64           `json:"id"`
 	PromptKey      string          `json:"prompt_key"`
 	Title          string          `json:"title"`
@@ -137,7 +147,8 @@ type promptTemplate struct {
 	Description    string          `json:"description"`
 }
 
-type promptTemplateSection struct {
+// TemplateSection 是 prompt 模块拥有的模板 section 领域视图。
+type TemplateSection struct {
 	ID                  int64           `json:"id"`
 	TemplateID          int64           `json:"template_id"`
 	SectionKey          string          `json:"section_key"`
@@ -157,7 +168,8 @@ type promptTemplateSection struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-type promptTemplateVersion struct {
+// TemplateVersion 是删除或覆盖模板前保存的版本快照。
+type TemplateVersion struct {
 	ID              int64
 	PromptKey       string
 	Title           string
@@ -175,7 +187,8 @@ type promptTemplateVersion struct {
 	ArchivedAt      time.Time
 }
 
-type promptIntentDraft struct {
+// IntentDraft 是 prompt intent 草稿在父领域中的稳定视图。
+type IntentDraft struct {
 	ID            int64
 	DraftKey      string
 	CWD           string
@@ -194,87 +207,11 @@ type promptIntentDraft struct {
 	UpdatedAt     time.Time
 }
 
-type promptIntentDraftListFilter struct {
+// IntentDraftListFilter 限定 cwd、状态和显式结果上限。
+type IntentDraftListFilter struct {
 	CWD    string
 	Status string
 	Limit  int32
-}
-
-// ListDefaultRuleSections 读取当前 cwd 的默认规则 sections，并转换为本地 DTO。
-func (a promptStoreAdapter) ListDefaultRuleSections(ctx context.Context, cwd string) ([]promptTemplateSection, error) {
-	sections, err := a.store.ListDefaultRuleSections(ctx, cwd)
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplateSectionsFromStore(sections), nil
-}
-
-// UpsertSection 写入 section 并把保存后的 store DTO 转回本地 DTO。
-func (a promptStoreAdapter) UpsertSection(ctx context.Context, section promptTemplateSection) (*promptTemplateSection, error) {
-	saved, err := a.store.UpsertSection(ctx, promptTemplateSectionToStore(section))
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplateSectionPtrFromStore(saved), nil
-}
-
-// DeleteSection 删除指定 section，父模板可见性由调用方先校验。
-func (a promptStoreAdapter) DeleteSection(ctx context.Context, templateID int64, sectionKey string) error {
-	return a.store.DeleteSection(ctx, templateID, sectionKey)
-}
-
-// UpsertRecallTopicTargetInCWD 维护 recall topic 到 section 的 cwd 内索引。
-func (a promptStoreAdapter) UpsertRecallTopicTargetInCWD(
-	ctx context.Context,
-	cwd, topic string,
-	templateID int64,
-	sectionKey string,
-) error {
-	return a.store.UpsertRecallTopicTargetInCWD(ctx, cwd, topic, templateID, sectionKey)
-}
-
-// UpsertIntentDraft 写入 intent 草稿并转换保存后的 DTO。
-func (a promptStoreAdapter) UpsertIntentDraft(ctx context.Context, draft promptIntentDraft) (*promptIntentDraft, error) {
-	saved, err := a.store.UpsertIntentDraft(ctx, promptIntentDraftToStore(draft))
-	if err != nil {
-		return nil, err
-	}
-	return promptIntentDraftPtrFromStore(saved), nil
-}
-
-// GetIntentDraft 读取单条 intent 草稿并转换为本地 DTO。
-func (a promptStoreAdapter) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*promptIntentDraft, error) {
-	draft, err := a.store.GetIntentDraft(ctx, cwd, draftKey)
-	if err != nil {
-		return nil, err
-	}
-	return promptIntentDraftPtrFromStore(draft), nil
-}
-
-// ListIntentDrafts 查询 intent 草稿列表并转换为本地 DTO。
-func (a promptStoreAdapter) ListIntentDrafts(ctx context.Context, filter promptIntentDraftListFilter) ([]promptIntentDraft, error) {
-	drafts, err := a.store.ListIntentDrafts(ctx, promptIntentDraftListFilterToStore(filter))
-	if err != nil {
-		return nil, err
-	}
-	return promptIntentDraftsFromStore(drafts), nil
-}
-
-// UpdateIntentDraftStatus 更新 intent 草稿状态并转换保存后的 DTO。
-func (a promptStoreAdapter) UpdateIntentDraftStatus(
-	ctx context.Context,
-	cwd, draftKey, status string,
-) (*promptIntentDraft, error) {
-	draft, err := a.store.UpdateIntentDraftStatus(ctx, cwd, draftKey, status)
-	if err != nil {
-		return nil, err
-	}
-	return promptIntentDraftPtrFromStore(draft), nil
-}
-
-// LockRecallTopicInCWD 在底层 store 中锁定 cwd 内 recall topic。
-func (a promptStoreAdapter) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error {
-	return a.store.LockRecallTopicInCWD(ctx, cwd, topic)
 }
 
 // UpsertIntentDraft 将 intent 草稿转换后写入父 store。
@@ -303,7 +240,7 @@ func (a promptIntentStoreAdapter) ListIntentDrafts(
 	ctx context.Context,
 	filter promptintent.PromptIntentDraftListFilter,
 ) ([]promptintent.PromptIntentDraft, error) {
-	drafts, err := a.store.ListIntentDrafts(ctx, promptIntentDraftListFilter{
+	drafts, err := a.store.ListIntentDrafts(ctx, IntentDraftListFilter{
 		CWD:    filter.CWD,
 		Status: filter.Status,
 		Limit:  filter.Limit,

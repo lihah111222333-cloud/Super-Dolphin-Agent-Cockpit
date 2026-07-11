@@ -21,14 +21,14 @@ const defaultDrainTimeout = 5 * time.Second
 type Flusher struct {
 	logger       *slog.Logger
 	obs          observation.Contract
-	store        insightWriter
+	store        Writer
 	collector    *collector
 	drainTimeout time.Duration
 	now          func() time.Time
 }
 
 // NewFlusher 创建 Flusher，注入 collector 和依赖项。now 可在测试中覆盖以固定时间，生产代码默认使用 time.Now。
-func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightWriter, col *collector) *Flusher {
+func NewFlusher(logger *slog.Logger, obs observation.Contract, store Writer, col *collector) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -131,10 +131,10 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 // buildParams 从 observation 中读取所有维度，组装 UpsertParams。
 // ok=false 表示 observation 中还没有该轮的 terminal 记录，调用方负责决定是否重试（见 handle）。
 // 时间戳缺失时回退到 signal.Timestamp，避免向 DB 写入零值。
-func (f *Flusher) buildParams(sig flushSignal) (insightUpsertParams, bool) {
+func (f *Flusher) buildParams(sig flushSignal) (UpsertParams, bool) {
 	term, termOk := f.obs.Terminal(sig.LocalTurnID)
 	if !termOk {
-		return insightUpsertParams{}, false
+		return UpsertParams{}, false
 	}
 	tokens, _ := f.obs.Tokens(sig.LocalTurnID)
 	counts, _ := f.obs.Counts(sig.LocalTurnID)
@@ -165,10 +165,10 @@ func (f *Flusher) buildParams(sig flushSignal) (insightUpsertParams, bool) {
 	}
 	skillsJSON, err := json.Marshal(skills)
 	if err != nil {
-		return insightUpsertParams{}, false
+		return UpsertParams{}, false
 	}
 
-	return insightUpsertParams{
+	return UpsertParams{
 		ThreadID:                 sig.ThreadID,
 		AgentID:                  sig.AgentID,
 		SessionID:                "",

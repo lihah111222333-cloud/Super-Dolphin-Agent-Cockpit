@@ -2,17 +2,10 @@ package dashboard
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 
-	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/stretchr/testify/require"
 )
 
 type dashboardWireDTOChecklistEntry struct {
@@ -24,157 +17,51 @@ type dashboardWireDTOChecklistEntry struct {
 
 var dashboardWireDTOChecklist = []dashboardWireDTOChecklistEntry{
 	{"dashboard/agentStatus", "agent_status.go", "agentstatusstore.AgentStatus", "dashboard.AgentStatus"},
-	{"dashboard/agentStatus", "contract.go", "agentstatusstore.AgentStatus", "dashboard.AgentStatus"},
-	{"dashboard/agentStatus", "rpc.go", "agentstatusstore.AgentStatus", "dashboard.AgentStatus"},
-	{"dashboard/logs/audit", "logs.go", "auditlogstore.ListFilter", "dashboard.AuditLogFilter"},
 	{"dashboard/logs/audit", "logs.go", "auditlogstore.AuditEvent", "dashboard.AuditEvent"},
-	{"dashboard/logs/bus", "logs.go", "buslogstore.ListFilter", "dashboard.BusLogFilter"},
 	{"dashboard/logs/bus", "logs.go", "buslogstore.BusExceptionLog", "dashboard.BusExceptionLog"},
 	{"dashboard/logs/system", "factory.go", "systemlogstore.ListFilter", "dashboard.SystemLogFilter"},
 	{"dashboard/aiLogs", "ai_logs.go", "ailogstore.AILog", "dashboard.AILog"},
-	{"dashboard/aiLogs/recent", "rpc.go", "ailogstore.AILog", "dashboard.AILog"},
 	{"dashboard/aiLogs/stats", "rpc.go", "ailogstore.StatusCount", "dashboard.AILogStatusCount"},
-	{"dashboard/commandCards", "ui_page.go", "commandcardstore.CommandCard", "dashboard.CommandCard"},
 	{"dashboard/commandCards", "rpc.go", "commandcardstore.CommandCard", "dashboard.CommandCard"},
-	{"dashboard/prompts", "ui_page.go", "promptstore.PromptTemplate", "dashboard.PromptTemplate"},
 	{"dashboard/prompts", "rpc.go", "promptstore.PromptTemplate", "dashboard.PromptTemplate"},
-	{"dashboard/sharedFiles", "ui_page.go", "sharedfilestore.SharedFile", "dashboard.SharedFile"},
 	{"dashboard/sharedFiles", "rpc.go", "sharedfilestore.SharedFile", "dashboard.SharedFile"},
 	{"dashboard/workflowMaterialWrite", "workflow_material.go", "sharedfilestore.UpsertParams", "dashboard.SharedFileUpsertParams"},
-	{"dashboard/workflowMaterialWrite", "workflow_material.go", "sharedfilestore.SharedFile", "dashboard.SharedFile"},
 }
 
-// TestDashboardWireDTOChecklistCoversPlannedStoreDTOs 锁定 D01 dashboard lane 的转换清单。
+// TestDashboardWireDTOChecklistCoversPlannedStoreDTOs 锁定 dashboard 转换清单。
 func TestDashboardWireDTOChecklistCoversPlannedStoreDTOs(t *testing.T) {
 	t.Parallel()
-
-	required := map[string]bool{
-		"dashboard/agentStatus|agent_status.go|agentstatusstore.AgentStatus":                false,
-		"dashboard/logs/audit|logs.go|auditlogstore.AuditEvent":                             false,
-		"dashboard/logs/bus|logs.go|buslogstore.BusExceptionLog":                            false,
-		"dashboard/logs/system|factory.go|systemlogstore.ListFilter":                        false,
-		"dashboard/aiLogs|ai_logs.go|ailogstore.AILog":                                      false,
-		"dashboard/aiLogs/stats|rpc.go|ailogstore.StatusCount":                              false,
-		"dashboard/commandCards|rpc.go|commandcardstore.CommandCard":                        false,
-		"dashboard/prompts|rpc.go|promptstore.PromptTemplate":                               false,
-		"dashboard/sharedFiles|rpc.go|sharedfilestore.SharedFile":                           false,
-		"dashboard/workflowMaterialWrite|workflow_material.go|sharedfilestore.UpsertParams": false,
-	}
 	for _, entry := range dashboardWireDTOChecklist {
-		key := entry.Endpoint + "|" + entry.SourceFile + "|" + entry.StoreDTO
-		if _, ok := required[key]; ok {
-			required[key] = true
-		}
-		if entry.LocalDTO == "" {
-			t.Fatalf("wire DTO checklist entry missing local DTO: %#v", entry)
-		}
-	}
-	for key, seen := range required {
-		if !seen {
-			t.Fatalf("wire DTO checklist missing %s", key)
+		if entry.Endpoint == "" || entry.SourceFile == "" || entry.StoreDTO == "" || entry.LocalDTO == "" {
+			t.Fatalf("incomplete wire DTO checklist entry: %#v", entry)
 		}
 	}
 }
 
-// TestDashboardWireDTOJSONMatchesStoreDTOs 确认 dashboard DTO 脱钩不改变前端 JSON 字段和值。
-func TestDashboardWireDTOJSONMatchesStoreDTOs(t *testing.T) {
+// TestDashboardWireDTOJSONShape 锁定本地 wire DTO 的 JSON 字段和值，不依赖 App mapper 或 Store DTO。
+func TestDashboardWireDTOJSONShape(t *testing.T) {
 	t.Parallel()
-
 	now := time.Date(2026, 6, 27, 8, 9, 10, 0, time.UTC)
 	duration := int32(123)
 	lastRun := now.Add(-time.Hour)
-	cases := []struct {
-		name  string
-		store any
-		local any
+	tests := []struct {
+		name     string
+		value    any
+		expected string
 	}{
-		{
-			name: "agent status",
-			store: agentstatusstore.AgentStatus{
-				AgentID: "agent-1", AgentName: "worker", SessionID: "session-1", Status: "running",
-				StagnantSec: 7, Error: "", OutputTail: json.RawMessage(`{"tail":true}`), CreatedAt: now, UpdatedAt: now,
-			},
-			local: mapAgentStatuses([]agentstatusstore.AgentStatus{{
-				AgentID: "agent-1", AgentName: "worker", SessionID: "session-1", Status: "running",
-				StagnantSec: 7, Error: "", OutputTail: json.RawMessage(`{"tail":true}`), CreatedAt: now, UpdatedAt: now,
-			}})[0],
-		},
-		{
-			name:  "ai log",
-			store: ailogstore.AILog{ID: 1, Ts: now, Level: "info", Message: "ok", DurationMs: &duration, Extra: json.RawMessage(`{"a":1}`), Category: "api_request", Status: "200"},
-			local: mapAILogs([]ailogstore.AILog{{ID: 1, Ts: now, Level: "info", Message: "ok", DurationMs: &duration, Extra: json.RawMessage(`{"a":1}`), Category: "api_request", Status: "200"}})[0],
-		},
-		{
-			name:  "ai status count",
-			store: ailogstore.StatusCount{Status: "200", Count: 3},
-			local: mapAILogStatusCounts([]ailogstore.StatusCount{{Status: "200", Count: 3}})[0],
-		},
-		{
-			name:  "audit event",
-			store: auditlogstore.AuditEvent{ID: 2, Ts: now, EventType: "tool", Action: "run", Result: "ok", Actor: "agent", Extra: json.RawMessage(`{"b":2}`)},
-			local: mapAuditEvents([]auditlogstore.AuditEvent{{ID: 2, Ts: now, EventType: "tool", Action: "run", Result: "ok", Actor: "agent", Extra: json.RawMessage(`{"b":2}`)}})[0],
-		},
-		{
-			name:  "bus log",
-			store: buslogstore.BusExceptionLog{ID: 3, Ts: now, Category: "rpc", Severity: "error", Source: "bus", ToolName: "tool", Message: "boom", Extra: json.RawMessage(`{"c":3}`)},
-			local: mapBusExceptionLogs([]buslogstore.BusExceptionLog{{ID: 3, Ts: now, Category: "rpc", Severity: "error", Source: "bus", ToolName: "tool", Message: "boom", Extra: json.RawMessage(`{"c":3}`)}})[0],
-		},
-		{
-			name: "command card",
-			store: commandcardstore.CommandCard{
-				ID: 4, CardKey: "cmd/review", Title: "Review", CommandTemplate: "review", ArgsSchema: json.RawMessage(`{"type":"object"}`),
-				RiskLevel: "medium", Enabled: true, CreatedBy: "seed", UpdatedBy: "seed", CreatedAt: now, UpdatedAt: now, LastRunAt: &lastRun, RunCount: 5,
-			},
-			local: mapCommandCards([]commandcardstore.CommandCard{{
-				ID: 4, CardKey: "cmd/review", Title: "Review", CommandTemplate: "review", ArgsSchema: json.RawMessage(`{"type":"object"}`),
-				RiskLevel: "medium", Enabled: true, CreatedBy: "seed", UpdatedBy: "seed", CreatedAt: now, UpdatedAt: now, LastRunAt: &lastRun, RunCount: 5,
-			}})[0],
-		},
-		{
-			name:  "prompt template",
-			store: promptstore.PromptTemplate{ID: 5, PromptKey: "p", Title: "Prompt", Tags: json.RawMessage(`["scope.cwd:/repo"]`), Enabled: true, Priority: 9, CreatedAt: now, UpdatedAt: now},
-			local: mapPromptTemplates([]promptstore.PromptTemplate{{ID: 5, PromptKey: "p", Title: "Prompt", Tags: json.RawMessage(`["scope.cwd:/repo"]`), Enabled: true, Priority: 9, CreatedAt: now, UpdatedAt: now}})[0],
-		},
-		{
-			name:  "shared file",
-			store: sharedfilestore.SharedFile{Path: "reports/final.md", Content: "done", UpdatedBy: "agent", CreatedAt: now, UpdatedAt: now},
-			local: mapSharedFiles([]sharedfilestore.SharedFile{{Path: "reports/final.md", Content: "done", UpdatedBy: "agent", CreatedAt: now, UpdatedAt: now}})[0],
-		},
+		{"agent", AgentStatus{AgentID: "a", OutputTail: json.RawMessage(`{"ok":true}`), CreatedAt: now, UpdatedAt: now}, `{"agent_id":"a","agent_name":"","session_id":"","status":"","stagnant_sec":0,"error":"","output_tail":{"ok":true},"created_at":"2026-06-27T08:09:10Z","updated_at":"2026-06-27T08:09:10Z"}`},
+		{"ai", AILog{ID: 1, DurationMs: &duration, Extra: json.RawMessage(`{"a":1}`)}, `{"ID":1,"Ts":"0001-01-01T00:00:00Z","Level":"","Logger":"","Message":"","Raw":"","Source":"","Component":"","AgentID":"","ThreadID":"","TraceID":"","SpanID":"","ParentSpanID":"","EventType":"","ToolName":"","DurationMs":123,"Extra":{"a":1},"Category":"","Method":"","URL":"","Endpoint":"","Status":"","StatusText":"","Model":""}`},
+		{"audit", AuditEvent{ID: 2, Extra: json.RawMessage(`{"b":2}`)}, `{"id":2,"ts":"0001-01-01T00:00:00Z","event_type":"","action":"","result":"","actor":"","target":"","detail":"","level":"","extra":{"b":2}}`},
+		{"bus", BusExceptionLog{ID: 3, Extra: json.RawMessage(`{"c":3}`)}, `{"id":3,"ts":"0001-01-01T00:00:00Z","category":"","severity":"","source":"","tool_name":"","message":"","traceback":"","extra":{"c":3},"has_traceback":false,"has_extra":false}`},
+		{"command", CommandCard{ID: 4, ArgsSchema: json.RawMessage(`{"type":"object"}`), LastRunAt: &lastRun}, `{"id":4,"card_key":"","title":"","description":"","command_template":"","args_schema":{"type":"object"},"risk_level":"","enabled":false,"created_by":"","updated_by":"","created_at":"0001-01-01T00:00:00Z","updated_at":"0001-01-01T00:00:00Z","last_run_at":"2026-06-27T07:09:10Z","run_count":0}`},
+		{"prompt", PromptTemplate{ID: 5, Tags: json.RawMessage(`[]`)}, `{"id":5,"prompt_key":"","title":"","agent_key":"","tool_name":"","prompt_text":"","when_to_use":"","variables":null,"tags":[],"enabled":false,"manually_edited":false,"priority":0,"created_by":"","updated_by":"","created_at":"0001-01-01T00:00:00Z","updated_at":"0001-01-01T00:00:00Z","description":""}`},
+		{"shared", SharedFile{Path: "reports/final.md", Content: "done"}, `{"path":"reports/final.md","content":"done","updated_by":"","created_at":"0001-01-01T00:00:00Z","updated_at":"0001-01-01T00:00:00Z"}`},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			assertSameJSONPayload(t, tc.store, tc.local)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := json.Marshal(test.value)
+			require.NoError(t, err)
+			require.JSONEq(t, test.expected, string(payload))
 		})
 	}
-}
-
-func assertSameJSONPayload(t *testing.T, storeDTO any, localDTO any) {
-	t.Helper()
-
-	storePayload := mustJSONMap(t, storeDTO)
-	localPayload := mustJSONMap(t, localDTO)
-	if !reflect.DeepEqual(localPayload, storePayload) {
-		t.Fatalf("dashboard wire payload changed\nstore=%s\nlocal=%s", mustJSONString(t, storeDTO), mustJSONString(t, localDTO))
-	}
-}
-
-func mustJSONMap(t *testing.T, value any) map[string]json.RawMessage {
-	t.Helper()
-
-	var out map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(mustJSONString(t, value)), &out); err != nil {
-		t.Fatalf("json.Unmarshal(%T) error = %v", value, err)
-	}
-	return out
-}
-
-func mustJSONString(t *testing.T, value any) string {
-	t.Helper()
-
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("json.Marshal(%T) error = %v", value, err)
-	}
-	return string(data)
 }

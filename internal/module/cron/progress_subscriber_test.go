@@ -54,7 +54,7 @@ func TestCronProgressWorkerPreservesTerminalWhenQueueIsAllTerminal(t *testing.T)
 func TestCronProgressWorkerRetriesTransientTerminalError(t *testing.T) {
 	store := &recordingCronStore{}
 	scheduler := newTestScheduler(t, store, &programmableSubmitter{})
-	job := jobRecord{
+	job := JobRecord{
 		ID:           "job-1",
 		ScheduleExpr: "0 9 * * *",
 		Timezone:     "UTC",
@@ -62,17 +62,17 @@ func TestCronProgressWorkerRetriesTransientTerminalError(t *testing.T) {
 		ActiveTurnID: "turn-1",
 		NextRunAt:    scheduler.now(),
 	}
-	run := runRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: scheduler.now()}
+	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: scheduler.now()}
 	var lookupCalls atomic.Int32
-	store.getRunningRunByTurnIDFn = func(ctx context.Context, turnID string) (runRecord, error) {
+	store.getRunningRunByTurnIDFn = func(ctx context.Context, turnID string) (RunRecord, error) {
 		if lookupCalls.Add(1) == 1 {
-			return runRecord{}, context.DeadlineExceeded
+			return RunRecord{}, context.DeadlineExceeded
 		}
 		return run, nil
 	}
-	store.getJobFn = func(context.Context, string) (jobRecord, error) { return job, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
 	done := make(chan struct{})
-	store.markFinishedFn = func(context.Context, markFinishedParams) error {
+	store.markFinishedFn = func(context.Context, MarkFinishedParams) error {
 		close(done)
 		return nil
 	}
@@ -105,7 +105,7 @@ func TestCronProgressRetryableClassification(t *testing.T) {
 	if isCronProgressRetryable(context.Canceled) {
 		t.Fatalf("Canceled must not be retryable")
 	}
-	if isCronProgressRetryable(errStoreClaimTokenMismatch) {
+	if isCronProgressRetryable(ErrStoreClaimTokenMismatch) {
 		t.Fatalf("stale claim mismatch must not be retried")
 	}
 	if isCronProgressRetryable(errors.New("validation failed")) {

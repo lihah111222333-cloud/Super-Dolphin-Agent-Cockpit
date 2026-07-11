@@ -22,7 +22,7 @@ func writeSourceChunks(
 	ctx context.Context,
 	source importSource,
 	documentID int64,
-	store datasourceV2Store,
+	store Store,
 ) (summary chunkWriteSummary, err error) {
 	if source.extension == ".pdf" {
 		return writePDFChunks(ctx, source.path, documentID, store)
@@ -36,7 +36,7 @@ func writeTextChunks(
 	ctx context.Context,
 	sourcePath string,
 	documentID int64,
-	store datasourceV2Store,
+	store Store,
 ) (summary chunkWriteSummary, err error) {
 	file, err := os.Open(sourcePath)
 	if err != nil {
@@ -65,7 +65,7 @@ func writePDFChunks(
 	ctx context.Context,
 	sourcePath string,
 	documentID int64,
-	store datasourceV2Store,
+	store Store,
 ) (chunkWriteSummary, error) {
 	text, err := extractPDFText(sourcePath)
 	if err != nil {
@@ -121,7 +121,7 @@ func readTextRune(reader *bufio.Reader) (rune, bool, error) {
 // asciiOpen 跟踪当前是否处于 ASCII token 中间，避免在 token 内部截断。
 type chunkWriter struct {
 	documentID  int64
-	store       datasourceV2Store
+	store       Store
 	hash        hashWriter
 	builder     strings.Builder
 	chunkIndex  int32
@@ -139,7 +139,7 @@ type hashWriter interface {
 }
 
 // newChunkWriter 创建分块写入器，使用 SHA-256 对整篇文件做增量摘要。
-func newChunkWriter(documentID int64, store datasourceV2Store) *chunkWriter {
+func newChunkWriter(documentID int64, store Store) *chunkWriter {
 	return &chunkWriter{
 		documentID: documentID,
 		store:      store,
@@ -227,7 +227,7 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := w.store.InsertChunk(ctx, datasourceV2InsertChunkParams{
+	if err := w.store.InsertChunk(ctx, InsertChunkParams{
 		DocumentID:     w.documentID,
 		ChunkIndex:     w.chunkIndex,
 		Content:        content,

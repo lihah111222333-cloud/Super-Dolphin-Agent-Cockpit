@@ -385,9 +385,9 @@ func (w *cronProgressWorker) recordLastError(turnID string, err error) {
 }
 
 func isCronProgressStaleMismatch(err error) bool {
-	return errors.Is(err, errStoreClaimTokenMismatch) ||
-		errors.Is(err, errStoreStatusTransitionRefused) ||
-		errors.Is(err, errStoreJobRunNotFound)
+	return errors.Is(err, ErrStoreClaimTokenMismatch) ||
+		errors.Is(err, ErrStoreStatusTransitionRefused) ||
+		errors.Is(err, ErrStoreJobRunNotFound)
 }
 
 func isCronProgressRetryable(err error) bool {

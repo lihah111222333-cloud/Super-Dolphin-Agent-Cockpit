@@ -179,7 +179,7 @@ func datasourceV2RPCError(err error) error {
 		errors.Is(err, errDatasourceV2MissingFileName),
 		errors.Is(err, errDatasourceV2SizeBytesInvalid):
 		return platformrpc.ErrInvalidParams(err.Error())
-	case errors.Is(err, errDatasourceV2StoreNotConfigured):
+	case errors.Is(err, ErrStoreNotConfigured):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, os.ErrNotExist),
 		errors.Is(err, platformdb.ErrNotFound):

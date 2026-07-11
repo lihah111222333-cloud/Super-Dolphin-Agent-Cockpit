@@ -270,10 +270,10 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrInvalidConfig),
 		errors.Is(err, ErrProviderNotSupported),
 		errors.Is(err, ErrJobDisabled),
-		errors.Is(err, errStoreEmptyID),
-		errors.Is(err, errStoreEmptyCWD),
-		errors.Is(err, errStoreEmptyProvider),
-		errors.Is(err, errStoreEmptyScheduleExpr):
+		errors.Is(err, ErrStoreEmptyID),
+		errors.Is(err, ErrStoreEmptyCWD),
+		errors.Is(err, ErrStoreEmptyProvider),
+		errors.Is(err, ErrStoreEmptyScheduleExpr):
 		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	return err

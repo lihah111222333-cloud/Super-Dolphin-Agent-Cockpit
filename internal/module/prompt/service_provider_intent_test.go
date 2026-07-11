@@ -8,7 +8,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -232,7 +231,7 @@ func TestPromptSectionWriteProjectRecallCanOverrideGlobalTopic(t *testing.T) {
 	globalTemplate.ID = 7
 	globalTemplate.Tags = json.RawMessage(`["intent:recall","scope.global"]`)
 	store.templates[globalTemplate.PromptKey] = globalTemplate
-	store.sections[globalTemplate.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[globalTemplate.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  globalTemplate.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -269,7 +268,7 @@ func TestPromptSectionWriteGlobalRecallCanCoexistWithProjectTopic(t *testing.T) 
 	projectTemplate.ID = 7
 	projectTemplate.Tags = withPromptScopeTag(json.RawMessage(`["intent:recall"]`), "/repo/a")
 	store.templates[projectTemplate.PromptKey] = projectTemplate
-	store.sections[projectTemplate.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[projectTemplate.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  projectTemplate.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -413,7 +412,6 @@ func TestPromptWriteRejectsNonObjectMatchWhen(t *testing.T) {
 		{name: "malformed", raw: json.RawMessage(`{`), wantText: "valid JSON"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			store := newInMemoryPromptStore()
@@ -439,7 +437,7 @@ func TestPromptItemFromTemplateIncludesWhenToUse(t *testing.T) {
 	template := scopedPromptTemplate("main/scoped", "/repo/a")
 	template.WhenToUse = "Use when routing to scoped prompt edits."
 
-	got := promptItemFromTemplate(promptTemplateFromStore(template))
+	got := promptItemFromTemplate(template)
 
 	require.Equal(t, "Use when routing to scoped prompt edits.", got.WhenToUse)
 }
@@ -450,7 +448,7 @@ func TestPromptItemFromTemplateIncludesScopeAndHidesInternalScopeTags(t *testing
 	template := scopedPromptTemplate("main/global", "")
 	template.Tags = json.RawMessage(`["scope.global","intent:expert","review"]`)
 
-	got := promptItemFromTemplate(promptTemplateFromStore(template))
+	got := promptItemFromTemplate(template)
 
 	require.Equal(t, "global", got.Scope)
 	require.JSONEq(t, `["intent:expert","review"]`, string(got.Tags))
@@ -520,7 +518,7 @@ func TestPromptSectionWriteRejectsDuplicateRecallTopicInCWD(t *testing.T) {
 	current.ID = 8
 	store.templates[existing.PromptKey] = existing
 	store.templates[current.PromptKey] = current
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_existing": {TemplateID: 7, SectionKey: "recall_existing", TriggerType: "recall", RecallTopic: "project-memory", Body: "existing", Enabled: true},
 	}
 	svc := newPromptService(store)
@@ -553,7 +551,7 @@ func TestPromptSectionWriteAllowsSameRecallTopicInAnotherCWD(t *testing.T) {
 	current.ID = 8
 	store.templates[existing.PromptKey] = existing
 	store.templates[current.PromptKey] = current
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_existing": {TemplateID: 7, SectionKey: "recall_existing", TriggerType: "recall", RecallTopic: "project-memory", Body: "existing", Enabled: true},
 	}
 	svc := newPromptService(store)
@@ -579,7 +577,7 @@ func TestPromptSectionWriteAllowsDuplicateRecallTopicWhenUpdatingSameSection(t *
 	template := scopedPromptTemplate("main/current", "/repo/a")
 	template.ID = 7
 	store.templates[template.PromptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_existing": {TemplateID: 7, SectionKey: "recall_existing", TriggerType: "recall", RecallTopic: "project-memory", Body: "existing", Enabled: true},
 	}
 	svc := newPromptService(store)
@@ -601,7 +599,7 @@ func TestPromptSectionWriteAllowsDuplicateRecallTopicWhenUpdatingSameSection(t *
 func TestPromptSectionItemFromStoreIncludesTriggerTypeAndRecallTopic(t *testing.T) {
 	t.Parallel()
 
-	got := promptSectionItemFromStore(promptTemplateSectionFromStore(promptstore.PromptTemplateSection{
+	got := promptSectionItemFromStore(TemplateSection{
 		ID:          11,
 		TemplateID:  7,
 		SectionKey:  "project_memory",
@@ -610,7 +608,7 @@ func TestPromptSectionItemFromStoreIncludesTriggerTypeAndRecallTopic(t *testing.
 		Enabled:     true,
 		TriggerType: "recall",
 		RecallTopic: "project-memory",
-	}), "main/scoped")
+	}, "main/scoped")
 
 	require.Equal(t, "recall", got.TriggerType)
 	require.Equal(t, "project-memory", got.RecallTopic)

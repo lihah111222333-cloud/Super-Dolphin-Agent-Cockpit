@@ -65,7 +65,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 	if scheduleType == "" {
 		scheduleType = "cron"
 	}
-	row, err := s.store.CreateJob(ctx, createJobParams{
+	row, err := s.store.CreateJob(ctx, CreateJobParams{
 		ID:            s.newID(),
 		Name:          strings.TrimSpace(req.Name),
 		Prompt:        req.Prompt,
@@ -95,7 +95,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	row, err := s.store.GetJobByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, errStoreJobNotFound) {
+		if errors.Is(err, ErrStoreJobNotFound) {
 			return Job{}, ErrNotFound
 		}
 		return Job{}, err
@@ -161,7 +161,7 @@ func (s *service) UpdateJob(ctx context.Context, req UpdateJobRequest) (Job, err
 	if scheduleType == "" {
 		scheduleType = "cron"
 	}
-	if err := s.store.UpdateJobSchedule(ctx, updateJobScheduleParams{
+	if err := s.store.UpdateJobSchedule(ctx, UpdateJobScheduleParams{
 		ID:            req.ID,
 		Name:          strings.TrimSpace(creq.Name),
 		Prompt:        creq.Prompt,
@@ -190,7 +190,7 @@ func (s *service) SetJobEnabled(ctx context.Context, id string, enabled bool) er
 		return errors.New("cron: id is required")
 	}
 	err := s.store.SetJobEnabled(ctx, id, enabled, s.now().UTC())
-	if errors.Is(err, errStoreJobNotFound) {
+	if errors.Is(err, ErrStoreJobNotFound) {
 		return ErrNotFound
 	}
 	return err
@@ -202,7 +202,7 @@ func (s *service) DeleteJob(ctx context.Context, id string) error {
 		return errors.New("cron: id is required")
 	}
 	err := s.store.DeleteJob(ctx, id)
-	if errors.Is(err, errStoreJobNotFound) {
+	if errors.Is(err, ErrStoreJobNotFound) {
 		return ErrNotFound
 	}
 	return err
@@ -230,7 +230,7 @@ func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 	}
 	row, err := s.store.GetJobByID(ctx, jobID)
 	if err != nil {
-		if errors.Is(err, errStoreJobNotFound) {
+		if errors.Is(err, ErrStoreJobNotFound) {
 			return Job{}, ErrNotFound
 		}
 		return Job{}, err
@@ -374,7 +374,7 @@ func (e *cronJobPayloadInvalidError) ErrorCode() string {
 
 // toJob 将存储层 job 行转换成 cron 对外 DTO。
 // config/skills JSON 损坏时返回 typed error，调用方不能把坏行当正常任务继续使用。
-func toJob(row jobRecord) (Job, error) {
+func toJob(row JobRecord) (Job, error) {
 	var skills []string
 	if len(row.Skills) > 0 {
 		if err := json.Unmarshal(row.Skills, &skills); err != nil {
@@ -419,7 +419,7 @@ func toJob(row jobRecord) (Job, error) {
 }
 
 // toRun 将存储层 run 行转换成 cron 对外 DTO，时间统一输出 RFC3339 UTC 字符串。
-func toRun(row runRecord) Run {
+func toRun(row RunRecord) Run {
 	return Run{
 		ID:             row.ID,
 		JobID:          row.JobID,

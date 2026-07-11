@@ -14,9 +14,6 @@ import (
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 // Module 把 prompt 的注册表、组装器和 RPC 接起来。
@@ -50,7 +47,7 @@ func newEnableWhenEvaluator() contract.EnableWhenEvaluator {
 type promptHandlersParams struct {
 	fx.In
 
-	Store      promptstore.Store
+	Store      Store
 	Builtin    contract.BuiltinPromptRegistry `optional:"true"`
 	Dream      contract.DreamExecutor         `optional:"true"`
 	Sections   contract.SectionInvalidator    `optional:"true"`
@@ -74,15 +71,15 @@ type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
 	Logger          *slog.Logger           `optional:"true"`
-	Prefs           uipreference.Store     `optional:"true"`
-	SharedFiles     sharedfilestore.Reader `optional:"true"`
+	Prefs           PreferenceReader       `optional:"true"`
+	SharedFiles     SharedFileReader       `optional:"true"`
 	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`
 }
 
 // NewServiceFx 是 fx 使用的 prompt Service 构造函数，负责注入可选配置来源。
 func NewServiceFx(p ServiceFxParams) Service {
 	opts := []ServiceOption{
-		WithPromptHintSources(p.Prefs, promptSharedFileReaderFromDependency(p.SharedFiles)),
+		WithPromptHintSources(p.Prefs, p.SharedFiles),
 	}
 	if p.DisabledToolsFn != nil {
 		opts = append(opts, WithDisabledBuiltinToolsFn(p.DisabledToolsFn))
@@ -91,7 +88,7 @@ func NewServiceFx(p ServiceFxParams) Service {
 }
 
 type promptHandlerDeps struct {
-	store              promptStore
+	store              Store
 	intentStore        promptintent.Store
 	sectionInvalidator contract.SectionInvalidator
 	dream              contract.DreamExecutor
@@ -115,12 +112,10 @@ func collectPromptHandlerDeps(deps []any) promptHandlerDeps {
 func (d *promptHandlerDeps) applyPromptHandlerDep(dep any) {
 	switch value := dep.(type) {
 	case nil:
-	case promptStore:
+	case Store:
 		d.store = value
 	case promptintent.Store:
 		d.intentStore = value
-	case promptstore.Store:
-		d.store = promptStoreAdapter{store: value}
 	case contract.SectionInvalidator:
 		d.sectionInvalidator = value
 	case contract.DreamExecutor:
@@ -137,196 +132,13 @@ func (d *promptHandlerDeps) applyPromptHandlerDep(dep any) {
 	}
 }
 
-// promptStoreFromDependency 把真实 store 或测试 port 统一收敛成本包内部 port。
-func promptStoreFromDependency(dep any) promptStore {
-	switch value := dep.(type) {
-	case nil:
-		return nil
-	case promptStore:
-		return value
-	case promptstore.Store:
-		return promptStoreAdapter{store: value}
-	default:
-		// archguard:ignore panic_count -- constructor type mismatch is a programming error at assembly time.
-		panic(fmt.Sprintf("unsupported prompt store dependency %T", dep))
-	}
-}
-
-// promptSharedFileReaderFromDependency 把 sharedfile store reader 转成本包只读正文 port。
-func promptSharedFileReaderFromDependency(dep any) promptSharedFileReader {
-	switch value := dep.(type) {
-	case nil:
-		return nil
-	case promptSharedFileReader:
-		return value
-	case sharedfilestore.Reader:
-		return promptSharedFileReaderAdapter{reader: value}
-	default:
-		// archguard:ignore panic_count -- constructor type mismatch is a programming error at assembly time.
-		panic(fmt.Sprintf("unsupported prompt shared file dependency %T", dep))
-	}
-}
-
-type promptSharedFileReaderAdapter struct {
-	reader sharedfilestore.Reader
-}
-
-// GetContent 读取 sharedfile 正文，nil 文件保持旧路径的空内容语义。
-func (a promptSharedFileReaderAdapter) GetContent(ctx context.Context, path string) (string, error) {
-	file, err := a.reader.Get(ctx, path)
-	if err != nil || file == nil {
-		return "", err
-	}
-	return file.Content, nil
-}
-
-type promptStoreAdapter struct {
-	store promptstore.Store
-}
-
-// List 将 prompt store 的列表结果转换为 prompt 模块 DTO。
-func (a promptStoreAdapter) List(ctx context.Context, filter promptListFilter) ([]promptTemplate, error) {
-	items, err := a.store.List(ctx, promptListFilterToStore(filter))
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplatesFromStore(items), nil
-}
-
-// WithTx 保持底层事务边界，并把 txStore 继续包装成本包 port。
-func (a promptStoreAdapter) WithTx(ctx context.Context, fn func(txStore promptStore) error) error {
-	return a.store.WithTx(ctx, func(txStore promptstore.Store) error {
-		return fn(promptStoreAdapter{store: txStore})
-	})
-}
-
-// Get 读取单个模板并转换为 prompt 模块 DTO。
-func (a promptStoreAdapter) Get(ctx context.Context, promptKey string) (*promptTemplate, error) {
-	template, err := a.store.Get(ctx, promptKey)
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplatePtrFromStore(template), nil
-}
-
-// Delete 透传模板删除，scope 校验由调用方在事务前完成。
-func (a promptStoreAdapter) Delete(ctx context.Context, promptKey string) error {
-	return a.store.Delete(ctx, promptKey)
-}
-
-// InsertVersion 写入版本快照，进入 store 前转换 DTO。
-func (a promptStoreAdapter) InsertVersion(ctx context.Context, version promptTemplateVersion) (int64, error) {
-	return a.store.InsertVersion(ctx, promptTemplateVersionToStore(version))
-}
-
-// CreatePromptTemplate 创建模板并把保存后的 store DTO 转回本地 DTO。
-func (a promptStoreAdapter) CreatePromptTemplate(ctx context.Context, template promptTemplate) (*promptTemplate, error) {
-	saved, err := a.store.CreatePromptTemplate(ctx, promptTemplateToStore(template))
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplatePtrFromStore(saved), nil
-}
-
-// Upsert 写入模板并把保存后的 store DTO 转回本地 DTO。
-func (a promptStoreAdapter) Upsert(ctx context.Context, template promptTemplate) (*promptTemplate, error) {
-	saved, err := a.store.Upsert(ctx, promptTemplateToStore(template))
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplatePtrFromStore(saved), nil
-}
-
-// ListSectionsByTemplateID 读取单模板 sections 并转换为本地 DTO。
-func (a promptStoreAdapter) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]promptTemplateSection, error) {
-	sections, err := a.store.ListSectionsByTemplateID(ctx, templateID)
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplateSectionsFromStore(sections), nil
-}
-
-// ListSectionsByTemplateIDs 批量读取 sections 并转换为本地 DTO。
-func (a promptStoreAdapter) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]promptTemplateSection, error) {
-	sections, err := a.store.ListSectionsByTemplateIDs(ctx, templateIDs)
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplateSectionsFromStore(sections), nil
-}
-
-// ListRecallSections 读取当前 cwd 的 recall sections，并转换为本地 DTO。
-func (a promptStoreAdapter) ListRecallSections(ctx context.Context, cwd string) ([]promptTemplateSection, error) {
-	sections, err := a.store.ListRecallSections(ctx, cwd)
-	if err != nil {
-		return nil, err
-	}
-	return promptTemplateSectionsFromStore(sections), nil
-}
-
-func promptListFilterToStore(filter promptListFilter) promptstore.ListFilter {
-	return promptConvertStruct[promptstore.ListFilter](filter)
-}
-
-func promptIntentDraftListFilterToStore(filter promptIntentDraftListFilter) promptstore.PromptIntentDraftListFilter {
-	return promptConvertStruct[promptstore.PromptIntentDraftListFilter](filter)
-}
-
-func promptTemplatesFromStore(items []promptstore.PromptTemplate) []promptTemplate {
-	return promptConvertSlice[promptTemplate](items)
-}
-
-func promptTemplatePtrFromStore(template *promptstore.PromptTemplate) *promptTemplate {
-	return promptConvertPtr[promptTemplate](template)
-}
-
-func promptTemplateFromStore(template promptstore.PromptTemplate) promptTemplate {
-	return promptConvertStruct[promptTemplate](template)
-}
-
-func promptTemplateToStore(template promptTemplate) promptstore.PromptTemplate {
-	return promptConvertStruct[promptstore.PromptTemplate](template)
-}
-
-func promptTemplateSectionsFromStore(items []promptstore.PromptTemplateSection) []promptTemplateSection {
-	return promptConvertSlice[promptTemplateSection](items)
-}
-
-func promptTemplateSectionPtrFromStore(section *promptstore.PromptTemplateSection) *promptTemplateSection {
-	return promptConvertPtr[promptTemplateSection](section)
-}
-
-func promptTemplateSectionFromStore(section promptstore.PromptTemplateSection) promptTemplateSection {
-	return promptConvertStruct[promptTemplateSection](section)
-}
-
-func promptTemplateSectionToStore(section promptTemplateSection) promptstore.PromptTemplateSection {
-	return promptConvertStruct[promptstore.PromptTemplateSection](section)
-}
-
-func promptTemplateVersionToStore(version promptTemplateVersion) promptstore.PromptTemplateVersion {
-	return promptConvertStruct[promptstore.PromptTemplateVersion](version)
-}
-
-func promptIntentDraftsFromStore(items []promptstore.PromptIntentDraft) []promptIntentDraft {
-	return promptConvertSlice[promptIntentDraft](items)
-}
-
-func promptIntentDraftPtrFromStore(draft *promptstore.PromptIntentDraft) *promptIntentDraft {
-	return promptConvertPtr[promptIntentDraft](draft)
-}
-
-func promptIntentDraftToStore(draft promptIntentDraft) promptstore.PromptIntentDraft {
-	return promptConvertStruct[promptstore.PromptIntentDraft](draft)
-}
-
 type promptIntentStoreAdapter struct {
-	store promptStore
+	store Store
 }
 
 // List 将 prompt 模块模板列表转换为 intent 子包 DTO。
 func (a promptIntentStoreAdapter) List(ctx context.Context, filter promptintent.ListFilter) ([]promptintent.PromptTemplate, error) {
-	items, err := a.store.List(ctx, promptListFilter{
+	items, err := a.store.List(ctx, ListFilter{
 		AgentKey: filter.AgentKey,
 		Keyword:  filter.Keyword,
 		CWD:      filter.CWD,
@@ -340,7 +152,7 @@ func (a promptIntentStoreAdapter) List(ctx context.Context, filter promptintent.
 
 // WithTx 保持父 store 事务边界，并向 intent 子包提供事务内 port。
 func (a promptIntentStoreAdapter) WithTx(ctx context.Context, fn func(txStore promptintent.Store) error) error {
-	return a.store.WithTx(ctx, func(txStore promptStore) error {
+	return a.store.WithTx(ctx, func(txStore Store) error {
 		return fn(promptIntentStoreAdapter{store: txStore})
 	})
 }
@@ -420,44 +232,44 @@ func (a promptIntentStoreAdapter) UpsertRecallTopicTargetInCWD(
 	return a.store.UpsertRecallTopicTargetInCWD(ctx, cwd, topic, templateID, sectionKey)
 }
 
-func promptIntentTemplatesFromPrompt(items []promptTemplate) []promptintent.PromptTemplate {
+func promptIntentTemplatesFromPrompt(items []Template) []promptintent.PromptTemplate {
 	return promptConvertSlice[promptintent.PromptTemplate](items)
 }
 
-func promptIntentTemplatePtrFromPrompt(template *promptTemplate) *promptintent.PromptTemplate {
+func promptIntentTemplatePtrFromPrompt(template *Template) *promptintent.PromptTemplate {
 	return promptConvertPtr[promptintent.PromptTemplate](template)
 }
 
-func promptTemplateFromIntent(template promptintent.PromptTemplate) promptTemplate {
-	return promptConvertStruct[promptTemplate](template)
+func promptTemplateFromIntent(template promptintent.PromptTemplate) Template {
+	return promptConvertStruct[Template](template)
 }
 
-func promptIntentTemplateSectionsFromPrompt(items []promptTemplateSection) []promptintent.PromptTemplateSection {
+func promptIntentTemplateSectionsFromPrompt(items []TemplateSection) []promptintent.PromptTemplateSection {
 	return promptConvertSlice[promptintent.PromptTemplateSection](items)
 }
 
-func promptIntentTemplateSectionPtrFromPrompt(section *promptTemplateSection) *promptintent.PromptTemplateSection {
+func promptIntentTemplateSectionPtrFromPrompt(section *TemplateSection) *promptintent.PromptTemplateSection {
 	return promptConvertPtr[promptintent.PromptTemplateSection](section)
 }
 
-func promptTemplateSectionFromIntent(section promptintent.PromptTemplateSection) promptTemplateSection {
-	return promptConvertStruct[promptTemplateSection](section)
+func promptTemplateSectionFromIntent(section promptintent.PromptTemplateSection) TemplateSection {
+	return promptConvertStruct[TemplateSection](section)
 }
 
-func promptTemplateVersionFromIntent(version promptintent.PromptTemplateVersion) promptTemplateVersion {
-	return promptConvertStruct[promptTemplateVersion](version)
+func promptTemplateVersionFromIntent(version promptintent.PromptTemplateVersion) TemplateVersion {
+	return promptConvertStruct[TemplateVersion](version)
 }
 
-func promptIntentDraftsFromPrompt(items []promptIntentDraft) []promptintent.PromptIntentDraft {
+func promptIntentDraftsFromPrompt(items []IntentDraft) []promptintent.PromptIntentDraft {
 	return promptConvertSlice[promptintent.PromptIntentDraft](items)
 }
 
-func promptIntentDraftPtrFromPrompt(draft *promptIntentDraft) *promptintent.PromptIntentDraft {
+func promptIntentDraftPtrFromPrompt(draft *IntentDraft) *promptintent.PromptIntentDraft {
 	return promptConvertPtr[promptintent.PromptIntentDraft](draft)
 }
 
-func promptIntentDraftFromIntent(draft promptintent.PromptIntentDraft) promptIntentDraft {
-	return promptConvertStruct[promptIntentDraft](draft)
+func promptIntentDraftFromIntent(draft promptintent.PromptIntentDraft) IntentDraft {
+	return promptConvertStruct[IntentDraft](draft)
 }
 
 func promptConvertSlice[Out any, In any](items []In) []Out {

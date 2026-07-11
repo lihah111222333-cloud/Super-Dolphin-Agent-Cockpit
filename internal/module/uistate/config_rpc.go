@@ -25,15 +25,6 @@ const (
 // errConfigPreferenceStoreRequired 表示写配置时缺少偏好存储依赖。
 var errConfigPreferenceStoreRequired = errors.New("uistate: ui preference store is not configured")
 
-type sharedFileReader interface {
-	Get(ctx context.Context, path string) (*sharedFile, error)
-}
-
-type sharedFile struct {
-	Path    string
-	Content string
-}
-
 // runtimeConfigResult 是 config/read 返回给前端的运行时配置视图。
 type runtimeConfigResult struct {
 	Model                 string                   `json:"model"`
@@ -76,8 +67,8 @@ type lspPromptHintResult struct {
 // NewConfigHandlers 注册配置读取、LSP prompt hint 和 builtin tools 配置 RPC。
 func NewConfigHandlers(
 	cfg *contract.Config,
-	prefs preferenceStore,
-	sharedFiles sharedFileReader,
+	prefs PreferenceStore,
+	sharedFiles SharedFileReader,
 	threads contract.ThreadConfigReader,
 	skillStore contract.SkillLister,
 	nativeTools []contract.NativeToolDescriptor,
@@ -106,7 +97,7 @@ func NewConfigHandlers(
 func readRuntimeConfig(
 	ctx context.Context,
 	cfg *contract.Config,
-	prefs preferenceValueReader,
+	prefs PreferenceReader,
 	threads contract.ThreadConfigReader,
 ) runtimeConfigResult {
 	result := defaultRuntimeConfig(cfg)
@@ -196,7 +187,7 @@ func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 }
 
 // readActiveThreadID 从 UI preference 中读取当前 cwd 的 active thread。
-func readActiveThreadID(ctx context.Context, prefs preferenceValueReader, cwd string) string {
+func readActiveThreadID(ctx context.Context, prefs PreferenceReader, cwd string) string {
 	if prefs == nil {
 		return ""
 	}
@@ -354,8 +345,8 @@ func isPackagedResourceRoot(root string) bool {
 // readLSPPromptHint 合并 shared-file 默认 hint 和用户覆盖值。
 func readLSPPromptHint(
 	ctx context.Context,
-	prefs preferenceValueReader,
-	sharedFiles sharedFileReader,
+	prefs PreferenceReader,
+	sharedFiles SharedFileReader,
 	cwd string,
 ) (*lspPromptHintResult, error) {
 	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
@@ -372,8 +363,8 @@ func readLSPPromptHint(
 // writeLSPPromptHint 写入当前 cwd 的 LSP prompt hint 覆盖，并返回新的生效视图。
 func writeLSPPromptHint(
 	ctx context.Context,
-	prefs preferenceStore,
-	sharedFiles sharedFileReader,
+	prefs PreferenceStore,
+	sharedFiles SharedFileReader,
 	cwd, hint string,
 ) (*lspPromptHintResult, error) {
 	if prefs == nil {
@@ -394,7 +385,7 @@ func writeLSPPromptHint(
 }
 
 // readDefaultLSPPromptHint 从 shared file store 读取内置 LSP 必读提示，缺文件时返回空。
-func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedFileReader) (string, error) {
+func readDefaultLSPPromptHint(ctx context.Context, sharedFiles SharedFileReader) (string, error) {
 	if sharedFiles == nil {
 		return "", nil
 	}
@@ -413,7 +404,7 @@ func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedFileReader)
 }
 
 // readLSPPromptOverride 读取当前 cwd 的 LSP prompt hint 覆盖值，非字符串会转成文本。
-func readLSPPromptOverride(ctx context.Context, prefs preferenceValueReader, cwd string) (string, error) {
+func readLSPPromptOverride(ctx context.Context, prefs PreferenceReader, cwd string) (string, error) {
 	if prefs == nil {
 		return "", nil
 	}

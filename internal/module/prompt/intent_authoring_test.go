@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -433,7 +432,7 @@ func TestPromptIntentDraftBlocksDuplicateRecallTopic(t *testing.T) {
 	existing.CreatedBy = "rpc.prompts"
 	existing.UpdatedBy = "rpc.prompts"
 	store.templates[existing.PromptKey] = existing
-	store.sections[existing.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[existing.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  existing.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -476,7 +475,7 @@ func TestPromptIntentDraftAllowsProjectRecallOverrideOfGlobalTopic(t *testing.T)
 	global.CreatedBy = "rpc.prompts"
 	global.UpdatedBy = "rpc.prompts"
 	store.templates[global.PromptKey] = global
-	store.sections[global.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[global.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  global.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -522,7 +521,7 @@ func TestPromptIntentDraftAllowsGlobalRecallFallbackWhenProjectTopicExists(t *te
 	project.CreatedBy = "rpc.prompts"
 	project.UpdatedBy = "rpc.prompts"
 	store.templates[project.PromptKey] = project
-	store.sections[project.ID] = map[string]promptstore.PromptTemplateSection{
+	store.sections[project.ID] = map[string]TemplateSection{
 		"recall_sqlc_workflow": {
 			TemplateID:  project.ID,
 			SectionKey:  "recall_sqlc_workflow",
@@ -625,9 +624,9 @@ func readyRecallIntentCard() promptintent.Card {
 	}
 }
 
-func promptIntentDraftForTest(draftKey, cwd, kind, status string, card json.RawMessage, issues []promptintent.Issue) promptstore.PromptIntentDraft {
+func promptIntentDraftForTest(draftKey, cwd, kind, status string, card json.RawMessage, issues []promptintent.Issue) IntentDraft {
 	issuesJSON, _ := json.Marshal(issues)
-	return promptstore.PromptIntentDraft{
+	return IntentDraft{
 		DraftKey:      draftKey,
 		CWD:           cwd,
 		Kind:          kind,

@@ -13,38 +13,38 @@ import (
 
 // fakeInsightStore 捕获 flusher 尝试持久化的参数，未注入回调的方法保持空结果。
 type fakeInsightStore struct {
-	upsertFn        func(context.Context, insightUpsertParams) (insightRecord, error)
-	listRecentFn    func(context.Context, int32) ([]insightRecord, error)
-	listByThreadFn  func(context.Context, string, int32) ([]insightRecord, error)
-	listApprovalsFn func(context.Context, string, int32) ([]insightApprovalRow, error)
+	upsertFn        func(context.Context, UpsertParams) (Record, error)
+	listRecentFn    func(context.Context, int32) ([]Record, error)
+	listByThreadFn  func(context.Context, string, int32) ([]Record, error)
+	listApprovalsFn func(context.Context, string, int32) ([]ApprovalRow, error)
 }
 
-func (f *fakeInsightStore) Upsert(ctx context.Context, p insightUpsertParams) (insightRecord, error) {
+func (f *fakeInsightStore) Upsert(ctx context.Context, p UpsertParams) (Record, error) {
 	if f.upsertFn != nil {
 		return f.upsertFn(ctx, p)
 	}
-	return insightRecord{ID: 1, ThreadID: p.ThreadID, LocalTurnID: p.LocalTurnID, Status: p.Status}, nil
+	return Record{ID: 1, ThreadID: p.ThreadID, LocalTurnID: p.LocalTurnID, Status: p.Status}, nil
 }
-func (f *fakeInsightStore) ListByThread(ctx context.Context, threadID string, limit int32) ([]insightRecord, error) {
+func (f *fakeInsightStore) ListByThread(ctx context.Context, threadID string, limit int32) ([]Record, error) {
 	if f.listByThreadFn != nil {
 		return f.listByThreadFn(ctx, threadID, limit)
 	}
 	return nil, nil
 }
-func (f *fakeInsightStore) ListRecent(ctx context.Context, limit int32) ([]insightRecord, error) {
+func (f *fakeInsightStore) ListRecent(ctx context.Context, limit int32) ([]Record, error) {
 	if f.listRecentFn != nil {
 		return f.listRecentFn(ctx, limit)
 	}
 	return nil, nil
 }
-func (f *fakeInsightStore) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]insightApprovalRow, error) {
+func (f *fakeInsightStore) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error) {
 	if f.listApprovalsFn != nil {
 		return f.listApprovalsFn(ctx, threadID, limit)
 	}
 	return nil, nil
 }
 
-func newTestFlusher(t *testing.T, obs observation.Contract, store insightWriter) (*Flusher, *collector) {
+func newTestFlusher(t *testing.T, obs observation.Contract, store Writer) (*Flusher, *collector) {
 	t.Helper()
 	col := newCollector(slog.Default(), 16)
 	f := NewFlusher(slog.Default(), obs, store, col)
@@ -60,11 +60,11 @@ func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	mem := moduleobs.NewMemory()
 	seedCompletedFlusherObservation(mem)
 
-	var got insightUpsertParams
+	var got UpsertParams
 	store := &fakeInsightStore{
-		upsertFn: func(_ context.Context, p insightUpsertParams) (insightRecord, error) {
+		upsertFn: func(_ context.Context, p UpsertParams) (Record, error) {
 			got = p
-			return insightRecord{ID: 1}, nil
+			return Record{ID: 1}, nil
 		},
 	}
 	f, _ := newTestFlusher(t, mem, store)
@@ -98,14 +98,14 @@ func seedCompletedFlusherObservation(mem *moduleobs.Memory) {
 	mem.SetSkillsSelected("local-1", []string{"skill-a", "skill-b"})
 }
 
-func assertCompletedFlusherUpsert(t *testing.T, got insightUpsertParams) {
+func assertCompletedFlusherUpsert(t *testing.T, got UpsertParams) {
 	t.Helper()
 	assertCompletedFlusherStatus(t, got)
 	assertCompletedFlusherCounts(t, got)
 	assertCompletedFlusherIdentity(t, got)
 }
 
-func assertCompletedFlusherStatus(t *testing.T, got insightUpsertParams) {
+func assertCompletedFlusherStatus(t *testing.T, got UpsertParams) {
 	t.Helper()
 	if got.Status != insightStatusCompleted {
 		t.Fatalf("Status = %q, want completed", got.Status)
@@ -118,7 +118,7 @@ func assertCompletedFlusherStatus(t *testing.T, got insightUpsertParams) {
 	}
 }
 
-func assertCompletedFlusherCounts(t *testing.T, got insightUpsertParams) {
+func assertCompletedFlusherCounts(t *testing.T, got UpsertParams) {
 	t.Helper()
 	if got.ToolCalls != 2 || got.ToolFailures != 1 || !got.ToolCallsObserved || !got.ToolFailuresObserved {
 		t.Fatalf("tool counts wrong: calls=%d callsObserved=%t failures=%d failuresObserved=%t", got.ToolCalls, got.ToolCallsObserved, got.ToolFailures, got.ToolFailuresObserved)
@@ -131,7 +131,7 @@ func assertCompletedFlusherCounts(t *testing.T, got insightUpsertParams) {
 	}
 }
 
-func assertCompletedFlusherIdentity(t *testing.T, got insightUpsertParams) {
+func assertCompletedFlusherIdentity(t *testing.T, got UpsertParams) {
 	t.Helper()
 	if got.ProviderTurnID != "provider-1" {
 		t.Fatalf("ProviderTurnID = %q, want provider-1 (from MapTurn)", got.ProviderTurnID)
@@ -148,11 +148,11 @@ func TestFlusherMapsUnknownTerminalToStatusUnknown(t *testing.T) {
 	mem := moduleobs.NewMemory()
 	mem.RecordTerminal("t", observation.Terminal{Kind: observation.TerminalUnknown})
 
-	var got insightUpsertParams
+	var got UpsertParams
 	store := &fakeInsightStore{
-		upsertFn: func(_ context.Context, p insightUpsertParams) (insightRecord, error) {
+		upsertFn: func(_ context.Context, p UpsertParams) (Record, error) {
 			got = p
-			return insightRecord{}, nil
+			return Record{}, nil
 		},
 	}
 	f, _ := newTestFlusher(t, mem, store)
@@ -168,9 +168,9 @@ func TestFlusherRequeuesWhenObservationEmpty(t *testing.T) {
 
 	mem := moduleobs.NewMemory() // intentionally empty
 	store := &fakeInsightStore{
-		upsertFn: func(_ context.Context, _ insightUpsertParams) (insightRecord, error) {
+		upsertFn: func(_ context.Context, _ UpsertParams) (Record, error) {
 			t.Fatal("Upsert should not run when observation has no terminal")
-			return insightRecord{}, nil
+			return Record{}, nil
 		},
 	}
 	f, col := newTestFlusher(t, mem, store)
@@ -196,11 +196,11 @@ func TestFlusherUsesSignalTimestampProviderAndCodexApprovalObserved(t *testing.T
 	mem.RecordTerminal("local-1", observation.Terminal{Kind: observation.TerminalCompleted})
 	stamp := time.Unix(1_700_000_123, 0).UTC()
 
-	var got insightUpsertParams
+	var got UpsertParams
 	store := &fakeInsightStore{
-		upsertFn: func(_ context.Context, p insightUpsertParams) (insightRecord, error) {
+		upsertFn: func(_ context.Context, p UpsertParams) (Record, error) {
 			got = p
-			return insightRecord{}, nil
+			return Record{}, nil
 		},
 	}
 	f, _ := newTestFlusher(t, mem, store)
@@ -229,12 +229,12 @@ func TestFlusherDrainRunsOnCancel(t *testing.T) {
 
 	done := make(chan struct{}, 1)
 	store := &fakeInsightStore{
-		upsertFn: func(_ context.Context, _ insightUpsertParams) (insightRecord, error) {
+		upsertFn: func(_ context.Context, _ UpsertParams) (Record, error) {
 			select {
 			case done <- struct{}{}:
 			default:
 			}
-			return insightRecord{}, nil
+			return Record{}, nil
 		},
 	}
 	f, col := newTestFlusher(t, mem, store)
@@ -259,8 +259,8 @@ func TestFlusherLogsButIgnoresStoreError(t *testing.T) {
 	mem := moduleobs.NewMemory()
 	mem.RecordTerminal("t", observation.Terminal{Kind: observation.TerminalFailed})
 	store := &fakeInsightStore{
-		upsertFn: func(context.Context, insightUpsertParams) (insightRecord, error) {
-			return insightRecord{}, errors.New("db down")
+		upsertFn: func(context.Context, UpsertParams) (Record, error) {
+			return Record{}, errors.New("db down")
 		},
 	}
 	f, _ := newTestFlusher(t, mem, store)

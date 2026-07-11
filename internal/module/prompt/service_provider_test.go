@@ -71,22 +71,22 @@ type inMemoryPromptStore struct {
 }
 
 type promptTemplateMemoryStore struct {
-	templates   map[string]promptstore.PromptTemplate
-	versions    []promptstore.PromptTemplateVersion
-	listFilters []promptstore.ListFilter
+	templates   map[string]Template
+	versions    []TemplateVersion
+	listFilters []ListFilter
 	getCalls    int
 	upsertCalls int
 	deleteCalls int
 }
 
 type promptSectionMemoryStore struct {
-	sections                          map[int64]map[string]promptstore.PromptTemplateSection
+	sections                          map[int64]map[string]TemplateSection
 	listSectionsByTemplateIDsCalls    int
 	listSectionsByTemplateIDsCaptured []int64
 }
 
 type promptDraftMemoryStore struct {
-	drafts map[string]promptstore.PromptIntentDraft
+	drafts map[string]IntentDraft
 }
 
 type promptRecallMemoryStore struct {
@@ -104,31 +104,31 @@ type promptRecallMemoryStore struct {
 
 func newInMemoryPromptStore() *inMemoryPromptStore {
 	return &inMemoryPromptStore{
-		promptTemplateMemoryStore: promptTemplateMemoryStore{templates: map[string]promptstore.PromptTemplate{}},
-		promptSectionMemoryStore:  promptSectionMemoryStore{sections: map[int64]map[string]promptstore.PromptTemplateSection{}},
-		promptDraftMemoryStore:    promptDraftMemoryStore{drafts: map[string]promptstore.PromptIntentDraft{}},
+		promptTemplateMemoryStore: promptTemplateMemoryStore{templates: map[string]Template{}},
+		promptSectionMemoryStore:  promptSectionMemoryStore{sections: map[int64]map[string]TemplateSection{}},
+		promptDraftMemoryStore:    promptDraftMemoryStore{drafts: map[string]IntentDraft{}},
 	}
 }
 
-func promptIntentStoreForTest(store any) promptIntentStoreAdapter {
-	return promptIntentStoreAdapter{store: promptStoreFromDependency(store)}
+func promptIntentStoreForTest(store Store) promptIntentStoreAdapter {
+	return promptIntentStoreAdapter{store: store}
 }
 
-func (s *promptTemplateMemoryStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+func (s *promptTemplateMemoryStore) List(_ context.Context, filter ListFilter) ([]Template, error) {
 	s.listFilters = append(s.listFilters, filter)
-	items := make([]promptstore.PromptTemplate, 0, len(s.templates))
+	items := make([]Template, 0, len(s.templates))
 	for _, template := range s.templates {
 		items = append(items, template)
 	}
 	return items, nil
 }
 
-func (s *inMemoryPromptStore) WithTx(_ context.Context, fn func(promptstore.Store) error) error {
+func (s *inMemoryPromptStore) WithTx(_ context.Context, fn func(Store) error) error {
 	s.txCalls++
 	return fn(s)
 }
 
-func (s *promptTemplateMemoryStore) Get(_ context.Context, promptKey string) (*promptstore.PromptTemplate, error) {
+func (s *promptTemplateMemoryStore) Get(_ context.Context, promptKey string) (*Template, error) {
 	s.getCalls++
 	template, ok := s.templates[promptKey]
 	if !ok {
@@ -147,12 +147,12 @@ func (s *promptTemplateMemoryStore) Delete(_ context.Context, promptKey string) 
 	return nil
 }
 
-func (s *promptTemplateMemoryStore) InsertVersion(_ context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
+func (s *promptTemplateMemoryStore) InsertVersion(_ context.Context, version TemplateVersion) (int64, error) {
 	s.versions = append(s.versions, version)
 	return int64(len(s.versions)), nil
 }
 
-func (s *promptTemplateMemoryStore) CreatePromptTemplate(_ context.Context, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+func (s *promptTemplateMemoryStore) CreatePromptTemplate(_ context.Context, template Template) (*Template, error) {
 	if _, ok := s.templates[template.PromptKey]; ok {
 		return nil, platformdb.ErrConflict
 	}
@@ -169,7 +169,7 @@ func (s *promptTemplateMemoryStore) CreatePromptTemplate(_ context.Context, temp
 	return &copy, nil
 }
 
-func (s *promptTemplateMemoryStore) Upsert(_ context.Context, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+func (s *promptTemplateMemoryStore) Upsert(_ context.Context, template Template) (*Template, error) {
 	s.upsertCalls++
 	now := time.Unix(1_700_000_000, int64(s.upsertCalls)).UTC()
 	if current, ok := s.templates[template.PromptKey]; ok {
@@ -192,9 +192,9 @@ func (s *promptTemplateMemoryStore) Upsert(_ context.Context, template promptsto
 	return &copy, nil
 }
 
-func (s *promptSectionMemoryStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+func (s *promptSectionMemoryStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]TemplateSection, error) {
 	byKey := s.sections[templateID]
-	sections := make([]promptstore.PromptTemplateSection, 0, len(byKey))
+	sections := make([]TemplateSection, 0, len(byKey))
 	for _, section := range byKey {
 		sections = append(sections, section)
 	}
@@ -210,10 +210,10 @@ func (s *promptSectionMemoryStore) ListSectionsByTemplateID(_ context.Context, t
 	return sections, nil
 }
 
-func (s *promptSectionMemoryStore) ListSectionsByTemplateIDs(_ context.Context, templateIDs []int64) ([]promptstore.PromptTemplateSection, error) {
+func (s *promptSectionMemoryStore) ListSectionsByTemplateIDs(_ context.Context, templateIDs []int64) ([]TemplateSection, error) {
 	s.listSectionsByTemplateIDsCalls++
 	s.listSectionsByTemplateIDsCaptured = append([]int64(nil), templateIDs...)
-	sections := make([]promptstore.PromptTemplateSection, 0)
+	sections := make([]TemplateSection, 0)
 	for _, templateID := range templateIDs {
 		templateSections, err := s.ListSectionsByTemplateID(context.Background(), templateID)
 		if err != nil {
@@ -224,8 +224,8 @@ func (s *promptSectionMemoryStore) ListSectionsByTemplateIDs(_ context.Context, 
 	return sections, nil
 }
 
-func (s *inMemoryPromptStore) ListRecallSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
-	var sections []promptstore.PromptTemplateSection
+func (s *inMemoryPromptStore) ListRecallSections(_ context.Context, cwd string) ([]TemplateSection, error) {
+	var sections []TemplateSection
 	for _, template := range s.templates {
 		if !templateVisibleForCWD(template, cwd) {
 			continue
@@ -246,8 +246,8 @@ func (s *inMemoryPromptStore) ListRecallSections(_ context.Context, cwd string) 
 	return sections, nil
 }
 
-func (s *inMemoryPromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
-	var sections []promptstore.PromptTemplateSection
+func (s *inMemoryPromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]TemplateSection, error) {
+	var sections []TemplateSection
 	for _, template := range s.templates {
 		if template.AgentKey != "default_rule" || !templateVisibleForCWD(template, cwd) {
 			continue
@@ -265,7 +265,7 @@ func (s *inMemoryPromptStore) ListDefaultRuleSections(_ context.Context, cwd str
 	return sections, nil
 }
 
-func templateVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func templateVisibleForCWD(template Template, cwd string) bool {
 	cwd = strings.TrimSpace(cwd)
 	for _, tag := range promptstore.TemplateTags(template.Tags) {
 		tag = strings.TrimSpace(tag)
@@ -276,13 +276,13 @@ func templateVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool
 	return false
 }
 
-func (s *promptSectionMemoryStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
+func (s *promptSectionMemoryStore) UpsertSection(_ context.Context, section TemplateSection) (*TemplateSection, error) {
 	copy := section
 	if copy.ID == 0 {
 		copy.ID = int64(len(s.sections[section.TemplateID]) + 1)
 	}
 	if s.sections[section.TemplateID] == nil {
-		s.sections[section.TemplateID] = map[string]promptstore.PromptTemplateSection{}
+		s.sections[section.TemplateID] = map[string]TemplateSection{}
 	}
 	s.sections[section.TemplateID][section.SectionKey] = copy
 	return &copy, nil
@@ -292,13 +292,13 @@ func (s *promptSectionMemoryStore) DeleteSection(context.Context, int64, string)
 	return nil
 }
 
-func (s *promptDraftMemoryStore) UpsertIntentDraft(_ context.Context, draft promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
+func (s *promptDraftMemoryStore) UpsertIntentDraft(_ context.Context, draft IntentDraft) (*IntentDraft, error) {
 	s.drafts[draft.DraftKey] = draft
 	copy := draft
 	return &copy, nil
 }
 
-func (s *promptDraftMemoryStore) GetIntentDraft(_ context.Context, cwd, draftKey string) (*promptstore.PromptIntentDraft, error) {
+func (s *promptDraftMemoryStore) GetIntentDraft(_ context.Context, cwd, draftKey string) (*IntentDraft, error) {
 	draft, ok := s.drafts[draftKey]
 	if !ok || strings.TrimSpace(draft.CWD) != strings.TrimSpace(cwd) {
 		return nil, platformdb.ErrNotFound
@@ -307,8 +307,8 @@ func (s *promptDraftMemoryStore) GetIntentDraft(_ context.Context, cwd, draftKey
 	return &copy, nil
 }
 
-func (s *promptDraftMemoryStore) ListIntentDrafts(_ context.Context, filter promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
-	var drafts []promptstore.PromptIntentDraft
+func (s *promptDraftMemoryStore) ListIntentDrafts(_ context.Context, filter IntentDraftListFilter) ([]IntentDraft, error) {
+	var drafts []IntentDraft
 	for _, draft := range s.drafts {
 		if strings.TrimSpace(draft.CWD) != strings.TrimSpace(filter.CWD) {
 			continue
@@ -321,7 +321,7 @@ func (s *promptDraftMemoryStore) ListIntentDrafts(_ context.Context, filter prom
 	return drafts, nil
 }
 
-func (s *promptDraftMemoryStore) UpdateIntentDraftStatus(_ context.Context, cwd, draftKey, status string) (*promptstore.PromptIntentDraft, error) {
+func (s *promptDraftMemoryStore) UpdateIntentDraftStatus(_ context.Context, cwd, draftKey, status string) (*IntentDraft, error) {
 	draft, ok := s.drafts[draftKey]
 	if !ok || strings.TrimSpace(draft.CWD) != strings.TrimSpace(cwd) {
 		return nil, platformdb.ErrNotFound
@@ -355,9 +355,9 @@ func (s *promptRecallMemoryStore) UpsertRecallTopicTargetInCWD(_ context.Context
 	return nil
 }
 
-func scopedPromptTemplate(promptKey, cwd string) promptstore.PromptTemplate {
+func scopedPromptTemplate(promptKey, cwd string) Template {
 	now := time.Unix(1_700_000_000, 0).UTC()
-	return promptstore.PromptTemplate{
+	return Template{
 		PromptKey:   promptKey,
 		Title:       "Scoped Prompt",
 		AgentKey:    "main",
@@ -638,7 +638,7 @@ func TestPromptSectionDeleteInvalidatesRecallCatalog(t *testing.T) {
 	template := scopedPromptTemplate(promptKey, "/repo/a")
 	template.ID = 7
 	store.templates[promptKey] = template
-	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+	store.sections[7] = map[string]TemplateSection{
 		"recall_sqlc": {TemplateID: 7, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", Enabled: true},
 	}
 	rec := &recordingSectionInvalidator{}

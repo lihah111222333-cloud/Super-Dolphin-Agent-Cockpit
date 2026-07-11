@@ -13,7 +13,6 @@ import (
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
 func TestImportTextRPCStoresFileChunks(t *testing.T) {
@@ -102,7 +101,7 @@ func TestCreateRPCAliasesImportText(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if got.DocumentID != 101 || got.Status != datasourcev2store.StatusReady {
+	if got.DocumentID != 101 || got.Status != "ready" {
 		t.Fatalf("create result = %+v", got)
 	}
 }
@@ -413,8 +412,8 @@ func newDatasourceV2TestServerWithPickerVerifier(svc Service, verifier LocalFile
 	return server
 }
 
-func newDatasourceV2TestService(store datasourcev2store.Store) Service {
-	return NewService(newDatasourceV2StorePort(store))
+func newDatasourceV2TestService(store Store) Service {
+	return NewService(store)
 }
 
 func datasourceV2RPCWorkspaceSource(t *testing.T, name string, body []byte) string {
@@ -456,10 +455,10 @@ func (v *recordingLocalFilePickerTokenVerifier) VerifyDatasourceImportPickerToke
 type recordingDatasourceV2Store struct {
 	recordingDatasourceV2SemanticNoopStore
 
-	document datasourcev2store.Document
-	inserted []datasourcev2store.InsertChunkParams
-	chunks   []datasourcev2store.TextChunk
-	updated  datasourcev2store.UpdateDocumentParams
+	document Document
+	inserted []InsertChunkParams
+	chunks   []TextChunk
+	updated  UpdateDocumentParams
 
 	listKeyword string
 	listLimit   int32
@@ -468,13 +467,13 @@ type recordingDatasourceV2Store struct {
 
 func newRecordingDatasourceV2Store() *recordingDatasourceV2Store {
 	return &recordingDatasourceV2Store{
-		document: datasourcev2store.Document{
+		document: Document{
 			ID:         101,
 			SourcePath: "placeholder",
 			FileName:   "placeholder.txt",
 			Extension:  ".txt",
 			SizeBytes:  12,
-			Status:     datasourcev2store.StatusImporting,
+			Status:     "importing",
 		},
 	}
 }
@@ -485,11 +484,11 @@ func newReadyDatasourceV2Store() *recordingDatasourceV2Store {
 	store.document.FileName = "source.txt"
 	store.document.Extension = ".txt"
 	store.document.SizeBytes = 7
-	store.document.Status = datasourcev2store.StatusReady
+	store.document.Status = "ready"
 	store.document.ChunkCount = 1
 	store.document.TotalChars = 7
 	store.document.ContentHash = "sha256:abc"
-	store.chunks = []datasourcev2store.TextChunk{{
+	store.chunks = []TextChunk{{
 		ID:             501,
 		DocumentID:     101,
 		ChunkIndex:     0,
@@ -504,7 +503,7 @@ func newReadyDatasourceV2Store() *recordingDatasourceV2Store {
 	return store
 }
 
-func assertDatasourceV2InsertedVector(t *testing.T, chunk datasourcev2store.InsertChunkParams, wantTokens int32) {
+func assertDatasourceV2InsertedVector(t *testing.T, chunk InsertChunkParams, wantTokens int32) {
 	t.Helper()
 	if len(chunk.Embedding) != datasourceV2EmbeddingBytes {
 		t.Fatalf("embedding bytes = %d, want %d", len(chunk.Embedding), datasourceV2EmbeddingBytes)
@@ -520,14 +519,14 @@ func assertDatasourceV2InsertedVector(t *testing.T, chunk datasourcev2store.Inse
 	}
 }
 
-func (s *recordingDatasourceV2Store) WithTx(ctx context.Context, fn func(datasourcev2store.Store) error) error {
+func (s *recordingDatasourceV2Store) WithTx(ctx context.Context, fn func(Store) error) error {
 	return fn(s)
 }
 
 func (s *recordingDatasourceV2Store) UpsertImporting(
 	_ context.Context,
-	params datasourcev2store.UpsertDocumentParams,
-) (*datasourcev2store.Document, error) {
+	params UpsertDocumentParams,
+) (*Document, error) {
 	doc := s.document
 	doc.SourcePath = params.SourcePath
 	doc.FileName = params.FileName
@@ -542,17 +541,17 @@ func (s *recordingDatasourceV2Store) DeleteChunks(context.Context, int64) error 
 	return nil
 }
 
-func (s *recordingDatasourceV2Store) InsertChunk(_ context.Context, params datasourcev2store.InsertChunkParams) error {
+func (s *recordingDatasourceV2Store) InsertChunk(_ context.Context, params InsertChunkParams) error {
 	s.inserted = append(s.inserted, params)
 	return nil
 }
 
 func (s *recordingDatasourceV2Store) MarkReady(
 	_ context.Context,
-	params datasourcev2store.MarkReadyParams,
-) (*datasourcev2store.Document, error) {
+	params MarkReadyParams,
+) (*Document, error) {
 	doc := s.document
-	doc.Status = datasourcev2store.StatusReady
+	doc.Status = "ready"
 	doc.ContentHash = params.ContentHash
 	doc.ChunkCount = params.ChunkCount
 	doc.TotalChars = params.TotalChars
@@ -561,24 +560,24 @@ func (s *recordingDatasourceV2Store) MarkReady(
 
 func (s *recordingDatasourceV2Store) ListDocuments(
 	_ context.Context,
-	params datasourcev2store.ListDocumentsParams,
-) ([]datasourcev2store.Document, error) {
+	params ListDocumentsParams,
+) ([]Document, error) {
 	s.listKeyword = params.Keyword
 	s.listLimit = params.Limit
-	return []datasourcev2store.Document{s.document}, nil
+	return []Document{s.document}, nil
 }
 
-func (s *recordingDatasourceV2Store) GetDocument(context.Context, int64) (*datasourcev2store.Document, error) {
+func (s *recordingDatasourceV2Store) GetDocument(context.Context, int64) (*Document, error) {
 	doc := s.document
 	return &doc, nil
 }
 
 func (s *recordingDatasourceV2Store) ListChunksPage(
 	_ context.Context,
-	params datasourcev2store.ListChunksParams,
-) (datasourcev2store.TextChunkPage, error) {
+	params ListChunksParams,
+) (TextChunkPage, error) {
 	limit := int(params.Limit)
-	pageChunks := make([]datasourcev2store.TextChunk, 0, limit+1)
+	pageChunks := make([]TextChunk, 0, limit+1)
 	for _, chunk := range s.chunks {
 		if chunk.DocumentID == params.DocumentID && chunk.ChunkIndex > params.Cursor {
 			pageChunks = append(pageChunks, chunk)
@@ -595,8 +594,8 @@ func (s *recordingDatasourceV2Store) ListChunksPage(
 	if hasMore && len(pageChunks) > 0 {
 		nextCursor = pageChunks[len(pageChunks)-1].ChunkIndex
 	}
-	return datasourcev2store.TextChunkPage{
-		Chunks:     append([]datasourcev2store.TextChunk(nil), pageChunks...),
+	return TextChunkPage{
+		Chunks:     append([]TextChunk(nil), pageChunks...),
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
 	}, nil
@@ -606,15 +605,15 @@ type recordingDatasourceV2SemanticNoopStore struct{}
 
 func (recordingDatasourceV2SemanticNoopStore) SearchChunks(
 	context.Context,
-	datasourcev2store.SearchChunksParams,
-) ([]datasourcev2store.SemanticChunk, error) {
+	SearchChunksParams,
+) ([]SemanticChunk, error) {
 	return nil, errors.New("unexpected datasource_v2 RPC test semantic search")
 }
 
 func (s *recordingDatasourceV2Store) UpdateDocument(
 	_ context.Context,
-	params datasourcev2store.UpdateDocumentParams,
-) (*datasourcev2store.Document, error) {
+	params UpdateDocumentParams,
+) (*Document, error) {
 	s.updated = params
 	doc := s.document
 	doc.ID = params.DocumentID

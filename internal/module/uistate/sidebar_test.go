@@ -235,7 +235,7 @@ func TestApplyBindingToThreadRuntimeBackfillsProviderIdentity(t *testing.T) {
 	}
 	applyBindingToThreadRuntime(
 		ThreadSummary{ID: "thread-1", AgentID: "agent-1"},
-		map[string]bindingEntry{
+		map[string]BindingEntry{
 			"agent-1": {
 				AgentID:          "agent-1",
 				Provider:         "codex",
@@ -276,7 +276,7 @@ func TestApplyBindingToThreadRuntimeDoesNotBackfillProviderIdentityWithoutHistor
 	}
 	applyBindingToThreadRuntime(
 		ThreadSummary{ID: "thread-1", AgentID: "agent-1"},
-		map[string]bindingEntry{
+		map[string]BindingEntry{
 			"agent-1": {
 				AgentID:          "agent-1",
 				Provider:         "codex",

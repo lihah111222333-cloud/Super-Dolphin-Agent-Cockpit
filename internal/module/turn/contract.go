@@ -3,11 +3,50 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
+
+// ErrDedupeNotFound 表示没有可复用的 live 去重记录。
+var ErrDedupeNotFound = errors.New("turn dedupe: no live registry row")
+
+// DedupeStore 是 turn 服务跨进程去重恢复所需的最小持久化端口。
+type DedupeStore interface {
+	Upsert(ctx context.Context, params DedupeUpsertParams) error
+	BindProviderTurnID(ctx context.Context, params DedupeBindProviderTurnIDParams) error
+	MarkTerminal(ctx context.Context, dedupeKey string, now time.Time) error
+	GetLive(ctx context.Context, dedupeKey string) (DedupeEntry, error)
+}
+
+// DedupeEntry 是 registry live 行的领域投影。
+type DedupeEntry struct {
+	DedupeKey      string
+	LocalTurnID    string
+	ProviderTurnID string
+	ThreadID       string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	TerminalAt     time.Time
+}
+
+// DedupeUpsertParams 承载 dedupe key 与本地 turn ID 的写入参数。
+type DedupeUpsertParams struct {
+	DedupeKey   string
+	LocalTurnID string
+	ThreadID    string
+	Now         time.Time
+}
+
+// DedupeBindProviderTurnIDParams 承载 provider turn ID 回写参数。
+type DedupeBindProviderTurnIDParams struct {
+	DedupeKey      string
+	ProviderTurnID string
+	Now            time.Time
+}
 
 // Service 定义 turn 生命周期的核心接口：准备、提交、转向、中断、强制完成和状态追踪。
 type Service interface {
@@ -19,8 +58,8 @@ type Service interface {
 	ForceCompleteTurn(ctx context.Context, session contract.Session) error
 	CleanupThread(ctx context.Context, threadID, reason string) error
 	TrackTurn(ctx context.Context, localID string) (TurnStatus, error)
-	// LookupByDedupeKey 返回当前进程内已登记的非终态 turn 状态。
-	// ok=false 只表示本进程未见过该 dedupe key；去重登记表不跨进程持久化，重启后调用方必须按未提交处理。
+	// LookupByDedupeKey 先查询当前进程 tracker，再查询可选持久 registry 中的非终态 turn 状态。
+	// ok=false 表示两者均无 live 记录，或当前进程未注入持久端口且 tracker 未命中。
 	LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error)
 }
 

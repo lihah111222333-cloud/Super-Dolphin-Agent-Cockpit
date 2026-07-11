@@ -41,7 +41,7 @@ func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string,
 // 这个 helper 只做 run 行的可见状态更新；CAS 失败会记录 transition，调用方仍继续释放 job claim。
 func (s *Scheduler) casLogPublish(
 	ctx context.Context,
-	params casRunStatusParams,
+	params CASRunStatusParams,
 	transition, jobID, runID, status, turnID, errStr string,
 	scheduledAt time.Time,
 ) {
