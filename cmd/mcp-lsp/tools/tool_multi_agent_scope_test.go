@@ -34,6 +34,8 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
 	assertToolManagerDiagnostics(t, managerB, 0, "", "", "")
+	assertToolManagerReopenCalls(t, managerA, 1)
+	assertToolManagerReopenCalls(t, managerB, 0)
 
 	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{
 		"action":    "diagnostics",
@@ -41,6 +43,8 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
 	assertToolManagerDiagnostics(t, managerB, 1, "agent-b", repo, evilRoot)
+	assertToolManagerReopenCalls(t, managerA, 1)
+	assertToolManagerReopenCalls(t, managerB, 1)
 	if managerA.snapshot().lastDiagnosticsScope.ManagerKey == managerB.snapshot().lastDiagnosticsScope.ManagerKey {
 		t.Fatalf("two agents in one repo shared ManagerKey %q", managerA.snapshot().lastDiagnosticsScope.ManagerKey)
 	}
@@ -61,9 +65,11 @@ func TestAgentStopCleansScopeWithoutKillingOtherAgent(t *testing.T) {
 	resolver.clearCurrent("agent-a", "thread-1")
 	runScopedDiagnostics(t, handler, repo, "agent-a", map[string]any{"action": "diagnostics"})
 	assertToolManagerDiagnostics(t, managerA, 0, "", "", "")
+	assertToolManagerReopenCalls(t, managerA, 0)
 
 	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{"action": "diagnostics"})
 	assertToolManagerDiagnostics(t, managerB, 1, "agent-b", repo, "")
+	assertToolManagerReopenCalls(t, managerB, 0)
 	if got := managerB.snapshot().closeCalls; got != 0 {
 		t.Fatalf("other agent manager was closed during stopped-scope cleanup: closeCalls=%d", got)
 	}
@@ -157,22 +163,26 @@ type multiAgentToolManager struct {
 	name                 string
 	defaultURI           string
 	diagnosticsCalls     int
+	reopenCalls          int
 	waitCalls            int
 	bootstrapCalls       int
 	closeCalls           int
 	lastDiagnosticsURI   []string
 	lastDiagnosticsOK    bool
 	lastDiagnosticsScope lspmanager.ResolvedToolScope
+	lastReopenScope      lspmanager.ResolvedToolScope
 }
 
 type multiAgentToolManagerSnapshot struct {
 	diagnosticsCalls     int
+	reopenCalls          int
 	waitCalls            int
 	bootstrapCalls       int
 	closeCalls           int
 	lastDiagnosticsURIs  []string
 	lastDiagnosticsOK    bool
 	lastDiagnosticsScope lspmanager.ResolvedToolScope
+	lastReopenScope      lspmanager.ResolvedToolScope
 }
 
 func newMultiAgentToolManager(name, defaultURI string) *multiAgentToolManager {
@@ -184,12 +194,14 @@ func (m *multiAgentToolManager) snapshot() multiAgentToolManagerSnapshot {
 	defer m.mu.Unlock()
 	return multiAgentToolManagerSnapshot{
 		diagnosticsCalls:     m.diagnosticsCalls,
+		reopenCalls:          m.reopenCalls,
 		waitCalls:            m.waitCalls,
 		bootstrapCalls:       m.bootstrapCalls,
 		closeCalls:           m.closeCalls,
 		lastDiagnosticsURIs:  append([]string(nil), m.lastDiagnosticsURI...),
 		lastDiagnosticsOK:    m.lastDiagnosticsOK,
 		lastDiagnosticsScope: m.lastDiagnosticsScope,
+		lastReopenScope:      m.lastReopenScope,
 	}
 }
 
@@ -204,6 +216,15 @@ func (m *multiAgentToolManager) BootstrapDocument(context.Context, string) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.bootstrapCalls++
+	return nil
+}
+
+func (m *multiAgentToolManager) ReopenDocumentForDiagnostics(ctx context.Context, _ string) error {
+	scope, _ := lspmanager.ResolvedToolScopeFromContext(ctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reopenCalls++
+	m.lastReopenScope = scope
 	return nil
 }
 
@@ -295,5 +316,16 @@ func assertToolManagerDiagnostics(t *testing.T, mgr *multiAgentToolManager, want
 	}
 	if strings.Contains(scope.ManagerKey, "agent-forged") || (forgedCWD != "" && strings.Contains(scope.ManagerKey, forgedCWD)) {
 		t.Fatalf("%s ManagerKey includes forged argument data: %q", mgr.name, scope.ManagerKey)
+	}
+}
+
+func assertToolManagerReopenCalls(t *testing.T, mgr *multiAgentToolManager, want int) {
+	t.Helper()
+	snapshot := mgr.snapshot()
+	if snapshot.reopenCalls != want {
+		t.Fatalf("%s diagnostics reopen calls = %d, want %d", mgr.name, snapshot.reopenCalls, want)
+	}
+	if want > 0 && snapshot.lastReopenScope.ManagerKey != snapshot.lastDiagnosticsScope.ManagerKey {
+		t.Fatalf("%s reopen ManagerKey = %q, diagnostics ManagerKey = %q", mgr.name, snapshot.lastReopenScope.ManagerKey, snapshot.lastDiagnosticsScope.ManagerKey)
 	}
 }

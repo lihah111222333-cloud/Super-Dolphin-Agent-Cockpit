@@ -43,6 +43,7 @@ type snapshotSyncRequest struct {
 	cached                  bool
 	previous                bootstrapStatus
 	openOnly                bool
+	forceReopen             bool
 	refreshStaleDiagnostics bool
 	scope                   ResolvedLSPToolScope
 }

@@ -116,13 +116,14 @@ type manager struct {
 	closed     bool                        // manager 关闭后禁止再创建客户端。
 	workspaces map[string]*workspaceClient // workspace key 到客户端状态。
 
-	diagGeneration   atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
-	diagMu           sync.RWMutex                  // 保护 diagnostics。
-	diagnostics      map[string]diagnosticSnapshot // scope+URI 维度的诊断快照。
-	diagnosticEpochs map[string]uint64             // scope+URI 维度的文档诊断 epoch。
-	diagInitial      time.Duration                 // 诊断稳定等待前置延迟。
-	diagPoll         time.Duration                 // 诊断稳定等待轮询间隔。
-	diagMaxWait      time.Duration                 // 诊断稳定等待最大时长。
+	diagGeneration     atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
+	diagMu             sync.RWMutex                  // 保护 diagnostics。
+	diagnostics        map[string]diagnosticSnapshot // scope+URI 维度的诊断快照。
+	diagnosticEpochs   map[string]uint64             // scope+URI 维度的文档诊断 epoch。
+	diagInitial        time.Duration                 // 诊断稳定等待前置延迟。
+	diagPoll           time.Duration                 // 诊断稳定等待轮询间隔。
+	diagMaxWait        time.Duration                 // 诊断稳定等待最大时长。
+	diagnosticReopenMu sync.Mutex                    // 串行化诊断专用 close/open 与版本推进。
 
 	explicitOpenMu sync.RWMutex        // 保护 explicitlyOpen。
 	explicitlyOpen map[string]struct{} // 工具主动打开且尚未关闭的文档 URI。

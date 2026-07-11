@@ -424,6 +424,41 @@ func (m *manager) DidClose(ctx context.Context, uri string) error {
 	return nil
 }
 
+// ReopenDocumentForDiagnostics 从磁盘读取当前文档，并用同一 client 强制发送 didClose/didOpen。
+// 调用方应先完成正常 bootstrap；失败时保留诊断缺失状态，禁止返回旧快照。
+func (m *manager) ReopenDocumentForDiagnostics(ctx context.Context, uri string) error {
+	m.diagnosticReopenMu.Lock()
+	defer m.diagnosticReopenMu.Unlock()
+
+	ref, cfg, err := m.bootstrapTarget(ctx, uri)
+	if err != nil {
+		return err
+	}
+	snapshot, err := readDocumentSnapshot(ref)
+	if err != nil {
+		return err
+	}
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
+	if err := coordinator.reopenSnapshotForDiagnostics(ctx, m, cfg, snapshot); err != nil {
+		return fmt.Errorf("reopen %s for diagnostics: %w", ref.uri, err)
+	}
+	return nil
+}
+
+func (m *manager) invalidateDocumentDiagnosticsForReopen(scope ResolvedLSPToolScope, uri string) {
+	key := diagnosticStoreKeyFor(scope, uri).String()
+	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
+	if m.diagnosticEpochs == nil {
+		m.diagnosticEpochs = make(map[string]uint64)
+	}
+	m.diagnosticEpochs[key]++
+	delete(m.diagnostics, key)
+}
+
 func fullDocumentChangeText(changes []protocol.TextDocumentContentChangeEvent) (string, bool) {
 	if len(changes) != 1 {
 		return "", false

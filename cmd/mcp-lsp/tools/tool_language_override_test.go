@@ -67,12 +67,20 @@ type languageOverrideManager struct {
 	didOpenLanguageID string
 	didOpenScope      lspmanager.ResolvedToolScope
 	didOpenErr        error
+	reopenURI         string
+	reopenScope       lspmanager.ResolvedToolScope
 }
 
 func (m *languageOverrideManager) DidOpen(ctx context.Context, _ string, languageID string, _ int, _ string) error {
 	m.didOpenLanguageID = languageID
 	m.didOpenScope, _ = lspmanager.ResolvedToolScopeFromContext(ctx)
 	return m.didOpenErr
+}
+
+func (m *languageOverrideManager) ReopenDocumentForDiagnostics(ctx context.Context, uri string) error {
+	m.reopenURI = uri
+	m.reopenScope, _ = lspmanager.ResolvedToolScopeFromContext(ctx)
+	return nil
 }
 
 func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
@@ -123,5 +131,39 @@ func TestOpenFileReturnsErrorWhenDidOpenFails(t *testing.T) {
 	_, err := handlerBase{registry: registry}.openFile(ctx, path, "")
 	if err == nil || !strings.Contains(err.Error(), "did open boom") {
 		t.Fatalf("openFile() error = %v, want DidOpen failure", err)
+	}
+}
+
+func TestDiagnosticsLanguageOverrideReopensDocumentWithResolvedScope(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(path, []byte("function staleName() {}\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &languageOverrideManager{}
+	registry := &languageOverrideRegistry{manager: manager}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	payload, err := json.Marshal(map[string]any{
+		"action":      "diagnostics",
+		"file_path":   "sample.txt",
+		"language_id": "javascript",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload); err != nil {
+		t.Fatalf("diagnostics with language_id returned error: %v", err)
+	}
+	canonicalPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("resolve canonical fixture path: %v", err)
+	}
+	wantURI := "file://" + canonicalPath
+	if manager.reopenURI != wantURI {
+		t.Fatalf("reopen URI = %q, want %q", manager.reopenURI, wantURI)
+	}
+	if manager.reopenScope.LanguageID != "javascript" || manager.reopenScope.ManagerKey != "manager:javascript" {
+		t.Fatalf("reopen scope = %#v, want javascript manager scope", manager.reopenScope)
 	}
 }

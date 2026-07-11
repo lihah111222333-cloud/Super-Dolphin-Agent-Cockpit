@@ -72,6 +72,9 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, input fileTo
 	if source == appManagedDiagnosticsNoBootstrapSource {
 		return emptyDiagnosticsForURIs(uris), source, appManagedDiagnosticsNoBootstrapMessage, nil
 	}
+	if err := h.reopenExplicitDiagnosticTargets(ctx, input, uris); err != nil {
+		return nil, "", "", err
+	}
 	waitResult, err := h.waitDiagnosticsWithStartupRecovery(ctx, uris, existingURIs)
 	if err != nil {
 		return nil, "", "", err
@@ -93,6 +96,13 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, input fileTo
 	return items, source, message, nil
 }
 
+func (h handlerBase) reopenExplicitDiagnosticTargets(ctx context.Context, input fileToolInput, uris []string) error {
+	if len(collectDiagnosticTargetPaths(input)) == 0 {
+		return nil
+	}
+	return lspmanager.ReopenDocumentsForDiagnostics(ctx, h.registry, uris)
+}
+
 func shouldUseSingleFileLanguageOverrideDiagnostics(input fileToolInput, targets []diagnosticTarget) bool {
 	return normalizeLanguageIDOverride(input.LanguageID) != "" && strings.TrimSpace(input.FilePath) != "" && len(input.FilePaths) == 0 && len(targets) == 1
 }
@@ -105,6 +115,9 @@ func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Cont
 	}
 	manager, err := managerForFile(ctx, h.registry, target.AbsPath, input.LanguageID)
 	if err != nil {
+		return nil, "", "", err
+	}
+	if err := reopenManagerDocumentForDiagnostics(ctx, manager, target.URI); err != nil {
 		return nil, "", "", err
 	}
 	if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
@@ -122,6 +135,19 @@ func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Cont
 	filtered := diagnosticsForTargetURI(target.URI, items)
 	message := diagnosticsMessageAfterFetch("", []string{target.URI}, filtered)
 	return filtered, "language_override", message, nil
+}
+
+// reopenManagerDocumentForDiagnostics 在显式语言覆盖路径中强制重开目标文档。
+// 该路径绕过 registry 的常规诊断流程，因此直接要求已解析 scope 的 manager 执行重开。
+func reopenManagerDocumentForDiagnostics(ctx context.Context, manager lspmanager.Manager, uri string) error {
+	reopener, ok := manager.(lspmanager.DiagnosticDocumentReopener)
+	if !ok {
+		return fmt.Errorf("%w: diagnostics document reopen", lspmanager.ErrUnsupportedCapability)
+	}
+	if err := reopener.ReopenDocumentForDiagnostics(ctx, uri); err != nil {
+		return fmt.Errorf("reopen diagnostics document %s: %w", uri, err)
+	}
+	return nil
 }
 
 func diagnosticsForTargetURI(uri string, items []protocol.PublishDiagnosticsParams) []protocol.PublishDiagnosticsParams {

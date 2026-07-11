@@ -273,6 +273,30 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 	return nil
 }
 
+// reopenSnapshotForDiagnostics 强制 close/open 当前磁盘快照，并在成功后记录新的版本与 ready 状态。
+func (c *bootstrapCoordinator) reopenSnapshotForDiagnostics(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
+	scope, err := m.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	key := scope.cacheKey(snapshot.ref.languageID, snapshot.ref.uri)
+	version := 1
+	if record, ok := c.cache.Load(key); ok && record.Version > 0 {
+		version = record.Version + 1
+	}
+	m.invalidateDocumentDiagnosticsForReopen(scope, snapshot.ref.uri)
+	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
+		key:         key,
+		version:     version,
+		forceReopen: true,
+		scope:       scope,
+	}); err != nil {
+		c.states.fail(scope.bootstrapKey(), snapshot.ref.uri, err)
+		return err
+	}
+	return nil
+}
+
 // openSnapshotVersion 为 open-only 同步选择下一次文档版本。
 // 缓存内容不匹配时会删除旧记录，防止 server 接收与缓存不一致的版本序列。
 func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot documentSnapshot) (int, error) {
@@ -289,7 +313,12 @@ func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot doc
 	return version, nil
 }
 
+// applyBootstrapUpdate 按同步模式发送 didOpen、didChange 或诊断专用的 didClose/didOpen。
+// forceReopen 必须优先处理，避免普通缓存判断把显式诊断退回到可能保留旧符号的 didChange。
 func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentSnapshot, req snapshotSyncRequest) error {
+	if req.forceReopen {
+		return reopenSnapshot(ctx, client, snapshot, req.version)
+	}
 	if req.refreshStaleDiagnostics || req.cached && (req.previous == bootstrapReady || req.previous == bootstrapStale) {
 		return client.DidChange(ctx, snapshot.ref.uri, req.version, []protocol.TextDocumentContentChangeEvent{{
 			Text: snapshot.text,

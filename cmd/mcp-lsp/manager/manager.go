@@ -81,6 +81,12 @@ type DocumentLifecycleManager interface {
 	BootstrapDocumentOpenOnly(ctx context.Context, uri string) error
 }
 
+// DiagnosticDocumentReopener 为显式诊断提供强制文档重开能力。
+// 实现必须让调用方后续只观察到重开后的诊断，不能继续暴露旧快照。
+type DiagnosticDocumentReopener interface {
+	ReopenDocumentForDiagnostics(ctx context.Context, uri string) error
+}
+
 // DiagnosticsManager 聚合诊断读取和代际推进能力。
 // generation 用来隔离旧诊断，防止异步发布覆盖新一轮结果。
 type DiagnosticsManager interface {

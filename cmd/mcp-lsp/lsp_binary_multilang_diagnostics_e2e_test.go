@@ -77,6 +77,47 @@ func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E
 	}
 }
 
+func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeServersBinDir := writeFakeMultilangDiagnosticsLangservers(t)
+	root := t.TempDir()
+	writeBinaryColdStartFile(t, root, "package.json", `{"name":"diagnostics-reopen"}`)
+	target := writeBinaryColdStartFile(t, root, "app.js", "function staleName() { return 1 }\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, nil)
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	first := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, first, "initial stale-name diagnostics")
+	firstMessage := decodeDiagnosticsStructuredContent(t, first.Result.StructuredContent).FirstMessageForFile(t, target)
+	if !strings.Contains(firstMessage, "staleName") {
+		t.Fatalf("initial diagnostics message = %q, want staleName; stderr=%s", firstMessage, client.stderrString())
+	}
+
+	if err := os.WriteFile(target, []byte("function freshName() { return 2 }\n"), 0o600); err != nil {
+		t.Fatalf("rewrite diagnostics target: %v", err)
+	}
+	second := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, second, "fresh-name diagnostics after rewrite")
+	secondMessage := decodeDiagnosticsStructuredContent(t, second.Result.StructuredContent).FirstMessageForFile(t, target)
+	if !strings.Contains(secondMessage, "freshName") || strings.Contains(secondMessage, "staleName") {
+		t.Fatalf("diagnostics after rewrite = %q, want freshName without staleName; stderr=%s", secondMessage, client.stderrString())
+	}
+}
+
 func TestFakeMultilangDiagnosticsLangserverHelper(t *testing.T) {
 	if os.Getenv(fakeMultilangDiagnosticsEnv) != "1" {
 		return
@@ -211,7 +252,7 @@ func runFakeMultilangDiagnosticsLangserver() {
 	defer goroutines.Wait()
 	server := &fakeMultilangDiagnosticsServer{
 		writer: &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines},
-		opened: make(map[string]string),
+		opened: make(map[string]fakeMultilangOpenedDocument),
 	}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
@@ -238,13 +279,25 @@ func runFakeMultilangDiagnosticsLangserver() {
 type fakeMultilangDiagnosticsServer struct {
 	mu     sync.Mutex
 	writer *fakeLSPWriter
-	opened map[string]string
+	opened map[string]fakeMultilangOpenedDocument
+}
+
+type fakeMultilangOpenedDocument struct {
+	languageID string
+	text       string
 }
 
 type fakeMultilangDidOpenParams struct {
 	TextDocument struct {
 		URI        string `json:"uri"`
 		LanguageID string `json:"languageId"`
+		Text       string `json:"text"`
+	} `json:"textDocument"`
+}
+
+type fakeMultilangDidCloseParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
 	} `json:"textDocument"`
 }
 
@@ -257,6 +310,15 @@ type fakeMultilangDiagnosticParams struct {
 func (s *fakeMultilangDiagnosticsServer) handleNotification(req fakeLSPRequest) bool {
 	if len(bytes.TrimSpace(req.ID)) != 0 {
 		return false
+	}
+	if req.Method == "textDocument/didClose" {
+		var params fakeMultilangDidCloseParams
+		if err := json.Unmarshal(req.Params, &params); err == nil {
+			s.mu.Lock()
+			delete(s.opened, strings.TrimSpace(params.TextDocument.URI))
+			s.mu.Unlock()
+		}
+		return true
 	}
 	if req.Method != "textDocument/didOpen" {
 		return true
@@ -271,7 +333,12 @@ func (s *fakeMultilangDiagnosticsServer) handleNotification(req fakeLSPRequest) 
 		return true
 	}
 	s.mu.Lock()
-	s.opened[uri] = languageID
+	if _, alreadyOpen := s.opened[uri]; !alreadyOpen {
+		s.opened[uri] = fakeMultilangOpenedDocument{
+			languageID: languageID,
+			text:       params.TextDocument.Text,
+		}
+	}
 	s.mu.Unlock()
 	return true
 }
@@ -292,10 +359,10 @@ func (s *fakeMultilangDiagnosticsServer) result(req fakeLSPRequest) any {
 		if delay := fakeMultilangDiagnosticDelay(); delay > 0 {
 			time.Sleep(delay)
 		}
-		uri, languageID := s.diagnosticTarget(req)
+		uri, document := s.diagnosticTarget(req)
 		return map[string]any{
 			"kind":  "full",
-			"items": fakeMultilangDiagnostics(uri, languageID),
+			"items": fakeMultilangDiagnostics(uri, document),
 		}
 	case "shutdown":
 		return nil
@@ -304,17 +371,17 @@ func (s *fakeMultilangDiagnosticsServer) result(req fakeLSPRequest) any {
 	}
 }
 
-func (s *fakeMultilangDiagnosticsServer) diagnosticTarget(req fakeLSPRequest) (string, string) {
+func (s *fakeMultilangDiagnosticsServer) diagnosticTarget(req fakeLSPRequest) (string, fakeMultilangOpenedDocument) {
 	var params fakeMultilangDiagnosticParams
 	_ = json.Unmarshal(req.Params, &params)
 	uri := strings.TrimSpace(params.TextDocument.URI)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	languageID := strings.TrimSpace(s.opened[uri])
-	if languageID == "" {
-		languageID = "unknown"
+	document := s.opened[uri]
+	if strings.TrimSpace(document.languageID) == "" {
+		document.languageID = "unknown"
 	}
-	return uri, languageID
+	return uri, document
 }
 
 func fakeMultilangDiagnosticDelay() time.Duration {
@@ -330,15 +397,15 @@ func fakeMultilangDiagnosticDelay() time.Duration {
 	return delay
 }
 
-func fakeMultilangDiagnostics(uri, languageID string) []map[string]any {
+func fakeMultilangDiagnostics(uri string, document fakeMultilangOpenedDocument) []map[string]any {
 	return []map[string]any{{
 		"range": map[string]any{
 			"start": map[string]any{"line": 0, "character": 0},
 			"end":   map[string]any{"line": 0, "character": 1},
 		},
 		"severity": 1,
-		"source":   "fake-" + languageID,
-		"message":  fmt.Sprintf("fake cold-start diagnostic for %s in %s", languageID, filepath.Base(uri)),
+		"source":   "fake-" + document.languageID,
+		"message":  fmt.Sprintf("fake cold-start diagnostic for %s in %s: %s", document.languageID, filepath.Base(uri), strings.TrimSpace(document.text)),
 		"code":     "cold-start",
 	}}
 }

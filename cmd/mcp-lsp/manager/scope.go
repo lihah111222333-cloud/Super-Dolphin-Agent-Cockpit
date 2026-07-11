@@ -225,6 +225,15 @@ func (m *resolvedScopeDocumentLifecycle) BootstrapDocumentOpenOnly(ctx context.C
 	return m.manager.BootstrapDocumentOpenOnly(m.scoped(ctx), uri)
 }
 
+// ReopenDocumentForDiagnostics 注入 resolved scope 后强制重开诊断文档。
+func (m *resolvedScopeDocumentLifecycle) ReopenDocumentForDiagnostics(ctx context.Context, uri string) error {
+	reopener, ok := m.manager.(DiagnosticDocumentReopener)
+	if !ok {
+		return ErrUnsupportedCapability
+	}
+	return reopener.ReopenDocumentForDiagnostics(m.scoped(ctx), uri)
+}
+
 // Diagnostics 汇总匹配 manager 返回的诊断。
 func (m *resolvedScopeDiagnostics) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	return m.manager.Diagnostics(m.scoped(ctx), uris)

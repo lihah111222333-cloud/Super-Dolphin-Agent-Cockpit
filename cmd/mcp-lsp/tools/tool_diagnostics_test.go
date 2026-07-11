@@ -29,6 +29,13 @@ type diagnosticsTestRegistry struct {
 	waitFn            func(call int, uris []string) error
 	waitURIs          [][]string
 	waitCalls         int
+	reopenURIs        [][]string
+}
+
+func (r *diagnosticsTestRegistry) ReopenDocumentsForDiagnostics(_ context.Context, uris []string) error {
+	r.callOrder = append(r.callOrder, "reopen")
+	r.reopenURIs = append(r.reopenURIs, append([]string(nil), uris...))
+	return nil
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (lspmanager.Manager, error) {

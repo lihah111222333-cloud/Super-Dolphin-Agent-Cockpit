@@ -126,6 +126,11 @@ type Registry interface {
 	Close() error
 }
 
+// DiagnosticsReopenRegistry 为显式 diagnostics 请求按 manager 重开目标文档。
+type DiagnosticsReopenRegistry interface {
+	ReopenDocumentsForDiagnostics(ctx context.Context, uris []string) error
+}
+
 // languageConfig 保存单个 language id 的 manager 绑定和安装策略。
 // scoped 非空时由生产 ManagerPool 决定具体 workspace/shard manager。
 type languageConfig struct {
@@ -410,6 +415,34 @@ func (r *dynamicRegistry) Diagnostics(ctx context.Context, uris []string) ([]pro
 		all = append(all, items...)
 	}
 	return all, nil
+}
+
+// ReopenDocumentsForDiagnostics 按 manager 分组强制重开显式诊断目标。
+// 测试 registry 可实现窄接口；生产 registry 直接复用内部诊断路由，避免扩大核心结构体方法面。
+func ReopenDocumentsForDiagnostics(ctx context.Context, registry Registry, uris []string) error {
+	if reopener, ok := registry.(DiagnosticsReopenRegistry); ok {
+		return reopener.ReopenDocumentsForDiagnostics(ctx, uris)
+	}
+	r, ok := registry.(*dynamicRegistry)
+	if !ok {
+		return fmt.Errorf("%w: diagnostics document reopen registry", ErrUnsupportedCapability)
+	}
+	byManager, err := r.managersForDiagnostics(ctx, uris)
+	if err != nil {
+		return err
+	}
+	for manager, subset := range byManager {
+		reopener, ok := manager.(DiagnosticDocumentReopener)
+		if !ok {
+			return fmt.Errorf("%w: diagnostics document reopen", ErrUnsupportedCapability)
+		}
+		for _, uri := range subset {
+			if err := reopener.ReopenDocumentForDiagnostics(ctx, uri); err != nil {
+				return fmt.Errorf("reopen diagnostics document %s: %w", uri, err)
+			}
+		}
+	}
+	return nil
 }
 
 // WaitDiagnosticsStable 等待目标 URI 所属 manager 的诊断稳定。
