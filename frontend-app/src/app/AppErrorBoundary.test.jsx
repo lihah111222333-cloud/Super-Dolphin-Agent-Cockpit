@@ -19,6 +19,11 @@ describe('AppErrorBoundary', () => {
     expect(mainSource).toContain('breadcrumb_trail: report.breadcrumbTrail');
     expect(mainSource).not.toContain('component: report.actionCode');
     expect(mainSource).not.toContain("component: 'app-error-boundary'");
+    expect(mainSource).toContain('recordFrontendBootstrapBreadcrumb()');
+    expect(mainSource).toContain('breadcrumbs: frontendBreadcrumbSnapshotSource');
+    expect(mainSource.match(/breadcrumbs: frontendBreadcrumbSnapshotSource/g)).toHaveLength(2);
+    expect(mainSource).not.toContain('createFrontendBreadcrumbBuffer()');
+    expect(mainSource).not.toContain('frontendBreadcrumbs.record(');
   });
 
   it('contains render crashes and retries the child tree from an accessible fallback', async () => {

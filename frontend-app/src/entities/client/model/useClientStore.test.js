@@ -89,6 +89,15 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
 }));
 
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
+import * as frontendBreadcrumbs from '../../../shared/diagnostics/frontendBreadcrumbs.js';
+
+function diagnosticBreadcrumbs() {
+  return frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests().map(({ actionCode, routeId, phase }) => ({
+    actionCode,
+    routeId,
+    phase,
+  }));
+}
 
 function registerBridgeEventHandlersForTest() {
   const initialization = useClientStore.getState().initializeEvents();
@@ -100,6 +109,7 @@ function registerBridgeEventHandlersForTest() {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    frontendBreadcrumbs.resetFrontendBreadcrumbsForTests?.();
     bridgeCallback = null;
     bridgeOptions = null;
     runtimeReconnectCallback = null;
@@ -251,6 +261,20 @@ function registerBridgeEventHandlersForTest() {
       contextWindowTokens: 400,
       usedPercent: 17.5,
     });
+  });
+
+  it('records each central active-page transition once and ignores same-page updates', () => {
+    resetClientStoreForTests({ activePage: 'chat' });
+
+    useClientStore.getState().setActivePage('settings');
+    useClientStore.getState().setActivePage('settings');
+    useClientStore.getState().setActivePage('memory');
+
+    expect(useClientStore.getState().activePage).toBe('memory');
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'app.navigation', routeId: 'settings', phase: 'complete' },
+      { actionCode: 'app.navigation', routeId: 'memory', phase: 'complete' },
+    ]);
   });
 
   it('fails bootstrap when the active provider preference is missing', async () => {
@@ -6333,6 +6357,10 @@ function registerBridgeEventHandlersForTest() {
       message: '审批结果已提交',
       tone: 'success',
     }));
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+    ]);
   });
 
   it('rejects malformed timeline approval request ids before calling the approval RPC', async () => {
@@ -6351,6 +6379,7 @@ function registerBridgeEventHandlersForTest() {
       message: '当前审批缺少请求编号，无法提交',
       tone: 'error',
     }));
+    expect(diagnosticBreadcrumbs()).toEqual([]);
   });
 
   it('keeps approval RPC submission idempotent per request id while in flight', async () => {
@@ -6372,10 +6401,41 @@ function registerBridgeEventHandlersForTest() {
       approved: true,
       inFlight: true,
     }));
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+    ]);
 
     pendingApproval.resolve({ ok: true });
     await expect(first).resolves.toBe(true);
     expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+    ]);
+  });
+
+  it('records not-pending and ordinary approval failures as one failed terminal without private fields', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+    backend.respondApproval.mockResolvedValueOnce({ ok: false });
+
+    await expect(useClientStore.getState().respondApproval({ requestId: 11 }, true)).resolves.toBe(false);
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
+    ]);
+
+    frontendBreadcrumbs.resetFrontendBreadcrumbsForTests();
+    backend.respondApproval.mockRejectedValueOnce(new Error('private failure /Users/alice'));
+    await expect(useClientStore.getState().respondApproval({ requestId: 12 }, false)).resolves.toBe(false);
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
+    ]);
   });
 
   it('times out the owned approval attempt and keeps a retried request isolated from the late transport', async () => {
@@ -6408,6 +6468,10 @@ function registerBridgeEventHandlersForTest() {
         status: 'rejected',
         error: { code: 'APPROVAL_SUBMIT_TIMEOUT', message: '审批提交超时' },
       });
+      expect(diagnosticBreadcrumbs()).toEqual([
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'timeout' },
+      ]);
       expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
 
       const second = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
@@ -6429,6 +6493,12 @@ function registerBridgeEventHandlersForTest() {
       await expect(second).resolves.toBe(true);
       await firstHandled;
       expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+      expect(diagnosticBreadcrumbs()).toEqual([
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'timeout' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+      ]);
     }
     finally {
       vi.useRealTimers();

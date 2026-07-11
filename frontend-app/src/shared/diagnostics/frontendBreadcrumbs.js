@@ -6,6 +6,10 @@ const BREADCRUMB_ROUTE_IDS = new Set([
   'app', 'chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings',
 ]);
 const BREADCRUMB_PHASES = new Set(['start', 'complete', 'success', 'timeout', 'failure']);
+const NAVIGATION_ROUTE_IDS = new Set([
+  'chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings',
+]);
+const APPROVAL_PHASES = new Set(['start', 'success', 'timeout', 'failure']);
 const BREADCRUMB_TRAIL_LIMIT = 160;
 const SystemDate = globalThis.Date;
 
@@ -94,4 +98,52 @@ export function createFrontendBreadcrumbBuffer(options = {}) {
       return entries.map((entry) => Object.freeze(safeLogFields(entry)));
     },
   });
+}
+
+let productionFrontendBreadcrumbs = createFrontendBreadcrumbBuffer();
+
+export const frontendBreadcrumbSnapshotSource = Object.freeze({
+  snapshot: () => productionFrontendBreadcrumbs.snapshot(),
+});
+
+export function recordFrontendBootstrapBreadcrumb() {
+  return productionFrontendBreadcrumbs.record({
+    actionCode: 'app.bootstrap',
+    routeId: 'app',
+    phase: 'start',
+  });
+}
+
+export function recordFrontendNavigationBreadcrumb(routeId) {
+  const normalizedRouteId = assertAllowedValue(
+    routeId,
+    NAVIGATION_ROUTE_IDS,
+    'frontend navigation breadcrumb routeId',
+  );
+  return productionFrontendBreadcrumbs.record({
+    actionCode: 'app.navigation',
+    routeId: normalizedRouteId,
+    phase: 'complete',
+  });
+}
+
+export function recordFrontendApprovalBreadcrumb(phase) {
+  const normalizedPhase = assertAllowedValue(
+    phase,
+    APPROVAL_PHASES,
+    'frontend approval breadcrumb phase',
+  );
+  return productionFrontendBreadcrumbs.record({
+    actionCode: 'approval.submit',
+    routeId: 'chat',
+    phase: normalizedPhase,
+  });
+}
+
+export function resetFrontendBreadcrumbsForTests() {
+  productionFrontendBreadcrumbs = createFrontendBreadcrumbBuffer();
+}
+
+export function snapshotFrontendBreadcrumbsForTests() {
+  return productionFrontendBreadcrumbs.snapshot();
 }

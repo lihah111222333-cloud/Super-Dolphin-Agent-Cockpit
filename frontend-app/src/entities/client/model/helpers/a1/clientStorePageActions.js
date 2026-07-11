@@ -75,9 +75,13 @@ async function toggleProviderModeAction(runtime) {
   return false;
 }
 
-function createNavigationActions(runtime) {
+function createNavigationActions(runtime, deps) {
   return {
-    setActivePage: (activePage) => runtime.set({ activePage }),
+    setActivePage: (activePage) => {
+      if (runtime.get().activePage === activePage) return;
+      deps.recordNavigation(activePage);
+      runtime.set({ activePage });
+    },
     resolveLaunchPreferences: (cwdArg) => {
       const cwd = normalizePath(cwdArg) || runtime.requireCwd('thread.launchPreferences');
       return resolveLaunchPreferences(cwd, runtime.addWarning);

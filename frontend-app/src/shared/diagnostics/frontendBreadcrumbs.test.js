@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { createFrontendBreadcrumbBuffer } from './frontendBreadcrumbs.js';
+import * as frontendBreadcrumbs from './frontendBreadcrumbs.js';
 import breadcrumbsSource from './frontendBreadcrumbs.js?raw';
 
 describe('frontend breadcrumb buffer', () => {
+  beforeEach(() => {
+    frontendBreadcrumbs.resetFrontendBreadcrumbsForTests?.();
+  });
+
   it('routes breadcrumb fields through the shared safe log sanitizer', () => {
     expect(breadcrumbsSource).toContain("from './safeLogFields.js'");
     expect(breadcrumbsSource).toContain('safeLogFields(');
@@ -102,5 +107,41 @@ describe('frontend breadcrumb buffer', () => {
     }
 
     expect(breadcrumbs.snapshot().map((entry) => entry.routeId)).toEqual(routeIds);
+  });
+
+  it('owns one production ring behind a frozen snapshot-only source and narrow recorders', () => {
+    const source = frontendBreadcrumbs.frontendBreadcrumbSnapshotSource;
+
+    expect(Object.isFrozen(source)).toBe(true);
+    expect(Object.keys(source)).toEqual(['snapshot']);
+    expect(source).not.toHaveProperty('record');
+
+    frontendBreadcrumbs.recordFrontendBootstrapBreadcrumb();
+    frontendBreadcrumbs.recordFrontendNavigationBreadcrumb('settings');
+    frontendBreadcrumbs.recordFrontendApprovalBreadcrumb('start');
+    frontendBreadcrumbs.recordFrontendApprovalBreadcrumb('success');
+
+    expect(frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests()).toEqual(source.snapshot());
+    expect(source.snapshot().map(({ actionCode, routeId, phase }) => ({
+      actionCode,
+      routeId,
+      phase,
+    }))).toEqual([
+      { actionCode: 'app.bootstrap', routeId: 'app', phase: 'start' },
+      { actionCode: 'app.navigation', routeId: 'settings', phase: 'complete' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+    ]);
+  });
+
+  it('resets the production owner between tests and rejects values outside named recorder contracts', () => {
+    expect(frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests()).toEqual([]);
+    expect(() => frontendBreadcrumbs.recordFrontendNavigationBreadcrumb('app')).toThrow(
+      'frontend navigation breadcrumb routeId is not allowed',
+    );
+    expect(() => frontendBreadcrumbs.recordFrontendApprovalBreadcrumb('complete')).toThrow(
+      'frontend approval breadcrumb phase is not allowed',
+    );
+    expect(frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests()).toEqual([]);
   });
 });

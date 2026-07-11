@@ -45,7 +45,10 @@ import './shared/styles/MarkdownReferences.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
-import { createFrontendBreadcrumbBuffer } from './shared/diagnostics/frontendBreadcrumbs.js';
+import {
+  frontendBreadcrumbSnapshotSource,
+  recordFrontendBootstrapBreadcrumb,
+} from './shared/diagnostics/frontendBreadcrumbs.js';
 import { installGlobalCrashHandlers } from './shared/diagnostics/frontendCrashReport.js';
 
 const REACT_RENDER_SLOW_MS = 50;
@@ -86,8 +89,7 @@ function emitSlowRenderTrace(id, phase, actualDuration) {
 }
 
 const appRouteId = 'app';
-const frontendBreadcrumbs = createFrontendBreadcrumbBuffer();
-frontendBreadcrumbs.record({ actionCode: 'app.bootstrap', routeId: appRouteId, phase: 'start' });
+recordFrontendBootstrapBreadcrumb();
 
 function emitFrontendCrashReport(report) {
   return emitFrontendTraceEvent({
@@ -109,7 +111,7 @@ installGlobalCrashHandlers({
   windowRef: window,
   reporter: emitFrontendCrashReport,
   routeId: appRouteId,
-  breadcrumbs: frontendBreadcrumbs,
+  breadcrumbs: frontendBreadcrumbSnapshotSource,
 });
 
 createRoot(document.getElementById('root')).render(
@@ -121,7 +123,7 @@ createRoot(document.getElementById('root')).render(
       {
         reporter: emitFrontendCrashReport,
         routeId: appRouteId,
-        breadcrumbs: frontendBreadcrumbs,
+        breadcrumbs: frontendBreadcrumbSnapshotSource,
         reload: () => window.location.reload(),
       },
       createElement(
