@@ -49,6 +49,121 @@ function requireResponseKey(method, response, keys) {
 /**
  * @param {string} method
  * @param {any} response
+ * @param {string} key
+ * @returns {Record<string, any> | undefined}
+ */
+function optionalUIStateThreadMap(method, response, key) {
+  if (!hasOwn(response, key)) return undefined;
+  const value = response[key];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${method} response ${key} must be an object`);
+  }
+  for (const threadId of Object.keys(value)) {
+    if (!normalizeString(threadId)) {
+      throw new TypeError(`${method} response ${key} thread id must be non-empty`);
+    }
+  }
+  return value;
+}
+
+/**
+ * @param {string} method
+ * @param {Record<string, any>} value
+ * @param {string} key
+ * @param {'string' | 'boolean'} expectedType
+ */
+function validateUIStateScalarMap(method, value, key, expectedType) {
+  const scalarMap = optionalUIStateThreadMap(method, value, key);
+  if (!scalarMap) return;
+  for (const [threadId, scalar] of Object.entries(scalarMap)) {
+    if (typeof scalar !== expectedType) {
+      throw new TypeError(`${method} response ${key}.${threadId} must be a ${expectedType}`);
+    }
+  }
+}
+
+/**
+ * @param {string} method
+ * @param {string} path
+ * @param {any} value
+ */
+function assertUIStateInteger(method, path, value) {
+  if (!Number.isInteger(value)) {
+    throw new TypeError(`${method} response ${path} must be an integer`);
+  }
+  if (value < 0) {
+    throw new TypeError(`${method} response ${path} must be a non-negative integer`);
+  }
+}
+
+/**
+ * @param {string} method
+ * @param {string} threadId
+ * @param {any} activity
+ */
+function validateUIStateActivity(method, threadId, activity) {
+  const path = `activityStatsByThread.${threadId}`;
+  if (!activity || typeof activity !== 'object' || Array.isArray(activity)) {
+    throw new TypeError(`${method} response ${path} must be an object`);
+  }
+  for (const key of ['lspCalls', 'commands', 'fileEdits']) {
+    assertUIStateInteger(method, `${path}.${key}`, activity[key]);
+  }
+  if (!hasOwn(activity, 'toolCalls')) return;
+  const toolCalls = activity.toolCalls;
+  if (!toolCalls || typeof toolCalls !== 'object' || Array.isArray(toolCalls)) {
+    throw new TypeError(`${method} response ${path}.toolCalls must be an object`);
+  }
+  for (const [toolName, count] of Object.entries(toolCalls)) {
+    if (!normalizeString(toolName)) {
+      throw new TypeError(`${method} response ${path}.toolCalls tool name must be non-blank`);
+    }
+    assertUIStateInteger(method, `${path}.toolCalls.${toolName}`, count);
+  }
+}
+
+/**
+ * @param {string} method
+ * @param {Record<string, any>} value
+ */
+function validateUIStateActivityMap(method, value) {
+  const activityMap = optionalUIStateThreadMap(method, value, 'activityStatsByThread');
+  if (!activityMap) return;
+  for (const [threadId, activity] of Object.entries(activityMap)) {
+    validateUIStateActivity(method, threadId, activity);
+  }
+}
+
+/**
+ * @param {string} method
+ * @param {Record<string, any>} value
+ */
+function validateUIStateRuntimeMap(method, value) {
+  const runtimeMap = optionalUIStateThreadMap(method, value, 'agentRuntimeById');
+  if (!runtimeMap) return;
+  for (const [threadId, runtime] of Object.entries(runtimeMap)) {
+    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
+      throw new TypeError(`${method} response agentRuntimeById.${threadId} must be an object`);
+    }
+  }
+}
+
+/**
+ * @param {string} method
+ * @param {Record<string, any>} value
+ */
+function validateUIStateStatusMaps(method, value) {
+  validateUIStateScalarMap(method, value, 'statuses', 'string');
+  validateUIStateScalarMap(method, value, 'statusHeadersByThread', 'string');
+  validateUIStateScalarMap(method, value, 'statusDetailsByThread', 'string');
+  validateUIStateScalarMap(method, value, 'interruptibleByThread', 'boolean');
+  validateUIStateActivityMap(method, value);
+  validateUIStateRuntimeMap(method, value);
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
  */
 function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -72,6 +187,7 @@ function validateUIStateResponse(method, response) {
   if (hasOwn(value, 'agents') && value.agents !== null && !Array.isArray(value.agents)) {
     throw new TypeError(`${method} response agents must be an array or null`);
   }
+  validateUIStateStatusMaps(method, value);
   return value;
 }
 
@@ -399,6 +515,7 @@ export function createBackendResponseValidators(methods) {
     [methods.OBSERVABILITY_SLOW_LIST]: validateObservabilityResultResponse,
     [methods.OBSERVABILITY_THREAD_RECENT]: validateObservabilityResultResponse,
     [methods.OBSERVABILITY_TRACE_GET]: validateObservabilityResultResponse,
+    [methods.UI_SIDEBAR_GET]: validateUIStateResponse,
     [methods.UI_STATE_GET]: validateUIStateResponse,
     [methods.UI_MEMORY_GET]: validateMemorySnapshotResponse,
     [methods.UI_SHARED_FILE_GET]: validateSharedFileDetailResponse,

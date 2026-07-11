@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import {
   auditRpcContracts,
   collectFrontendPayloadKeysFromSource,
@@ -7,6 +10,93 @@ import {
   parseContractMatrixForTest,
   parseRpcMethodsForTest,
 } from './rpc-contract-audit.mjs'
+
+async function createRuntimeDriftFixture() {
+  const repoRoot = await mkdtemp(join(tmpdir(), 'rpc-contract-audit-'))
+  const sources = new Map([
+    ['frontend-app/src/shared/api/backendApi.js', [
+      'export const RPC_METHODS = Object.freeze({',
+      "  THREAD_START: 'thread/start',",
+      "  TURN_START: 'turn/start',",
+      '})',
+      'function threadStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd', 'provider'])",
+      '}',
+      'function turnStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  const input = takePayloadField(unused, 'input')",
+      "  return input && takePayloadFields(unused, ['cwd', 'threadId'])",
+      '}',
+      'void threadStartPayload',
+      'void turnStartPayload',
+    ].join('\n')],
+    ['frontend-app/src/shared/api/backend/backendRpcMethods.js', [
+      'export const RPC_METHODS = Object.freeze({',
+      "  THREAD_START: 'thread/start',",
+      '})',
+    ].join('\n')],
+    ['frontend-app/src/shared/api/backend/backendApiFactoryThread.js', [
+      'function threadStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd'])",
+      '}',
+      'function turnStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  const input = takePayloadField(unused, 'input')",
+      "  return input && takePayloadFields(unused, ['cwd', 'threadId'])",
+      '}',
+    ].join('\n')],
+    ['frontend-app/src/shared/api/backendApi.contractMatrix.js', [
+      'function contract() {}',
+      'export const RPC_CONTRACT_REGISTRY = Object.freeze({',
+      "  THREAD_START: contract('THREAD_START', 'startThread', 'P1', 'thread', [], [], false, { responseValidator: 'threadStartResponse' }),",
+      "  TURN_START: contract('TURN_START', 'startTurn', 'P1', 'turn', [], [], false, { responseValidator: 'turnStartResponse' }),",
+      '})',
+    ].join('\n')],
+    ['frontend-app/src/shared/api/backendResponseValidators.js', [
+      'const BACKEND_RESPONSE_VALIDATORS = Object.freeze({',
+      '  [RPC_METHODS.UI_STATE_GET]: value,',
+      '  [RPC_METHODS.THREAD_START]: value,',
+      '  [RPC_METHODS.THREAD_MESSAGES]: value,',
+      '  [RPC_METHODS.THREAD_RESOLVE]: value,',
+      '  [RPC_METHODS.TURN_START]: value,',
+      '})',
+    ].join('\n')],
+    ['internal/contract/rpc_handler.go', 'package contract\n'],
+    ['internal/module/thread/rpc_types.go', [
+      'package thread',
+      'type startParams struct {',
+      '  Cwd string `json:"cwd"`',
+      '  Provider string `json:"provider"`',
+      '}',
+      'type startParamCompatFields struct {',
+      '}',
+    ].join('\n')],
+    ['internal/module/turn/rpc_types.go', [
+      'package turn',
+      'type turnStartParams struct {',
+      '  Cwd string `json:"cwd"`',
+      '  Input any `json:"input"`',
+      '  ThreadID string `json:"threadId"`',
+      '}',
+      'type legacyTurnStartParams struct {',
+      '}',
+      'type turnSteerParams struct {',
+      '}',
+      'type legacyTurnSteerParams struct {',
+      '}',
+    ].join('\n')],
+  ])
+
+  await Promise.all([...sources].map(async ([filePath, source]) => {
+    const target = join(repoRoot, filePath)
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, source, 'utf8')
+  }))
+  await mkdir(join(repoRoot, 'cmd'), { recursive: true })
+  return repoRoot
+}
 
 describe('rpc contract audit', () => {
   it('keeps frontend RPC constants, registry entries, and P0 backend handlers reconciled', async () => {
@@ -112,7 +202,7 @@ describe('rpc contract audit', () => {
     }])
   })
 
-  it('extracts consumed payload keys from facade builders instead of static key lists', () => {
+  it('extracts consumed payload keys from runtime builders instead of static key lists', () => {
     const source = `
       function threadStartPayload(params) {
         const unused = { ...params }
@@ -139,5 +229,218 @@ describe('rpc contract audit', () => {
 
     expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd', 'provider'])
     expect(collectFrontendPayloadKeysFromSource(source).get('turn/start')).toEqual(['input', 'thread_id', 'threadId'])
+  })
+
+  it('audits runtime methods and payload builders when facade shadows stay unchanged', async () => {
+    const repoRoot = await createRuntimeDriftFixture()
+    try {
+      const report = await auditRpcContracts({ repoRoot })
+
+      expect({
+        registryWithoutRpcMethods: report.registryWithoutRpcMethods,
+        allowedPayloadRegistryDrift: report.allowedPayloadRegistryDrift,
+      }).toEqual({
+        registryWithoutRpcMethods: ['TURN_START'],
+        allowedPayloadRegistryDrift: [{
+          method: 'thread/start',
+          missingFrontendKeys: ['provider'],
+          extraFrontendKeys: [],
+        }],
+      })
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['block comment', [
+      '/*',
+      'function threadStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd', 'provider'])",
+      '}',
+      '*/',
+    ].join('\n')],
+    ['template string', [
+      'const staleBuilderExample = `',
+      'function threadStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd', 'provider'])",
+      '}',
+      '`',
+    ].join('\n')],
+  ])('ignores a fake builder in a %s when auditing runtime payload drift', async (_, fakeBuilderSource) => {
+    const repoRoot = await createRuntimeDriftFixture()
+    try {
+      const runtimePayloadSource = [
+        fakeBuilderSource,
+        'function threadStartPayload(params) {',
+        '  const unused = { ...params }',
+        "  return takePayloadFields(unused, ['cwd'])",
+        '}',
+        'function turnStartPayload(params) {',
+        '  const unused = { ...params }',
+        "  const input = takePayloadField(unused, 'input')",
+        "  return input && takePayloadFields(unused, ['cwd', 'threadId'])",
+        '}',
+      ].join('\n')
+      await writeFile(
+        join(repoRoot, 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'),
+        runtimePayloadSource,
+        'utf8',
+      )
+
+      const report = await auditRpcContracts({ repoRoot })
+
+      expect(report.allowedPayloadRegistryDrift).toEqual([{
+        method: 'thread/start',
+        missingFrontendKeys: ['provider'],
+        extraFrontendKeys: [],
+      }])
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('fails fast when a required builder has no top-level declaration', () => {
+    const source = [
+      'function wrapper() {',
+      '  function threadStartPayload(params) {',
+      '    const unused = { ...params }',
+      "    return takePayloadFields(unused, ['cwd', 'provider'])",
+      '  }',
+      '}',
+      'function turnStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd', 'threadId'])",
+      '}',
+    ].join('\n')
+
+    expect(() => collectFrontendPayloadKeysFromSource(source)).toThrow(
+      'threadStartPayload must have exactly one top-level FunctionDeclaration in frontend-app/src/shared/api/backend/backendApiFactoryThread.js; found 0',
+    )
+  })
+
+  it('fails fast when a required builder has multiple top-level declarations', () => {
+    const source = [
+      'function threadStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd'])",
+      '}',
+      'function threadStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['provider'])",
+      '}',
+      'function turnStartPayload(params) {',
+      '  const unused = { ...params }',
+      "  return takePayloadFields(unused, ['cwd', 'threadId'])",
+      '}',
+    ].join('\n')
+
+    expect(() => collectFrontendPayloadKeysFromSource(source)).toThrow(
+      'threadStartPayload must have exactly one top-level FunctionDeclaration in frontend-app/src/shared/api/backend/backendApiFactoryThread.js; found 2',
+    )
+  })
+
+  it.each([
+    ['nested function declaration', [
+      'function providerDecoy() {',
+      "  return takePayloadField(unused, 'provider')",
+      '}',
+    ].join('\n')],
+    ['nested arrow function', "const providerDecoy = () => takePayloadField(unused, 'provider')"],
+    ['nested function expression', [
+      'const providerDecoy = function () {',
+      "  return takePayloadField(unused, 'provider')",
+      '}',
+    ].join('\n')],
+    ['nested class method', [
+      'class ProviderDecoy {',
+      '  read() {',
+      "    return takePayloadField(unused, 'provider')",
+      '  }',
+      '}',
+    ].join('\n')],
+    ['public instance field', [
+      'class ProviderDecoy {',
+      "  read = takePayloadField(unused, 'provider');",
+      '}',
+    ].join('\n')],
+    ['private instance field', [
+      'class ProviderDecoy {',
+      "  #read = takePayloadField(unused, 'provider');",
+      '}',
+    ].join('\n')],
+  ])('ignores payload calls inside a %s', async (_, decoySource) => {
+    const repoRoot = await createRuntimeDriftFixture()
+    try {
+      const runtimePayloadSource = [
+        'function threadStartPayload(params) {',
+        '  const unused = { ...params }',
+        decoySource,
+        "  return takePayloadFields(unused, ['cwd'])",
+        '}',
+        'function turnStartPayload(params) {',
+        '  const unused = { ...params }',
+        "  const input = takePayloadField(unused, 'input')",
+        "  return input && takePayloadFields(unused, ['cwd', 'threadId'])",
+        '}',
+      ].join('\n')
+      await writeFile(
+        join(repoRoot, 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'),
+        runtimePayloadSource,
+        'utf8',
+      )
+
+      const report = await auditRpcContracts({ repoRoot })
+
+      expect(report.allowedPayloadRegistryDrift).toEqual([{
+        method: 'thread/start',
+        missingFrontendKeys: ['provider'],
+        extraFrontendKeys: [],
+      }])
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['static field initializer', [
+      'class ProviderConsumer {',
+      "  static read = takePayloadField(unused, 'provider');",
+      '}',
+    ].join('\n')],
+    ['computed instance field key', [
+      'class ProviderConsumer {',
+      "  [takePayloadField(unused, 'provider')] = null;",
+      '}',
+    ].join('\n')],
+  ])('counts payload calls in a %s', async (_, classSource) => {
+    const repoRoot = await createRuntimeDriftFixture()
+    try {
+      const runtimePayloadSource = [
+        'function threadStartPayload(params) {',
+        '  const unused = { ...params }',
+        classSource,
+        "  return takePayloadFields(unused, ['cwd'])",
+        '}',
+        'function turnStartPayload(params) {',
+        '  const unused = { ...params }',
+        "  const input = takePayloadField(unused, 'input')",
+        "  return input && takePayloadFields(unused, ['cwd', 'threadId'])",
+        '}',
+      ].join('\n')
+      await writeFile(
+        join(repoRoot, 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'),
+        runtimePayloadSource,
+        'utf8',
+      )
+
+      const report = await auditRpcContracts({ repoRoot })
+
+      expect(report.allowedPayloadRegistryDrift).toEqual([])
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
   })
 })

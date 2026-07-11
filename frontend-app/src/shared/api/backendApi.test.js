@@ -49,6 +49,7 @@ function guardedBackendResponse(method) {
     || method === RPC_METHODS.OBSERVABILITY_TRACE_GET
   ) return { source: 'memory', events: [] };
   if (method === RPC_METHODS.UI_MEMORY_GET) return { overview: {}, private: { entries: [] }, team: { entries: [] } };
+  if (method === RPC_METHODS.UI_SIDEBAR_GET) return { threads: [], agents: [], token_usage: {} };
   if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
   if (method === RPC_METHODS.UI_SHARED_FILE_GET) return { path: 'reports/final.md', content: '' };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
@@ -748,6 +749,29 @@ function guardedBackendResponse(method) {
         call: (api) => api.getThreadState({ cwd: '/repo/app', threadId: 'thread-1' }),
         response: {},
         message: 'ui/state/get response missing UI state snapshot fields',
+      },
+      {
+        call: (api) => api.getSidebarState({ cwd: '/repo/app' }),
+        response: { threads: [], interruptibleByThread: { 'thread-1': 'true' } },
+        message: 'ui/sidebar/get response interruptibleByThread.thread-1 must be a boolean',
+      },
+      {
+        call: (api) => api.getSidebarState({ cwd: '/repo/app' }),
+        response: {
+          threads: [],
+          activityStatsByThread: { 'thread-1': { lspCalls: '1', commands: 0, fileEdits: 0 } },
+        },
+        message: 'ui/sidebar/get response activityStatsByThread.thread-1.lspCalls must be an integer',
+      },
+      {
+        call: (api) => api.getSidebarState({ cwd: '/repo/app' }),
+        response: {
+          threads: [],
+          activityStatsByThread: {
+            'thread-1': { lspCalls: 0, commands: 0, fileEdits: 0, toolCalls: { read: '1' } },
+          },
+        },
+        message: 'ui/sidebar/get response activityStatsByThread.thread-1.toolCalls.read must be an integer',
       },
       {
         call: (api) => api.readLspPromptHint({ cwd: '/repo/app' }),
