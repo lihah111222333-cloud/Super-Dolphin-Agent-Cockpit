@@ -152,6 +152,7 @@ human-reviewed publication candidate
 - `required_readmes`
 - `required_readme_sections`
 - `forbidden_file_names`
+- `generated_files`
 
 策略使用仓库相对、slash-normalized 路径。未知字段、重复规则、空规则、绝对路径、`..`、反斜线、无效 glob、allow/deny 冲突和没有覆盖任何当前文件的必需规则均为错误。
 

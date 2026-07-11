@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lihah111222333-cloud/super-dolphin-agent/blob/main/release/open-source-export.schema.json",
+  "title": "Super Dolphin Agent open-source export policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_product_name",
+    "canonical_repository",
+    "canonical_module_path",
+    "license_spdx",
+    "required_root_files",
+    "allow_rules",
+    "deny_rules",
+    "forbidden_identities",
+    "required_readmes",
+    "required_readme_sections",
+    "forbidden_file_names",
+    "generated_files"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "canonical_product_name": {"const": "Super Dolphin Agent"},
+    "canonical_repository": {"const": "github.com/lihah111222333-cloud/super-dolphin-agent"},
+    "canonical_module_path": {"const": "github.com/lihah111222333-cloud/super-dolphin-agent"},
+    "license_spdx": {"const": "Apache-2.0"},
+    "required_root_files": {"$ref": "#/$defs/pathList"},
+    "allow_rules": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/pathRule"}
+    },
+    "deny_rules": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/pathRule"}
+    },
+    "forbidden_identities": {"$ref": "#/$defs/nonEmptyStringList"},
+    "required_readmes": {"$ref": "#/$defs/pathList"},
+    "required_readme_sections": {"$ref": "#/$defs/nonEmptyStringList"},
+    "forbidden_file_names": {"$ref": "#/$defs/nonEmptyStringList"},
+    "generated_files": {"$ref": "#/$defs/pathList"}
+  },
+  "$defs": {
+    "nonEmptyStringList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "pathList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+      }
+    },
+    "pathRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "pattern"],
+      "properties": {
+        "kind": {"enum": ["file", "glob"]},
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+        }
+      }
+    }
+  }
+}

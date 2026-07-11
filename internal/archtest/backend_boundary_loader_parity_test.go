@@ -56,8 +56,8 @@ func TestWideOrchestrationLoaderExtractionPreservesCandidates(t *testing.T) {
 		paths[i] = pkg.pkgPath
 	}
 	sort.Strings(paths)
-	const wantCount = 225
-	const wantDigest = "a077c39e3cf11a907b17330605dfb993114ce302013a68a621d2e76bc5e9863b"
+	const wantCount = 226
+	const wantDigest = "387433c91e08d4b186dad1d3c5eccfaefdd000b162c851c482955af890c5c639"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}

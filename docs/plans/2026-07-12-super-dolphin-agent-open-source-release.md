@@ -82,13 +82,19 @@ type PathRule struct {
 }
 
 type Policy struct {
-    Version          int             `json:"version"`
-    Identity         ProjectIdentity `json:"identity"`
-    Allow            []PathRule      `json:"allow"`
-    Deny             []PathRule      `json:"deny"`
-    RequiredFiles    []string        `json:"required_files"`
-    GeneratedFiles   []string        `json:"generated_files"`
-    ForbiddenStrings []string        `json:"forbidden_strings"`
+    SchemaVersion          int        `json:"schema_version"`
+    CanonicalProductName   string     `json:"canonical_product_name"`
+    CanonicalRepository    string     `json:"canonical_repository"`
+    CanonicalModulePath    string     `json:"canonical_module_path"`
+    LicenseSPDX            string     `json:"license_spdx"`
+    RequiredRootFiles      []string   `json:"required_root_files"`
+    AllowRules             []PathRule `json:"allow_rules"`
+    DenyRules              []PathRule `json:"deny_rules"`
+    ForbiddenIdentities    []string   `json:"forbidden_identities"`
+    RequiredReadmes        []string   `json:"required_readmes"`
+    RequiredREADMESections []string   `json:"required_readme_sections"`
+    ForbiddenFileNames     []string   `json:"forbidden_file_names"`
+    GeneratedFiles         []string   `json:"generated_files"`
 }
 
 func LoadPolicy(path string) (Policy, error)

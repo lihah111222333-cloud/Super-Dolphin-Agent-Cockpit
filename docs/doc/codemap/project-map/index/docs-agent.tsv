@@ -446,7 +446,7 @@ docs/plans/2026-07-10-priority-ssa-true-debt-remediation.md	docs	docs-agent	doc	
 docs/plans/2026-07-11-internal-app-store-adapter-package-split.md	docs	docs-agent	doc	47272	历史计划与迁移执行文档	docs,plans,2026,07,11,internal,app,store,adapter,package,split,历史计划与迁移执行文档
 docs/plans/2026-07-11-p0-p1-contract-alignment.md	docs	docs-agent	doc	4900	历史计划与迁移执行文档	docs,plans,2026,07,11,p0,p1,contract,alignment,历史计划与迁移执行文档
 docs/plans/2026-07-11-reasonix-frontend-architecture-absorption.md	docs	docs-agent	doc	39190	历史计划与迁移执行文档	docs,plans,2026,07,11,reasonix,frontend,architecture,absorption,历史计划与迁移执行文档
-docs/plans/2026-07-12-super-dolphin-agent-open-source-release.md	docs	docs-agent	doc	25115	历史计划与迁移执行文档	docs,plans,2026,07,12,super,dolphin,agent,open,source,release,历史计划与迁移执行文档
+docs/plans/2026-07-12-super-dolphin-agent-open-source-release.md	docs	docs-agent	doc	25564	历史计划与迁移执行文档	docs,plans,2026,07,12,super,dolphin,agent,open,source,release,历史计划与迁移执行文档
 docs/plans/claude缓存保活计划.md	docs	docs-agent	doc	27030	历史计划与迁移执行文档	docs,plans,claude缓存保活计划,历史计划与迁移执行文档
 docs/plans/context-optimization-per-tool-budget.md	docs	docs-agent	doc	13782	历史计划与迁移执行文档	docs,plans,context,optimization,per,tool,budget,历史计划与迁移执行文档
 docs/plans/dag-lifecycle-c-a-implementation.md	docs	docs-agent	doc	49805	历史计划与迁移执行文档	docs,plans,dag,lifecycle,c,a,implementation,历史计划与迁移执行文档
@@ -858,7 +858,7 @@ docs/superpowers/specs/2026-07-10-lsp-and-p1-remediation-design.md	docs	docs-age
 docs/superpowers/specs/2026-07-10-mcp-orch-boundary-refactor-design.md	docs	docs-agent	doc	8034	项目文档体系	docs,superpowers,specs,2026,07,10,mcp,orch,boundary,refactor,design,项目文档体系
 docs/superpowers/specs/2026-07-11-p0-p1-contract-alignment-design.md	docs	docs-agent	doc	2274	项目文档体系	docs,superpowers,specs,2026,07,11,p0,p1,contract,alignment,design,项目文档体系
 docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md	docs	docs-agent	doc	71748	项目文档体系	docs,superpowers,specs,2026,07,11,unified,native,subagent,control,plane,design,项目文档体系
-docs/superpowers/specs/2026-07-12-super-dolphin-agent-open-source-release-design.md	docs	docs-agent	doc	22929	项目文档体系	docs,superpowers,specs,2026,07,12,super,dolphin,agent,open,source,release,design,项目文档体系
+docs/superpowers/specs/2026-07-12-super-dolphin-agent-open-source-release-design.md	docs	docs-agent	doc	22949	项目文档体系	docs,superpowers,specs,2026,07,12,super,dolphin,agent,open,source,release,design,项目文档体系
 docs/superpowers/需求文档/全功能UI重构-未完成.md	docs	docs-agent	doc	5711	项目文档体系	docs,superpowers,需求文档,全功能UI重构,未完成,项目文档体系
 docs/superpowers/需求文档/发布验收清单-未完成.md	docs	docs-agent	doc	3472	项目文档体系	docs,superpowers,需求文档,发布验收清单,未完成,项目文档体系
 docs/superpowers/需求文档/后台页面字段清单-未完成.md	docs	docs-agent	doc	3991	项目文档体系	docs,superpowers,需求文档,后台页面字段清单,未完成,项目文档体系
