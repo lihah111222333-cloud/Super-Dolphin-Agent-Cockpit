@@ -77,7 +77,6 @@ var Module = fx.Options(
 	platformobservability.Module,
 	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder, provideMCPControlSystemLogSink),
 	store.Module,
-	threadStoreAdaptersModule(),
 	storeadapter.Module,
 	dashboard.Module,
 	datasource.Module,

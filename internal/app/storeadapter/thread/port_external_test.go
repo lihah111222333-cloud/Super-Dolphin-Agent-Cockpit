@@ -1,4 +1,4 @@
-package app_test
+package threadadapter_test
 
 import (
 	"context"

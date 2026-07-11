@@ -31,7 +31,7 @@ internal/app/mcpcontrol_log_sink.go	internal	other	go-source	1489	root Fx/app �
 internal/app/modules_builtin_tools_test.go	internal	other	go-test	3631	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,builtin,tools,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_e2efixture_test.go	internal	other	go-test	3845	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/modules_graph_test.go	internal	other	go-test	17184	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/modules.go	internal	other	go-source	9804	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules.go	internal	other	go-source	9774	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -72,7 +72,7 @@ internal/app/storeadapter/memory/adapter_test.go	internal	other	go-test	7472	roo
 internal/app/storeadapter/memory/adapter.go	internal	other	go-source	2817	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,memory,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/memory/module.go	internal	other	go-source	253	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,memory,module,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/memory/port_external_test.go	internal	other	go-test	723	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,memory,port,external,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/storeadapter/module.go	internal	other	go-source	1434	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,module,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/storeadapter/module.go	internal	other	go-source	1537	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,module,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/personalization/adapter_test.go	internal	other	go-test	6077	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,personalization,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/personalization/adapter.go	internal	other	go-source	2215	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,personalization,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/personalization/module.go	internal	other	go-source	236	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,personalization,module,root,Fx,装配,runner,与,toolbridge,adapters
@@ -85,6 +85,11 @@ internal/app/storeadapter/skill/adapter_test.go	internal	other	go-test	6480	root
 internal/app/storeadapter/skill/adapter.go	internal	other	go-source	5675	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,skill,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/skill/module.go	internal	other	go-source	236	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,skill,module,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/skill/tool_crud_test.go	internal	other	go-test	8050	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,skill,tool,crud,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/storeadapter/thread/adapter_test.go	internal	other	go-test	17541	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,thread,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/storeadapter/thread/module.go	internal	other	go-source	470	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,thread,module,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/storeadapter/thread/port_external_test.go	internal	other	go-test	1227	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,thread,port,external,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/storeadapter/thread/prompt.go	internal	other	go-source	10950	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,thread,prompt,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/storeadapter/thread/store.go	internal	other	go-source	14025	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,thread,store,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/turn/adapter_test.go	internal	other	go-test	6207	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,turn,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/turn/adapter.go	internal	other	go-source	2545	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,turn,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/turn/module.go	internal	other	go-source	260	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,turn,module,root,Fx,装配,runner,与,toolbridge,adapters
@@ -93,13 +98,8 @@ internal/app/storeadapter/uistate/adapter_test.go	internal	other	go-test	9464	ro
 internal/app/storeadapter/uistate/adapter.go	internal	other	go-source	4701	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,uistate,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/uistate/module.go	internal	other	go-source	275	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,uistate,module,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/storeadapter/uistate/port_external_test.go	internal	other	go-test	1267	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,storeadapter,uistate,port,external,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/thread_adapters_test.go	internal	other	go-test	19125	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,adapters,test,root,Fx,装配,runner,与,toolbridge
 internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7232	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/thread_orchestration_adapter.go	internal	other	go-source	10026	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/thread_prompt_adapters.go	internal	other	go-source	10940	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,prompt,adapters,root,Fx,装配,runner,与,toolbridge
-internal/app/thread_prompt_port_external_test.go	internal	other	go-test	1217	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,prompt,port,external,test,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/thread_store_adapters_module.go	internal	other	go-source	453	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,store,adapters,module,root,Fx,装配,runner,与,toolbridge
-internal/app/thread_store_adapters.go	internal	other	go-source	14015	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,store,adapters,root,Fx,装配,runner,与,toolbridge
 internal/app/toolbridge_adapters_test.go	internal	other	go-test	2374	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,test,root,Fx,装配,runner,与
 internal/app/toolbridge_adapters.go	internal	other	go-source	13659	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,root,Fx,装配,runner,与
 internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2515	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,field,writes,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -143,7 +143,7 @@ internal/archtest/dependency_direction_module_store_test.go	internal	other	go-te
 internal/archtest/dependency_direction_test.go	internal	other	go-test	15187	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_wave3_test.go	internal	other	go-test	2566	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,wave3,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_optional_boundary_test.go	internal	other	go-test	35458	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,boundary,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dependency_optional_thread_boundary_test.go	internal	other	go-test	3281	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,thread,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_optional_thread_boundary_test.go	internal	other	go-test	3297	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,optional,thread,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/desktop_dependency_test.go	internal	other	go-test	612	架构守卫、baseline ratchet 与冻结规则	internal,archtest,desktop,dependency,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deterministic_time_guard_test.go	internal	other	go-test	5503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deterministic,time,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dispatcher_wiring_guard_test.go	internal	other	go-test	8541	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dispatcher,wiring,guard,test,架构守卫,baseline,ratchet,与冻结规则
