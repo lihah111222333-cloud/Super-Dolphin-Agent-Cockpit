@@ -7,7 +7,9 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_FRONTEND_ROOT = resolve(SCRIPT_DIR, '..')
 const DEFAULT_REPO_ROOT = resolve(DEFAULT_FRONTEND_ROOT, '..')
 
-const RPC_METHODS_PATH = 'frontend-app/src/shared/api/backendApi.js'
+const FRONTEND_FACADE_PATH = 'frontend-app/src/shared/api/backendApi.js'
+const RPC_METHODS_PATH = 'frontend-app/src/shared/api/backend/backendRpcMethods.js'
+const FRONTEND_PAYLOAD_BUILDERS_PATH = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
 const RPC_RESPONSE_VALIDATORS_PATH = 'frontend-app/src/shared/api/backendResponseValidators.js'
 const RPC_MATRIX_PATH = 'frontend-app/src/shared/api/backendApi.contractMatrix.js'
 const GO_RPC_CONSTANTS_PATH = 'internal/contract/rpc_handler.go'
@@ -78,10 +80,10 @@ const GO_HANDLER_CALLS = [
 ]
 
 export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
-  const frontendSource = await readFile(join(repoRoot, RPC_METHODS_PATH), 'utf8')
-  const rpcMethods = parseRpcMethods(
-    frontendSource,
-  )
+  const facadeSource = await readFile(join(repoRoot, FRONTEND_FACADE_PATH), 'utf8')
+  const rpcMethodsSource = await readFile(join(repoRoot, RPC_METHODS_PATH), 'utf8')
+  const payloadBuildersSource = await readFile(join(repoRoot, FRONTEND_PAYLOAD_BUILDERS_PATH), 'utf8')
+  const rpcMethods = parseRpcMethods(rpcMethodsSource)
   const methodsByKey = new Map(rpcMethods.map((entry) => [entry.key, entry]))
   const registryEntries = parseContractMatrix(
     await readFile(join(repoRoot, RPC_MATRIX_PATH), 'utf8'),
@@ -91,14 +93,14 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
   }))
   const backendHandlers = await collectGoRpcHandlers(repoRoot)
   const goPayloadKeysByMethod = await collectGoPayloadKeys(repoRoot)
-  const frontendPayloadKeysByMethod = collectFrontendPayloadKeysFromSource(frontendSource)
-  const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, frontendSource)
+  const frontendPayloadKeysByMethod = collectFrontendPayloadKeysFromSource(payloadBuildersSource)
+  const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, facadeSource)
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
   const responseValidatorSource = await readFile(join(repoRoot, RPC_RESPONSE_VALIDATORS_PATH), 'utf8')
   const frontendResponseValidatorKeys = collectFrontendResponseValidatorKeys([
-    frontendSource,
+    facadeSource,
     responseValidatorSource,
   ])
 
@@ -169,7 +171,7 @@ export function formatRpcAuditReport(report) {
 function parseRpcMethods(source) {
   const objectExpression = findFrozenObjectExport(source, 'RPC_METHODS')
   if (!objectExpression) {
-    throw new Error('RPC_METHODS object was not found in backendApi.js')
+    throw new Error(`RPC_METHODS object was not found in ${RPC_METHODS_PATH}`)
   }
 
   return objectPropertiesOnly(objectExpression, 'RPC_METHODS')
@@ -250,10 +252,11 @@ function unwrapObjectFreezeObject(node) {
   return null
 }
 
-function parseFrontendAst(source) {
+function parseFrontendAst(source, { errorRecovery = false } = {}) {
   return parseJavaScriptSource(source, {
     sourceType: 'module',
     plugins: ['jsx', 'typescript'],
+    errorRecovery,
   })
 }
 
@@ -376,12 +379,12 @@ async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
 export function collectHardcodedPayloadGuardFindingsFromSources({ frontendSource = '', goSources = new Map() } = {}) {
   const findings = []
   if (frontendSource.includes('RPC_ALLOWED_PAYLOAD_KEYS')) {
-    findings.push(`${RPC_METHODS_PATH}:RPC_ALLOWED_PAYLOAD_KEYS`)
+    findings.push(`${FRONTEND_FACADE_PATH}:RPC_ALLOWED_PAYLOAD_KEYS`)
   }
   const frontendSetPattern = /^\s*const\s+([A-Z0-9_]+_ALLOWED_KEYS)\s*=\s*new Set\(\[/gm
   let frontendSetMatch
   while ((frontendSetMatch = frontendSetPattern.exec(frontendSource)) !== null) {
-    findings.push(`${RPC_METHODS_PATH}:${frontendSetMatch[1]}`)
+    findings.push(`${FRONTEND_FACADE_PATH}:${frontendSetMatch[1]}`)
   }
   for (const [filePath, source] of goSources.entries()) {
     const goMapPattern = /^\s*var\s+([A-Za-z0-9_]*(?:Param|Payload)[A-Za-z0-9_]*(?:Fields|Keys))\s*=\s*map\[string\]struct\{\}/gm
@@ -394,14 +397,31 @@ export function collectHardcodedPayloadGuardFindingsFromSources({ frontendSource
 }
 
 export function collectFrontendPayloadKeysFromSource(source) {
-  const out = new Map()
+  const ast = parseFrontendAst(source, { errorRecovery: true })
+  const functionDeclarationsByMethod = new Map()
+
   for (const [method, functionName] of FRONTEND_PAYLOAD_BUILDERS.entries()) {
-    const functionSource = extractFunctionSource(source, functionName)
-    if (!functionSource) {
-      out.set(method, [])
-      continue
+    const declarations = ast.program.body.filter((node) => (
+      node.type === 'FunctionDeclaration' && node.id?.name === functionName
+    ))
+    if (declarations.length !== 1) {
+      throw new Error(
+        `${functionName} must have exactly one top-level FunctionDeclaration in ${FRONTEND_PAYLOAD_BUILDERS_PATH}; found ${declarations.length}`,
+      )
     }
-    out.set(method, extractConsumedPayloadKeys(functionSource))
+    const [{ start, end }] = declarations
+    if (!Number.isInteger(start) || !Number.isInteger(end)) {
+      throw new Error(`${functionName} FunctionDeclaration is missing source offsets in ${FRONTEND_PAYLOAD_BUILDERS_PATH}`)
+    }
+    functionDeclarationsByMethod.set(method, declarations[0])
+  }
+
+  const [parseError] = ast.errors ?? []
+  if (parseError) throw parseError
+
+  const out = new Map()
+  for (const [method, functionDeclaration] of functionDeclarationsByMethod.entries()) {
+    out.set(method, extractConsumedPayloadKeys(functionDeclaration))
   }
   return out
 }
@@ -429,188 +449,60 @@ export function collectPayloadRegistryDrift(goPayloadKeysByMethod, frontendPaylo
   return drift.sort((a, b) => a.method.localeCompare(b.method))
 }
 
-function extractFunctionSource(source, functionName) {
-  const pattern = new RegExp(`^\\s*function\\s+${escapeRegExp(functionName)}\\s*\\(`, 'm')
-  const match = pattern.exec(source)
-  if (!match) return ''
-  const start = match.index
-  const rest = source.slice(start + 1)
-  const next = rest.search(/\n\s*function\s+[A-Za-z0-9_]+\s*\(/)
-  if (next === -1) {
-    return source.slice(start)
-  }
-  return source.slice(start, start + 1 + next)
-}
+const NESTED_PAYLOAD_SCOPE_NODE_TYPES = new Set([
+  'ArrowFunctionExpression',
+  'ClassMethod',
+  'ClassPrivateMethod',
+  'FunctionDeclaration',
+  'FunctionExpression',
+  'ObjectMethod',
+])
 
-function extractConsumedPayloadKeys(functionSource) {
+const CLASS_FIELD_NODE_TYPES = new Set([
+  'ClassAccessorProperty',
+  'ClassPrivateProperty',
+  'ClassProperty',
+])
+
+function extractConsumedPayloadKeys(functionDeclaration) {
   const keys = []
-  for (const args of findCallArguments(functionSource, 'takePayloadField')) {
-    const parts = splitTopLevelArguments(args)
-    if (parts[0]?.trim() !== 'unused') continue
-    const key = parseStringLiteral(parts[1] ?? '')
-    if (key) keys.push(key)
-  }
+  traversePayloadBuilderRootScope(functionDeclaration, (node) => {
+    if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier') return
+    const [payload, keySource] = node.arguments
+    if (payload?.type !== 'Identifier' || payload.name !== 'unused') return
 
-  for (const args of findCallArguments(functionSource, 'takePayloadFields')) {
-    const parts = splitTopLevelArguments(args)
-    if (parts[0]?.trim() !== 'unused') continue
-    keys.push(...extractStringLiterals(parts[1] ?? ''))
-  }
+    if (node.callee.name === 'takePayloadField') {
+      if (keySource?.type === 'StringLiteral') keys.push(keySource.value)
+      return
+    }
+    if (node.callee.name !== 'takePayloadFields' || keySource?.type !== 'ArrayExpression') return
+    for (const element of keySource.elements) {
+      if (element?.type === 'StringLiteral') keys.push(element.value)
+    }
+  })
   return uniqueSorted(keys)
 }
 
-function findCallArguments(source, callee) {
-  const calls = []
-  for (let index = 0; index < source.length; index += 1) {
-    const skipped = skipJSSyntaxTrivia(source, index)
-    if (skipped !== index) {
-      index = skipped - 1
-      continue
-    }
-    if (!source.startsWith(callee, index) || isIdentifierChar(source[index - 1]) || isIdentifierChar(source[index + callee.length])) {
-      continue
-    }
-    let cursor = skipWhitespace(source, index + callee.length)
-    if (source[cursor] !== '(') {
-      continue
-    }
-    const call = readBalancedParens(source, cursor)
-    if (!call) {
-      continue
-    }
-    calls.push(call.body)
-    index = call.end - 1
+function traversePayloadBuilderRootScope(node, visit, isRootFunction = true) {
+  if (!node || typeof node.type !== 'string') return
+  if (!isRootFunction && NESTED_PAYLOAD_SCOPE_NODE_TYPES.has(node.type)) return
+  if (CLASS_FIELD_NODE_TYPES.has(node.type)) {
+    visit(node)
+    if (node.computed) traversePayloadBuilderRootScope(node.key, visit, false)
+    if (node.static) traversePayloadBuilderRootScope(node.value, visit, false)
+    return
   }
-  return calls
-}
-
-function splitTopLevelArguments(source) {
-  const args = []
-  let start = 0
-  let depth = 0
-  for (let index = 0; index < source.length; index += 1) {
-    const skipped = skipJSSyntaxTrivia(source, index)
-    if (skipped !== index) {
-      index = skipped - 1
-      continue
-    }
-    const char = source[index]
-    if (char === '(' || char === '[' || char === '{') depth += 1
-    if (char === ')' || char === ']' || char === '}') depth -= 1
-    if (char === ',' && depth === 0) {
-      args.push(source.slice(start, index))
-      start = index + 1
-    }
-  }
-  args.push(source.slice(start))
-  return args
-}
-
-function readBalancedParens(source, start) {
-  let depth = 0
-  for (let index = start; index < source.length; index += 1) {
-    const skipped = skipJSSyntaxTrivia(source, index)
-    if (skipped !== index) {
-      index = skipped - 1
-      continue
-    }
-    const char = source[index]
-    if (char === '(') depth += 1
-    if (char !== ')') continue
-    depth -= 1
-    if (depth === 0) {
-      return {
-        body: source.slice(start + 1, index),
-        end: index + 1,
+  visit(node)
+  for (const value of Object.values(node)) {
+    if (!value) continue
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        traversePayloadBuilderRootScope(child, visit, false)
       }
+    } else if (typeof value.type === 'string') {
+      traversePayloadBuilderRootScope(value, visit, false)
     }
   }
-  return null
-}
-
-function parseStringLiteral(source) {
-  const trimmed = source.trim()
-  const literal = readStringLiteral(trimmed, 0)
-  if (!literal || literal.end !== trimmed.length) {
-    return ''
-  }
-  return literal.value
-}
-
-function extractStringLiterals(source) {
-  const out = []
-  for (let index = 0; index < source.length; index += 1) {
-    const skipped = skipJSSyntaxComment(source, index)
-    if (skipped !== index) {
-      index = skipped - 1
-      continue
-    }
-    const literal = readStringLiteral(source, index)
-    if (!literal) {
-      continue
-    }
-    out.push(literal.value)
-    index = literal.end - 1
-  }
-  return out
-}
-
-function skipJSSyntaxTrivia(source, index) {
-  const commentEnd = skipJSSyntaxComment(source, index)
-  if (commentEnd !== index) return commentEnd
-  const literal = readStringLiteral(source, index)
-  return literal?.end ?? index
-}
-
-function skipJSSyntaxComment(source, index) {
-  if (source.startsWith('//', index)) {
-    const end = source.indexOf('\n', index + 2)
-    return end === -1 ? source.length : end
-  }
-  if (source.startsWith('/*', index)) {
-    const end = source.indexOf('*/', index + 2)
-    return end === -1 ? source.length : end + 2
-  }
-  return index
-}
-
-function readStringLiteral(source, start) {
-  const quote = source[start]
-  if (quote !== '"' && quote !== '\'' && quote !== '`') {
-    return null
-  }
-  let value = ''
-  for (let index = start + 1; index < source.length; index += 1) {
-    const char = source[index]
-    if (char === '\\') {
-      if (index + 1 < source.length) {
-        value += source[index + 1]
-        index += 1
-      }
-      continue
-    }
-    if (char === quote) {
-      return { value, end: index + 1 }
-    }
-    value += char
-  }
-  return null
-}
-
-function skipWhitespace(source, index) {
-  let cursor = index
-  while (/\s/.test(source[cursor] ?? '')) {
-    cursor += 1
-  }
-  return cursor
-}
-
-function isIdentifierChar(char) {
-  return typeof char === 'string' && /[A-Za-z0-9_$]/.test(char)
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function uniqueSorted(values) {
