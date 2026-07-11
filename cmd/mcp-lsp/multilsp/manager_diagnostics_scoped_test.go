@@ -634,6 +634,86 @@ func TestPublishEmptyDiagnosticsCountsAsObservedReadySnapshot(t *testing.T) {
 	}
 }
 
+func TestWaitDiagnosticsStableIgnoresReopenCloseEmptyUntilFreshPublish(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"reopen-diagnostics"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "const reopened = true\n")
+	factory := &reopenPushDiagnosticsFactory{}
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	uri := fileURIFromPath(target)
+	goroutines := newTestGoroutineGroup(t)
+
+	if err := mgr.ReopenDocumentForDiagnostics(ctx, uri); err != nil {
+		t.Fatalf("ReopenDocumentForDiagnostics() error = %v", err)
+	}
+	requireNoDiagnosticItems(t, "didClose empty", diagnosticsItemsForURI(t, mgr, ctx, uri, "didClose empty"))
+	waitStarted := make(chan struct{})
+	waitDone := make(chan error, 1)
+	goroutines.Go(func() {
+		close(waitStarted)
+		waitDone <- mgr.WaitDiagnosticsStable(ctx, []string{uri})
+	})
+	<-waitStarted
+	select {
+	case err := <-waitDone:
+		t.Fatalf("WaitDiagnosticsStable() completed after didClose empty: %v", err)
+	default:
+	}
+	factory.publishFresh()
+	if err := <-waitDone; err != nil {
+		t.Fatalf("WaitDiagnosticsStable() error = %v", err)
+	}
+	requireDiagnosticMessage(t, diagnosticsItemsForURI(t, mgr, ctx, uri, "fresh reopen"), "fresh after reopen")
+}
+
+type reopenPushDiagnosticsFactory struct {
+	handler protocol.NotificationHandler
+	uri     string
+}
+
+func (f *reopenPushDiagnosticsFactory) NewClient(_ string, handler protocol.NotificationHandler) (Client, error) {
+	f.handler = handler
+	return &reopenPushDiagnosticsClient{factory: f}, nil
+}
+
+func (f *reopenPushDiagnosticsFactory) publishFresh() {
+	_ = f.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{
+		URI:         f.uri,
+		Diagnostics: []protocol.Diagnostic{{Message: "fresh after reopen"}},
+	})
+}
+
+type reopenPushDiagnosticsClient struct {
+	factory *reopenPushDiagnosticsFactory
+}
+
+func (c *reopenPushDiagnosticsClient) Initialize(context.Context, string) error { return nil }
+func (c *reopenPushDiagnosticsClient) Shutdown(context.Context) error           { return nil }
+func (c *reopenPushDiagnosticsClient) Notify(context.Context, string, any) error {
+	return nil
+}
+func (c *reopenPushDiagnosticsClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	return json.RawMessage("null"), nil
+}
+func (c *reopenPushDiagnosticsClient) DidOpen(_ context.Context, uri, _ string, _ int, _ string) error {
+	c.factory.uri = uri
+	return nil
+}
+func (c *reopenPushDiagnosticsClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+	return nil
+}
+func (c *reopenPushDiagnosticsClient) DidClose(_ context.Context, uri string) error {
+	return c.factory.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri})
+}
+func (c *reopenPushDiagnosticsClient) Close() error { return nil }
+
 func TestWaitDiagnosticsStableRetriesPullDiagnosticsForMissingTargets(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"pull-diagnostics"}`)
