@@ -397,6 +397,10 @@ git commit -m "feat: 增加有界证据账本与候选模型"
 ### Task 5: Implement light isolation and process cleanup
 
 **Files:**
+- Modify: `tsconfig.json`
+- Modify: `scripts/build.mjs`
+- Modify: `scripts/assert-build-output.mjs`
+- Modify: `package-lock.json`
 - Create: `packages/isolation/package.json`
 - Create: `packages/isolation/tsconfig.json`
 - Create: `packages/isolation/src/environment.ts`
@@ -405,6 +409,7 @@ git commit -m "feat: 增加有界证据账本与候选模型"
 - Create: `packages/isolation/src/path-guard.ts`
 - Create: `packages/isolation/src/index.ts`
 - Test: `packages/isolation/src/light-isolation.test.ts`
+- Test: `packages/isolation/src/managed-process.test.ts`
 - Test: `packages/isolation/src/path-guard.test.ts`
 
 - [ ] **Step 1: Write failing isolation tests**
@@ -433,21 +438,31 @@ Expected: FAIL because isolation functions do not exist.
 
 - [ ] **Step 3: Implement the light provider**
 
-Create root, HOME, project, browser profile, run, and upload directories with `mkdtemp`. Build environment from an explicit allowlist containing only `PATH`, `SystemRoot`, `TMPDIR`, `TEMP`, and adapter-declared non-secret variables, then overwrite HOME/profile variables. `assertRealPathInside` combines `realpath`, `lstat`, and no-follow checks. `ManagedProcess.stop()` terminates the process tree and waits for exit before directory cleanup.
+Create a private root, HOME, project, browser profile, run, upload, temp, and XDG directory layout with `mkdtemp`. Capture environment options synchronously through data descriptors before the first filesystem await. Build the child environment from an explicit allowlist containing only `PATH`, `SystemRoot`, `TMPDIR`, `TEMP`, and adapter-declared non-secret variables, reject credential/cloud/executable-injection names, then overwrite HOME/profile/XDG/temp variables. Environment shape violations use the frozen `CONTRACT_ERROR`; provisioning and cleanup failures use `ISOLATION_ERROR`.
+
+Pin the newly created root identity immediately. Provisioning failure and normal cleanup may recursively remove only the same pinned directory; a disappeared, replaced, symlinked, or identity-mismatched root is retained and fails closed. The public isolation root is its canonical real path. `assertRealPathInside` requires that canonical root, combines `realpath`, `lstat`, full component no-follow checks, and repeated device/inode validation, and rejects prefix collisions plus inward, outward, broken, leaf, intermediate, root, and root-ancestor symlinks or junctions.
+
+`ManagedProcess` must be constructed while its detached POSIX child identity is live. It validates options without invoking accessors or Proxy traps, terminates the complete process group, waits on a monotonic bounded graceful deadline, escalates to forceful termination, and applies an independent bounded force/taskkill deadline before directory cleanup. A late construction that cannot safely prove ownership of a still-live orphan group fails closed. Concurrent and repeated `stop()` calls return the same Promise, and failure never becomes success.
+
+Add `packages/isolation` to root TypeScript references, the cross-platform build driver, and the production-output guard. Publication excludes tests and requires both `dist/index.js` and `dist/index.d.ts`.
 
 - [ ] **Step 4: Verify cleanup on normal and interrupted paths**
 
 ```bash
 npm test -- packages/isolation
 npm run typecheck
+npm run lint
+npm run build
+node scripts/assert-build-output.mjs packages/isolation
+npm pack --dry-run --json --workspace @agentic-testing-harness/isolation
 ```
 
-Expected: PASS on the current platform; child process and temp path assertions report no leftovers.
+Expected: PASS on the current platform; child process and temp path assertions report no leftovers; build and pack contain production entries and no test output.
 
 - [ ] **Step 5: Commit light isolation**
 
 ```bash
-git add packages/isolation package.json package-lock.json
+git add packages/isolation package-lock.json tsconfig.json scripts/build.mjs scripts/assert-build-output.mjs
 git diff --cached --check
 git commit -m "feat: 实现轻隔离与进程清理"
 ```
