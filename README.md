@@ -1,7 +1,85 @@
 # Super Dolphin Agent
 
-Super Dolphin Agent is an AI-governed multi-agent platform for software development. It combines session management, tool execution, cron scheduling, memory, architecture boundaries, and reproducible governance checks with real-time event streaming.
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
 
+**AI-native software governance and multi-agent development control plane.**
+
+Super Dolphin Agent is built for software projects maintained primarily by AI agents. It combines multi-agent sessions, tool execution, MCP orchestration, multi-language LSP, scheduling, memory, provider-native skills, real-time event streaming, and machine-enforced engineering boundaries in one desktop control plane.
+
+The English README is the canonical source. Translations preserve the same product meaning, commands, paths, environment variables, rule IDs, and license identity.
+
+<!-- sd:why -->
+## AI-Maintained by Design
+
+“AI-maintained” does not mean unreviewed code or an AI that must understand the entire repository at once. It means AI is the primary implementation workforce while the repository supplies the orientation, constraints, and proof needed to keep every change narrow and auditable. Humans still own product intent, high-impact decisions, credentials, and releases.
+
+The maintenance loop is designed around bounded context:
+
+1. **Orient** with generated code maps and a file-level AI project map.
+2. **Understand** public behavior through capability contracts and explicit architecture conventions.
+3. **Change** a small surface using LSP definitions, references, call hierarchies, and diagnostics.
+4. **Constrain** the change with AST rules, SSA rules, dependency boundaries, complexity limits, and fail-fast policies.
+5. **Prove** the result with focused tests, generated-artifact checks, and change-aware gates before it can be committed or pushed.
+
+This replaces the fragile assumption that either a human or an AI must keep the whole codebase in memory.
+
+### Origin: From V2 Entropy to Super Dolphin
+
+Super Dolphin Agent began on March 19, 2026 as a clean-slate migration from `go-agent-v2`. V2 had already proved the product: agent sessions, tools, providers, events, recovery, and a desktop experience all worked. Its failure was not lack of features. Its failure was that successful local additions gradually destroyed global legibility.
+
+In V2, more than 80 RPC methods accumulated hand-written binding, validation, capability checks, logging, error mapping, and parallel registration paths. Lifecycle truth was split across several manager files, an effective state layered over the stored state, an implicit side state machine, and asynchronous recovery side effects. A central event handler grew to 557 lines; the bus namespace grew to dozens of message and topic constants; manual application assembly exceeded 200 lines. The code still ran, but answering “where is the authoritative behavior?” became progressively harder.
+
+That is what this project means by **software corruption**: not bad developers and not necessarily broken output, but a system whose local parts can still work while its contracts, ownership, and change boundaries become implicit. Fast AI iteration amplifies this failure mode because every plausible local patch can add another hidden path.
+
+The original V3 decision rejected in-place surgery on roughly 83,000 lines. The old system stayed as behavioral evidence while capabilities were migrated function by function into explicit contracts. Super Dolphin is the result of turning those lessons into executable structure:
+
+| V2 entropy | Super Dolphin response |
+|---|---|
+| Hand-written RPC paths and scattered cross-cutting logic | typed requests, one contract surface, explicit middleware and error semantics |
+| Lifecycle transitions and side effects spread across files | declarative state transitions, typed events, and owned lifecycle runners |
+| Manual `New()` / `Close()` object graphs | `fx` composition with explicit startup and shutdown ownership |
+| Business modules coupled to storage and adapters | onion boundaries, module-owned ports, and anti-corruption adapters |
+| Giant mixed-abstraction functions | composed methods plus the `80 / 4 / 10` function, nesting, and complexity budget |
+| Conventions remembered by reviewers | AST/SSA guards, maps, manifests, hooks, and reproducible evidence |
+
+V2 is therefore not hidden history. It is the failure model against which Super Dolphin's governance is designed.
+
+### Engineering Anti-Corruption
+
+AI can produce code quickly; without hard boundaries, it can also produce architectural drift quickly. Super Dolphin treats this drift as **AI code rot** and converts it into machine-visible failures near the point where it is introduced.
+
+| Anti-corruption layer | What it prevents | Repository evidence |
+|---|---|---|
+| Navigation truth | Editing the wrong subsystem or relying on stale mental models | `docs/doc/codemap`, project map, capability manifest |
+| Architecture boundaries | Domain code importing stores, providers, UI, or command implementations | typed backend-boundary registry and AST import evaluation |
+| Semantic guards | Ignored errors, silent fallback, unsafe lifecycle patterns, and wide orchestration seams | AST guards plus priority SSA analysis |
+| Complexity budget | Giant functions that mix business flow, infrastructure, protocol, and persistence details | default effective function length `<= 80`, nesting `<= 4`, cyclomatic complexity `<= 10` |
+| Ratcheted debt | A new change making known debt worse or “washing” debt by declaring a fresh baseline | production/test freeze partitions that reject regressions and shrink as code improves |
+| Reproducible gates | A green claim without maps, tests, generated artifacts, or exact evidence | pre-commit/pre-push hooks and change-aware AI maintenance gates |
+
+The 80-line limit is not a claim that every system should use the same number. It reflects this repository's orchestration-heavy workload, where composed methods and single-level abstractions are safer than monolithic procedures. The deeper rule is: **keep policy visible, details behind narrow interfaces, and exceptions explicit and measurable.**
+
+### Why This Is Not Another Agent Framework
+
+| Typical agent framework | Super Dolphin Agent |
+|---|---|
+| Optimizes task execution | Governs how tasks change a real software system |
+| Gives agents more tools and context | Gives agents bounded context, capability contracts, and allowed dependency directions |
+| Treats a completed run as success | Requires tests, diagnostics, generated-state checks, and Git evidence |
+| Relies mainly on prompt discipline | Enforces invariants in code, tests, hooks, and generated manifests |
+| Hides failures behind retries or defaults | Fails fast on missing configuration, invalid state, or broken dependencies |
+
+```text
+intent
+  -> code map + capability contract
+  -> scoped AI change through LSP/MCP
+  -> AST/SSA/architecture guards
+  -> focused tests + generated artifact checks
+  -> reviewable evidence
+  -> accepted commit
+```
+
+<!-- sd:architecture -->
 ## Architecture
 
 ```
@@ -22,6 +100,7 @@ internal/
 pkg/                     # Reusable public libraries
 ```
 
+<!-- sd:quick-start -->
 ## Quick Start
 
 ### Prerequisites
@@ -194,6 +273,26 @@ SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal p
   The old FBSD/disclosure pipeline and `skill_read_section` implementation were
   physically removed, so those env vars have no effect.
 
+<!-- sd:governance-demo -->
+## Reproducible Governance Proof
+
+Inspect the exact gates selected for a change without executing them:
+
+```bash
+./scripts/ai_maintenance_gates.sh --print-plan --base HEAD
+```
+
+Run the core anti-corruption surfaces directly:
+
+```bash
+make guard
+make codemap-check
+make project-map-check
+make capcontract-check
+```
+
+These checks validate architecture rules, AST/SSA guard behavior, generated code navigation, project-map drift, and the capability-contract manifest. They fail instead of silently refreshing stale truth. Use the explicit `*-refresh` targets only when the generated source of truth is intentionally being updated.
+
 ## Code Quality
 
 | Metric | Value |
@@ -205,7 +304,7 @@ SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal p
 
 ### Git Hooks
 
-`make install-hooks` sets `core.hooksPath` to `.githooks`, enabling automatic pre-commit and pre-push checks. Bypass with `--no-verify` only in emergencies — violations must be fixed retroactively.
+`make install-hooks` sets `core.hooksPath` to `.githooks`, enabling automatic pre-commit and pre-push checks. Do not use `--no-verify` to turn a failed gate into a green claim. If the hook environment itself is blocked, record the exact blocker and repair or rerun the same gate explicitly.
 
 ## Code Map
 
@@ -217,6 +316,26 @@ Full code map: [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md). Key s
 - [Business Modules](docs/doc/codemap/07-module.md)
 - [Platform Infrastructure](docs/doc/codemap/08-platform.md)
 - [Provider Integration](docs/doc/codemap/09-provider.md)
+
+<!-- sd:security -->
+## Security
+
+- Never commit credentials, provider homes, local databases, logs, user memory, or machine-specific configuration.
+- Runtime configuration and missing dependencies follow the [fail-fast contract](docs/%E5%A5%91%E7%BA%A6/fail-fast-convention.md); silent fallback is treated as a defect.
+- The public-source exporter reads committed Git objects through a default-deny policy and excludes private plans, archives, run evidence, local workspaces, and untracked files.
+- Report sensitive vulnerabilities privately to the repository owner; do not include exploit details, secrets, or user data in a public issue.
+
+<!-- sd:community -->
+## Community and Contribution
+
+Issues and focused pull requests are welcome. Keep changes small, preserve module boundaries, add same-commit regression tests for fixes, and run the gates that match the changed surface. Architecture decisions should be expressed as contracts and executable guards rather than prompt-only conventions.
+
+Useful starting points:
+
+- [Code map](docs/doc/codemap/README.md)
+- [Architecture contracts](docs/%E5%A5%91%E7%BA%A6/README.md)
+- [Project agent instructions](AGENTS.md)
+- [Apache License 2.0](LICENSE)
 
 ## License
 

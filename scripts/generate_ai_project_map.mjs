@@ -32,7 +32,12 @@ const INDEXED_ROOT_FILES = new Set([
   'AGENTS.md',
   'CLAUDE.md',
   'Makefile',
+  'README.de.md',
+  'README.es.md',
+  'README.ja.md',
+  'README.ko.md',
   'README.md',
+  'README.zh-CN.md',
   'go.mod',
   'package-lock.json',
   'package.json',
@@ -525,7 +530,7 @@ function classifyDomain(file) {
   if (file.startsWith('internal/module/')) return 'modules';
   if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
   if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
-  if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md') return 'docs-agent';
+  if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('README.') && file.endsWith('.md'))) return 'docs-agent';
   return 'other';
 }
 

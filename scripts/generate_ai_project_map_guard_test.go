@@ -86,6 +86,34 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	}
 }
 
+// TestProjectMapGeneratorIndexesLocalizedRootReadmes 锁定 GitHub 语言导航对应的根 README 都进入项目地图。
+func TestProjectMapGeneratorIndexesLocalizedRootReadmes(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	localizedReadmes := []string{
+		"README.zh-CN.md",
+		"README.ja.md",
+		"README.ko.md",
+		"README.es.md",
+		"README.de.md",
+	}
+	for _, file := range localizedReadmes {
+		writeFixTestGuardFile(t, root, file, "localized\n")
+	}
+	gitAddArgs := append([]string{"add"}, localizedReadmes...)
+	runFixTestGuardGit(t, root, gitAddArgs...)
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 添加多语言 README fixture")
+
+	out, err := runProjectMapGenerator(t, root)
+	if err != nil {
+		t.Fatalf("project map generator failed: %v\n%s", err, out)
+	}
+	generated := readProjectMapOutputs(t, root)
+	for _, file := range localizedReadmes {
+		assertOutputContainsAll(t, generated, file+"\t(root)\tdocs-agent\tdoc\t10\t")
+	}
+}
+
 func assertAppAdapterProjectMapRoutes(t *testing.T, generated string) {
 	t.Helper()
 	assertProjectMapPurpose(t, generated, "internal/app/storeadapter/prompt/adapter.go", "业务 Store 到 module 窄端口的适配器")
