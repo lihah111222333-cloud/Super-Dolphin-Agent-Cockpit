@@ -5,8 +5,8 @@ package safego
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // Go 在新 goroutine 中运行 fn，并在 panic 时记录 label、panic 值和堆栈。

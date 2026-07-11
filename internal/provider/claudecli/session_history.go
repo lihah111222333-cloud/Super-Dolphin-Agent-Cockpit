@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // ReadHistory 从 Claude 历史后端读取统一消息列表。

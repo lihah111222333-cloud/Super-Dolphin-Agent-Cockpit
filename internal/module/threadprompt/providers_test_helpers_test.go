@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 func expertTemplate(promptKey string, priority int, whenToUse string) PromptTemplate {

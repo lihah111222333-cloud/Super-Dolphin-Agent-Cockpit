@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 )
 
 func TestFormatToPlainTextUsesCompletionTitleForCompactCompletionList(t *testing.T) {

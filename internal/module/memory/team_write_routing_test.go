@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/dedup"
 )
 
 func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {

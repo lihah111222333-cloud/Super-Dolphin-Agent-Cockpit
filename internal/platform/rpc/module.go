@@ -10,10 +10,10 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // ErrNoUIPeer reports that an approval callback has no authenticated UI peer.

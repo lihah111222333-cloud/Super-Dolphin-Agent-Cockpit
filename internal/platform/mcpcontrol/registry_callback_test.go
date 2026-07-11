@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 func TestCallbackBefore(t *testing.T) {

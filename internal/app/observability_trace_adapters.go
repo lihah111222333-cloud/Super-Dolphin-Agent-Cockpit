@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformobservability "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	platformobservability "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // busTraceRecorder 将 bus trace 写入 observability 服务。

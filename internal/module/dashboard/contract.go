@@ -3,7 +3,7 @@ package dashboard
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // WorkflowMaterialWriteRequest 表示前端模板上传到 workflow sharedfile 的文本材料。

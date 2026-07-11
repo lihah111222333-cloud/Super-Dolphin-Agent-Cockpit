@@ -3,7 +3,7 @@ package turn
 import (
 	"encoding/json"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
 // InputItem 复用 shared DTO 的输入项定义，保持 turn payload 与 provider payload 字段一致。

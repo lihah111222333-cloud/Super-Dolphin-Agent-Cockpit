@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	editpkg "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/edit"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
 const (

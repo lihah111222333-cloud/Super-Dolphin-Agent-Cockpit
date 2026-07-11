@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 // RemoteParamDecoder 抽象 JSON-RPC 参数解码函数，便于同一解码逻辑复用到不同远端事件。

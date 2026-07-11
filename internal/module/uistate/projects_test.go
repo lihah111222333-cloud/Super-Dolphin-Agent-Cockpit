@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 func TestNewUIStateHandlersRegistersProjectRoutes(t *testing.T) {

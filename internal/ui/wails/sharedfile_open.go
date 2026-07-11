@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
-	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
+	sharedfilepath "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilepath"
 )
 
 const sharedFilePreviewPathPrefix = "/shared-file-preview"

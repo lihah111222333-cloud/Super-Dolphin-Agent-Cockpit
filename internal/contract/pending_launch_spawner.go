@@ -3,7 +3,7 @@ package contract
 import (
 	"context"
 
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 )
 
 // PendingLaunchSpawner 是 pending_launch thread 首次收到 turn 时延迟启动 provider CLI 的 owner-side 边界。

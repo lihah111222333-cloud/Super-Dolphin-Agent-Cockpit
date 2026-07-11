@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/dashboard"
 )
 
 type externalDashboardPorts struct{}

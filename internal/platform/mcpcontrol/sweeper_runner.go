@@ -3,7 +3,7 @@ package mcpcontrol
 import (
 	"context"
 
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 )
 
 // SweeperRunner 把 Sweeper 接入 platformrunner.Runner。

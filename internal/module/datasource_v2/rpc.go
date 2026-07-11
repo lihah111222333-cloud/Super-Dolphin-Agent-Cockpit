@@ -8,8 +8,8 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // LocalFilePickerTokenVerifier 验证桌面端 datasource 导入文件选择器签发的短期 capability。

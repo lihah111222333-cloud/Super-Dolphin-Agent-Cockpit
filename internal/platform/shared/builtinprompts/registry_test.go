@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 var mainGeneralZhSectionKeys = []string{

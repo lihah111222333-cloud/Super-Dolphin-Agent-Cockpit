@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // DAG prompt 身份诊断扫描上限，避免聊天层误触全库读取。

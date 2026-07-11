@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // ThreadMetadata 分组定义 store/thread 暴露给外部模块的只读线程元数据。

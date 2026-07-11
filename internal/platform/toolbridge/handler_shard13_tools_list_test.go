@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 )
 
 func TestProxyToolsList_OrchIncludesHostAndSurvivesPeerDown(t *testing.T) {

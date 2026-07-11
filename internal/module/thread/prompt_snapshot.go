@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 const legacyPromptSnapshotMigrationRuntimeKey = "legacyPromptSnapshotMigration"

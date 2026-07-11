@@ -7,8 +7,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // SubscriberSpec 保留 bus 包旧导入路径；订阅字段和跨模块 wire 定义以 contract 为准。

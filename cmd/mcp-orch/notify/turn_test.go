@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 // aliasFromMap returns a resolver that looks agent ids up in a static

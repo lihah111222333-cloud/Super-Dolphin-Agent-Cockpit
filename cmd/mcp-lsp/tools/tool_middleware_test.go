@@ -3,12 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 )
 
 func TestMiddlewareChainAddsDeadline(t *testing.T) {

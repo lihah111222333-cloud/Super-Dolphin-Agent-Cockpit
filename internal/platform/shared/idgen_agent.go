@@ -1,6 +1,6 @@
 package shared
 
-import "github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 
 // NewAgentID 生成顶层 agent ID。
 func NewAgentID() string { return idgen.NewAgentID() }

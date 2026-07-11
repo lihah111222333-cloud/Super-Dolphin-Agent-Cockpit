@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 // diskStore 以磁盘 Markdown 文件实现记忆存储。

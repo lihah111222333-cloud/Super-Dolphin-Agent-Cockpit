@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // SectionInvalidator 是 prompt section 缓存失效能力的本包兼容别名。

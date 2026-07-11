@@ -4,13 +4,13 @@ import (
 	"testing"
 	"time"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 func newSubscribedTest(t *testing.T) (*Memory, *event.Dispatcher) {

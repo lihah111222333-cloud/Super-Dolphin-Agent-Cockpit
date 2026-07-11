@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
-	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/gorilla/websocket"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource"
+	mcpserver "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/mcp_server"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 func TestWailsWebSocketRequestsMCPServerAndDatasourceRPC(t *testing.T) {

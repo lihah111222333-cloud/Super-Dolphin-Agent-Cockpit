@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/kelindar/event"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 func TestTranslateToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
@@ -88,13 +88,13 @@ func sensitiveCodexArguments() map[string]any {
 	return map[string]any{
 		"command":   "curl --api-key sk-test https://example.test",
 		"token":     "token=abc",
-		"file_path": "/Users/mima0000/secret",
+		"file_path": "/Users/alice/secret",
 	}
 }
 
 func assertCodexArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/mima0000/secret", "--api-key"} {
+	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("ArgumentsPreview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}

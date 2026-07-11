@@ -10,9 +10,9 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 var Module = fx.Module(

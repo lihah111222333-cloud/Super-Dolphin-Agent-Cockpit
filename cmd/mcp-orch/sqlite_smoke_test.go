@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
 func TestSQLiteMCPOrchRuntimeReadinessSmoke(t *testing.T) {

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
 )
 
 var _ thread.ThreadStore = (*threadStoreAdapter)(nil)

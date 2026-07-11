@@ -7,7 +7,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // recordResponse 是 feedback/record 的 RPC 响应，同时提供蛇形和驼峰两种 event_type 字段名。

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	sharedfilepath "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilepath"
 )
 
 // AutomationKindCommandCard 是当前唯一实装的 automation.kind 取值。

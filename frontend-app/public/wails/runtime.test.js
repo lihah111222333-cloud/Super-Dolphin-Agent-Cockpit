@@ -146,7 +146,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const resultPromise = runtime.Call.ByID(1391035622, 'thread/config/get', {
       threadId: 'thread-1',
       _aoTraceId: 'trace-runtime-resolve',
       _aoSpanId: 'span-runtime-resolve',
@@ -203,7 +203,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const timedOut = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const timedOut = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-timeout',
       _aoSpanId: 'span-runtime-timeout',
       _aoRequestId: 77,
@@ -225,7 +225,7 @@ describe('development Wails runtime shim', () => {
       error: 'timeout',
     }));
 
-    const nextCall = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const nextCall = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-after-timeout',
       _aoSpanId: 'span-runtime-after-timeout',
       _aoRequestId: 78,
@@ -250,7 +250,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const installPromise = runtime.Call.ByID(2963398832, 'app/update/installLatest', {
+    const installPromise = runtime.Call.ByID(1391035622, 'app/update/installLatest', {
       _aoTraceId: 'trace-update-install',
       _aoSpanId: 'span-update-install',
       _aoRequestId: 88,
@@ -278,7 +278,7 @@ describe('development Wails runtime shim', () => {
       error: 'timeout',
     }));
 
-    const downloadPromise = runtime.Call.ByID(2963398832, 'app/update/download', {
+    const downloadPromise = runtime.Call.ByID(1391035622, 'app/update/download', {
       _aoTraceId: 'trace-update-download',
       _aoSpanId: 'span-update-download',
       _aoRequestId: 89,
@@ -298,7 +298,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const selectionPromise = runtime.Call.ByID(4126105303);
+    const selectionPromise = runtime.Call.ByID(3596120745);
     sockets[0].open();
     await Promise.resolve();
     const request = JSON.parse(sockets[0].sent[0]);
@@ -320,7 +320,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const resultPromise = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-close',
       _aoSpanId: 'span-runtime-close',
       _aoRequestId: 88,
@@ -387,7 +387,7 @@ describe('development Wails runtime shim', () => {
 
     const runtime = await importFreshRuntimeShim();
     let rejectedError;
-    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const resultPromise = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-open-error',
       _aoSpanId: 'span-runtime-open-error',
       _aoRequestId: 89,
@@ -431,7 +431,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const resultPromise = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-send-throw',
       _aoSpanId: 'span-runtime-send-throw',
       _aoRequestId: 90,
@@ -458,7 +458,7 @@ describe('development Wails runtime shim', () => {
     sockets[0].send = function send(data) {
       this.sent.push(data);
     };
-    const nextCall = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const nextCall = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-after-send-throw',
       _aoSpanId: 'span-runtime-after-send-throw',
       _aoRequestId: 91,
@@ -485,7 +485,7 @@ describe('development Wails runtime shim', () => {
     vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
     const runtime = await importFreshRuntimeShim();
-    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const resultPromise = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-rpc-error',
       _aoSpanId: 'span-runtime-rpc-error',
       _aoRequestId: 92,
@@ -514,7 +514,7 @@ describe('development Wails runtime shim', () => {
       error: 'rpc_error',
     }));
 
-    const nextCall = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const nextCall = runtime.Call.ByID(1391035622, 'thread/config/get', {
       _aoTraceId: 'trace-runtime-after-rpc-error',
       _aoSpanId: 'span-runtime-after-rpc-error',
       _aoRequestId: 93,

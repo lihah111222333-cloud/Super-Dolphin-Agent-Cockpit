@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/stretchr/testify/require"
 )
 

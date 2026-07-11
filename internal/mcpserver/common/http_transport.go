@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const maxHTTPBodyBytes = 10 * 1024 * 1024

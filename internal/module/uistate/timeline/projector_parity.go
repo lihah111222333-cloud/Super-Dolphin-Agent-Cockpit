@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 // planDeltaHandler 将增量计划事件合并到同一个 plan timeline item。

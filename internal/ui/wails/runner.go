@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

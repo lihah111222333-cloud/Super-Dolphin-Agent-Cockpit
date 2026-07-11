@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	taskdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/task"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // LogSink 订阅总线上的已知事件类型，将其镜像到结构化日志，并按需记录追踪信息。

@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 )
 
-const modulePath = "github.com/anthropic-ai/super-agent-v3"
+const modulePath = "github.com/lihah111222333-cloud/super-dolphin-agent"
 
 var providerAllowedExternal = map[string]bool{
 	"github.com/BurntSushi/toml":   true,

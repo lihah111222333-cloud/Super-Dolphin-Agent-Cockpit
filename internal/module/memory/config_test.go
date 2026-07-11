@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	nestedpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/nested"
 )
 
 func TestNewConfigUsesEnvOverride(t *testing.T) {

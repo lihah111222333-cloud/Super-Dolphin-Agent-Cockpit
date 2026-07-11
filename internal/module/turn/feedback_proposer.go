@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // FeedbackItem 是反馈提炼兼容入口需要的最小记忆投影，避免 turn 包依赖 memory 模块的具体类型。

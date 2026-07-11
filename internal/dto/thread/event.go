@@ -1,6 +1,6 @@
 package thread
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 
 // Started 报告 thread 已变为可路由状态。
 // PendingLaunch=true 时仅持久化占位 thread；首次 turn 触发 SpawnIfNeeded 后才启动 provider CLI。

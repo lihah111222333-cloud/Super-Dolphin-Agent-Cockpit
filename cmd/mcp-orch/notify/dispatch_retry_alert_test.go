@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformnotify "github.com/anthropic-ai/super-agent-v3/internal/platform/notify"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformnotify "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/notify"
 )
 
 func TestDispatchRetryAlertNotifierEnqueuesWebhookAlias(t *testing.T) {

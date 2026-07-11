@@ -9,12 +9,12 @@ import (
 	"sort"
 	"strings"
 
-	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	editpkg "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/edit"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // lineEndingStyle 记录源文件原始换行风格，编辑后按原样写回磁盘。

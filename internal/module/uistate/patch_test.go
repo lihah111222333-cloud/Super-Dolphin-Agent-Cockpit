@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 )
 
 func TestApplyTokensUpdatedPublishesThreadPatch(t *testing.T) {

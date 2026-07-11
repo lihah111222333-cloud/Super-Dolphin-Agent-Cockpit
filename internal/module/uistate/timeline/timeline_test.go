@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/kelindar/event"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
 )
 
 func TestAppendAndGetByThread(t *testing.T) {

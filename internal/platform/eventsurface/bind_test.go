@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	crondto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/cron"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	taskdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/task"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 type publishedEvent struct {

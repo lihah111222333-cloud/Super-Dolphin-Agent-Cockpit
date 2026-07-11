@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // 本文件把 typed DAG ops 归一化为可持久化的变更计划。

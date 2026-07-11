@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 func TestNewThreadSubscribersSpec(t *testing.T) {

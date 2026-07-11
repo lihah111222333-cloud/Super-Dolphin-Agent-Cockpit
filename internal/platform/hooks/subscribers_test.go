@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 func TestNewHooksRelaySubscribersSpec(t *testing.T) {

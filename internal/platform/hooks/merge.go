@@ -3,8 +3,8 @@ package hooks
 import (
 	"strings"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // MergeResult 保存合并后的 hook 决策和 fanout 失败元数据。

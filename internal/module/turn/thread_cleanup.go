@@ -3,7 +3,7 @@ package turn
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // InterruptActiveTurn 中断当前线程的活跃 turn，并等待 provider handle 与 tracker 收敛。

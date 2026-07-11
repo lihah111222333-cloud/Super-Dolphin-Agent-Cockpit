@@ -3,8 +3,8 @@ package hooks
 import (
 	"strings"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // MergeAfter 合并 after 阶段多个 peer 的决策。

@@ -1,6 +1,6 @@
 package shared
 
-import "github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 
 // ProjectKeyFromCwd 根据工作目录生成通用项目键，保持 shared 包旧入口兼容。
 func ProjectKeyFromCwd(cwd string) (string, error) { return pathutil.ProjectKeyFromCwd(cwd) }

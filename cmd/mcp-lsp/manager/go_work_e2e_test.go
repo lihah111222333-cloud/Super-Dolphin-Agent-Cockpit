@@ -5,7 +5,7 @@ package manager_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -14,10 +14,10 @@ import (
 	"sync"
 	"testing"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 func TestGoWorkMultiModuleDiagnostics(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // runtimeExtrasRelevanceDisclaimer 约束 synthetic user message 中的 runtime extras 只在相关问题里使用。

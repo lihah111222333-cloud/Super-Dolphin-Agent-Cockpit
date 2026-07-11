@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
 type completionParams struct {

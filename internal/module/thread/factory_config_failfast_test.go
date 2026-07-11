@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 type failFastBindingStore struct {

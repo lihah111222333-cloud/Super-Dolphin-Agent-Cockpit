@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/jsoninput"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/jsoninput"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
 // DecodeInput 解码工具输入；空值和 null 按空对象处理，减少调用方重复分支。

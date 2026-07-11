@@ -9,13 +9,13 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/threadprompt"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
+	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 // promptSnapshotMappingFixture 只归一化两侧命名不同但结构相同的 Boundary，避免放宽共享 helper。

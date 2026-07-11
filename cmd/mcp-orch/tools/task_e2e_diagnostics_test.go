@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
 
 func TestChatCreateAutomationDAGUsesBuiltinPromptWhenDBEmpty(t *testing.T) {

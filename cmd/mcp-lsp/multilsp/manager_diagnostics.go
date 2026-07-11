@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 )
 
 type managerNotificationHandler struct {

@@ -3,7 +3,7 @@ package thread
 import (
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 const keepaliveSentinelFixture = "[CACHE-KEEPALIVE] Automated cache maintenance. Reply with only: OK"

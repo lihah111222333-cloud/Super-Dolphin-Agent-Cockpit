@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // RenderDingtalk 生成钉钉机器人签名 URL 和 markdown 卡片体。

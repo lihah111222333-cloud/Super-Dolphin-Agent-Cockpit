@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"testing"
 
-	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	threadmod "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	contract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	threadmod "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
 )
 
 // testThreadConfigOverrideStore 把 Thread-owned store 端口收窄成 handler 只需要的 ConfigOverride 读取口。

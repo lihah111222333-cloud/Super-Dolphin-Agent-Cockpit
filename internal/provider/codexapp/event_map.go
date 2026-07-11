@@ -9,16 +9,16 @@ import (
 	"strings"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // RegisterTranslators 将 Codex raw event 翻译器注册到统一事件分发器。

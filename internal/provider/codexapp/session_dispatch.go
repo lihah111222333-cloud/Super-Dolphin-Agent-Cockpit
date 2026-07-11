@@ -5,12 +5,12 @@ import (
 	"errors"
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/supportutil"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const (

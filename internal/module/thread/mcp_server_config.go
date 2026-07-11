@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // mergeConfiguredMCPServers 把项目持久化 MCP server 配置合并进 prompt 快照。

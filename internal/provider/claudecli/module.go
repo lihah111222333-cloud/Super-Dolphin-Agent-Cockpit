@@ -10,10 +10,10 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 // driverFactoryParams 收集 Claude driver factory 的 fx 依赖。

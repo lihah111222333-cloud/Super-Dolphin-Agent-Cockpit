@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 func TestNewMCPConfigChangeSubscribersSpec(t *testing.T) {

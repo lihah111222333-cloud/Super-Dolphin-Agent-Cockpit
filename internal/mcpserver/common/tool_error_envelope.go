@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // ToolErrorEnvelope 是工具 handler 已选定后由 tools/call 返回的机器可读错误载荷。

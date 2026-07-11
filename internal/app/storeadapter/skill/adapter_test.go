@@ -10,11 +10,11 @@ import (
 	"github.com/creachadair/jrpc2"
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	skilltoolstore "github.com/anthropic-ai/super-agent-v3/internal/store/skilltool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/toolstore"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	auditstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/auditlog"
+	skilltoolstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/skilltool"
 )
 
 func TestSkillMutationAuditAdapterMapsDomainDTO(t *testing.T) {

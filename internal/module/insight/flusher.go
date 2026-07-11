@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	observation "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	observation "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/observation"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // defaultDrainTimeout 是 ctx 取消后排空队列的最长等待时间，固定 5s，测试可缩短。

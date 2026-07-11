@@ -8,11 +8,11 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
-	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
-	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
+	sharedfilepath "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilepath"
 )
 
 // sharedfile store 同时维护磁盘正文和 DB 索引。

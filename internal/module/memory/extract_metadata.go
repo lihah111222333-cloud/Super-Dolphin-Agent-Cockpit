@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 type threadRuntimeMetadata struct {

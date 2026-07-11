@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	orchcron "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/cron"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 )
 
 func TestStartDAG_ScheduledAdapterPassesIdempotencyKey(t *testing.T) {

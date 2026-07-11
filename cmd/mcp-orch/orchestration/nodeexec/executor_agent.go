@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 // AgentExecutor 执行 node_type=agent 节点：解析 config.exec、装配输入前缀、启动子 agent，

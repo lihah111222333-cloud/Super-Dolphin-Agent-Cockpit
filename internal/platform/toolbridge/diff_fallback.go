@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/difftracker"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // diffFallbackTracker 兜住主快照链路未能发布 diff 的工具结束事件。

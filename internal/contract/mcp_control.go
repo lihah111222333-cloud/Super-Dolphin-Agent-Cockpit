@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // MCPServerConfig 是工作区 MCP server 配置的跨模块 wire 形状。

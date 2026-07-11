@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 )
 
 func TestProxyToolCall_SetsTimeoutAndNormalizesNullArguments(t *testing.T) {

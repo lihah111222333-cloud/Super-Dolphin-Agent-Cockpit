@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"go.uber.org/fx"
 )
 

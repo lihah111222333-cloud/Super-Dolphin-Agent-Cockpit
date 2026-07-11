@@ -3,9 +3,9 @@
 package bus
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 // domainEmitters 持有 dispatcher 引用，作为各领域 emitter 的基础结构。

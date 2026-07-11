@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // TestEnumValidation_SchemaHandlerSingleSource 验证 schema 与 handler 共用

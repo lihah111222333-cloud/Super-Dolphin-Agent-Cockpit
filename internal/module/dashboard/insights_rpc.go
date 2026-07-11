@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // InsightReader 是 dashboard insight RPC 依赖的只读服务别名。

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	retrieval "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	retrieval "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/retrieval"
 )
 
 // 本文件集中放置 memory baseline 测试共用 helper。

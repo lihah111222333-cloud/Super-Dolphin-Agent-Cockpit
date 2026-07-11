@@ -4,8 +4,8 @@ package draftdream
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 // ParseFunc 是将 LLM 原始字符串输出解析为目标类型的函数类型。

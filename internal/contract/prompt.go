@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
 // PromptRegion 复用 provider DTO 中的 prompt 分区标记，保证 contract 与 provider wire 形状一致。

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	skillidentity "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/identity"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/repofingerprint"
 )
 
 // ErrInvalidSkillName 是 name 校验失败统一返回的哨兵错误，调用方可用 errors.Is 检查。

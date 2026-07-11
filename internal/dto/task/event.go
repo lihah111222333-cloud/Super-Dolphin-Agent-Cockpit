@@ -1,6 +1,6 @@
 package task
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 
 // TaskNodeStatusChanged 报告 DAG 节点状态变化，携带新旧状态和当前绑定的 turn/wakeup。
 type TaskNodeStatusChanged struct {

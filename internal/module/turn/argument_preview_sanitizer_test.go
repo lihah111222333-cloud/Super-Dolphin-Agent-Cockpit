@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 func TestTrajectoryCollectorSanitizesToolCallArgumentsPreview(t *testing.T) {
@@ -26,12 +26,12 @@ func TestTrajectoryCollectorSanitizesToolCallArgumentsPreview(t *testing.T) {
 }
 
 func sensitiveTrajectoryArgumentsPreview() string {
-	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/mima0000/secret"}`
+	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`
 }
 
 func assertTrajectoryArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/mima0000/secret", "--api-key"} {
+	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("trajectory args = %q, must not contain sensitive fragment %q", preview, fragment)
 		}

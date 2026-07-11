@@ -9,11 +9,11 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared/builtinprompts"
 )
 
 // Module 把 prompt 的注册表、组装器和 RPC 接起来。

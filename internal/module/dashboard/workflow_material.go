@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
+	sharedfilepath "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilepath"
 )
 
 // workflowMaterialUploadPrefix 限定 dashboard 可写入的 workflow 材料目录。

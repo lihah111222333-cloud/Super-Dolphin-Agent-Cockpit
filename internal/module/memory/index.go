@@ -14,8 +14,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	parse "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/parse"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 	"golang.org/x/text/unicode/norm"
 )
 

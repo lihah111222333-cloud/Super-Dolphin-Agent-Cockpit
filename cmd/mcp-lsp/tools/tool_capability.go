@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 // isUnsupportedCapability 判断错误是否为 LSP 能力不支持错误。

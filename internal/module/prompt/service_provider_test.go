@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
 	"github.com/stretchr/testify/require"
 )
 

@@ -3,11 +3,11 @@ package mcpcontrol
 import (
 	"context"
 	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"sort"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // setHookLifecycle 在注册表启动时注入 hook 生命周期管理器，nil 注册表直接忽略以兼容测试组装。

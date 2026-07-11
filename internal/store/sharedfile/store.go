@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
-	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
-	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
+	sharedfilepath "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilepath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 )
 
 // 本 store 统一维护 shared file 的数据库索引和可选磁盘正文。

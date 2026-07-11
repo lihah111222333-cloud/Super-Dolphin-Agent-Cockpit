@@ -7,7 +7,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // NewWorkspaceHandlers 注册 workspace JSON-RPC handlers。

@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 // applyReplaceRangeUpdate 先写磁盘，再等待 LSP 同步或 git diff 确认。

@@ -10,7 +10,7 @@ import (
 
 func TestLoadPolicyRejectsUnknownField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.json")
-	data := `{"schema_version":1,"canonical_product_name":"Super Dolphin Agent","canonical_repository":"github.com/lihah111222333-cloud/super-dolphin-agent","canonical_module_path":"github.com/lihah111222333-cloud/super-dolphin-agent","license_spdx":"Apache-2.0","required_root_files":["README.md"],"allow_rules":[{"pattern":"README.md","kind":"file"}],"deny_rules":[{"pattern":"docs/plans/**","kind":"glob"}],"forbidden_identities":["/Users/mima0000"],"required_readmes":["README.md"],"required_readme_sections":["sd:why"],"forbidden_file_names":[".env"],"generated_files":["OPEN_SOURCE_EXPORT.json"],"unexpected":true}`
+	data := `{"schema_version":1,"canonical_product_name":"Super Dolphin Agent","canonical_repository":"github.com/lihah111222333-cloud/super-dolphin-agent","canonical_module_path":"github.com/lihah111222333-cloud/super-dolphin-agent","license_spdx":"Apache-2.0","required_root_files":["README.md"],"allow_rules":[{"pattern":"README.md","kind":"file"}],"deny_rules":[{"pattern":"docs/plans/**","kind":"glob"}],"forbidden_identities":["/Users/"],"required_readmes":["README.md"],"required_readme_sections":["sd:why"],"forbidden_file_names":[".env"],"generated_files":["OPEN_SOURCE_EXPORT.json"],"unexpected":true}`
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestValidatePolicyRejectsInvalidValues(t *testing.T) {
 	}{
 		{name: "unsupported version", edit: func(p *Policy) { p.SchemaVersion = 0 }, code: CodePolicyInvalid},
 		{name: "wrong license", edit: func(p *Policy) { p.LicenseSPDX = "Unlicense" }, code: CodeLicenseMismatch},
-		{name: "wrong module", edit: func(p *Policy) { p.CanonicalModulePath = "github.com/anthropic-ai/super-agent-v3" }, code: CodeModulePathMismatch},
+		{name: "wrong module", edit: func(p *Policy) { p.CanonicalModulePath = "github.com/" + "anthropic-ai/super-agent-v3" }, code: CodeModulePathMismatch},
 		{name: "absolute allow", edit: func(p *Policy) { p.AllowRules[0].Pattern = "/README.md" }, code: CodePolicyInvalid},
 		{name: "parent traversal", edit: func(p *Policy) { p.DenyRules[0].Pattern = "../private/**" }, code: CodePolicyInvalid},
 		{name: "backslash", edit: func(p *Policy) { p.RequiredRootFiles[0] = `docs\README.md` }, code: CodePolicyInvalid},
@@ -121,7 +121,7 @@ func validPolicy() Policy {
 		RequiredRootFiles:      []string{"README.md"},
 		AllowRules:             []PathRule{{Pattern: "README.md", Kind: "file"}},
 		DenyRules:              []PathRule{{Pattern: "docs/plans/**", Kind: "glob"}},
-		ForbiddenIdentities:    []string{"/Users/mima0000"},
+		ForbiddenIdentities:    []string{"/Users/"},
 		RequiredReadmes:        []string{"README.md"},
 		RequiredREADMESections: []string{"sd:why"},
 		ForbiddenFileNames:     []string{".env"},

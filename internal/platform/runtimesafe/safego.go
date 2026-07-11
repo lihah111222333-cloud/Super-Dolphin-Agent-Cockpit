@@ -7,7 +7,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // SafeGo 启动带 panic recovery 的 goroutine，并把 label、panic 和 stack 写入日志。

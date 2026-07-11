@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/dedup"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 // Service 是 memory 模块对外暴露的根目录、整理和状态管理端口。

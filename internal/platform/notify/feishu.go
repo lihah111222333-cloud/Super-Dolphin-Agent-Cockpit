@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // RenderFeishu 生成飞书交互卡片体并按机器人规范签名。

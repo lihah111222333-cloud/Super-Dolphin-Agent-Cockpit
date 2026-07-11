@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 // defaultHTTPAddr 是桌面 HTTP asset server 的默认 loopback 监听地址。

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 )
 
 func TestAgentRuntimeMainUsesHeadlessAppRun(t *testing.T) {

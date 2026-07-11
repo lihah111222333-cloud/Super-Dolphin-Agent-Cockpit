@@ -1,7 +1,7 @@
 package shared
 
 import (
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"runtime/debug"
 	"sync"
 )

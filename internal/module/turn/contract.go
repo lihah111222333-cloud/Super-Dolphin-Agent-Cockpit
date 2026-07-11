@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
 // ErrDedupeNotFound 表示没有可复用的 live 去重记录。

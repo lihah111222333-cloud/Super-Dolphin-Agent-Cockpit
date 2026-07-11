@@ -5,7 +5,7 @@ package manager_test
 
 import (
 	"context"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
 func createGenericManager(executable string, args []string, root string, log *slog.Logger) manager.Manager {

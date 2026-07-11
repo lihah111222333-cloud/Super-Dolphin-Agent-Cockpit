@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	robcron "github.com/robfig/cron/v3"
 )
 

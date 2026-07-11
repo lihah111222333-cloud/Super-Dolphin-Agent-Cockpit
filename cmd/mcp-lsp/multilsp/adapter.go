@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 const goBuildTagsLanguageSpecificKey = "goBuildTags"

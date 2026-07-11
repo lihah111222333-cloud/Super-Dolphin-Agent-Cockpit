@@ -19,8 +19,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 // SearchMatch 是 text/AST 搜索返回的单条命中，函数范围由 LSP/静态补充后可选填充。

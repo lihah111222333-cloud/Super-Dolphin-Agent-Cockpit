@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared/builtinprompts"
 )
 
 func TestResolveRoutedPrompt_RecallOnlySectionsDoNotLaunchAsDefaultPrompt(t *testing.T) {

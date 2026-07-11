@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 // minimalConsolidationPrompt 与 claudecli 端到端手测对称，

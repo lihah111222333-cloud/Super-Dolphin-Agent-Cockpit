@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // inputScopedSectionDependency 为 input-scoped 动态 section 生成稳定依赖对象。

@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const keepaliveInterval = 55 * time.Minute

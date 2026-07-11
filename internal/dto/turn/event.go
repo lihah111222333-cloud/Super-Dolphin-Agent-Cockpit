@@ -1,6 +1,6 @@
 package turn
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 
 // TurnStarted 报告一次 turn 执行开始。
 type TurnStarted struct {

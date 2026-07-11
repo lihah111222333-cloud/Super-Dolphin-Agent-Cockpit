@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // Message 表示 Codex rollout 历史中的单条 provider 消息。

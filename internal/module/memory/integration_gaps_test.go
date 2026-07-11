@@ -4,7 +4,7 @@
 package memory
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 )
 
 // 本文件只保留 e2e 测试共享的小 helper。

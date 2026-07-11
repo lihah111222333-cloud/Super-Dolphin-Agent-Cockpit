@@ -8,7 +8,7 @@ import { composerAttachmentKey } from './composerAttachmentKey.js';
 const screenshotName = '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
 
 function windowsScreenshotPath() {
-  return ['C:', 'Users', 'mima0000', 'Pictures', 'Screenshots', screenshotName].join('\\');
+  return ['C:', 'Users', 'alice', 'Pictures', 'Screenshots', screenshotName].join('\\');
 }
 
 const fileAttachment = {
@@ -117,7 +117,7 @@ describe('ComposerAttachments', () => {
   });
 
   it('does not render raw native image paths in composer or preview modal', () => {
-    const rawPath = '/Users/mima0000/Pictures/native-secret.png';
+    const rawPath = '/Users/alice/Pictures/native-secret.png';
     const attachment = {
       kind: 'image',
       path: rawPath,

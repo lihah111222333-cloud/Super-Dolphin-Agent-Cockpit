@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	lsptools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	lsptools "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 func registerPlainTextRendererForTest(t *testing.T) {

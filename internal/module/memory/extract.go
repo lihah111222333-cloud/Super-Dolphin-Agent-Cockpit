@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
+	parse "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/parse"
 )
 
 const (

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // ToolHandler 是 MCP 工具层统一的处理函数类型。

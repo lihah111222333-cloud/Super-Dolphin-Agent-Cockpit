@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	jrpcserver "github.com/creachadair/jrpc2/server"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 func TestNewServerInitializesAddressAndState(t *testing.T) {

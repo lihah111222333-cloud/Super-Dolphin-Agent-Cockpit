@@ -3,7 +3,7 @@ package turn
 import (
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // recordSkillsSelected 将 PrepareTurn 选中的 skill 归一化后写入 observation，未启用 observation 时跳过。

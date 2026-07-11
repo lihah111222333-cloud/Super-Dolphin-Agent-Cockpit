@@ -3,7 +3,7 @@ package uistate
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // projectStateFacadeAdapter 将 uistate.Service 收窄为 contract.UIProjectStateFacade。

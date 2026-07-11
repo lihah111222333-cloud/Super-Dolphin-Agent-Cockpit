@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/kelindar/event"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/difftracker"
 )
 
 func TestNewToolbridgeDiffFallbackSubscribersSpec(t *testing.T) {

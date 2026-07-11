@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
 )
 
 const (

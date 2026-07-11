@@ -8,13 +8,13 @@ import (
 	"strings"
 	"sync"
 
-	orch "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	orch "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // agentIDRegistry 记录正在启动中的 agent ID 预留，防止并发重复启动同一 ID。

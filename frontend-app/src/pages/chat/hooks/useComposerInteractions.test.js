@@ -70,7 +70,7 @@ vi.mock('../services/chatCodeService.js', () => ({
   });
 
   it('keeps Wails local image token previews when unwrapping native drops', () => {
-    const photoPath = '/Users/mima0000/Pictures/native drop.png';
+    const photoPath = '/Users/alice/Pictures/native drop.png';
     expect(nativeDropFiles({
       files: [photoPath, '/tmp/readme.md'],
       imagePreviews: {

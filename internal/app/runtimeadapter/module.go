@@ -2,10 +2,10 @@
 package runtimeadapter
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/app/runtimeadapter/builtintools"
-	"github.com/anthropic-ai/super-agent-v3/internal/app/runtimeadapter/cachekeepalive"
-	"github.com/anthropic-ai/super-agent-v3/internal/app/runtimeadapter/mcpcontrol"
-	"github.com/anthropic-ai/super-agent-v3/internal/app/runtimeadapter/toolbridge"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/runtimeadapter/builtintools"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/runtimeadapter/cachekeepalive"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/runtimeadapter/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/runtimeadapter/toolbridge"
 	"go.uber.org/fx"
 )
 

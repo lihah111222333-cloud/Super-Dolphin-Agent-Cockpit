@@ -10,7 +10,7 @@ import (
 
 	"github.com/kelindar/event"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
 
 func startRPCRunnerForTest(t *testing.T, run func(context.Context) error) (context.CancelFunc, <-chan error) {

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
-	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/feedback"
+	feedbackstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/feedback"
 )
 
 var errFeedbackStoreAdapterMissing = errors.New("feedback: store adapter missing store")

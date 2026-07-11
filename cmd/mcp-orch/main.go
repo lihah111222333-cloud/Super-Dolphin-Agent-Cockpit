@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rlimit"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // mcpStdout 独占保存原始 stdout，专用于 MCP JSON-RPC 协议输出，其他输出均走 stderr。

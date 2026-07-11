@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 )
 
 // fakePromptCatalog 是路由测试使用的 Thread-owned catalog fake。

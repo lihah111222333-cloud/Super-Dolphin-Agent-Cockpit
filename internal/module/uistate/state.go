@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 )
 
 // UIState 是 UI 首屏和增量投影共享的完整状态快照。

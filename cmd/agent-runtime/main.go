@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rlimit"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // main 初始化 headless owner 运行时并启动共享核心应用图。

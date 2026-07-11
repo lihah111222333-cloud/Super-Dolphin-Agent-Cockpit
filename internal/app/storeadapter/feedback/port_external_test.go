@@ -3,7 +3,7 @@ package feedbackadapter_test
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/feedback"
 )
 
 type externalFeedbackWriter struct{}

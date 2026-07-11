@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 // minimalConsolidationPrompt 模拟 consolidation_prompt.go 的 JSON 契约要求。

@@ -114,7 +114,7 @@ func assertPrioritySSAFreezeAccepts(
 func writePrioritySSAFixtureRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writePrioritySSAFile(t, root, "go.mod", "module github.com/anthropic-ai/super-agent-v3\n\ngo 1.25.7\n")
+	writePrioritySSAFile(t, root, "go.mod", "module github.com/lihah111222333-cloud/super-dolphin-agent\n\ngo 1.25.7\n")
 	writePrioritySSAFile(t, root, "cmd/mcp-orch/store/taskdag/store.go", `package taskdag
 
 type Store interface {
@@ -149,7 +149,7 @@ type SignatureWide interface {
 `)
 	writePrioritySSAFile(t, root, "internal/risk/orchestration.go", `package risk
 
-import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
 type holder struct {
 	service contract.WideOrchestration
@@ -165,7 +165,7 @@ func passSignatureWide(service contract.SignatureWide) contract.SignatureWide {
 `)
 	writePrioritySSAFile(t, root, "cmd/mcp-orch/orchestration/service.go", `package orchestration
 
-import "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 
 type ProvideWakeupDispatcherRunnerIn struct {
 	Store taskdag.Store

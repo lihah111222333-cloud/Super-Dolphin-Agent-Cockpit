@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/personalization"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/personalization"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
 )
 
 var errPersonalizationPreferenceStoreRequired = errors.New("personalization: preference store is required")

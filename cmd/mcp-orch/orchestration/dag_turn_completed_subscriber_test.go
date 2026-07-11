@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	sharedevt "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	sharedevt "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 // 测试替身只实现 subscriber 需要的窄接口，避免引入完整 taskdag.Store 或 *service。

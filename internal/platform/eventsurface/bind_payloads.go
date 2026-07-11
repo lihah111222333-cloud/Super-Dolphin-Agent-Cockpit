@@ -1,7 +1,7 @@
 package eventsurface
 
 import (
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 )
 
 // agentLaunchedPayload 将 agent 启动事件转成 UI 通知载荷。

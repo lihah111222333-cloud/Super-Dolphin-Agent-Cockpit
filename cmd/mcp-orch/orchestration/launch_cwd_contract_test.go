@@ -8,7 +8,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func assertAgentAbsent(t *testing.T, svc *service, agentID string) {

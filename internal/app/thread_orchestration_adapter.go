@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 )
 
 // mcpOrchOrchestrationFacade 通过 toolbridge 调用独立 mcp-orch 的 agent 生命周期工具。

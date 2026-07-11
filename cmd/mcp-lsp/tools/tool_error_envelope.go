@@ -1,6 +1,6 @@
 package tools
 
-import "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 
 // ToolErrorEnvelope 复用 common 包里的结构化工具错误协议。
 // 这里仅为工具层测试和 helper 暴露类型别名，保证 stdio、HTTP、bootstrap 工具调用共用同一 wire 格式。

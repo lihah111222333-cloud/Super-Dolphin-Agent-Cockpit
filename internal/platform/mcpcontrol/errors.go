@@ -3,8 +3,8 @@ package mcpcontrol
 import (
 	"fmt"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/creachadair/jrpc2"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 func newMCPError(code int, format string, args ...any) error {

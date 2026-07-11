@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/commandcard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 const resourceListLimit int32 = 50

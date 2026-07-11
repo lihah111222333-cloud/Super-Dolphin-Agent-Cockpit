@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 // GetAILogsByCategory 按分类和关键词读取 AI 日志。

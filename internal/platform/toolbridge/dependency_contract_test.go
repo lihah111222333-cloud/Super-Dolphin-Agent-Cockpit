@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/difftracker"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 )
 
 func TestToolbridgeProductionProfileRequiresCriticalDependencies(t *testing.T) {

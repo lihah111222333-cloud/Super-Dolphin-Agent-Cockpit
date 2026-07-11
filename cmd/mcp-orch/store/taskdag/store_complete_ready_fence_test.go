@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 )
 
 // TestCompleteTaskDagNode_FenceAcceptsReadyRunning 锁定 CompleteTaskDagNode 的状态围栏。

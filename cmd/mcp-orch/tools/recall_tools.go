@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const promptRecallUnknownTopicHint = "see recall_catalog section for available topics"

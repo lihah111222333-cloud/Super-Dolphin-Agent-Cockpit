@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/stretchr/testify/require"
 )
 

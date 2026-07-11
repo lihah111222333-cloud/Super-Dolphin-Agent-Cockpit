@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/contextlock"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/contextlock"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 type agentRegistry struct {

@@ -1,7 +1,7 @@
 // Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
-import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
 // DatasourceDocument 是 datasource 服务暴露给 prompt 动态段的文档内容别名。
 // 别名固定在 contract 层，避免 module 与 store 之间复制 wire 字段。

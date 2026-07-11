@@ -1,6 +1,6 @@
 package rpc
 
-import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
 // RPC 错误码常量直接复用 contract 层定义，避免跨层 code 漂移。
 const (

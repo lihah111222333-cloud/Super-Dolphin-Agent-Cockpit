@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
+	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
 )
 
 func withTeamMemoryRuntimeReady(t *testing.T, ready bool) {

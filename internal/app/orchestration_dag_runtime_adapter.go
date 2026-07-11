@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 )
 
 // dagToolCaller 抽象 toolbridge handler，便于 DAG runtime 只依赖工具调用能力。

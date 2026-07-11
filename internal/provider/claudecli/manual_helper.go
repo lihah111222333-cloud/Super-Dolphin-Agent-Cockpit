@@ -5,7 +5,7 @@
 package claudecli
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // NewDreamExecutorProviderForManualTest 与 provideDreamExecutorProvider 等价，

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 )
 
 type externalPromptPreferenceReader struct{}

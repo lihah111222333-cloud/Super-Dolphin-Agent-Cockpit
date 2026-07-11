@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/toolstore"
 	"go.uber.org/fx"
 )
 

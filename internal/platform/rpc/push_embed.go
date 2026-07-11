@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 )
 
 // embeddedThreadPatchField 是过渡期嵌入源通知的 thread patch 字段名。

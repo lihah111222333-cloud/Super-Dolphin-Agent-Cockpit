@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 func TestCreateDAGNodesFromInputRejectsInvalidTopology(t *testing.T) {

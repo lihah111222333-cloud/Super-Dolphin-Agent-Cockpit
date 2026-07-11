@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	moduleturn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	moduleturn "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestServiceSendsTextMessage(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 )
 
 func TestBoundaryRegistryValidation(t *testing.T) {
@@ -130,7 +130,7 @@ func TestBoundaryRegistryRejectsDetachedImportPolicies(t *testing.T) {
 			rule := mustMutableBackendBoundaryRule(t, registry, "mcp_sidecar_narrow_import_surface")
 			rule.Allow = append(rule.Allow, archtest.BoundaryImportPolicy{
 				Owner: rule.Owner, FilePattern: rule.FilePatterns[0],
-				ImportPrefix: "github.com/anthropic-ai/super-agent-v3/internal/platform",
+				ImportPrefix: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform",
 				Reason:       "orchestration sidecar broad runtime primitive",
 			})
 		}, want: "import_prefix must use canonical form"},

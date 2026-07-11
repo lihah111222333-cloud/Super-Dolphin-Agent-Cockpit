@@ -22,7 +22,7 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 	"golang.org/x/sync/errgroup"
 
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 const (

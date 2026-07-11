@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/kelindar/event"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 )
 
 func TestProxyToolCallPublishesLifecycleEvents(t *testing.T) {

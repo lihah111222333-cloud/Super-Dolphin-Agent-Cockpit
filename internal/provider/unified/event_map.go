@@ -8,18 +8,18 @@ import (
 	"strings"
 	"sync"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	taskdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/task"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // typedEventPublisher 是反射分发表中的发布函数，负责把 any 还原成强类型事件。

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	workspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/workspace"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type compatWorkspaceServiceStub struct {

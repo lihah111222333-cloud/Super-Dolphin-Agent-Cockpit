@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/httpegress"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/configutil"
 )
 
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"

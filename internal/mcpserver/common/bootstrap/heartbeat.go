@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 // heartbeatWarnAfter 控制连续心跳失败达到多少次后升级为 warn 日志。

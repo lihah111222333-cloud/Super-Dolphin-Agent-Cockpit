@@ -2131,7 +2131,7 @@ function registerBridgeEventHandlersForTest() {
             '# AGENTS.md instructions for /home/ai01@f666.com/桌面/project/Super-Dolphin',
             '',
             '<INSTRUCTIONS>',
-            '# Super Agent v3 Agent Context Policy',
+            '# Super Dolphin Agent Agent Context Policy',
             '</INSTRUCTIONS>',
           ].join('\n'),
           createdAt: '2026-05-30T00:00:00Z',

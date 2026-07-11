@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 type managerReviewStoreStub struct {

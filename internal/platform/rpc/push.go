@@ -3,7 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"regexp"
 	"strings"
 	"sync"
@@ -11,9 +11,9 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 )
 
 // retryProgressPushPattern 匹配 provider 内部重连重试进度文本。

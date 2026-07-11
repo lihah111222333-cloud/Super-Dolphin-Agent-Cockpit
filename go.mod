@@ -1,4 +1,4 @@
-module github.com/anthropic-ai/super-agent-v3
+module github.com/lihah111222333-cloud/super-dolphin-agent
 
 go 1.25.7
 

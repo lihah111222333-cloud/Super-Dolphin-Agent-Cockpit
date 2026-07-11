@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
 // smokeEnv 保存包烟测必须由外部脚本注入的环境路径。

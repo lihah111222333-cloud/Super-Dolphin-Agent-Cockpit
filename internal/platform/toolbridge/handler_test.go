@@ -12,23 +12,23 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/gorilla/websocket"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
 )
 
-//go:linkname codexNewSession github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.newSession
+//go:linkname codexNewSession github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp.newSession
 func codexNewSession(context.Context, *slog.Logger, string, string, *unified.EventDispatcher, *rpc.ApprovalManager, *codexapp.ServerManager) (unsafe.Pointer, error)
 
-//go:linkname codexSessionOnInboundMessage github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.(*session).onInboundMessage
+//go:linkname codexSessionOnInboundMessage github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp.(*session).onInboundMessage
 func codexSessionOnInboundMessage(unsafe.Pointer, context.Context, codexapp.Responder, codexapp.RawMessage)
 
-//go:linkname codexSessionClose github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.(*session).Close
+//go:linkname codexSessionClose github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp.(*session).Close
 func codexSessionClose(unsafe.Pointer, context.Context) error
 
 // codexSessionClose 由 runtime owner 负责等待 reader、health 和 recovery goroutine 收尾。

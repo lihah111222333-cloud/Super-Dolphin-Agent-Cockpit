@@ -45,7 +45,7 @@ func isSuperAgentV3Repo(repoRoot string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), "module github.com/anthropic-ai/super-agent-v3")
+	return strings.Contains(string(data), "module github.com/lihah111222333-cloud/super-dolphin-agent")
 }
 
 func (g *errorPronePatternGuard) guardLongLivedSubscriptionPattern() {

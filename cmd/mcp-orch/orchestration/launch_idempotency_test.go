@@ -8,7 +8,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 )
 
 func TestService_LaunchAgentRejectsActiveExplicitIDWithoutClearingRemoteIdentity(t *testing.T) {

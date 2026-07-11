@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/sharedfileport"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 type memorySharedFileStoreTestDouble struct {

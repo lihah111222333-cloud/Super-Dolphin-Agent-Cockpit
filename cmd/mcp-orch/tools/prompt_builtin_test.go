@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 type fakeBuiltinPromptRegistry struct {

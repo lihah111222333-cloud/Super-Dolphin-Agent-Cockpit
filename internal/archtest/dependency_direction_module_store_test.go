@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	archtest "github.com/anthropic-ai/super-agent-v3/internal/archtest"
+	archtest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 )
 
 const moduleNoStoreImportsRuleID archtest.BoundaryRuleID = "module_no_store_imports"
@@ -56,7 +56,7 @@ func TestModuleNoStoreImportsRejectsFixture(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const source = "package example\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/store/thread\"\n"
+	const source = "package example\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread\"\n"
 	if err := os.WriteFile(absPath, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestModuleNoStoreImportsCoversFutureModulesWithoutMatchingStorex(t *testing
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const source = "package future\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/storex/cache\"\n"
+	const source = "package future\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/storex/cache\"\n"
 	if err := os.WriteFile(absPath, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}

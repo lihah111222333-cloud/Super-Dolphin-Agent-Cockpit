@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	goldentest "github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
 
 func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {

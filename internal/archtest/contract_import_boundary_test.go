@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const repoModulePath = "github.com/anthropic-ai/super-agent-v3/"
+const repoModulePath = "github.com/lihah111222333-cloud/super-dolphin-agent/"
 
 func TestContractImportsStayOnDTOWhitelist(t *testing.T) {
 	t.Parallel()

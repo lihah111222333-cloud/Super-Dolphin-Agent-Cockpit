@@ -12,8 +12,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/appupdate"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // manifestFlags 保存发布 manifest 命令行参数。

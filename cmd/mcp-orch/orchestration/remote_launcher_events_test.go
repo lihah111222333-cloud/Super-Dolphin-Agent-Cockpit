@@ -14,11 +14,11 @@ import (
 	"github.com/kelindar/event"
 	"github.com/stretchr/testify/require"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/launcherwire"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 func TestRemoteLauncher_RegistersBeforeThreadStart(t *testing.T) {

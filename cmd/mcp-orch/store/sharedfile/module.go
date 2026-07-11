@@ -3,9 +3,9 @@ package sharedfile
 import (
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
 )
 
 // Module 注册 sharedfile store 的 fx provider。

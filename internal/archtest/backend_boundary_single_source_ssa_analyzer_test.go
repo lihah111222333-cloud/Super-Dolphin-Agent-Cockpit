@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	archtest "github.com/anthropic-ai/super-agent-v3/internal/archtest"
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest/ssaload"
+	archtest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest/ssaload"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )

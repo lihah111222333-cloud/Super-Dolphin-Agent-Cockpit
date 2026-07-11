@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
 
 func TestToolCallBeginSanitizesRunningPreview(t *testing.T) {
@@ -31,12 +31,12 @@ func TestToolCallBeginSanitizesRunningPreview(t *testing.T) {
 }
 
 func sensitiveTimelineArgumentsPreview() string {
-	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/mima0000/secret"}`
+	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`
 }
 
 func assertTimelineArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/mima0000/secret", "--api-key"} {
+	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("timeline Preview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}

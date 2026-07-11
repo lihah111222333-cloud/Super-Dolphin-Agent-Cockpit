@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/discovery"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 )
 
 func TestMcpLSPBinaryPythonConstantIdentifierCompletionIsColumnInsensitive_E2E(t *testing.T) {

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // drainTestNestedRuntime 实现 nestedIngestRuntime 并记录每次 AddToolReadResult。

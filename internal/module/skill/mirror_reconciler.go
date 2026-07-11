@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/mirrorpath"
 )
 
 // skill mirror 冲突类型与修复备份目录名。

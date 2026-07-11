@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 // prefetch 状态常量描述单个 PrefetchHandle 从启动、可消费到终止的状态机。

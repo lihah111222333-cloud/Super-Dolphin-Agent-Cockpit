@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/terminalstatus"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/terminalstatus"
 )
 
 func TestDerivedThreadStatusTransitions(t *testing.T) {

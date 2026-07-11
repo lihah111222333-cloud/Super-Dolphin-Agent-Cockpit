@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // 本文件集中定义 toolbridge 对外 JSON-RPC wire 协议常量。

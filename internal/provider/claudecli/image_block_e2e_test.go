@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // Run with: go test -tags=e2e_vision ./internal/provider/claudecli/ -run TestVisionEndToEnd -v -count=1

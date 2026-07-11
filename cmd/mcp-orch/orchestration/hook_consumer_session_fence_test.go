@@ -8,8 +8,8 @@ import (
 
 	"github.com/kelindar/event"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
 // TestHookConsumerStateChangeRespectsSessionFence 验证 StateChanged 事件的 session fence。

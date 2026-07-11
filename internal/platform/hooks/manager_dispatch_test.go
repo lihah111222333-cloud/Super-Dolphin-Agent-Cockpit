@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestManagerDispatchAfterEscalatePersistsSubscriberLease(t *testing.T) {

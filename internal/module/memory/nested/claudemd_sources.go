@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
-	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	parse "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/parse"
+	memshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 const (

@@ -8,11 +8,11 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 )
 
 // RunnerResult 将 platform runner 通过 fx group 暴露给 BindRuntime。

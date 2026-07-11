@@ -9,7 +9,7 @@ const formatTime = () => '16:00';
 const screenshotName = '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
 
 function localScreenshotPath(separator) {
-  const home = separator === '\\' ? 'C:\\Users\\mima0000' : homedir().replace(/\\/g, '/');
+  const home = separator === '\\' ? 'C:\\Users\\alice' : homedir().replace(/\\/g, '/');
   return [home, 'Pictures', 'Screenshots', screenshotName].join(separator);
 }
   it('renders user attachments as image previews and file pills', () => {

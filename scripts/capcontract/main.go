@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/devtools/capcontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
 // defaultCapabilityRoots 是 capability manifest 默认扫描的跨模块契约根目录。

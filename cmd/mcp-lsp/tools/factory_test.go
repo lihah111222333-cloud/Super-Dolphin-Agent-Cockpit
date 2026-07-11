@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {

@@ -121,13 +121,13 @@ func writeTemplateFile(t *testing.T, dir, name, content string) {
 }
 
 func renderedTemplateGoMod(repoRoot string) string {
-	return fmt.Sprintf(`module github.com/anthropic-ai/super-agent-v3/internal/provider/renderedtemplate
+	return fmt.Sprintf(`module github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/renderedtemplate
 
 go 1.25.7
 
-require github.com/anthropic-ai/super-agent-v3 v0.0.0
+require github.com/lihah111222333-cloud/super-dolphin-agent v0.0.0
 
-replace github.com/anthropic-ai/super-agent-v3 => %s
+replace github.com/lihah111222333-cloud/super-dolphin-agent => %s
 `, filepath.ToSlash(repoRoot))
 }
 
@@ -164,8 +164,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 type TemplateToolbridgeProxy interface {
@@ -243,8 +243,8 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
 )
 
 func TestRenderedTemplateProductionOmissions(t *testing.T) {
@@ -501,7 +501,7 @@ const renderedTemplatePlaceholderProbeTests = `package template
 import (
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
 )
 
 func TestRenderedTemplatePlaceholderFailures(t *testing.T) {

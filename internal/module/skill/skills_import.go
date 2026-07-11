@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/skillhash"
 )
 
 const importModeAuto, importModeSingle, importModeBatch = "auto", "single", "batch"

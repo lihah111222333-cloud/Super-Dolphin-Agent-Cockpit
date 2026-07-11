@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 func TestNewObservationSubscribersSpec(t *testing.T) {

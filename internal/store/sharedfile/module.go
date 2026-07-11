@@ -3,10 +3,10 @@ package sharedfile
 import (
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 )
 
 var Module = fx.Module("store.sharedfile",

@@ -146,7 +146,7 @@ type BoundaryEvaluation struct {
 	Violations     []string
 }
 
-const backendBoundaryModulePath = "github.com/anthropic-ai/super-agent-v3"
+const backendBoundaryModulePath = "github.com/lihah111222333-cloud/super-dolphin-agent"
 
 const defaultBackendBoundaryRegistrySource = "internal/archtest/backend_boundary_registry.go"
 

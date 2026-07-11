@@ -1,6 +1,6 @@
 package shared
 
-import "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 
 // SafeToolArgumentsPreview 将 provider 侧工具参数转成统一脱敏预览。
 // 真实规则在 platform/observability，provider/shared 保留这个入口给 provider 翻译层复用。

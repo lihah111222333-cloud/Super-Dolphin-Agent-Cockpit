@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 )
 
 const interruptTransportGracePeriod = 2 * time.Second

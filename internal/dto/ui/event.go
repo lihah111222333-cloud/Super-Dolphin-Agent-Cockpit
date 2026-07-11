@@ -3,7 +3,7 @@ package ui
 import (
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
 // UIProjectionUpdated 报告 UI projection 快照版本变化。

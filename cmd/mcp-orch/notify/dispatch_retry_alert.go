@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // DispatchRetryAlertNotifier 把 DAG 派发重试阈值事件转换成平台通知。

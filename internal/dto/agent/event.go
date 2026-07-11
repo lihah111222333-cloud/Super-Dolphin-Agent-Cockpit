@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 
 // StateChanged 表示 agent 生命周期状态发生迁移。
 type StateChanged struct {

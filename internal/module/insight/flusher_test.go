@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	observation "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
-	moduleobs "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	observation "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/observation"
+	moduleobs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn/observation"
 )
 
 // fakeInsightStore 捕获 flusher 尝试持久化的参数，未注入回调的方法保持空结果。

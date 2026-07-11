@@ -8,12 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // teamSyncCoordinatorDrainGrace 限制协调器 OnStop 等待 worker 的时间。

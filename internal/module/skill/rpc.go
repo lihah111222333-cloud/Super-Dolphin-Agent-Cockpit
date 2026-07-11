@@ -14,10 +14,10 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/toolstore"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/httpegress"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // namedContentHandler 将 name/content 形态的 skill RPC 包装成严格参数 handler。

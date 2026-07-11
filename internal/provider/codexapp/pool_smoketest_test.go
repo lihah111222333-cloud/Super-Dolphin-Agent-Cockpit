@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
 func requireCodexBinary(t *testing.T) {

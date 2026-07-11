@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 )
 
 // SpawnRouting 复用 shared dto 中的 pending spawn 路由结果。

@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	provdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/kelindar/event"
+	provdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 func TestDispatchPreservesCodexContextWindowTokens(t *testing.T) {

@@ -2,9 +2,9 @@ package hooks
 
 import (
 	"context"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"go.uber.org/fx"
 )
 

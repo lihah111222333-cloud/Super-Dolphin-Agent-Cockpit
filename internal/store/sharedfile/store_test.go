@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
-	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 	_ "modernc.org/sqlite"
 )
 

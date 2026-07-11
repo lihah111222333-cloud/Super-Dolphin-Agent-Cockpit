@@ -6,10 +6,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
 )
 
 type service struct {

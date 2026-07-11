@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	taskdag "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func TestStartDAGResponseIncludesDispatchDiagnostics(t *testing.T) {

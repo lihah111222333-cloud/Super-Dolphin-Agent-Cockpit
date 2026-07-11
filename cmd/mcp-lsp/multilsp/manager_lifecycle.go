@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 )
 
 const managerShutdownTimeout = 5 * time.Second

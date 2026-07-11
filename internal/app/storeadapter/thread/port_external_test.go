@@ -3,7 +3,7 @@ package threadadapter_test
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/threadprompt"
 )
 
 type externalThreadPromptStore struct{}

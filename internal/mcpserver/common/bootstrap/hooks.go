@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // ---------------------------------------------------------------------------

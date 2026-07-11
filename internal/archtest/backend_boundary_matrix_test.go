@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 )
 
 var backendBoundaryMatrixRuleIDs = []archtest.BoundaryRuleID{
@@ -79,11 +79,11 @@ func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 			relPath: "internal/contract/leak.go",
 			source: `package fixture
 import (
-	_ "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	_ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	_ "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	_ "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch"
-	_ "github.com/anthropic-ai/super-agent-v3/frontend-app/src"
+	_ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
+	_ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	_ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	_ "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch"
+	_ "github.com/lihah111222333-cloud/super-dolphin-agent/frontend-app/src"
 )
 `,
 			wantHits: []string{"internal/store/thread", "internal/module/thread", "internal/provider/codexapp", "cmd/mcp-orch", "frontend-app"},
@@ -93,16 +93,16 @@ import (
 			ruleID:  "module_horizontal_deep_import",
 			relPath: "internal/module/thread/service.go",
 			source: `package fixture
-import _ "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
 `,
-			wantHits: []string{"internal/module/thread/service.go:2:10 imports github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"},
+			wantHits: []string{"internal/module/thread/service.go:2:10 imports github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"},
 		},
 		{
 			name:    "mcp_sidecar_direct_module_dependency",
 			ruleID:  "mcp_sidecar_narrow_import_surface",
 			relPath: "cmd/mcp-orch/main.go",
 			source: `package fixture
-import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
 `,
 			wantHits: []string{"cmd/mcp-orch/main.go:2:10 imports", "internal/module/thread"},
 		},
@@ -112,7 +112,7 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 			ruleID:  "platform_no_module",
 			relPath: "internal/platform/toolbridge/handler.go",
 			source: `package fixture
-import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
 `,
 			wantHits: []string{"internal/platform/toolbridge/handler.go:2:10 imports", "internal/module/thread"},
 		},
@@ -121,7 +121,7 @@ import _ "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 			ruleID:  "store_sqlc_store_platform_only",
 			relPath: "internal/module/thread/service.go",
 			source: `package fixture
-import _ "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 `,
 			wantHits: []string{"internal/module/thread/service.go:2:10 imports", "internal/store/sqlc"},
 		},
@@ -153,7 +153,7 @@ func TestBackendBoundaryViolationUsesPhysicalImportPosition(t *testing.T) {
 	source := `package fixture
 
 //line generated.go:900
-import _ "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
 `
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
@@ -179,7 +179,7 @@ func mcpRPCHostImportFixture() boundaryViolationFixture {
 		ruleID:  "mcp_sidecar_narrow_import_surface",
 		relPath: "cmd/mcp-orch/main.go",
 		source: `package fixture
-import _ "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc/server"
+import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc/server"
 `,
 		wantHits: []string{"cmd/mcp-orch/main.go:2:10 imports", "internal/platform/rpc/server"},
 	}

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
 	"github.com/stretchr/testify/require"
 )
 

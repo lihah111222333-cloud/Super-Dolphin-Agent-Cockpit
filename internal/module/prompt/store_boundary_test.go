@@ -3,7 +3,7 @@ package prompt
 import (
 	"context"
 
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
 )
 
 // promptStoreForTest 把真实 Store 测试夹具集中适配为 prompt 领域端口。

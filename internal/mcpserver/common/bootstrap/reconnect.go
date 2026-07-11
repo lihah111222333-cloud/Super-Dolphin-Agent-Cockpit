@@ -5,12 +5,12 @@ import (
 	"sync"
 	"time"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 // reconnectMaxDelay 是重连指数退避的上限。

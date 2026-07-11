@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	lspinstaller "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 )
 
 // querier 是 auditlog store 依赖的 sqlc 查询子集，测试可用窄接口替身覆盖。

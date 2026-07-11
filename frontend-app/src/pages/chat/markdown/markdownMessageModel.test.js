@@ -3,7 +3,7 @@ import { imagePreviewSource } from './markdownMessageModel.js';
 
 describe('markdownMessageModel', () => {
   it('does not mint local image preview URLs from raw absolute paths', () => {
-    const localPath = 'C:\\Users\\mima0000\\Pictures\\Screenshots\\screen.png';
+    const localPath = 'C:\\Users\\alice\\Pictures\\Screenshots\\screen.png';
 
     expect(imagePreviewSource(localPath)).toBe('');
   });

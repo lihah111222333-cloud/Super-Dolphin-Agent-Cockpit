@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 )
 
 func TestReplaceRangeUnsupportedTextFilesE2EAppliesPatchForms(t *testing.T) {

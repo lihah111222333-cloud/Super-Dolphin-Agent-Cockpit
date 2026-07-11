@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // Item 是线程 timeline 下发给前端的单条可渲染记录。

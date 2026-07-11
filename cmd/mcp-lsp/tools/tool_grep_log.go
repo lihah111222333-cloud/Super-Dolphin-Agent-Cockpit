@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // logGrepCallDecoded 记录 grep 入参解码后的有效限制，方便排查路径和大小写选择。

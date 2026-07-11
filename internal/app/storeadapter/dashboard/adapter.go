@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
-	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/dashboard"
+	agentstatusstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/agentstatus"
+	ailogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/ailog"
+	auditlogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/auditlog"
+	buslogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/buslog"
+	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/commandcard"
+	dbquerystore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/dbquery"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
+	systemlogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/systemlog"
 )
 
 type dashboardAgentStatusAdapter struct{ store agentstatusstore.Store }

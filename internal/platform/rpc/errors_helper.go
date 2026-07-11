@@ -3,8 +3,8 @@ package rpc
 import (
 	"errors"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/creachadair/jrpc2"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 const CodeNotImplemented = contract.CodeNotImplemented

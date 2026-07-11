@@ -3,8 +3,8 @@ package claudecli
 import (
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 func TestDecodeResultEventSuccessIncludesCompletionFields(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
-	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/dreamexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 // dreamModelEnv 是 dream 调用 claude 时可选的 model env override。未设则走 binary 默认 model。

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // lspReleaseScopeDispatcher 是控制面暴露给上层的 LSP scope 释放能力。

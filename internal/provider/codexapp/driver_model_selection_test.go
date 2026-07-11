@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/supportutil"
 )
 
 func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // traceRecordErrorWarnInterval 限制同一 scope 的 trace 写入失败告警频率。

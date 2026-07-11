@@ -11,9 +11,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 var errMCPSurfaceClientNotConfigured = errors.New("MCP client is not configured")

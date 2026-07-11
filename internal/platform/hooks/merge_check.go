@@ -3,7 +3,7 @@ package hooks
 import (
 	"strings"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // MergeDuring 合并 check 阶段多个 peer 的决策。

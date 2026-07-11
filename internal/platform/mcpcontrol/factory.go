@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"strings"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/creachadair/jrpc2"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 // hookInvalidParamsError 标记 hook RPC 入参错误，外层会把它映射成 jrpc2 invalid params。

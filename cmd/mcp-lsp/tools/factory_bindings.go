@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 )
 
 type strictToolUnknownFieldError struct {

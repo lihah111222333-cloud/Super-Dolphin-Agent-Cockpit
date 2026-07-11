@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 )
 
 func TestListAgentsReturnsWhenContextExpiresWhileWaitingForReadLock(t *testing.T) {

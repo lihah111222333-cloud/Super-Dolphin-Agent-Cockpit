@@ -12,9 +12,9 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 type stubLifecycle struct {

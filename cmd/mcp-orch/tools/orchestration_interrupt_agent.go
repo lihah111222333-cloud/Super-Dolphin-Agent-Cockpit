@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 // InterruptAgentInput 是 interrupt_agent 工具入参，兼容 agent_id 与 pos 定位。

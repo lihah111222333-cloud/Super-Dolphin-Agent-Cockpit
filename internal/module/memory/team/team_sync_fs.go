@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 // teamSyncLocalFile 是本地团队记忆 Markdown 文件的扫描结果。

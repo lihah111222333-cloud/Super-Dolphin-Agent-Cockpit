@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/personalization"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/personalization"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 var _ personalization.PreferenceStore = (*personalizationPreferenceStoreAdapter)(nil)

@@ -3,7 +3,7 @@ package hooks
 import (
 	"testing"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 func mustSubscribeIntegrationHook(t *testing.T, registry *HookRegistry, lease mcp.LeaseKey, subscriptionID string, scope *mcp.SelectorScope, topics ...string) {

@@ -182,43 +182,43 @@ func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 			name:    "contract_to_module",
 			ruleID:  "contract_reverse_pollution",
 			relPath: "internal/contract/leak.go",
-			source:  "package contract\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n",
+			source:  "package contract\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread\"\n",
 		},
 		{
 			name:    "module_sibling_deep_import",
 			ruleID:  "module_horizontal_deep_import",
 			relPath: "internal/module/thread/service.go",
-			source:  "package thread\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent\"\n",
+			source:  "package thread\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent\"\n",
 		},
 		{
 			name:    "mcp_lsp_orchestration_only_import",
 			ruleID:  "mcp_sidecar_narrow_import_surface",
 			relPath: "cmd/mcp-lsp/main.go",
-			source:  "package main\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/notify\"\n",
+			source:  "package main\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/notify\"\n",
 		},
 		{
 			name:    "agent_runtime_to_module",
 			ruleID:  "command_narrow_import_surface",
 			relPath: "cmd/agent-runtime/main.go",
-			source:  "package main\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n",
+			source:  "package main\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread\"\n",
 		},
 		{
 			name:    "dto_to_provider",
 			ruleID:  "internal_support_narrow_import_surface",
 			relPath: "internal/dto/agent/leak.go",
-			source:  "package agent\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/provider/shared\"\n",
+			source:  "package agent\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared\"\n",
 		},
 		{
 			name:    "provider_shared_to_store",
 			ruleID:  "provider_no_store",
 			relPath: "internal/provider/shared/leak.go",
-			source:  "package shared\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/store\"\n",
+			source:  "package shared\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store\"\n",
 		},
 		{
 			name:    "provider_shared_to_platform_db",
 			ruleID:  "provider_no_platform_db",
 			relPath: "internal/provider/shared/leak.go",
-			source:  "package shared\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/db\"\n",
+			source:  "package shared\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db\"\n",
 		},
 	}
 
@@ -253,7 +253,7 @@ func TestAppAdapterBoundaryFixturesRejectCrossDomainPollution(t *testing.T) {
 	registry := DefaultBackendBoundaryRegistry()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			source := "package " + tc.packageID + "\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/" + tc.importPath + "\"\n"
+			source := "package " + tc.packageID + "\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/" + tc.importPath + "\"\n"
 			path := writeBackendBoundaryFixture(t, t.TempDir(), tc.relPath, source)
 			violations, err := EvaluateBackendBoundaryFile(path, tc.relPath, registry, ruleID)
 			if err != nil {
@@ -278,12 +278,12 @@ func TestEvaluateBackendBoundaryFileReportsImportPosition(t *testing.T) {
 	}{
 		{
 			name:       "single_import",
-			source:     "package contract\n\nimport _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n",
+			source:     "package contract\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread\"\n",
 			wantPrefix: "internal/contract/leak.go:3:10 imports ",
 		},
 		{
 			name:       "import_block",
-			source:     "package contract\n\nimport (\n    _ \"github.com/anthropic-ai/super-agent-v3/internal/module/thread\"\n)\n",
+			source:     "package contract\n\nimport (\n    _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread\"\n)\n",
 			wantPrefix: "internal/contract/leak.go:4:7 imports ",
 		},
 	}
@@ -310,7 +310,7 @@ func TestPkgNoInternalImportsRuleRejectsRepositoryInternals(t *testing.T) {
 	t.Parallel()
 
 	relPath := "pkg/logger/leak.go"
-	source := "package logger\n\nimport (\n    _ \"github.com/anthropic-ai/super-agent-v3/internal/platform/config\"\n    _ \"github.com/anthropic-ai/super-agent-v3/cmd/agent-runtime\"\n    _ \"log/slog\"\n)\n"
+	source := "package logger\n\nimport (\n    _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config\"\n    _ \"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/agent-runtime\"\n    _ \"log/slog\"\n)\n"
 	path := writeBackendBoundaryFixture(t, t.TempDir(), relPath, source)
 	violations, err := EvaluateBackendBoundaryFile(path, relPath, DefaultBackendBoundaryRegistry(), "pkg_no_internal_imports")
 	if err != nil {
@@ -321,8 +321,8 @@ func TestPkgNoInternalImportsRuleRejectsRepositoryInternals(t *testing.T) {
 	}
 	joined := strings.Join(violations, "\n")
 	for _, forbidden := range []string{
-		"github.com/anthropic-ai/super-agent-v3/internal/platform/config",
-		"github.com/anthropic-ai/super-agent-v3/cmd/agent-runtime",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/agent-runtime",
 	} {
 		if !strings.Contains(joined, forbidden) {
 			t.Errorf("violations missing forbidden import %q: %v", forbidden, violations)

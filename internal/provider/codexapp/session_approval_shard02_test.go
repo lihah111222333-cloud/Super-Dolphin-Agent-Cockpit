@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 	"github.com/kelindar/event"
+	contract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type approvalRespondRecorder struct {

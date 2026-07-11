@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unsafe"
 
-	orchtools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
+	orchtools "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools"
 )
 
 func TestRegistryToolProviderListToolsPropagatesRegistryInitErr(t *testing.T) {

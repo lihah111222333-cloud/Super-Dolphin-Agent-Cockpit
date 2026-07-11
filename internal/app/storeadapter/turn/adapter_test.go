@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
+	turndedupe "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/turndedupe"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 var _ turn.DedupeStore = (*turnDedupeStoreAdapter)(nil)

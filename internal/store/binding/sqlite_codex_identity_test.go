@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	platformsqlite "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
-	binding "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
+	binding "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 
 	_ "modernc.org/sqlite"
 )

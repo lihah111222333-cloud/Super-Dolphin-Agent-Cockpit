@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 // diffStateRequest 描述一次 UI state 请求是否需要携带 diff 以及前端已知 revision。

@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/insight"
+	insightstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/insight"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 var _ insight.Reader = (*insightStoreAdapter)(nil)

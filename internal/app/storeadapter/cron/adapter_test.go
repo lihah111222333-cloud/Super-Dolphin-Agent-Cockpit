@@ -10,9 +10,9 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/cron"
+	cronstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/cron"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 type cronStoreTestState struct {

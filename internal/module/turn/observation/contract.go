@@ -3,7 +3,7 @@
 package observation
 
 import (
-	dtoobs "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
+	dtoobs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/observation"
 )
 
 // 下面的别名让 turn 内部实现复用 dto/observation 的公共契约，避免出现两套事实类型。

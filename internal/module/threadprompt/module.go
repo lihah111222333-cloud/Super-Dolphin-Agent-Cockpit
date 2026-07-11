@@ -1,6 +1,6 @@
 package threadprompt
 
-import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
 // NewRuntimeCatalog 组合 typed PromptStore 与内置 prompt registry。
 // 两个来源都为空时返回 nil；只有 builtin 时返回合法的只读 catalog。

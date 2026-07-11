@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
 )
 
 // 节点完成后会在同一事务内检查 DAG 拓扑，找出依赖已满足的下游节点并尝试生成 wakeup。

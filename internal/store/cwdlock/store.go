@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 )
 
 // querier 是 cwdlock store 依赖的 sqlc 查询子集，所有写入都通过 SQL 原子条件约束持有者。

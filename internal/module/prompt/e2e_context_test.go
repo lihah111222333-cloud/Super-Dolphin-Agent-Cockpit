@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 )
 
 func TestStartAssemblyFullContext(t *testing.T) {

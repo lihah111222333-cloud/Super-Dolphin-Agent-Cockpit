@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestAgentSessionHeaderPrefersAgentIDAsThreadID(t *testing.T) {

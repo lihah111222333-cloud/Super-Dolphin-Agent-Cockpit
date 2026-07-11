@@ -14,11 +14,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
-	dedup "github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
+	dedup "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/dedup"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
 )
 
 var (

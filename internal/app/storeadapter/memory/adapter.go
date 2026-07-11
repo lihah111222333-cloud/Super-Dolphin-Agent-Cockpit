@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/sharedfileport"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
 )
 
 var errMemorySharedFileStoreReturnedNil = errors.New("shared file store returned nil file")

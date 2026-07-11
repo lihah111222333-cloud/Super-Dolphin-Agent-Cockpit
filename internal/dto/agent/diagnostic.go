@@ -3,7 +3,7 @@ package agent
 import (
 	"encoding/json"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
 // AgentWarning 表示 provider/runtime 上报的非终止警告事件。

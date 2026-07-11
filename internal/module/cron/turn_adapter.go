@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // TurnServiceAdapter 基于 contract.CronTurnExecutor 实现 TurnSubmitter。

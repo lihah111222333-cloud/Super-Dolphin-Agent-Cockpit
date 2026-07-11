@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/jackc/pgx/v5"
+	orchmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/metrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 )
 
 // TestDispatchAgent_WritesRunningOnSuccess 锁定 agent 节点成功启动后的 ready->running 写库路径。

@@ -10,7 +10,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // JSON-RPC 参数类型保持前端 wire shape，业务层 DTO 在 service/contract 中转换。

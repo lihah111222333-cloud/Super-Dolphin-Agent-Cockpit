@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 )
 
 // querier 是 binding store 依赖的 sqlc 查询集合，包含 session 绑定和 agent-thread 绑定两类写入。

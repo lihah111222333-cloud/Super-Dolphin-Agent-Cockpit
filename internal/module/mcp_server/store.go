@@ -1,6 +1,6 @@
 package mcpserver
 
-import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
 // MCPServerConfigStore 是 MCP server 服务需要的配置存储接口。
 type MCPServerConfigStore = contract.MCPServerConfigStore

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn/observation"
 )
 
 func newTrajectoryFixture() (*Collector, *observation.Memory) {
@@ -239,7 +239,7 @@ func TestImports_ObservationDoesNotImportTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %q: %v", dir, err)
 	}
-	const turnPkg = `"github.com/anthropic-ai/super-agent-v3/internal/module/turn"`
+	const turnPkg = `"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"`
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
 			continue

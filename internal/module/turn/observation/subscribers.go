@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"strings"
 
-	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
+	buscontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 // Subscribe 把事件总线上的 turn/tool/UI 事件写入 canonical observation Contract。

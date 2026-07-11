@@ -7,11 +7,11 @@ import (
 	"os"
 	"strings"
 
-	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	contract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // codexNativeToolDescriptors 返回 Codex 原生工具的默认治理描述表。

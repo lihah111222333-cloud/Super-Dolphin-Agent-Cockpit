@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/repofingerprint"
 )
 
 // Redactor 是 skill 提炼链路的二次脱敏接口。

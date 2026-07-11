@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // mergeTemplateSections 将 DB 中的 prompt_template sections 合并进 resolver 输出。

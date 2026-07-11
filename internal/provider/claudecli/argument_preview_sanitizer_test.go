@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
 
 func TestToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
@@ -31,12 +31,12 @@ func TestToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 }
 
 func sensitiveClaudeArgumentsPreview() string {
-	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/mima0000/secret"}`
+	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`
 }
 
 func assertClaudeArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/mima0000/secret", "--api-key"} {
+	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("ArgumentsPreview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}

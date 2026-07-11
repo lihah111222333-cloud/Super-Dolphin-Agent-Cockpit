@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest/ssaload"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest/ssaload"
 )
 
-const archtestImportPath = "github.com/anthropic-ai/super-agent-v3/internal/archtest"
+const archtestImportPath = "github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 
 func stablePathDigest(paths []string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(paths, "\n"))))
@@ -57,7 +57,7 @@ func TestWideOrchestrationLoaderExtractionPreservesCandidates(t *testing.T) {
 	}
 	sort.Strings(paths)
 	const wantCount = 226
-	const wantDigest = "387433c91e08d4b186dad1d3c5eccfaefdd000b162c851c482955af890c5c639"
+	const wantDigest = "353ed23ebcb5c4d29c3c6fbddb4b8cdb9021264c91b7c7807985984fb3f2ca58"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}

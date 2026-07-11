@@ -36,12 +36,12 @@ describe('composerAttachments', () => {
 
   it('preserves token-backed native image previews while keeping path for send', () => {
     const attachment = normalizeAttachment({
-      path: '/Users/mima0000/Pictures/native-secret.png',
+      path: '/Users/alice/Pictures/native-secret.png',
       previewUrl: '/local-image?id=drop_asset_123',
     });
 
     expect(attachment).toEqual({
-      path: '/Users/mima0000/Pictures/native-secret.png',
+      path: '/Users/alice/Pictures/native-secret.png',
       name: 'native-secret.png',
       kind: 'image',
       previewUrl: '/local-image?id=drop_asset_123',

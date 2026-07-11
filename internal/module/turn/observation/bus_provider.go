@@ -7,10 +7,10 @@ import (
 	"context"
 	"sync"
 
-	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
+	buscontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // NewObservationSubscribers 向 BusModule 声明 observation 的订阅规格，实际注册和关闭由 bus 统一管理。

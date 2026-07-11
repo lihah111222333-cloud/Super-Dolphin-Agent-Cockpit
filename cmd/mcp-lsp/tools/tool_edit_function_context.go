@@ -3,9 +3,9 @@ package tools
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 // lookupFunctionContextWithLog 在 replace_range 成功后用 LSP 找回受影响函数。

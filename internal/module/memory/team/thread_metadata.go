@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 )
 
 // Lifecycle 是团队记忆同步服务暴露给线程事件适配层的最小生命周期接口。

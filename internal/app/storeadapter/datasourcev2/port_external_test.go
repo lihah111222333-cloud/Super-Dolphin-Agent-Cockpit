@@ -3,7 +3,7 @@ package datasourcev2adapter_test
 import (
 	"context"
 
-	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
+	datasourcev2 "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource_v2"
 )
 
 type externalDatasourceV2DocumentStore struct{}

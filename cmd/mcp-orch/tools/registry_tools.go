@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools/modelregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilepath"
 )
 
 // Registry/discovery 工具集中暴露模型列表和 sharedfile 列表。

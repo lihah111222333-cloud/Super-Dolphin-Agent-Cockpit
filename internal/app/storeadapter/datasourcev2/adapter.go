@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
-	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
+	datasourcev2 "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource_v2"
+	datasourcev2store "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/datasourcev2"
 )
 
 var errDatasourceV2StoreReturnedNilDocument = errors.New("datasource v2 Store returned nil document")

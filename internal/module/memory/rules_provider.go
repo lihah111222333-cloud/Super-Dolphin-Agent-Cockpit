@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	retrievalpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/retrieval"
 )
 
 // 编译期断言确保两个 provider 满足 prompt 动态 section 和 turn context 接口。

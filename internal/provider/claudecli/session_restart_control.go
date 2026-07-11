@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 )
 
 // registerTransportPID 将 Claude CLI 子进程登记到崩溃清理表。

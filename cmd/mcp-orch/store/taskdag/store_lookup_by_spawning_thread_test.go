@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 )
 
 // TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows 验证反查能返回携带指定 thread id 的唯一节点。

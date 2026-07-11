@@ -3,7 +3,7 @@ package insightadapter_test
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/insight"
 )
 
 type externalInsightPort struct{}

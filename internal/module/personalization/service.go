@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 // Service 定义个性化服务接口，负责按 cwd 读写用户个人资料。

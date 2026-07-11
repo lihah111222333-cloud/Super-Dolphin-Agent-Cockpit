@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
 func TestPoolRoutingExplicitlyDisabledFailsClosedWithCodexIdentity(t *testing.T) {

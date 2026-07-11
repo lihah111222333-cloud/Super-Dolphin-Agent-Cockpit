@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // TestValidateManifestBinaryRejectsManagedNameWithUnsafeCommand 确认受管 server 名称不能伪装成任意 stdio 进程。

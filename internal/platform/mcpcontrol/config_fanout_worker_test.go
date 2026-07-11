@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // fakeFanoutNotifier records every NotifyConfigChanged call so tests can

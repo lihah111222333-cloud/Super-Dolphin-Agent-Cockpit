@@ -15,13 +15,13 @@ import (
 
 	"go.uber.org/fx"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
-	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	orch "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	orch "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func TestStopAgentWaitFalsePreservesExistingResult(t *testing.T) {

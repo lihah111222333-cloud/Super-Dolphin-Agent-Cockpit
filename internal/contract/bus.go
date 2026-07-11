@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"reflect"
 
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 // SubscriberSpec 是 BusModule 拥有的声明式订阅 contract。

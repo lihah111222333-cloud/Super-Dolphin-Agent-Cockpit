@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 func newEntrypointProviderTestSetup(t *testing.T) (*MemoryEntrypointProvider, contract.BuildCtx, string) {

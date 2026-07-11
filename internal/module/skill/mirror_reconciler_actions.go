@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/mirrorpath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/skillhash"
 )
 
 // ResolveSkillMirrorDrift 处理用户选择的 mirror 修复动作。

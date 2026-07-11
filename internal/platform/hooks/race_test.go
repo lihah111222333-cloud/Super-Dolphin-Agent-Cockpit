@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 func TestConcurrentDispatchAndShutdown(t *testing.T) {

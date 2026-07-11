@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/kelindar/event"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
 
 func TestPublishProxyToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
@@ -20,7 +20,7 @@ func TestPublishProxyToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	h := &Handler{dispatcher: dispatcher}
 	h.publishProxyToolCallBegin(ToolCallRequest{
 		Name:      "shell",
-		Arguments: json.RawMessage(`{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/mima0000/secret"}`),
+		Arguments: json.RawMessage(`{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`),
 		AgentID:   "agent-1",
 		ThreadID:  "thread-1",
 		TurnID:    "turn-1",
@@ -33,7 +33,7 @@ func TestPublishProxyToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 
 func assertToolbridgeArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/mima0000/secret", "--api-key"} {
+	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("ArgumentsPreview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}

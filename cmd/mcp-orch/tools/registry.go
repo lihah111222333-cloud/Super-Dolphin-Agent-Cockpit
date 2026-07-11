@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
-	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/commandcard"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools/modelregistry"
+	workspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/workspace"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // ToolPorts 按工具消费面拆分 orchestration 依赖，避免 registry 持有完整服务边界。

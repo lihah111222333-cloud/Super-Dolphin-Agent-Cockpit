@@ -3,7 +3,7 @@ package contract
 import (
 	"context"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // BootstrapHookAfterHandler 是 bootstrap runtime 处理 ctl/hook/after 回调的函数边界。

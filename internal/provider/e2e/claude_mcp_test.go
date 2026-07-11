@@ -9,12 +9,12 @@ import (
 	"testing"
 	_ "unsafe"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	_ "github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	_ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/manifestbuilder"
 )
 
-//go:linkname writeManifestConfig github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.writeManifestConfig
+//go:linkname writeManifestConfig github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli.writeManifestConfig
 func writeManifestConfig(manifest dto.MCPManifest, cwd string) (string, func(), error)
 
 type claudeManifestFile struct {

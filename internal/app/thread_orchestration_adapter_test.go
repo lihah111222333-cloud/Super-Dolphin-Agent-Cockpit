@@ -10,9 +10,9 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 )
 
 func TestMCPOrchOrchestrationFacadeRequiresTools(t *testing.T) {

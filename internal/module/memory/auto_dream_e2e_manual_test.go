@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 func TestManualAutoDreamE2EPipeline(t *testing.T) {

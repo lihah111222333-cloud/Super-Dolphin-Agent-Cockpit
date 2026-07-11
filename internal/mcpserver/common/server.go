@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // contextKey 是 MCP server 写入 context 的私有 key 类型，避免与外部包 key 冲突。

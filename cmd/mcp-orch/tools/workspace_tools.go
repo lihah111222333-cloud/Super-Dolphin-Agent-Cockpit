@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	workspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/workspace"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // workspace 工具列表限制。

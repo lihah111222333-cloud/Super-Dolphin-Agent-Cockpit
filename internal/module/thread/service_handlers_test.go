@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 func TestNewServiceInitializesDefaults(t *testing.T) {

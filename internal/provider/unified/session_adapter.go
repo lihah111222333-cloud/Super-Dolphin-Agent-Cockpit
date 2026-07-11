@@ -1,7 +1,7 @@
 package unified
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // sessionProviderAdapter 把 SessionManager 收窄为 thread 和 turn 模块使用的 session 查询接口。

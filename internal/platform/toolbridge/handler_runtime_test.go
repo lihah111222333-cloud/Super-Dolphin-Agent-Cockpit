@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
 )
 
 func TestToolCallRuntimeConfig_Pin(t *testing.T) {

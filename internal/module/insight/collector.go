@@ -2,7 +2,7 @@ package insight
 
 import (
 	"context"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -11,8 +11,8 @@ import (
 
 	"github.com/kelindar/event"
 
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // defaultQueueCapacity 是 subscriber 到 flusher 之间的有界队列容量。

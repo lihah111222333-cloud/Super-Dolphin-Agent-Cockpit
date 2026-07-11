@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 	"github.com/kelindar/event"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // rawParams 帮助构造 RawMessage with given params.

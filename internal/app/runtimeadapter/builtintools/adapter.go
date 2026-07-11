@@ -4,11 +4,11 @@ package builtintoolsadapter
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
 	"go.uber.org/fx"
 )
 

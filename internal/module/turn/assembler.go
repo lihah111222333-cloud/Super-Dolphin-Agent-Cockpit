@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 const (

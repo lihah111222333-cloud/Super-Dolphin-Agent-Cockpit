@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/toolresults"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/toolresults"
 )
 
 // ToolResultMeta 描述一次工具调用结果的归属，用于预算作用域、文件命名和生命周期登记。

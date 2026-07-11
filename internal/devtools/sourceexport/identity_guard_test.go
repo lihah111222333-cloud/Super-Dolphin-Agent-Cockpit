@@ -23,9 +23,9 @@ func TestValidateRepositoryIdentityRejectsProjectMismatch(t *testing.T) {
 		data string
 		code Code
 	}{
-		{name: "module", path: "go.mod", data: "module github.com/anthropic-ai/super-agent-v3\n", code: CodeModulePathMismatch},
+		{name: "module", path: "go.mod", data: "module github.com/" + "anthropic-ai/super-agent-v3\n", code: CodeModulePathMismatch},
 		{name: "license", path: "LICENSE", data: "This is free and unencumbered software released into the public domain.\n", code: CodeLicenseMismatch},
-		{name: "product", path: "README.md", data: "# Super Agent v3\n", code: CodePolicyInvalid},
+		{name: "product", path: "README.md", data: "# Super Agent" + " v3\n", code: CodePolicyInvalid},
 	}
 
 	for _, tt := range tests {
@@ -37,13 +37,15 @@ func TestValidateRepositoryIdentityRejectsProjectMismatch(t *testing.T) {
 	}
 }
 
-func TestCurrentRepositoryIdentityNeedsMigration(t *testing.T) {
+func TestCurrentRepositoryIdentity(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = ValidateRepositoryIdentity(root, validPolicy())
-	assertErrorCode(t, err, CodeModulePathMismatch)
+	if err != nil {
+		t.Fatalf("ValidateRepositoryIdentity() error = %v", err)
+	}
 }
 
 func newIdentityFixture(t *testing.T) string {

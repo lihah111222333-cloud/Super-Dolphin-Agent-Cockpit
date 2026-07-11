@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
 )
 
 // wakeupFence 是 wakeup 操作的防重字段集合，防止过期 claim 覆盖新一轮调度结果。

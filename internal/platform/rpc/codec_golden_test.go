@@ -3,7 +3,7 @@ package rpc
 import (
 	"testing"
 
-	goldentest "github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
+	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
 
 func TestPayloadEncoderGoldenSamples(t *testing.T) {

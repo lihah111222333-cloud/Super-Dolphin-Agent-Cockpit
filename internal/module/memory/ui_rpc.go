@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/dedup"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/similarity"
 )
 
 const uiMemoryPreviewLimit = 320

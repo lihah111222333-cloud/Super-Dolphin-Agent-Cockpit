@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

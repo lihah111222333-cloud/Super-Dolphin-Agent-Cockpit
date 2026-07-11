@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app/internal/storeguard"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
 )
 
 type uiStatePreferenceStoreAdapter struct{ store uipreference.Store }

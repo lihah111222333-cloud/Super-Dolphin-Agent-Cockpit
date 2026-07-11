@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
-	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
-	storeadaptertest "github.com/anthropic-ai/super-agent-v3/internal/testutil/storeadapter"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/feedback"
+	feedbackstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/feedback"
+	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 var _ feedback.Writer = (*feedbackStoreAdapter)(nil)

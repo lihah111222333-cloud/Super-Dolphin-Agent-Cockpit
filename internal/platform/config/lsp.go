@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/configutil"
 )
 
 // DefaultLSPConfig 返回内置 LSP 配置。

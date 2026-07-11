@@ -7,9 +7,9 @@ import (
 
 	"github.com/kelindar/event"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
 
 func TestHandleToolApprovalRequestedEventMarksAwaitingUserInput(t *testing.T) {

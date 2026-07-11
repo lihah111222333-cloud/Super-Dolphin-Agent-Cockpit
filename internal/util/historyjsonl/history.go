@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/sessionpaths"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sessionpaths"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // ReadRequest 是读取 provider 历史所需的跨模块参数。

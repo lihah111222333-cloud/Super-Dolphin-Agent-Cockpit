@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 )
 
 const teamSyncGitTimeout = 4 * time.Second

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/dreamexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 type modelFailoverFakeExecutor struct {

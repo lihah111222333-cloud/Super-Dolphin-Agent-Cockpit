@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // Toolbridge 窄端口分组定义 platform/toolbridge 依赖的上层契约。

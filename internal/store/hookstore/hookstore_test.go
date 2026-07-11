@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 func TestSavePendingReview(t *testing.T) {

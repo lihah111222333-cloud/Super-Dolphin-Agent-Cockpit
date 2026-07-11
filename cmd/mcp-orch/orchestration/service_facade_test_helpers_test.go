@@ -3,8 +3,8 @@ package orchestration
 import (
 	"log/slog"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 )
 
 // newTestFacadeServiceWithRegistry builds a full facade around a hand-made registry.

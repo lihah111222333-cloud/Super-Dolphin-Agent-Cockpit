@@ -1,8 +1,6 @@
-# Super Agent v3
+# Super Dolphin Agent
 
-Multi-agent orchestration platform for AI-assisted development. Provides session management, tool execution, cron scheduling, and memory systems with real-time event streaming.
-
-> Migration from go-agent-v2, started 2026-03-19.
+Super Dolphin Agent is an AI-governed multi-agent platform for software development. It combines session management, tool execution, cron scheduling, memory, architecture boundaries, and reproducible governance checks with real-time event streaming.
 
 ## Architecture
 
@@ -41,7 +39,8 @@ pkg/                     # Reusable public libraries
 ### Clone & Setup
 
 ```bash
-git clone <repo-url> && cd super-agent-v3
+git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
+cd super-dolphin-agent
 make install-hooks   # Required: enables pre-commit & pre-push checks
 
 # Optional: override the SQLite database path. PostgreSQL env vars are ignored
@@ -221,4 +220,4 @@ Full code map: [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md). Key s
 
 ## License
 
-Proprietary — Anthropic, Inc.
+Licensed under the [Apache License 2.0](LICENSE).

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // TestClientFireShutdownTracksCallbackWithWaitGroup 验证 OnShutdown 回调受 callbackWG 跟踪。

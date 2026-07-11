@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestReplaceRangeEmitsStageLogsWithoutPatchContent(t *testing.T) {

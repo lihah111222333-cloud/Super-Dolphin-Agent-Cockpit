@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/sharedfileport"
 )
 
 func TestPreviewProtectsFinalOutputsPinnedAndRecentFiles(t *testing.T) {

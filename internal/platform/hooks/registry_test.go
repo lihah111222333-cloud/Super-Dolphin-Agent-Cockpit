@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 func TestHookRegistrySubscribeRejectsEmptySubscriptionID(t *testing.T) {

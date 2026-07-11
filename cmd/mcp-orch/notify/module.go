@@ -8,12 +8,12 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	notifyplatform "github.com/anthropic-ai/super-agent-v3/internal/platform/notify"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	notifyplatform "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/notify"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // Module 装配 mcp-orch 侧通知栈。

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
 func TestNewDBRejectsEmptySQLitePath(t *testing.T) {

@@ -724,7 +724,7 @@ describe('wails bridge file picker helpers', () => {
 
   it('passes file filters through the ui/selectFiles RPC path', async () => {
     const byID = vi.fn((methodID, method, payload) => {
-      if (methodID !== 2963398832 || method !== 'ui/selectFiles') {
+      if (methodID !== 1391035622 || method !== 'ui/selectFiles') {
         throw new Error('filtered picker must use parameterized RPC path');
       }
       if (payload.filters?.[0]?.pattern !== '*.pdf;*.txt;*.text') {
@@ -741,14 +741,14 @@ describe('wails bridge file picker helpers', () => {
     await expect(selectFiles({
       filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
     })).resolves.toEqual(['C:\\data\\manual.pdf']);
-    expect(byID).toHaveBeenCalledWith(2963398832, 'ui/selectFiles', expect.objectContaining({
+    expect(byID).toHaveBeenCalledWith(1391035622, 'ui/selectFiles', expect.objectContaining({
       filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
     }));
   });
 
   it('uses a dedicated datasource import picker response with a token', async () => {
     const byID = vi.fn((methodID, method, payload) => {
-      if (methodID !== 2963398832 || method !== 'ui/selectDatasourceImportFile') {
+      if (methodID !== 1391035622 || method !== 'ui/selectDatasourceImportFile') {
         throw new Error('datasource import picker must use its dedicated RPC path');
       }
       if (payload.filters?.[0]?.pattern !== '*.pdf;*.txt;*.text') {
@@ -765,7 +765,7 @@ describe('wails bridge file picker helpers', () => {
     await expect(selectDatasourceImportFile({
       filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
     })).resolves.toEqual({ sourcePath: 'C:\\\\data\\\\manual.pdf', pickerToken: 'picker-token' });
-    expect(byID).toHaveBeenCalledWith(2963398832, 'ui/selectDatasourceImportFile', expect.objectContaining({
+    expect(byID).toHaveBeenCalledWith(1391035622, 'ui/selectDatasourceImportFile', expect.objectContaining({
       filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
     }));
   });
@@ -1606,7 +1606,7 @@ describe('development Wails runtime shim events', () => {
     const runtime = await importFreshDevRuntimeShim();
     const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
     const spanId = '00f067aa0ba902b7';
-    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+    const resultPromise = runtime.Call.ByID(1391035622, 'thread/config/get', {
       threadId: 'thread-1',
       _aoTraceparent: `00-${traceId}-${spanId}-01`,
       _aoTraceId: traceId,

@@ -10,9 +10,9 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	datasourcev2 "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource_v2"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 )
 
 func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *testing.T) {

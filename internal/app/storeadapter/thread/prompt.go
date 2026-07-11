@@ -3,10 +3,10 @@ package threadadapter
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/threadprompt"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
 	"go.uber.org/fx"
 )
 

@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
 	"go.uber.org/fx"
 )
 

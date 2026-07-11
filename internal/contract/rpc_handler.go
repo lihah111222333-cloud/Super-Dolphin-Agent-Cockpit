@@ -3,7 +3,7 @@ package contract
 import (
 	"context"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // RPC 错误码常量保持无框架依赖，供本地 JRPC 和远端 orchestration 共用。

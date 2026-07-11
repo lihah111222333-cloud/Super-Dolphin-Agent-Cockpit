@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
 )
 
 func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {

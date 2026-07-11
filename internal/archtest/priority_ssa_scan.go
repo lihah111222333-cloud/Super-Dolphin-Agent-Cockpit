@@ -9,12 +9,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest/ssaload"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest/ssaload"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )
 
-const prioritySSAModulePath = "github.com/anthropic-ai/super-agent-v3"
+const prioritySSAModulePath = "github.com/lihah111222333-cloud/super-dolphin-agent"
 
 type prioritySSAPackage struct {
 	pkgPath   string

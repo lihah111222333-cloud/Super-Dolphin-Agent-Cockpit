@@ -10,10 +10,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportstore"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/reportgc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/reportstore"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // GetState 返回 agent 当前状态；runtime 缺失时回退到持久化 thread 快照。

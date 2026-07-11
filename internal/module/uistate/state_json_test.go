@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
 )
 
 func TestUIStateTimelineByThreadJSONKey(t *testing.T) {

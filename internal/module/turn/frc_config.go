@@ -3,8 +3,8 @@ package turn
 import (
 	"strconv"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/configutil"
 )
 
 // configFRCConfig 从运行时配置 map 的多个候选键读取 FRC 配置，返回第一份可规范化结果。

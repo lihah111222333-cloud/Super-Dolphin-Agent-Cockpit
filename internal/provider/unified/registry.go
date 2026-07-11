@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // Registry 保存 provider 名称到 driver factory 的映射，并聚合 provider 原生工具描述。

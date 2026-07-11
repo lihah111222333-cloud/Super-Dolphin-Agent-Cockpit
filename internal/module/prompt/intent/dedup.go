@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // promptIntentDuplicateListLimit 限制重复检测一次最多读取的模板数量，避免创建期扫描无界放大。

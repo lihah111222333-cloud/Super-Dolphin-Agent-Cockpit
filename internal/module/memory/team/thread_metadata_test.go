@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 )
 
 type threadMetadataStoreStub struct {

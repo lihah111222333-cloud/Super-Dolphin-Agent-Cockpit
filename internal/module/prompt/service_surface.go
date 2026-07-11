@@ -13,9 +13,9 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 // PromptService 是 dashboard/RPC 层使用的 prompt 持久化接口。

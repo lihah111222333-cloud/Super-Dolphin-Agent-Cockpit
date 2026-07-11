@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
 func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {

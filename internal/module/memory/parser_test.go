@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
-	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+	parse "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/parse"
+	retrievalpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/retrieval"
 )
 
 func TestStripHTMLCommentsRemovesBlockCommentsAndKeepsCodeFences(t *testing.T) {

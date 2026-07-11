@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/mirrorpath"
 )
 
 // ResolveExternalPersonalProjectSameName 处理外部 personal mirror 和项目 skill 同名。

@@ -88,11 +88,11 @@
     {"kind": "file", "pattern": "docs/doc/codemap/capability-contract/capability_manifest.json"}
   ],
   "forbidden_identities": [
-    "/Users/mima0000",
+    "/Users/",
     "Anthropic, Inc.",
     "Proprietary",
     "Super Agent v3",
-    "github.com/anthropic-ai/super-agent-v3",
+    "github.com/lihah111222333-cloud/super-dolphin-agent",
     "github.com/lihah111222333-cloud/Super-Dolphin"
   ],
   "required_readmes": [

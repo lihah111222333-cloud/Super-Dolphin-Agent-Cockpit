@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // 1x1 transparent PNG (68 bytes).

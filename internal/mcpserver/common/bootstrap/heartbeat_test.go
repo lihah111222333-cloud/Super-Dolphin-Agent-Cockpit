@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	jrpcserver "github.com/creachadair/jrpc2/server"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 func TestSendHeartbeatTreatsLeaseStaleAsRefreshSignal(t *testing.T) {

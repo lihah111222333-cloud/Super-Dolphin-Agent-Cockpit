@@ -3,7 +3,7 @@ package tools
 import (
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // pos 可以补 dag/node/run，但最终必须有明确 run_id。

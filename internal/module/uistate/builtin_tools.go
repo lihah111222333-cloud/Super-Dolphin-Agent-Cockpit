@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // builtin tools 偏好键保存用户禁用项和上次见过的 registry 快照。

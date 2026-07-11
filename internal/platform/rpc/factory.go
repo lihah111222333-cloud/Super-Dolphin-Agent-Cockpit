@@ -10,7 +10,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // approvalMethodCatalogSpec 描述审批回调方法的默认值、兼容别名和允许 push 的方法集。

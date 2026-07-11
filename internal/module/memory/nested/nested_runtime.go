@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
 // nestedGlobalThreadKey 承载缺少 threadID 时的全局 nested 状态。

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 )
 
 // SiliconFlow 视频生成默认配置。

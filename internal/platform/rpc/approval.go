@@ -3,7 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,7 +12,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // ApprovalManager 管理工具调用审批、用户输入请求以及客户端回调结果。

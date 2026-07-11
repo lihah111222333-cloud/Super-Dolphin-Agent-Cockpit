@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/gorilla/websocket"
 	"github.com/kelindar/event"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 const testGenericDynamicToolName = "test_dynamic_echo"

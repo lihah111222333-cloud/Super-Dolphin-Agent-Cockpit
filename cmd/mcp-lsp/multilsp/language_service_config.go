@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 func defaultLanguageServiceNoiseDirSet() map[string]struct{} {

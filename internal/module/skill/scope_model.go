@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/ownerperms"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
 const (

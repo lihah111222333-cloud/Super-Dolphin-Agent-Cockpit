@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
-	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
-	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	parse "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/parse"
+	retrievalpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/retrieval"
+	memshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 // ErrConsolidationAgentMemoryPath 表示 consolidation 输入命中了 agent memory 目录。

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 // TestToolbridgePersistentSubagentRejectsMissingRuntime 锁定 spawn_agent 策略门禁的 fail-closed 行为。

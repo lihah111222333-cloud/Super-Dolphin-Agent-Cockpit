@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 func TestSetPreferencePublishesPreferenceChangedEvent(t *testing.T) {

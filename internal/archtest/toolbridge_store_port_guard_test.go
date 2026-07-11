@@ -31,8 +31,8 @@ func TestToolbridgeHandlerNoDirectStoreImport(t *testing.T) {
 	}
 
 	forbiddenImports := []string{
-		`"github.com/anthropic-ai/super-agent-v3/internal/store/binding"`,
-		`"github.com/anthropic-ai/super-agent-v3/internal/store/thread"`,
+		`"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"`,
+		`"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"`,
 	}
 	// module.go is the assembly entry point — it legitimately wires the
 	// concrete store types through the narrow adapters defined there.

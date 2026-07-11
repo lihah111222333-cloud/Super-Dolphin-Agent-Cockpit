@@ -1,6 +1,6 @@
 package retrieval
 
-import memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+import memshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 
 // MemoryType 是 retrieval 子包使用的记忆类型别名。
 // 别名保持检索排序、manifest 和 root memory 包共享同一套分类。

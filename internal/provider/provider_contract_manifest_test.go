@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/contracttest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
 )
 
 func TestProviderPackagesHaveContractTests(t *testing.T) {

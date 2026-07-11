@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/mirrorpath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/skillhash"
 )
 
 // mirrorLockRegistry 按 provider mirror 根目录保存写入锁。

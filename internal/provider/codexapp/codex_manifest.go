@@ -3,7 +3,7 @@ package codexapp
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/codexmanifest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/codexmanifest"
 )
 
 const codexManagedManifestName = codexmanifest.Name

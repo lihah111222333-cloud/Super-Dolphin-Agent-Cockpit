@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 )
 
 // NewToolbridgeDiffFallbackSubscribers 声明 ToolCallEnd 的 diff fallback 订阅。

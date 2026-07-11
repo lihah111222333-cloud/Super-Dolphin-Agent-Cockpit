@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/skillhash"
 )
 
 // ErrSkillSystemReviewRequired 表示 system scope skill 写入缺少人工审批信息。

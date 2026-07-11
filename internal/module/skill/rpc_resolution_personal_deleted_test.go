@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 func TestSkillResolutionPreviewPersonalCanonicalDeletedWithDriftUsesSuperDolphinHome(t *testing.T) {

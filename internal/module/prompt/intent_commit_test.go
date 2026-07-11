@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	platformsqlite "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
+	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
+	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )

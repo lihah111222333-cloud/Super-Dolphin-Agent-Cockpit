@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // TestLegacyOrchestrationStringsStayOutOfToolbridgeProduction 防止旧 orch 名重新散落到 toolbridge 生产代码。

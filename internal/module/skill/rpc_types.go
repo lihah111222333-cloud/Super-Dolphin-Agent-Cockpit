@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/summarysuggest"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/mirrorpath"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/summarysuggest"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 const (

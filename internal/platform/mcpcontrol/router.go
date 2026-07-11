@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // NotifyConfigChanged 向订阅配置 topic 的 peer 广播版本变更，payload 会复制后再发送。

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared/builtinprompts"
 )
 
 func TestActiveSystemOwnedPromptSurfacesAvoidExternalIdentityToolAndHostLeaks(t *testing.T) {

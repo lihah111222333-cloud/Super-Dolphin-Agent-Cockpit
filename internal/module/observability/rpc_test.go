@@ -12,10 +12,10 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformobs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 type recordingSink struct{ events []platformobs.TraceEvent }

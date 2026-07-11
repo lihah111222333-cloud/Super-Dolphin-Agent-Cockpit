@@ -1598,7 +1598,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
             '# AGENTS.md instructions for /home/ai01@f666.com/桌面/project/Super-Dolphin',
             '',
             '<INSTRUCTIONS>',
-            '# Super Agent v3 Agent Context Policy',
+            '# Super Dolphin Agent Agent Context Policy',
             '',
             '## Scope',
             'This file defines how agents should load context.',
@@ -1627,7 +1627,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('请修复前端渲染问题')).toBeInTheDocument();
     expect(screen.getByText('已完成修复。')).toBeInTheDocument();
     expect(screen.queryByText(/AGENTS\.md instructions/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Super Agent v3 Agent Context Policy/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Super Dolphin Agent Agent Context Policy/)).not.toBeInTheDocument();
   });
 
   it('renders malformed inline markdown fences as readable code blocks', async () => {

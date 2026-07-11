@@ -14,9 +14,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestHTTPAssetRoutesExposePrometheusMetricsEndpointWhenExplicitlyEnabled(t *testing.T) {

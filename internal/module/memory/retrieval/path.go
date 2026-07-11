@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 	"golang.org/x/text/unicode/norm"
 )
 

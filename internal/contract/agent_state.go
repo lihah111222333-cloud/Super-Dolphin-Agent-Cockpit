@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 )
 
 // IsActiveAgentState 是 UI、生命周期和测试共用的 active 状态判定。

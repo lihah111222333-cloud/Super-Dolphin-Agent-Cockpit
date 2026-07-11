@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platform "github.com/anthropic-ai/super-agent-v3/internal/platform/notify"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platform "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/notify"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // Module 将通知 resolver、webhook client、队列 notifier 和关机 flusher 装配进 Fx。

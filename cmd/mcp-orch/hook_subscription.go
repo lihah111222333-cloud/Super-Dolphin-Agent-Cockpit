@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 // orchestrationHookSubscriptionID 是 mcp-orch 注册到主控的固定订阅标识。

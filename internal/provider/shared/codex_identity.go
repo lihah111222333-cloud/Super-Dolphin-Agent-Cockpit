@@ -1,7 +1,7 @@
 package shared
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // CodexIdentity 是 provider 层暴露的 Codex 身份别名。

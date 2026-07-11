@@ -373,7 +373,7 @@ super-agent-v3/
 
 - `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制入口，不属于 `internal/module/*`。
 - 它们通过 stdio JSON-RPC 与宿主通信，并可通过 `ctl/*` 控制面自举回连核心；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
-- `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
+- `cmd/` 与 `internal/` 同属模块根 `github.com/lihah111222333-cloud/super-dolphin-agent`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
 - `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`（含子包）、`internal/platform/{config,db,shared,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/common`（含 `bootstrap`）与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`、`internal/store/sqlc/*`。
 - 其他 MCP binary 也应优先把 runtime / store / transport 保持在各自入口层，本地化依赖优先于反向复用宿主层。
 - `cmd/mcp-*` 不可以 import 其他 `cmd/*` 下的代码，也禁止 import `internal/app`、`internal/ui/*`。

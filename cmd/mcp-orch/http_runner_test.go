@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools"
 )
 
 func TestNewHTTPRunnerPeerModeRequiresSessionToken(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 // matchesLogFilter 判断统一日志条目是否满足 source、字段和关键词过滤。

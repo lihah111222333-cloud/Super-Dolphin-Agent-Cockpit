@@ -11,8 +11,8 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/launcherwire"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 )
 
 func TestService_LaunchAgentSnapshotReturnsFinalAgentID(t *testing.T) {

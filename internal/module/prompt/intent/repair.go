@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // repairPromptIntentCardsIfNeeded 检查草稿卡片是否存在可修复问题，有则发起一次 dream 调用自动修复并返回修复后的卡片。

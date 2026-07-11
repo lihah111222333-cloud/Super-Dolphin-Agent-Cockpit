@@ -3,7 +3,7 @@ package shared
 import (
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 // FirstNonEmpty 返回第一个非空字符串，保持 shared 包旧入口兼容。

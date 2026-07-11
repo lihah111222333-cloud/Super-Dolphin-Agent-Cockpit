@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
-	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	parse "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/parse"
+	retrievalpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/retrieval"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 var _ contract.DynamicSectionProvider = (*MemoryEntrypointProvider)(nil)

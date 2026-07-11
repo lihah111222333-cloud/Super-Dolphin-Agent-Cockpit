@@ -15,15 +15,15 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/gorilla/websocket"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"go.uber.org/fx"
 )
 

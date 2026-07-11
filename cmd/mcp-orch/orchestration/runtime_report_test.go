@@ -10,9 +10,9 @@ import (
 
 	"github.com/kelindar/event"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
 func TestRuntimeReportParamsCompatibility(t *testing.T) {

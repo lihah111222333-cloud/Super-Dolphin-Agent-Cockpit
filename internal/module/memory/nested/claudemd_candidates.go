@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	memshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
 // claudeRuleMetadata 存储从规则文件 frontmatter 解析出的元数据。

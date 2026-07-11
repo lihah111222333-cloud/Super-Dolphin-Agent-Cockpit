@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
+	skillidentity "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/identity"
 )
 
 type skillNotFoundError string

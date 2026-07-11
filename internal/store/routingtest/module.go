@@ -1,7 +1,7 @@
 package routingtest
 
 import (
-	sqlc "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	sqlc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 	"go.uber.org/fx"
 )
 

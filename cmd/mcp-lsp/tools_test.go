@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	lsptools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	lsptools "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/stretchr/testify/require"
 )
 

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 // newCreateSkillService 构造带空项目根和系统根的 skill service，供 CreateSkill 写入边界测试使用。

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // stubAgentLaunchedProcessor 是测试用 agentLaunchedProcessor。

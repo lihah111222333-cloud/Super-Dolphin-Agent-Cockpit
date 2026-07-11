@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // editRecoveryLogEntry 记录“磁盘已写入但 LSP 同步未完成”的恢复线索。

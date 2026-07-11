@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const (

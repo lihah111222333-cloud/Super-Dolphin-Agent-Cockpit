@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+	promptintent "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt/intent"
 )
 
 // matchWhenStringValue 从 JSON 条件值中取字符串，类型不匹配时返回空串表示条件不成立。

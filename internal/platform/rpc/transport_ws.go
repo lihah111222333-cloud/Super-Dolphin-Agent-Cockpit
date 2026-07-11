@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/gorilla/websocket"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // defaultWSUpgrader 是 WebSocket 升级器，测试可替换其包级配置。

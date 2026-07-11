@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // shouldSkipInjectedSource 拦截不应由 nested 包注入的来源类型（AutoMem/TeamMem），防止双重注入。

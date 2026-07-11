@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 )
 
 func TestBackendBoundaryRegistryOwnsCanonicalDependencyRules(t *testing.T) {
@@ -35,13 +35,13 @@ func TestCanonicalDependencyRulesRejectProceduralBoundaryViolations(t *testing.T
 		relPath string
 		imp     string
 	}{
-		{name: "store sibling", ruleID: "store_dependency_surface", relPath: "internal/store/thread/store.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"},
+		{name: "store sibling", ruleID: "store_dependency_surface", relPath: "internal/store/thread/store.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"},
 		{name: "fx outside assembly", ruleID: "fx_assembly_scope", relPath: "internal/module/thread/service.go", imp: "go.uber.org/fx"},
-		{name: "orch server imports lsp tool", ruleID: "mcpserver_orch_family", relPath: "cmd/mcp-orch/server.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/tool/lsp"},
-		{name: "ida server imports orchestration tool", ruleID: "mcpserver_ida_family", relPath: "cmd/mcp-ida/server.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/tool/orchestration"},
-		{name: "hooks imports mcpcontrol", ruleID: "hooks_no_mcpcontrol", relPath: "internal/platform/hooks/runner.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"},
-		{name: "mcpcontrol imports hooks", ruleID: "mcpcontrol_no_hooks", relPath: "internal/platform/mcpcontrol/server.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/platform/hooks"},
-		{name: "hooks test imports db", ruleID: "hooks_no_platform_db", relPath: "internal/platform/hooks/runner_test.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/platform/db"},
+		{name: "orch server imports lsp tool", ruleID: "mcpserver_orch_family", relPath: "cmd/mcp-orch/server.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/tool/lsp"},
+		{name: "ida server imports orchestration tool", ruleID: "mcpserver_ida_family", relPath: "cmd/mcp-ida/server.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/tool/orchestration"},
+		{name: "hooks imports mcpcontrol", ruleID: "hooks_no_mcpcontrol", relPath: "internal/platform/hooks/runner.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"},
+		{name: "mcpcontrol imports hooks", ruleID: "mcpcontrol_no_hooks", relPath: "internal/platform/mcpcontrol/server.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/hooks"},
+		{name: "hooks test imports db", ruleID: "hooks_no_platform_db", relPath: "internal/platform/hooks/runner_test.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,11 +68,11 @@ func TestStoreDependencyRulePreservesAuditedImports(t *testing.T) {
 		relPath string
 		imp     string
 	}{
-		{name: "root aggregates store packages", relPath: "internal/store/module.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/store/thread"},
+		{name: "root aggregates store packages", relPath: "internal/store/module.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"},
 		{name: "package module imports fx", relPath: "internal/store/thread/module.go", imp: "go.uber.org/fx"},
 		{name: "package module imports pool", relPath: "internal/store/thread/module.go", imp: "github.com/jackc/pgx/v5/pgxpool"},
-		{name: "same package subtree", relPath: "internal/store/thread/store.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/store/thread/internal/model"},
-		{name: "registered platform port", relPath: "internal/store/thread/store.go", imp: "github.com/anthropic-ai/super-agent-v3/internal/platform/db"},
+		{name: "same package subtree", relPath: "internal/store/thread/store.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread/internal/model"},
+		{name: "registered platform port", relPath: "internal/store/thread/store.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"},
 		{name: "registered pgtype", relPath: "internal/store/thread/store.go", imp: "github.com/jackc/pgx/v5/pgtype"},
 	}
 	for _, tc := range cases {

@@ -3,7 +3,7 @@ package contract
 import (
 	"context"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // CronThreadStarter 是 cron 首次触发任务时启动 provider thread 的窄边界。

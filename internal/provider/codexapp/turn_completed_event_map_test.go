@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
 // sniffAndTranslate 解码 sniffTurnOutput 改写后的参数，并转成 TurnCompleted DTO。

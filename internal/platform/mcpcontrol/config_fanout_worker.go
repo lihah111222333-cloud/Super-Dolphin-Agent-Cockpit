@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // configFanoutNotifier 是 worker 需要的 ToolNotifier 最小能力。

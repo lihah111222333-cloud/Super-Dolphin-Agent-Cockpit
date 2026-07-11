@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
 type setupPaths struct {

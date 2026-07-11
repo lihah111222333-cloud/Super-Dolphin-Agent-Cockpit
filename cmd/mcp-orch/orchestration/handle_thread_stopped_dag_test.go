@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/kelindar/event"
+	orchmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/metrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 )
 
 // fakeFallbackLookup �?NodeSpawningThreadLookup 的测试桩�?

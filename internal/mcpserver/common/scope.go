@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // ToolScopeContextKey 保存 tools/call 顶层 metadata 归一化后的可信 scope。

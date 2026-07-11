@@ -7,7 +7,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
 )
 
 // ToolHandler 是单个工具的处理函数类型。

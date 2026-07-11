@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformobs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 )
 
 // InterruptTurn 向当前线程的 active turn 发送中断，并返回带 envelope 的最终判定状态。

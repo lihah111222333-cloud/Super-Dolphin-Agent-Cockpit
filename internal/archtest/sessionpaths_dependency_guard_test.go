@@ -47,7 +47,7 @@ func sessionPathsDependencyViolations(path, name string) []string {
 			violations = append(violations, fmt.Sprintf("%s: unquote import %s: %v", name, spec.Path.Value, err))
 			continue
 		}
-		if strings.HasPrefix(imp, "github.com/anthropic-ai/super-agent-v3/") {
+		if strings.HasPrefix(imp, "github.com/lihah111222333-cloud/super-dolphin-agent/") {
 			violations = append(violations, fmt.Sprintf("%s imports repo package %s", name, imp))
 			continue
 		}

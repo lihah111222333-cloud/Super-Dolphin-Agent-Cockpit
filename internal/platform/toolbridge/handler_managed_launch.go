@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // 本文件负责把当前 provider/model/effort 上下文注入 launch_agent 与 DAG agent 节点。

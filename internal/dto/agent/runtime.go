@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 
 // RuntimeReport 是 ctl/report runtime 变体投影到 agent 事件流后的载荷。
 type RuntimeReport struct {

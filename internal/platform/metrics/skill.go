@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

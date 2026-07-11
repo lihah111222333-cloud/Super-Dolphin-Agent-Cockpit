@@ -20,7 +20,7 @@ func TestUIWailsNoDirectUIStateImport(t *testing.T) {
 		t.Fatalf("read %s: %v", wailsDir, err)
 	}
 
-	const forbiddenImport = `"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"`
+	const forbiddenImport = `"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"`
 	var hits []string
 	for _, entry := range entries {
 		if entry.IsDir() {

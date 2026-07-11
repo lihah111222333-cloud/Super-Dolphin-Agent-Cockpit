@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	retrievalpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/retrieval"
 )
 
 func normalizeTranscriptMessages(messages []providerdto.Message) []providerdto.Message {

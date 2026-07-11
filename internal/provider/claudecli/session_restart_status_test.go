@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {

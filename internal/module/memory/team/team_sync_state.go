@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
 
 const teamSyncStateFileName = ".team-sync-state.json"

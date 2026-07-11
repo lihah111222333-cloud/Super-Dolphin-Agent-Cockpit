@@ -4,11 +4,11 @@ import (
 	"context"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // NewInsightSubscribers 为 BusModule 声明 collector 总线订阅。

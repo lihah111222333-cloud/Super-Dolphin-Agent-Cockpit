@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/archtest/ssaload"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest/ssaload"
 	"golang.org/x/tools/go/packages"
 )
 

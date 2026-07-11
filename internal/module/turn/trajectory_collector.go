@@ -6,15 +6,15 @@ import (
 	"sync"
 	"time"
 
-	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
+	buscontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 
-	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn/observation"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // maxDrainedEntries 限制已输出 turn 的去重表大小。

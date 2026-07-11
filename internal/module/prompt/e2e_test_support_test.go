@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 
-	contractpkg "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	contractpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
+	thread "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	turnpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 type capturingSessionBridge struct {

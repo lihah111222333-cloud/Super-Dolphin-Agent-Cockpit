@@ -26,7 +26,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // ErrBinaryNotAvailable 是 dispatcher 识别 binary 未安装 / 路径不存在的哨兵 error。

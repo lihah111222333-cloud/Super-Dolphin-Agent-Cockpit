@@ -1,6 +1,6 @@
 package tools
 
-import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 
 // orchestrationToolDefinitions 注册编排工具的 wire schema 和 handler。
 // schema 文案需要和 handler 层校验保持一致，避免模型看到的可用字段与运行时不一致。

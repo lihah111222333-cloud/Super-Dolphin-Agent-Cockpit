@@ -8,9 +8,9 @@ import (
 
 	"github.com/kelindar/event"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 func newSilentTurnTestSession(t *testing.T, tr *transport) (*session, chan dto.BusRawProviderEvent, chan turndto.TurnCompleted) {

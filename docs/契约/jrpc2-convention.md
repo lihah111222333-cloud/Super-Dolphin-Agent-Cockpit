@@ -30,7 +30,7 @@ V3 的总原则只有五条：
 - 本文默认约束的是宿主内核心 RPC，也就是 `internal/platform/rpc` 承担的桌面 / UI RPC。
 - `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 也使用 JSON-RPC 2.0 over stdio，但它们是独立 MCP 服务二进制；binary 边界、manifest 和 stdio 生命周期另见 `docs/契约/mcp-service-convention.md`。
 - 同一份领域能力如果同时暴露给核心 RPC 和 MCP，只共享 service contract、store contract 和 DTO，不共享 handler registry、notification bridge 或方法命名空间。
-- `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这属于 Go `internal` 包规则允许的正常用法。
+- `cmd/` 与 `internal/` 同属模块根 `github.com/lihah111222333-cloud/super-dolphin-agent`，因此 `cmd/mcp-*` 合法 import `internal/*`；这属于 Go `internal` 包规则允许的正常用法。
 
 ---
 

@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolpolicy"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolpolicy"
 )
 
 func assertAllow(t *testing.T, got mcp.BeforeDecision) {

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	storeworkspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/workspace"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // dedupeRelativePaths 校验并去重相对文件路径。

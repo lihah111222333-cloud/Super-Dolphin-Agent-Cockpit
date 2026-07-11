@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	datasource "github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
-	memory "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	datasource "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource"
+	memory "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory"
+	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
+	thread "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+	turnpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
 	"go.uber.org/fx"
 )
 

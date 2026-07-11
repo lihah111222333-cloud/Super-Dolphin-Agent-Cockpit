@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-const superAgentModulePath = "github.com/anthropic-ai/super-agent-v3"
+const superAgentModulePath = "github.com/lihah111222333-cloud/super-dolphin-agent"
 
 type orchestrationServiceTypeUse struct {
 	relPath string

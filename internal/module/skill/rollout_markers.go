@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // skillBlockHeaderNewFormat 匹配带 footer 的 skill 注入块头行：

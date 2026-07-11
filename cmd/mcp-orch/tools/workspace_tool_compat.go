@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	workspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/workspace"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // WorkspaceMergeFileResult 是 workspace merge 单文件结果的工具层 DTO。

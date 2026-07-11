@@ -5,7 +5,7 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/app"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
 )
 
 func TestFxValidateApp(t *testing.T) {

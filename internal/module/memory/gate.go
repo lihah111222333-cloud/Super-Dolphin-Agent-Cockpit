@@ -4,9 +4,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
 // AutoMemPathSource 标记当前 AutoMem 根目录来自默认派生、设置还是环境变量。

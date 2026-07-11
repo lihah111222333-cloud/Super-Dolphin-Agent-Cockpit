@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
 )
 
 type stubPromptHintPrefs struct {

@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	uipreferencestore "github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	mcpserver "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/mcp_server"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
+	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
+	uipreferencestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
 	"go.uber.org/fx"
 )
 

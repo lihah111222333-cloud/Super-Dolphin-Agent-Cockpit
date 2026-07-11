@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	archtest "github.com/anthropic-ai/super-agent-v3/internal/archtest"
+	archtest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 )
 
 // TestSkillProductionCodeDoesNotImportPersistence 锁定 Skill 领域层不能直接知道数据库和 Store 实现。
