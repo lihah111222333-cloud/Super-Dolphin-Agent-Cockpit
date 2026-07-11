@@ -470,15 +470,25 @@ git commit -m "feat: 实现轻隔离与进程清理"
 ### Task 6: Implement the Playwright browser runtime
 
 **Files:**
+- Modify: `tsconfig.json`
+- Modify: `scripts/build.mjs`
+- Modify: `scripts/assert-build-output.mjs`
+- Modify: `package-lock.json`
 - Create: `packages/runtime-playwright/package.json`
 - Create: `packages/runtime-playwright/tsconfig.json`
 - Create: `packages/runtime-playwright/src/browser-runtime.ts`
+- Create: `packages/runtime-playwright/src/runtime-state.ts`
+- Create: `packages/runtime-playwright/src/test-only.ts`
 - Create: `packages/runtime-playwright/src/observe.ts`
 - Create: `packages/runtime-playwright/src/execute-action.ts`
 - Create: `packages/runtime-playwright/src/resolve-locator.ts`
 - Create: `packages/runtime-playwright/src/network-policy.ts`
+- Create: `packages/runtime-playwright/src/egress-proxy.ts`
 - Create: `packages/runtime-playwright/src/index.ts`
 - Test: `packages/runtime-playwright/src/browser-runtime.test.ts`
+- Test: `packages/runtime-playwright/src/execute-action.test.ts`
+- Test: `packages/runtime-playwright/src/network-policy.test.ts`
+- Test: `packages/runtime-playwright/src/egress-proxy.test.ts`
 - Test: `packages/runtime-playwright/src/observe.test.ts`
 
 - [ ] **Step 1: Write failing visibility and network tests**
@@ -492,7 +502,7 @@ it('excludes hidden semantic nodes', async () => {
 
 it('blocks origins outside the target allowlist', async () => {
   const runtime = await BrowserRuntime.launch({ allowedOrigins: ['http://127.0.0.1:4100'] });
-  await expect(runtime.pageForTestOnly().goto('http://127.0.0.1:4200')).rejects.toThrow(/network policy blocked/);
+  await expect(pageForTestOnly(runtime).goto('http://127.0.0.1:4200')).rejects.toThrow(/blocked/i);
   await runtime.close();
 });
 ```
@@ -505,9 +515,15 @@ Expected: FAIL because runtime functions do not exist.
 
 - [ ] **Step 3: Implement runtime without exposing Page publicly**
 
-Declare `playwright` as a direct dependency of this package. `BrowserRuntime` publicly exposes only `observe`, `execute`, `captureArtifact`, and `close`; `pageForTestOnly` is exported from a test-only module excluded from package exports. Observation uses computed visibility and strict semantic identities and never infers visibility from DOM presence. Locator resolution requires exactly one visible match. Route interception blocks all non-allowed origins before a request leaves Chromium.
+Declare `playwright` as a direct dependency of this package. `BrowserRuntime` publicly exposes only `observe`, `execute`, `captureArtifact`, and `close`; Playwright `Page`, `BrowserContext`, browser handles, low-level policy functions, and `pageForTestOnly` are absent from the public package export. The test-only module is excluded from production build and pack output.
 
-In Foundation, `captureArtifact` supports only redacted DOM/ARIA and trace summaries routed through `RunWriter`; a screenshot request returns `ACTION_ERROR` with reason `screenshot-masking-not-installed`.
+Observation uses bounded DOM scanning, computed style, layout, clipping, filter, mask, opacity, transparent-text, and ancestor visibility checks and never infers visibility from DOM presence. It returns no input values, inner HTML, password values, or hidden text. Locator input is strict JSON without Proxy, accessor, callable-object, unknown-field, or ambiguous-match acceptance. Resolver selection pins one visually visible `ElementHandle`; DOM replacement after validation fails instead of retargeting a live locator.
+
+Enforce exact canonical origin policy twice. The browser-wide loopback egress proxy is configured as Chromium's manual proxy with implicit loopback bypass removed, performs a startup capability probe, validates HTTP absolute URLs, distinguishes plaintext WebSocket and TLS CONNECT prefaces before opening the upstream socket, and retains the guard until browser containment is proven. Playwright context routes, WebSocket routes, service-worker blocking, and per-page CDP Fetch interception provide the inner request and redirect guard. Worker, AudioWorklet, Speculation Rules, `fetchLater`, popup, WebSocket, direct request, subresource, and redirect tests must prove blocked targets receive zero requests while allowed targets remain usable.
+
+Only explicitly managed pages count toward the window budget. Page-created popups are closed, popup cleanup failures interrupt the active operation, and no guard failure may be overwritten by a concurrent deadline. Whole actions and trusted callbacks have bounded deadlines; timeout or proxy/page-guard failure closes context and browser before removing the network guards. Cleanup steps have independent deadlines, coalesce, aggregate failures, preserve infrastructure error classification, and never convert failure to success.
+
+In Foundation, action receipts and DOM/ARIA/trace artifact summaries contain only structural counts and action type; they do not return URL, title, accessible names, locator values, or action secrets. Later SDK composition routes them through `RunWriter`. A screenshot request returns `ACTION_ERROR` with reason `screenshot-masking-not-installed`.
 
 - [ ] **Step 4: Verify GREEN with a provisioned browser**
 
@@ -515,14 +531,18 @@ In Foundation, `captureArtifact` supports only redacted DOM/ARIA and trace summa
 npx playwright install chromium
 npm test -- packages/runtime-playwright
 npm run typecheck
+npm run lint
+npm run build
+node scripts/assert-build-output.mjs packages/runtime-playwright
+npm pack --dry-run --json --workspace @agentic-testing-harness/runtime-playwright
 ```
 
-Expected: all runtime tests PASS.
+Expected: all runtime and real-Chromium egress tests PASS; build and pack contain production entries and no test or test-only output.
 
 - [ ] **Step 5: Commit runtime**
 
 ```bash
-git add packages/runtime-playwright package.json package-lock.json
+git add packages/runtime-playwright package-lock.json tsconfig.json scripts/build.mjs scripts/assert-build-output.mjs
 git diff --cached --check
 git commit -m "feat: 实现受控 Playwright 浏览器运行时"
 ```
