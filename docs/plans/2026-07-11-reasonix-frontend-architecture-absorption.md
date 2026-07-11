@@ -138,6 +138,7 @@ mcp__lsp.completion
 
 ```text
 frontend-app/src/
+  WorkbenchSidebarProjectTree.test.jsx
   entities/client/model/thread-open/
     threadOpenCoordinator.js
     threadOpenCoordinator.test.js
@@ -210,7 +211,7 @@ git -C "$REPO" worktree add "$WT" -b "$BRANCH" "$BASE_SHA"
 | Lane A | `entities/client/model/thread-open/**` |
 | Lane B | `pages/chat/model/scrollIntentModel*`、`features/approval/**` |
 | Lane C | `app/AppErrorBoundary*`、新增 `shared/ui/OverlayPortal*`、新增 `shared/diagnostics/**`、`shared/styles/LayerTokens.css`、新增 z-index guard/test |
-| Integrator | 所有既有文件、CSS 迁移、package scripts、生成产物、Task 6 discovery |
+| Integrator | 所有既有文件、`WorkbenchSidebarProjectTree.test.jsx`、CSS 迁移、package scripts、生成产物、Task 6 discovery |
 
 Lane commit 只能包含新文件。Integrator 在 lane commit 通过聚焦测试后完成接线，避免 `App.jsx`、`Conversation.jsx`、store、validators、`main.jsx` 和 CSS 冲突。
 
@@ -236,6 +237,7 @@ Lane commit 只能包含新文件。Integrator 在 lane commit 通过聚焦测�
 - [ ] 完成 worktree preflight。
 - [ ] 运行 worktree readiness 并在新任务确认 LSP 七工具。
 - [ ] 用 LSP structure/xref 复核：
+  - `WorkbenchSidebarProjectTree.jsx`
   - `helpers/threadSelectionActions.js`
   - `runtimeSlice.js`
   - `helpers/a1/clientStoreSnapshotModel.js`
@@ -244,8 +246,10 @@ Lane commit 只能包含新文件。Integrator 在 lane commit 通过聚焦测�
   - `ChatApprovalMessage.jsx`
   - `TimelineMessage.jsx`
   - `Conversation.jsx`
+  - `pages/chat/composer/ComposerDock.jsx`
   - `useChatWorkbenchLayout.js`
   - `shared/ui/FocusTrapDialog.jsx`
+  - `App.jsx`
   - `main.jsx`
 - [ ] 保存 baseline：
 
@@ -271,8 +275,10 @@ npm run mcp:ui-test:acceptance
 - `frontend-app/src/entities/client/model/thread-open/threadOpenCoordinator.js`
 - `frontend-app/src/entities/client/model/thread-open/threadOpenCoordinator.test.js`
 
-**Integrator modifies:**
+**Integrator creates/modifies:**
 
+- `frontend-app/src/WorkbenchSidebarProjectTree.jsx`
+- `frontend-app/src/WorkbenchSidebarProjectTree.test.jsx`（新增真实 sidebar integration test）
 - `frontend-app/src/entities/client/model/helpers/threadSelectionActions.js`
 - `frontend-app/src/entities/client/model/runtimeSlice.js`
 - `frontend-app/src/entities/client/model/useClientStore.test.js`
@@ -280,17 +286,24 @@ npm run mcp:ui-test:acceptance
 
 ### Contract
 
-- 使用单调 `selectionIntentId`，不建立持久化 `sessionViewState`。
+- 使用单调 `selectionIntentId`，不建立持久化 `sessionViewState`。intent 必须在用户点击入口创建，而不是在异步 continuation 最后调用 `setActiveThread` 时重新签发。
+- `WorkbenchSidebarProjectTree.selectThread` 在点击时调用 `beginOpeningThread(thread)` 创建并取得 opaque intent context，再把同一 context 贯穿 `selectProjectThreadAction → setActiveProjectPath → setActiveThread`；project switch 完成后的 continuation 只能消费原 context，不能创建新 intent。
+- `beginOpeningThread` 不再只返回无法区分 A→B→A 的 boolean；成功时返回包含单调 id/target 的 opaque intent context，失败时返回 null。project switch 失败时使用 intent-aware cancel/rollback，禁止通过 `setActiveThread('')` 创建一个更新 intent。
+- `setActiveThread(threadId, { selectionIntent })` 在收到 context 时只消费/校验该 context；只有不存在异步前置步骤的直接同步入口才允许不传 context 并现场创建新 intent。
 - V3 的 resolve/sync 是只读获取，允许并行；本计划不复制 Reasonix 的串行 latest-pending scheduler。
 - 每个 active-view commit 与全局 error notice/warning 发布前检查 intent；`runtimeSlice.syncThreadState` 的错误副作用也必须接受同一 intent predicate，不能只在 `threadSelectionActions.js` 外层判断。
 - stale 请求可以合并其目标 thread 的 keyed cache，并且必须按既有 per-thread sync generation 清理自身 `threadStateLoadingByThread[target]`；它不能修改 `activeThreadId`、当前 draft、当前 thread 的 loading/error 或全局 notice/warning。
 - `syncThreadState` 的普通调用方不传 selection predicate 时保持现有行为；thread-open 调用方传入的 predicate 只控制用户可见失败副作用，不得阻止目标线程 cache、message page 或 keyed loading 的正常收敛。
 - `pendingActiveThreadId` 和 `threadStateLoadingByThread` 继续是加载真相；hydrate reason 只作为请求上下文/诊断字段。
+- `newThread`、`continueWithSharedFile` 和其他离开当前 thread-open 流程的用户动作必须推进/失效当前 intent；迟到的 project switch、resolve 或 sync 不得重新激活旧选择。
 - 不实现“相同 target 所有调用共享同一 promise”，避免吞掉用户显式刷新。
 
 ### RED
 
 - [ ] A/B/C 并行，B 最后返回，active view 仍是 C。
+- [ ] 跨项目 A→B→A：第一次 A 的 project-switch continuation 最晚返回时，不能覆盖第三次 A 的 intent；不能只按 target id 判新旧。
+- [ ] 点击跨项目线程后立即 `newThread`，迟到 continuation 不得离开新草稿。
+- [ ] 点击跨项目线程后立即 `continueWithSharedFile`，迟到 continuation 不得覆盖 fork/shared-file draft。
 - [ ] stale resolve 返回不同 canonical id，不能把 active id 改回旧线程。
 - [ ] stale sync 失败，不能覆盖 C 的 notice/error。
 - [ ] stale 请求仍可更新其目标线程 keyed cache。
@@ -300,6 +313,7 @@ npm run mcp:ui-test:acceptance
 ```bash
 cd frontend-app
 npx --no-install vitest run \
+  src/WorkbenchSidebarProjectTree.test.jsx \
   src/entities/client/model/thread-open/threadOpenCoordinator.test.js \
   src/entities/client/model/useClientStore.test.js \
   --no-file-parallelism --maxWorkers=1
@@ -308,7 +322,7 @@ npx --no-install vitest run \
 ### GREEN
 
 - [ ] Coordinator 不 import Zustand/backend API，只生成和判断 intent。
-- [ ] 线程选择入口只保存一个 intent 真相。
+- [ ] 用户点击入口只签发一个 intent；sidebar/project-switch/store continuation 全程携带同一 opaque token。
 - [ ] `runtimeSlice.syncThreadState` 仅在 predicate 仍有效时发布全局失败 notice/warning；keyed cache/loading 继续由现有 per-thread generation 管理。
 - [ ] 没有新增 `phase/error/target` 平行 store 字段。
 - [ ] LSP diagnostics 为零，目录生产文件数守卫通过。
@@ -388,6 +402,7 @@ npx --no-install vitest run \
 - `frontend-app/src/app/appShellModel.js`
 - `frontend-app/src/app/appShellModel.test.js`
 - `frontend-app/src/pages/chat/model/chatHeaderModel.js`
+- `frontend-app/src/pages/chat/model/chatHeaderModel.test.js`
 - `frontend-app/src/pages/chat/components/ChatPageHeader.jsx`
 - `frontend-app/src/pages/chat/components/ChatPageHeader.test.jsx`
 
@@ -416,12 +431,14 @@ idle → requesting → accepted | failed
 - 不增加 `recovered` UI 终态和 `conflict`。
 - 仅新增最小 `threadRecoveryPendingByThread` 以禁用重复请求；RPC settle 后清理。
 - 结果提示复用 `actionNotice`，不建立长期 `recoveryProjection`。
+- `backendResponseValidators.js` 是 recovery wire schema、字段集合、unknown-key 和 shape 错误文案的唯一 owner；所有 `recoverThread` 成功响应在进入 runtime 前已经由统一 `callBackend` validator 验证。
 - `threadLifecycleRuntime` 抽出一个私有 transport runner 返回 `{ ok, threadId, result }`；现有 `activeThreadRPC` 继续把它投影为 boolean，保持 interrupt/force-complete/compact 调用方契约不变。
-- recover 使用窄的 `recoverActiveThreadRPC` 读取 runner 的原始 result，并在返回 store 前完成严格 envelope 校验；不得让通用 `activeThreadRPC` 出现 `boolean | object` 混合返回，也不得为单个 recover 建 capability registry。
+- recover 使用窄的 `recoverActiveThreadRPC` 保留并传递已验证 result；runtime 只做 `recovered === true/false` 业务投影、pending 清理和 active-thread notice gate，禁止复制 thread/id/status/mode/unknown-key 等 wire schema 校验或第二套错误文案。
+- 不得让通用 `activeThreadRPC` 出现 `boolean | object` 混合返回，也不得为单个 recover 建 capability registry。
 
 ### RED
 
-- [ ] 缺 thread/id/status、错误 recovered 类型、空 mode、body 或 thread 内额外未知字段全部 fail closed。
+- [ ] API validator 对缺 thread/id/status、错误 recovered 类型、空 mode、body 或 thread 内额外未知字段全部 fail closed，且 runtime handler 未被调用。
 - [ ] `recovered:false` 进入 failed/notice，绝不能显示 accepted。
 - [ ] 同一线程 requesting 中重复点击只调用一次 RPC。
 - [ ] 切换 active thread 后旧响应只完成旧线程 pending 清理，不污染新 header/notice。
@@ -435,6 +452,8 @@ npx --no-install vitest run \
   src/shared/api/backendApi.test.js \
   src/entities/client/model/threadLifecycleRuntime.test.js \
   src/entities/client/model/useClientStore.test.js \
+  src/app/appShellModel.test.js \
+  src/pages/chat/model/chatHeaderModel.test.js \
   src/pages/chat/components/ChatPageHeader.test.jsx \
   --no-file-parallelism --maxWorkers=1
 ```
@@ -442,7 +461,7 @@ npx --no-install vitest run \
 ### GREEN
 
 - [ ] `THREAD_RECOVER` validator 强制注册，不是“若需要”。
-- [ ] 私有 runner 保留 recover 严格 envelope，窄 `recoverActiveThreadRPC` 消费它；`threadLifecycleRuntime.test.js` 直接证明通用 `activeThreadRPC` 仍只返回 boolean，且 interrupt/force-complete/compact 的既有 notice 和 warning 语义不变。
+- [ ] 私有 runner 保留 API 层已验证的 recover envelope，窄 `recoverActiveThreadRPC` 只做业务投影；`threadLifecycleRuntime.test.js` 直接证明 runtime 没有复制 wire validator，通用 `activeThreadRPC` 仍只返回 boolean，且 interrupt/force-complete/compact 的既有 notice 和 warning 语义不变。
 - [ ] Header 只消费 selector/action，不直接调用 backend。
 - [ ] 没有新增后端 event 或错误码。
 
@@ -523,9 +542,14 @@ npx --no-install vitest run \
 - `frontend-app/src/pages/chat/thread/ChatApprovalMessage.test.jsx`
 - `frontend-app/src/pages/chat/thread/chatApprovalModel.js`
 - `frontend-app/src/pages/chat/thread/TimelineMessage.jsx`
+- `frontend-app/src/pages/chat/thread/TimelineMessage.test.jsx`
 - `frontend-app/src/pages/chat/thread/chatTurnGroupingModel.js`
+- `frontend-app/src/pages/chat/thread/chatTurnGroupingModel.test.js`
 - `frontend-app/src/pages/chat/thread/Conversation.jsx`
-- 相关 ChatPage tests
+- `frontend-app/src/pages/chat/composer/ComposerDock.jsx`
+- `frontend-app/src/pages/chat/composer/ComposerDock.test.jsx`
+- `frontend-app/src/entities/client/model/useClientStore.test.js`（既有 store exactly-once 回归）
+- `frontend-app/src/pages/chat/ChatPage.core.test.jsx`
 
 ### Contract
 
@@ -533,7 +557,9 @@ npx --no-install vitest run \
 - 现有 wire message 是唯一 request/status 真相。
 - `approvalDecision.js` 只做 strict adapter/selector；迁移后删除旧 `chatApprovalModel`，或把它降为唯一 re-export，不得保留两套判断。
 - Composer 保持 mounted，draft 不丢失；pending 时仅禁用/inert，不卸载。
-- 决策结束后，只有 active thread 未变化且没有后续 approval 时恢复 composer focus。
+- `Conversation` 持有唯一 `composerInputRef`，通过 `ComposerDock` 的窄 `inputRef` prop 绑定真实 textarea；禁止用 `document.querySelector`、DOM id 或延时猜测恢复焦点。
+- approval pending 时 `ComposerDock` 根节点设置 `inert`/`aria-disabled`，并通过既有 `canUseProjectActions` 链禁用发送、附件、模型和项目动作；不得只做视觉置灰。
+- 决策结束后，只有 active thread 未变化、没有后续 approval 且原 composer 仍 mounted 时，才通过 `composerInputRef` 恢复 focus。
 - 当前没有全局 overlay store，因此不为“关闭 overlay”新增 store。
 
 ### RED
@@ -544,6 +570,7 @@ npx --no-install vitest run \
 - [ ] composer 节点 identity/draft 在 approval 前后保持。
 - [ ] approval 期间 composer inert/disabled 且可访问性语义明确。
 - [ ] thread 切换或新 approval 到达时不恢复错误焦点。
+- [ ] 焦点恢复只走显式 `composerInputRef`；测试锁定不存在全局 DOM 查询或第二个 focus owner。
 
 ```bash
 cd frontend-app
@@ -551,6 +578,10 @@ npx --no-install vitest run \
   src/features/approval/model/approvalDecision.test.js \
   src/features/approval/ui/ApprovalDecisionShelf.test.jsx \
   src/pages/chat/thread/ChatApprovalMessage.test.jsx \
+  src/pages/chat/thread/TimelineMessage.test.jsx \
+  src/pages/chat/thread/chatTurnGroupingModel.test.js \
+  src/pages/chat/composer/ComposerDock.test.jsx \
+  src/entities/client/model/useClientStore.test.js \
   src/pages/chat/ChatPage.core.test.jsx \
   --no-file-parallelism --maxWorkers=1
 ```
@@ -638,10 +669,13 @@ frontend-app/src/app/shell/model/shellLayoutSchema.test.js
 **Integrator modifies:**
 
 - `frontend-app/index.html`
+- `frontend-app/src/App.jsx`
+- `frontend-app/src/App.test.jsx`
 - `frontend-app/src/main.jsx`
 - `frontend-app/src/styles.test.js`
 - `frontend-app/src/shared/ui/FocusTrapDialog.jsx`
 - `frontend-app/src/shared/ui/FocusTrapDialog.test.jsx`
+- `frontend-app/src/shared/styles/PagePrimitivesPolish.css`
 - `frontend-app/package.json`
 - `frontend-app/src/AppChrome.css`
 - `frontend-app/src/AppShell.css`
@@ -671,6 +705,13 @@ frontend-app/src/app/shell/model/shellLayoutSchema.test.js
 
 实际数值只在 `LayerTokens.css` 定义。局部 token 表示只在其 stacking context 内比较；overlay token 只用于 `frontend-app/index.html` 中唯一的 `#overlay-root`。`OverlayPortal` 必须通过 `createPortal` 写入该 host；host 缺失时 fail-fast，禁止回退到 `document.body` 或原地渲染。`FocusTrapDialog` 继续拥有焦点/ARIA 语义，但 DOM 挂载统一委托给 `OverlayPortal`。Token 数量可按真实 selector 增加，但必须保持语义命名和单一真相。
 
+### Theme projection contract
+
+- theme 唯一 owner 仍是 `App.jsx` 的现有 `useColorTheme`；`#overlay-root[data-theme]` 只是由同一值驱动的只读 DOM projection，不增加 persistence、setter 或第二个 theme store。
+- `App.jsx` 在 theme 变化时同步更新唯一 `#overlay-root` 的 `data-theme`；host 缺失或重复时 fail-fast，卸载时只清理自己写入的 projection。
+- portal 后所有依赖 `.sa-window[data-theme]` 祖先的 dialog/lightbox selector 必须迁移为显式 overlay-host selector，或改为从 `:root`/host 继承的 theme token；禁止复制两套可独立漂移的颜色值。
+- `PagePrimitivesPolish.css` 中 `.sa-window[data-theme="light"] .skills-editor-modal...` 等现有 selector 必须纳入迁移与测试，不能让 light theme dialog 在 portal 后退回 dark/default 样式。
+
 ### RED
 
 - [ ] 任意生产 CSS 裸 `z-index` 数字，包括负数、0 和低值，守卫失败。
@@ -681,6 +722,8 @@ frontend-app/src/app/shell/model/shellLayoutSchema.test.js
 - [ ] `OverlayPortal.test.jsx` 证明 dialog DOM 挂到 `#overlay-root` 而不是调用方祖先，host 缺失立即报错，卸载后 portal 内容清理。
 - [ ] `index.html`/style tests 证明 `#overlay-root` 与 `#root` 同级，且 `html/body/#overlay-root` 没有 transform、opacity、filter、perspective、contain 或 isolation 创建的意外 stacking context。
 - [ ] `FocusTrapDialog.test.jsx` 在 portal 后继续证明初始焦点、Tab trap、Escape、overlay click 和焦点恢复。
+- [ ] `App.test.jsx` 证明 light/dark 切换同步更新 shell 与 `#overlay-root`，projection 不接受独立写入，卸载/重挂载不遗留 stale theme。
+- [ ] style tests 枚举所有带 `.sa-window[data-theme]` 的 overlay/dialog selector；迁移漏项时失败。
 
 ### GREEN
 
@@ -696,12 +739,13 @@ node scripts/frontend-z-index-token-guard.test.mjs
 npm run guard:critical-skip
 npx --no-install vitest run \
   src/styles.test.js \
+  src/App.test.jsx \
   src/shared/ui/OverlayPortal.test.jsx \
   src/shared/ui/FocusTrapDialog.test.jsx \
   --no-file-parallelism --maxWorkers=1
 ```
 
-**Acceptance:** 所有 z-index 都有语义 token；全局 overlay 通过唯一 portal host 脱离 page stacking context；守卫不再把数值大小误当成架构边界。
+**Acceptance:** 所有 z-index 都有语义 token；全局 overlay 通过唯一 portal host 脱离 page stacking context，并保持与唯一 App theme owner 同步；守卫不再把数值大小误当成架构边界。
 
 ---
 
@@ -736,6 +780,15 @@ npm run build
 npm run mcp:ui-test:acceptance
 npm run mcp:ui-test:scenario
 ```
+
+随后回到仓库根目录验证正式 embed manifest；`npm run build` 的同步成功不能替代逐文件 SHA-256 一致性检查：
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+make frontend-embed-verify
+```
+
+执行记录必须保存 `frontend-embed-verify` exit code 与 smoke hash；失败时不得把 Vite build PASS 写成可发布。
 
 `mcp:ui-test:acceptance` 只证明当前 MCP contract、composer isolated submit 和 diagnostics；默认 scenario 只证明现有 `frontend_navigation_probe`。它们不是 thread race、scroll、approval 或 recovery 的证据。
 
@@ -777,11 +830,17 @@ scripts/refresh_generated_artifacts.sh capcontract --check
 check 失败时仅由 Integrator 通过同一脚本执行对应 refresh，并审阅生成 diff。随后：
 
 ```bash
+scripts/refresh_generated_artifacts.sh codemap --check
+scripts/refresh_generated_artifacts.sh project-map --check
+scripts/refresh_generated_artifacts.sh capcontract --check
 make codemap-check
 make project-map-check
+make capcontract-check
 make guard
 git diff --check
 ```
+
+refresh 后三项 `--check` 必须全部重新 exit 0；不得用 `make guard` 代替 capability-contract 复检。
 
 ### 11.5 完成定义
 
@@ -790,6 +849,7 @@ git diff --check
 - 每个生产任务都有真实 RED 与 GREEN 证据。
 - Task 6 明确记录 `NO_CHANGE` 或 GO 证据，不能悬空。
 - 聚焦测试、前端全量门禁、当前 UI MCP acceptance、仓库门禁全部 exit 0。
+- `make frontend-embed-verify` 逐文件 SHA-256 manifest 一致且 exit 0。
 - 所有改动源码 LSP diagnostics 为零。
 - 没有新增平行 session view、recovery projection、generic decision 或 overlay store。
 - code-size、contract-store、RPC contract、critical-skip 守卫未放宽。
