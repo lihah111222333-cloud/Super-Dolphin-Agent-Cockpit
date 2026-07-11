@@ -79,7 +79,7 @@ export function useScrollIntentManager({ activeThreadId, autoScrollKey, timeline
     const currentY = firstTouchY(event);
     const previousY = touchStartYRef.current;
     if (currentY === null || previousY === null) return;
-    transition({ type: 'touch', direction: currentY < previousY ? 'up' : 'down' });
+    transition({ type: 'touch', direction: currentY > previousY ? 'up' : 'down' });
     touchStartYRef.current = currentY;
   }, [transition]);
   const onTimelineKeyDown = useCallback((event) => {
