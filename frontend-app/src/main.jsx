@@ -41,7 +41,10 @@ import './pages/skills/DatasourcePage.css';
 import './AppShellSidebarThreadActions.css';
 import './shared/styles/MarkdownReferences.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
+import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
+import { createFrontendBreadcrumbBuffer } from './shared/diagnostics/frontendBreadcrumbs.js';
+import { installGlobalCrashHandlers } from './shared/diagnostics/frontendCrashReport.js';
 
 const REACT_RENDER_SLOW_MS = 50;
 const isUITestMCPRun = !import.meta.env.PROD && import.meta.env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
@@ -80,14 +83,47 @@ function emitSlowRenderTrace(id, phase, actualDuration) {
   });
 }
 
+const appRouteId = 'app';
+const frontendBreadcrumbs = createFrontendBreadcrumbBuffer();
+frontendBreadcrumbs.record({ actionCode: 'app.bootstrap', routeId: appRouteId, phase: 'start' });
+
+function emitFrontendCrashReport(report) {
+  return emitFrontendTraceEvent({
+    phase: 'frontend.warning',
+    method: report.actionCode,
+    client_route: report.routeId,
+    status: 'error',
+    metadata: {
+      component: report.actionCode,
+      react_phase: report.phase,
+    },
+  });
+}
+
+installGlobalCrashHandlers({
+  windowRef: window,
+  reporter: emitFrontendCrashReport,
+  routeId: appRouteId,
+  breadcrumbs: frontendBreadcrumbs,
+});
+
 createRoot(document.getElementById('root')).render(
   createElement(
     StrictMode,
     null,
     createElement(
-      Profiler,
-      { id: APP_PROFILER_ID, onRender: emitSlowRenderTrace },
-      createElement(App, isUITestMCPRun ? { skipBootstrap: true, uiTestMCPMode: true } : null),
+      AppErrorBoundary,
+      {
+        reporter: emitFrontendCrashReport,
+        routeId: appRouteId,
+        breadcrumbs: frontendBreadcrumbs,
+        reload: () => window.location.reload(),
+      },
+      createElement(
+        Profiler,
+        { id: APP_PROFILER_ID, onRender: emitSlowRenderTrace },
+        createElement(App, isUITestMCPRun ? { skipBootstrap: true, uiTestMCPMode: true } : null),
+      ),
     ),
   ),
 );

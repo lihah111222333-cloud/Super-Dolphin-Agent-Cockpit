@@ -45,7 +45,7 @@
 | Task 1 thread-open intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `31c94421e82835560847723b29eb04bf70796543`；实现、验证与原子提交已完成，Task 1 提交由包含本记录的 Git `HEAD` 解析 |
 | Task 2 scroll intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `af2c245409afa6f269b32250d256d7fa7162cbe8`；实现、验证与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
 | Task 3 recovery accepted | `GREEN` | Phase A RED 保留；Phase B 已实现并完成前端全量验证 |
-| Task 4 crash containment | `TODO` | 依赖 Task 3 |
+| Task 4 crash containment | `GREEN` | Phase A RED 完整保留；Phase B 最小实现、全量门禁与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
 | Task 5 approval-only | `TODO` | 依赖 Task 4 |
 | Task 6 shell discovery | `TODO` | 依赖 Task 5 |
 | Task 7 layer tokens | `TODO` | 依赖 Task 6 |
@@ -724,3 +724,154 @@ M  frontend-app/src/shared/api/backendResponseValidators.test.js
 - requesting truth 只有 `threadRecoveryPendingByThread`；accepted/failed只映射 actionNotice，不持久化。
 - runtime truth-source grep 只允许 `outcome.result.recovered === true`；缺 result/map fail-fast，不得恢复 optional fallback。
 - Task 3 仅在原子提交 hook、post-commit clean 和主工作区 fingerprint 复核完成后结束；随后停止，不进入 Task 4，也不 push。
+
+## Task 4 — 生产 ErrorBoundary 与隐私安全 crash diagnostics
+
+### STATE
+
+`GREEN`（Phase A RED 已完整保留；Phase B 最小实现与全量验证完成）
+
+Phase A 没有创建 `AppErrorBoundary.jsx`、`frontendBreadcrumbs.js` 或 `frontendCrashReport.js`，没有修改 `main.jsx`、`App.jsx`、test setup、UI test harness 或其他生产代码，没有 stage、commit、push，也没有进入 Task 5。三个 focused suites 均因对应计划模块不存在而 module-missing RED；测试 lint 与 LSP diagnostics 为零，证明当前失败不是语法、mock、jsdom event 或源码 contract harness 问题。主代理审核 Phase A 后才授权 Phase B；下方完整保留 Phase A 失败证据，并追加 Phase B GREEN、时钟 ratchet 修正与全量门禁证据。
+
+### DAG
+
+```text
+Task 3 commit a1c1b9ff17eb7aa5eda11150887ac9814bcc1530
+  -> Task 4 Phase A LSP discovery
+  -> breadcrumb ring / strict-field contract module-missing RED
+  -> crash sanitize / reporter / global listener module-missing RED
+  -> ErrorBoundary fallback / actions / main order module-missing RED
+  -> exact focused RED + lint + diagnostics + dirty boundary
+  -> Task 4 Phase B breadcrumb / crash diagnostics
+  -> SystemDate clock guard correction
+  -> ErrorBoundary / main composition
+  -> exact GREEN + full frontend gates
+  -> atomic Task 4 commit
+  -X-> Task 5
+```
+
+### RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | LSP `grep/inspect/xref/file(read_file)` | success with recorded JS gaps | 锁定 main render 顺序、safeLogFields 唯一定义与 19 个可导航引用、现有 trace reporter、dev UI harness collector；emit/Profiler JS hover/xref无结果，已用精确 grep/read补证 |
+| 2 | breadcrumb test 单独运行 | 1 | 唯一失败为 `./frontendBreadcrumbs.js` 不存在；0 tests collected；ring与strict-field tests已写入 |
+| 3 | crash report test 单独运行 | 1 | 唯一失败为 `./frontendCrashReport.js` 不存在；0 tests collected；privacy/reporter/listener fixtures未执行，无环境错误 |
+| 4 | ErrorBoundary test 单独运行 | 1 | 唯一失败为 `./AppErrorBoundary.jsx` 不存在；0 tests collected；React fallback fixture未执行，无console/jsdom错误 |
+| 5 | 三测试文件 targeted ESLint | 0 | 无 error/warning；测试 API 与 real-window spy fixture语法有效 |
+| 6 | 计划指定 exact 3-file RED（最终） | 1 | 3 suites failed；三个均为对应 production module missing；0 tests collected |
+| 7 | LSP diagnostics 三个 changed tests | 0 | `No diagnostics found`、total 0 |
+
+最终 exact 命令：
+
+```bash
+cd frontend-app
+npx --no-install vitest run \
+  src/app/AppErrorBoundary.test.jsx \
+  src/shared/diagnostics/frontendBreadcrumbs.test.js \
+  src/shared/diagnostics/frontendCrashReport.test.js \
+  --no-file-parallelism --maxWorkers=1
+```
+
+最终输出：`Test Files 3 failed (3)`；`Tests no tests`；exit 1。三个 suites 的唯一失败分别是 `AppErrorBoundary.jsx`、`frontendBreadcrumbs.js`、`frontendCrashReport.js` 不存在。
+
+### EVIDENCE
+
+#### LSP owner 与接入判定
+
+- `main.jsx:83-93` 当前真实顺序为 `StrictMode -> Profiler -> App`；`Profiler` 使用既有 `APP_PROFILER_ID` 和 `emitSlowRenderTrace`。Phase B 只能插入 `ErrorBoundary` 得到 `StrictMode -> ErrorBoundary -> Profiler -> App`，不得删除或复制 performance monitor。
+- `safeLogFields` 唯一定义在 `shared/diagnostics/safeLogFields.js:201-206`；LSP xref可导航到 UI test harness、bridge sanitizer及其测试。默认 forbidden keys已覆盖 token/API key/authorization/prompt/user message/text/content/tool result/memory/skill/stack/raw stack，字符串 sanitizer覆盖 secret assignment、Bearer/sk token、POSIX/Windows/UNC绝对路径。
+- 现有 reporter surface 是 `backendApi.js` 导出的 `emitFrontendTraceEvent`，实现落在 `wailsBridgeTraceEvents.js:339-345`；`main.jsx` 已用于 slow render。Phase B 的 diagnostics模块必须接收注入 reporter，main 才注入该 surface；diagnostics不得 import backend/store。
+- `test-setup.js` 只配置 Testing Library timeout 和 in-memory localStorage，没有 global error/rejection listener。
+- 唯一既有 global collector 是 dev-only `uiTestHarness.js:captureUnhandledErrors@294-308`，由 `installUITestHarness` 的 window global做整体幂等，但两个匿名 listener没有独立cleanup。Task 4 production handlers必须维护自己的 per-window幂等与cleanup，不能重复安装/改写或依赖dev collector。
+
+#### RED 行为矩阵
+
+| 场景 | 测试载体 | Phase A contract |
+|---|---|---|
+| bounded ring + stable order | `frontendBreadcrumbs.test.js` | capacity 2保留最后两个条目，snapshot按时间/写入顺序稳定 |
+| breadcrumb最小字段 | breadcrumb test + source contract | 只允许 actionCode/routeId/phase/timestamp；含prompt未知字段fail-fast且ring不写入；生产必须import/call `safeLogFields` |
+| private crash serialization | `frontendCrashReport.test.js` | token、Authorization、POSIX绝对path、prompt、message、tool result、memory、skill、raw stack、component stack和breadcrumb secret均不得出现在JSON |
+| reporter failure containment | crash report test | rejected reporter只返回false并调用一次最小 `console.error('[frontend-crash] reporter failed')`，不递归report也不输出原error |
+| diagnostics依赖方向 | crash report source contract | 必须import/call同目录 `safeLogFields`；禁止 `useClientStore` / `entities/client` import |
+| global install幂等 | real `window` add/remove spies | install两次总计只add `error`/`unhandledrejection`各一次；两个cleanup总计只remove各一次 |
+| defaultPrevented | real `ErrorEvent` | 已preventDefault事件仍由预装dev collector看到一次，但production reporter保持0 |
+| dev collector不重复计数 | preinstalled real listeners | normal error/rejection每个collector只计一次，production reporter各计一次；重复install不放大 |
+| cleanup | real dispatch after cleanup | dev collector仍按自身owner计一次，production reporter不再增加 |
+| render crash containment | `AppErrorBoundary.test.jsx` | 可访问 `role=alert` fallback、heading、重试界面与重新加载按钮，非空白窗口 |
+| retry/reload | ErrorBoundary test | child停止抛错后retry恢复真实child；reload只调用注入动作 |
+| boundary privacy | ErrorBoundary→reporter integration | reporter payload不得含render error message；raw/component stack由crash diagnostics负责脱敏 |
+| main composition | ErrorBoundary test raw-source contract | 严格锁定 `StrictMode -> AppErrorBoundary -> Profiler -> App` |
+
+### NON_TARGET_DIFF
+
+Phase A dirty paths 仅为三个计划测试与本执行记录：
+
+```text
+M  docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md
+?? frontend-app/src/app/AppErrorBoundary.test.jsx
+?? frontend-app/src/shared/diagnostics/frontendBreadcrumbs.test.js
+?? frontend-app/src/shared/diagnostics/frontendCrashReport.test.js
+```
+
+- Phase A BASE / HEAD：`a1c1b9ff17eb7aa5eda11150887ac9814bcc1530`；开始时 clean。
+- 主工作区整棵 dirty diff fingerprint：`2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`。
+- 主工作区计划文件内容 SHA-256：`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。
+- 上述两个哈希口径不同；本阶段只读 main，未触碰其 dirty 计划文件。
+
+### TRUTH_SOURCE_CHECK / PHASE B CHECKPOINT
+
+- 没有生产代码变更；三个生产模块仍不存在，这是预期 RED，不得写成 PASS。
+- breadcrumb只拥有有界稳定 action history，不保存Error、message、stack或任意业务payload；未知字段fail-fast，不静默扩展。
+- crash report只拥有 normalize/redact/report与global listener lifecycle；ErrorBoundary只拥有React containment/fallback。两者不得合并成store-aware全局单例。
+- `safeLogFields` 是字段清洗真相；新模块只声明更窄allowed fields并调用它，不复制secret/path正则。
+- global handlers必须忽略已 `defaultPrevented` 事件，但不得主动preventDefault或压制dev collector；幂等/cleanup以window为owner。
+- Reporter通过参数注入；Phase B main可传现有 `emitFrontendTraceEvent`，diagnostics模块不得直接import backend/client store。
+- 本 agent 停在 Phase A；主代理复核test API、module-missing原因、privacy fixture与4-path dirty边界前，不进入生产实现、GREEN、提交或Task 5。
+
+### PHASE B RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 8 | breadcrumb + crash focused 首轮 | 1 | 2 files 中 1 passed / 1 failed，7/8 tests；唯一失败为显式 `now: null` 被 `??` 错当默认时钟，未改测试 |
+| 9 | 收紧 clock fail-fast 后重跑两套 | 0 | 2 files / 8 tests passed；仅 `undefined` 使用默认时钟，`null` 保持 TypeError |
+| 10 | `npm test -- --run` 计划 exact 三套 | 0 | critical/async/contract-store/code-size/typecheck/RPC audit 全通过；3 files / 11 tests passed |
+| 11 | contract/store clock ratchet 修正 | 0 | 三个 production 文件统一采用 captured `SystemDate` + `currentTimestampISO`；`date-parse-order=0/0`，未放宽阈值 |
+| 12 | targeted ESLint + `git diff --check` + privacy/dependency grep | 0 | 7 个 code/test/main 文件 lint 0；diagnostics生产模块无 backend/store import 或 forbidden payload key |
+| 13 | LSP grep/definition/xref/read/diagnostics | success | grep定位7个 report调用/引用；xref确认global handler两个调用点；精读boundary delegate；7个 changed code/test文件 `No diagnostics found`、total 0 |
+| 14 | `npm run lint` | 0 | 全前端 ESLint 无 error/warning |
+| 15 | `npm test` | 0 | guards、contracts与RPC audit通过；122 files / 1455 tests passed |
+| 16 | `npm run build` | 0 | Vite 5544 modules built；dist sync完成且未留下tracked `dist`/`web-dist` diff |
+| 17 | production code-size guard | 0 | 已由 exact/full test hook各执行一次；`files=352, frozen=0` |
+| 18 | 主审来源归因修正后 exact + lint + build + full test | 0 | trace component由固定boundary标签改为稳定 `report.actionCode`；source contract锁定；3 files / 11 tests、lint、5544-module build、122 files / 1455 tests均再次通过 |
+| 19 | 原子提交 pre-commit / commit-msg hooks | 0 | generator refresh、AI maintenance、frontend embed、codemap/project-map check、full codebase guard、中文提交守卫全通过；hook内前端122 files / 1455 tests及5544-module build再次通过 |
+
+### PHASE B EVIDENCE
+
+#### containment 与诊断责任边界
+
+- `AppErrorBoundary` 只拥有 React containment、无敏感内容的可访问 fallback、retry与注入reload；`componentDidCatch` 仅把原始Error/component stack委托给 `reportFrontendCrash`，reporter实际收到的窄投影不含二者。
+- `frontendCrashReport` 的输出字段固定为 actionCode、routeId、phase、timestamp、breadcrumbs；breadcrumb entry再次只投影同四字段，并全部经过 `safeLogFields`。Error、raw/component stack、fields及业务payload不会进入report对象。
+- reporter rejected只返回false并输出一次固定 `console.error('[frontend-crash] reporter failed')`；不输出原error、不重报、不递归。
+- diagnostics只依赖同目录 `safeLogFields`；reporter、window、console、route与breadcrumbs均从外部注入，不import backend、client store或dev harness。
+
+#### global listener 与入口接线
+
+- global `error` / `unhandledrejection` 以window WeakMap为owner：重复install返回同一cleanup，不增加listener；cleanup幂等并删除两个listener及owner记录。
+- 已 `defaultPrevented` 事件直接忽略；生产handler不调用preventDefault/stopPropagation。real-window测试证明预装dev collector对每个事件自然计数一次，production reporter不会因重复安装放大，cleanup后dev owner继续正常工作。
+- `main.jsx` 只创建一个breadcrumb buffer，记录稳定 `app.bootstrap/app/start`，并把既有 `emitFrontendTraceEvent` 包成只映射稳定action/route/phase的reporter；trace component直接使用已脱敏 `report.actionCode` 区分render/global error/unhandled rejection，不用固定boundary标签错误归因，也没有复制performance monitor。
+- render顺序严格为 `StrictMode -> AppErrorBoundary -> Profiler -> App`，既有 `APP_PROFILER_ID`、`emitSlowRenderTrace` 与UI test MCP props保持原位。
+
+#### 时钟与隐私硬边界
+
+- 首轮GREEN暴露 `now: null` 被空值合并吞掉；实现改为仅 `undefined` 使用默认clock，保留显式非法依赖fail-fast。
+- contract/store guard随后发现直接 `new Date()` 会增加 `date-parse-order` ratchet；实现采用仓库既有captured `SystemDate` helper模式，最终两次guard均为0/0，没有改guard、baseline或测试。
+- privacy fixture覆盖token、Authorization、POSIX绝对路径、prompt、message、tool result、memory、skill、raw stack、component stack及breadcrumb额外token；序列化report全部不含这些值。
+
+### PHASE B NON_TARGET_DIFF / TRUTH_SOURCE_CHECK / STOP
+
+- 生产变更只包含计划内三个模块和 `main.jsx`；没有修改 `App.jsx`、test setup、UI test harness、store、backend、trace sanitizer、依赖或guard阈值。
+- 测试只包含计划内三个文件；本执行记录是唯一手工文档修改。build sync没有留下dist/web-dist tracked diff；commit hook按单一生成器职责刷新5个project-map/codemap索引文件并纳入同一原子提交，check显示drift=OK。
+- breadcrumb ring是唯一action history owner；`safeLogFields`仍是清洗真相；crash report是唯一窄投影与listener lifecycle owner；boundary只做React containment。
+- 主工作区整棵dirty diff fingerprint已在提交前只读复核为 `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，计划文件内容SHA-256为 `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`；main仍只含该计划文件modified且相对origin ahead 3，两者哈希口径不同。
+- Task 4 仅在文档diagnostics/validator、显式stage、原子提交hook、post-commit clean和主工作区fingerprint复核完成后结束；随后停止，不进入Task 5，也不push。
