@@ -153,6 +153,8 @@ type ResumeResult struct {
 // ForkKickoffState 表示 fork 后是否需要前端继续发起首轮输入。
 type ForkKickoffState string
 
+const ForkKickoffCreatedOnly ForkKickoffState = "created_only"
+
 // ForkResult 描述 fork 创建的新 thread 及其来源关系。
 type ForkResult struct {
 	NewThreadID  string           `json:"new_thread_id"`

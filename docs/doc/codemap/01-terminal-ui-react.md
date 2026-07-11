@@ -20,9 +20,11 @@
 | 路径 | 角色 | 修改时优先看 |
 |---|---|---|
 | `frontend-app/src/App.jsx` | React app shell、导航、chat workspace、composer、timeline、modal | 页面结构、交互、消息渲染、执行计划展示 |
-| `frontend-app/src/entities/client/model/useClientStore.js` | Zustand store、bootstrap、thread list、composer、preferences、send actions | 状态流、历史恢复、`sendDraft()`、provider/cwd fail-fast |
+| `frontend-app/src/entities/client/model/useClientStore.js`、`runtimeSlice.js` | Zustand store、bootstrap、事件订阅、thread list、composer、preferences、send actions | 状态流、订阅就绪、历史恢复、`sendDraft()`、provider/cwd fail-fast |
 | `frontend-app/src/shared/api/backendApi.js` | 后端 RPC facade 与 payload 校验 | RPC 方法名、参数 shape、cwd/threadId 校验 |
 | `frontend-app/src/shared/api/wailsBridge.js` | Wails runtime bridge、event subscription、日志回传 | `/wails/runtime.js`、`callAPI()`、bridge event |
+| `frontend-app/public/wails/runtime.js` | Vite 开发环境 Wails WebSocket shim | `/wails/ws`、断线重连、`wails:loaded` 恢复通知 |
+| `frontend-app/src/pages/chat/components/ChatPageHeader.jsx` | Chat 标题栏与 bootstrap 错误恢复入口 | 显式“重新连接后端”、重试中禁用 |
 | `frontend-app/src/features/prompts/PromptPageView.jsx` | Prompt 页面视图 | prompt 列表、编辑、向导弹层 |
 | `frontend-app/src/shared/ui/FocusTrapDialog.jsx` | 共享弹层 focus trap | modal 可访问性、Escape/Tab 行为 |
 | `frontend-app/src/styles.css` | 全局视觉样式 | shell、toolbar、chat、timeline、弹层样式 |
@@ -67,11 +69,29 @@ sequenceDiagram
 关键点：
 
 - blank-thread 首发仍是 `thread/start -> turn/start` 两段式。
+- “继承当前对话”走 `sessionApi.fork({ threadId }) -> thread/fork`；响应必须是 `created_only`，随后只发送一次 `turn/start` kickoff。不得退回摘要式 `thread/start`。
+- fork kickoff 的共享文件使用 `filecontent` input；RPC response 与 `thread.Started`/UI patch 无论谁先到，都按同一 thread identity 去重合并，事件中的运行时字段优先。
 - `backendApi.js` 对 cwd、threadId 等关键参数保持 fail-fast。
 - 历史消息与 timeline 可见性在 `useClientStore.js` 标准化和过滤。
 - 前端执行计划、reasoning/tool/timeline 渲染集中在 `App.jsx`。
 
-## 5. 路径判断规则
+## 5. Bootstrap 与事件就绪
+
+```text
+bootstrap()
+  -> initializeEvents() single-flight
+  -> bridge-event ready + wails:loaded ready（全有或全无）
+  -> config/window/provider/sidebar RPC
+  -> applySnapshot(..., preserveLiveBusyStatus=true)
+  -> bootstrapStatus=ready
+```
+
+- `initializeEvents()` 以 generation 保护 pending/committed unsubscribe；任一订阅 `false` 或 reject 时清理本轮全部订阅并拒绝，`destroy()` 会使迟到 readiness 失效。
+- listener 必须在首个 bootstrap RPC 前 ready。启动期间先到的 live running 状态不会被随后返回的 stale idle sidebar 快照覆盖。
+- 失败复用唯一的 `bootstrapStatus/error`，Chat header 提供有限、显式的重试；没有后台无限重试或静默兜底，失败/重试中 composer 与附件动作保持禁用。
+- 开发 shim 首次正常 WebSocket open 不发送恢复通知；只有初连失败或已连接后断线的下一次成功 open，才为该重连周期发送一次本地 `wails:loaded`。
+
+## 6. 路径判断规则
 
 - 问“当前页面在哪里改”：先看 `frontend-app/src/App.jsx`、`useClientStore.js`、`backendApi.js`。
 - 问“Wails 桌面宿主怎么加载页面”：看 `run-new-ui-desktop.sh` 与 `internal/ui/wails/assets.go`。

@@ -2,6 +2,7 @@
   position: relative;
   min-height: clamp(88px, 11vh, 112px);
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
@@ -44,8 +45,21 @@
   color: var(--text-pri);
 }
 
+.chat-header-feedback {
+  display: flex;
+  flex: 0 1 min(620px, 100%);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .chat-page-header .action-feedback {
   max-width: min(520px, 50vw);
+}
+
+.chat-bootstrap-retry {
+  flex: 0 0 auto;
 }
 
 .approval-action-feedback {

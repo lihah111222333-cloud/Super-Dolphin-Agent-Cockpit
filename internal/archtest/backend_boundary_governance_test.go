@@ -138,6 +138,7 @@ func assertSemanticSurfaceMappings(t *testing.T, registry archtest.BackendBounda
 	wantRules := map[string]archtest.BoundaryRuleID{
 		"cmd/agent-runtime":                  "command_narrow_import_surface",
 		"cmd/agent-terminal":                 "command_narrow_import_surface",
+		"cmd/codex-worktree-setup":           "command_narrow_import_surface",
 		"cmd/super-dolphin-release-manifest": "command_narrow_import_surface",
 		"cmd/super-dolphin-updater":          "command_narrow_import_surface",
 		"internal/devtools":                  "internal_support_narrow_import_surface",
@@ -167,6 +168,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 		"command_narrow_import_surface": {
 			"cmd/agent-runtime/**/*.go":                  {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
 			"cmd/agent-terminal/**/*.go":                 {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
+			"cmd/codex-worktree-setup/**/*.go":           {"internal/platform/config", "internal/util/pathutil"},
 			"cmd/super-dolphin-release-manifest/**/*.go": {"internal/module/appupdate"},
 			"cmd/super-dolphin-updater/**/*.go":          {"internal/util/ctxutil"},
 		},

@@ -316,7 +316,7 @@ docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-15.md	doc
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
 docs/dev-ui-test-mcp.md	docs	docs-agent	doc	8519	项目文档体系	docs,dev,ui,test,mcp,项目文档体系
 docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25338	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
-docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	3872	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	5640	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3962	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
 docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68316	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
 docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25444	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
@@ -333,7 +333,7 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	15043	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	14784	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	1444806	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
@@ -432,8 +432,11 @@ docs/plans/2026-07-10-backend-boundary-ai-governance.md	docs	docs-agent	doc	1345
 docs/plans/2026-07-10-backend-boundary-p2-parallel-remediation.md	docs	docs-agent	doc	5829	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,boundary,p2,parallel,remediation,历史计划与迁移执行文档
 docs/plans/2026-07-10-backend-guard-applies-to.md	docs	docs-agent	doc	6566	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,guard,applies,to,历史计划与迁移执行文档
 docs/plans/2026-07-10-backend-onion-store-port-ssa-execution.md	docs	docs-agent	doc	98078	历史计划与迁移执行文档	docs,plans,2026,07,10,backend,onion,store,port,ssa,execution,历史计划与迁移执行文档
+docs/plans/2026-07-10-canonical-thread-fork.md	docs	docs-agent	doc	15729	历史计划与迁移执行文档	docs,plans,2026,07,10,canonical,thread,fork,历史计划与迁移执行文档
 docs/plans/2026-07-10-chat-project-thread-navigation.md	docs	docs-agent	doc	18681	历史计划与迁移执行文档	docs,plans,2026,07,10,chat,project,thread,navigation,历史计划与迁移执行文档
 docs/plans/2026-07-10-chat-turn-process-composer-redesign.md	docs	docs-agent	doc	15379	历史计划与迁移执行文档	docs,plans,2026,07,10,chat,turn,process,composer,redesign,历史计划与迁移执行文档
+docs/plans/2026-07-10-codex-worktree-lsp-bootstrap.md	docs	docs-agent	doc	17101	历史计划与迁移执行文档	docs,plans,2026,07,10,codex,worktree,lsp,bootstrap,历史计划与迁移执行文档
+docs/plans/2026-07-10-event-subscription-readiness.md	docs	docs-agent	doc	15914	历史计划与迁移执行文档	docs,plans,2026,07,10,event,subscription,readiness,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-refactor.md	docs	docs-agent	doc	15138	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,refactor,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-review-followup.md	docs	docs-agent	doc	7729	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,review,followup,历史计划与迁移执行文档
 docs/plans/2026-07-10-priority-ssa-error-exception-tags.md	docs	docs-agent	doc	5278	历史计划与迁移执行文档	docs,plans,2026,07,10,priority,ssa,error,exception,tags,历史计划与迁移执行文档
@@ -844,6 +847,7 @@ docs/superpowers/specs/2026-07-09-suiyuan-chat-ui-redesign-design.md	docs	docs-a
 docs/superpowers/specs/2026-07-10-backend-boundary-ai-governance-design.md	docs	docs-agent	doc	10280	项目文档体系	docs,superpowers,specs,2026,07,10,backend,boundary,ai,governance,design,项目文档体系
 docs/superpowers/specs/2026-07-10-chat-project-thread-navigation-design.md	docs	docs-agent	doc	4570	项目文档体系	docs,superpowers,specs,2026,07,10,chat,project,thread,navigation,design,项目文档体系
 docs/superpowers/specs/2026-07-10-chat-turn-process-composer-redesign-design.md	docs	docs-agent	doc	4120	项目文档体系	docs,superpowers,specs,2026,07,10,chat,turn,process,composer,redesign,design,项目文档体系
+docs/superpowers/specs/2026-07-10-lsp-and-p1-remediation-design.md	docs	docs-agent	doc	17720	项目文档体系	docs,superpowers,specs,2026,07,10,lsp,and,p1,remediation,design,项目文档体系
 docs/superpowers/specs/2026-07-10-mcp-orch-boundary-refactor-design.md	docs	docs-agent	doc	8034	项目文档体系	docs,superpowers,specs,2026,07,10,mcp,orch,boundary,refactor,design,项目文档体系
 docs/superpowers/需求文档/全功能UI重构-未完成.md	docs	docs-agent	doc	5711	项目文档体系	docs,superpowers,需求文档,全功能UI重构,未完成,项目文档体系
 docs/superpowers/需求文档/发布验收清单-未完成.md	docs	docs-agent	doc	3472	项目文档体系	docs,superpowers,需求文档,发布验收清单,未完成,项目文档体系
@@ -883,4 +887,4 @@ docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	�
 docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
-README.md	(root)	docs-agent	doc	8986	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	10373	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件

@@ -181,6 +181,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   MCP_TOOL_LIFECYCLE_LIST: contract('MCP_TOOL_LIFECYCLE_LIST', 'listMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle read', 'strict payload']),
   MCP_TOOL_LIFECYCLE_EXPORT: contract('MCP_TOOL_LIFECYCLE_EXPORT', 'exportMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle export', 'strict payload']),
 
+  THREAD_FORK: contract('THREAD_FORK', 'forkThread', 'P1', 'thread', [TESTS.API, TESTS.APP], ['canonical provider-history fork', 'params:threadId-only'], false, { responseValidator: 'threadForkResponse' }),
   THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'threadStartResponse' }),
   THREAD_LIST_PAGE: contract('THREAD_LIST_PAGE', 'listThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded list page']),
   THREAD_LOADED_LIST_PAGE: contract('THREAD_LOADED_LIST_PAGE', 'listLoadedThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded loaded list page']),

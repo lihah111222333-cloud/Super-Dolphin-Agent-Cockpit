@@ -26,6 +26,7 @@ let nextRequestId = 1;
 let socket = null;
 let connectPromise = null;
 let eventReconnectTimer = null;
+let reconnectNotificationPending = false;
 const pendingCalls = new Map();
 const eventListeners = new Map();
 
@@ -115,13 +116,17 @@ function hasEventListeners() {
 }
 
 function clearEventReconnectIfIdle() {
-  if (hasEventListeners() || eventReconnectTimer == null) return;
-  clearTimeout(eventReconnectTimer);
-  eventReconnectTimer = null;
+  if (hasEventListeners()) return;
+  if (eventReconnectTimer != null) {
+    clearTimeout(eventReconnectTimer);
+    eventReconnectTimer = null;
+  }
+  reconnectNotificationPending = false;
 }
 
 function scheduleEventReconnect(error) {
   if (!hasEventListeners() || eventReconnectTimer != null) return;
+  reconnectNotificationPending = true;
   eventReconnectTimer = setTimeout(() => {
     eventReconnectTimer = null;
     if (!hasEventListeners() || isSocketOpen(socket) || isSocketConnecting(socket)) return;
@@ -158,7 +163,10 @@ function ensureSocket() {
       if (settled) return;
       settled = true;
       connectPromise = null;
+      const notifyReconnect = reconnectNotificationPending;
+      reconnectNotificationPending = false;
       resolve(nextSocket);
+      if (notifyReconnect) emitEvent('wails:loaded', {});
     };
 
     nextSocket.onerror = (event) => {

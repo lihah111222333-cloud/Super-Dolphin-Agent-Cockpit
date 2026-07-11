@@ -97,16 +97,21 @@ REQUIRED = {
     ".agents/skills/代码审查维度/SKILL.md": [
         "super-agent-v3",
         "## 详细模式",
-        "## 18 维详细审查表",
+        "## 19 维详细审查表",
         "| D18 | DRY",
+        "| D19 | 唯一真相源（SSOT）",
         "## 维度参考要求",
         "| D01 | 当前改动所属 codemap 分卷或 README 架构图",
         "| D18 | 重复规则或重复实现出现的位置",
+        "| D19 | 当前声称权威的 owner 与所有派生/复制面",
         "## D01 类型分类",
         "## D04 典型症状/判定场景",
         "## D18 类型分类",
         "## D18 DRY 要求",
         "## D18 典型症状/判定场景",
+        "## D19 类型分类",
+        "## D19 唯一真相源要求",
+        "## D19 典型症状/判定场景",
         "## 使用方式",
         "mcp-orch 是可选编排面",
         "不得把子代理生命周期强制绑定到 DAG",
@@ -587,7 +592,7 @@ def check_codemap_current_skill_facts(failures: list[str]) -> None:
 def check_review_dimension_sections(failures: list[str]) -> None:
     rel_path = ".agents/skills/代码审查维度/SKILL.md"
     text = read(rel_path)
-    for i in range(1, 19):
+    for i in range(1, 20):
         dim = f"D{i:02d}"
         for needle in (
             f"| {dim} |",
@@ -605,6 +610,18 @@ def check_review_dimension_sections(failures: list[str]) -> None:
     ):
         if needle not in text:
             failures.append(f"{rel_path}: missing D18 DRY anchor {needle!r}")
+    if "## D19 唯一真相源要求" not in text:
+        failures.append(f"{rel_path}: missing '## D19 唯一真相源要求'")
+    for needle in (
+        "唯一 canonical owner",
+        "单向生成、投影、缓存或镜像的只读消费面",
+        "禁止无期限双写",
+        "必须明确报错并阻断",
+        "唯一性和漂移检查必须进入自动化测试",
+        "D18 回答“实现是否重复”，D19 回答“权威决策能否从多个地方产生”",
+    ):
+        if needle not in text:
+            failures.append(f"{rel_path}: missing D19 SSOT anchor {needle!r}")
 
     start_marker = "## 维度参考要求"
     end_marker = "## D01 类型分类"
@@ -616,7 +633,7 @@ def check_review_dimension_sections(failures: list[str]) -> None:
         return
 
     reference_section = text[start:end]
-    for i in range(1, 19):
+    for i in range(1, 20):
         dim = f"D{i:02d}"
         matching_rows = [
             line for line in reference_section.splitlines()

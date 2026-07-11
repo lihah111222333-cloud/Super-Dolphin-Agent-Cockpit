@@ -8,7 +8,7 @@ import { RPC_METHODS } from './backendApi.js';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const rawBridgeNames = new Set(['callAPI', 'callBackend']);
 const rawBridgeModules = ['/backendApi.js', '/wailsBridge.js'];
-const sessionBackendApiNames = new Set(['startThread', 'startTurn']);
+const sessionBackendApiNames = new Set(['forkThread', 'startThread', 'startTurn']);
 
 function collectProductFiles() {
   const files = [];
@@ -111,6 +111,7 @@ describe('backend API surface gate', () => {
   it('parses multiline session imports and ignores comments or strings', () => {
     const source = [
       'import {',
+      '  forkThread as forkSession,',
       '  startThread as beginThread,',
       '  startTurn,',
       '  getThreadMessages,',
@@ -120,6 +121,7 @@ describe('backend API surface gate', () => {
     ].join('\n');
 
     expect(parseBackendApiSessionImports(source)).toEqual([
+      { imported: 'forkThread', specifier: '../../shared/api/backendApi.js' },
       { imported: 'startThread', specifier: '../../shared/api/backendApi.js' },
       { imported: 'startTurn', specifier: '../../shared/api/backendApi.js' },
     ]);

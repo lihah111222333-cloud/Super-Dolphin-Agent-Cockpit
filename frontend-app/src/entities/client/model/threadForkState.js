@@ -110,7 +110,19 @@ export function createLoadForkSharedFiles({ readSharedFile } = {}) {
   };
 }
 
-export function buildForkThreadState(options) { const { state, threadId, identity, launchPreferences, name, kickoffText, deps = {} } = options;
+export function buildForkThreadState(options) {
+  const {
+    state,
+    threadId,
+    identity = {},
+    launchPreferences = {},
+    name = '',
+    sourceThreadId = '',
+    sourceThread = null,
+    provisionalName = '',
+    kickoffText,
+    deps = {},
+  } = options;
   const {
     actionNotice,
     defaultProvider = '',
@@ -120,7 +132,36 @@ export function buildForkThreadState(options) { const { state, threadId, identit
     threadActivityTimestamp = () => systemClockMillis(),
     threadMatchesIdentifier = (thread, id) => normalizeThreadId(thread?.id) === normalizeThreadId(id),
   } = deps;
-  const provider = launchPreferences.modelProvider || launchPreferences.provider || state.provider || defaultProvider;
+  const existingThread = state.threads.find((thread) => threadMatchesIdentifier(thread, threadId));
+  const provisionalProvider = sourceThread?.provider
+    || launchPreferences.modelProvider
+    || launchPreferences.provider
+    || state.provider
+    || defaultProvider;
+  const provisionalThread = {
+    id: threadId,
+    agentId: identity.agentId,
+    providerThreadId: identity.providerThreadId,
+    sessionId: identity.sessionId,
+    name: provisionalName || name,
+    provider: provisionalProvider,
+    status: '工作中',
+    ...(sourceThreadId ? { forkedFrom: sourceThreadId } : {}),
+    ...(sourceThread?.cwd ? { cwd: sourceThread.cwd } : {}),
+  };
+  const forkThread = { ...provisionalThread, ...existingThread, id: threadId };
+  const provider = forkThread.provider || provisionalProvider;
+  const existingTimeline = Array.isArray(state.timelinesByThread?.[threadId])
+    ? state.timelinesByThread[threadId]
+    : optionalUiArray();
+  const kickoffItem = {
+    id: `fork-kickoff-${nowMillis()}`,
+    role: 'user',
+    text: kickoffText,
+    time: nowISO(),
+    done: true,
+    optimistic: true,
+  };
   return {
     activePage: 'chat',
     activeThreadId: threadId,
@@ -132,27 +173,15 @@ export function buildForkThreadState(options) { const { state, threadId, identit
     forkDraft: emptyForkDraft(),
     actionNotice: actionNotice('已创建继承对话', 'success'),
     threads: [
-      {
-        id: threadId,
-        agentId: identity.agentId,
-        providerThreadId: identity.providerThreadId,
-        sessionId: identity.sessionId,
-        name,
-        provider,
-        status: '工作中',
-      },
+      forkThread,
       ...state.threads.filter((item) => !threadMatchesIdentifier(item, threadId)),
     ],
     timelinesByThread: {
       ...state.timelinesByThread,
-      [threadId]: [{
-        id: `fork-kickoff-${nowMillis()}`,
-        role: 'user',
-        text: kickoffText,
-        time: nowISO(),
-        done: true,
-        optimistic: true,
-      }],
+      [threadId]: [
+        ...existingTimeline.filter((item) => !isForkKickoffTimelineItem(item)),
+        kickoffItem,
+      ],
     },
   };
 }

@@ -21,6 +21,7 @@ const backend = vi.hoisted(() => ({
   getThreadState: vi.fn(),
   getThreadMessages: vi.fn(),
   getPreference: vi.fn(),
+  forkThread: vi.fn(),
   startThread: vi.fn(),
   startTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -90,7 +91,11 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
 
 function registerBridgeEventHandlersForTest() {
-  return useClientStore.getState().initializeEvents();
+  const initialization = useClientStore.getState().initializeEvents();
+  void initialization.catch((error) => {
+    if (error?.message !== 'runtime event initialization superseded') throw error;
+  });
+  return initialization;
 }
 
   beforeEach(() => {
@@ -319,6 +324,24 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeProject).toBe('/repo/app');
   });
 
+  it('keeps the previous bootstrap error visible while an explicit retry is loading', async () => {
+    const retryConfig = deferred();
+    backend.readConfig
+      .mockRejectedValueOnce(new Error('event bridge unavailable'))
+      .mockReturnValueOnce(retryConfig.promise);
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow('event bridge unavailable');
+
+    const retryPromise = useClientStore.getState().bootstrap();
+    expect(useClientStore.getState().bootstrapStatus).toBe('loading');
+    expect(useClientStore.getState().error).toBe('event bridge unavailable');
+
+    retryConfig.resolve({ cwd: '/repo/app' });
+    await retryPromise;
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    expect(useClientStore.getState().error).toBe('');
+  });
+
   it('retries bootstrap when runtime reconnect arrives before the first cold-start RPC fails', async () => {
     const firstConfig = deferred();
     backend.readConfig
@@ -338,6 +361,94 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.readConfig).toHaveBeenCalledTimes(2);
     expect(useClientStore.getState().bootstrapStatus).toBe('ready');
     expect(useClientStore.getState().activeProject).toBe('/repo/app');
+  });
+
+  it('waits for both runtime subscriptions before the first bootstrap RPC', async () => {
+    const bridgeReady = deferred();
+    const reconnectReady = deferred();
+    backend.onBridgeEvent.mockImplementationOnce((callback, options = {}) => {
+      bridgeCallback = callback;
+      bridgeOptions = options;
+      return { ready: bridgeReady.promise, unsubscribe: vi.fn() };
+    });
+    backend.onRuntimeReconnect.mockImplementationOnce((callback) => {
+      runtimeReconnectCallback = callback;
+      return { ready: reconnectReady.promise, unsubscribe: vi.fn() };
+    });
+
+    const bootstrapPromise = useClientStore.getState().bootstrap();
+    await flushPromises();
+    expect(backend.readConfig).not.toHaveBeenCalled();
+    expect(backend.getWindowBootstrap).not.toHaveBeenCalled();
+
+    bridgeReady.resolve(true);
+    await flushPromises();
+    expect(backend.readConfig).not.toHaveBeenCalled();
+
+    reconnectReady.resolve(true);
+    await bootstrapPromise;
+    expect(backend.readConfig).toHaveBeenCalledTimes(1);
+    expect(backend.getWindowBootstrap).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails bootstrap before RPCs when runtime subscription readiness is unavailable', async () => {
+    backend.onBridgeEvent.mockImplementationOnce(() => ({
+      ready: Promise.resolve(true),
+      unsubscribe: vi.fn(),
+    }));
+    backend.onRuntimeReconnect.mockImplementationOnce(() => ({
+      ready: Promise.resolve(false),
+      unsubscribe: vi.fn(),
+    }));
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow(
+      'runtime.reconnect.subscribe unavailable',
+    );
+
+    expect(backend.readConfig).not.toHaveBeenCalled();
+    expect(backend.getWindowBootstrap).not.toHaveBeenCalled();
+    expect(useClientStore.getState().bootstrapStatus).toBe('failed');
+    expect(useClientStore.getState().error).toBe('runtime.reconnect.subscribe unavailable');
+  });
+
+  it('preserves a live bridge status over a stale bootstrap sidebar snapshot', async () => {
+    const sidebar = deferred();
+    resetClientStoreForTests({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getSidebarState.mockReturnValueOnce(sidebar.promise);
+
+    const bootstrapPromise = useClientStore.getState().bootstrap();
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: 'bootstrap-live',
+        status: 'running',
+        interruptible: true,
+        activeTurn: { id: 'turn-live', threadId: 'thread-1', status: 'running' },
+        thread: { name: 'Existing' },
+      },
+    });
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-1',
+      status: 'running',
+    }));
+
+    sidebar.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    await bootstrapPromise;
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-1',
+      status: 'running',
+    }));
   });
 
   it('hydrates thread providers from sidebar runtime metadata', async () => {
@@ -3665,7 +3776,7 @@ function registerBridgeEventHandlersForTest() {
     expect(state.attachments).toEqual([{ path: 'reports/final.md', name: 'final.md' }]);
   });
 
-  it('starts an inherited fork thread from the active timeline summary', async () => {
+  it('uses canonical thread/fork and sends exactly one created-only kickoff', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -3678,30 +3789,22 @@ function registerBridgeEventHandlersForTest() {
         ],
       },
     });
-    backend.startThread.mockResolvedValue({ threadId: 'thread-fork' });
+    backend.forkThread.mockResolvedValue({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
+      kickoffState: 'created_only',
+    });
     backend.startTurn.mockResolvedValue({ ok: true });
 
     await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
     await expect(useClientStore.getState().submitForkThread()).resolves.toBe('thread-fork');
 
-    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: '/repo/app',
-      name: '继承自会话：Existing thread',
-      modelProvider: 'codex',
-      deferSpawn: true,
-      baseInstructions: expect.stringContaining('来源：继承自会话：Existing thread'),
-    }));
-    const startPayload = backend.startThread.mock.calls[0][0];
-    expect(startPayload).not.toHaveProperty('toolSurfaceMode');
-    expect(startPayload.baseInstructions).toContain('摘要：');
-    expect(startPayload.baseInstructions).toContain('first message');
-    expect(startPayload.baseInstructions).toContain('reply with next steps');
-    expect(startPayload.baseInstructions).not.toContain('挂载的共享文件');
-    expect(backend.startThread).toHaveBeenCalledBefore(backend.startTurn);
+    expect(backend.forkThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).toHaveBeenCalledTimes(1);
     expect(backend.startTurn).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'thread-fork',
-      input: [{ type: 'text', text: '请基于上文摘要，简要总结上次进展并提出下一步建议。' }],
+      input: [{ type: 'text', text: '请基于已继承的完整对话历史，简要总结当前进展并提出下一步建议。' }],
       manualSkillSelection: false,
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-fork');
@@ -3721,7 +3824,10 @@ function registerBridgeEventHandlersForTest() {
         ],
       },
     });
-    backend.startThread.mockResolvedValue({ threadId: 'thread-fork' });
+    backend.forkThread.mockResolvedValue({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
+      kickoffState: 'created_only',
+    });
     backend.startTurn.mockRejectedValue(new Error('turn/start failed'));
 
     await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
@@ -3746,7 +3852,7 @@ function registerBridgeEventHandlersForTest() {
     ]));
   });
 
-  it('includes selected shared files in fork baseInstructions', async () => {
+  it('sends selected shared files as canonical filecontent kickoff input', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -3759,7 +3865,14 @@ function registerBridgeEventHandlersForTest() {
     backend.listSharedFiles.mockResolvedValue({
       files: [{ path: 'notes/a.md' }, { path: 'notes/b.md' }],
     });
-    backend.startThread.mockResolvedValue({ threadId: 'thread-fork' });
+    backend.forkThread.mockResolvedValue({
+      thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
+      kickoffState: 'created_only',
+    });
+    backend.readSharedFile.mockResolvedValue({
+      path: 'notes/a.md',
+      content: '  indented\n',
+    });
     backend.startTurn.mockResolvedValue({ ok: true });
 
     await useClientStore.getState().openForkDraft();
@@ -3772,11 +3885,63 @@ function registerBridgeEventHandlersForTest() {
     await useClientStore.getState().submitForkThread();
 
     expect(backend.readSharedFile).toHaveBeenCalledWith({ path: 'notes/a.md' });
-    const startPayload = backend.startThread.mock.calls[0][0];
-    expect(startPayload.baseInstructions).toContain('挂载的共享文件');
-    expect(startPayload.baseInstructions).toContain('共享文件：notes/a.md');
-    expect(startPayload.baseInstructions).toContain('content for notes/a.md');
-    expect(startPayload.baseInstructions).not.toContain('共享文件：notes/b.md');
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-fork',
+      input: [
+        { type: 'text', text: '请基于已继承的完整对话历史，简要总结当前进展并提出下一步建议。' },
+        {
+          type: 'filecontent',
+          path: 'notes/a.md',
+          name: 'notes/a.md',
+          content: '  indented\n',
+        },
+      ],
+      manualSkillSelection: false,
+    });
+  });
+
+  it('validates selected filecontent before creating a backend fork', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    backend.listSharedFiles.mockResolvedValue({ files: [{ path: 'notes/blank.md' }] });
+    backend.readSharedFile.mockResolvedValue({ path: 'notes/blank.md', content: '   \n' });
+
+    await useClientStore.getState().openForkDraft();
+    expect(useClientStore.getState().toggleForkDraftSharedFile('notes/blank.md')).toBe(true);
+    await expect(useClientStore.getState().submitForkThread()).rejects.toThrow(
+      'fork shared file path and content are required',
+    );
+
+    expect(backend.forkThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+    expect(useClientStore.getState().forkDraft.open).toBe(true);
+  });
+
+  it('does not fall back to thread/start when canonical fork fails', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    backend.forkThread.mockRejectedValue(new Error('thread/fork unsupported'));
+
+    await useClientStore.getState().openForkDraft();
+    await expect(useClientStore.getState().submitForkThread()).rejects.toThrow('thread/fork unsupported');
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+    expect(useClientStore.getState().forkDraft.open).toBe(true);
   });
 
 
@@ -5294,7 +5459,7 @@ function registerBridgeEventHandlersForTest() {
       activeThreadId: 'thread-1',
       timelinesByThread: { 'thread-1': [] },
     });
-    void useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',

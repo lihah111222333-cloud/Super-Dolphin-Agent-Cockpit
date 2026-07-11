@@ -54,6 +54,37 @@ func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) 
 	require.Equal(t, "deploy summary", req.Skills[2].Summary)
 }
 
+func TestNormalizeFileContentItemPreservesBoundaryWhitespace(t *testing.T) {
+	t.Parallel()
+
+	raw := "  indented\n"
+	item, ok := normalizeFileContentItem(InputItem{Type: "filecontent", Path: "notes/a.md", Content: raw})
+	if !ok {
+		t.Fatal("normalizeFileContentItem() ok = false, want true")
+	}
+	if item.Content != raw {
+		t.Fatalf("normalizeFileContentItem() content = %q, want %q", item.Content, raw)
+	}
+	if _, ok := normalizeFileContentItem(InputItem{Type: "filecontent", Path: "notes/a.md", Content: "   \n"}); ok {
+		t.Fatal("normalizeFileContentItem() ok = true for whitespace-only content")
+	}
+}
+
+func TestInputAssemblerKeepsFileContentBoundaryDifferences(t *testing.T) {
+	t.Parallel()
+
+	items := (&inputAssembler{}).Assemble(PrepareInput{Inputs: []InputItem{
+		{Type: "filecontent", Name: "notes/a.md", Content: "x"},
+		{Type: "filecontent", Name: "notes/b.md", Content: " x "},
+	}})
+	if len(items) != 2 {
+		t.Fatalf("len(Assemble()) = %d, want 2: %#v", len(items), items)
+	}
+	if items[0].Content != "x" || items[1].Content != " x " {
+		t.Fatalf("Assemble() contents = %q, %q", items[0].Content, items[1].Content)
+	}
+}
+
 func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 	t.Parallel()
 

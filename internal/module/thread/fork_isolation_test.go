@@ -390,6 +390,9 @@ func assertForkResult(t *testing.T, result ForkResult, fixture *forkServiceFixtu
 	if result.NewThreadID != "thread-fork" || result.ForkedFrom != "thread-parent" {
 		t.Fatalf("Fork() result = %#v, want thread-fork", result)
 	}
+	if result.KickoffState != ForkKickoffCreatedOnly {
+		t.Fatalf("KickoffState = %q, want %q", result.KickoffState, ForkKickoffCreatedOnly)
+	}
 	assertForkSessionAndLaunch(t, fixture)
 	assertForkPersistence(t, fixture.bindings, fixture.threads)
 }

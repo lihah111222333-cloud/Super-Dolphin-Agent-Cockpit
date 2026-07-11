@@ -1,4 +1,5 @@
 import {
+  forkThread,
   getThreadMessages,
   interruptTurn,
   startThread,
@@ -6,6 +7,9 @@ import {
 } from './backendApi.js';
 
 export const sessionApi = Object.freeze({
+  fork(params) {
+    return forkThread(params);
+  },
   start(params) {
     return startThread(params);
   },
