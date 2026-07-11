@@ -32,6 +32,8 @@ const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set([
   'req_id',
   'component',
   'react_phase',
+  'crash_fingerprint',
+  'breadcrumb_trail',
   'pending_count',
   'attempt',
 ]);

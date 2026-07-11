@@ -1,7 +1,29 @@
 import { safeLogFields } from './safeLogFields.js';
+import {
+  normalizeFrontendBreadcrumbRouteId,
+  normalizeFrontendBreadcrumbTrail,
+} from './frontendBreadcrumbs.js';
 
 const installedGlobalHandlers = new WeakMap();
 const SystemDate = globalThis.Date;
+const CRASH_CONTRACTS = new Map([
+  ['app.render.crash', { contextCode: 'react.root', phase: 'render' }],
+  ['app.window.error', { contextCode: 'window.error', phase: 'global' }],
+  ['app.unhandled.rejection', { contextCode: 'promise.unhandled', phase: 'global' }],
+]);
+const ERROR_NAMES = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'AggregateError',
+  'DOMException',
+]);
+const ERROR_CODE_RE = /^[A-Z][A-Z0-9_.-]{0,63}$/;
+const FNV_OFFSET_BASIS_64 = 0xcbf29ce484222325n;
+const FNV_PRIME_64 = 0x100000001b3n;
+const UINT64_MASK = 0xffffffffffffffffn;
 
 function currentTimestampISO() {
   return new SystemDate().toISOString();
@@ -18,28 +40,63 @@ function requiredText(value, label) {
   return value.trim();
 }
 
-function stableBreadcrumbs(value) {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new TypeError('frontend crash breadcrumbs must be an array');
-  return value.map((entry) => {
-    assertPlainObject(entry, 'frontend crash breadcrumb');
-    return safeLogFields({
-      actionCode: requiredText(entry.actionCode, 'frontend crash breadcrumb actionCode'),
-      routeId: requiredText(entry.routeId, 'frontend crash breadcrumb routeId'),
-      phase: requiredText(entry.phase, 'frontend crash breadcrumb phase'),
-      timestamp: requiredText(entry.timestamp, 'frontend crash breadcrumb timestamp'),
-    });
-  });
+function crashContext(actionCode, phase) {
+  const normalized = requiredText(actionCode, 'frontend crash actionCode');
+  const contract = CRASH_CONTRACTS.get(normalized);
+  if (!contract) throw new TypeError('frontend crash actionCode is not allowed');
+  if (requiredText(phase, 'frontend crash phase') !== contract.phase) {
+    throw new TypeError('frontend crash phase does not match actionCode');
+  }
+  return { actionCode: normalized, contextCode: contract.contextCode, phase: contract.phase };
+}
+
+function normalizedError(error) {
+  const errorName = ERROR_NAMES.has(error?.name) ? error.name : 'UnknownError';
+  const errorCode = typeof error?.code === 'string' && ERROR_CODE_RE.test(error.code)
+    ? error.code
+    : 'UNCLASSIFIED';
+  return { errorName, errorCode };
+}
+
+function fnv1a64(value) {
+  let hash = FNV_OFFSET_BASIS_64;
+  for (let index = 0; index < value.length; index += 1) {
+    const byte = value.charCodeAt(index);
+    if (byte > 0x7f) throw new TypeError('frontend crash fingerprint input must be ASCII');
+    hash ^= BigInt(byte);
+    hash = (hash * FNV_PRIME_64) & UINT64_MASK;
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 export function createFrontendCrashReport(input) {
   assertPlainObject(input, 'frontend crash input');
+  const { actionCode, contextCode, phase } = crashContext(input.actionCode, input.phase);
+  const routeId = normalizeFrontendBreadcrumbRouteId(input.routeId);
+  const timestamp = requiredText(input.timestamp, 'frontend crash timestamp');
+  const { errorName, errorCode } = normalizedError(input.error);
+  let breadcrumbs = input.breadcrumbs;
+  if (breadcrumbs === undefined) breadcrumbs = [];
+  const breadcrumbTrail = normalizeFrontendBreadcrumbTrail(breadcrumbs);
+  const fingerprintTuple = JSON.stringify([
+    actionCode,
+    routeId,
+    phase,
+    errorName,
+    errorCode,
+    contextCode,
+    breadcrumbTrail,
+  ]);
   return safeLogFields({
-    actionCode: requiredText(input.actionCode, 'frontend crash actionCode'),
-    routeId: requiredText(input.routeId, 'frontend crash routeId'),
-    phase: requiredText(input.phase, 'frontend crash phase'),
-    timestamp: requiredText(input.timestamp, 'frontend crash timestamp'),
-    breadcrumbs: stableBreadcrumbs(input.breadcrumbs),
+    actionCode,
+    routeId,
+    phase,
+    timestamp,
+    errorName,
+    errorCode,
+    contextCode,
+    fingerprint: `crash-v1-${fnv1a64(fingerprintTuple)}`,
+    breadcrumbTrail,
   });
 }
 

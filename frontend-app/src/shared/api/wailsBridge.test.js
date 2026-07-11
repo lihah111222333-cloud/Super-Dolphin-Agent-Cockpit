@@ -1125,13 +1125,29 @@ describe('wails bridge frontend trace emitter', () => {
       status: 'error',
       error: 'prompt secret must not leak',
     })).toBe(true);
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.warning',
+      method: 'app.render.crash',
+      client_route: 'app',
+      status: 'error',
+      error: 'TypeError:APPROVAL_SUBMIT_TIMEOUT',
+      metadata: {
+        component: 'react.root',
+        react_phase: 'render',
+        crash_fingerprint: 'crash-v1-1483443a51ffbe45',
+        breadcrumb_trail: 'app.bootstrap:app:start',
+        message: 'private crash message must not leak',
+        stack: 'private crash stack must not leak',
+        component_props: 'private props must not leak',
+      },
+    })).toBe(true);
 
     let events = [];
     await waitFor(() => {
       events = byID.mock.calls
         .filter(([, method]) => method === 'observability/frontend/ingest')
         .flatMap(([, , payload]) => payload.events);
-      expect(events).toHaveLength(2);
+      expect(events).toHaveLength(3);
     });
     expect(events[0]).toEqual(expect.objectContaining({
       phase: 'frontend.warning',
@@ -1144,9 +1160,24 @@ describe('wails bridge frontend trace emitter', () => {
       metadata: { component: 'memory', req_id: 17 },
     }));
     expect(events[1]).not.toHaveProperty('error');
+    expect(events[2]).toEqual(expect.objectContaining({
+      phase: 'frontend.warning',
+      method: 'app.render.crash',
+      client_route: 'app',
+      status: 'error',
+      error: 'TypeError:APPROVAL_SUBMIT_TIMEOUT',
+      metadata: {
+        component: 'react.root',
+        react_phase: 'render',
+        crash_fingerprint: 'crash-v1-1483443a51ffbe45',
+        breadcrumb_trail: 'app.bootstrap:app:start',
+      },
+    }));
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain('secret');
     expect(serialized).not.toContain('prompt');
+    expect(serialized).not.toContain('private crash');
+    expect(serialized).not.toContain('component_props');
   });
 
   it('rejects frontend traces with unknown statuses instead of coercing them to ok', async () => {

@@ -94,10 +94,13 @@ function emitFrontendCrashReport(report) {
     phase: 'frontend.warning',
     method: report.actionCode,
     client_route: report.routeId,
+    error: `${report.errorName}:${report.errorCode}`,
     status: 'error',
     metadata: {
-      component: report.actionCode,
+      component: report.contextCode,
       react_phase: report.phase,
+      crash_fingerprint: report.fingerprint,
+      breadcrumb_trail: report.breadcrumbTrail,
     },
   });
 }

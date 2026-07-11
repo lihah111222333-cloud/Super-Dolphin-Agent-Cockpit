@@ -19,21 +19,21 @@ describe('frontend breadcrumb buffer', () => {
       now: () => timestamps.shift(),
     });
 
-    breadcrumbs.record({ actionCode: 'app.open', routeId: 'chat', phase: 'start' });
-    breadcrumbs.record({ actionCode: 'thread.select', routeId: 'chat', phase: 'accepted' });
-    breadcrumbs.record({ actionCode: 'settings.open', routeId: 'settings', phase: 'complete' });
+    breadcrumbs.record({ actionCode: 'app.bootstrap', routeId: 'app', phase: 'start' });
+    breadcrumbs.record({ actionCode: 'app.navigation', routeId: 'chat', phase: 'complete' });
+    breadcrumbs.record({ actionCode: 'approval.submit', routeId: 'settings', phase: 'success' });
 
     expect(breadcrumbs.snapshot()).toEqual([
       {
-        actionCode: 'thread.select',
+        actionCode: 'app.navigation',
         routeId: 'chat',
-        phase: 'accepted',
+        phase: 'complete',
         timestamp: '2026-07-11T13:00:01.000Z',
       },
       {
-        actionCode: 'settings.open',
+        actionCode: 'approval.submit',
         routeId: 'settings',
-        phase: 'complete',
+        phase: 'success',
         timestamp: '2026-07-11T13:00:02.000Z',
       },
     ]);
@@ -58,5 +58,49 @@ describe('frontend breadcrumb buffer', () => {
       prompt: 'private prompt body',
     })).toThrow('frontend breadcrumb must not include prompt');
     expect(breadcrumbs.snapshot()).toEqual([]);
+  });
+
+  it.each([
+    [
+      'actionCode',
+      { actionCode: 'chat.send', routeId: 'app', phase: 'start' },
+      'frontend breadcrumb actionCode is not allowed',
+    ],
+    [
+      'routeId',
+      { actionCode: 'app.bootstrap', routeId: '/Users/alice/private', phase: 'start' },
+      'frontend breadcrumb routeId is not allowed',
+    ],
+    [
+      'phase',
+      { actionCode: 'app.bootstrap', routeId: 'app', phase: 'accepted' },
+      'frontend breadcrumb phase is not allowed',
+    ],
+  ])('rejects %s values outside the low-cardinality breadcrumb contract', (_field, input, message) => {
+    const breadcrumbs = createFrontendBreadcrumbBuffer({ capacity: 2 });
+
+    expect(() => breadcrumbs.record(input)).toThrow(message);
+    expect(breadcrumbs.snapshot()).toEqual([]);
+  });
+
+  it('accepts app plus the eight current page route identifiers without importing client state', () => {
+    const breadcrumbs = createFrontendBreadcrumbBuffer({ capacity: 9 });
+    const routeIds = [
+      'app',
+      'chat',
+      'prompts',
+      'workflows',
+      'skills',
+      'memory',
+      'observability',
+      'files',
+      'settings',
+    ];
+
+    for (const routeId of routeIds) {
+      breadcrumbs.record({ actionCode: 'app.navigation', routeId, phase: 'complete' });
+    }
+
+    expect(breadcrumbs.snapshot().map((entry) => entry.routeId)).toEqual(routeIds);
   });
 });
