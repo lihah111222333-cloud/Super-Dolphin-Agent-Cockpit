@@ -106,7 +106,7 @@ func assertAppAdapterProjectMapRoutes(t *testing.T, generated string) {
 
 func assertProjectMapPurpose(t *testing.T, generated, path, want string) {
 	t.Helper()
-	for _, line := range strings.Split(generated, "\n") {
+	for line := range strings.SplitSeq(generated, "\n") {
 		fields := strings.Split(line, "\t")
 		if len(fields) < 6 || fields[0] != path {
 			continue
