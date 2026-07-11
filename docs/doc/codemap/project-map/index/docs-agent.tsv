@@ -437,6 +437,7 @@ docs/plans/2026-07-10-chat-project-thread-navigation.md	docs	docs-agent	doc	1868
 docs/plans/2026-07-10-chat-turn-process-composer-redesign.md	docs	docs-agent	doc	15379	历史计划与迁移执行文档	docs,plans,2026,07,10,chat,turn,process,composer,redesign,历史计划与迁移执行文档
 docs/plans/2026-07-10-codex-worktree-lsp-bootstrap.md	docs	docs-agent	doc	17101	历史计划与迁移执行文档	docs,plans,2026,07,10,codex,worktree,lsp,bootstrap,历史计划与迁移执行文档
 docs/plans/2026-07-10-event-subscription-readiness.md	docs	docs-agent	doc	15914	历史计划与迁移执行文档	docs,plans,2026,07,10,event,subscription,readiness,历史计划与迁移执行文档
+docs/plans/2026-07-10-generated-artifacts-launchd-refresh.md	docs	docs-agent	doc	7381	历史计划与迁移执行文档	docs,plans,2026,07,10,generated,artifacts,launchd,refresh,历史计划与迁移执行文档
 docs/plans/2026-07-10-lsp-diagnostics-force-reopen.md	docs	docs-agent	doc	4279	历史计划与迁移执行文档	docs,plans,2026,07,10,lsp,diagnostics,force,reopen,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-refactor.md	docs	docs-agent	doc	15138	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,refactor,历史计划与迁移执行文档
 docs/plans/2026-07-10-mcp-orch-boundary-review-followup.md	docs	docs-agent	doc	7729	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,review,followup,历史计划与迁移执行文档
@@ -848,6 +849,7 @@ docs/superpowers/specs/2026-06-23-p1a-codex-identity-inheritance-design.md	docs	
 docs/superpowers/specs/2026-07-03-codex-cli-permission-sync-design.md	docs	docs-agent	doc	9639	项目文档体系	docs,superpowers,specs,2026,07,03,codex,cli,permission,sync,design,项目文档体系
 docs/superpowers/specs/2026-07-09-suiyuan-chat-ui-redesign-design.md	docs	docs-agent	doc	10340	项目文档体系	docs,superpowers,specs,2026,07,09,suiyuan,chat,ui,redesign,design,项目文档体系
 docs/superpowers/specs/2026-07-10-backend-boundary-ai-governance-design.md	docs	docs-agent	doc	10280	项目文档体系	docs,superpowers,specs,2026,07,10,backend,boundary,ai,governance,design,项目文档体系
+docs/superpowers/specs/2026-07-10-capcontract-launchd-refresh-design.md	docs	docs-agent	doc	4114	项目文档体系	docs,superpowers,specs,2026,07,10,capcontract,launchd,refresh,design,项目文档体系
 docs/superpowers/specs/2026-07-10-chat-project-thread-navigation-design.md	docs	docs-agent	doc	4570	项目文档体系	docs,superpowers,specs,2026,07,10,chat,project,thread,navigation,design,项目文档体系
 docs/superpowers/specs/2026-07-10-chat-turn-process-composer-redesign-design.md	docs	docs-agent	doc	4120	项目文档体系	docs,superpowers,specs,2026,07,10,chat,turn,process,composer,redesign,design,项目文档体系
 docs/superpowers/specs/2026-07-10-lsp-and-p1-remediation-design.md	docs	docs-agent	doc	17720	项目文档体系	docs,superpowers,specs,2026,07,10,lsp,and,p1,remediation,design,项目文档体系
