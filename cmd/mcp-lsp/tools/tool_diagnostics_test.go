@@ -20,6 +20,7 @@ type diagnosticsTestRegistry struct {
 	lastURIs          []string
 	bootstrapURIs     []string
 	callOrder         []string
+	managerCalls      int
 	lastScope         common.ToolScope
 	scopeOK           bool
 	bootstrapErrByURI map[string]error
@@ -43,6 +44,7 @@ func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (ls
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(context.Context, string, string) (lspmanager.Manager, error) {
+	r.managerCalls++
 	if r.manager != nil {
 		return r.manager, nil
 	}
@@ -230,25 +232,148 @@ func TestDiagnosticsAppManagedOutsideWorkspaceSkipsStartupOpenRecovery(t *testin
 	target := strings.ReplaceAll(appFile, "Application Support", "Application%20Support")
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
 
-	result, err := handler(ctx, req)
-	if err != nil {
-		t.Fatalf("diagnostics returned error: %v", err)
+	_, err := handler(ctx, req)
+	if err == nil {
+		t.Fatal("diagnostics returned nil error, want app-managed target outside workspace roots rejected")
 	}
-	assertAppManagedDiagnosticsSkippedRegistry(t, result, registry)
+	if !strings.Contains(err.Error(), appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("diagnostics error = %q, want target path %q and outside workspace roots context", err.Error(), appFile)
+	}
+	assertAppManagedDiagnosticsRegistryNotCalled(t, registry)
 }
 
-func assertAppManagedDiagnosticsSkippedRegistry(t *testing.T, result any, registry *diagnosticsTestRegistry) {
+type appManagedDiagnosticsManager struct {
+	structureTestManager
+	didOpenCalls     int
+	reopenCalls      int
+	waitCalls        int
+	diagnosticsCalls int
+}
+
+func (m *appManagedDiagnosticsManager) DidOpen(context.Context, string, string, int, string) error {
+	m.didOpenCalls++
+	return nil
+}
+
+func (m *appManagedDiagnosticsManager) ReopenDocumentForDiagnostics(context.Context, string) error {
+	m.reopenCalls++
+	return nil
+}
+
+func (m *appManagedDiagnosticsManager) WaitDiagnosticsStable(context.Context, []string) error {
+	m.waitCalls++
+	return nil
+}
+
+func (m *appManagedDiagnosticsManager) Diagnostics(context.Context, []string) ([]protocol.PublishDiagnosticsParams, error) {
+	m.diagnosticsCalls++
+	return nil, nil
+}
+
+func TestDiagnosticsLanguageOverrideRejectsAppManagedOutsideWorkspaceBeforeAnyLSPCall(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	appFile := filepath.Join(appHome, "providers", "codex", "mcp-lsp.txt")
+	if err := os.MkdirAll(filepath.Dir(appFile), 0o700); err != nil {
+		t.Fatalf("mkdir app managed parent: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatalf("write app managed file: %v", err)
+	}
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+
+	workspace := t.TempDir()
+	manager := &appManagedDiagnosticsManager{}
+	registry := &diagnosticsTestRegistry{manager: manager}
+	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	ctx := common.WithToolScope(
+		context.Background(),
+		common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}},
+	)
+	ctx = WithAppManagedReadCapability(ctx)
+	req := marshalDiagnosticsInput(t, fileToolInput{
+		Action:     "diagnostics",
+		FilePath:   appFile,
+		LanguageID: "go",
+	})
+
+	_, err := handler(ctx, req)
+	assertAppManagedDiagnosticsRejected(t, err, appFile)
+	assertAppManagedDiagnosticsLSPNotCalled(t, registry, manager)
+}
+
+func assertAppManagedDiagnosticsRejected(t *testing.T, err error, appFile string) {
 	t.Helper()
-	envelope, ok := result.(diagnosticsResponse)
-	if !ok {
-		t.Fatalf("diagnostics result = %T, want diagnosticsResponse", result)
+	if err == nil {
+		t.Fatal("diagnostics returned nil error, want language override app-managed target outside workspace roots rejected")
 	}
-	if !strings.Contains(envelope.Meta.Message, "app-managed") {
-		t.Fatalf("diagnostics message = %q, want app-managed bootstrap explanation", envelope.Meta.Message)
+	if !strings.Contains(err.Error(), appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("diagnostics error = %q, want target path %q and outside workspace roots context", err.Error(), appFile)
 	}
-	if envelope.Total != 0 || envelope.Showing != 0 {
-		t.Fatalf("diagnostics totals = %d/%d, want empty app-managed cache", envelope.Total, envelope.Showing)
+}
+
+func assertAppManagedDiagnosticsLSPNotCalled(
+	t *testing.T,
+	registry *diagnosticsTestRegistry,
+	manager *appManagedDiagnosticsManager,
+) {
+	t.Helper()
+	assertAppManagedDiagnosticsRegistryNotCalled(t, registry)
+	if registry.managerCalls != 0 {
+		t.Fatalf("manager lookup calls = %d, want app-managed target rejected before manager lookup", registry.managerCalls)
 	}
+	if manager.didOpenCalls != 0 || manager.reopenCalls != 0 || manager.waitCalls != 0 || manager.diagnosticsCalls != 0 {
+		t.Fatalf(
+			"manager calls open/reopen/wait/diagnostics = %d/%d/%d/%d, want all zero",
+			manager.didOpenCalls,
+			manager.reopenCalls,
+			manager.waitCalls,
+			manager.diagnosticsCalls,
+		)
+	}
+}
+
+func TestDiagnosticsMixedBatchRejectsAppManagedOutsideWorkspaceBeforeRegistry(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	appFile := filepath.Join(appHome, "providers", "codex", "mcp-lsp.go")
+	if err := os.MkdirAll(filepath.Dir(appFile), 0o700); err != nil {
+		t.Fatalf("mkdir app managed parent: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatalf("write app managed file: %v", err)
+	}
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+
+	workspace := t.TempDir()
+	workspaceFile := writeDiagnosticsFixture(t, workspace, "workspace.go")
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	ctx := common.WithToolScope(
+		context.Background(),
+		common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}},
+	)
+	ctx = WithAppManagedReadCapability(ctx)
+	target := strings.ReplaceAll(appFile, "Application Support", "Application%20Support")
+	req := marshalDiagnosticsInput(t, fileToolInput{
+		Action:    "diagnostics",
+		FilePaths: []string{workspaceFile, target},
+	})
+
+	_, err := handler(ctx, req)
+	if err == nil {
+		t.Fatal("diagnostics returned nil error, want mixed batch app-managed target outside workspace roots rejected")
+	}
+	if !strings.Contains(err.Error(), appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("diagnostics error = %q, want target path %q and outside workspace roots context", err.Error(), appFile)
+	}
+	assertAppManagedDiagnosticsRegistryNotCalled(t, registry)
+}
+
+func assertAppManagedDiagnosticsRegistryNotCalled(t *testing.T, registry *diagnosticsTestRegistry) {
+	t.Helper()
 	if len(registry.lastURIs) != 0 {
 		t.Fatalf("registry diagnostics URIs = %#v, want app-managed target handled before registry diagnostics", registry.lastURIs)
 	}
@@ -257,6 +382,9 @@ func assertAppManagedDiagnosticsSkippedRegistry(t *testing.T, result any, regist
 	}
 	if registry.waitCalls != 0 {
 		t.Fatalf("WaitDiagnosticsStable calls = %d, want app-managed target handled before wait", registry.waitCalls)
+	}
+	if len(registry.reopenURIs) != 0 {
+		t.Fatalf("ReopenDocumentsForDiagnostics URIs = %#v, want app-managed target handled before reopen", registry.reopenURIs)
 	}
 }
 
