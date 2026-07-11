@@ -385,6 +385,7 @@ const baseState = {
   logLevel: resolveInitialLevel(),
   logEntries: [],
   actionNotice: null,
+  threadRecoveryPendingByThread: {},
   approvalSubmitByRequestId: {},
   smoothStreaming: false,
 };

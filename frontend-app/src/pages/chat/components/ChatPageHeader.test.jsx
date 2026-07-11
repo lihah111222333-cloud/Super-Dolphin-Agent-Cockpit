@@ -17,6 +17,7 @@ function createStore(overrides = {}) {
     interruptActiveThread: vi.fn(),
     forceCompleteActiveThread: vi.fn(),
     recoverActiveThread: vi.fn(),
+    threadRecoveryPendingByThread: {},
     ...overrides,
   };
 }
@@ -78,6 +79,28 @@ describe('ChatPageHeader', () => {
     );
 
     expect(screen.queryByTestId('chat-action-feedback')).not.toBeInTheDocument();
+  });
+
+  it('disables recovery while the active thread request is pending', () => {
+    const store = createStore({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
+      threadRecoveryPendingByThread: { 'thread-1': true },
+    });
+
+    render(
+      <ChatPageHeader
+        store={store}
+        projectPath="D:/project/Super-Dolphin"
+        rightPanelOpen={false}
+        setRightPanelOpen={vi.fn()}
+      />
+    );
+
+    const recoverButton = screen.getByRole('button', { name: '正在恢复' });
+    expect(recoverButton).toBeDisabled();
+    fireEvent.click(recoverButton);
+    expect(store.recoverActiveThread).not.toHaveBeenCalled();
   });
 
   it('offers one explicit bootstrap retry after a connection failure', () => {

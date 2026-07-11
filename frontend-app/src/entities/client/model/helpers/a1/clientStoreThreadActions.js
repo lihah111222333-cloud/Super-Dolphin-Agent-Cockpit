@@ -204,7 +204,7 @@ function createActiveThreadActions(runtime) {
     interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),
     forceCompleteActiveThread: () => runtime.activeThreadRPC('thread.force_complete', forceCompleteTurn),
     compactActiveThread: () => runtime.activeThreadRPC('thread.compact', compactThread),
-    recoverActiveThread: () => runtime.activeThreadRPC('thread.recover', recoverThread),
+    recoverActiveThread: () => runtime.recoverActiveThreadRPC(recoverThread),
 
     hasActiveThreadActions: () => Boolean(backendThreadIdForState(runtime.get(), runtime.get().activeThreadId)),
     hasInterruptibleThreadAction: () => hasInterruptibleThreadAction(runtime),

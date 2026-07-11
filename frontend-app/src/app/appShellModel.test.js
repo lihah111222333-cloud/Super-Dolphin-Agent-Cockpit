@@ -38,6 +38,8 @@ describe('app shell model', () => {
     expect(selected.activePage).toBe('activePage-value');
     expect(selected.skillRevision).toBe('skillRevision-value');
     expect(selected.workflowRevision).toBe('workflowRevision-value');
+    expect(APP_SHELL_STORE_KEYS).toContain('threadRecoveryPendingByThread');
+    expect(selected.threadRecoveryPendingByThread).toBe('threadRecoveryPendingByThread-value');
     expect(selected.unrelatedLargeSlice).toBeUndefined();
   });
 });

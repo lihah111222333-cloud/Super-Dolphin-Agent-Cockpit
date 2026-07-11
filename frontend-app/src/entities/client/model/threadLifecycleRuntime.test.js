@@ -11,10 +11,22 @@ function createRuntime(overrides = {}) {
   };
 }
 
+function createStatefulRuntime(initialState) {
+  let state = initialState;
+  const runtime = createRuntime({
+    get: vi.fn(() => state),
+    set: vi.fn((patchOrUpdater) => {
+      const patch = typeof patchOrUpdater === 'function' ? patchOrUpdater(state) : patchOrUpdater;
+      state = { ...state, ...patch };
+    }),
+  });
+  return { runtime, state: () => state };
+}
+
 function createDeps(overrides = {}) {
   return {
     activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', interruptible: true })),
-    backendThreadIdForState: vi.fn(() => 'thread-1'),
+    backendThreadIdForState: vi.fn((_state, threadId) => threadId),
     cleanObject: (payload) => Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
     ),
@@ -80,5 +92,98 @@ describe('thread lifecycle runtime', () => {
       threadId: 'thread-1',
       error: 'backend offline',
     });
+  });
+
+  it('keeps generic lifecycle actions boolean while recovery retains the validated result', async () => {
+    const { runtime, state } = createStatefulRuntime({
+      activeThreadId: 'thread-1',
+      threadRecoveryPendingByThread: {},
+    });
+    const deps = createDeps();
+    const genericRpc = vi.fn().mockResolvedValue({ recovered: true });
+    const recoverRpc = vi.fn().mockResolvedValue({ recovered: true });
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.compact', genericRpc)).resolves.toBe(true);
+    await expect(runtime.recoverActiveThreadRPC(recoverRpc)).resolves.toBe(true);
+
+    expect(runtime.notifyAction).toHaveBeenCalledWith('恢复请求已接受，正在恢复', 'success', { threadId: 'thread-1' });
+    expect(state().threadRecoveryPendingByThread).toEqual({});
+  });
+
+  it('projects recovered false as a typed failure without an accepted notice', async () => {
+    const { runtime, state } = createStatefulRuntime({
+      activeThreadId: 'thread-1',
+      threadRecoveryPendingByThread: {},
+    });
+    const deps = createDeps();
+    const rpc = vi.fn().mockResolvedValue({ recovered: false });
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.recoverActiveThreadRPC(rpc)).resolves.toBe(false);
+
+    expect(runtime.notifyAction).toHaveBeenCalledWith('恢复请求失败', 'warning', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('恢复请求已接受，正在恢复', 'success', { threadId: 'thread-1' });
+    expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.recover.failed', { threadId: 'thread-1' });
+    expect(state().threadRecoveryPendingByThread).toEqual({});
+  });
+
+  it('clears stale recovery pending without publishing notice to a new active thread', async () => {
+    let resolveRecover;
+    const response = new Promise((resolve) => { resolveRecover = resolve; });
+    const { runtime, state } = createStatefulRuntime({
+      activeThreadId: 'thread-1',
+      threadRecoveryPendingByThread: {},
+    });
+    const deps = createDeps();
+    const rpc = vi.fn(() => response);
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    const pending = runtime.recoverActiveThreadRPC(rpc);
+    expect(state().threadRecoveryPendingByThread).toEqual({ 'thread-1': true });
+    runtime.set({ activeThreadId: 'thread-2' });
+    resolveRecover({ recovered: true });
+
+    await expect(pending).resolves.toBe(true);
+    expect(state().threadRecoveryPendingByThread).toEqual({});
+    expect(runtime.notifyAction).not.toHaveBeenCalled();
+    expect(runtime.addWarning).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the validated recovery result is missing', async () => {
+    const { runtime, state } = createStatefulRuntime({
+      activeThreadId: 'thread-1',
+      threadRecoveryPendingByThread: {},
+    });
+    const rpc = vi.fn().mockResolvedValue(undefined);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.recoverActiveThreadRPC(rpc)).rejects.toBeInstanceOf(TypeError);
+    expect(state().threadRecoveryPendingByThread).toEqual({});
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('恢复请求失败', 'warning', { threadId: 'thread-1' });
+  });
+
+  it('fails fast when the recovery pending truth source is missing', async () => {
+    const { runtime } = createStatefulRuntime({ activeThreadId: 'thread-1' });
+    const rpc = vi.fn().mockResolvedValue({ recovered: true });
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.recoverActiveThreadRPC(rpc)).rejects.toBeInstanceOf(TypeError);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('publishes accepted notice when the active alias resolves to the captured backend thread', async () => {
+    const { runtime } = createStatefulRuntime({
+      activeThreadId: 'agent-1',
+      threadRecoveryPendingByThread: {},
+    });
+    const deps = createDeps({
+      backendThreadIdForState: vi.fn((_state, threadId) => (threadId === 'agent-1' ? 'thread-1' : threadId)),
+    });
+    const rpc = vi.fn().mockResolvedValue({ recovered: true });
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.recoverActiveThreadRPC(rpc)).resolves.toBe(true);
+    expect(runtime.notifyAction).toHaveBeenCalledWith('恢复请求已接受，正在恢复', 'success', { threadId: 'thread-1' });
   });
 });

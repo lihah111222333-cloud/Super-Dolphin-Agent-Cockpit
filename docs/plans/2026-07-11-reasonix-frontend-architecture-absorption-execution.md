@@ -44,7 +44,7 @@
 | Task 0 冻结基线与恢复工具面 | `GREEN` | 前置计划快照 `0dd59a0599a98761f641db0f0abdd6504a9aaca0`；本记录所在 Task 0 提交由该提交的 `HEAD` 解析 |
 | Task 1 thread-open intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `31c94421e82835560847723b29eb04bf70796543`；实现、验证与原子提交已完成，Task 1 提交由包含本记录的 Git `HEAD` 解析 |
 | Task 2 scroll intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `af2c245409afa6f269b32250d256d7fa7162cbe8`；实现、验证与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
-| Task 3 recovery accepted | `TODO` | 依赖 Task 2 |
+| Task 3 recovery accepted | `GREEN` | Phase A RED 保留；Phase B 已实现并完成前端全量验证 |
 | Task 4 crash containment | `TODO` | 依赖 Task 3 |
 | Task 5 approval-only | `TODO` | 依赖 Task 4 |
 | Task 6 shell discovery | `TODO` | 依赖 Task 5 |
@@ -564,3 +564,163 @@ M  frontend-app/src/pages/chat/hooks/timelineScroll.test.js
 - autoScrollKey、stream callback、MutationObserver、ResizeObserver 与 load listener是同一 owner 的多个事件源，不是多个 truth source；每个 source 在滚动前都经过 `shouldFollowTimeline`。
 - older-page scroll preservation 是分页 DOM offset 责任，不表达 sticky/reading，不迁入 reducer。
 - Task 2 只在最终 LSP diagnostics、docs validator、diff checks、原子提交与 post-commit clean 全部通过后结束；随后停止，不进入 Task 3，也不 push。
+
+## Task 3 — 严格恢复响应与 accepted 状态
+
+### STATE
+
+`GREEN`（Phase A RED 已完整保留；Phase B 最小实现与全量验证完成）
+
+本阶段没有修改 validator、API factory、runtime、store、AppShell、header model/component 或其他生产代码，没有 stage、commit、push，也没有进入 Task 4。RED 锁定 recovery wire fail-closed、通用 RPC boolean 兼容、窄 recover result 投影、per-thread pending exactly-once、stale active notice gate，以及 requesting/accepted/failed 文案边界。
+
+### DAG
+
+```text
+Task 2 commit 83534c85ffa5787bb8b008dce3e3e72ebae3c022
+  -> Task 3 Phase A LSP discovery
+  -> validator / callBackend integration RED
+  -> runtime transport projection RED
+  -> store pending / stale active RED
+  -> AppShell / header selector and action RED
+  -> exact focused RED + lint + diagnostics + dirty boundary
+  -X-> Task 3 Phase B production implementation
+  -X-> Task 4
+```
+
+### RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | LSP `grep/structure/inspect/xref/file(read_file)` | success | 锁定 `createBackendResponseValidators -> createBackendCaller -> recoverThread -> activeThreadRPC -> store -> AppShell/header`；确认当前缺 THREAD_RECOVER validator、recover response 被 boolean 投影丢弃、header 无 pending projection |
+| 2 | validator + API 两文件 RED | 1 | 2 files failed；10 failed / 90 passed；validator 未注册，非法 envelope 因此到达 consumer |
+| 3 | 计划指定 exact 7-file RED | 1 | 7 files failed；19 failed / 314 passed（333 total）；失败均对应缺失的计划行为 |
+| 4 | 7 个 changed tests 定向 ESLint | 0 | 无 error / warning；没有测试 harness 或 mock lint 问题 |
+| 5 | LSP diagnostics 7 个 changed tests | 0 | `No diagnostics found`、total 0 |
+
+最终 exact 命令：
+
+```bash
+cd frontend-app
+npx --no-install vitest run \
+  src/shared/api/backendResponseValidators.test.js \
+  src/shared/api/backendApi.test.js \
+  src/entities/client/model/threadLifecycleRuntime.test.js \
+  src/entities/client/model/useClientStore.test.js \
+  src/app/appShellModel.test.js \
+  src/pages/chat/model/chatHeaderModel.test.js \
+  src/pages/chat/components/ChatPageHeader.test.jsx \
+  --no-file-parallelism --maxWorkers=1
+```
+
+最终输出：`Test Files 7 failed (7)`；`Tests 19 failed | 314 passed (333)`；exit 1。
+
+### EVIDENCE
+
+#### LSP owner 与调用时点
+
+- recovery wire schema 的唯一 owner 是 `shared/api/backendResponseValidators.js:createBackendResponseValidators`；当前返回表未注册 `methods.THREAD_RECOVER`。
+- `backendApiFactoryCore.js:createBackendCaller` 先 `await callAPI`，再按 rpc method 查 `BACKEND_RESPONSE_VALIDATORS`，验证完成后才向 facade/runtime consumer 返回；API RED 用 `.then(runtimeConsumer)` 直接证明非法响应当前仍会穿透，Phase B 注册 validator 后 consumer 必须保持 0 calls。
+- `backendApiFactoryThread.js:recoverThread` 只负责严格 request payload（移除 cwd，发送 `{ threadId }`），不应新增第二套 response schema 或错误文案。
+- `threadLifecycleRuntime.js:activeThreadRPC` 的生产调用仅 interrupt、force-complete、compact、recover 四处；前三者和既有 unit tests都要求 boolean 返回。Phase B 应由私有 transport runner保留 `{ ok, threadId, result }`，通用方法继续 boolean，窄 `recoverActiveThreadRPC` 只读取已验证 result 的 `recovered`。
+- `appShellModel.js` 目前只投影 `actionNotice` / `recoverActiveThread` 等既有字段，没有 pending map；`chatHeaderFeedbackForStore` 目前只选择 bootstrap failure 或 `actionNotice`，`ChatPageHeader` 两个 recover trigger 只看 `hasActiveThreadActions`，尚不能表达 active thread requesting。
+
+#### RED 行为矩阵
+
+| 场景 | 测试载体 | Phase A 结果 |
+|---|---|---|
+| canonical recovery envelope | validator unit | validator 缺失 RED |
+| 缺 thread/id/status、status 非 recovering、recovered 非 boolean、空 mode、body/thread unknown key | validator parameterized unit | 8 个 fail-closed case 均因 validator 缺失 RED；错误文案只在 schema owner test 定义 |
+| 非法 API response 不到 runtime consumer | backend API integration | promise 当前 resolve 且 consumer 被调用，expected RED |
+| generic boolean + narrow validated result | runtime unit | `recoverActiveThreadRPC` 尚不存在；既有 generic boolean guard 继续通过 |
+| `recovered:false` typed failure | runtime + store | 当前 generic path 返回 true，expected RED；不得出现 accepted notice |
+| 同线程重复点击 | store integration + deferred canonical response | 当前发起第二次 RPC，expected RED |
+| active A 请求后切换 B | runtime + store deferred response | 当前没有 keyed pending；expected RED要求只清 A pending，不发布 B notice/warning |
+| AppShell pending surface | app model unit | 白名单尚无 `threadRecoveryPendingByThread`，expected RED |
+| active-thread requesting selector | header model unit | 当前返回 null，expected RED；旧线程 pending 对新 active 保持 null |
+| requesting button | header component unit | 当前仍显示可点击“进程恢复”，expected RED要求“正在恢复”且 disabled |
+| accepted 文案 | store + header model | 测试只允许“恢复请求已接受，正在恢复”，并显式排除“已恢复完成” |
+
+### NON_TARGET_DIFF
+
+Phase A dirty paths 仅为允许的 7 个测试和本执行记录：
+
+```text
+M  docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md
+M  frontend-app/src/app/appShellModel.test.js
+M  frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js
+M  frontend-app/src/entities/client/model/useClientStore.test.js
+M  frontend-app/src/pages/chat/components/ChatPageHeader.test.jsx
+M  frontend-app/src/pages/chat/model/chatHeaderModel.test.js
+M  frontend-app/src/shared/api/backendApi.test.js
+M  frontend-app/src/shared/api/backendResponseValidators.test.js
+```
+
+- Phase A BASE / HEAD：`83534c85ffa5787bb8b008dce3e3e72ebae3c022`。
+- 主工作区整棵 dirty diff fingerprint：`2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`。
+- 主工作区计划文件内容 SHA-256：`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。
+- 上述两个哈希口径不同，不互相比较；本阶段只读 main，未触碰其 dirty 计划文件。
+
+### TRUTH_SOURCE_CHECK / PHASE B CHECKPOINT
+
+- 没有生产代码变更；当前唯一 schema owner 仍未实现 recovery validator，这是预期 RED，而不是 PASS。
+- 测试没有在 runtime/store 复制 thread/id/status/mode/unknown-key schema：runtime mock 只给 `{ recovered }`，用于证明该层只做业务投影；完整 canonical envelope 仅用于 API/store integration fixture。
+- `threadRecoveryPendingByThread` 只作为未来最小 per-thread requesting map；测试没有要求持久化 accepted/failed enum、`recovered` UI 终态、`conflict` 或 `recoveryProjection`。
+- accepted/failed 只要求一次性 `actionNotice`；后续 thread patch/snapshot 仍是业务状态真相。
+- Phase B 必须保持 generic `activeThreadRPC` 纯 boolean；不得为 recover 引入 `boolean | object` 或 capability registry。
+- 本 agent 停在 Phase A；主代理复核 owner、test API、19 个 expected failures 与 dirty 边界前，不进入生产实现、GREEN、提交或 Task 4。
+
+### PHASE B RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | validator + API focused | 0 | 2 files / 100 tests passed；非法 recovery envelope 在 `callBackend` 返回前被拒绝，runtime consumer 0 calls |
+| 2 | runtime + store focused | 0 | 2 files / 217 tests passed；generic boolean、raw result、typed failure、exactly-once、stale active cleanup 全通过 |
+| 3 | runtime 三个 fail-fast/identity 边界 RED | 1 | 10 tests 中 3 expected failures：缺 result 被静默投影 false、缺 pending map 被兜底、alias accepted notice 被误抑制 |
+| 4 | runtime 边界修正后 | 0 | 1 file / 10 tests passed；direct result、direct map、normalized alias gate 均 GREEN |
+| 5 | AppShell/header focused | 0 | 3 files / 16 tests passed；active pending selector 与 disabled “正在恢复”接线通过 |
+| 6 | exact 7-file focused（最终） | 0 | 7 files / 336 tests passed |
+| 7 | targeted ESLint + `npm run lint` | 0 | changed production/tests 与全量 `eslint .` 无 error/warning |
+| 8 | production code-size（首次） | 1 | runtime nesting 6→5，仍超过上限 4；仅做等价 helper/单行 early return 收敛，不调阈值 |
+| 9 | production code-size（最终） | 0 | `files=236, frozen=0` |
+| 10 | `npm test` | 0 | critical-skip、silent async、contract/store、code-size、TS contracts、RPC audit 全通过；119 files / 1444 tests passed |
+| 11 | `npm run build` | 0 | Vite transformed 5541 modules；built in 630ms；embed sync 未留下额外 dirty 产物 |
+| 12 | LSP final grep/read/inspect/xref/diagnostics | 0 | JS hover/xref 对新 closure 无结果，grep/read 精确确认调用；15 个 changed source/test/doc diagnostics 为 `No diagnostics found`、total 0 |
+| 13 | truth-source grep | 0 | `recoveryProjection` 0；生产“已恢复完成”0；runtime `outcome.result.*` 唯一命中为 `.recovered === true` |
+
+### PHASE B EVIDENCE
+
+#### 唯一 wire schema 与 API 边界
+
+- `backendResponseValidators.js` 唯一保存 recovery body keys `{ thread, recovered, mode }` 与 thread keys `{ id, status }`，并强制注册 `methods.THREAD_RECOVER`。
+- validator fail-closed 检查 object shape、non-empty id/mode、status 必须为 `recovering`、recovered 必须 boolean，以及 body/thread unknown key；错误文案只存在于该 schema owner 及其测试。
+- `backendApiFactoryThread.js` 无修改；request 仍只发送 `{ threadId }`，response 继续由统一 `createBackendCaller` 验证。API integration 证明非法 response 的 `.then(runtimeConsumer)` 不执行。
+
+#### runtime / store 责任边界
+
+- 私有 `runActiveThreadRPC` 始终返回 `{ ok, threadId, result }`，成功时原样保留 API 已验证 result；generic `activeThreadRPC` 只投影 boolean，interrupt/force-complete/compact 的既有 notice/warning tests 全部保持 GREEN。
+- 窄 `recoverActiveThreadRPC` 唯一读取的 recovery response 字段是 `outcome.result.recovered === true`；不读取或检查 thread/id/status/mode/unknown keys。缺 result 直接 TypeError，finally 仍清 pending，不静默变成 typed failure。
+- `threadRecoveryPendingByThread` 只在 `clientStoreUtils.js` base state 初始化；runtime 直接读取，不用 optional/default fallback。相同 backend thread pending 时第二次调用立即 false且不发 RPC。
+- settle 的 finally 总是删除 captured thread pending；notice gate 用 `backendThreadIdForState` 归一化当前 active identity。切换到不同 backend thread 后旧 success/failure/throw 均不污染新 notice/warning；active alias 仍映射同一 backend thread 时不会误抑制 accepted。
+- `recovered:true` 仅发布 success `恢复请求已接受，正在恢复`；`recovered:false` 返回 false并发布 warning `恢复请求失败` + `thread.recover.failed`；transport throw 保持既有 `恢复连接失败：...` error/warning surface。
+
+#### AppShell 与 header 投影
+
+- AppShell 白名单只新增 `threadRecoveryPendingByThread`，没有订阅第二 recovery state 或 response envelope。
+- `chatHeaderFeedbackForStore` 在 bootstrap failure 之后、actionNotice 之前，按 activeThreadId 从唯一 pending map 派生一次性 `{ recoveryRequesting: true, message: '正在恢复' }`；旧线程 pending 对新 active 返回 null。
+- `ChatPageHeader` 只消费 store selector/action；legacy button 与 actions menu 在 requesting 时统一显示“正在恢复”并 disabled，不直接 import/call backend。
+- accepted/failed 仍只存在于一次性 `actionNotice`；真实 thread patch/snapshot 继续拥有业务 status。
+
+### PHASE B NON_TARGET_DIFF
+
+- 生产修改严格限定为计划内 validator、runtime、store action/base state、AppShell、header model/component；`backendApiFactoryThread.js` 经证据确认无需修改。
+- 测试严格限定为计划列出的 7 个文件；本执行记录是唯一手工文档修改。
+- 没有新增 capability registry、`recoveryProjection`、长期 accepted/failed enum、`recovered` UI 终态、conflict、后端 event/error code、依赖或 guard 阈值。
+- build sync 未留下 `web-dist`/`dist` tracked diff；提交 hook 若由单一生成器刷新 project-map/codemap 索引，只在 hook 通过后纳入同一原子提交并逐项核对。
+- 主工作区整棵 dirty diff fingerprint 仍为 `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`；计划文件内容 SHA-256 仍为 `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。两者口径不同且 main 始终只读。
+
+### PHASE B TRUTH_SOURCE_CHECK / STOP
+
+- wire truth 只有 `backendResponseValidators.js`；runtime `{ recovered }` unit mock故意省略其他 wire 字段，证明 runtime不复制 schema。
+- requesting truth 只有 `threadRecoveryPendingByThread`；accepted/failed只映射 actionNotice，不持久化。
+- runtime truth-source grep 只允许 `outcome.result.recovered === true`；缺 result/map fail-fast，不得恢复 optional fallback。
+- Task 3 仅在原子提交 hook、post-commit clean 和主工作区 fingerprint 复核完成后结束；随后停止，不进入 Task 4，也不 push。

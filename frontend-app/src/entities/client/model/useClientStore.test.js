@@ -6510,6 +6510,95 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('submits one recover RPC while the same thread request is pending', async () => {
+    const recovery = deferred();
+    backend.recoverThread.mockReturnValueOnce(recovery.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
+    });
+
+    const first = useClientStore.getState().recoverActiveThread();
+    const repeated = useClientStore.getState().recoverActiveThread();
+
+    await expect(repeated).resolves.toBe(false);
+    expect(backend.recoverThread).toHaveBeenCalledTimes(1);
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({ 'thread-1': true });
+
+    recovery.resolve({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: true,
+      mode: 'relaunch_resume',
+    });
+    await expect(first).resolves.toBe(true);
+
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({});
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '恢复请求已接受，正在恢复',
+      tone: 'success',
+    }));
+    expect(useClientStore.getState().actionNotice.message).not.toContain('已恢复完成');
+  });
+
+  it('treats recovered false as a failed request and never as accepted', async () => {
+    backend.recoverThread.mockResolvedValueOnce({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: false,
+      mode: 'relaunch_resume',
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
+    });
+
+    await expect(useClientStore.getState().recoverActiveThread()).resolves.toBe(false);
+
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({});
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '恢复请求失败',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().actionNotice.message).not.toContain('已接受');
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.recover.failed',
+      level: 'warn',
+    }));
+  });
+
+  it('clears stale recover pending without polluting the newly active thread', async () => {
+    const recovery = deferred();
+    backend.recoverThread.mockReturnValueOnce(recovery.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: '旧线程', provider: 'codex', status: 'running' },
+        { id: 'thread-2', name: '新线程', provider: 'codex', status: 'idle' },
+      ],
+    });
+
+    const pending = useClientStore.getState().recoverActiveThread();
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({ 'thread-1': true });
+    useClientStore.setState({ activeThreadId: 'thread-2', actionNotice: null });
+
+    recovery.resolve({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: true,
+      mode: 'relaunch_resume',
+    });
+    await expect(pending).resolves.toBe(true);
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({});
+    expect(useClientStore.getState().actionNotice).toBeNull();
+    expect(useClientStore.getState().warningEntries.filter((entry) => entry.event === 'thread.recover.failed')).toEqual([]);
+  });
+
   it('restores archived threads without enabling active thread actions', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

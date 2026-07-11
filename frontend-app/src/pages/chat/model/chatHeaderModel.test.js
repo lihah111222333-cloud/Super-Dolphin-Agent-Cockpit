@@ -10,6 +10,35 @@ describe('chatHeaderFeedbackForStore', () => {
     })).toEqual({ message: 'Saved', tone: 'success' });
   });
 
+  it('projects requesting only for the active thread', () => {
+    expect(chatHeaderFeedbackForStore({
+      activeThreadId: 'thread-1',
+      bootstrapStatus: 'ready',
+      threadRecoveryPendingByThread: { 'thread-1': true },
+    })).toEqual({
+      message: '正在恢复',
+      tone: 'info',
+      recoveryRequesting: true,
+    });
+
+    expect(chatHeaderFeedbackForStore({
+      activeThreadId: 'thread-2',
+      bootstrapStatus: 'ready',
+      threadRecoveryPendingByThread: { 'thread-1': true },
+    })).toBeNull();
+  });
+
+  it('preserves accepted wording without claiming recovery completed', () => {
+    const feedback = chatHeaderFeedbackForStore({
+      activeThreadId: 'thread-1',
+      bootstrapStatus: 'ready',
+      actionNotice: { message: '恢复请求已接受，正在恢复', tone: 'success', threadId: 'thread-1' },
+    });
+
+    expect(feedback).toEqual(expect.objectContaining({ message: '恢复请求已接受，正在恢复', tone: 'success' }));
+    expect(feedback.message).not.toContain('已恢复完成');
+  });
+
   it('keeps bootstrap recovery ahead of stale action notices', () => {
     expect(chatHeaderFeedbackForStore({
       actionNotice: { message: 'Saved', tone: 'success' },

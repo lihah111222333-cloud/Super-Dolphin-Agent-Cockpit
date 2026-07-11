@@ -389,6 +389,8 @@ function validateAppUpdateInstallResponse(method, response) {
 const MCP_SERVER_LIST_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'mcpServers', 'mcp_servers']);
 const MCP_SERVER_STATUS_RESPONSE_KEYS = new Set(['enabled']);
 const MCP_SERVER_CONTROL_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'serverName', 'server_name', 'added', 'enabled']);
+const THREAD_RECOVER_RESPONSE_KEYS = new Set(['thread', 'recovered', 'mode']);
+const THREAD_RECOVER_THREAD_KEYS = new Set(['id', 'status']);
 
 /**
  * @param {string} method
@@ -402,6 +404,33 @@ function assertOnlyResponseKeys(method, value, allowedKeys, label) {
       throw new TypeError(`${method} response ${label} must not include ${key}`);
     }
   }
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateThreadRecoverResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, THREAD_RECOVER_RESPONSE_KEYS, 'body');
+  const thread = value.thread;
+  if (!thread || typeof thread !== 'object' || Array.isArray(thread)) {
+    throw new TypeError(`${method} response thread must be an object`);
+  }
+  assertOnlyResponseKeys(method, thread, THREAD_RECOVER_THREAD_KEYS, 'thread');
+  if (!normalizeString(thread.id)) {
+    throw new TypeError(`${method} response thread.id must be a non-empty string`);
+  }
+  if (thread.status !== 'recovering') {
+    throw new TypeError(`${method} response thread.status must be recovering`);
+  }
+  if (typeof value.recovered !== 'boolean') {
+    throw new TypeError(`${method} response recovered must be a boolean`);
+  }
+  if (!normalizeString(value.mode)) {
+    throw new TypeError(`${method} response mode must be a non-empty string`);
+  }
+  return value;
 }
 
 /**
@@ -523,6 +552,7 @@ export function createBackendResponseValidators(methods) {
     [methods.THREAD_FORK]: validateThreadForkResponse,
     [methods.THREAD_START]: validateThreadStartResponse,
     [methods.THREAD_MESSAGES]: validateThreadMessagesResponse,
+    [methods.THREAD_RECOVER]: validateThreadRecoverResponse,
     [methods.THREAD_RESOLVE]: validateThreadResolveResponse,
     [methods.TURN_START]: validateTurnStartResponse,
     [methods.TURN_FORCE_COMPLETE]: validateTurnForceCompleteResponse,

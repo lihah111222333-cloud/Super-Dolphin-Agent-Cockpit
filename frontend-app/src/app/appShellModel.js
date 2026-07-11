@@ -110,6 +110,7 @@ export const APP_SHELL_STORE_KEYS = Object.freeze([
   'syncThreadState',
   'threadDiffReadyByThread',
   'threadMessagePaginationByThread',
+  'threadRecoveryPendingByThread',
   'threadStateLoadingByThread',
   'threadTimelineReadyByThread',
   'threads',
