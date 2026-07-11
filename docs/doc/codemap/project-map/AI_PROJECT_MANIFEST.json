@@ -65,7 +65,7 @@
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
         "file_count": 609,
-        "size_kb": 119.7,
+        "size_kb": 119.1,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -138,6 +138,12 @@
       "primary": "internal/app/modules.go",
       "secondary": "internal/app/modules_graph_test.go",
       "keywords": "app module fx graph modules runtime order toolbridge provider"
+    },
+    {
+      "goal": "修改 App adapter 分包",
+      "primary": "internal/app/storeadapter/",
+      "secondary": "internal/app/runtimeadapter/",
+      "keywords": "store runtime adapter"
     },
     {
       "goal": "修改控制面/bootstrap",
