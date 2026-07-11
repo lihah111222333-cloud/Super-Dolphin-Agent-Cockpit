@@ -2,7 +2,7 @@
 
 日期：2026-07-11
 
-状态：已完成对话设计确认，等待书面规格审阅
+状态：已批准；长连接 CLI session 修订已确认
 
 项目名：`agentic-testing-harness`
 
@@ -123,24 +123,30 @@ flowchart LR
 ```bash
 ath init
 ath doctor
-ath session start --target <profile> --mode <read|write> --json
-ath session observe --session <id> --json
-ath session act --session <id> --revision <n> --action-stdin --json
-ath session status --session <id> --json
-ath session finish --session <id> --json
+ath session stream --target <profile> --mode <read|write> --jsonl
 ath replay <candidate-id> --json
 ath report <session-id>
 ```
 
-`ath session act` 是授权和执行的原子操作。Agent 不能先取得独立授权凭据，再绕开 Core 直接执行动作。
+`ath session stream` 是一个前台长连接进程。它拥有 session、Playwright browser、页面、Electron 进程和 adapter handle；进程生命周期与 session 生命周期完全一致。它不监听端口，不创建后台 daemon，也不要求后续 CLI 进程恢复不可序列化的 runtime handle。
 
-Action payload 默认从 stdin 读取单个 JSON 对象，避免敏感输入进入进程参数、shell history 或诊断日志。面向无敏感数据的自动化可以使用受权限保护的 action file；首版不提供内联 `--action '<json>'` 参数。
+进程完成 target provisioning 后，先输出一个 `session.ready` envelope。此后 Agent 通过 stdin 逐行发送 `observe`、`act`、`status` 和 `finish` 请求，每个请求恰好产生一个 stdout JSON envelope。Harness 不在 stdout 发送无请求对应的异步事件；运行时事件进入有界缓冲区，并由后续 observation 或 status 返回。
+
+```json
+{"schemaVersion":"1","requestId":"r1","type":"observe"}
+{"schemaVersion":"1","requestId":"r2","type":"act","revision":4,"data":{"action":{"type":"click","target":{"kind":"role","role":"button","name":"Save"}}}}
+{"schemaVersion":"1","requestId":"r3","type":"finish"}
+```
+
+`act` 消息是授权和执行的原子操作。Agent 不能先取得独立授权凭据，再绕开 Core 直接执行动作。Action payload 只通过 stdin JSONL 传入，避免敏感输入进入进程参数、shell history 或诊断日志；首版不提供内联 action 参数。
+
+stdin EOF、`SIGINT`、`SIGTERM`、格式错误的 JSONL 或未捕获的 runtime 错误都触发同一 fail-fast shutdown：停止 target、关闭 browser、验证 cleanup、写入失败结果，然后退出。格式错误的协议行不会被跳过或猜测修复。
 
 每个动作必须携带 observation revision。页面或 target 状态变化导致 revision 失效时，CLI 返回明确错误，要求重新观察。
 
 ### 6.2 JSON envelope
 
-机器模式的 stdout 只能包含一个版本化 JSON envelope；诊断日志只能写入 stderr。
+`--jsonl` 模式的 stdout 每行只能包含一个版本化 JSON envelope；诊断日志只能写入 stderr。初始 `session.ready` 和每个请求响应都使用相同 envelope。
 
 ```json
 {
@@ -158,7 +164,7 @@ Action payload 默认从 stdin 读取单个 JSON 对象，避免敏感输入进�
 
 ### 6.3 SDK
 
-SDK 提供与 CLI 一一对应的能力：
+SDK 提供 stream 进程内部使用的能力：
 
 - `startSession`
 - `observe`
@@ -169,6 +175,8 @@ SDK 提供与 CLI 一一对应的能力：
 - `readReport`
 
 CLI 必须调用 SDK，不得维护第二套执行逻辑。
+
+SDK 对象和 runtime handle 只存在于 `ath session stream` 进程内。首版不支持把 live session 序列化后交给另一个 CLI 进程继续执行。
 
 ### 6.4 项目配置
 
@@ -381,6 +389,7 @@ interface TargetAdapter {
 - 检查 `ath doctor`；
 - 根据用户意图选择 read 或 write session；
 - 在写探索前解释并验证 hard isolation；
+- 启动并保持一个 `ath session stream` 子进程或 PTY handle；
 - 驱动 `observe → act → observe` 循环；
 - 尊重预算和 fail-fast 错误；
 - 完成 session 并向用户展示报告与 candidate；
@@ -408,7 +417,7 @@ Skill 不复制 contracts，不直接导入 SDK，不读取 harness 内部状态
 ### 13.1 测试层级
 
 1. Contract tests：JSON Schema、SDK 类型、CLI envelope、错误码和版本兼容性。
-2. Core model tests：状态机、revision、预算、授权、事件 hash chain 和 candidate promotion。
+2. Core model tests：状态机、revision、预算、授权、事件 hash chain、stream shutdown 和 candidate promotion。
 3. Adversarial tests：mock 缺失、隐藏 DOM、外部网络、secret 泄漏、symlink escape、越权 RPC、错误 target 复用和过期 observation。
 4. Adapter conformance tests：lifecycle、identity、cleanup、evidence 和 invariant。
 5. Fixture E2E：Web、Electron 和 Wails mock 的真实 CLI 循环与 replay。
@@ -460,7 +469,7 @@ tests/agentic-harness/
 
 - 独立仓库不导入 Super-Dolphin 源码。
 - CLI 和 SDK 契约一一对应。
-- JSON 输出、stderr 和退出码契约通过全新安装测试。
+- JSONL 请求/响应、stdout/stderr、EOF/signal cleanup 和退出码契约通过全新安装测试。
 - Web、Electron 和 Wails mock fixture 通过 adapter conformance 与 E2E。
 - Read session 无法执行写动作。
 - Write session 无有效 hard-isolation attestation 时无法启动或执行动作。
