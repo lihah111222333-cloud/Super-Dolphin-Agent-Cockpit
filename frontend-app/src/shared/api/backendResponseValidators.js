@@ -163,24 +163,9 @@ function validateUIStateStatusMaps(method, value) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {Record<string, any>} value
  */
-function validateUIStateResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  const snapshotKeys = [
-    'threads',
-    'agents',
-    'active_turn',
-    'recent_turns',
-    'token_usage',
-    'statuses',
-    'unchanged',
-    'activeThreadId',
-    'mainAgentId',
-  ];
-  if (!snapshotKeys.some((key) => hasOwn(value, key))) {
-    throw new Error(`${method} response missing UI state snapshot fields`);
-  }
+function validateUIStateWireFields(method, value) {
   if (hasOwn(value, 'threads') && value.threads !== null && !Array.isArray(value.threads)) {
     throw new TypeError(`${method} response threads must be an array or null`);
   }
@@ -188,6 +173,36 @@ function validateUIStateResponse(method, response) {
     throw new TypeError(`${method} response agents must be an array or null`);
   }
   validateUIStateStatusMaps(method, value);
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateUISidebarResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  validateUIStateWireFields(method, value);
+  return value;
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateUIStateResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const requiredSnapshotFields = [
+    ['threads'],
+    ['agents'],
+    ['token_usage', 'tokenUsage'],
+  ];
+  const missingFields = requiredSnapshotFields
+    .filter((aliases) => !aliases.some((key) => hasOwn(value, key)))
+    .map((aliases) => aliases.join(' or '));
+  validateUIStateWireFields(method, value);
+  if (missingFields.length > 0) {
+    throw new Error(`${method} response missing UI state snapshot fields; required: ${missingFields.join(', ')}`);
+  }
   return value;
 }
 
@@ -515,7 +530,7 @@ export function createBackendResponseValidators(methods) {
     [methods.OBSERVABILITY_SLOW_LIST]: validateObservabilityResultResponse,
     [methods.OBSERVABILITY_THREAD_RECENT]: validateObservabilityResultResponse,
     [methods.OBSERVABILITY_TRACE_GET]: validateObservabilityResultResponse,
-    [methods.UI_SIDEBAR_GET]: validateUIStateResponse,
+    [methods.UI_SIDEBAR_GET]: validateUISidebarResponse,
     [methods.UI_STATE_GET]: validateUIStateResponse,
     [methods.UI_MEMORY_GET]: validateMemorySnapshotResponse,
     [methods.UI_SHARED_FILE_GET]: validateSharedFileDetailResponse,
