@@ -1,4 +1,4 @@
-package app
+package skilladapter
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/creachadair/jrpc2"
+	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
@@ -37,6 +38,49 @@ func TestSkillMutationAuditAdapterMapsDomainDTO(t *testing.T) {
 	}
 	if !reflect.DeepEqual(store.got, wantStore) {
 		t.Fatalf("mapped audit entry = %#v, want %#v", store.got, want)
+	}
+}
+
+// TestModuleOwnsSkillPorts 通过真实 Fx lifecycle 证明 skill adapter module 提供两个端口。
+func TestModuleOwnsSkillPorts(t *testing.T) {
+	db := openSkillToolSQLite(t)
+	audit := &capturingAuditStore{}
+	var auditPort skill.MutationAuditStore
+	var persistencePort toolstore.Persistence
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(func() auditstore.Store { return audit }),
+		fx.Provide(func() *skilltoolstore.Store { return skilltoolstore.New(db) }),
+		Module,
+		fx.Populate(&auditPort, &persistencePort),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("fx.Start: %v", err)
+	}
+	if err := app.Stop(ctx); err != nil {
+		t.Fatalf("fx.Stop: %v", err)
+	}
+	if auditPort == nil || persistencePort == nil {
+		t.Fatalf("skill ports = (%T, %T), want both non-nil", auditPort, persistencePort)
+	}
+}
+
+// TestSkillStoreAdaptersPreserveStoreErrorCause 固定迁移后审计错误与工具持久化错误原因继续向上传播。
+func TestSkillStoreAdaptersPreserveStoreErrorCause(t *testing.T) {
+	wantErr := errors.New("skill store sentinel")
+	auditPort, err := provideSkillMutationAuditStore(&capturingAuditStore{err: wantErr})
+	if err != nil {
+		t.Fatalf("provide audit port: %v", err)
+	}
+	if err := auditPort.Insert(context.Background(), skill.MutationAuditEntry{}); err != wantErr {
+		t.Fatalf("audit Insert error = %v, want identical %v", err, wantErr)
+	}
+	if err := mapSkillToolStoreError(wantErr); !errors.Is(err, wantErr) {
+		t.Fatalf("tool persistence error = %v, want cause %v", err, wantErr)
 	}
 }
 
@@ -99,6 +143,7 @@ func TestSkillToolRPCMapsPortErrors(t *testing.T) {
 
 type capturingAuditStore struct {
 	got auditstore.InsertParams
+	err error
 }
 
 func (s *capturingAuditStore) List(context.Context, auditstore.ListFilter) ([]auditstore.AuditEvent, error) {
@@ -107,7 +152,7 @@ func (s *capturingAuditStore) List(context.Context, auditstore.ListFilter) ([]au
 
 func (s *capturingAuditStore) Insert(_ context.Context, p auditstore.InsertParams) error {
 	s.got = p
-	return nil
+	return s.err
 }
 
 type failingSkillToolPersistence struct{}

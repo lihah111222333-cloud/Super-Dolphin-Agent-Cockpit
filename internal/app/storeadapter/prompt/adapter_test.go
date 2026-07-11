@@ -1,4 +1,4 @@
-package app
+package promptadapter
 
 import (
 	"context"
@@ -259,8 +259,8 @@ func TestPromptStoreAdapterProvidersRequireRoots(t *testing.T) {
 	}
 }
 
-// TestBusinessStoreAdaptersModuleOwnsPromptPorts 通过真实 Fx lifecycle 证明三个端口由 App bundle 提供。
-func TestBusinessStoreAdaptersModuleOwnsPromptPorts(t *testing.T) {
+// TestModuleOwnsPromptPorts 通过真实 Fx lifecycle 证明 prompt adapter module 提供三个端口。
+func TestModuleOwnsPromptPorts(t *testing.T) {
 	root := newPromptStoreTestDouble(nil)
 	preferences := &promptPreferenceStoreTestDouble{}
 	sharedFiles := &promptSharedFileStoreTestDouble{}
@@ -272,7 +272,7 @@ func TestBusinessStoreAdaptersModuleOwnsPromptPorts(t *testing.T) {
 		fx.Provide(func() promptstore.Store { return root }),
 		fx.Provide(func() uipreference.Store { return preferences }),
 		fx.Provide(func() sharedfilestore.Reader { return sharedFiles }),
-		businessStoreAdaptersModule(),
+		Module,
 		fx.Populate(&storePort, &preferencePort, &sharedFilePort),
 	)
 	if err := app.Err(); err != nil {

@@ -64,8 +64,6 @@ var Module = fx.Options(
 		provideUIStateAgentLister,
 		newDashboardOrchestrationReader,
 		newDashboardOrchestrationReportReader,
-		provideSkillMutationAuditStore,
-		provideSkillToolPersistence,
 	),
 	config.Module,
 	db.Module,

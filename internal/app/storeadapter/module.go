@@ -8,6 +8,8 @@ import (
 	insightadapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/insight"
 	memoryadapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/memory"
 	personalizationadapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/personalization"
+	promptadapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/prompt"
+	skilladapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/skill"
 	turnadapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/turn"
 	uistateadapter "github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter/uistate"
 )
@@ -19,6 +21,8 @@ var Module = fx.Options(
 	insightadapter.Module,
 	memoryadapter.Module,
 	personalizationadapter.Module,
+	promptadapter.Module,
+	skilladapter.Module,
 	turnadapter.Module,
 	uistateadapter.Module,
 )
