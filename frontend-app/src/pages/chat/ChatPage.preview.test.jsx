@@ -1,8 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, deferred, getThreadCardByName, locateCodeFile, openCodeFile, openPath, saveCodeFile } from './__tests__/chatPageTestSupport.js';
-import { ChatPage } from './ChatPage.jsx';
+import { TestChatPage, TestChatPageWrapper, createActiveThreadStore, createFakeStore, deferred, getThreadCardByName, locateCodeFile, openCodeFile, openPath, saveCodeFile } from './__tests__/chatPageTestSupport.js';
   it('renders compact assistant markdown block markers as formatted content', () => {
     const store = createActiveThreadStore([
       {
@@ -13,7 +12,7 @@ import { ChatPage } from './ChatPage.jsx';
       },
     ]);
 
-    const { container } = render(<ChatPage store={store} projectPath="/repo/app" />);
+    const { container } = render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     expect(screen.getByText('我先说明当前进展。')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Done-Done: 每天17:40自动触发/ })).toBeInTheDocument();
@@ -28,7 +27,7 @@ import { ChatPage } from './ChatPage.jsx';
       threads: [{ id: 'thread-1', name: '启动中间态会话', provider: 'codex', status: 'created', updatedAt: '2026-06-02T08:00:00Z' }],
     });
 
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     const card = getThreadCardByName('启动中间态会话');
     expect(card).toHaveTextContent('codex');
@@ -44,7 +43,7 @@ import { ChatPage } from './ChatPage.jsx';
       threads: [{ id: 'agent-design', name: 'AI 设计流程', provider: 'unknown', status: 'idle' }],
     });
 
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     const card = getThreadCardByName('AI 设计流程');
     const actions = card.querySelector('.thread-card-actions');
@@ -295,7 +294,7 @@ import { ChatPage } from './ChatPage.jsx';
       time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
     }));
 
-    const { container } = render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+    const { container } = render(<TestChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
 
     expect(screen.getByText('历史消息 120')).toBeInTheDocument();
     expect(screen.queryByText('历史消息 1')).not.toBeInTheDocument();
@@ -317,7 +316,7 @@ import { ChatPage } from './ChatPage.jsx';
       time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
     }));
 
-    render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+    render(<TestChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
 
     expect(screen.queryByText('滚动历史消息 1')).not.toBeInTheDocument();
 
@@ -335,7 +334,7 @@ import { ChatPage } from './ChatPage.jsx';
       { id: 'bottom-msg-2', role: 'assistant', text: '最新回复在底部。', time: '2026-06-02T08:01:00Z' },
     ];
 
-    render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+    render(<TestChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
 
     const timeline = screen.getByTestId('chat-timeline');
     Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1200 });
@@ -359,7 +358,7 @@ import { ChatPage } from './ChatPage.jsx';
       { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
       { id: 'reply-assistant-1', role: 'assistant', text: '我先检查一下。', time: '2026-06-02T08:01:00Z' },
     ];
-    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
     const timeline = screen.getByTestId('chat-timeline');
     let scrollHeight = 1000;
     let scrollTop = 600;
@@ -379,7 +378,7 @@ import { ChatPage } from './ChatPage.jsx';
     });
 
     scrollHeight = 1260;
-    rerender(<ChatPage store={createActiveThreadStore([
+    rerender(<TestChatPage store={createActiveThreadStore([
       initialMessages[0],
       { ...initialMessages[1], text: '我先检查一下。\n\n已经定位到滚动逻辑。' },
     ])} projectPath="/repo/app" />);
@@ -396,7 +395,7 @@ import { ChatPage } from './ChatPage.jsx';
     const initialMessages = [
       { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
     ];
-    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
     const timeline = screen.getByTestId('chat-timeline');
     let scrollHeight = 1000;
     let scrollTop = 600;
@@ -413,7 +412,7 @@ import { ChatPage } from './ChatPage.jsx';
     scrollHeight = 1400;
 
     await act(async () => {
-      rerender(<ChatPage store={createActiveThreadStore([
+      rerender(<TestChatPage store={createActiveThreadStore([
         ...initialMessages,
         { id: 'reply-assistant-1', role: 'assistant', text: '全新回复。', time: '2026-06-02T08:01:00Z' },
       ])} projectPath="/repo/app" />);

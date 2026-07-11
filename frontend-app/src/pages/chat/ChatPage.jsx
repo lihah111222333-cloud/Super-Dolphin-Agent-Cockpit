@@ -11,6 +11,7 @@ import { ThreadRail } from './thread/ThreadRail.jsx';
 import { Conversation } from './thread/Conversation.jsx';
 import { firstText, firstTrimmedText, timeLabelFromTimestamp, trimmedText } from './markdown/markdownMessageModel.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
+import { useShellLayoutStore } from '../../app/shell/model/useShellLayoutStore.js';
 import { runUIAction } from './model/chatUiActions.js';
 import {
   canUseProjectActionsForStore,
@@ -33,6 +34,14 @@ import './ChatReasoning.css';
 import './ChatPage.css';
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
+
+function selectRightPanelWidth(state) {
+  return state.rightPanelWidth;
+}
+
+function selectSetRightPanelWidth(state) {
+  return state.setRightPanelWidth;
+}
 
 const INTRO_SUGGESTION_DEFINITIONS = Object.freeze([
   { key: 'summarizeDocument', icon: FileText },
@@ -218,7 +227,8 @@ function useActiveChatThreadSync(store, activeThreadId) {
   }, [activeThreadId, loading, store, timelineReady]);
 }
 
-function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} }) {
+function ChatPage(props) {
+  const { copy = APP_COPY.zh.chat, shellLayoutStore, store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} } = props;
   const activeThreadId = store.activeThreadId;
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const threadData = useChatThreadData(store, activeThreadId);
@@ -237,12 +247,14 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
     // 审批失败时由 ChatApprovalMessage 调用，通知 UI 显示错误
     onError: (_event, detail) => { setApprovalNotice(detail || copy.approvalFailed); },
   }), [codePreview.openFileRef, codePreview.openLocalPath, copy.approvalFailed, store]);
+  const shellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectRightPanelWidth);
+  const setShellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectSetRightPanelWidth);
   const viewportWidth = useViewportWidth();
   const chatLayoutRef = useRef(null);
   const rail = useThreadRailLayout({
     viewportWidth,
     rightPanelOpen,
-    store,
+    rightPanelWidth: shellRightPanelWidth,
     layoutRef: chatLayoutRef,
   });
   const {
@@ -253,6 +265,8 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
   } = useRuntimeSidePanelLayout({
     activeThreadId,
     railWidth: rail.width,
+    rightPanelWidth: shellRightPanelWidth,
+    setRightPanelWidth: setShellRightPanelWidth,
     store,
     viewportWidth,
     open: rightPanelOpen,

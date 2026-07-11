@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
+import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, createShellLayoutTestHarness, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
 function installTimelineMetrics(timeline) {
@@ -359,6 +359,7 @@ function approvalMessage(requestId, status = 'pending') {
 
   it('renders an active thread timeline, sends through the store, and opens the runtime panel', async () => {
     const activityStats = { commands: 2, fileEdits: 1, toolCalls: { grep: 3 } };
+    const shellLayout = createShellLayoutTestHarness();
     const store = createFakeStore({
       activeThreadId: 'thread-1',
       draft: '继续修复',
@@ -375,7 +376,13 @@ function approvalMessage(requestId, status = 'pending') {
       diffTextByThread: { 'thread-1': 'diff --git a/ChatPage.test.jsx b/ChatPage.test.jsx\n+expect(screen.getByTestId("runtime-panel"))' },
     });
 
-    const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const { container } = render(
+      <TestChatPageWrapper
+        shellLayoutStore={shellLayout.store}
+        store={store}
+        projectPath="/repo/app"
+      />,
+    );
 
     expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '筛选消息' })).not.toBeInTheDocument();
@@ -421,7 +428,12 @@ function approvalMessage(requestId, status = 'pending') {
 
     fireEvent.click(screen.getByRole('button', { name: '布局视图' }));
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
-    expect(store.setRightPanelWidth).toHaveBeenCalledWith(expect.any(Number));
+    expect(store.setRightPanelWidth).toBeUndefined();
+    expect(shellLayout.storage.set).toHaveBeenCalledWith(
+      'super-dolphin.shell.right-panel-width',
+      expect.any(String),
+    );
+    expect(shellLayout.store.getState().rightPanelWidth).toBeGreaterThan(0);
     expect(store.syncThreadState).toHaveBeenCalledWith('thread-1', {
       includeArchived: true,
       includeDiff: true,

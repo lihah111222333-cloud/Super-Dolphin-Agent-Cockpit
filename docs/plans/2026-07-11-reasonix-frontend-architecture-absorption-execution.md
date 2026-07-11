@@ -46,8 +46,8 @@
 | Task 2 scroll intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `af2c245409afa6f269b32250d256d7fa7162cbe8`；实现、验证与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
 | Task 3 recovery accepted | `GREEN` | Phase A RED 保留；Phase B 已实现并完成前端全量验证 |
 | Task 4 crash containment | `GREEN` | Phase A RED 完整保留；Phase B 最小实现、全量门禁与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
-| Task 5 approval-only | `PHASE_A` | clean baseline 已锁定；正在做 LSP discovery 与 test-only RED，禁止生产实现 |
-| Task 6 shell discovery | `TODO` | 依赖 Task 5 |
+| Task 5 approval-only | `GREEN` | `952ba9ea988a5478152533e1b6744fc1256f40f6`；实现、全量门禁、生成物刷新与原子提交完成 |
+| Task 6 shell discovery | `RED` | GO只锁`rightPanelWidth`；Phase A两套plan-only tests分别因对应production module missing而RED，等待主审授权GREEN |
 | Task 7 layer tokens | `TODO` | 依赖 Task 6 |
 | Task 8 integration | `TODO` | 依赖 Task 1-7 |
 
@@ -1080,3 +1080,243 @@ M  frontend-app/src/pages/chat/thread/chatTurnGroupingModel.test.js
 - 生成物责任保持不变：fresh build没有制造tracked `frontend-app/dist`或根`web-dist`差异；commit hook若刷新项目地图，只允许纳入该hook明确生成且语义归属本提交的文件，否则提交停止。
 - commit-msg失败后主 agent 明确批准按仓库规范将title收敛为`feat(frontend): 加固审批决策流程`；这是对仓库强制中文守卫的修正，不是绕过hook。首次hook产生的5个project-map文件属于同一生成器且与Task5文件增删/大小一一对应，因此随本提交纳入。
 - Task 5只在显式stage这20条路径、cached diff复核、commit hook通过、post-commit clean以及main两种hash再次不变后结束。完成后停止，不进入Task 6，不push。
+
+## Task 6 — Shell layout discovery
+
+### STATE
+
+`GREEN`（唯一迁移候选`rightPanelWidth`已完成strict schema、可注入vanilla StoreApi、App/route/page显式接线、旧business truth删除及B4.2 fresh full gates；`rightPanelOpen`与`threadRailWidth`未迁移。不进入Task 7、不push）
+
+BASE / HEAD 为Task5提交`952ba9ea988a5478152533e1b6744fc1256f40f6`，开始时worktree与index均clean。主工作区仍为`main...origin/main [ahead 3]`且仅原计划文档dirty；whole-diff SHA为`2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，plan-file SHA为`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。
+
+### DAG
+
+```text
+Task 5 commit 952ba9ea988a5478152533e1b6744fc1256f40f6
+  -> Task 6 clean baseline / main hash lock
+  -> 7-file discovery set structure + precise read
+  -> rightPanelWidth / rightPanelOpen / threadRailWidth LSP grep + inspect + xref
+  -> storage / tests / ADR evidence
+  -> literal decision-gate evaluation
+  -> GO(rightPanelWidth only)
+  -X-> create Shell files / modify frontend source or tests
+  -X-> stage / commit / Task 7 / push
+```
+
+### RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | worktree `git status` / `git rev-parse HEAD` | 0 | branch clean；BASE / HEAD为`952ba9ea988a5478152533e1b6744fc1256f40f6` |
+| 2 | main只读status / whole-diff SHA / plan-file SHA | 0 | ahead3且仅计划文档dirty；两个既有hash完整值不变 |
+| 3 | LSP `grep(text_search)`三字段 | 0 | `rightPanelWidth`18条含6 test；`rightPanelOpen`35条含test与未被引用的`AppWindowFrame`；`threadRailWidth`4条。文本命中只用于定位，不直接冒充consumer count |
+| 4 | LSP `structure(document_symbol)` discovery set | 0 | 定位App shell owner、ChatPage、两个layout hooks、layout model、baseState与resource-page action；大文件结果收窄到精确函数读取 |
+| 5 | LSP `inspect(hover/definition)` + `xref(references)` local symbols | 0 | ChatPage local `rightPanelWidth` alias为声明+2 use；App local `rightPanelOpen`、ChatPage prop、hook open/setOpen均有可复查xref；`threadRailWidth`为声明+1 read，setter为声明+3 writes |
+| 6 | LSP dynamic Zustand property retry | capability blocker | 从`store.rightPanelWidth`与`store.setRightPanelWidth`精确usage做definition/xref均返回0；从baseState property xref只返回声明与tests，从action property xref只返回声明。已收窄到单文件/单位置并重试，故raw store consumer数由LSP grep定位后逐函数`file(read_file)`裁决，不把失败的xref写成PASS |
+| 7 | storage / persistence discovery | 0 | client store为裸`create(createClientStore)`，无Zustand persist；layout三字段没有storage key；全前端localStorage命中仅theme/log/debug/i18n等其他语义；sessionStorage 0；当前layout tests只锁几何、键盘和in-memory drag commit |
+| 8 | ADR直接相关搜索 | 0 | 当前`docs/adr`中`rightPanel`/`layout`均0；持久化命中仅workflow/MCP其他领域，没有Shell layout已接受决策 |
+| 9 | 15个discovery/consumer/test文件LSP diagnostics | 0 | `No diagnostics found`，total 0 |
+
+### FIELD EVIDENCE / DECISION TABLE
+
+| 字段 | 定义与唯一writer | 生产消费者（排除tests/死文件） | 边界 | 刷新后持久化证据 | 能否删除client business store旧真相 | 裁决 |
+|---|---|---|---|---|---|---|
+| `rightPanelWidth` | truth定义为`clientStoreUtils.js`的`baseState.rightPanelWidth: 380`；唯一状态写入口是`clientStorePageActions.js:createResourcePageCacheActions.setRightPanelWidth -> runtime.set`。生产调用全部位于`useChatWorkbenchLayout.js` | raw truth有3个函数级consumer：`useThreadRailLayout`、`useRuntimeSidePanelLayout`、`useRuntimePanelWidthSync`；同文件keyboard/toggle/drag/sync共7个setter call site。ChatPage的派生alias另有grid columns与`RuntimePanelSlot.width`两个实际use，不计作第二truth | 是：entities/client business store → app selector surface → chat page hook；`APP_SHELL_STORE_KEYS`还订阅field和setter，虽AppWindow语义上实际把独立`routeStore`传page | 无。reload回到base 380，panel reopen还会按viewport default重设；没有storage key、roundtrip test或ADR | 是：迁移可同时删除base field、唯一action及AppShell selector中的field/action，并让layout hook改读唯一Shell owner | **GO**，唯一迁移候选 |
+| `rightPanelOpen` | App `useAppShellState`的`useState(false)`是唯一truth/writer owner；setter经props传给ChatPage/Header/runtime hook | 4个语义surface：ChatPage layout/slot、ChatPageHeader/ChatActionsMenu labels+actions、thread-rail drag projection、runtime side-panel sync/toggle/resize。`AppRoutes`只是prop transport；无引用的`AppWindowFrame`不计consumer | 是：App → ActivePageContent/route → ChatPage | 无；每次App mount初始化false，没有storage key/test/ADR | 否：只能删除App local state/prop drilling，不能删除client store中的UI-only field | **不迁移** |
+| `threadRailWidth` | `useThreadRailLayout`内部`useState(threadRailTargetWidth)`；唯一setter同hook内由viewport effect、pointer finish、keyboard三处调用 | 原symbol xref只有1个read用于`clampWidth`；返回的generic `rail.width`只在ChatPage用于right-panel max与resizer ARIA/status，仍在同一page/hook边界 | 否：component/page-local responsive state | 无且不应默认新增：viewport变化会重新计算/夹紧，当前意图是responsive session state | 否：client store从未拥有该字段 | **不迁移** |
+
+### EVIDENCE / TRUTH_SOURCE_CHECK
+
+- `rightPanelWidth`满足计划的两个硬条件：“多个生产consumer”与“迁移能删除client business store旧truth”，因此Task 6不能标`NO_CHANGE`。GO范围严格只有该字段；不能顺带迁移`rightPanelOpen`、`threadRailWidth`、overlay或theme。
+- 计划假设的“刷新后持久化”在当前产品没有事实依据。若主审授权后续实现，新增persistence属于显式产品语义：必须使用注入`get/set/remove` storage port与strict scalar schema；不存在key才是first-run；非法已有值/read/write失败都阻断。当前没有产品reset入口，本轮锁定为“不实现reset，非法值保持BLOCKED”，不得静默自愈。
+- 若进入实现，旧truth删除清单锁定为：`clientStoreUtils.js`的`rightPanelWidth`、`clientStorePageActions.js`的`setRightPanelWidth`、`appShellModel.js`的两个selector keys，以及`useChatWorkbenchLayout.js`所有`store.rightPanelWidth/setRightPanelWidth`访问；真实consumer改接唯一Shell owner。不得保留compat re-export或双写。
+- `rightPanelOpen`虽然跨app/page且有多个consumer，但不满足“删除client business store字段”；`threadRailWidth`既不跨边界也没有旧store truth。二者不因名字相似或作为width/open派生输入而被并入GO。
+
+### NON_TARGET_DIFF / STOP
+
+- Task 6开始前worktree clean；本轮唯一允许diff是本执行记录。四个计划Shell文件均未创建，frontend production/test、依赖、guard、baseline、codemap/project-map均未修改。
+- 当前不stage、不commit、不push；主代理复核三字段证据表、dynamic JS xref blocker与GO范围前，不进入Task 7。
+
+### PHASE A RED STATE
+
+`RED`（主代理批准GO后只创建两套计划测试；两个production modules仍不存在，禁止GREEN实现、既有test迁移、stage/commit、Task 7与push）
+
+### PHASE A RED RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 10 | `shellLayoutSchema.test.js`单文件 | expected 1 | 1 suite / 0 tests collected；唯一错误为计划production`./shellLayoutSchema.js`无法解析，没有fixture、Vitest或环境错误 |
+| 11 | `useShellLayoutStore.test.js`单文件 | expected 1 | import顺序锁定factory module后，1 suite / 0 tests collected；唯一错误为计划production`./useShellLayoutStore.js`无法解析，没有被schema missing遮蔽 |
+| 12 | 两个计划test串行同进程 | expected 1 | 2 suites failed / 0 tests；各自只报告对应production module missing，RED归因清晰 |
+| 13 | 两个计划test targeted ESLint | 0 | 无error/warning；测试语法、Vitest API与mock contract有效 |
+| 14 | 两个计划test LSP diagnostics | 0 | `No diagnostics found`，total 0 |
+
+### PHASE A RED CONTRACT
+
+- `shellLayoutSchema.test.js`锁定唯一`rightPanelWidthSchema`：key精确为`super-dolphin.shell.right-panel-width`，schema显式initial value为现有base 380。persisted scalar是canonical字符串；合法范围为0到`Number.MAX_SAFE_INTEGER`的有限非负数并保留有限小数，拒绝null/undefined/number输入、空白、前导零、正负号、NaN/Infinity、指数、单位与越界值。
+- schema range只保证scalar可无损持久化，不替代viewport geometry clamp；`Number.MAX_SAFE_INTEGER`在schema层合法不表示UI可直接展示该宽度，实际展示仍必须经现有`rightPanelMaxWidth/clampWidth`。
+- parse/serialize非法值必须抛稳定typed error：`name=ShellLayoutValidationError`、`code=shell_layout.invalid_right_panel_width`。两个production module的raw source contract均禁止`JSON.parse`；factory source还禁止直接`window.localStorage`，只允许注入port。
+- `useShellLayoutStore.test.js`只锁可注入`createShellLayoutStore({ storage })` factory，不预先锁全局singleton、React hook消费方式或App接线。port必须在任何`get`前同步验证`get/set/remove`均为function；缺失或非函数立即fail-fast。
+- `storage.get(key) === null`是唯一first-run：factory必须先把schema initial value串行写入成功，再暴露initial state。合法existing scalar直接parse；`setRightPanelWidth`必须先serialize+storage.set成功，再更新state，write失败时state与原storage均不变；第二个factory可从同一port strict roundtrip。
+- invalid existing scalar或get失败都阻断初始化；invalid path必须证明原值不变、`storage.set`与`storage.remove`均未调用。当前没有产品reset owner，本轮明确不实现`resetShellLayout`、remove action或错误表面；测试锁定state无reset API。计划的“remove failure/显式reset后first-run”是no-reset决策下不可执行的条件分支，不伪造PASS；非法值持续BLOCKED。
+
+### PROPOSED PHASE B EXISTING-TEST MIGRATION（未修改）
+
+- `frontend-app/src/App.test.jsx`：现有6处直接断言`useClientStore.getState().rightPanelWidth`，GREEN迁移时必须改为新Shell owner或等价可观察layout状态，同时保留“drag move只改DOM、pointer release才提交truth”的行为锁。
+- `frontend-app/src/pages/chat/ChatPage.core.test.jsx`：现有fake store的`setRightPanelWidth`断言将在删除client-store action后失效；需改为注入Shell writer并保留resize调用证据。
+- `frontend-app/src/app/appShellModel.test.js`：GREEN删除`APP_SHELL_STORE_KEYS`中的`rightPanelWidth/setRightPanelWidth`时，应补negative selector contract，防止旧truth被重新订阅。
+- 本Phase A没有修改上述既有测试；`useChatWorkbenchLayout.test.js`只测geometry model且无需因truth owner迁移改写。主代理若不批准这三处精确迁移，Phase B不得碰它们。
+
+### PHASE A NON_TARGET_DIFF / TRUTH_SOURCE_CHECK / STOP
+
+- 当前dirty严格为本执行记录、`shellLayoutSchema.test.js`与`useShellLayoutStore.test.js`三条；index empty。`shellLayoutSchema.js`、`useShellLayoutStore.js`及其他frontend production/test仍未创建或修改。
+- 两套source tests已把“no JSON.parse / no direct window.localStorage”升级为未来GREEN可执行truth gate；当前module-missing RED没有引入第二种失败类别。
+- Phase A到此停止；不实现production、不迁移既有tests、不stage/commit、不进入Task 7、不push，等待主代理审核。
+
+### PHASE B0 WIRING DESIGN（已批准，未改接线文件）
+
+- 唯一truth owner采用`createShellLayoutStore({ storage })`创建的vanilla Zustand StoreApi；App后续显式持有实例并沿`App -> AppShell -> AppWindow -> ActivePageContent -> ChatPageRoute -> ChatPage`传递。单一ChatPage消费者不新增Provider/context，不创建module singleton。
+- storage adapter后续由`App.jsx`显式owner注入；factory module不在module load访问`window`或global localStorage。factory初始化发生在现有`AppErrorBoundary`覆盖下；read/first-write/validation错误直接抛出，不catch、不默认兜底。`main.jsx`的`StrictMode -> AppErrorBoundary -> Profiler -> App`顺序保持不变。
+- StrictMode lazy initializer可能执行两次；同步共享port下第一次`get(null)`写入`380`，第二次读取已存在scalar，first-run `set`总数应精确为1，后续由App集成测试锁定。
+- `rightPanelOpen`继续由App local state持有，`threadRailWidth`继续由layout hook local responsive state持有。未引用的`AppWindowFrame.jsx`不修改；真实`AppRoutes.jsx`只做显式prop transport。
+- 真实后续路径锁定为`frontend-app/src/app/appShellModel.js`、`frontend-app/src/pages/chat/hooks/useChatWorkbenchLayout.js`、`frontend-app/src/entities/client/model/helpers/a1/clientStorePageActions.js`与`frontend-app/src/pages/chat/__tests__/chatPageTestSupport.js`；禁止在相似错误目录创建同名文件。
+
+### PHASE B1 STRICT FACTORY GREEN
+
+`GREEN`（仅两份计划production module与两套新unit tests；未修改App/AppRoutes/ChatPage/layout hook/旧store/既有tests，未stage/commit/Task 7/push）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 15 | 两套focused unit初次GREEN | 0 | `shellLayoutSchema.test.js`与`useShellLayoutStore.test.js`共2 files / 45 tests passed；guard、contract typecheck与RPC audit前置门禁均通过 |
+| 16 | diagnostics privacy追加RED | expected 1 | 新增恶意persisted scalar不得进入`error.message`契约；单schema suite 29 tests中唯一1 failed，received message精确回显`<script>leak-storage-value</script>`，归因到validation error message |
+| 17 | 固定安全error message后两套focused | 0 | 2 files / 46 tests passed；typed error继续保留稳定`name=ShellLayoutValidationError`与`code=shell_layout.invalid_right_panel_width`，message不再拼接persisted/runtime value |
+| 18 | 2 production + 2 test targeted ESLint | 0 | 无error/warning |
+| 19 | LSP locate / inspect / xref / read / diagnostics | 0 | grep定位error class与所有throw；definition从factory test跳转`useShellLayoutStore.js:17-41`，hover识别error class，factory xref为声明+9个test references；逐文件精读确认先persist后set；4 files diagnostics为`No diagnostics found`、total 0 |
+| 20 | `git diff --check` + forbidden/truth grep | 0 | diff-check无输出；production对`JSON.parse`、`window.localStorage`、`resetShellLayout`、`removeShellLayout`均0命中；唯一`createStore`来自`zustand/vanilla`，storage只调用get/set，remove仅参与完整port shape验证 |
+
+### PHASE B1 CONTRACT / STOP
+
+- `shellLayoutSchema.js`用canonical非负十进制scalar直接parse/serialize，范围为0到`Number.MAX_SAFE_INTEGER`且必须有限；拒绝空白、前导零、符号、指数、单位、非字符串persisted值与无法由同一schema roundtrip的runtime数值。schema range不替代viewport clamp。
+- `useShellLayoutStore.js`完整验证注入port的`get/set/remove`三函数后才首次`get`。只有`get(key) === null`进入first-run，并在store暴露前成功写入initial `380`；existing非法值、read失败与first-write失败全部阻断。
+- `setRightPanelWidth`严格执行serialize、`storage.set`、内存`set`顺序；后续写失败时内存和原storage保持不变。module仅导出factory与接受显式StoreApi的窄React hook，无singleton、global storage、reset或remove action。
+- 当前owned dirty严格为本执行记录，以及`frontend-app/src/app/shell/model/`下两份新production与两份新test；index empty。停止等待主代理Phase B2授权，不进入任何接线、旧truth删除、既有test迁移、stage/commit、Task 7或push。
+
+### PHASE B2 TEST-ONLY INTEGRATION RED
+
+`RED`（只修改四个已批准test/support文件与本执行记录；App/route/page/hook/旧store等production保持Phase B1前状态，未stage/commit/Task 7/push）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 21 | `App.test.jsx`首次执行 | expected 1 | npm参数未把name filter传给Vitest，因而实际完整执行195 tests：186 passed / 9 target failed。无关App行为全部GREEN；9个失败严格为source wiring 1、StrictMode first-run 1、persisted layout 1、ErrorBoundary read/first-write 2、storage commit resize 4 |
+| 22 | App direct Vitest精确filter复跑 | expected 1 | `shell layout|right sidebar`命中14个tests：5 passed / 9 failed / 181 skipped；9个失败与上表完全一致，4个resize失败均精确显示observable scalar仍为`380`而非`751/480/150/0`，没有timeout或fixture失败 |
+| 23 | `ChatPage.core.test.jsx`完整suite | expected 1 | 31 tests：30 passed / 1 failed；business fake store的setter已为undefined，唯一失败为注入Shell storage writer 0 calls，证明当前ChatPage尚未消费显式`shellLayoutStore` |
+| 24 | `appShellModel.test.js`完整suite | expected 1 | 3 tests：2 passed / 1 failed；唯一失败为`APP_SHELL_STORE_KEYS`仍包含`rightPanelWidth`，第二个`setRightPanelWidth`negative assertion被首个失败遮蔽，无其他model回归 |
+| 25 | 四个test/support targeted ESLint | 0 | 无error/warning |
+| 26 | LSP grep / structure / inspect / xref / read / diagnostics | 0 | grep定位9个shellLayoutStore test/support接点；factory definition跳到`useShellLayoutStore.js:17-41`，harness import definition跳到support `107-113`，hover给出memory port+StoreApi形状，xref为声明、default wrapper、core call与export共5处；精读App contract、support、core writer与selector negative；4 files diagnostics `No diagnostics found`、total 0。首次从core call做definition返回0，收窄到import与factory call后重试成功 |
+| 27 | diff / truth / main只读边界 | 0 | `git diff --check`无输出，index empty；App test旧`useClientStore.getState().rightPanelWidth`为0，chat support旧business width/setter为0；main仍ahead3且仅原计划文档dirty，whole-diff SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、plan SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`不变 |
+
+### PHASE B2 TEST CONTRACT / FAILURE CLASSIFICATION
+
+- `App.test.jsx`新增可观察`get/set/remove/value` fake scalar port，不窥视未导出的shell store。StrictMode contract锁first-run `set(key, '380')`总数精确为1；合法existing `480.5`必须在真实chat layout打开时形成`480.5px`列且不被默认宽度覆盖。
+- storage read与first-write失败分别注入现有`AppErrorBoundary`；GREEN必须显示安全fallback、不得渲染chat layout、不得remove/创建fallback state，reporter payload不得泄漏private storage error。当前两项RED均因App忽略注入port而没有触发边界。
+- 旧6处client store width读取已全部删除。四个resize tests各自注入独立storage：pointer move只改变DOM且scalar保持`380`，pointer release、buttons=0隐式finish与close才应提交`751/480/150/0`。
+- source contract不锁字符串路径或出现次数：结构性要求App创建/持有store，`ChatPageRoute`参数与`ChatPage`/`ActivePageContent`两段显式prop transport，ChatPage通过窄hook消费，layout hook production source不再出现`store.rightPanelWidth/setRightPanelWidth`。
+- `chatPageTestSupport.js`已从business fake store删除width/setter，默认每个wrapper用lazy initializer创建独立memory port + `createShellLayoutStore`，也允许core显式注入StoreApi。Core唯一writer assertion转向Shell storage与StoreApi state。
+- `appShellModel.test.js`锁selector surface不再包含`rightPanelWidth/setRightPanelWidth`，防止迁移后重新订阅business store。
+
+### PHASE B2 NON-TARGET DIFF / STOP
+
+- B2新增dirty仅为`frontend-app/src/App.test.jsx`、`frontend-app/src/pages/chat/ChatPage.core.test.jsx`、`frontend-app/src/pages/chat/__tests__/chatPageTestSupport.js`、`frontend-app/src/app/appShellModel.test.js`与本执行记录；`frontend-app/src/app/shell/model/`四个untracked文件为Phase A/B1既有owned diff。
+- B2没有修改任何production、新unit production/tests、依赖、guard、baseline或生成物；index empty。停止等待主代理Phase B3生产接线授权，不stage/commit、不进入Task 7、不push。
+
+### PHASE B3 PRODUCTION INTEGRATION GREEN
+
+`GREEN`（7个批准production完成唯一Shell truth接线与旧business truth删除；focused matrix、target lint、guards、LSP与truth边界通过，尚未stage/commit/Task 7/push）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 28 | 首轮B1 unit命令的前置code-size guard | 1 | Vitest未运行；仅2个参数数违规：`ChatPageRoute`与`ChatPage`新增第6个解构参数超过上限5。没有绕过guard，主代理批准后改为单一`props`形参并在函数体显式解构，prop transport语义不变 |
+| 29 | 单跑frontend code-size guard | 0 | `files=359, frozen=0`，两项参数违规清零 |
+| 30 | B1 strict schema/store units | 0 | 2 files / 46 tests passed；critical-skip、contract/store、code-size、typecheck contracts与RPC audit前置门禁均通过 |
+| 31 | App exact 14首次production复跑 | 1 | 14个命中中11 passed / 3 failed：source regex被默认callback brace截断1；saved initial `380`经1024 viewport clamp后旧test仍期待viewport default `189` 1；旧close drag从恢复宽度出发未越过0阈值导致timeout 1。失败均为新语义的test表达，不是production exception |
+| 32 | App test语义按批准设计对齐后复跑 | 0 | 14 passed / 181 skipped；source contract改锁函数体显式解构；恢复宽度通过`Math.min(rightPanelWidthSchema.initialValue, rightPanelMaxWidth(window.innerWidth, threadRailTargetWidth(window.innerWidth)))`表达persisted initial经viewport clamp，不写魔法默认；close pointer延长到1500以明确越过0阈值 |
+| 33 | ChatPage Core + appShellModel | 0 | 2 files / 34 tests passed（Core 31、app shell model 3）；Shell writer被真实消费，business setter保持undefined，selector两个旧keys均删除 |
+| 34 | theme storage fail-fast优先级单测 | 0 | 1 passed / 194 skipped；既有`fails fast when required browser storage is unavailable`仍首先得到theme storage错误，证明Shell factory没有在App顶层、QueryClient initializer或module load抢先运行 |
+| 35 | 15个target production/test ESLint | 0 | 无error/warning |
+| 36 | explicit frontend contract/store guard | 0 | 9类guard结果全部`0/0` |
+| 37 | explicit frontend code-size guard | 0 | `files=359, frozen=0` |
+| 38 | LSP locate / structure / inspect / xref / read / diagnostics | 0 | grep定位factory唯一production owner为`AppShell`；factory xref覆盖App、unit tests与chat test harness共14处；`useRuntimeSidePanelLayout` xref仅ChatPage import/call与hook声明/export4处；窄`useShellLayoutStore` xref仅ChatPage两个selector调用；精读storage/AppShell/route/ChatPage/hook/base/action/selector；15 code/test files diagnostics `No diagnostics found`、total 0。首次definition位置与hook xref返回0，收窄到精确call/selection后重试成功 |
+| 39 | diff / truth / main边界 | 0 | `git diff --check`无输出，index empty；三个business truth文件对width/setter 0；production对`store.rightPanelWidth/setRightPanelWidth` 0，命中仅negative tests；`rightPanelOpen`仍App local state，`threadRailWidth`仍hook local state；diff不含`main.jsx`或`AppWindowFrame.jsx`；main两个既有SHA完整值不变 |
+
+### PHASE B3 OWNERSHIP / BEHAVIOR EVIDENCE
+
+- `requiredAppStoragePort`现在严格验证并映射`getItem/setItem/removeItem`到`get/set/remove`。`AppShell`先执行包含theme required storage的`useAppShellState`，再用lazy `useState`创建`createShellLayoutStore`；default storage label为`shell layout storage`，只有`undefined`走browser port，显式`null`直接进入factory端口校验且不fallback。整个初始化仍位于main既有`AppErrorBoundary`下，未修改main顺序。
+- StrictMode下第一次initializer看到missing key并成功写`380`，第二次读取已有scalar，因此first-run storage set总数精确为1。read/first-write异常无catch，沿render抛给ErrorBoundary；App integration tests证明安全fallback、无chat layout/remove/fallback state与无private error泄漏。
+- Shell StoreApi显式沿`AppShell -> AppWindow -> ActivePageContent -> ChatPageRoute -> ChatPage`传递；没有Provider/context或module singleton。`ChatPage`用两个窄selector分别订阅width与setter，再显式传给layout hooks；business `store`只保留diff sync等原职责。
+- 打开面板时，saved width大于0优先恢复并经`rightPanelMaxWidth` clamp；saved width为0才使用`rightPanelDefaultWidth`并先持久化。viewport收窄时sync把clamped truth写回；不存在`resizedRef=false`无条件覆盖持久值。drag move仍只改DOM，finish/keyboard/toggle才写唯一Shell truth。
+- 同一slice已删除`clientStoreUtils.js`的base width、`clientStorePageActions.js`的writer action与`APP_SHELL_STORE_KEYS`的width/setter；没有double write、compat re-export或另一个session view layer。`rightPanelOpen`与`threadRailWidth`未迁移。
+
+### PHASE B3 NON-TARGET DIFF / STOP
+
+- 当前owned diff共16个文件：本执行记录；7个批准production；4个批准test/support；Phase A/B1的2个Shell production与2个Shell unit tests。index empty。
+- `main.jsx`、`AppWindowFrame.jsx`、依赖、guard、baseline、CSS、其他tests与生成物均未修改。main仍`main...origin/main [ahead 3]`且仅原计划文档dirty；whole-diff SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、plan SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`不变。
+- 按主代理停止点不运行full `npm test`/build，不stage/commit，不进入Task 7或push；等待独立复核与后续授权。
+
+### PHASE B3.1 COMPLETE FIVE-FILE MATRIX CORRECTION
+
+`GREEN`（主代理完整矩阵发现focused name filter漏项后，仅修正`App.test.jsx`两个旧语义contract；production保持不动，计划5 files最终275/275）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 40 | 主代理独立完整5-file矩阵 | 1 | 5 files / 275 tests：273 passed / 2 failed。失败均在App旧语义：keyboard test仍期待打开width `264`但新truth恢复`380`；viewport test仍期待首次`189`并在放宽时回到比例`380`。因此此前App 14/14只证明name-filter子集，不能冒充完整相关GREEN |
+| 41 | 两个漏项test定向修正后复跑 | 0 | 2 passed / 193 skipped；keyboard覆盖restored initial、Arrow commit、Home=0 close、reopen default commit、End=max、hide/reopen保持；viewport覆盖1400容纳480.5无写、缩到1024按最终rail geometry clamp并exactly-once持久化、增到1980不回弹 |
+| 42 | 计划完整5 files串行矩阵 | 0 | `shellLayoutSchema.test.js`、`useShellLayoutStore.test.js`、完整`App.test.jsx`、`ChatPage.core.test.jsx`、`appShellModel.test.js`全部执行；5 files / 275 tests passed，0 failed / 0 skipped。前置critical skip、silent async、contract/store、code-size、typecheck contracts与RPC audit全部通过 |
+| 43 | App test targeted ESLint | 0 | 无error/warning |
+| 44 | LSP locate / inspect / xref / read / diagnostics | 0 | grep定位两个test；definition从viewport geometry跳到`rightPanelMaxWidth`实现、schema usage跳到`rightPanelWidthSchema`；storage helper xref覆盖声明与9个App integration consumers；精读两个完整test；App test diagnostics `No diagnostics found`、total 0。首次inspect/xref使用漂移行号返回position out of range，按提示收窄到当前精确行列后重试成功 |
+| 45 | diff / main边界 | 0 | `git diff --check`无输出，index empty；旧viewport test名与右栏`aria 264`断言均0（剩余264仅thread rail初始值）；B3.1未改任何production；main两个既有SHA完整值不变 |
+
+### PHASE B3.1 BEHAVIOR EVIDENCE / STOP
+
+- Keyboard test现在注入existing scalar `380`并直接观察storage。1400 viewport、rail keyboard commit为248时，右栏max由`rightPanelMaxWidth`推导，打开恢复`min(schema initial, max)`；Arrow后的ARIA数值必须同步持久化。Home写0并关闭；再次打开仅因saved=0使用`rightPanelDefaultWidth`并写入；End写geometry max；hide/reopen保持max且整个序列恰4次write。
+- Viewport test改名为persisted clamp contract：1400 viewport能容纳480.5，打开不得写；缩到1024后，期望值由`rightPanelMaxWidth(window.innerWidth, threadRailTargetWidth(window.innerWidth))`计算，DOM与storage必须达到同一最终geometry max且exactly once write；放宽到1980后保持已提交clamp，write count仍1。实际结果未出现旧rail宽导致的过度clamp竞态。
+- B3.1仅修改`frontend-app/src/App.test.jsx`与本执行记录；production、其他tests、Shell modules、main/AppWindowFrame、依赖、guard与生成物未改。main whole-diff SHA仍为`2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`，plan SHA仍为`6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`。
+- 当前不stage/commit，不进入Task 7或push；等待主代理完整矩阵复核。
+
+### PHASE B4 FULL-GATE FAILURE / B4.1 TEST-HARNESS CORRECTION
+
+`GREEN_AT_TARGETED_SCOPE`（fresh full `npm test`暴露3个遗漏的直接`ChatPage`测试夹具；B4.1只扩展已批准test support与3个失败suite，生产代码保持B3.1不动。3-suite最终33/33，完整相关8-file矩阵308/308；按主代理停止点不重启full test、不stage/commit/Task 7/push）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 46 | fresh `npm test` B4首次full gate | 1 | 126 files中123 passed / 3 failed；1533 tests中1507 passed / 26 failed。失败严格集中于`ChatPage.preview.test.jsx` 8、`ChatPage.timeline.test.jsx` 15、`ChatPage.scroll.test.jsx` 3；统一根因为这些suite直接渲染production `ChatPage`却未传新必需`StoreApi`，Zustand `useStore`在`useShellLayoutStore.js:44`读取`undefined.subscribe`。门禁在test失败处停止，没有继续lint/build/commit，也未修改文件伪造full GREEN |
+| 47 | B4.1 harness与三suite最小迁移 | 0 | support新增无额外DOM的`TestChatPage`，用React lazy state为每个mount创建独立`createShellLayoutStore` harness，显式`shellLayoutStore`仍可覆盖；既有Wrapper复用该组件且只拥有`rightPanelOpen`。preview 10、timeline 21、scroll 4个direct render/rerender全部保持同一`TestChatPage` component type；Wrapper既有用法不变，production没有新增undefined/default fallback |
+| 48 | 3个原失败suite首次修复复跑 | 0 | critical-skip、silent-async、contract/store、code-size、contracts typecheck与RPC audit均PASS；3 files / 33 tests passed，0 failed |
+| 49 | 完整相关8-file串行矩阵 | 0 | schema/store units、完整App、ChatPage core、app shell model以及preview/timeline/scroll全部执行；8 files / 308 tests passed，0 failed。前置guards、contracts typecheck与RPC audit全部PASS |
+| 50 | 机械替换缩进清理后的3-suite复跑 | 0 | 仅恢复timeline 6处与scroll 1处原有缩进，不改语义；3 files / 33 tests passed，0 failed，前置全部门禁再次PASS |
+| 51 | 四个B4.1文件target lint / LSP五类证据 | 0 | 主控独立target ESLint为exit 0；LSP grep/structure定位`TestChatPage`及全部usage，preview import definition跳到support `144-153`，import binding references覆盖support/export及三suite共41处，精读support与3个代表性rerender，4 files diagnostics `No diagnostics found`、total 0。首次从support声明做xref返回0，收窄到suite import binding后重试成功 |
+| 52 | truth / diff / main只读边界 | 0 | `git diff --check`无输出，index empty；3 suites的direct production `ChatPage` import与JSX均0；B4.1只改support和3个失败suite及本记录，没有修改B3 production。main仍ahead3且仅原计划文档dirty，whole-diff SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、plan SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`不变 |
+
+### PHASE B4.1 OWNERSHIP / FAILURE CLASSIFICATION / STOP
+
+- B4失败不是Shell production退化：此前计划5-file矩阵只覆盖App/Core/model与新units，遗漏的3个suite仍直接render `ChatPage`。`shellLayoutStore`是显式必需依赖，因此测试夹具必须跟随真实route接线传入StoreApi；禁止在production `ChatPage`或`useShellLayoutStore`里为undefined偷偷创建默认store。
+- `TestChatPage`不创建wrapper节点，不改变query/scroll/layout DOM；lazy initializer保证同一次Testing Library rerender继续使用同一Shell store。每个独立mount默认拿到独立memory port，显式override仍支持core/writer场景。`TestChatPageWrapper`保留唯一额外button/div与open-state职责。
+- 当前owned diff扩展为19个文件：本记录、7个B3 production、4个Shell module/unit、原4个B2/B3 test-support以及3个B4.1 suite；index empty。没有修改`main.jsx`、`AppWindowFrame.jsx`、依赖、guard、baseline、CSS或生成物。
+- 由于fresh full gate仍保留上述26-failure历史证据且B4.1后未获授权重启full `npm test`，不得声称full suite GREEN，也不得进入lint/build/commit。当前只可声称定向3-suite 33/33与完整相关8-file 308/308 GREEN；到此立即STOP等待主代理下一检查点。
+
+### PHASE B4.2 FINAL GATES / TASK 6 GREEN
+
+`GREEN`（在保留B4首次26-failure与B4.1定向修复历史的基础上，fresh full test、lint、build、LSP、truth与main边界全部通过；提交边界锁定为19个owned paths，不进入Task 7、不push）
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 53 | fresh `npm test` | 0 | critical-skip、silent async、contract/store、code-size、contracts typecheck与RPC audit全部PASS；126 files / 1533 tests passed，0 failed，Duration 202.59s。该次full覆盖B4首次失败的preview/timeline/scroll以及此前8-file 308/308相关矩阵 |
+| 54 | fresh `npm run lint` | 0 | ESLint全量无error/warning |
+| 55 | fresh `npm run build` | 0 | Vite 5547 modules，build与dist sync完成；随后`frontend-app/dist`与根`web-dist`的tracked/untracked差异均0 |
+| 56 | final LSP locate / structure / inspect / xref / read / diagnostics | 0 | factory locate共16处，definition从App import跳到`useShellLayoutStore.js:17-41`，hover为`StoreApi`；factory xref覆盖App、units与chat harness共14处；窄hook locate仅定义、ChatPage import及两个selector call共4处；精读AppShell lazy owner、persist-before-set factory、ChatPage窄selector和saved-width sync；18个code/test文件diagnostics `No diagnostics found`、total 0 |
+| 57 | final truth / diff / main边界 | 0 | worktree恰19个owned paths，index empty，`git diff --check`无输出；旧business三文件width/setter命中0，ChatPage/layout hook旧`store.rightPanelWidth/store.setRightPanelWidth`命中0，Shell production禁用API命中0；`rightPanelOpen`仍App local、`threadRailWidth`仍hook local；`main.jsx`、`AppWindowFrame.jsx`、dist/web-dist差异0；main仍ahead3且仅原计划文档dirty，whole-diff SHA `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`、plan SHA `6bbe18cd7191f58a23238b91b3b529f4cf7791adcb9bf9fcfe19130257e02061`不变 |
+
+### PHASE B4.2 COMMIT BOUNDARY
+
+- B4两次full历程均保留：首次full为3 suites / 26 tests失败并在test gate停止；B4.1补齐真实必需依赖后，B4.2 fresh full为126 files / 1533 tests全部通过。后一次GREEN不抹除前一次失败证据。
+- 原子提交边界精确为19个owned paths：本执行记录；7个production接线/旧truth删除文件；4个Shell production/unit文件；App/Core/model/support 4个既有test/support；preview/timeline/scroll 3个B4.1 suite。stage前后均不得混入生成物或非目标文件。
+- 最终动作只允许中文提交`feat(frontend): 统一壳层布局状态`。若首次commit hook刷新生成物并导致需要二次stage/commit，必须先报告精确diff并等待批准，不得自行重试；提交完成后要求worktree clean且main两个SHA不变。不进入Task 7、不push。

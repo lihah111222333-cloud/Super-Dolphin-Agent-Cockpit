@@ -48,6 +48,7 @@ import {
   normalizeColorTheme,
   selectAppShellStore,
 } from './app/appShellModel.js';
+import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
 
 
 
@@ -143,7 +144,12 @@ function createDashboardQueryClient() {
 function requiredAppStoragePort(label = 'app storage') {
   if (typeof globalThis === 'undefined') throw new Error(`${label} global object is unavailable`);
   const storage = globalThis.window?.['localStorage'];
-  if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
+  if (
+    !storage
+    || typeof storage.getItem !== 'function'
+    || typeof storage.setItem !== 'function'
+    || typeof storage.removeItem !== 'function'
+  ) {
     throw new Error(`${label} is unavailable`);
   }
   return {
@@ -152,6 +158,9 @@ function requiredAppStoragePort(label = 'app storage') {
     },
     set(key, value) {
       storage.setItem(key, value);
+    },
+    remove(key) {
+      storage.removeItem(key);
     },
   };
 }
@@ -515,7 +524,7 @@ function useAppShellState(store, skipBootstrap) {
   return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
-function AppWindow({ shell, store }) {
+function AppWindow({ shell, shellLayoutStore, store }) {
   const routeStore = useClientStore();
   const {
     memoryBadge,
@@ -637,6 +646,7 @@ function AppWindow({ shell, store }) {
                 setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
                 onWorkflowViewChange={handleWorkflowViewChange}
                 rightPanelOpen={rightPanelOpen}
+                shellLayoutStore={shellLayoutStore}
                 setRightPanelOpen={setRightPanelOpen}
               />
             </Suspense>
@@ -647,11 +657,16 @@ function AppWindow({ shell, store }) {
   );
 }
 
-function AppShell({ skipBootstrap = false, uiTestMCPMode = false }) {
+function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = false }) {
   const store = useClientStore(useShallow(selectAppShellStore));
   const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
+  const [shellLayoutStore] = useState(() => createShellLayoutStore({
+    storage: shellLayoutStorage === undefined
+      ? requiredAppStoragePort('shell layout storage')
+      : shellLayoutStorage,
+  }));
   if (uiTestMCPMode) return <UITestMCPShell />;
-  return <AppWindow shell={shell} store={store} />;
+  return <AppWindow shell={shell} shellLayoutStore={shellLayoutStore} store={store} />;
 }
 
 function App(props) {

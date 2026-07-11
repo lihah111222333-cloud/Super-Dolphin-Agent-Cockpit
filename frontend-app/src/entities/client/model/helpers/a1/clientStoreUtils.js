@@ -381,7 +381,6 @@ const baseState = {
   attachments: [],
   forkDraft: emptyForkDraft(),
   sending: false,
-  rightPanelWidth: 380,
   logLevel: resolveInitialLevel(),
   logEntries: [],
   actionNotice: null,

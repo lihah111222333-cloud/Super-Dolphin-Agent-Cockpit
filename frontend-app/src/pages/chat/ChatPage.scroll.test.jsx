@@ -1,14 +1,13 @@
 import React from 'react';
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
-import { createActiveThreadStore } from './__tests__/chatPageTestSupport.js';
-import { ChatPage } from './ChatPage.jsx';
+import { TestChatPage, createActiveThreadStore } from './__tests__/chatPageTestSupport.js';
 
 it('adjusts scroll to bottom when a child resource loads and stickiness is enabled', () => {
   const store = createActiveThreadStore([
     { id: 'msg-1', role: 'user', text: '图片加载测试', time: '2026-06-02T08:00:00Z' },
   ]);
-  render(<ChatPage store={store} projectPath="/repo/app" />);
+  render(<TestChatPage store={store} projectPath="/repo/app" />);
 
   const timeline = screen.getByTestId('chat-timeline');
   let scrollTop = 500;
@@ -41,7 +40,7 @@ it('does not adjust scroll to bottom when a child resource loads but stickiness 
   const store = createActiveThreadStore([
     { id: 'msg-1', role: 'user', text: '图片加载测试无粘性', time: '2026-06-02T08:00:00Z' },
   ]);
-  render(<ChatPage store={store} projectPath="/repo/app" />);
+  render(<TestChatPage store={store} projectPath="/repo/app" />);
 
   const timeline = screen.getByTestId('chat-timeline');
   let scrollTop = 500;
@@ -93,7 +92,7 @@ it('resets scrollTop to 0 when activeThreadId changes to prevent out-of-bounds r
   });
 
   try {
-    const { rerender } = render(<ChatPage store={store1} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={store1} projectPath="/repo/app" />);
 
     const store2 = createActiveThreadStore([], {
       activeThreadId: 'thread-2',
@@ -102,7 +101,7 @@ it('resets scrollTop to 0 when activeThreadId changes to prevent out-of-bounds r
     });
 
     act(() => {
-      rerender(<ChatPage store={store2} projectPath="/repo/app" />);
+      rerender(<TestChatPage store={store2} projectPath="/repo/app" />);
     });
 
     expect(setScrollTopValue).toBe(0);

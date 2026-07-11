@@ -2,6 +2,13 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App.jsx';
+import appSource from './App.jsx?raw';
+import appRoutesSource from './AppRoutes.jsx?raw';
+import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
+import { rightPanelWidthSchema } from './app/shell/model/shellLayoutSchema.js';
+import chatPageSource from './pages/chat/ChatPage.jsx?raw';
+import chatWorkbenchLayoutSource from './pages/chat/hooks/useChatWorkbenchLayout.js?raw';
+import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from './pages/chat/model/chatWorkbenchLayoutModel.js';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 import mermaid from 'mermaid';
 
@@ -185,6 +192,16 @@ function resetConnectedShellTestState() {
   window.localStorage.clear();
   window.history.replaceState({}, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+}
+
+function createShellLayoutStorage(initialValue = null) {
+  let storedValue = initialValue;
+  return {
+    get: vi.fn(() => storedValue),
+    set: vi.fn((_key, value) => { storedValue = value; }),
+    remove: vi.fn(() => { storedValue = null; }),
+    value: () => storedValue,
+  };
 }
 
 function mockBootstrapBackendDefaults() {
@@ -555,6 +572,76 @@ beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 afterEach(() => {
   vi.useRealTimers();
+});
+
+it('wires one explicit shell layout store from App through the chat route and layout hooks', () => {
+  expect(appSource).toContain('createShellLayoutStore');
+  expect(appSource).toContain('shellLayoutStorage');
+  expect(appSource).toContain('shellLayoutStore');
+  expect(appRoutesSource).toMatch(/function ChatPageRoute\(props\)[\s\S]{0,240}const \{[^}]*shellLayoutStore[^}]*\} = props/);
+  expect(appRoutesSource).toMatch(/<ChatPage[\s\S]{0,320}shellLayoutStore=\{shellLayoutStore\}/);
+  expect(appRoutesSource).toMatch(/<ChatPageRoute[\s\S]{0,320}shellLayoutStore=\{shellLayoutStore\}/);
+  expect(chatPageSource).toMatch(/function ChatPage\(props\)\s*\{\s*const \{[^\n]*shellLayoutStore/);
+  expect(chatPageSource).toContain('useShellLayoutStore');
+  expect(chatWorkbenchLayoutSource).not.toContain('store.rightPanelWidth');
+  expect(chatWorkbenchLayoutSource).not.toContain('store.setRightPanelWidth');
+});
+
+it('persists the shell layout initial width exactly once under StrictMode', () => {
+  const storage = createShellLayoutStorage();
+
+  render(
+    <React.StrictMode>
+      <App skipBootstrap shellLayoutStorage={storage} />
+    </React.StrictMode>,
+  );
+
+  expect(storage.set).toHaveBeenCalledExactlyOnceWith(
+    'super-dolphin.shell.right-panel-width',
+    '380',
+  );
+  expect(storage.remove).not.toHaveBeenCalled();
+});
+
+it('renders the persisted shell layout width through the real chat layout', async () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+  const storage = createShellLayoutStorage('480.5');
+
+  render(<App shellLayoutStorage={storage} />);
+  await waitForBackendThreadHeading();
+  fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+  expect(screen.getByTestId('chat-layout')).toHaveStyle({
+    gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
+  });
+  expect(storage.set).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
+  ['first write', (storage) => storage.set.mockImplementation(() => { throw new Error('private shell layout write'); })],
+])('contains shell layout %s failures in the existing app boundary without fallback state', async (_phase, failStorage) => {
+  const storage = createShellLayoutStorage();
+  failStorage(storage);
+  const reporter = vi.fn().mockResolvedValue(undefined);
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  try {
+    render(
+      <AppErrorBoundary reporter={reporter} routeId="chat" reload={vi.fn()}>
+        <App skipBootstrap shellLayoutStorage={storage} />
+      </AppErrorBoundary>,
+    );
+
+    expect(screen.getByRole('heading', { name: '界面发生错误' })).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-layout')).not.toBeInTheDocument();
+    expect(storage.remove).not.toHaveBeenCalled();
+    await waitFor(() => expect(reporter).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(reporter.mock.calls[0][0])).not.toContain('private shell layout');
+  }
+  finally {
+    consoleError.mockRestore();
+  }
 });
 
 function mockTraceDashboardQueryResult() {
@@ -3149,6 +3236,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('starts with only the chat rail and conversation, then toggles the right sidebar from the toolbar', async () => {
     const { container } = render(<App />);
+    const restoredRightPanelWidth = Math.min(
+      rightPanelWidthSchema.initialValue,
+      rightPanelMaxWidth(window.innerWidth, threadRailTargetWidth(window.innerWidth)),
+    );
 
     await waitForBackendThreadHeading();
     const layout = screen.getByTestId('chat-layout');
@@ -3167,14 +3258,17 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(container.querySelector('.runtime-panel')).not.toHaveTextContent('diff --git a/file b/file');
     expect(screen.getByRole('list', { name: '工具调用统计' })).toBeInTheDocument();
     expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 189px' });
+    expect(layout).toHaveStyle({
+      gridTemplateColumns: `minmax(0, 1fr) 6px ${restoredRightPanelWidth}px`,
+    });
   });
 
   it('supports keyboard resizing for chat and activity resizer controls', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
+    const storage = createShellLayoutStorage(String(rightPanelWidthSchema.initialValue));
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
 
     await waitForBackendThreadHeading();
     const layout = screen.getByTestId('chat-layout');
@@ -3189,15 +3283,43 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    const rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+    let rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
     expect(rightResizer.tagName).toBe('BUTTON');
 
-    expect(rightResizer).toHaveAttribute('aria-valuenow', '264');
+    const rightPanelMaximum = rightPanelMaxWidth(window.innerWidth, 248);
+    const restoredWidth = Math.min(rightPanelWidthSchema.initialValue, rightPanelMaximum);
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(restoredWidth));
+    expect(storage.value()).toBe(String(rightPanelWidthSchema.initialValue));
 
     fireEvent.keyDown(rightResizer, { key: 'ArrowLeft' });
 
-    expect(rightResizer).toHaveAttribute('aria-valuenow', '280');
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 280px' });
+    const arrowWidth = Number(rightResizer.getAttribute('aria-valuenow'));
+    expect(arrowWidth).toBeGreaterThan(restoredWidth);
+    expect(storage.value()).toBe(String(arrowWidth));
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${arrowWidth}px` });
+
+    fireEvent.keyDown(rightResizer, { key: 'Home' });
+
+    expect(storage.value()).toBe('0');
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+    const defaultWidth = Math.min(rightPanelDefaultWidth(window.innerWidth), rightPanelMaximum);
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(defaultWidth));
+    expect(storage.value()).toBe(String(defaultWidth));
+
+    fireEvent.keyDown(rightResizer, { key: 'End' });
+
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(rightPanelMaximum));
+    expect(storage.value()).toBe(String(rightPanelMaximum));
+
+    fireEvent.click(screen.getByRole('button', { name: '隐藏侧边栏' }));
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(rightPanelMaximum));
+    expect(storage.value()).toBe(String(rightPanelMaximum));
+    expect(storage.set).toHaveBeenCalledTimes(4);
 
     const activityResizer = screen.getByRole('separator', { name: '调整工具使用面板高度' });
     expect(activityResizer.tagName).toBe('BUTTON');
@@ -3225,14 +3347,37 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
   });
 
-  it('keeps default chat columns proportional when the window is resized', async () => {
-    render(<App />);
+  it('clamps a persisted panel width on viewport shrink and keeps the committed clamp when it grows', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
+    const persistedWidth = 480.5;
+    const storage = createShellLayoutStorage(String(persistedWidth));
+
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 189px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${persistedWidth}px` });
+    expect(storage.set).not.toHaveBeenCalled();
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    const clampedWidth = rightPanelMaxWidth(
+      window.innerWidth,
+      threadRailTargetWidth(window.innerWidth),
+    );
+    await waitFor(() => {
+      expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${clampedWidth}px` });
+      expect(storage.value()).toBe(String(clampedWidth));
+    });
+    expect(storage.set).toHaveBeenCalledExactlyOnceWith(
+      rightPanelWidthSchema.key,
+      String(clampedWidth),
+    );
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
     act(() => {
@@ -3240,8 +3385,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     await waitFor(() => {
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${clampedWidth}px` });
     });
+    expect(storage.value()).toBe(String(clampedWidth));
+    expect(storage.set).toHaveBeenCalledTimes(1);
   });
 
   it('lets the right sidebar grow toward two fifths while preserving two fifths for conversation', async () => {
@@ -3266,8 +3413,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps right sidebar drag updates local until the pointer is released', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3275,25 +3423,24 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByTestId('right-panel-resizer');
 
-    expect(useClientStore.getState().rightPanelWidth).toBe(380);
+    expect(storage.value()).toBe('380');
 
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 700);
 
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 751px' });
-    expect(useClientStore.getState().rightPanelWidth).toBe(380);
+    expect(storage.value()).toBe('380');
 
     dispatchPointer(window, 'pointerup', 700);
 
-    await waitFor(() => {
-      expect(useClientStore.getState().rightPanelWidth).toBe(751);
-    });
+    expect(storage.value()).toBe('751');
   });
 
   it('stops right sidebar resizing when the pointer is no longer pressed', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3307,7 +3454,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     dispatchPointer(window, 'pointermove', 700, { buttons: 0 });
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
-    expect(useClientStore.getState().rightPanelWidth).toBe(480);
+    expect(storage.value()).toBe('480');
 
     dispatchPointer(window, 'pointermove', 500, { buttons: 0 });
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
@@ -3315,8 +3462,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps the right sidebar draggable past the previous early close width', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3333,15 +3481,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     dispatchPointer(window, 'pointerup', 1330);
 
-    await waitFor(() => {
-      expect(useClientStore.getState().rightPanelWidth).toBe(150);
-    });
+    expect(storage.value()).toBe('150');
   });
 
   it('closes the right sidebar when dragged flush to the right edge', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3352,12 +3499,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 1480);
 
-    await waitFor(() => {
-      expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
-      expect(useClientStore.getState().rightPanelWidth).toBe(0);
-    });
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
+    expect(storage.value()).toBe('0');
   });
 
   it('isolates right sidebar diff, warnings, and tool stats to the selected agent', async () => {
@@ -3562,8 +3707,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const rightResizer = screen.getByTestId('right-panel-resizer');
 
     dispatchPointer(rightResizer, 'pointerdown', 1100);
-    dispatchPointer(window, 'pointermove', 1300);
-    dispatchPointer(window, 'pointerup', 1300);
+    dispatchPointer(window, 'pointermove', 1500);
+    dispatchPointer(window, 'pointerup', 1500);
 
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
