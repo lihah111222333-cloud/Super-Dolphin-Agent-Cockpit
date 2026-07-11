@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -203,10 +204,25 @@ func (s *stubRunStoreWriteFixture) TerminateRun(_ context.Context, input taskdag
 	return s.terminateRunResult, nil
 }
 
-// uniqueViolationErr 交付一个 SQLSTATE 23505 错误供 stub.WithRunTx 返回，
-// 以便驱动 service 走 GetRun-first fallback 路径。
-func uniqueViolationErr(constraintName string) error {
-	return errors.New("UNIQUE constraint failed: " + constraintName)
+// uniqueViolationErr 生成真实 SQLite UNIQUE 错误，驱动 service 走 GetRun-first fallback 路径。
+func uniqueViolationErr(t *testing.T) error {
+	t.Helper()
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite unique fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec("CREATE TABLE fixture (value TEXT UNIQUE)"); err != nil {
+		t.Fatalf("create sqlite unique fixture: %v", err)
+	}
+	if _, err := database.Exec("INSERT INTO fixture (value) VALUES ('duplicate')"); err != nil {
+		t.Fatalf("seed sqlite unique fixture: %v", err)
+	}
+	_, err = database.Exec("INSERT INTO fixture (value) VALUES ('duplicate')")
+	if err == nil || !platformdb.IsUniqueViolation(err) {
+		t.Fatalf("sqlite unique fixture error = %v", err)
+	}
+	return err
 }
 
 // makeStartDAGService 构造测试用 service：仅注入 dagStore + runStore。
@@ -392,7 +408,7 @@ func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
 	existing := &taskdag.Run{ID: 123, RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:               uniqueViolationErr("task_dag_runs_run_key_key"),
+		withTxErr:               uniqueViolationErr(t),
 		getRunReply:             existing, // GetRun 命中 running 后走幂等复用路径。
 		scheduleRootWakeupsRows: 1,
 	}
@@ -426,7 +442,7 @@ func TestStartDAG_IdempotencyKeyReplay_RootWakeupFailurePropagates(t *testing.T)
 	existing := &taskdag.Run{ID: 123, RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:              uniqueViolationErr("task_dag_runs_run_key_key"),
+		withTxErr:              uniqueViolationErr(t),
 		getRunReply:            existing,
 		scheduleRootWakeupsErr: errors.New("wakeup store down"),
 	}
@@ -449,7 +465,7 @@ func TestStartDAG_IdempotencyKey_ExistingRunSucceeded_ReturnsExisting(t *testing
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 9, Status: "succeeded"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		withTxErr:   uniqueViolationErr(t),
 		getRunReply: existing,
 	}
 	svc := makeStartDAGService(dagStore, runStore)
@@ -473,7 +489,7 @@ func TestStartDAG_IdempotencyKey_ExistingRunFailed_ReturnsExhausted(t *testing.T
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 3, Status: "failed"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		withTxErr:   uniqueViolationErr(t),
 		getRunReply: existing,
 	}
 	svc := makeStartDAGService(dagStore, runStore)
@@ -502,7 +518,7 @@ func TestStartDAG_IdempotencyKey_ExistingRunCancelled_ReturnsExhausted(t *testin
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 3, Status: "cancelled"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		withTxErr:   uniqueViolationErr(t),
 		getRunReply: existing,
 	}
 	svc := makeStartDAGService(dagStore, runStore)
@@ -530,7 +546,7 @@ func TestStartDAG_IdempotencyKey_UnknownStatus_ReturnsError(t *testing.T) {
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", Status: "weird-state"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		withTxErr:   uniqueViolationErr(t),
 		getRunReply: existing,
 	}
 	svc := makeStartDAGService(dagStore, runStore)
@@ -556,7 +572,7 @@ func TestStartDAG_IdempotencyKey_UnknownStatus_ReturnsError(t *testing.T) {
 func TestStartDAG_GetRunFallbackError_PropagatesWithContext(t *testing.T) {
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr: uniqueViolationErr("some_constraint"),
+		withTxErr: uniqueViolationErr(t),
 		getRunErr: errors.New("connection lost during fallback"), // 非 IsNotFound
 	}
 	svc := makeStartDAGService(dagStore, runStore)
@@ -622,7 +638,7 @@ func TestStartDAG_CreateRunGenericError_NoFallback(t *testing.T) {
 func TestStartDAG_DBUniqueViolation_GetRunMissPropagatesOriginal(t *testing.T) {
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr: uniqueViolationErr("some_other_unique"),
+		withTxErr: uniqueViolationErr(t),
 		getRunErr: platformdb.ErrNotFound, // GetRun 未命中
 	}
 	svc := makeStartDAGService(dagStore, runStore)

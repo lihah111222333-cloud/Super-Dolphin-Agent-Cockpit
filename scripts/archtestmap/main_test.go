@@ -307,6 +307,11 @@ func archtestMapRunFixture(t *testing.T) (string, archtest.BackendBoundaryRegist
 	writeTestFile(t, root, readmePath, readmeFixture("| Architecture Tests | "+statsBeginMarker+"stale"+statsEndMarker+" |"))
 	writeTestFile(t, root, ruleMapPath, "stale map\n")
 	registry := archtest.DefaultBackendBoundaryRegistry()
+	fixtureRule, ok := registry.Rule("fx_assembly_scope")
+	if !ok {
+		t.Fatal("fixture canonical rule is missing")
+	}
+	registry.Rules = []archtest.BackendBoundaryRule{fixtureRule}
 	registry.Guards = []archtest.BackendBoundaryGuard{{
 		ID:        "fixture_guard",
 		File:      "internal/archtest/guard_test.go",

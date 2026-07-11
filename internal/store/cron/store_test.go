@@ -207,7 +207,6 @@ func TestCreateJobValidatesRequiredFields(t *testing.T) {
 		{"empty schedule_expr", func(p *CreateJobParams) { p.ScheduleExpr = "" }, ErrEmptyScheduleExpr},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := &store{q: &cronQuerierStub{}}
@@ -339,13 +338,14 @@ func TestClaimDueJobsForUpdateDefaultsMaxClaim(t *testing.T) {
 
 func TestClaimDueJobsForUpdateRetriesSQLiteBusy(t *testing.T) {
 	t.Parallel()
+	busyErr := sqliteBusyLockedError(t)
 	attempts := 0
 	s := &store{q: &cronQuerierStub{
 		cronClaimQuerierStub: cronClaimQuerierStub{
 			claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 				attempts++
 				if attempts < 3 {
-					return nil, errors.New("database is locked")
+					return nil, busyErr
 				}
 				return []sqlc.CronJob{{ID: "job-1"}}, nil
 			},
@@ -369,12 +369,13 @@ func TestClaimDueJobsForUpdateRetriesSQLiteBusy(t *testing.T) {
 func TestClaimDueJobsForUpdateSQLiteBusyExhaustionReturnsContext(t *testing.T) {
 	t.Parallel()
 	const wantAttempts = 3
+	busyErr := sqliteBusyLockedError(t)
 	attempts := 0
 	s := &store{q: &cronQuerierStub{
 		cronClaimQuerierStub: cronClaimQuerierStub{
 			claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 				attempts++
-				return nil, errors.New("database is locked")
+				return nil, busyErr
 			},
 		},
 	}}
@@ -391,6 +392,39 @@ func TestClaimDueJobsForUpdateSQLiteBusyExhaustionReturnsContext(t *testing.T) {
 	if !errors.Is(err, platformdb.ErrTimeout) || !contains(err.Error(), "claim_due_jobs cron") || !contains(err.Error(), "database is locked") {
 		t.Fatalf("err = %v, want wrapped timeout with claim context", err)
 	}
+}
+
+func sqliteBusyLockedError(t *testing.T) error {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "busy.sqlite")
+	holder, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatalf("open sqlite busy holder: %v", err)
+	}
+	contender, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatalf("open sqlite busy contender: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = contender.Close()
+		_ = holder.Close()
+	})
+	if _, err := holder.Exec("CREATE TABLE fixture (value TEXT)"); err != nil {
+		t.Fatalf("create sqlite busy fixture: %v", err)
+	}
+	tx, err := holder.Begin()
+	if err != nil {
+		t.Fatalf("begin sqlite busy holder: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	if _, err := tx.Exec("INSERT INTO fixture (value) VALUES ('holder')"); err != nil {
+		t.Fatalf("lock sqlite busy fixture: %v", err)
+	}
+	_, err = contender.Exec("INSERT INTO fixture (value) VALUES ('contender')")
+	if err == nil || !platformdb.IsSQLiteBusyLocked(err) {
+		t.Fatalf("sqlite busy fixture error = %v", err)
+	}
+	return err
 }
 
 func TestRenewLeaseReturnsTokenMismatchOnZeroRows(t *testing.T) {
@@ -786,7 +820,7 @@ func readRepoFile(t *testing.T, rel string) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			data, err := os.ReadFile(filepath.Join(dir, rel))
 			if err != nil {

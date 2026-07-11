@@ -41,6 +41,26 @@ func sampleUpsertParams() UpsertParams {
 	}
 }
 
+func bindingUniqueViolationError(t *testing.T) error {
+	t.Helper()
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite unique fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec("CREATE TABLE fixture (value TEXT UNIQUE)"); err != nil {
+		t.Fatalf("create sqlite unique fixture: %v", err)
+	}
+	if _, err := database.Exec("INSERT INTO fixture (value) VALUES ('duplicate')"); err != nil {
+		t.Fatalf("seed sqlite unique fixture: %v", err)
+	}
+	_, err = database.Exec("INSERT INTO fixture (value) VALUES ('duplicate')")
+	if err == nil || !platformdb.IsUniqueViolation(err) {
+		t.Fatalf("sqlite unique fixture error = %v", err)
+	}
+	return err
+}
+
 func runUpsertSuccessCase(t *testing.T, params UpsertParams) {
 	t.Helper()
 
@@ -76,7 +96,7 @@ func runUpsertUniqueFallbackCase(t *testing.T, params UpsertParams) {
 			if arg.AgentID != params.AgentID {
 				t.Fatalf("Upsert() AgentID = %q, want %q", arg.AgentID, params.AgentID)
 			}
-			return errors.New("UNIQUE constraint failed: agent_provider_binding.provider, agent_provider_binding.provider_thread_id")
+			return bindingUniqueViolationError(t)
 		},
 		getByProviderThreadFn: func(_ context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 			lookupCalls++
@@ -382,7 +402,7 @@ func TestErrorWrapping(t *testing.T) {
 	})
 
 	t.Run("conflict classification", func(t *testing.T) {
-		baseErr := errors.New("UNIQUE constraint failed: agent_provider_binding.provider, agent_provider_binding.provider_thread_id")
+		baseErr := bindingUniqueViolationError(t)
 		s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
 			upsertAgentProviderBindingFn: func(context.Context, sqlc.UpsertAgentProviderBindingParams) error {
 				return baseErr
