@@ -43,7 +43,7 @@
 |---|---|---|
 | Task 0 冻结基线与恢复工具面 | `GREEN` | 前置计划快照 `0dd59a0599a98761f641db0f0abdd6504a9aaca0`；本记录所在 Task 0 提交由该提交的 `HEAD` 解析 |
 | Task 1 thread-open intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `31c94421e82835560847723b29eb04bf70796543`；实现、验证与原子提交已完成，Task 1 提交由包含本记录的 Git `HEAD` 解析 |
-| Task 2 scroll intent | `TODO` | 依赖 Task 1 |
+| Task 2 scroll intent | `GREEN` | Phase A RED 与 Phase B GREEN 均基于 `af2c245409afa6f269b32250d256d7fa7162cbe8`；实现、验证与原子提交完成后由包含本记录的 Git `HEAD` 解析 |
 | Task 3 recovery accepted | `TODO` | 依赖 Task 2 |
 | Task 4 crash containment | `TODO` | 依赖 Task 3 |
 | Task 5 approval-only | `TODO` | 依赖 Task 4 |
@@ -359,3 +359,208 @@ npx --no-install vitest run \
 - `pendingActiveThreadId` 与 `threadStateLoadingByThread` 仍是既有 store truth；intent 只决定迟到结果是否有权提交 active-view/global side effects。
 - keyed cache/loading 收敛由原 runtime generation 机制继续负责；intent gate 不吞掉 cleanup，也不删除 stale thread cache。
 - Task 1 仅在最终 diagnostics、focused gate、targeted lint、code-size、docs validator、diff check 与原子提交全部通过后结束；本 agent 随后停止，不进入 Task 2，也不 push。
+
+## Task 2 — 单一 timeline scroll intent manager
+
+### STATE
+
+`GREEN`（Phase A RED 已完整保留；Phase B 最小实现与验证完成）
+
+本阶段没有创建 `scrollIntentModel.js` 或 `useScrollIntentManager.js`，没有修改 `Conversation.jsx`、`timelineScroll.js` 或其他生产代码，也没有 stage/commit。RED 分别锁定 pure transition、Conversation 输入接线、旧双 truth owner 删除、可取消 rAF handle，以及 observer/listener 生命周期；失败原因是计划中的 model/hook 缺失和现有旧行为，不是 jsdom observer 缺失、错误 target/button、未执行 rAF callback 或源码路径错误。
+
+### DAG
+
+```text
+Task 1 commit af2c245409afa6f269b32250d256d7fa7162cbe8
+  -> Task 2 Phase A LSP discovery
+  -> pure model module-missing RED
+  -> Conversation interaction / legacy-owner RED
+  -> hook lifecycle module-missing RED
+  -> exact focused RED + diagnostics / dirty boundary
+  -X-> Task 2 Phase B production implementation
+  -X-> Task 3
+```
+
+### RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | LSP `grep/structure/inspect/xref/file(read_file)` | success | 锁定两个旧 ref owner 的全部读写、DOM primitive xref、observer/listener/timer cleanup 与 ChatPage 测试接线 |
+| 2 | pure model test 单独运行 | 1 | 唯一失败为 `./scrollIntentModel.js` 不存在；0 tests collected；5 个 pure behavior tests 已写入 |
+| 3 | Core 测试首轮 | 1 | 暴露两个 test harness 问题：未执行 scheduled rAF 却断言 scrollTop、`import.meta.url` 不是 file URL；不计作产品 RED |
+| 4 | timeline DOM primitive test | 1 | 3 tests 中 1 failed / 2 passed；`requestTimelineBottomScroll` 实际返回 `undefined`，预期返回 frame id `1` 供 hook cleanup |
+| 5 | 四测试文件定向 ESLint（首次） | 1 | hook harness 整体访问 manager 被 `react-hooks/refs` 报 6 errors；改为直接解构理想 hook API 后消除，不计作产品 RED |
+| 6 | Core harness 修正后单独运行 | 1 | 25 tests：5 expected failures / 20 passed；wheel up、touch upward、PageUp、Home 后仍请求 rAF，以及两个旧 refs 仍存在 |
+| 7 | hook lifecycle test 单独运行（最终） | 1 | 唯一失败为 `./useScrollIntentManager.js` 不存在；0 tests collected；observer/rAF/load cleanup fixture 未执行、无环境错误 |
+| 8 | 四测试文件定向 ESLint（最终） | 0 | 无 error/warning |
+| 9 | 计划指定三文件 focused 命令（最终） | 1 | 3 files failed；1 module-missing suite + 6 intended behavior failures；22 passed |
+| 10 | LSP diagnostics 四个测试文件 | 0 | `No diagnostics found`、total 0 |
+
+最终 focused 命令：
+
+```bash
+cd frontend-app
+npx --no-install vitest run \
+  src/pages/chat/model/scrollIntentModel.test.js \
+  src/pages/chat/hooks/timelineScroll.test.js \
+  src/pages/chat/ChatPage.core.test.jsx \
+  --no-file-parallelism --maxWorkers=1
+```
+
+最终输出：`Test Files 3 failed (3)`；`Tests 6 failed | 22 passed (28)`；exit 1。额外的 hook lifecycle test 按 Phase A 允许项单独运行，结果是 hook module-missing RED。
+
+### EVIDENCE
+
+#### LSP 定位、理解、影响面与精读
+
+| 链路 | 可复查位置与 Phase B 判定 |
+|---|---|
+| controller owner | `useConversationScrollController@Conversation.jsx:87-185` hover/definition/xref 到 `Conversation@270`。`shouldStickToBottomRef@96` 初始 true；scroll 写 near-bottom；instant/smooth/send/thread-change 写 true；autoScrollKey、MutationObserver、capture-load 与 streaming callback 读取 gate。 |
+| timeline owner | `ConversationTimeline@Conversation.jsx:416-542` hover/definition/xref 到 `Conversation@301`。`userScrolledRef@447` 初始 false；scroll 写 `!isTimelineNearBottom`；message effect读取；thread-change 写 false。 |
+| controller cleanup | thread 初始化 50ms timer 在 effect cleanup `clearTimeout`；MutationObserver `disconnect@166-168`；capture-load listener 在 `178-181` 对称 remove。现有 rAF primitive 不返回 id，无法在 owner unmount 时 cancel；当前没有 ResizeObserver。 |
+| timeline cleanup | `userScrolledRef` 没有独立 listener/observer；older-page request ref 的 async finally 只收敛 pagination ownership，与 scroll intent 无关。 |
+| DOM primitives | `timelineScroll.js` 只有 threshold、`scrollTimelineElementToBottom`、`isTimelineNearBottom`、`requestTimelineBottomScroll`。三个 symbol hover/xref 只到 `Conversation.jsx` 与 `timelineScroll.test.js`，适合继续保持无状态。 |
+| streaming call | `onScrollIfSticky` grep 覆盖 `Conversation` 传递链、`TimelineMessage.jsx:109-112` streaming effect、`TurnProcessGroup` 与相应测试；Phase B 应把 gate 回收到单一 manager，不复制第三份 intent。 |
+
+#### 两个旧 truth owner 的完整读写清单
+
+`shouldStickToBottomRef` 共 10 处：
+
+```text
+96 create=true
+101 scroll position write
+104 instant bottom write=true
+108 smooth bottom write=true
+112 sticky read
+122 message send write=true
+131 thread change write=true
+154 autoScrollKey read
+161 MutationObserver read
+174 capture load read
+```
+
+`userScrolledRef` 共 4 处：
+
+```text
+447 create=false
+482 scroll position write
+493 message auto-scroll read
+498 thread change write=false
+```
+
+结论：两个 ref 同时判断同一个 timeline 的 stickiness，但在不同 effect 中读写，是真实双 truth owner。Phase B 必须删除这 14 个旧 owner 读写，由 `useScrollIntentManager` 闭包唯一持有 intent；不能把其中一个 ref 改名后保留为第二判断面。
+
+#### RED 行为矩阵
+
+| 高风险场景 | 测试载体 | Phase A 结果 |
+|---|---|---|
+| 初次打开、send、thread change | `scrollIntentModel.test.js` | module-missing RED；理想 state 初始/重置为 sticky |
+| wheel up、touch upward、PageUp、Home | pure model + `ChatPage.core.test.jsx` | Core 4/4 仍 schedule rAF，证明现有 Conversation 没有输入 intent 接线 |
+| 离开/返回 near-bottom threshold | pure model + Core guard | pure model 待实现；Core 的既有 scroll-position 路径通过，作为不可回退 guard |
+| End、bottom button | pure model + Core guard | pure model待实现；Core guard 当前通过，Phase B 必须接到同一 owner |
+| editable ArrowUp | pure model + Core guard | target filter contract 已写；Core guard通过 |
+| ctrl+wheel / horizontal wheel | pure model + Core guard | filter contract 已写；Core guard通过，不得被新 wheel handler 破坏 |
+| streaming / load / mutation / resize | pure model + hook test | `shouldFollowTimeline` 四 source contract 与单 manager observer callbacks 已写；model/hook 均 module-missing |
+| unmount cleanup | hook test | 要求取消 pending rAF、disconnect Mutation/Resize observers、移除 capture-load listener；hook module-missing RED |
+| legacy owner deletion | Core source contract | `shouldStickToBottomRef`、`userScrolledRef` 仍存在且 `useScrollIntentManager` 不存在；expected RED |
+| cancelable primitive | `timelineScroll.test.js` | 当前 rAF helper 返回 `undefined`；expected RED |
+
+### NON_TARGET_DIFF
+
+| 检查点 | status / fingerprint | 判定 |
+|---|---|---|
+| Phase A BASE | `af2c245409afa6f269b32250d256d7fa7162cbe8`；clean | 主代理独立复验后的 Task 1 commit |
+| 主工作区 fingerprint | `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d` | Task 2 discovery/test-only 操作未触碰主工作区 |
+
+Phase A 允许的 owned dirty paths：
+
+```text
+M  docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md
+M  frontend-app/src/pages/chat/ChatPage.core.test.jsx
+M  frontend-app/src/pages/chat/hooks/timelineScroll.test.js
+?? frontend-app/src/pages/chat/hooks/useScrollIntentManager.test.jsx
+?? frontend-app/src/pages/chat/model/scrollIntentModel.test.js
+```
+
+### TRUTH_SOURCE_CHECK
+
+- 没有生产代码变更；`scrollIntentModel.js` 与 `useScrollIntentManager.js` 仍不存在，这是两个 module-missing RED 的预期原因。
+- `Conversation.jsx` 的 `shouldStickToBottomRef` 和 `userScrolledRef` 尚未删除；测试明确要求 Phase B 完全替代两者。
+- 没有引入 GSAP、stream batching、第二 store、持久化 scroll state 或新 UI framework。
+- pure model 只定义 `sticky/reading` transition contract；observer、listener、rAF 与 DOM coordination 只属于未来 hook；`timelineScroll.js` 仍保持无状态 DOM primitives。
+- 没有 stage、commit、push；Task 3 未开始。
+
+### CONCERNS / PHASE B CHECKPOINT
+
+- Phase B 必须先创建 pure model，使 module-missing 变成可执行 transition RED/GREEN，再实现 hook；禁止把 transition 重新散落回 `Conversation.jsx` event handlers。
+- 新 hook 应直接拥有 wheel/touch/key/scroll input、autoScrollKey、MutationObserver、ResizeObserver、capture-load listener、pending rAF 与 cleanup；Conversation 只做 wiring 和 send wrapper。
+- `requestTimelineBottomScroll` 返回 frame id 只是无状态 primitive contract；取消与最新 frame ownership 必须留在 hook，不能在 module scope 建全局状态。
+- touch upward 在 Core fixture 中定义为触点 `clientY: 120 -> 70`；Phase B 若采用不同坐标语义必须先与主代理裁决，不能让 model 与 DOM adapter 方向相反。
+- 本 agent 停在 Phase A；主代理复核 test API、expected failures 与 dirty 边界前，不进入生产实现、GREEN、Task 3 或提交。
+
+### PHASE B RESULT_GATES
+
+| 顺序 | 命令 / 动作 | exit / result | 关键证据 |
+|---:|---|---:|---|
+| 1 | pure model unit | 0 | 1 file / 5 tests passed；model 只导出 create/reduce/follow 三个纯 API，无 React/DOM import |
+| 2 | hook lifecycle unit | 0 | 1 file / 2 tests passed；同一 reading intent gate streaming/load/mutation/resize，End 恢复 sticky；unmount cleanup 全通过 |
+| 3 | 首轮 4-file focused | 0 | model + hook + DOM primitive + Core，4 files / 35 tests passed |
+| 4 | targeted lint / production size（首次） | 1 | lint 仅有删除旧 effect 后未用 `useEffect`；Conversation 151 行超过 150；删除 import并收敛解构后修复，未改阈值 |
+| 5 | targeted lint / production size（修复后） | 0 | ESLint 无输出；`files=236, frozen=0` |
+| 6 | streaming consumer 复核 | 0 | 主代理指出显式 streaming callback 必须消费同一 hook；恢复 `scrollIfSticky` 传递链后 4 files / 35 tests passed |
+| 7 | `npm test`（首次） | 1 | Vitest 前 contract/store guard 阻断：`touches[0] || changedTouches[0]` 命中 compat fallback ratchet；未进入测试主体 |
+| 8 | `npm test`（最终） | 0 | 119 test files / 1422 tests passed；contract/store 0/0、code-size `files=346, frozen=0`、TS contracts、RPC audit 全部通过 |
+| 9 | `npm run build` | 0 | Vite transformed 5541 modules；build 403ms；embed sync 未留下额外手工产物 |
+| 10 | 计划 exact focused（最终） | 0 | 3 files / 33 tests passed |
+| 11 | hook lifecycle test（最终） | 0 | 1 file / 2 tests passed |
+| 12 | targeted ESLint / production size（最终） | 0 | changed source/test lint clean；production `files=236, frozen=0` |
+| 13 | `npm run lint`（最终） | 0 | `eslint .` 无 error/warning |
+| 14 | LSP final hover/xref/read/diagnostics | 0 | hook API xref 只到 Conversation 与 hook test；9 个 changed source/test/doc diagnostics 为 `No diagnostics found`、total 0 |
+| 15 | truth owner grep | 0 | Conversation 两个旧 ref 均 0；`intentRef` 5 个生产命中全部位于唯一 hook |
+| 16 | docs validator / diff check | 0 | skill adaptation checks passed；`git diff --check` 无输出 |
+
+最终计划命令输出：`Test Files 3 passed (3)`；`Tests 33 passed (33)`；exit 0。加入 hook test 的 4-file focused 输出：`Test Files 4 passed (4)`；`Tests 35 passed (35)`；exit 0。
+
+### PHASE B EVIDENCE
+
+#### 唯一 intent owner 与依赖方向
+
+- `scrollIntentModel.js` 的 state 仅为冻结的 `{ mode: 'sticky' | 'reading', threadId }`；`createScrollIntentState`、`reduceScrollIntent`、`shouldFollowTimeline` 不 import React、DOM 或 store，未知 event/source fail-fast。
+- `useScrollIntentManager.js` 的 `intentRef` 是唯一 stickiness truth。`touchStartYRef`、`frameIdRef`、`lastAutoScrollKeyRef`、blocked/initial refs 只保存坐标、资源句柄和生命周期细节，不表达第二个 sticky/reading 判断。
+- manager 独占 wheel/touch/key/scroll-position transition、thread reset、message-sent、explicit-bottom、autoScrollKey、MutationObserver、ResizeObserver、capture-load listener、timer/rAF ownership与 cleanup。
+- `timelineScroll.js` 继续只有无状态 DOM primitives；`requestTimelineBottomScroll` 只返回浏览器 frame id，不保存 id，也不负责取消。
+
+#### Conversation truth-source migration
+
+- 整个旧 `useConversationScrollController` 已删除；生产 `Conversation.jsx` 中 `shouldStickToBottomRef` 与 `userScrolledRef` grep 均为 0。
+- `ConversationTimeline` 原先基于 `userScrolledRef` 的 message effect 与 thread reset effect 已删除；消息增长不再绕过 hook调用 `onScrollToBottom`。
+- timeline element 直接接入 manager 的 wheel、touch-start/move、key、scroll handlers；分页 `handleScroll` 仍保留 local-hidden/backend-page threshold 与 `preserveScrollAfterOlderPage`。
+- send wrapper 调用 `markMessageSent`，底部按钮调用 `scrollToBottom(true)`；near-bottom scroll 与 End 也回到同一 reducer 的 sticky state。
+- `TimelineMessage` / `TurnProcessGroup` 的 streaming callback 通过 `onScrollIfSticky={scrollIfSticky}` 消费同一 manager；hook test证明 reading 时不滚、End 后 sticky 时滚。autoScrollKey、Mutation、Resize、load 也只读取同一 intent。
+
+#### 输入、observer 与 cleanup 证据
+
+| 行为 | GREEN 证据 |
+|---|---|
+| wheel up / touch upward / PageUp / Home | Core 4 个 integration 从 schedule rAF RED 转 GREEN；pure reducer同步 GREEN |
+| ctrl+wheel / horizontal wheel / editable ArrowUp | Core integration guard 与 pure tests 均 GREEN |
+| End / near-bottom / explicit button / send / thread change | pure transition GREEN；Core End/scroll/button与send路径 GREEN |
+| streaming / load / mutation / resize | `shouldFollowTimeline` pure matrix GREEN；hook observer/callback test对reading/sticky均 GREEN |
+| rAF | primitive 返回 id；manager 在新请求前与 unmount cancel，hook test断言 id `73` 被取消 |
+| observer/listener | Mutation/Resize 均 observe timeline并在 cleanup disconnect；capture-load unmount 后不再触发 request |
+| initial/thread lifecycle | thread transition重置 sticky、touch起点、autoScrollKey与initial标记；50ms timer由effect cleanup取消 |
+
+### PHASE B NON_TARGET_DIFF
+
+- 生产修改严格限定为计划内 `scrollIntentModel.js`、`useScrollIntentManager.js`、`timelineScroll.js`、`Conversation.jsx`。
+- 测试严格限定为 model test、hook test、`timelineScroll.test.js` 与 `ChatPage.core.test.jsx`；本执行记录是唯一手工文档修改。
+- 没有修改 TimelineMessage/TurnProcess 的 streaming batching、store/backend、CSS、package manifest/lockfile 或 guard 阈值；没有引入 GSAP 或新依赖。
+- 主工作区 fingerprint 在 Phase B 验证后仍为 `2195780a94c8404b40f92537a8982e5beebb89d60258f00e405b780ee5ceb16d`；其 dirty 计划文档未进入本 worktree。
+- pre-commit 若由单一生成器刷新 project-map/codemap 索引，只在 hook checks 通过后纳入同一原子提交，并在提交后核对 exact names 与 clean status。
+
+### PHASE B TRUTH_SOURCE_CHECK / STOP
+
+- sticky/reading 只有 manager 内 `intentRef` 一个 owner；生产 grep 不得重新出现两个旧 ref，也不得新增 store/session scroll state。
+- autoScrollKey、stream callback、MutationObserver、ResizeObserver 与 load listener是同一 owner 的多个事件源，不是多个 truth source；每个 source 在滚动前都经过 `shouldFollowTimeline`。
+- older-page scroll preservation 是分页 DOM offset 责任，不表达 sticky/reading，不迁入 reducer。
+- Task 2 只在最终 LSP diagnostics、docs validator、diff checks、原子提交与 post-commit clean 全部通过后结束；随后停止，不进入 Task 3，也不 push。

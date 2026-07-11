@@ -1,8 +1,40 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
+
+function installTimelineMetrics(timeline) {
+  let scrollHeight = 1000;
+  let scrollTop = 600;
+  Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+  Object.defineProperty(timeline, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(timeline, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value) => {
+      scrollTop = Number(value);
+    },
+  });
+  return {
+    getScrollTop: () => scrollTop,
+    setScrollHeight: (value) => {
+      scrollHeight = value;
+    },
+    setScrollTop: (value) => {
+      scrollTop = value;
+    },
+  };
+}
+
+function scrollIntentMessages(text = '初始回复') {
+  return [
+    { id: 'scroll-user-1', role: 'user', text: '继续分析滚动行为', time: '2026-06-02T08:00:00Z' },
+    { id: 'scroll-assistant-1', role: 'assistant', text, time: '2026-06-02T08:01:00Z', done: false },
+  ];
+}
+
   it('exports the chat page component', () => {
     expect(TestChatPageWrapper).toBeTypeOf('function');
   });
@@ -420,4 +452,82 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
     expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
     expect(conversation).not.toHaveClass('drop-active');
+  });
+
+  it.each([
+    ['wheel up', (timeline) => fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 0, deltaY: -40 })],
+    ['touch upward', (timeline) => {
+      fireEvent.touchStart(timeline, { touches: [{ clientY: 120 }] });
+      fireEvent.touchMove(timeline, { touches: [{ clientY: 70 }] });
+    }],
+    ['PageUp', (timeline) => fireEvent.keyDown(timeline, { key: 'PageUp' })],
+    ['Home', (timeline) => fireEvent.keyDown(timeline, { key: 'Home' })],
+  ])('keeps streaming from stealing reading position after %s intent', (_label, leaveSticky) => {
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
+    const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    const metrics = installTimelineMetrics(timeline);
+    requestAnimationFrameSpy.mockClear();
+
+    leaveSticky(timeline);
+    metrics.setScrollHeight(1280);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('增长中的回复'))} projectPath="/repo/app" />);
+
+    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+    expect(metrics.getScrollTop()).toBe(600);
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('ignores zoom, horizontal wheel, and editable arrow keys while sticky', () => {
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
+    const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    const metrics = installTimelineMetrics(timeline);
+
+    fireEvent.wheel(timeline, { ctrlKey: true, deltaX: 0, deltaY: -40 });
+    fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 80, deltaY: -10 });
+    fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'ArrowUp' });
+    requestAnimationFrameSpy.mockClear();
+    metrics.setScrollHeight(1280);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('仍应跟随的回复'))} projectPath="/repo/app" />);
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('restores sticky intent through End, returning to the bottom, and the explicit bottom button', () => {
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
+    const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    const metrics = installTimelineMetrics(timeline);
+
+    fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
+    fireEvent.keyDown(timeline, { key: 'End' });
+    requestAnimationFrameSpy.mockClear();
+    metrics.setScrollHeight(1200);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('End 后跟随'))} projectPath="/repo/app" />);
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+
+    fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
+    metrics.setScrollTop(800);
+    fireEvent.scroll(timeline);
+    requestAnimationFrameSpy.mockClear();
+    metrics.setScrollHeight(1400);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('回到底部后跟随'))} projectPath="/repo/app" />);
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+
+    fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
+    metrics.setScrollTop(600);
+    fireEvent.click(screen.getByRole('button', { name: '滚动到底部' }));
+    expect(metrics.getScrollTop()).toBe(1400);
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('removes the two legacy stickiness refs when Conversation adopts the scroll intent manager', () => {
+    const source = readFileSync('src/pages/chat/thread/Conversation.jsx', 'utf8');
+
+    expect(source).not.toContain('shouldStickToBottomRef');
+    expect(source).not.toContain('userScrolledRef');
+    expect(source).toContain('useScrollIntentManager');
+    expect(source).toContain('onScrollIfSticky={scrollIfSticky}');
   });

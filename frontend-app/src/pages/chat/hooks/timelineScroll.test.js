@@ -31,9 +31,10 @@ describe('timelineScroll', () => {
       return 1;
     });
     try {
-      requestTimelineBottomScroll(callback);
+      const frameId = requestTimelineBottomScroll(callback);
       expect(callback).toHaveBeenCalledTimes(1);
       expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+      expect(frameId).toBe(1);
     } finally {
       window.requestAnimationFrame = original;
     }
