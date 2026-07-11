@@ -165,7 +165,7 @@
   position: fixed;
   top: 14px;
   left: 14px;
-  z-index: 40;
+  z-index: var(--z-shell-control);
   width: 40px;
   height: 40px;
   display: inline-flex;

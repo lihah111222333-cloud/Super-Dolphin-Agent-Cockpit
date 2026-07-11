@@ -50,6 +50,18 @@ Der Wartungszyklus basiert auf begrenztem Kontext:
 
 Damit entfällt die fragile Annahme, ein Mensch oder eine KI müsse die gesamte Codebasis im Gedächtnis halten.
 
+### Der saubere KI-Kreislauf: Kein "Full-Repo Scanning" erforderlich
+
+Bei herkömmlichen Entwicklungsansätzen haben Entwickler oft das Gefühl, die gesamte Codebasis in das Kontextfenster des KI-Agenten einspeisen zu müssen. Dies führt jedoch zu einer Explosion des Token-Verbrauchs, sättigt die Aufmerksamkeit des Modells und erhöht das Risiko von KI-Halluzinationen.
+
+Die selbstschützende Architektur von Super Dolphin schafft einen **sauberen, lokalisierten Code-Änderungszyklus**, der nach dem Prinzip des "Minimalen Wissens" (Zero-Knowledge) funktioniert:
+*   **Nur begrenzter Kontext**: Dank der vom Compiler erzwungenen Schnittstellenverträge, klarer Abgrenzungsregeln und automatisch aktualisierter project maps muss der KI-Agent nur die Zieldatei und deren direkt angrenzende Vertrags-Schnittstellen laden.
+*   **Das Repository führt den Agenten**: Wenn die KI versucht, Architekturregeln zu verletzen oder technische Schulden einzuführen, blockiert das statische AST/SSA-Gate dies sofort und liefert präzise Diagnosemeldungen (Diagnostics) auf Compiler-Ebene.
+*   **Automatische Selbstheilung (Self-Healing)**: Der Agent liest die Diagnosefehler des Compilers, korrigiert den Code direkt vor Ort und versucht die Operation erneut.
+
+Dies bedeutet, dass **die KI niemals das gesamte Projekt lesen muss**, um sichere Änderungen auf Produktionsniveau durchzuführen. Die Codebasis selbst fungiert als deterministischer Koordinator.
+
+
 ### Ursprung: Von der V2-Entropie zu Super Dolphin
 
 Super Dolphin Agent begann am 19. März 2026 als saubere Migration von `go-agent-v2`. V2 hatte den Produktwert bereits bewiesen: Agenten-Sitzungen, Tools, Provider, Ereignisse, Recovery und Desktop-Erlebnis funktionierten. Das Problem war nicht fehlende Funktionalität, sondern dass erfolgreiche lokale Erweiterungen die globale Verständlichkeit schrittweise zerstörten.

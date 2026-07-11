@@ -131,17 +131,18 @@ async function startProjectThreadAction(props) {
 }
 
 async function selectProjectThreadAction(props) {
-  const { activeProjectPath, openingStarted, path, store, threadId } = props;
+  const { activeProjectPath, path, selectionIntent, store, threadId } = props;
   if (path && projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
     const switched = await store?.setActiveProjectPath?.(path, {
       preserveActiveThreadId: true,
+      selectionIntent,
     });
     if (switched === false) {
-      if (openingStarted) void store?.setActiveThread?.('');
+      store?.cancelOpeningThread?.(selectionIntent);
       return;
     }
   }
-  return store?.setActiveThread?.(threadId);
+  return store?.setActiveThread?.(threadId, { selectionIntent });
 }
 
 function ProjectThreadEntry(props) {
@@ -329,9 +330,10 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
   const selectThread = (thread, path) => {
     const threadId = typeof thread === 'object' ? thread?.id : thread;
     if (!threadId) return;
-    const openingStarted = store?.beginOpeningThread?.(thread);
+    const selectionIntent = store?.beginOpeningThread?.(thread);
+    if (!selectionIntent) return;
     setActivePage('chat');
-    runUIAction(() => selectProjectThreadAction({ activeProjectPath, openingStarted, path, store, threadId }), actionOptions);
+    runUIAction(() => selectProjectThreadAction({ activeProjectPath, path, selectionIntent, store, threadId }), actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>

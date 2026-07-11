@@ -1,10 +1,10 @@
 import { memo, useLayoutEffect } from 'react';
 import { File } from 'lucide-react';
+import { isApprovalMessage } from '../../../features/approval/model/approvalDecision.js';
 import { useSmoothStreamingText } from '../hooks/useSmoothStreamingText.js';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { AssistantMessageActions, ReasoningTrace } from './ChatReasoningTrace.jsx';
 import { MarkdownImagePreview, MessageContent } from '../markdown/MarkdownMessage.jsx';
-import { isApprovalMessage } from './chatApprovalModel.js';
 import { isReasoningMessage } from './chatReasoningModel.js';
 import { basenameFromPath, firstText, trimmedText } from '../markdown/markdownMessageModel.js';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   backend,
@@ -457,8 +457,9 @@ it('saves schedule cron expressions with the backend timezone prefix', async () 
   renderWorkflowPage();
 
   fireEvent.click(await screen.findByRole('button', { name: '创建定时任务' }));
+  const scheduleDialog = await screen.findByRole('dialog', { name: '创建定时任务' });
   fireEvent.change(screen.getByLabelText('运行时间'), { target: { value: '05:00' } });
-  fireEvent.click(screen.getAllByRole('button', { name: '创建定时任务' }).at(-1));
+  fireEvent.click(within(scheduleDialog).getByRole('button', { name: '创建定时任务' }));
 
   await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
   expect(backend.applyDagOps.mock.calls[0][0].ops[0].patch).toMatchObject({
@@ -486,8 +487,9 @@ it('preserves paused scheduled DAGs when editing the schedule cron expression', 
   renderWorkflowPage();
 
   fireEvent.click(await screen.findByRole('button', { name: '修改计划' }));
+  const scheduleDialog = await screen.findByRole('dialog', { name: '修改计划' });
   fireEvent.change(screen.getByLabelText('运行时间'), { target: { value: '06:30' } });
-  fireEvent.click(screen.getAllByRole('button', { name: '修改计划' }).at(-1));
+  fireEvent.click(within(scheduleDialog).getByRole('button', { name: '修改计划' }));
 
   await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
   expect(backend.applyDagOps.mock.calls[0][0].ops[0].patch).toMatchObject({

@@ -50,6 +50,18 @@ El ciclo de mantenimiento se basa en contexto acotado:
 
 Así se elimina la frágil suposición de que una persona o una IA debe mantener todo el código en memoria.
 
+### El ciclo limpio de IA: Sin necesidad de "Escaneo Completo del Repositorio"
+
+En los flujos de desarrollo tradicionales, los desarrolladores a menudo sienten la necesidad de cargar todo el código fuente en la ventana de contexto del agente de IA. Sin embargo, esto dispara el consumo de tokens, satura la atención del modelo y aumenta las alucinaciones de la IA.
+
+La arquitectura autoprotegida de Super Dolphin crea un **ciclo de modificación de código limpio y localizado** que funciona bajo el principio de "Conocimiento Mínimo" (Zero-Knowledge):
+*   **Solo contexto acotado**: Gracias a los contratos de interfaz forzados por el compilador, las reglas de límites claros y los project maps actualizados automáticamente, el agente de IA solo necesita cargar el archivo de destino y sus interfaces de contrato directamente adyacentes.
+*   **El repositorio guía al agente**: Si la IA intenta violar las reglas de arquitectura o introducir deuda técnica, el gate estático AST/SSA la bloqueará inmediatamente y le proporcionará diagnósticos (Diagnostics) precisos a nivel de compilador.
+*   **Autocuración automática (Self-Healing)**: El agente lee los errores de diagnóstico del compilador, corrige el código en el lugar y vuelve a intentar la operación.
+
+Esto significa que **la IA nunca necesita leer todo el proyecto** para realizar cambios seguros de nivel de producción. El propio código fuente actúa como el coordinador determinista.
+
+
 ### Origen: de la entropía de V2 a Super Dolphin
 
 Super Dolphin Agent nació el 19 de marzo de 2026 como una migración limpia desde `go-agent-v2`. V2 ya había demostrado el producto: funcionaban las sesiones de agentes, las herramientas, los Providers, los eventos, la recuperación y la experiencia de escritorio. El problema no era la falta de funciones, sino que cada mejora local reducía gradualmente la legibilidad global.

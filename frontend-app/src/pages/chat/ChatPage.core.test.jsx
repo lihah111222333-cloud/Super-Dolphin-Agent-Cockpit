@@ -1,8 +1,53 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
+import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, createShellLayoutTestHarness, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
+
+function installTimelineMetrics(timeline) {
+  let scrollHeight = 1000;
+  let scrollTop = 600;
+  Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+  Object.defineProperty(timeline, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(timeline, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value) => {
+      scrollTop = Number(value);
+    },
+  });
+  return {
+    getScrollTop: () => scrollTop,
+    setScrollHeight: (value) => {
+      scrollHeight = value;
+    },
+    setScrollTop: (value) => {
+      scrollTop = value;
+    },
+  };
+}
+
+function scrollIntentMessages(text = '初始回复') {
+  return [
+    { id: 'scroll-user-1', role: 'user', text: '继续分析滚动行为', time: '2026-06-02T08:00:00Z' },
+    { id: 'scroll-assistant-1', role: 'assistant', text, time: '2026-06-02T08:01:00Z', done: false },
+  ];
+}
+
+function approvalMessage(requestId, status = 'pending') {
+  return {
+    id: `approval-${requestId}`,
+    kind: 'approval',
+    role: 'assistant',
+    requestId,
+    status,
+    text: `Approval ${requestId}`,
+    time: '2026-06-02T08:00:00Z',
+    done: status !== 'pending',
+  };
+}
+
   it('exports the chat page component', () => {
     expect(TestChatPageWrapper).toBeTypeOf('function');
   });
@@ -105,6 +150,7 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
         kind: 'approval',
         role: 'assistant',
         requestId: 5,
+        status: 'pending',
         title: 'Run command',
         text: 'Allow command execution?',
         time: '2026-06-15T08:00:00Z',
@@ -114,13 +160,126 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
     });
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
-    fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+    fireEvent.click(screen.getByRole('button', { name: '同意' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
     const alert = await screen.findByTestId('approval-action-feedback');
     expect(alert).toHaveAttribute('role', 'alert');
     expect(alert).toHaveClass('approval-action-feedback');
     expect(alert).not.toHaveClass('sr-only');
     expect(alert).toHaveTextContent('approval backend offline');
+  });
+
+  it.each([
+    ['disappears', []],
+    ['becomes terminal', [approvalMessage(5, 'approved')]],
+  ])('focuses the still-mounted composer when a same-thread pending approval %s', async (_label, settledMessages) => {
+    const pendingStore = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+    expect(document.activeElement).toBe(nonComposerControl);
+    expect(document.activeElement).not.toBe(originalTextarea);
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore(settledMessages)}
+        projectPath="/repo/app"
+      />,
+    );
+
+    const settledTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect(settledTextarea).toBe(originalTextarea);
+    await Promise.resolve();
+    expect(settledTextarea).toHaveFocus();
+  });
+
+  it('does not focus the new thread composer when an approval settles after a thread switch', async () => {
+    const threadOnePending = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={threadOnePending} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+    expect(document.activeElement).toBe(nonComposerControl);
+    expect(document.activeElement).not.toBe(originalTextarea);
+
+    const threadTwoStore = createActiveThreadStore([], {
+      activeThreadId: 'thread-2',
+      threads: [{ id: 'thread-2', name: '第二线程', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:01:00Z' }],
+      threadTimelineReadyByThread: { 'thread-1': true, 'thread-2': true },
+      timelinesByThread: {
+        'thread-1': [approvalMessage(5, 'approved')],
+        'thread-2': [],
+      },
+    });
+    rerender(<TestChatPageWrapper store={threadTwoStore} projectPath="/repo/app" />);
+    await Promise.resolve();
+
+    const threadTwoTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect(threadTwoTextarea).not.toHaveFocus();
+    expect(document.activeElement).toBe(nonComposerControl);
+  });
+
+  it('does not focus when a settled approval is replaced by a new pending approval', async () => {
+    const pendingStore = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+    expect(document.activeElement).toBe(nonComposerControl);
+    expect(document.activeElement).not.toBe(originalTextarea);
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore([
+          approvalMessage(5, 'approved'),
+          approvalMessage(6),
+        ])}
+        projectPath="/repo/app"
+      />,
+    );
+    await Promise.resolve();
+
+    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect.soft(textarea).toBe(originalTextarea);
+    expect.soft(textarea).not.toHaveFocus();
+    expect.soft(screen.getByTestId('composer-dock')).toHaveAttribute('inert', '');
+  });
+
+  it('does not focus when a pending approval settles alongside a new terminal approval', async () => {
+    const pendingStore = createActiveThreadStore([approvalMessage(5)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore([
+          approvalMessage(5, 'approved'),
+          approvalMessage(6, 'rejected'),
+        ])}
+        projectPath="/repo/app"
+      />,
+    );
+    await Promise.resolve();
+
+    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    expect(textarea).toBe(originalTextarea);
+    expect(textarea).not.toHaveFocus();
+    expect(document.activeElement).toBe(nonComposerControl);
+  });
+
+  it('keeps Conversation as the only explicit composer focus owner', () => {
+    const source = readFileSync('src/pages/chat/thread/Conversation.jsx', 'utf8');
+
+    expect.soft(source.match(/const composerInputRef = useRef\(null\)/g) || []).toHaveLength(1);
+    expect.soft(source).toContain('inputRef={composerInputRef}');
+    expect.soft(source).toMatch(/composerInputRef\.current[\s\S]{0,40}\.focus\(/);
+    expect.soft(source).toMatch(/node\s*&&[\s\S]{0,80}previous\.node === node/);
+    expect.soft(source).not.toContain('document.querySelector');
+    expect.soft(source).not.toContain('document.getElementById');
   });
 
   it('keeps the generic title when active thread metadata is missing', () => {
@@ -200,6 +359,7 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
   it('renders an active thread timeline, sends through the store, and opens the runtime panel', async () => {
     const activityStats = { commands: 2, fileEdits: 1, toolCalls: { grep: 3 } };
+    const shellLayout = createShellLayoutTestHarness();
     const store = createFakeStore({
       activeThreadId: 'thread-1',
       draft: '继续修复',
@@ -216,7 +376,13 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
       diffTextByThread: { 'thread-1': 'diff --git a/ChatPage.test.jsx b/ChatPage.test.jsx\n+expect(screen.getByTestId("runtime-panel"))' },
     });
 
-    const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const { container } = render(
+      <TestChatPageWrapper
+        shellLayoutStore={shellLayout.store}
+        store={store}
+        projectPath="/repo/app"
+      />,
+    );
 
     expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '筛选消息' })).not.toBeInTheDocument();
@@ -262,7 +428,12 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
     fireEvent.click(screen.getByRole('button', { name: '布局视图' }));
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
-    expect(store.setRightPanelWidth).toHaveBeenCalledWith(expect.any(Number));
+    expect(store.setRightPanelWidth).toBeUndefined();
+    expect(shellLayout.storage.set).toHaveBeenCalledWith(
+      'super-dolphin.shell.right-panel-width',
+      expect.any(String),
+    );
+    expect(shellLayout.store.getState().rightPanelWidth).toBeGreaterThan(0);
     expect(store.syncThreadState).toHaveBeenCalledWith('thread-1', {
       includeArchived: true,
       includeDiff: true,
@@ -420,4 +591,82 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
     expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
     expect(conversation).not.toHaveClass('drop-active');
+  });
+
+  it.each([
+    ['wheel up', (timeline) => fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 0, deltaY: -40 })],
+    ['touch upward', (timeline) => {
+      fireEvent.touchStart(timeline, { touches: [{ clientY: 120 }] });
+      fireEvent.touchMove(timeline, { touches: [{ clientY: 70 }] });
+    }],
+    ['PageUp', (timeline) => fireEvent.keyDown(timeline, { key: 'PageUp' })],
+    ['Home', (timeline) => fireEvent.keyDown(timeline, { key: 'Home' })],
+  ])('keeps streaming from stealing reading position after %s intent', (_label, leaveSticky) => {
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
+    const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    const metrics = installTimelineMetrics(timeline);
+    requestAnimationFrameSpy.mockClear();
+
+    leaveSticky(timeline);
+    metrics.setScrollHeight(1280);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('增长中的回复'))} projectPath="/repo/app" />);
+
+    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+    expect(metrics.getScrollTop()).toBe(600);
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('ignores zoom, horizontal wheel, and editable arrow keys while sticky', () => {
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
+    const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    const metrics = installTimelineMetrics(timeline);
+
+    fireEvent.wheel(timeline, { ctrlKey: true, deltaX: 0, deltaY: -40 });
+    fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 80, deltaY: -10 });
+    fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'ArrowUp' });
+    requestAnimationFrameSpy.mockClear();
+    metrics.setScrollHeight(1280);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('仍应跟随的回复'))} projectPath="/repo/app" />);
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('restores sticky intent through End, returning to the bottom, and the explicit bottom button', () => {
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
+    const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    const metrics = installTimelineMetrics(timeline);
+
+    fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
+    fireEvent.keyDown(timeline, { key: 'End' });
+    requestAnimationFrameSpy.mockClear();
+    metrics.setScrollHeight(1200);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('End 后跟随'))} projectPath="/repo/app" />);
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+
+    fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
+    metrics.setScrollTop(800);
+    fireEvent.scroll(timeline);
+    requestAnimationFrameSpy.mockClear();
+    metrics.setScrollHeight(1400);
+    rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('回到底部后跟随'))} projectPath="/repo/app" />);
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+
+    fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
+    metrics.setScrollTop(600);
+    fireEvent.click(screen.getByRole('button', { name: '滚动到底部' }));
+    expect(metrics.getScrollTop()).toBe(1400);
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('removes the two legacy stickiness refs when Conversation adopts the scroll intent manager', () => {
+    const source = readFileSync('src/pages/chat/thread/Conversation.jsx', 'utf8');
+
+    expect(source).not.toContain('shouldStickToBottomRef');
+    expect(source).not.toContain('userScrolledRef');
+    expect(source).toContain('useScrollIntentManager');
+    expect(source).toContain('onScrollIfSticky={scrollIfSticky}');
   });

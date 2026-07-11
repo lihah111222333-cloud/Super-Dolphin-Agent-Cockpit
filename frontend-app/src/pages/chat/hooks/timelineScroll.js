@@ -23,7 +23,7 @@ export function isTimelineNearBottom(timeline) {
 export function requestTimelineBottomScroll(scrollToBottom) {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     scrollToBottom();
-    return;
+    return null;
   }
-  window.requestAnimationFrame(scrollToBottom);
+  return window.requestAnimationFrame(scrollToBottom);
 }

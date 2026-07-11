@@ -1,11 +1,19 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App.jsx';
+import appSource from './App.jsx?raw';
+import appRoutesSource from './AppRoutes.jsx?raw';
+import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
+import { rightPanelWidthSchema } from './app/shell/model/shellLayoutSchema.js';
+import chatPageSource from './pages/chat/ChatPage.jsx?raw';
+import chatWorkbenchLayoutSource from './pages/chat/hooks/useChatWorkbenchLayout.js?raw';
+import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from './pages/chat/model/chatWorkbenchLayoutModel.js';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 import mermaid from 'mermaid';
 
 let bridgeCallback;
+let appOverlayHost;
 
 function dispatchPointer(target, type, clientX = 0, options = {}) {
   const defaultButtons = type === 'pointerup' ? 0 : 1;
@@ -185,6 +193,23 @@ function resetConnectedShellTestState() {
   window.localStorage.clear();
   window.history.replaceState({}, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+}
+
+function installAppOverlayHost() {
+  document.querySelectorAll('#overlay-root').forEach((node) => node.remove());
+  appOverlayHost = document.createElement('div');
+  appOverlayHost.id = 'overlay-root';
+  document.body.append(appOverlayHost);
+}
+
+function createShellLayoutStorage(initialValue = null) {
+  let storedValue = initialValue;
+  return {
+    get: vi.fn(() => storedValue),
+    set: vi.fn((_key, value) => { storedValue = value; }),
+    remove: vi.fn(() => { storedValue = null; }),
+    value: () => storedValue,
+  };
 }
 
 function mockBootstrapBackendDefaults() {
@@ -542,6 +567,7 @@ function mockSettingsAndThreadDefaults() {
   });
 }
 
+beforeEach(installAppOverlayHost);
 beforeEach(resetConnectedShellTestState);
 beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
@@ -554,7 +580,143 @@ beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 afterEach(() => {
+  cleanup();
+  document.querySelectorAll('#overlay-root').forEach((node) => node.remove());
   vi.useRealTimers();
+});
+
+it('wires one required overlay host through the App React Aria provider and existing theme owner', () => {
+  expect(appSource).toMatch(/import\s+\{[^}]*UNSAFE_PortalProvider[^}]*\}\s+from\s+['"]react-aria['"]/);
+  expect(appSource).toMatch(/import\s+\{\s*requiredOverlayRoot\s*\}\s+from\s+['"]\.\/shared\/ui\/OverlayPortal\.jsx['"]/);
+  expect(appSource).toMatch(/const\s+overlayRoot\s*=\s*requiredOverlayRoot\(\)/);
+  expect(appSource).not.toMatch(/function\s+requiredOverlayRoot\s*\(/);
+  expect(appSource).not.toMatch(/querySelectorAll\(['"]#overlay-root['"]\)/);
+  expect(appSource).toMatch(/<UNSAFE_PortalProvider\b[\s\S]{0,200}getContainer=\{[^}]*overlayRoot[^}]*\}/);
+  expect(appSource).toContain('useColorTheme');
+  expect(appSource).not.toMatch(/overlay(?:Theme)?(?:Store|Storage|Persistence)/i);
+  expect(appSource).not.toMatch(/overlayRoot\s*(?:\|\||\?\?)\s*document\.body/);
+});
+
+it('removes only its own theme projection and overwrites stale values on remount', async () => {
+  let view = render(<App skipBootstrap />);
+  await screen.findByTestId('frontend-app');
+  expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
+
+  view.unmount();
+  expect(appOverlayHost).not.toHaveAttribute('data-theme');
+
+  appOverlayHost.setAttribute('data-theme', 'stale');
+  view = render(<App skipBootstrap />);
+  await screen.findByTestId('frontend-app');
+  expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
+
+  appOverlayHost.setAttribute('data-theme', 'external');
+  view.unmount();
+  expect(appOverlayHost).toHaveAttribute('data-theme', 'external');
+
+  appOverlayHost.setAttribute('data-theme', 'stale');
+  view = render(<App skipBootstrap />);
+  await screen.findByTestId('frontend-app');
+  expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
+  view.unmount();
+  expect(appOverlayHost).not.toHaveAttribute('data-theme');
+});
+
+it.each(['missing', 'duplicate'])('contains a %s overlay-root failure in the existing app boundary', async (mode) => {
+  if (mode === 'missing') {
+    appOverlayHost.remove();
+  } else {
+    const duplicate = document.createElement('div');
+    duplicate.id = 'overlay-root';
+    document.body.append(duplicate);
+  }
+  const reporter = vi.fn().mockResolvedValue(undefined);
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  try {
+    render(
+      <AppErrorBoundary reporter={reporter} routeId="chat" reload={vi.fn()}>
+        <App skipBootstrap />
+      </AppErrorBoundary>,
+    );
+
+    expect(screen.getByRole('heading', { name: '界面发生错误' })).toBeInTheDocument();
+    expect(screen.queryByTestId('frontend-app')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).not.toHaveTextContent('overlay-root');
+    await waitFor(() => expect(reporter).toHaveBeenCalledTimes(1));
+  } finally {
+    consoleError.mockRestore();
+  }
+});
+
+it('wires one explicit shell layout store from App through the chat route and layout hooks', () => {
+  expect(appSource).toContain('createShellLayoutStore');
+  expect(appSource).toContain('shellLayoutStorage');
+  expect(appSource).toContain('shellLayoutStore');
+  expect(appRoutesSource).toMatch(/function ChatPageRoute\(props\)[\s\S]{0,240}const \{[^}]*shellLayoutStore[^}]*\} = props/);
+  expect(appRoutesSource).toMatch(/<ChatPage[\s\S]{0,320}shellLayoutStore=\{shellLayoutStore\}/);
+  expect(appRoutesSource).toMatch(/<ChatPageRoute[\s\S]{0,320}shellLayoutStore=\{shellLayoutStore\}/);
+  expect(chatPageSource).toMatch(/function ChatPage\(props\)\s*\{\s*const \{[^\n]*shellLayoutStore/);
+  expect(chatPageSource).toContain('useShellLayoutStore');
+  expect(chatWorkbenchLayoutSource).not.toContain('store.rightPanelWidth');
+  expect(chatWorkbenchLayoutSource).not.toContain('store.setRightPanelWidth');
+});
+
+it('persists the shell layout initial width exactly once under StrictMode', () => {
+  const storage = createShellLayoutStorage();
+
+  render(
+    <React.StrictMode>
+      <App skipBootstrap shellLayoutStorage={storage} />
+    </React.StrictMode>,
+  );
+
+  expect(storage.set).toHaveBeenCalledExactlyOnceWith(
+    'super-dolphin.shell.right-panel-width',
+    '380',
+  );
+  expect(storage.remove).not.toHaveBeenCalled();
+});
+
+it('renders the persisted shell layout width through the real chat layout', async () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+  const storage = createShellLayoutStorage('480.5');
+
+  render(<App shellLayoutStorage={storage} />);
+  await waitForBackendThreadHeading();
+  fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+  expect(screen.getByTestId('chat-layout')).toHaveStyle({
+    gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
+  });
+  expect(storage.set).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
+  ['first write', (storage) => storage.set.mockImplementation(() => { throw new Error('private shell layout write'); })],
+])('contains shell layout %s failures in the existing app boundary without fallback state', async (_phase, failStorage) => {
+  const storage = createShellLayoutStorage();
+  failStorage(storage);
+  const reporter = vi.fn().mockResolvedValue(undefined);
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  try {
+    render(
+      <AppErrorBoundary reporter={reporter} routeId="chat" reload={vi.fn()}>
+        <App skipBootstrap shellLayoutStorage={storage} />
+      </AppErrorBoundary>,
+    );
+
+    expect(screen.getByRole('heading', { name: '界面发生错误' })).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-layout')).not.toBeInTheDocument();
+    expect(storage.remove).not.toHaveBeenCalled();
+    await waitFor(() => expect(reporter).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(reporter.mock.calls[0][0])).not.toContain('private shell layout');
+  }
+  finally {
+    consoleError.mockRestore();
+  }
 });
 
 function mockTraceDashboardQueryResult() {
@@ -861,14 +1023,19 @@ async function showAllTraceDashboardEvents() {
 
     const shell = await screen.findByTestId('frontend-app');
     const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
+    expect(shell).toHaveAttribute('data-theme', 'light');
+    expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
 
     fireEvent.click(screen.getByRole('button', { name: '切换到黑夜模式' }));
     expect(shell).toHaveAttribute('data-theme', 'dark');
+    expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
     expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
     expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
 
+    appOverlayHost.setAttribute('data-theme', 'tampered');
     fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
     expect(shell).toHaveAttribute('data-theme', 'light');
+    expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
     expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
     expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
     expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
@@ -3149,6 +3316,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('starts with only the chat rail and conversation, then toggles the right sidebar from the toolbar', async () => {
     const { container } = render(<App />);
+    const restoredRightPanelWidth = Math.min(
+      rightPanelWidthSchema.initialValue,
+      rightPanelMaxWidth(window.innerWidth, threadRailTargetWidth(window.innerWidth)),
+    );
 
     await waitForBackendThreadHeading();
     const layout = screen.getByTestId('chat-layout');
@@ -3167,14 +3338,17 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(container.querySelector('.runtime-panel')).not.toHaveTextContent('diff --git a/file b/file');
     expect(screen.getByRole('list', { name: '工具调用统计' })).toBeInTheDocument();
     expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 189px' });
+    expect(layout).toHaveStyle({
+      gridTemplateColumns: `minmax(0, 1fr) 6px ${restoredRightPanelWidth}px`,
+    });
   });
 
   it('supports keyboard resizing for chat and activity resizer controls', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
+    const storage = createShellLayoutStorage(String(rightPanelWidthSchema.initialValue));
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
 
     await waitForBackendThreadHeading();
     const layout = screen.getByTestId('chat-layout');
@@ -3189,15 +3363,43 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    const rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+    let rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
     expect(rightResizer.tagName).toBe('BUTTON');
 
-    expect(rightResizer).toHaveAttribute('aria-valuenow', '264');
+    const rightPanelMaximum = rightPanelMaxWidth(window.innerWidth, 248);
+    const restoredWidth = Math.min(rightPanelWidthSchema.initialValue, rightPanelMaximum);
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(restoredWidth));
+    expect(storage.value()).toBe(String(rightPanelWidthSchema.initialValue));
 
     fireEvent.keyDown(rightResizer, { key: 'ArrowLeft' });
 
-    expect(rightResizer).toHaveAttribute('aria-valuenow', '280');
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 280px' });
+    const arrowWidth = Number(rightResizer.getAttribute('aria-valuenow'));
+    expect(arrowWidth).toBeGreaterThan(restoredWidth);
+    expect(storage.value()).toBe(String(arrowWidth));
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${arrowWidth}px` });
+
+    fireEvent.keyDown(rightResizer, { key: 'Home' });
+
+    expect(storage.value()).toBe('0');
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+    const defaultWidth = Math.min(rightPanelDefaultWidth(window.innerWidth), rightPanelMaximum);
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(defaultWidth));
+    expect(storage.value()).toBe(String(defaultWidth));
+
+    fireEvent.keyDown(rightResizer, { key: 'End' });
+
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(rightPanelMaximum));
+    expect(storage.value()).toBe(String(rightPanelMaximum));
+
+    fireEvent.click(screen.getByRole('button', { name: '隐藏侧边栏' }));
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+    expect(rightResizer).toHaveAttribute('aria-valuenow', String(rightPanelMaximum));
+    expect(storage.value()).toBe(String(rightPanelMaximum));
+    expect(storage.set).toHaveBeenCalledTimes(4);
 
     const activityResizer = screen.getByRole('separator', { name: '调整工具使用面板高度' });
     expect(activityResizer.tagName).toBe('BUTTON');
@@ -3225,14 +3427,37 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
   });
 
-  it('keeps default chat columns proportional when the window is resized', async () => {
-    render(<App />);
+  it('clamps a persisted panel width on viewport shrink and keeps the committed clamp when it grows', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
+    const persistedWidth = 480.5;
+    const storage = createShellLayoutStorage(String(persistedWidth));
+
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 189px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${persistedWidth}px` });
+    expect(storage.set).not.toHaveBeenCalled();
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    const clampedWidth = rightPanelMaxWidth(
+      window.innerWidth,
+      threadRailTargetWidth(window.innerWidth),
+    );
+    await waitFor(() => {
+      expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${clampedWidth}px` });
+      expect(storage.value()).toBe(String(clampedWidth));
+    });
+    expect(storage.set).toHaveBeenCalledExactlyOnceWith(
+      rightPanelWidthSchema.key,
+      String(clampedWidth),
+    );
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
     act(() => {
@@ -3240,8 +3465,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     await waitFor(() => {
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${clampedWidth}px` });
     });
+    expect(storage.value()).toBe(String(clampedWidth));
+    expect(storage.set).toHaveBeenCalledTimes(1);
   });
 
   it('lets the right sidebar grow toward two fifths while preserving two fifths for conversation', async () => {
@@ -3266,8 +3493,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps right sidebar drag updates local until the pointer is released', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3275,25 +3503,24 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByTestId('right-panel-resizer');
 
-    expect(useClientStore.getState().rightPanelWidth).toBe(380);
+    expect(storage.value()).toBe('380');
 
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 700);
 
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 751px' });
-    expect(useClientStore.getState().rightPanelWidth).toBe(380);
+    expect(storage.value()).toBe('380');
 
     dispatchPointer(window, 'pointerup', 700);
 
-    await waitFor(() => {
-      expect(useClientStore.getState().rightPanelWidth).toBe(751);
-    });
+    expect(storage.value()).toBe('751');
   });
 
   it('stops right sidebar resizing when the pointer is no longer pressed', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3307,7 +3534,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     dispatchPointer(window, 'pointermove', 700, { buttons: 0 });
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
-    expect(useClientStore.getState().rightPanelWidth).toBe(480);
+    expect(storage.value()).toBe('480');
 
     dispatchPointer(window, 'pointermove', 500, { buttons: 0 });
     expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
@@ -3315,8 +3542,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps the right sidebar draggable past the previous early close width', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3333,15 +3561,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     dispatchPointer(window, 'pointerup', 1330);
 
-    await waitFor(() => {
-      expect(useClientStore.getState().rightPanelWidth).toBe(150);
-    });
+    expect(storage.value()).toBe('150');
   });
 
   it('closes the right sidebar when dragged flush to the right edge', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const storage = createShellLayoutStorage('380');
 
-    render(<App />);
+    render(<App shellLayoutStorage={storage} />);
     await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
@@ -3352,12 +3579,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 1480);
 
-    await waitFor(() => {
-      expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
-      expect(useClientStore.getState().rightPanelWidth).toBe(0);
-    });
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
+    expect(storage.value()).toBe('0');
   });
 
   it('isolates right sidebar diff, warnings, and tool stats to the selected agent', async () => {
@@ -3562,8 +3787,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const rightResizer = screen.getByTestId('right-panel-resizer');
 
     dispatchPointer(rightResizer, 'pointerdown', 1100);
-    dispatchPointer(window, 'pointermove', 1300);
-    dispatchPointer(window, 'pointerup', 1300);
+    dispatchPointer(window, 'pointermove', 1500);
+    dispatchPointer(window, 'pointerup', 1500);
 
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
@@ -3834,12 +4059,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     expect(await screen.findByTestId('approval-request-11')).toHaveTextContent('需要执行 deploy 命令');
-    fireEvent.click(screen.getByRole('button', { name: '同意审批 11' }));
+    fireEvent.click(screen.getByRole('button', { name: '同意' }));
+    expect(backend.respondApproval).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
     await waitFor(() => {
       expect(backend.respondApproval).toHaveBeenCalledWith({ requestId: 11, approved: true });
     });
-    expect(screen.getByRole('button', { name: '同意审批 11' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();
   });
 
   it('interrupts the selected conversation when Escape is pressed', async () => {
@@ -6185,7 +6413,7 @@ async function continueChatFromFinalSharedFile() {
       updatedAt: '2026-06-03T12:59:59Z',
     });
 
-    const { container } = render(<App />);
+    render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
@@ -6197,7 +6425,7 @@ async function continueChatFromFinalSharedFile() {
     const dialog = await screen.findByRole('dialog', { name: '文件预览' });
     expect(within(dialog).getByText('JSON（Markdown 代码块）')).toBeInTheDocument();
 
-    const preview = container.querySelector('.shared-file-content-preview');
+    const preview = appOverlayHost.querySelector('.shared-file-content-preview');
     expect(preview?.textContent).toContain('"videos": [');
     expect(preview?.textContent).toContain('"title": "月薪5000我是怎么在上海活下去的"');
     expect(preview?.textContent).not.toContain('```json');
@@ -6235,7 +6463,7 @@ async function continueChatFromFinalSharedFile() {
       updatedAt: '2026-06-03T12:59:59Z',
     });
 
-    const { container } = render(<App />);
+    render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
@@ -6247,7 +6475,7 @@ async function continueChatFromFinalSharedFile() {
     const dialog = await screen.findByRole('dialog', { name: '文件预览' });
     expect(within(dialog).getByText('类 JSON（Markdown 代码块）')).toBeInTheDocument();
 
-    const preview = container.querySelector('.shared-file-content-preview');
+    const preview = appOverlayHost.querySelector('.shared-file-content-preview');
     expect(preview?.textContent).toContain('\n    "hook":');
     expect(preview?.textContent).toContain('标注"月薪5000存款5万"红色大字');
     expect(preview?.textContent).not.toMatch(/JSON 格式化失败|JSON Parse error|Unrecognized token|```json/);

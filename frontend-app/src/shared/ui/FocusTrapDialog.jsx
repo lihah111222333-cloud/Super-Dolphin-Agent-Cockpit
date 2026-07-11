@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import { OverlayPortal } from './OverlayPortal.jsx';
 import './FocusTrapDialog.css';
 
 const FOCUSABLE_SELECTOR = [
@@ -121,27 +122,29 @@ export function FocusTrapDialog({
   }, []);
 
   return (
-    <div className={overlayClassName}>
-      {closeOnOverlayClick && !closeDisabled ? (
-        <button
-          type="button"
-          className="modal-overlay-backdrop"
-          aria-label={ariaLabel ? `关闭${ariaLabel}` : '关闭对话框'}
+    <OverlayPortal>
+      <div className={overlayClassName}>
+        {closeOnOverlayClick && !closeDisabled ? (
+          <button
+            type="button"
+            className="modal-overlay-backdrop"
+            aria-label={ariaLabel ? `关闭${ariaLabel}` : '关闭对话框'}
+            tabIndex={-1}
+            onClick={handleOverlayClick}
+          />
+        ) : null}
+        <dialog
+          ref={dialogRef}
+          open
+          className={className}
+          aria-modal="true"
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy}
           tabIndex={-1}
-          onClick={handleOverlayClick}
-        />
-      ) : null}
-      <dialog
-        ref={dialogRef}
-        open
-        className={className}
-        aria-modal="true"
-        aria-label={ariaLabel}
-        aria-labelledby={ariaLabelledBy}
-        tabIndex={-1}
-      >
-        {children}
-      </dialog>
-    </div>
+        >
+          {children}
+        </dialog>
+      </div>
+    </OverlayPortal>
   );
 }

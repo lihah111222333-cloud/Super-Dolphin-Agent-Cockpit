@@ -41,7 +41,7 @@
   --diff-panel-min-height: calc((100vh - var(--runtime-toolbar-height)) / 2);
   --diff-panel-max-height: calc(100vh - var(--runtime-toolbar-height) - var(--activity-panel-min-height));
   position: relative;
-  z-index: 21;
+  z-index: var(--z-local-sticky);
   box-sizing: border-box;
   min-width: 0;
   min-height: 0;
@@ -62,7 +62,7 @@
 
 .runtime-toolbar {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-local-raised);
   min-width: 0;
   min-height: var(--runtime-toolbar-height);
   display: grid;
@@ -108,7 +108,7 @@
 
 .diff-empty {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-local-raised);
   margin: 14px;
   border: 1px dashed color-mix(in srgb, var(--line-strong) 68%, transparent);
   border-radius: 12px;
@@ -341,7 +341,7 @@
 
 .runtime-activity-panel {
   position: relative;
-  z-index: 8;
+  z-index: var(--z-local-sticky);
   box-sizing: border-box;
   min-width: 0;
   min-height: 0;
@@ -365,7 +365,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 2;
+  z-index: var(--z-local-handle);
   width: 100%;
   height: 10px;
   margin: 0;
@@ -456,11 +456,14 @@
   outline-offset: 3px;
 }
 
+#overlay-root .runtime-stat-tooltip {
+  z-index: var(--z-overlay-dialog);
+}
+
 .runtime-stat-tooltip {
   position: fixed;
   left: var(--runtime-stat-tooltip-left, 12px);
   bottom: var(--runtime-stat-tooltip-bottom, 12px);
-  z-index: 120;
   width: min(360px, calc(100vw - 24px));
   max-height: var(--runtime-stat-tooltip-max-height, min(280px, 42vh));
   display: grid;
@@ -628,12 +631,15 @@
   text-underline-offset: 3px;
 }
 
+#overlay-root .warning-log-popover {
+  z-index: var(--z-overlay-popover);
+}
+
 .warning-log-popover {
   position: fixed;
   left: var(--warning-log-popover-left, 12px);
   right: var(--warning-log-popover-right, 12px);
   bottom: var(--warning-log-popover-bottom, 12px);
-  z-index: 90;
   box-sizing: border-box;
   min-width: 0;
   display: grid;

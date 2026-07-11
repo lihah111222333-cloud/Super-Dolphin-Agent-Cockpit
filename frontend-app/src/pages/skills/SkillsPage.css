@@ -557,7 +557,6 @@
 .modal-overlay {
   position: fixed;
   inset: 43px 0 0;
-  z-index: 50;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -583,9 +582,13 @@
   transform: none;
 }
 
+#overlay-root .modal-overlay {
+  z-index: var(--z-overlay-critical);
+}
+
 .modal-box {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-local-raised);
   width: min(760px, 94vw);
   max-height: 86vh;
   margin: 0;

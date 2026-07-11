@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useImperativeHandle, useRef } from 'react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { textValue } from '../../shared/pageShared.js';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal.jsx';
@@ -48,6 +48,12 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
   };
 }
 
+function useComposerTextareaRef(inputRef) {
+  const textareaRef = useRef(null);
+  useImperativeHandle(inputRef, () => textareaRef.current);
+  return textareaRef;
+}
+
 function ComposerDock({
   floating = false,
   copy = APP_COPY.zh.chat,
@@ -64,15 +70,18 @@ function ComposerDock({
   showProjectSelector = false,
   composer,
   canUseProjectActions = true,
+  inputRef,
+  approvalPending = false,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
+  const effectiveCanUseProjectActions = canUseProjectActions && !approvalPending;
   const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
-  const canInterrupt = canUseProjectActions && Boolean(store?.hasInterruptibleThreadAction?.(modelThreadId));
-  const canSend = canUseProjectActions && !sending && !canInterrupt && hasComposerInput;
-  const projectActionBlocked = !canUseProjectActions;
+  const canInterrupt = effectiveCanUseProjectActions && Boolean(store?.hasInterruptibleThreadAction?.(modelThreadId));
+  const canSend = effectiveCanUseProjectActions && !sending && !canInterrupt && hasComposerInput;
+  const projectActionBlocked = !effectiveCanUseProjectActions;
   const projectActionBlockedTitle = copy.projectActionBlocked;
   const dockRef = useRef(null);
-  const textareaRef = useRef(null);
+  const textareaRef = useComposerTextareaRef(inputRef);
   useComposerDropTarget(dockRef, composer);
   useComposerDropTarget(textareaRef, composer);
 
@@ -87,6 +96,8 @@ function ComposerDock({
       className={`${composerClass}${composer.dropActive ? ' drop-active' : ''}`}
       data-testid="composer-dock"
       data-file-drop-target=""
+      inert={approvalPending}
+      aria-disabled={approvalPending ? 'true' : undefined}
     >
       <div className="composer-card">
         {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">{copy.dropHint}</div> : null}
@@ -106,7 +117,7 @@ function ComposerDock({
           copy={copy}
           canInterrupt={canInterrupt}
           canSend={canSend}
-          canUseProjectActions={canUseProjectActions}
+          canUseProjectActions={effectiveCanUseProjectActions}
           modelThreadId={modelThreadId}
           projectPath={projectPath}
           projectActionBlocked={projectActionBlocked}

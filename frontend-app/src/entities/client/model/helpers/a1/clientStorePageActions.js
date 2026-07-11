@@ -209,9 +209,6 @@ function createResourcePageCacheActions(runtime) {
       defaultMemoryPageCache(),
       patch,
     ),
-    setRightPanelWidth: (rightPanelWidth) => runtime.set({ rightPanelWidth }),
-
-
   };
 }
 

@@ -334,7 +334,7 @@
 .suiyuan-top-appbar {
   position: absolute;
   inset: 0 0 auto;
-  z-index: 20;
+  z-index: var(--z-local-sticky);
   width: 100%;
   height: 64px;
   display: flex;
@@ -483,7 +483,7 @@
     --workbench-sidebar-width: min(320px, calc(100vw - 52px));
     position: fixed;
     inset: 0 auto 0 0;
-    z-index: 30;
+    z-index: var(--z-local-sticky);
     width: var(--workbench-sidebar-width);
     max-width: var(--workbench-sidebar-width);
     margin-left: calc(-1 * var(--workbench-sidebar-width));
@@ -765,7 +765,7 @@
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 30;
+  z-index: var(--z-shell-control);
   width: max-content;
   min-width: 360px;
   max-width: min(520px, 86vw);
@@ -1140,7 +1140,7 @@
   padding: 0;
   opacity: 0;
   transition: opacity var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
-  z-index: 2;
+  z-index: var(--z-local-raised);
   cursor: pointer;
   box-shadow: none;
 }
@@ -1183,7 +1183,7 @@
   padding: 0;
   opacity: 0;
   transition: opacity var(--transition), color var(--transition);
-  z-index: 2;
+  z-index: var(--z-local-raised);
   box-shadow: none !important;
 }
 
@@ -1247,7 +1247,7 @@
   position: relative;
   right: auto;
   top: auto;
-  z-index: 2;
+  z-index: var(--z-local-raised);
   width: 22px;
   height: 22px;
   display: inline-grid;
@@ -1342,7 +1342,7 @@
   position: absolute;
   right: calc(100% + 10px);
   top: 50%;
-  z-index: 30;
+  z-index: var(--z-shell-control);
   min-width: max-content;
   transform: translateY(-50%);
   padding: 10px 16px;

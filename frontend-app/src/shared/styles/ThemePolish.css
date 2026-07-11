@@ -682,15 +682,15 @@ textarea:disabled {
   color: var(--success);
 }
 
-.sa-window[data-theme="light"] .runtime-stat-tooltip,
-.sa-window[data-theme="light"] .warning-log-popover {
+#overlay-root[data-theme="light"] .runtime-stat-tooltip,
+#overlay-root[data-theme="light"] .warning-log-popover {
   border-color: var(--border-strong);
   background: var(--surface);
   color: var(--text-pri);
   box-shadow: var(--shadow);
 }
 
-.sa-window[data-theme="light"] .warning-log-popover code {
+#overlay-root[data-theme="light"] .warning-log-popover code {
   color: var(--text-sec);
 }
 

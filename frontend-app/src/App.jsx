@@ -1,5 +1,6 @@
-import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { UNSAFE_PortalProvider } from 'react-aria';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Bell,
@@ -37,6 +38,7 @@ import {
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import { runUIAction } from './shared/ui/runUIAction.js';
+import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
 import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
 import './AppChrome.css';
 import './AppShell.css';
@@ -48,6 +50,7 @@ import {
   normalizeColorTheme,
   selectAppShellStore,
 } from './app/appShellModel.js';
+import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
 
 
 
@@ -143,7 +146,12 @@ function createDashboardQueryClient() {
 function requiredAppStoragePort(label = 'app storage') {
   if (typeof globalThis === 'undefined') throw new Error(`${label} global object is unavailable`);
   const storage = globalThis.window?.['localStorage'];
-  if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
+  if (
+    !storage
+    || typeof storage.getItem !== 'function'
+    || typeof storage.setItem !== 'function'
+    || typeof storage.removeItem !== 'function'
+  ) {
     throw new Error(`${label} is unavailable`);
   }
   return {
@@ -152,6 +160,9 @@ function requiredAppStoragePort(label = 'app storage') {
     },
     set(key, value) {
       storage.setItem(key, value);
+    },
+    remove(key) {
+      storage.removeItem(key);
     },
   };
 }
@@ -515,7 +526,7 @@ function useAppShellState(store, skipBootstrap) {
   return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
-function AppWindow({ shell, store }) {
+function AppWindow({ shell, shellLayoutStore, store }) {
   const routeStore = useClientStore();
   const {
     memoryBadge,
@@ -637,6 +648,7 @@ function AppWindow({ shell, store }) {
                 setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
                 onWorkflowViewChange={handleWorkflowViewChange}
                 rightPanelOpen={rightPanelOpen}
+                shellLayoutStore={shellLayoutStore}
                 setRightPanelOpen={setRightPanelOpen}
               />
             </Suspense>
@@ -647,11 +659,30 @@ function AppWindow({ shell, store }) {
   );
 }
 
-function AppShell({ skipBootstrap = false, uiTestMCPMode = false }) {
+function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = false }) {
   const store = useClientStore(useShallow(selectAppShellStore));
   const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
-  if (uiTestMCPMode) return <UITestMCPShell />;
-  return <AppWindow shell={shell} store={store} />;
+  const [shellLayoutStore] = useState(() => createShellLayoutStore({
+    storage: shellLayoutStorage === undefined
+      ? requiredAppStoragePort('shell layout storage')
+      : shellLayoutStorage,
+  }));
+  const overlayRoot = requiredOverlayRoot();
+  useLayoutEffect(() => {
+    overlayRoot.setAttribute('data-theme', shell.theme);
+    return () => {
+      if (overlayRoot.getAttribute('data-theme') === shell.theme) {
+        overlayRoot.removeAttribute('data-theme');
+      }
+    };
+  }, [overlayRoot, shell.theme]);
+  return (
+    <UNSAFE_PortalProvider getContainer={() => overlayRoot}>
+      {uiTestMCPMode
+        ? <UITestMCPShell />
+        : <AppWindow shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
+    </UNSAFE_PortalProvider>
+  );
 }
 
 function App(props) {

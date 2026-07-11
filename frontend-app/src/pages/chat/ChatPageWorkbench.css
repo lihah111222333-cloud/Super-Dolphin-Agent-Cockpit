@@ -79,7 +79,7 @@
   position: fixed;
   top: 76px;
   right: clamp(18px, 3vw, 36px);
-  z-index: 40;
+  z-index: var(--z-local-sticky);
   width: min(440px, calc(100vw - 36px));
   display: grid;
   gap: 6px;
@@ -152,7 +152,7 @@
   position: absolute;
   top: calc(100% - 30px);
   left: max(20px, calc((100% - 940px) / 2));
-  z-index: 40;
+  z-index: var(--z-local-sticky);
   width: min(292px, calc(100vw - 40px));
   display: grid;
   gap: 6px;
@@ -406,7 +406,7 @@
 .composer--docked {
   position: relative;
   bottom: auto;
-  z-index: 8;
+  z-index: var(--z-local-sticky);
   padding: 14px 0 18px;
   align-self: end;
 }
@@ -695,7 +695,7 @@
     position: fixed;
     top: 14px;
     left: 14px;
-    z-index: 45;
+    z-index: var(--z-shell-control);
     width: 42px;
     height: 42px;
     display: inline-flex;
@@ -711,7 +711,7 @@
   .sidebar-scrim {
     position: fixed;
     inset: 0;
-    z-index: 25;
+    z-index: var(--z-local-behind);
     display: block;
     border: 0;
     background: color-mix(in srgb, var(--bg) 52%, transparent);
@@ -727,7 +727,7 @@
     inset: 0 auto 0 0;
     width: var(--workbench-sidebar-width);
     margin-left: calc(-1 * var(--workbench-sidebar-width));
-    z-index: 30;
+    z-index: var(--z-local-sticky);
     max-width: var(--workbench-sidebar-width);
     overflow-y: auto;
     overscroll-behavior: contain;

@@ -1,5 +1,5 @@
+import { isApprovalMessage } from '../../../features/approval/model/approvalDecision.js';
 import { trimmedText } from '../markdown/markdownMessageModel.js';
-import { isApprovalMessage } from './chatApprovalModel.js';
 import { isReasoningMessage } from './chatReasoningModel.js';
 
 function timelineMessageKey(message) {

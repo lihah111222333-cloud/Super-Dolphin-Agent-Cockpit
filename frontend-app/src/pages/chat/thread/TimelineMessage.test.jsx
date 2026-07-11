@@ -1,4 +1,5 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
@@ -91,7 +92,7 @@ function localScreenshotPath(separator) {
   it('delegates approval and reasoning message variants', () => {
     const { rerender } = render(
       <TimelineMessage
-        message={{ kind: 'approval', requestId: 8, text: 'Approve action?', time: '2026-06-15T08:00:00Z' }}
+        message={{ kind: 'approval', requestId: 8, status: 'pending', text: 'Approve action?', time: '2026-06-15T08:00:00Z' }}
         actions={{ onApproval: vi.fn() }}
         formatTime={formatTime}
       />
@@ -107,6 +108,13 @@ function localScreenshotPath(separator) {
     );
 
     expect(screen.getByText('Thinking')).toBeInTheDocument();
+  });
+
+  it('classifies approval messages through the single approval adapter', () => {
+    const source = readFileSync('src/pages/chat/thread/TimelineMessage.jsx', 'utf8');
+
+    expect(source).toContain('features/approval/model/approvalDecision.js');
+    expect(source).not.toContain('./chatApprovalModel.js');
   });
 
   it('normalizes supported image sources and empty attachment lists', () => {

@@ -122,6 +122,13 @@ function createLifecycleActions(runtime, deps) {
   return { initializeEvents, destroy };
 }
 
+function publishThreadSyncFailure(runtime, syncOptions, id, error) {
+  if (typeof syncOptions.shouldPublishFailure === 'function' && !syncOptions.shouldPublishFailure()) return;
+  const message = error?.message || String(error);
+  runtime.notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
+  runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
+}
+
 function createBootstrapActions(runtime, deps) {
   const {
     getPreference,
@@ -236,9 +243,7 @@ function createThreadSyncActions(runtime, deps) {
     }
     catch (error) {
       if (!isCurrentThreadSyncGeneration(id, generation)) return false;
-      const message = error?.message || String(error);
-      runtime.notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
-      runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
+      publishThreadSyncFailure(runtime, syncOptions, id, error);
       return false;
     }
     finally {

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { approvalRequestFromMessage, isApprovalMessage } from '../../../features/approval/model/approvalDecision.js';
 import { workStatusForThread } from '../adapters/threadStateAdapter.js';
 import { ComposerDock } from '../composer/ComposerDock.jsx';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
@@ -7,11 +8,11 @@ import { runUIAction } from '../model/chatUiActions.js';
 import { firstText, firstTrimmedText, textValue, timeLabelFromTimestamp, trimmedText } from '../markdown/markdownMessageModel.js';
 import { TimelineLoadingPlaceholder, TimelineMessage } from './TimelineMessage.jsx';
 import { TurnProcessGroup } from './TurnProcessGroup.jsx';
-import { isApprovalMessage } from './chatApprovalModel.js';
 import { isReasoningMessage, syntheticReasoningMessage } from './chatReasoningModel.js';
 import { materializeTurnTimelineEntries } from './chatTurnGroupingModel.js';
 import { CONVERSATION_DROP_TARGET_ID, useComposerInteractions } from '../hooks/useComposerInteractions.js';
-import { TIMELINE_SCROLL_LOAD_THRESHOLD, isTimelineNearBottom, requestTimelineBottomScroll, scrollTimelineElementToBottom } from '../hooks/timelineScroll.js';
+import { TIMELINE_SCROLL_LOAD_THRESHOLD } from '../hooks/timelineScroll.js';
+import { useScrollIntentManager } from '../hooks/useScrollIntentManager.js';
 import { useTimelineMaterialization } from '../hooks/useTimelineMaterialization.js';
 
 const CONTEXT_USAGE_FORK_THRESHOLD = 90;
@@ -84,104 +85,68 @@ function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingRea
   ].join('\u0002');
 }
 
-function useConversationScrollController({
-  activeThreadId,
-  autoScrollKey,
-  clearPendingReasoningHint,
-  sendMessage,
-  startPendingReasoningHint,
-  timelineContentBlocked,
-}) {
-  const timelineRef = useRef(null);
-  const shouldStickToBottomRef = useRef(true);
-  const lastTimelineAutoScrollKeyRef = useRef('');
-  const timelineContentBlockedRef = useRef(timelineContentBlocked);
-  const isInitialThreadRenderRef = useRef(true);
-  const updateTimelineStickiness = useCallback((timeline) => {
-    shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
-  }, []);
-  const scrollTimelineToBottomInstant = useCallback(() => {
-    shouldStickToBottomRef.current = true;
-    scrollTimelineElementToBottom(timelineRef.current, false);
-  }, []);
-  const scrollTimelineToBottomSmooth = useCallback(() => {
-    shouldStickToBottomRef.current = true;
-    scrollTimelineElementToBottom(timelineRef.current, true);
-  }, []);
-  const scrollTimelineToBottomIfSticky = useCallback((smooth = false) => {
-    if (timelineRef.current && shouldStickToBottomRef.current) {
-      scrollTimelineElementToBottom(timelineRef.current, smooth);
-    }
-  }, []);
-  const sendMessageAndScrollToBottom = useCallback(() => {
-    const result = sendMessage();
-    startPendingReasoningHint();
-    Promise.resolve(result).then((sent) => {
-      if (sent === false) clearPendingReasoningHint();
-    }).catch(() => clearPendingReasoningHint());
-    shouldStickToBottomRef.current = true;
-    requestTimelineBottomScroll(scrollTimelineToBottomSmooth);
-    return result;
-  }, [clearPendingReasoningHint, scrollTimelineToBottomSmooth, sendMessage, startPendingReasoningHint]);
+function conversationIsBusy({ activeThread, activeThreadId, sending, statusEntry, timelineContentBlocked }) {
+  return workStatusForThread({
+    sending,
+    loading: timelineContentBlocked,
+    activeThreadId,
+    activeThread,
+    statusEntry,
+  }).busy;
+}
 
-  useEffect(() => {
-    timelineContentBlockedRef.current = timelineContentBlocked;
-  }, [timelineContentBlocked]);
-  useEffect(() => {
-    shouldStickToBottomRef.current = true;
-    lastTimelineAutoScrollKeyRef.current = '';
-    isInitialThreadRenderRef.current = true;
-    const el = timelineRef.current;
-    if (el) el.scrollTop = 0;
-  }, [activeThreadId]);
-  useEffect(() => {
-    if (!timelineContentBlocked && activeThreadId) {
-      scrollTimelineToBottomInstant();
-      isInitialThreadRenderRef.current = false;
-      const timer = setTimeout(() => {
-        scrollTimelineToBottomInstant();
-      }, 50);
-      return () => clearTimeout(timer);
+function approvalSnapshotFromMessages(messages = []) {
+  const knownIds = new Set();
+  let pendingRequest = null;
+  for (const message of messages) {
+    if (!isApprovalMessage(message)) continue;
+    const request = approvalRequestFromMessage(message);
+    knownIds.add(request.requestId);
+    if (request.status === 'pending') pendingRequest = request;
+  }
+  return { knownIds, pendingRequest };
+}
+
+function hasNewApprovalIdentity(previousIds, currentIds) {
+  for (const requestId of currentIds) {
+    if (!previousIds.has(requestId)) return true;
+  }
+  return false;
+}
+
+function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }) {
+  const previousPendingRef = useRef(null);
+  useLayoutEffect(() => {
+    const previous = previousPendingRef.current;
+    const currentPending = snapshot.pendingRequest;
+    const node = composerInputRef.current;
+    if (
+      previous &&
+      !currentPending &&
+      previous.threadId === activeThreadId &&
+      node &&
+      previous.node === node &&
+      !hasNewApprovalIdentity(previous.knownIds, snapshot.knownIds)
+    ) {
+      composerInputRef.current.focus();
     }
-  }, [activeThreadId, timelineContentBlocked, scrollTimelineToBottomInstant]);
-  useEffect(() => {
-    if (!autoScrollKey) {
-      lastTimelineAutoScrollKeyRef.current = autoScrollKey;
+    if (!currentPending) {
+      previousPendingRef.current = null;
       return;
     }
-    if (lastTimelineAutoScrollKeyRef.current === autoScrollKey) return;
-    lastTimelineAutoScrollKeyRef.current = autoScrollKey;
-    if (!shouldStickToBottomRef.current) return;
-    requestTimelineBottomScroll(scrollTimelineToBottomInstant);
-  }, [autoScrollKey, scrollTimelineToBottomInstant]);
-  useEffect(() => {
-    const el = timelineRef.current;
-    if (!el) return;
-    const observer = new MutationObserver(() => {
-      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
-        scrollTimelineElementToBottom(el, false);
-      }
-    });
-    observer.observe(el, { childList: true, subtree: true, characterData: true });
-    return () => {
-      observer.disconnect();
-    };
-  }, [activeThreadId]);
-  useEffect(() => {
-    const el = timelineRef.current;
-    if (!el) return;
-    const handleLoad = () => {
-      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
-        scrollTimelineElementToBottom(el, false);
-      }
-    };
-    el.addEventListener('load', handleLoad, true);
-    return () => {
-      el.removeEventListener('load', handleLoad, true);
-    };
-  }, [activeThreadId]);
-
-  return { sendMessageAndScrollToBottom, scrollTimelineToBottomIfSticky, scrollTimelineToBottomSmooth, timelineRef, updateTimelineStickiness };
+    if (
+      !previous ||
+      previous.threadId !== activeThreadId ||
+      previous.requestId !== currentPending.requestId
+    ) {
+      previousPendingRef.current = {
+        threadId: activeThreadId,
+        requestId: currentPending.requestId,
+        node,
+        knownIds: snapshot.knownIds,
+      };
+    }
+  }, [activeThreadId, composerInputRef, snapshot]);
 }
 
 function Conversation(props) {
@@ -208,6 +173,7 @@ function Conversation(props) {
     sendMessage,
   } = props;
   const pendingReasoningTimerRef = useRef(null);
+  const composerInputRef = useRef(null);
   const [pendingReasoningHint, setPendingReasoningHint] = useState(false);
   if (activeTurn && pendingReasoningHint) {
     setPendingReasoningHint(false);
@@ -231,14 +197,7 @@ function Conversation(props) {
     }, 5000);
   }, []);
 
-  const threadStatus = workStatusForThread({
-    sending,
-    loading: timelineContentBlocked,
-    activeThreadId,
-    activeThread,
-    statusEntry,
-  });
-  const isBusy = threadStatus.busy;
+  const isBusy = conversationIsBusy({ activeThread, activeThreadId, sending, statusEntry, timelineContentBlocked });
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
   const lastUserMessage = [...messages].reverse().find((msg) => trimmedText(msg.role).toLowerCase() === 'user');
@@ -246,13 +205,17 @@ function Conversation(props) {
   const pendingReasoning = !introMode && !timelineBlocked && !hasProcessingAfterLastUser && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending: sending || justSent, isBusy, fallbackStartTime })
     : null;
+  const approvalSnapshot = approvalSnapshotFromMessages(messages);
+  const approvalPending = Boolean(approvalSnapshot.pendingRequest);
+  const effectiveCanUseProjectActions = canUseProjectActions && !approvalPending;
+  useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot: approvalSnapshot });
   const composerController = useComposerInteractions({
     attachments,
     attachPaths,
     attachDroppedFiles,
     removeAttachment,
-    projectActionBlocked: !canUseProjectActions,
-    canUseProjectActions,
+    projectActionBlocked: !effectiveCanUseProjectActions,
+    canUseProjectActions: effectiveCanUseProjectActions,
   });
   const autoScrollKey = timelineAutoScrollKey({
     activeThreadId,
@@ -262,25 +225,37 @@ function Conversation(props) {
     timelineContentBlocked,
   });
   const {
-    sendMessageAndScrollToBottom,
-    scrollTimelineToBottomIfSticky,
-    scrollTimelineToBottomSmooth,
+    markMessageSent, onTimelineKeyDown,
+    onTimelineScroll,
+    onTimelineTouchMove, onTimelineTouchStart,
+    onTimelineWheel, scrollIfSticky,
+    scrollToBottom,
     timelineRef,
-    updateTimelineStickiness,
-  } = useConversationScrollController({
+  } = useScrollIntentManager({
     activeThreadId,
     autoScrollKey,
-    clearPendingReasoningHint,
-    sendMessage,
-    startPendingReasoningHint,
     timelineContentBlocked,
   });
+  const sendMessageAndScrollToBottom = useCallback(() => {
+    const result = sendMessage();
+    startPendingReasoningHint();
+    Promise.resolve(result).then((sent) => {
+      if (sent === false) clearPendingReasoningHint();
+    }).catch(() => clearPendingReasoningHint());
+    markMessageSent();
+    return result;
+  }, [clearPendingReasoningHint, markMessageSent, sendMessage, startPendingReasoningHint]);
+  const scrollTimelineToBottomSmooth = useCallback(() => {
+    scrollToBottom(true);
+  }, [scrollToBottom]);
   const composer = (
     <ConversationComposer
       {...props}
       composer={composerController}
       copy={copy}
       floating={introMode}
+      inputRef={composerInputRef}
+      approvalPending={approvalPending}
       sendMessage={sendMessageAndScrollToBottom}
       showProviderToggle={!activeThreadId}
     />
@@ -311,9 +286,13 @@ function Conversation(props) {
         loadOlderThreadMessages={loadOlderThreadMessages}
         timelineContentBlocked={timelineContentBlocked}
         messageActions={messageActions}
-        onTimelineScroll={updateTimelineStickiness}
+        onTimelineKeyDown={onTimelineKeyDown}
+        onTimelineScroll={onTimelineScroll}
+        onTimelineTouchMove={onTimelineTouchMove}
+        onTimelineTouchStart={onTimelineTouchStart}
+        onTimelineWheel={onTimelineWheel}
         onScrollToBottom={scrollTimelineToBottomSmooth}
-        onScrollIfSticky={scrollTimelineToBottomIfSticky}
+        onScrollIfSticky={scrollIfSticky}
         timelineRef={timelineRef}
       />
       {!introMode ? composer : null}
@@ -355,6 +334,8 @@ function ConversationComposer({
   showProviderToggle,
   composer,
   canUseProjectActions,
+  inputRef,
+  approvalPending,
 }) {
   return (
     <ComposerDock
@@ -373,6 +354,8 @@ function ConversationComposer({
       showProjectSelector
       composer={composer}
       canUseProjectActions={canUseProjectActions}
+      inputRef={inputRef}
+      approvalPending={approvalPending}
     />
   );
 }
@@ -425,7 +408,11 @@ function ConversationTimeline({
   loadOlderThreadMessages,
   timelineContentBlocked,
   messageActions,
+  onTimelineKeyDown,
   onTimelineScroll,
+  onTimelineTouchMove,
+  onTimelineTouchStart,
+  onTimelineWheel,
   onScrollToBottom,
   onScrollIfSticky,
   timelineRef,
@@ -443,8 +430,6 @@ function ConversationTimeline({
   const olderPageRequestingThreadRef = useRef('');
   const [olderPageRequestingThreadId, setOlderPageRequestingThreadId] = useState('');
   const olderPageRequesting = olderPageRequestingThreadId === activeThreadId;
-  const bottomRef = useRef(null);
-  const userScrolledRef = useRef(false);
   const olderPageLoading = Boolean(messagePagination?.loading || olderPageRequesting);
   const hasBackendOlderPage = Boolean(activeThreadId && messagePagination?.hasMore && typeof loadOlderThreadMessages === 'function');
   const canLoadBackendOlderPage = hasBackendOlderPage && !olderPageLoading;
@@ -478,26 +463,11 @@ function ConversationTimeline({
   }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked, timelineRef]);
   const handleScroll = useCallback((event) => {
     const el = event.currentTarget;
-    onTimelineScroll?.(el);
-    userScrolledRef.current = !isTimelineNearBottom(el);
+    onTimelineScroll?.(event);
     if (timelineContentBlocked) return;
     if (hiddenOlderCount <= 0 && !hasBackendOlderPage) return;
     if (el.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
   }, [hasBackendOlderPage, hiddenOlderCount, onTimelineScroll, requestOlderMessages, timelineContentBlocked]);
-  const visibleLen = visibleMessages.length;
-  const pendingLen = pendingReasoning ? 1 : 0;
-  const bottomAutoScrollTarget = pendingReasoning || visibleMessages[visibleMessages.length - 1] || null;
-  const bottomAutoScrollEligible = shouldAutoScrollForTimelineMessage(bottomAutoScrollTarget);
-  useEffect(() => {
-    if (!bottomAutoScrollEligible) return;
-    if (!userScrolledRef.current) {
-      onScrollToBottom?.();
-    }
-  }, [bottomAutoScrollEligible, visibleLen, pendingLen, onScrollToBottom]);
-  useEffect(() => {
-    userScrolledRef.current = false;
-  }, [activeThreadId]);
-
   const timelineMessages = [...visibleMessages];
   if (pendingReasoning) {
     timelineMessages.push(pendingReasoning);
@@ -506,7 +476,18 @@ function ConversationTimeline({
 
   return (
     <div className="timeline-shell">
-      <div key={activeThreadId || 'intro'} className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
+      <div
+        key={activeThreadId || 'intro'}
+        className="timeline"
+        data-testid="chat-timeline"
+        ref={timelineRef}
+        tabIndex={0}
+        onKeyDown={onTimelineKeyDown}
+        onScroll={handleScroll}
+        onTouchMove={onTimelineTouchMove}
+        onTouchStart={onTimelineTouchStart}
+        onWheel={onTimelineWheel}
+      >
         {introMode ? <IntroChatStage copy={copy} composer={composer} /> : null}
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker copy={copy} hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
@@ -524,7 +505,7 @@ function ConversationTimeline({
           />
         )) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
-        <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
+        <div style={{ height: 0 }} aria-hidden="true" />
       </div>
       {activeThreadId && !introMode && !timelineContentBlocked ? (
         <button

@@ -12,6 +12,29 @@ function validate(method, response) {
 }
 
 describe('backend response validators', () => {
+  it('accepts only the canonical thread recovery envelope', () => {
+    const response = {
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: true,
+      mode: 'relaunch_resume',
+    };
+
+    expect(validate(RPC_METHODS.THREAD_RECOVER, response)).toBe(response);
+  });
+
+  it.each([
+    [{ recovered: true, mode: 'relaunch_resume' }, 'thread/recover response thread must be an object'],
+    [{ thread: { status: 'recovering' }, recovered: true, mode: 'relaunch_resume' }, 'thread/recover response thread.id must be a non-empty string'],
+    [{ thread: { id: 'thread-1' }, recovered: true, mode: 'relaunch_resume' }, 'thread/recover response thread.status must be recovering'],
+    [{ thread: { id: 'thread-1', status: 'idle' }, recovered: true, mode: 'relaunch_resume' }, 'thread/recover response thread.status must be recovering'],
+    [{ thread: { id: 'thread-1', status: 'recovering' }, recovered: 'true', mode: 'relaunch_resume' }, 'thread/recover response recovered must be a boolean'],
+    [{ thread: { id: 'thread-1', status: 'recovering' }, recovered: true, mode: '   ' }, 'thread/recover response mode must be a non-empty string'],
+    [{ thread: { id: 'thread-1', status: 'recovering' }, recovered: true, mode: 'relaunch_resume', debug: true }, 'thread/recover response body must not include debug'],
+    [{ thread: { id: 'thread-1', status: 'recovering', name: 'extra' }, recovered: true, mode: 'relaunch_resume' }, 'thread/recover response thread must not include name'],
+  ])('rejects malformed thread recovery envelopes', (response, message) => {
+    expect(() => validate(RPC_METHODS.THREAD_RECOVER, response)).toThrow(message);
+  });
+
   it('fails fast when required thread and turn response fields are missing', () => {
     expect(() => validate(RPC_METHODS.THREAD_START, {})).toThrow('thread/start response missing threadId or thread_id');
     expect(() => validate(RPC_METHODS.THREAD_START, { thread: { id: '' } })).toThrow('thread/start response missing threadId or thread_id');

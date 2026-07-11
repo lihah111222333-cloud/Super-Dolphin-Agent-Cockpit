@@ -2,8 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
-import { TestChatPageWrapper, copyTextToClipboard, createActiveThreadStore, createFakeStore } from './__tests__/chatPageTestSupport.js';
-import { ChatPage } from './ChatPage.jsx';
+import { TestChatPage, TestChatPageWrapper, copyTextToClipboard, createActiveThreadStore, createFakeStore } from './__tests__/chatPageTestSupport.js';
 const HIDDEN_MERMAID_TEXT = [
   '旧图表不应首屏渲染：',
   '```mermaid',
@@ -27,7 +26,7 @@ const CLIPBOARD_IMAGE_ATTACHMENT = {
 };
 
 it('collapses earlier assistant updates per turn while keeping the final reply visible', () => {
-  render(<ChatPage store={createActiveThreadStore([
+  render(<TestChatPage store={createActiveThreadStore([
     { id: 'turn-user', role: 'user', text: '检查问题', time: '2026-06-02T08:00:00Z' },
     { id: 'turn-progress', role: 'assistant', kind: 'assistant', text: '正在定位根因', time: '2026-06-02T08:00:10Z' },
     { id: 'turn-tool', role: 'assistant', kind: 'tool', title: 'grep', text: '命中目标文件', time: '2026-06-02T08:00:20Z' },
@@ -53,11 +52,11 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     });
     const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
 
-    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
     expect(screen.getByText('我')).toBeInTheDocument();
 
     const fullReply = '我先检查输出节奏，再继续。';
-    rerender(<ChatPage store={createActiveThreadStore([
+    rerender(<TestChatPage store={createActiveThreadStore([
       initialMessages[0],
       { ...initialMessages[1], text: fullReply },
     ])} projectPath="/repo/app" />);
@@ -85,11 +84,11 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     const store = createActiveThreadStore(initialMessages, {
       smoothStreaming: false,
     });
-    const { rerender } = render(<ChatPage store={store} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={store} projectPath="/repo/app" />);
     expect(screen.getByText('我')).toBeInTheDocument();
 
     const fullReply = '我先检查输出节奏，再继续。';
-    rerender(<ChatPage store={createActiveThreadStore([
+    rerender(<TestChatPage store={createActiveThreadStore([
       initialMessages[0],
       { ...initialMessages[1], text: fullReply },
     ], {
@@ -107,9 +106,9 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     ];
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
     const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
-    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
 
-    rerender(<ChatPage store={createActiveThreadStore([
+    rerender(<TestChatPage store={createActiveThreadStore([
       initialMessages[0],
       { ...initialMessages[1], text: fullReply, done: true },
     ])} projectPath="/repo/app" />);
@@ -128,7 +127,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     }));
     const fullReply = '减少动画时直接显示完整回复。';
 
-    render(<ChatPage store={createActiveThreadStore([
+    render(<TestChatPage store={createActiveThreadStore([
       { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
       { id: 'reply-assistant-1', role: 'assistant', text: fullReply, time: '2026-06-02T08:01:00Z', done: false },
     ])} projectPath="/repo/app" />);
@@ -143,10 +142,10 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     ];
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
     const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
-    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
     const fullReply = '我先检查输出节奏，再继续。';
 
-    rerender(<ChatPage store={createActiveThreadStore([
+    rerender(<TestChatPage store={createActiveThreadStore([
       initialMessages[0],
       { ...initialMessages[1], text: fullReply },
     ])} projectPath="/repo/app" />);
@@ -171,7 +170,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       sending: true,
       statuses: { 'thread-1': { state: 'running' } },
     });
-    const { rerender } = render(<ChatPage store={runningStore} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={runningStore} projectPath="/repo/app" />);
 
     expect(screen.getByLabelText('AI 思考记录')).toBeInTheDocument();
 
@@ -211,7 +210,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       ], {
         statuses: { 'thread-1': completedStatus },
       });
-      rerender(<ChatPage store={completedStore} projectPath="/repo/app" />);
+      rerender(<TestChatPage store={completedStore} projectPath="/repo/app" />);
 
       expect(scrollIntoViewSpy).not.toHaveBeenCalled();
       expect(requestAnimationFrameSpy).toHaveBeenCalled();
@@ -235,7 +234,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     const initialMessages = [
       { id: 'existing-assistant-1', role: 'assistant', text: '上一轮回复。', time: '2026-06-02T08:00:00Z' },
     ];
-    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const { rerender } = render(<TestChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
     const timeline = screen.getByTestId('chat-timeline');
     Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
     Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1000 });
@@ -246,7 +245,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     });
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
 
-    rerender(<ChatPage store={createActiveThreadStore([
+    rerender(<TestChatPage store={createActiveThreadStore([
       ...initialMessages,
       { id: 'new-user-1', role: 'user', text: '继续处理', time: '2026-06-02T08:01:00Z' },
     ])} projectPath="/repo/app" />);
@@ -271,7 +270,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       },
     });
 
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     fireEvent.click(screen.getByRole('button', { name: '加载更早的消息' }));
 
@@ -306,7 +305,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       },
     });
 
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     expect(screen.queryByText('本地隐藏历史消息 1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '显示更早的消息（40 条）' }));
@@ -336,7 +335,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       };
     });
 
-    render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+    render(<TestChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
 
     expect(screen.getByText('最近消息 84')).toBeInTheDocument();
     expect(screen.queryByText('旧图表不应首屏渲染：')).not.toBeInTheDocument();
@@ -359,7 +358,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       },
     ];
     const store = createActiveThreadStore(messages);
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPage store={store} projectPath="/repo/app" />);
     // 应该以普通段落渲染，所以不应该有 heading 元素
     expect(screen.queryByRole('heading', { name: /回家之路无论走了多远/ })).not.toBeInTheDocument();
     expect(screen.getByText(/随便贴一篇：##回家之路无论走了多远/)).toBeInTheDocument();
@@ -374,7 +373,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       ],
     });
 
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     fireEvent.click(screen.getByLabelText('打开归档列表'));
     expect(screen.getByText('Archived Thread 1')).toBeInTheDocument();
@@ -408,7 +407,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       },
     ]);
 
-    const { container } = render(<ChatPage store={store} projectPath="/repo/app" />);
+    const { container } = render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     expect(screen.getByText('能先识别这张截图内容。')).toBeInTheDocument();
     // 图片附件应作为 img 元素渲染，而不是消失或变成文件 pill
@@ -430,7 +429,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       },
     ]);
 
-    const { container } = render(<ChatPage store={store} projectPath="/repo/app" />);
+    const { container } = render(<TestChatPage store={store} projectPath="/repo/app" />);
 
     expect(screen.getByText('看这张图。')).toBeInTheDocument();
     const img = container.querySelector('.user-attachment-gallery img');

@@ -54,6 +54,7 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.UI_SHARED_FILE_GET) return { path: 'reports/final.md', content: '' };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
   if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
+  if (method === RPC_METHODS.THREAD_RECOVER) return { thread: { id: 'thread-1', status: 'recovering' }, recovered: true, mode: 'relaunch_resume' };
   if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
   if (method === RPC_METHODS.TURN_START) return { turn_id: 'turn-1' };
   if (method === RPC_METHODS.TURN_FORCE_COMPLETE) return { ok: true, forceCompleted: true };
@@ -1064,6 +1065,24 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.THREAD_RECOVER, {
       threadId: 'thread-1',
     });
+  });
+
+  it('rejects an invalid recover response before a runtime consumer can observe it', async () => {
+    const callAPI = vi.fn().mockResolvedValue({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: true,
+      mode: 'relaunch_resume',
+      unexpected: true,
+    });
+    const runtimeConsumer = vi.fn();
+    const api = createBackendApi({ callAPI });
+
+    await expect(
+      api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' }).then(runtimeConsumer),
+    ).rejects.toThrow('thread/recover response body must not include unexpected');
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_RECOVER, { threadId: 'thread-1' });
+    expect(runtimeConsumer).not.toHaveBeenCalled();
   });
 
   it('passes through diagnosed turn force-complete failure envelopes from the backend facade', async () => {

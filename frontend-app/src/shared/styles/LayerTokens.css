@@ -1,0 +1,11 @@
+:root {
+  --z-local-behind: 1;
+  --z-local-raised: 2;
+  --z-local-handle: 3;
+  --z-local-sticky: 4;
+  --z-shell-control: 5;
+  --z-overlay-popover: 100;
+  --z-overlay-dialog: 200;
+  --z-overlay-lightbox: 300;
+  --z-overlay-critical: 400;
+}

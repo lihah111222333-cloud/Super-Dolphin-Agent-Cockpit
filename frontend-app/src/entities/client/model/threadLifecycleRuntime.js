@@ -47,35 +47,92 @@ function notifyThreadActionFailure(params) {
   return false;
 }
 
+function setThreadRecoveryPending(set, threadId, pending) {
+  set((state) => {
+    const next = { ...state.threadRecoveryPendingByThread };
+    if (pending) next[threadId] = true;
+    else delete next[threadId];
+    return { threadRecoveryPendingByThread: next };
+  });
+}
+
+function notifyRecoveryResult(params) {
+  const { addWarning, noticeGate, notifyAction, recovered, threadId } = params;
+  if (!noticeGate(threadId)) return;
+  if (recovered) {
+    notifyAction('恢复请求已接受，正在恢复', 'success', { threadId });
+    return;
+  }
+  notifyAction('恢复请求失败', 'warning', { threadId });
+  addWarning('warn', 'thread.recover.failed', { threadId });
+}
+
+function notifyThreadTransportFailure(params) {
+  const { action, addWarning, error, noticeGate, notifyAction, threadId } = params;
+  if (noticeGate && !noticeGate(threadId)) return;
+  const message = error?.message || String(error);
+  notifyAction(`${THREAD_ACTION_LABELS[action] || '线程操作'}失败：${message}`, 'error', { threadId });
+  addWarning('error', `${action}.failed`, { threadId, error: message });
+}
+
 export function attachActiveThreadRpcRuntime(runtime, deps) {
   const { activeThreadInterruptTarget, backendThreadIdForState, cleanObject } = deps;
-  const { get, requireCwd, notifyAction, addWarning } = runtime;
+  const { get, set, requireCwd, notifyAction, addWarning } = runtime;
 
-  const activeThreadRPC = async (action, rpc) => {
+  const runActiveThreadRPC = async (action, rpc, options = {}) => {
     const currentState = get();
     const requiresActiveTurn = threadActionRequiresActiveTurn(action);
     const activeTurnTarget = requiresActiveTurn ? activeThreadInterruptTarget(currentState) : null;
-    const threadId = activeTurnTarget?.threadId || backendThreadIdForState(currentState, currentState.activeThreadId);
+    const threadId = options.threadId
+      || activeTurnTarget?.threadId
+      || backendThreadIdForState(currentState, currentState.activeThreadId);
     if (!threadId) {
       notifyAction('当前没有可操作的后端线程', 'warning');
-      return false;
+      return { ok: false, threadId: '', result: null };
     }
     try {
       const cwd = requireCwd(action);
       const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, currentState, cwd, notifyAction, threadId });
-      if (!payload) return false;
+      if (!payload) return { ok: false, threadId, result: null };
       const result = await rpc(cleanObject(payload));
-      if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return false;
-      notifyAction(THREAD_ACTION_SUCCESS_MESSAGES[action] || '线程操作已提交', 'success', { threadId });
-      return true;
+      if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };
+      return { ok: true, threadId, result };
     }
     catch (error) {
-      const message = error?.message || String(error);
-      notifyAction(`${THREAD_ACTION_LABELS[action] || '线程操作'}失败：${message}`, 'error', { threadId });
-      addWarning('error', `${action}.failed`, { threadId, error: message });
-      return false;
+      notifyThreadTransportFailure({ action, addWarning, error, noticeGate: options.noticeGate, notifyAction, threadId });
+      return { ok: false, threadId, result: null };
     }
   };
 
-  Object.assign(runtime, { activeThreadRPC });
+  const activeThreadRPC = async (action, rpc) => {
+    const outcome = await runActiveThreadRPC(action, rpc);
+    if (!outcome.ok) return false;
+    notifyAction(THREAD_ACTION_SUCCESS_MESSAGES[action] || '线程操作已提交', 'success', { threadId: outcome.threadId });
+    return true;
+  };
+
+  const recoverActiveThreadRPC = async (rpc) => {
+    const currentState = get();
+    const threadId = backendThreadIdForState(currentState, currentState.activeThreadId);
+    if (!threadId) return activeThreadRPC('thread.recover', rpc);
+    if (currentState.threadRecoveryPendingByThread[threadId]) return false;
+
+    setThreadRecoveryPending(set, threadId, true);
+    const noticeGate = (targetThreadId) => {
+      const state = get();
+      return backendThreadIdForState(state, state.activeThreadId) === targetThreadId;
+    };
+    try {
+      const outcome = await runActiveThreadRPC('thread.recover', rpc, { threadId, noticeGate });
+      if (!outcome.ok) return false;
+      const recovered = outcome.result.recovered === true;
+      notifyRecoveryResult({ addWarning, noticeGate, notifyAction, recovered, threadId });
+      return recovered;
+    }
+    finally {
+      setThreadRecoveryPending(set, threadId, false);
+    }
+  };
+
+  Object.assign(runtime, { activeThreadRPC, recoverActiveThreadRPC });
 }

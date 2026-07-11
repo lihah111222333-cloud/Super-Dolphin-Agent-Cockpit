@@ -3143,6 +3143,318 @@ function registerBridgeEventHandlersForTest() {
     expect(state.pendingActiveThreadId).toBe('thread-b');
   });
 
+  it('issues distinct monotonic selection intents when the same thread is selected again', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-b', cwd: '/repo/app', name: 'Thread B', provider: 'codex', status: 'idle' },
+      ],
+    });
+
+    const firstA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    const middleB = useClientStore.getState().beginOpeningThread({ id: 'thread-b' });
+    const latestA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+
+    expect(firstA).toEqual(expect.objectContaining({ targetThreadId: 'thread-a' }));
+    expect(middleB).toEqual(expect.objectContaining({ targetThreadId: 'thread-b' }));
+    expect(latestA).toEqual(expect.objectContaining({ targetThreadId: 'thread-a' }));
+    expect(latestA.selectionIntentId).toBeGreaterThan(middleB.selectionIntentId);
+    expect(middleB.selectionIntentId).toBeGreaterThan(firstA.selectionIntentId);
+  });
+
+  it('keeps C active when A B C thread syncs finish out of order', async () => {
+    const syncA = deferred();
+    const syncB = deferred();
+    const syncC = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: ['a', 'b', 'c'].map((suffix) => ({
+        id: `thread-${suffix}`,
+        cwd: '/repo/app',
+        name: `Thread ${suffix.toUpperCase()}`,
+        provider: 'codex',
+        status: 'idle',
+      })),
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => ({
+      'thread-a': syncA.promise,
+      'thread-b': syncB.promise,
+      'thread-c': syncC.promise,
+    })[threadId]);
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const intentA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    const openA = useClientStore.getState().setActiveThread('thread-a', { selectionIntent: intentA });
+    const intentB = useClientStore.getState().beginOpeningThread({ id: 'thread-b' });
+    const openB = useClientStore.getState().setActiveThread('thread-b', { selectionIntent: intentB });
+    const intentC = useClientStore.getState().beginOpeningThread({ id: 'thread-c' });
+    const openC = useClientStore.getState().setActiveThread('thread-c', { selectionIntent: intentC });
+
+    syncC.resolve({ activeThreadId: 'thread-c', threads: [{ id: 'thread-c', cwd: '/repo/app' }] });
+    await expect(openC).resolves.toBe(true);
+    syncA.resolve({ activeThreadId: 'thread-a', threads: [{ id: 'thread-a', cwd: '/repo/app' }] });
+    await expect(openA).resolves.toBe(false);
+    syncB.resolve({ activeThreadId: 'thread-b', threads: [{ id: 'thread-b', cwd: '/repo/app' }] });
+    await expect(openB).resolves.toBe(false);
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-c');
+  });
+
+  it('invalidates an opening intent when newThread creates a newer user intent', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const staleIntent = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    useClientStore.getState().newThread();
+    await useClientStore.getState().setActiveThread('thread-a', { selectionIntent: staleIntent });
+
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    expect(useClientStore.getState().pendingActiveThreadId).toBe('');
+  });
+
+  it('invalidates an opening intent when a shared-file fork draft takes ownership', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      activePage: 'chat',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+      draft: 'keep this draft',
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const staleIntent = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    expect(useClientStore.getState().continueWithSharedFile('reports/final.md')).toBe(true);
+    await expect(
+      useClientStore.getState().setActiveThread('thread-a', { selectionIntent: staleIntent }),
+    ).resolves.toBe(false);
+
+    expect(useClientStore.getState().forkDraft).toEqual(expect.objectContaining({
+      open: true,
+      sourceThreadId: 'thread-a',
+      sharedFilePaths: ['reports/final.md'],
+    }));
+    expect(useClientStore.getState().draft).toBe('keep this draft');
+  });
+
+  it('suppresses stale sync failure notices while clearing the target keyed loading flag', async () => {
+    const staleSync = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-c', cwd: '/repo/app', name: 'Thread C', provider: 'codex', status: 'idle' },
+      ],
+      actionNotice: null,
+      warningEntries: [],
+    });
+    backend.getThreadState.mockReturnValue(staleSync.promise);
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const intentA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    const openA = useClientStore.getState().setActiveThread('thread-a', { selectionIntent: intentA });
+    useClientStore.getState().beginOpeningThread({ id: 'thread-c' });
+    staleSync.reject(new Error('stale thread A failed'));
+    await expect(openA).resolves.toBe(false);
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-c');
+    expect(state.threadStateLoadingByThread['thread-a']).toBe(false);
+    expect(state.actionNotice).toBeNull();
+    expect(state.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'thread.sync.failed' }),
+    ]));
+  });
+
+  it('lets a stale successful sync update keyed cache without changing the active intent', async () => {
+    const staleSync = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-c', cwd: '/repo/app', name: 'Thread C', provider: 'codex', status: 'idle' },
+      ],
+    });
+    backend.getThreadState.mockReturnValue(staleSync.promise);
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const intentA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    const openA = useClientStore.getState().setActiveThread('thread-a', { selectionIntent: intentA });
+    useClientStore.getState().beginOpeningThread({ id: 'thread-c' });
+    staleSync.resolve({
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A refreshed', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-a': [{ id: 'a-message', role: 'assistant', text: 'stale cache is still useful' }],
+      },
+    });
+    await openA;
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-c');
+    expect(state.threads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'thread-a', name: 'Thread A refreshed' }),
+    ]));
+    expect(state.timelinesByThread['thread-a']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a-message', text: 'stale cache is still useful' }),
+    ]));
+    expect(state.threadStateLoadingByThread['thread-a']).toBe(false);
+  });
+
+  it('clears stale resolve failure loading without changing the active intent or publishing a notice', async () => {
+    const staleResolve = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-c', cwd: '/repo/app', name: 'Thread C', provider: 'codex', status: 'idle' },
+      ],
+      actionNotice: null,
+      warningEntries: [],
+    });
+    backend.resolveThreadIdentity.mockReturnValue(staleResolve.promise);
+
+    const intentA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    const openA = useClientStore.getState().openThreadById('thread-a', {
+      source: 'sidebar',
+      selectionIntent: intentA,
+    });
+    useClientStore.getState().beginOpeningThread({ id: 'thread-c' });
+    staleResolve.reject(new Error('stale resolve failed'));
+    await expect(openA).resolves.toBe(false);
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-c');
+    expect(state.threadStateLoadingByThread['thread-a']).toBe(false);
+    expect(state.actionNotice).toBeNull();
+    expect(state.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'thread.open.resolve.failed' }),
+    ]));
+  });
+
+  it('clears keyed loading when the current resolve fails', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+    });
+    backend.resolveThreadIdentity.mockRejectedValue(new Error('current resolve failed'));
+
+    const intentA = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    await expect(useClientStore.getState().openThreadById('thread-a', {
+      source: 'sidebar',
+      selectionIntent: intentA,
+    })).resolves.toBe(false);
+
+    expect(useClientStore.getState().threadStateLoadingByThread['thread-a']).toBe(false);
+  });
+
+  it('does not let a stale same-target resolve failure clear the newer intent loading', async () => {
+    const staleResolve = deferred();
+    const currentSync = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+      actionNotice: null,
+      warningEntries: [],
+    });
+    backend.resolveThreadIdentity.mockReturnValue(staleResolve.promise);
+    backend.getThreadState.mockReturnValue(currentSync.promise);
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const intentA1 = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    const openA1 = useClientStore.getState().openThreadById('thread-a', {
+      source: 'sidebar',
+      selectionIntent: intentA1,
+    });
+    const intentA2 = useClientStore.getState().beginOpeningThread({ id: 'thread-a' });
+    expect(intentA2).not.toBe(intentA1);
+    const openA2 = useClientStore.getState().setActiveThread('thread-a', { selectionIntent: intentA2 });
+    expect(useClientStore.getState().pendingActiveThreadId).toBe('');
+    expect(useClientStore.getState().threadStateLoadingByThread['thread-a']).toBe(true);
+    staleResolve.reject(new Error('stale same-target resolve failed'));
+    await expect(openA1).resolves.toBe(false);
+
+    const stateAfterStaleFailure = useClientStore.getState();
+    expect(stateAfterStaleFailure.activeThreadId).toBe('thread-a');
+    expect(stateAfterStaleFailure.pendingActiveThreadId).toBe('');
+    expect(stateAfterStaleFailure.threadStateLoadingByThread['thread-a']).toBe(true);
+    expect(stateAfterStaleFailure.actionNotice).toBeNull();
+    expect(stateAfterStaleFailure.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'thread.open.resolve.failed' }),
+    ]));
+
+    currentSync.resolve({
+      activeThreadId: 'thread-a',
+      threads: [{ id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' }],
+    });
+    await expect(openA2).resolves.toBe(true);
+    expect(useClientStore.getState().threadStateLoadingByThread['thread-a']).toBe(false);
+  });
+
+  it('does not commit a stale resolved canonical id after a newer selection', async () => {
+    const resolvedIdentity = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'alias-a',
+      threads: [
+        { id: 'alias-a', cwd: '/repo/app', name: 'Alias A', provider: 'codex', status: 'idle' },
+        { id: 'thread-c', cwd: '/repo/app', name: 'Thread C', provider: 'codex', status: 'idle' },
+      ],
+    });
+    backend.resolveThreadIdentity.mockReturnValue(resolvedIdentity.promise);
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'canonical-a',
+      threads: [{ id: 'canonical-a', agentId: 'alias-a', cwd: '/repo/app', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    const intentA = useClientStore.getState().beginOpeningThread({ id: 'alias-a' });
+    const openA = useClientStore.getState().openThreadById('alias-a', {
+      source: 'sidebar',
+      selectionIntent: intentA,
+    });
+    useClientStore.getState().beginOpeningThread({ id: 'thread-c' });
+    resolvedIdentity.resolve({
+      id: 'canonical-a',
+      agentId: 'alias-a',
+      cwd: '/repo/app',
+      provider: 'codex',
+      status: 'idle',
+    });
+    await openA;
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-c');
+  });
+
   it('starts a new thread instead of sending turns to an unknown active agent id', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -6196,6 +6508,95 @@ function registerBridgeEventHandlersForTest() {
       event: 'thread.recover.failed',
       level: 'error',
     }));
+  });
+
+  it('submits one recover RPC while the same thread request is pending', async () => {
+    const recovery = deferred();
+    backend.recoverThread.mockReturnValueOnce(recovery.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
+    });
+
+    const first = useClientStore.getState().recoverActiveThread();
+    const repeated = useClientStore.getState().recoverActiveThread();
+
+    await expect(repeated).resolves.toBe(false);
+    expect(backend.recoverThread).toHaveBeenCalledTimes(1);
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({ 'thread-1': true });
+
+    recovery.resolve({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: true,
+      mode: 'relaunch_resume',
+    });
+    await expect(first).resolves.toBe(true);
+
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({});
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '恢复请求已接受，正在恢复',
+      tone: 'success',
+    }));
+    expect(useClientStore.getState().actionNotice.message).not.toContain('已恢复完成');
+  });
+
+  it('treats recovered false as a failed request and never as accepted', async () => {
+    backend.recoverThread.mockResolvedValueOnce({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: false,
+      mode: 'relaunch_resume',
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
+    });
+
+    await expect(useClientStore.getState().recoverActiveThread()).resolves.toBe(false);
+
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({});
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '恢复请求失败',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().actionNotice.message).not.toContain('已接受');
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.recover.failed',
+      level: 'warn',
+    }));
+  });
+
+  it('clears stale recover pending without polluting the newly active thread', async () => {
+    const recovery = deferred();
+    backend.recoverThread.mockReturnValueOnce(recovery.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: '旧线程', provider: 'codex', status: 'running' },
+        { id: 'thread-2', name: '新线程', provider: 'codex', status: 'idle' },
+      ],
+    });
+
+    const pending = useClientStore.getState().recoverActiveThread();
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({ 'thread-1': true });
+    useClientStore.setState({ activeThreadId: 'thread-2', actionNotice: null });
+
+    recovery.resolve({
+      thread: { id: 'thread-1', status: 'recovering' },
+      recovered: true,
+      mode: 'relaunch_resume',
+    });
+    await expect(pending).resolves.toBe(true);
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+    expect(useClientStore.getState().threadRecoveryPendingByThread).toEqual({});
+    expect(useClientStore.getState().actionNotice).toBeNull();
+    expect(useClientStore.getState().warningEntries.filter((entry) => entry.event === 'thread.recover.failed')).toEqual([]);
   });
 
   it('restores archived threads without enabling active thread actions', async () => {

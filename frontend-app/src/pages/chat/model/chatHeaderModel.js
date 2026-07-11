@@ -16,6 +16,12 @@ function chatHeaderFeedbackForStore(store) {
     bootstrapRecovery: true,
     retrying: bootstrapStatus === 'loading',
   };
+  const activeThreadId = textValue(store?.activeThreadId);
+  if (activeThreadId && store?.threadRecoveryPendingByThread?.[activeThreadId]) return {
+    message: '正在恢复',
+    tone: 'info',
+    recoveryRequesting: true,
+  };
   if (store?.actionNotice?.message) return store.actionNotice;
   return null;
 }

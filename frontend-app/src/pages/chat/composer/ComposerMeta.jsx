@@ -17,7 +17,6 @@ function ComposerMeta({
   copy = APP_COPY.zh.chat,
   canInterrupt,
   canSend,
-  canUseProjectActions: _canUseProjectActions,
   modelThreadId,
   projectPath,
   projectActionBlocked,
@@ -57,7 +56,7 @@ function ComposerMeta({
         <Paperclip size={18} aria-hidden="true" />
       </button>
       {showProjectSelector ? (
-        <ProjectSelector copy={copy} projectPath={projectPath} store={store} />
+        <ProjectSelector copy={copy} projectPath={projectPath} store={store} isDisabled={projectActionBlocked} />
       ) : (
         <div className="composer-context" aria-label={copy.projects} title={projectTitle}>
           <Folder size={15} aria-hidden="true" />

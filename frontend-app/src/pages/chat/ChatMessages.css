@@ -475,7 +475,6 @@ button.user-attachment-file-pill:focus-visible {
 .image-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 80;
   display: grid;
   place-items: center;
   width: auto;
@@ -499,9 +498,13 @@ button.user-attachment-file-pill:focus-visible {
   cursor: zoom-out;
 }
 
+#overlay-root .image-lightbox {
+  z-index: var(--z-overlay-lightbox);
+}
+
 .image-lightbox-panel {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-local-raised);
   width: min(1180px, 94vw);
   max-height: 92vh;
   overflow: hidden;

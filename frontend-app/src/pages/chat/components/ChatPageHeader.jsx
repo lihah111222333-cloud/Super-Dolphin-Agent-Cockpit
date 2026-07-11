@@ -25,6 +25,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
     ? Boolean(store.hasForceCompleteThreadAction())
     : canInterruptThread;
   const feedback = chatHeaderFeedbackForStore(store);
+  const recoveryRequesting = Boolean(feedback?.recoveryRequesting);
   const activeThread = activeThreadForStore(store);
   const title = store?.activeThreadId && activeThread ? displayThreadName(activeThread) : '聊天页面';
   const setActionsMenuOpen = (isOpen) => {
@@ -51,6 +52,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
             canForceCompleteThread={canForceCompleteThread}
             canInterruptThread={canInterruptThread}
             canUseThreadActions={canUseThreadActions}
+            recoveryRequesting={recoveryRequesting}
             projectPath={projectPath}
             rightPanelOpen={rightPanelOpen}
             setRightPanelOpen={setRightPanelOpen}
@@ -121,9 +123,9 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
         <button
           type="button"
           className="icon-btn"
-          aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
-          title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
-          disabled={!canUseThreadActions}
+          aria-label={recoveryRequesting ? '正在恢复' : (canUseThreadActions ? '进程恢复' : '请先选择会话')}
+          title={recoveryRequesting ? '恢复请求处理中' : (canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话')}
+          disabled={!canUseThreadActions || recoveryRequesting}
           onClick={() => runUIAction(() => store.recoverActiveThread?.())}
         >
           <RefreshCw size={14} />
@@ -154,6 +156,7 @@ function ChatActionsMenu({
   canForceCompleteThread,
   canInterruptThread,
   canUseThreadActions,
+  recoveryRequesting,
   projectPath,
   rightPanelOpen,
   setRightPanelOpen,
@@ -226,8 +229,8 @@ function ChatActionsMenu({
         <ChatActionMenuItem
           id="recover-thread"
         icon={RefreshCw}
-        label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
-        disabled={!canUseThreadActions}
+        label={recoveryRequesting ? '正在恢复' : (canUseThreadActions ? '进程恢复' : '请先选择会话')}
+        disabled={!canUseThreadActions || recoveryRequesting}
       />
         <ChatActionMenuItem
           id="toggle-runtime-panel"

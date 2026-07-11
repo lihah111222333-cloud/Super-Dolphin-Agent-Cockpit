@@ -2,6 +2,7 @@ import React from 'react';
 import { screen } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
 import mermaid from 'mermaid';
+import { createShellLayoutStore } from '../../../app/shell/model/useShellLayoutStore.js';
 import { ChatPage as ChatPageComponent } from '../ChatPage.jsx';
 
 const chatCodeServiceMocks = vi.hoisted(() => ({
@@ -63,7 +64,6 @@ function createFakeStore(overrides = {}) {
     recoverActiveThread: vi.fn(),
     removeAttachment: vi.fn(),
     renameThread: vi.fn(),
-    rightPanelWidth: 0,
     runtimeResultEntries: [],
     saveComposerModelConfig: vi.fn(),
     selectFilesForComposer: vi.fn(),
@@ -73,9 +73,6 @@ function createFakeStore(overrides = {}) {
     smoothStreaming: true,
     setDraft: vi.fn((value) => {
       store.draft = value;
-    }),
-    setRightPanelWidth: vi.fn((value) => {
-      store.rightPanelWidth = value;
     }),
     statuses: {},
     syncThreadState: vi.fn(),
@@ -95,6 +92,24 @@ function createFakeStore(overrides = {}) {
     ...overrides,
   };
   return store;
+}
+
+function createMemoryShellLayoutStorage(initialValue = '0') {
+  let storedValue = initialValue;
+  return {
+    get: vi.fn(() => storedValue),
+    set: vi.fn((_key, value) => { storedValue = value; }),
+    remove: vi.fn(() => { storedValue = null; }),
+    value: () => storedValue,
+  };
+}
+
+function createShellLayoutTestHarness(initialValue = '0') {
+  const storage = createMemoryShellLayoutStorage(initialValue);
+  return {
+    storage,
+    store: createShellLayoutStore({ storage }),
+  };
 }
 
 function deferred() {
@@ -126,7 +141,18 @@ function getThreadCardByName(name) {
   return card;
 }
 
-function TestChatPageWrapper({ copy, store, projectPath, rightPanelOpen: initialOpen = false }) {
+function TestChatPage({ shellLayoutStore, ...props }) {
+  const [defaultShellLayout] = React.useState(createShellLayoutTestHarness);
+  const resolvedShellLayoutStore = shellLayoutStore === undefined
+    ? defaultShellLayout.store
+    : shellLayoutStore;
+  return React.createElement(ChatPageComponent, {
+    ...props,
+    shellLayoutStore: resolvedShellLayoutStore,
+  });
+}
+
+function TestChatPageWrapper({ copy, shellLayoutStore, store, projectPath, rightPanelOpen: initialOpen = false }) {
   const [open, setOpen] = React.useState(initialOpen);
 
   return React.createElement(
@@ -137,8 +163,9 @@ function TestChatPageWrapper({ copy, store, projectPath, rightPanelOpen: initial
       { type: 'button', onClick: () => setOpen((prev) => !prev) },
       '测试切换侧边栏',
     ),
-    React.createElement(ChatPageComponent, {
+    React.createElement(TestChatPage, {
       copy,
+      shellLayoutStore,
       store,
       projectPath,
       rightPanelOpen: open,
@@ -173,11 +200,12 @@ beforeEach(() => {
 
 
 export {
-  ChatPageComponent as ChatPage,
+  TestChatPage,
   TestChatPageWrapper,
   copyTextToClipboard,
   createActiveThreadStore,
   createFakeStore,
+  createShellLayoutTestHarness,
   deferred,
   getThreadCardByName,
   locateCodeFile,
