@@ -300,16 +300,16 @@ func stripFrontendMeta(raw json.RawMessage) json.RawMessage {
 	})
 }
 
-// stripFrontendTraceMeta 只移除 trace meta，保留 ui/log 需要的客户端来源字段。
+// stripFrontendTraceMeta 移除 request/trace meta，保留 ui/log 需要的客户端来源字段。
 func stripFrontendTraceMeta(raw json.RawMessage) json.RawMessage {
 	return stripJSONFields(raw, func(key string) bool {
-		return key == "_aoTraceparent" || key == "_aoTraceId" || key == "_aoSpanId"
+		return key == "_aoRequestId" || key == "_aoTraceparent" || key == "_aoTraceId" || key == "_aoSpanId"
 	})
 }
 
 func isFrontendMetaField(key string) bool {
 	switch key {
-	case "_aoClientKind", "_aoClientRoute", "_aoTraceparent", "_aoTraceId", "_aoSpanId":
+	case "_aoClientKind", "_aoClientRoute", "_aoRequestId", "_aoTraceparent", "_aoTraceId", "_aoSpanId":
 		return true
 	default:
 		return false

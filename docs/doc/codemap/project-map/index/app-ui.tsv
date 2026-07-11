@@ -29,8 +29,8 @@ frontend-app/scripts/no-critical-skip.mjs	frontend-app	app-ui	js-source	4897	Rea
 frontend-app/scripts/no-critical-skip.test.mjs	frontend-app	app-ui	js-test	3886	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,test,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.mjs	frontend-app	app-ui	js-source	6280	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.test.mjs	frontend-app	app-ui	js-test	4473	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,test,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	24428	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	5243	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	22618	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	16029	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-acceptance.mjs	frontend-app	app-ui	js-source	20806	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,acceptance,React,前端构建与校验脚本
@@ -78,7 +78,7 @@ frontend-app/src/entities/client/model/helpers/a1/clientStoreRuntimeCore.js	fron
 frontend-app/src/entities/client/model/helpers/a1/clientStoreRuntimeThreadModel.js	frontend-app	app-ui	js-source	14766	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreRuntimeThreadModel,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a1/clientStoreSendModel.js	frontend-app	app-ui	js-source	18866	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreSendModel,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a1/clientStoreSidebarRuntime.js	frontend-app	app-ui	js-source	5617	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreSidebarRuntime,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/helpers/a1/clientStoreSnapshotModel.js	frontend-app	app-ui	js-source	16066	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreSnapshotModel,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/helpers/a1/clientStoreSnapshotModel.js	frontend-app	app-ui	js-source	19870	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreSnapshotModel,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a1/clientStoreThreadActions.js	frontend-app	app-ui	js-source	18581	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreThreadActions,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a1/clientStoreThreadClipboard.js	frontend-app	app-ui	js-source	1300	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreThreadClipboard,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a1/clientStoreThreadModel.js	frontend-app	app-ui	js-source	9498	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreThreadModel,React,客户端状态,thread,composer,store,模型
@@ -125,7 +125,7 @@ frontend-app/src/entities/client/model/threadMessagesRuntime.test.js	frontend-ap
 frontend-app/src/entities/client/model/timelineRuntime.js	frontend-app	app-ui	js-source	23246	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/timelineRuntime.test.js	frontend-app	app-ui	js-test	6402	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/useClientStore.js	frontend-app	app-ui	js-source	5625	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	246706	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	250173	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/warningRuntime.test.js	frontend-app	app-ui	js-test	5359	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,warningRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2531	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4875	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
@@ -380,11 +380,11 @@ frontend-app/src/shared/api/backend/backendApiPayloadWorkflow.js	frontend-app	ap
 frontend-app/src/shared/api/backend/backendRpcMethods.js	frontend-app	app-ui	js-source	6644	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendRpcMethods,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-source	24744	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.contractMatrix.test.js	frontend-app	app-ui	js-test	7827	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	15125	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	6312	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.surface.test.js	frontend-app	app-ui	js-test	6707	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,surface,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	91287	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	15763	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	4845	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	92366	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	19744	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	7919	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendSchemas.js	frontend-app	app-ui	js-source	17516	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendSchemas,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/bridgeSafeLogFields.js	frontend-app	app-ui	js-source	1100	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,bridgeSafeLogFields,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWire.js	frontend-app	app-ui	js-source	1026	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWire,React,前端,API,facade,与,Wails,bridge

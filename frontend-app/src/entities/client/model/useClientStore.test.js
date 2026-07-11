@@ -733,6 +733,90 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
+  it('normalizes Go UI state status maps into the realtime status entry shape', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-wire',
+      threads: [{ id: 'thread-wire', agentId: 'agent-wire', name: 'Wire thread', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-wire',
+      threads: [{ id: 'thread-wire', agent_id: 'agent-wire', name: 'Wire thread', state: 'running' }],
+      agents: [{ id: 'agent-wire', thread_id: 'thread-wire', provider: 'codex', state: 'running' }],
+      statuses: { 'thread-wire': 'running' },
+      statusHeadersByThread: { 'thread-wire': 'Thinking' },
+      statusDetailsByThread: { 'thread-wire': 'Inspecting snapshot state' },
+      interruptibleByThread: { 'thread-wire': true },
+      activityStatsByThread: {
+        'thread-wire': { lspCalls: 2, commands: 3, fileEdits: 1, toolCalls: { read: 4 } },
+      },
+      agentRuntimeById: {
+        'thread-wire': {
+          agentId: 'agent-wire',
+          state: 'running',
+          provider: 'codex',
+          providerThreadId: 'provider-thread-wire',
+        },
+      },
+      timelinesByThread: { 'thread-wire': [] },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    await expect(useClientStore.getState().syncThreadState('thread-wire')).resolves.toBe(true);
+
+    expect(useClientStore.getState().statuses['thread-wire']).toEqual({
+      status: 'running',
+      statusHeader: 'Thinking',
+      statusDetails: 'Inspecting snapshot state',
+      interruptible: true,
+      activityStats: { lspCalls: 2, commands: 3, fileEdits: 1, toolCalls: { read: 4 } },
+      agentRuntime: {
+        agentId: 'agent-wire',
+        state: 'running',
+        provider: 'codex',
+        providerThreadId: 'provider-thread-wire',
+      },
+    });
+  });
+
+  it('preserves rich status fields when a same-status snapshot omits the parallel maps', async () => {
+    const richStatus = {
+      status: 'running',
+      statusHeader: 'Thinking',
+      statusDetails: 'Inspecting live state',
+      interruptible: true,
+      activityStats: { lspCalls: 2, commands: 3, fileEdits: 1, toolCalls: { read: 4 } },
+      agentRuntime: {
+        agentId: 'agent-wire',
+        state: 'running',
+        provider: 'codex',
+        providerThreadId: 'provider-thread-wire',
+      },
+    };
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-wire',
+      threads: [{ id: 'thread-wire', agentId: 'agent-wire', name: 'Wire thread', provider: 'codex', status: 'running' }],
+      statuses: { 'thread-wire': richStatus },
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-wire',
+      threads: [{ id: 'thread-wire', agent_id: 'agent-wire', name: 'Wire thread', state: 'running' }],
+      agents: [{ id: 'agent-wire', thread_id: 'thread-wire', provider: 'codex', state: 'running' }],
+      statuses: { 'thread-wire': 'running' },
+      timelinesByThread: { 'thread-wire': [] },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    await expect(useClientStore.getState().syncThreadState('thread-wire')).resolves.toBe(true);
+
+    expect(useClientStore.getState().statuses['thread-wire']).toEqual(richStatus);
+  });
+
   it('uses the active provider for deferred workflow designer threads without runtime metadata', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
