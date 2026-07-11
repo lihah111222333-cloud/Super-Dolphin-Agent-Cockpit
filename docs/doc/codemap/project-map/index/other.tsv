@@ -339,8 +339,12 @@ internal/devtools/codemapindex/anchor.go	internal	other	go-source	261	开发工�
 internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	3732	开发工具与生成器辅助包	internal,devtools,codemapindex,readme,sync,开发工具与生成器辅助包
 internal/devtools/codemapindex/source_scan.go	internal	other	go-source	3532	开发工具与生成器辅助包	internal,devtools,codemapindex,source,scan,开发工具与生成器辅助包
 internal/devtools/sourceexport/errors.go	internal	other	go-source	1294	开发工具与生成器辅助包	internal,devtools,sourceexport,errors,开发工具与生成器辅助包
+internal/devtools/sourceexport/git_tree_test.go	internal	other	go-test	3327	开发工具与生成器辅助包	internal,devtools,sourceexport,git,tree,test,开发工具与生成器辅助包
+internal/devtools/sourceexport/git_tree.go	internal	other	go-source	5450	开发工具与生成器辅助包	internal,devtools,sourceexport,git,tree,开发工具与生成器辅助包
 internal/devtools/sourceexport/identity_guard_test.go	internal	other	go-test	2270	开发工具与生成器辅助包	internal,devtools,sourceexport,identity,guard,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/identity.go	internal	other	go-source	2234	开发工具与生成器辅助包	internal,devtools,sourceexport,identity,开发工具与生成器辅助包
+internal/devtools/sourceexport/path_matcher_test.go	internal	other	go-test	2280	开发工具与生成器辅助包	internal,devtools,sourceexport,path,matcher,test,开发工具与生成器辅助包
+internal/devtools/sourceexport/path_matcher.go	internal	other	go-source	2765	开发工具与生成器辅助包	internal,devtools,sourceexport,path,matcher,开发工具与生成器辅助包
 internal/devtools/sourceexport/policy_test.go	internal	other	go-test	5762	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/policy.go	internal	other	go-source	7384	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,开发工具与生成器辅助包
 internal/devtools/sqlitepackagesmoke/main.go	internal	other	go-source	9362	开发工具与生成器辅助包	internal,devtools,sqlitepackagesmoke,main,开发工具与生成器辅助包
