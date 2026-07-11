@@ -1,4 +1,4 @@
-package app
+package cronadapter
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
@@ -209,6 +211,32 @@ func TestCronStoreAdapterProjectsSharedRoot(t *testing.T) {
 	}
 	if storePort != root.jobs || schedulerPort != root.scheduler {
 		t.Fatal("expected both cron ports to project the shared root adapter")
+	}
+}
+
+// TestModuleOwnsCronPorts 通过真实 Fx lifecycle 固定两个 cron 端口归 cron adapter 子模块所有。
+func TestModuleOwnsCronPorts(t *testing.T) {
+	var root *cronStoreAdapter
+	var storePort cron.Store
+	var schedulerPort cron.SchedulerStore
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(func() cronstore.Store { return newCronStoreTestDouble(nil) }),
+		Module,
+		fx.Populate(&root, &storePort, &schedulerPort),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("fx.Start: %v", err)
+	}
+	if err := app.Stop(ctx); err != nil {
+		t.Fatalf("fx.Stop: %v", err)
+	}
+	if root == nil || storePort != root.jobs || schedulerPort != root.scheduler {
+		t.Fatal("expected Module to own both cron ports projected from the shared root adapter")
 	}
 }
 

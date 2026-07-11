@@ -1,4 +1,4 @@
-package app
+package dashboardadapter
 
 import (
 	"context"
@@ -373,8 +373,8 @@ func TestDashboardSharedFileAdapterPreservesNilResults(t *testing.T) {
 	}
 }
 
-// TestBusinessStoreAdaptersModuleOwnsDashboardPorts 通过真实 Fx lifecycle 证明九个端口归 App bundle 所有。
-func TestBusinessStoreAdaptersModuleOwnsDashboardPorts(t *testing.T) {
+// TestModuleOwnsDashboardPorts 通过真实 Fx lifecycle 证明九个端口归 dashboard adapter 子模块所有。
+func TestModuleOwnsDashboardPorts(t *testing.T) {
 	agent, ai, audit := &dashboardAgentStatusRoot{}, &dashboardAILogRoot{}, &dashboardAuditLogRoot{}
 	bus, system, query := &dashboardBusLogRoot{}, &dashboardSystemLogRoot{}, &dashboardDBQueryRoot{}
 	command, prompt, shared := &dashboardCommandCardRoot{}, &dashboardPromptRoot{}, &dashboardSharedFileReaderTestDouble{}
@@ -392,7 +392,7 @@ func TestBusinessStoreAdaptersModuleOwnsDashboardPorts(t *testing.T) {
 		fx.Provide(func() auditlogstore.Store { return audit }), fx.Provide(func() buslogstore.Store { return bus }),
 		fx.Provide(func() systemlogstore.Store { return system }), fx.Provide(func() dbquerystore.Store { return query }),
 		fx.Provide(func() commandcardstore.Reader { return command }), fx.Provide(func() promptstore.Reader { return prompt }),
-		fx.Provide(func() sharedfilestore.Reader { return shared }), businessStoreAdaptersModule(),
+		fx.Provide(func() sharedfilestore.Reader { return shared }), Module,
 		fx.Populate(&p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9))
 	if err := app.Err(); err != nil {
 		t.Fatalf("fx.New: %v", err)

@@ -1,4 +1,4 @@
-package app_test
+package dashboardadapter_test
 
 import (
 	"context"

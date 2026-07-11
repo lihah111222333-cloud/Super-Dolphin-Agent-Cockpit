@@ -79,7 +79,6 @@ var Module = fx.Options(
 	store.Module,
 	threadStoreAdaptersModule(),
 	storeadapter.Module,
-	businessStoreAdaptersModule(),
 	dashboard.Module,
 	datasource.Module,
 	datasourcev2.Module,

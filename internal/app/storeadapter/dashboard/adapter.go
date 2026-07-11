@@ -1,4 +1,4 @@
-package app
+package dashboardadapter
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package app_test
+package cronadapter_test
 
 import (
 	"context"
