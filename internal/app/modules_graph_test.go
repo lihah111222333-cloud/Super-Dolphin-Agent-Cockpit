@@ -12,10 +12,13 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	cronmodule "github.com/anthropic-ai/super-agent-v3/internal/module/cron"
+	dashboardmodule "github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	promptmodule "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	threadmodule "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	uistatemodule "github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
@@ -139,6 +142,74 @@ func TestAppModuleGraphProvidesMemoryExtractionDrainer(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&drainer))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing memory extraction drainer: %v", err)
+	}
+}
+
+// TestAppModuleGraphProvidesAdapterPorts 以单次 graph 验证固定 adapter 分包后的关键接口集合。
+func TestAppModuleGraphProvidesAdapterPorts(t *testing.T) {
+	t.Parallel()
+
+	cases := appGraphAdapterPortCases()
+	targets := make([]any, len(cases))
+	names := make([]string, len(cases))
+	for i, tc := range cases {
+		targets[i] = tc.target
+		names[i] = tc.name
+	}
+	opts := append(appGraphValidationOptions(), fx.Populate(targets...))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing adapter ports [%s]: %v", strings.Join(names, ", "), err)
+	}
+}
+
+type appGraphPortCase struct {
+	name   string
+	target any
+}
+
+func appGraphAdapterPortCases() []appGraphPortCase {
+	var cronStore cronmodule.Store
+	var cronSchedulerStore cronmodule.SchedulerStore
+	var dashboardAgentStatus dashboardmodule.AgentStatusReader
+	var dashboardAILog dashboardmodule.AILogReader
+	var dashboardAuditLog dashboardmodule.AuditLogReader
+	var dashboardBusLog dashboardmodule.BusLogReader
+	var dashboardSystemLog dashboardmodule.SystemLogReader
+	var dashboardDBQuery dashboardmodule.DBQueryExecutor
+	var dashboardCommandCard dashboardmodule.CommandCardReader
+	var dashboardPromptTemplate dashboardmodule.PromptTemplateReader
+	var dashboardSharedFile dashboardmodule.SharedFileReader
+	var promptStore promptmodule.Store
+	var threadStore threadmodule.ThreadStore
+	var threadBindingStore threadmodule.BindingStore
+	var threadPromptCatalog threadmodule.PromptCatalog
+	var turnDedupeStore turn.DedupeStore
+	var uiStatePreferenceStore uistatemodule.PreferenceStore
+	var uiStateSharedFileReader uistatemodule.SharedFileReader
+	var uiStateBindingLookup uistatemodule.BindingLookup
+	var readiness contract.ToolbridgeReadinessProbe
+
+	return []appGraphPortCase{
+		{name: "cron Store", target: &cronStore},
+		{name: "cron SchedulerStore", target: &cronSchedulerStore},
+		{name: "dashboard AgentStatusReader", target: &dashboardAgentStatus},
+		{name: "dashboard AILogReader", target: &dashboardAILog},
+		{name: "dashboard AuditLogReader", target: &dashboardAuditLog},
+		{name: "dashboard BusLogReader", target: &dashboardBusLog},
+		{name: "dashboard SystemLogReader", target: &dashboardSystemLog},
+		{name: "dashboard DBQueryExecutor", target: &dashboardDBQuery},
+		{name: "dashboard CommandCardReader", target: &dashboardCommandCard},
+		{name: "dashboard PromptTemplateReader", target: &dashboardPromptTemplate},
+		{name: "dashboard SharedFileReader", target: &dashboardSharedFile},
+		{name: "prompt Store", target: &promptStore},
+		{name: "thread ThreadStore", target: &threadStore},
+		{name: "thread BindingStore", target: &threadBindingStore},
+		{name: "thread PromptCatalog", target: &threadPromptCatalog},
+		{name: "turn DedupeStore", target: &turnDedupeStore},
+		{name: "uistate PreferenceStore", target: &uiStatePreferenceStore},
+		{name: "uistate SharedFileReader", target: &uiStateSharedFileReader},
+		{name: "uistate BindingLookup", target: &uiStateBindingLookup},
+		{name: "toolbridge readiness probe", target: &readiness},
 	}
 }
 
