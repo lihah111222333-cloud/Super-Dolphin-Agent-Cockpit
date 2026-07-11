@@ -324,13 +324,18 @@ git commit -m "feat: 实现 harness 会话状态与策略门禁"
 ### Task 4: Add a bounded evidence ledger and candidate model
 
 **Files:**
+- Modify: `packages/contracts/src/candidate.ts`
+- Modify: `packages/core/package.json`
 - Create: `packages/core/src/bounded-buffer.ts`
 - Create: `packages/core/src/evidence-ledger.ts`
 - Create: `packages/core/src/redactor.ts`
 - Create: `packages/core/src/run-writer.ts`
 - Create: `packages/core/src/candidate.ts`
 - Modify: `packages/core/src/index.ts`
+- Modify: `package-lock.json`
+- Test: `packages/core/src/bounded-buffer.test.ts`
 - Test: `packages/core/src/evidence-ledger.test.ts`
+- Test: `packages/core/src/redactor.test.ts`
 - Test: `packages/core/src/run-writer.test.ts`
 - Test: `packages/core/src/candidate.test.ts`
 
@@ -351,7 +356,9 @@ it('does not promote an oracle-free trace', () => {
 });
 
 it('redacts sensitive fields before writing the run layout', async () => {
-  const writer = await RunWriter.create(tempRunRoot, { sensitiveFields: ['apiKey'] });
+  const writer = await RunWriter.create(tempRunRoot, {
+    sessionId: 'session-1', sensitiveFields: ['apiKey'],
+  });
   await writer.writeResult({ apiKey: 'foundation-secret-marker', status: 'explored' });
   expect(await readFile(writer.resultPath, 'utf8')).not.toContain('foundation-secret-marker');
 });
@@ -359,22 +366,30 @@ it('redacts sensitive fields before writing the run layout', async () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npm test -- packages/core/src/evidence-ledger.test.ts packages/core/src/candidate.test.ts packages/core/src/run-writer.test.ts`
+Run: `npm test -- packages/core/src/bounded-buffer.test.ts packages/core/src/evidence-ledger.test.ts packages/core/src/redactor.test.ts packages/core/src/candidate.test.ts packages/core/src/run-writer.test.ts`
 
 Expected: FAIL because ledger and candidate builder do not exist.
 
 - [ ] **Step 3: Implement ledger and candidate normalization**
 
-Use canonical UTF-8 JSON with sorted object keys for receipt hashing. Each receipt stores `previousHash` and `hash`; the first receipt uses 64 zeroes. Candidate actions retain semantic locators, expected revision deltas, explicit oracles, and evidence refs. Empty oracle arrays produce `explored`, never `candidate`.
+`BoundedBuffer` validates finite non-negative safe-integer limits, measures canonical UTF-8 bytes, evicts oldest entries until both limits hold, never retains a single oversized entry, counts every eviction/rejection, and returns immutable snapshots.
 
-The baseline redactor handles declared sensitive fields, authorization/cookie headers, password/token/API-key names, and URL query secrets before any writer call. `RunWriter` creates `manifest.json`, `events.jsonl`, `result.json`, `report.md`, optional redacted `candidate.yaml`, and `artifacts/`. Foundation does not export screenshots; screenshot support remains disabled until the masking implementation in the Safety/Desktop plan.
+Evidence input must satisfy the shared strict `JsonValueSchema` before traversal; Core must declare any package it imports directly rather than relying on a transitive dependency. Use canonical UTF-8 JSON with recursively sorted object keys for receipt hashing. Each immutable receipt stores a monotonic sequence, `previousHash`, redacted event, and 64-lowercase-hex `hash`; the first receipt uses 64 zeroes. Dropped receipts still advance the chain head. When retained history is evicted, preserve an anchor hash/sequence so `verifyChain()` validates the remaining suffix instead of treating it as a new chain. Buffer byte accounting includes the complete stored receipt.
+
+Extend the Contracts `CandidateAction` type with a positive safe-integer `expectedRevisionDelta` and per-action `evidenceRefs`. Candidate actions retain semantic locators, expected revision deltas, explicit JSON-safe oracles, and nonempty evidence refs without converting strict locators to CSS. Validate and clone candidate input so caller mutation cannot alter the result. Empty oracle arrays produce `explored` with no promotable candidate, never `candidate`; Foundation does not implement replay-count promotion.
+
+The baseline redactor handles declared sensitive fields, authorization/cookie headers, password/token/API-key/secret names, URL user-info, and sensitive URL query parameters before any writer call. It must validate without executing accessors, never persist a hash or prefix of the secret, and replace a sensitive value with deterministic session-local metadata containing only a redaction marker, value type, safe length metadata, and an opaque reference. Repeated values may reuse the same session-local reference. Built-in matching is case/separator insensitive; declared names are exact after the same normalization.
+
+`RunWriter.create` requires a nonempty session ID and a new non-symlink run directory, then creates private `manifest.json`, `events.jsonl`, `result.json`, `report.md`, optional redacted `candidate.yaml`, and `artifacts/` paths. Fixed JSON/JSONL/Markdown/candidate writers validate JSON, redact before serialization, terminate text records with a newline, use exclusive/fail-fast writes, and never overwrite an existing result. JSON syntax is valid YAML 1.2 for the candidate file, so Foundation does not add a YAML serializer solely for this output. No artifact or screenshot write API is exposed until the masking and artifact-budget work in Safety/Desktop.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
 ```bash
-npm test -- packages/core/src/evidence-ledger.test.ts packages/core/src/candidate.test.ts packages/core/src/run-writer.test.ts
+npm test -- packages/core/src/bounded-buffer.test.ts packages/core/src/evidence-ledger.test.ts packages/core/src/redactor.test.ts packages/core/src/candidate.test.ts packages/core/src/run-writer.test.ts
 npm run typecheck
-git add packages/core
+npm run build
+npm pack --dry-run --json --workspace @agentic-testing-harness/core
+git add packages/contracts/src/candidate.ts packages/core package-lock.json
 git diff --cached --check
 git commit -m "feat: 增加有界证据账本与候选模型"
 ```
