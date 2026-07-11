@@ -237,8 +237,12 @@ git commit -m "feat: 定义 harness 版本化能力契约"
 - Create: `packages/core/src/policy.ts`
 - Create: `packages/core/src/budget.ts`
 - Create: `packages/core/src/index.ts`
+- Modify: `tsconfig.json`
+- Modify: `scripts/build.mjs`
+- Modify: `scripts/assert-build-output.mjs`
 - Test: `packages/core/src/session-machine.test.ts`
 - Test: `packages/core/src/policy.test.ts`
+- Test: `packages/core/src/budget.test.ts`
 
 - [ ] **Step 1: Write failing state and policy tests**
 
@@ -254,20 +258,36 @@ it('allows only one revision-bound action at a time', () => {
 });
 
 it('blocks unclassified clicks in read mode', () => {
-  expect(authorizeAction({ mode: 'read', risk: 'unclassified', actionType: 'click' }))
+  expect(authorizeAction({
+    mode: 'read', risk: 'unclassified', actionType: 'click',
+    hardAttestationVerified: false, budget: { exhausted: false },
+  }))
     .toEqual({ allowed: false, code: 'POLICY_BLOCKED' });
+});
+
+it('reports the exact exhausted budget', () => {
+  const budget = new BudgetTracker({
+    maxActions: 1, maxDurationMs: 1000,
+    maxNetworkEvents: 2, maxEvidenceBytes: 8,
+  });
+  budget.consumeAction();
+  expect(() => budget.consumeAction()).toThrow(
+    expect.objectContaining({ code: 'ACTION_BUDGET_EXHAUSTED' }),
+  );
 });
 ```
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npm test -- packages/core/src/session-machine.test.ts packages/core/src/policy.test.ts`
+Run: `npm test -- packages/core/src/session-machine.test.ts packages/core/src/policy.test.ts packages/core/src/budget.test.ts`
 
 Expected: FAIL because Core symbols do not exist.
 
 - [ ] **Step 3: Implement minimum state transitions**
 
-Implement phases `provisioning`, `ready`, `observed`, `authorized`, `executed`, `finished`, and `failed`. The machine owns the monotonic revision and rejects concurrent or stale actions. `BudgetTracker` enforces `maxActions`, `maxDurationMs`, `maxNetworkEvents`, and `maxEvidenceBytes` with explicit error codes.
+Implement phases `provisioning`, `ready`, `observed`, `authorized`, `executed`, `finished`, and `failed`. The machine owns and validates the monotonic revision, rejects concurrent, stale, future, skipped, or repeated revisions, exposes `executed` before the next observation returns it to `observed`, and makes `finished`/`failed` terminal. Illegal transitions fail fast with stable machine error codes; `beginAction` checks an in-flight action before revision staleness so the concurrent-action error is deterministic.
+
+`BudgetTracker` validates that all four configured limits are finite non-negative integers, rejects invalid consumption deltas, and enforces `maxActions`, `maxDurationMs`, `maxNetworkEvents`, and `maxEvidenceBytes`. Reaching a limit is allowed for the operation that reaches it but makes the next authorization exhausted; an operation that would exceed it throws a typed error with exactly one of `ACTION_BUDGET_EXHAUSTED`, `DURATION_BUDGET_EXHAUSTED`, `NETWORK_EVENT_BUDGET_EXHAUSTED`, or `EVIDENCE_BYTE_BUDGET_EXHAUSTED`. Inject a clock in tests rather than sleeping.
 
 Policy rules are exact:
 
@@ -278,21 +298,25 @@ if (budget.exhausted) return blocked('POLICY_BLOCKED');
 return { allowed: true };
 ```
 
-No label, role name, Agent reason, or CSS selector may lower risk.
+All policy inputs are required; missing attestation or budget state is a contract error, not an implicit default. `risk` at this layer is only `read`, `write`, or `unclassified`; an adapter-level `blocked` classification is rejected before this function. No label, role name, Agent reason, or CSS selector may lower risk.
+
+Add `packages/core` as a TypeScript project reference after `packages/contracts`, make the Core project reference Contracts, and exclude `src/**/*.test.ts` from Core publication while the root tooling project still typechecks the tests. Extend the cross-platform build driver and output guard so cached builds restore both packages' `dist/index.js` and `dist/index.d.ts` and neither package emits test files.
 
 - [ ] **Step 4: Verify GREEN**
 
 ```bash
-npm test -- packages/core/src/session-machine.test.ts packages/core/src/policy.test.ts
+npm test -- packages/core/src/session-machine.test.ts packages/core/src/policy.test.ts packages/core/src/budget.test.ts
 npm run typecheck
+npm run build
+node scripts/assert-build-output.mjs
 ```
 
-Expected: both files PASS and typecheck exits 0.
+Expected: all three files PASS; typecheck and build exit 0; Core production entries exist and no test file is emitted.
 
 - [ ] **Step 5: Commit Core state and policy**
 
 ```bash
-git add packages/core package.json package-lock.json
+git add packages/core package.json package-lock.json tsconfig.json scripts/build.mjs scripts/assert-build-output.mjs
 git diff --cached --check
 git commit -m "feat: 实现 harness 会话状态与策略门禁"
 ```
