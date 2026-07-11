@@ -1,4 +1,4 @@
-package app
+package builtintoolsadapter
 
 import (
 	"context"
@@ -11,9 +11,17 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
+func TestProvideNativeToolDescriptorsReturnsNilForNilRegistry(t *testing.T) {
+	t.Parallel()
+
+	if got := provideNativeToolDescriptors(nil); got != nil {
+		t.Fatalf("provideNativeToolDescriptors(nil) = %#v, want nil", got)
+	}
+}
+
 func TestProvideDisabledBuiltinToolsFnIgnoresDefaultDisabledToolsWithoutPreference(t *testing.T) {
 	t.Parallel()
-	fn := provideDisabledBuiltinToolsFn(&appPreferenceStoreStub{}, []contract.NativeToolDescriptor{
+	fn := provideDisabledBuiltinToolsFn(&preferenceStoreStub{}, []contract.NativeToolDescriptor{
 		{ID: "apply_patch", Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft, DefaultDisabled: true},
 		{ID: "web_search", Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft, DefaultDisabled: false},
 	})
@@ -29,7 +37,7 @@ func TestProvideDisabledBuiltinToolsFnIgnoresDefaultDisabledToolsWithoutPreferen
 
 func TestProvideDisabledBuiltinToolsFnReturnsExplicitDisabledSoftTools(t *testing.T) {
 	t.Parallel()
-	fn := provideDisabledBuiltinToolsFn(&appPreferenceStoreStub{values: map[string]json.RawMessage{
+	fn := provideDisabledBuiltinToolsFn(&preferenceStoreStub{values: map[string]json.RawMessage{
 		"/repo\x00config/builtinTools.disabled": json.RawMessage(`["apply_patch","Read"]`),
 	}}, []contract.NativeToolDescriptor{
 		{ID: "apply_patch", Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft, DefaultDisabled: true},
@@ -41,14 +49,14 @@ func TestProvideDisabledBuiltinToolsFnReturnsExplicitDisabledSoftTools(t *testin
 		t.Fatalf("disabled tools fn error = %v", err)
 	}
 	want := []string{"apply_patch"}
-	if !equalAppStringSlices(got, want) {
+	if !equalStringSlices(got, want) {
 		t.Fatalf("disabled tools fn tools = %#v, want %#v", got, want)
 	}
 }
 
 func TestProvideDisabledBuiltinToolsFnReturnsPreferenceReadError(t *testing.T) {
 	readErr := errors.New("ui preference read failed")
-	fn := provideDisabledBuiltinToolsFn(appPreferenceErrorStore{err: readErr}, []contract.NativeToolDescriptor{
+	fn := provideDisabledBuiltinToolsFn(preferenceErrorStore{err: readErr}, []contract.NativeToolDescriptor{
 		{ID: "Read", Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft, DefaultDisabled: true},
 	})
 
@@ -61,34 +69,31 @@ func TestProvideDisabledBuiltinToolsFnReturnsPreferenceReadError(t *testing.T) {
 	}
 }
 
-type appPreferenceErrorStore struct {
+type preferenceErrorStore struct {
 	err error
 }
 
-func (s appPreferenceErrorStore) GetValue(context.Context, string, string) (json.RawMessage, error) {
+func (s preferenceErrorStore) GetValue(context.Context, string, string) (json.RawMessage, error) {
 	return nil, s.err
 }
 
-func (appPreferenceErrorStore) Upsert(context.Context, uipreference.UpsertParams) error {
-	return nil
-}
-
-func (appPreferenceErrorStore) List(context.Context, string) ([]uipreference.UIPreference, error) {
+func (preferenceErrorStore) Upsert(context.Context, uipreference.UpsertParams) error { return nil }
+func (preferenceErrorStore) List(context.Context, string) ([]uipreference.UIPreference, error) {
 	return nil, nil
 }
 
-type appPreferenceStoreStub struct {
+type preferenceStoreStub struct {
 	values map[string]json.RawMessage
 }
 
-func (s *appPreferenceStoreStub) GetValue(_ context.Context, cwd, key string) (json.RawMessage, error) {
+func (s *preferenceStoreStub) GetValue(_ context.Context, cwd, key string) (json.RawMessage, error) {
 	if value, ok := s.values[cwd+"\x00"+key]; ok {
 		return value, nil
 	}
 	return nil, platformdb.ErrNotFound
 }
 
-func (s *appPreferenceStoreStub) Upsert(_ context.Context, params uipreference.UpsertParams) error {
+func (s *preferenceStoreStub) Upsert(_ context.Context, params uipreference.UpsertParams) error {
 	if s.values == nil {
 		s.values = make(map[string]json.RawMessage)
 	}
@@ -96,11 +101,11 @@ func (s *appPreferenceStoreStub) Upsert(_ context.Context, params uipreference.U
 	return nil
 }
 
-func (s *appPreferenceStoreStub) List(context.Context, string) ([]uipreference.UIPreference, error) {
+func (s *preferenceStoreStub) List(context.Context, string) ([]uipreference.UIPreference, error) {
 	return nil, nil
 }
 
-func equalAppStringSlices(a, b []string) bool {
+func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}

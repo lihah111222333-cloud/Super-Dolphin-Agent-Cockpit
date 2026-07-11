@@ -1,4 +1,4 @@
-package app
+package mcpcontroladapter
 
 import (
 	"context"
@@ -6,6 +6,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
+	"go.uber.org/fx"
+)
+
+// Module 将 MCP 控制面日志端口接到 systemlog store。
+var Module = fx.Module("mcpcontroladapter",
+	fx.Provide(provideMCPControlSystemLogSink),
 )
 
 type mcpControlSystemLogSink struct {

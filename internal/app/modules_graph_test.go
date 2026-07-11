@@ -12,7 +12,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	promptmodule "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	threadmodule "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -140,84 +139,6 @@ func TestAppModuleGraphProvidesMemoryExtractionDrainer(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&drainer))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing memory extraction drainer: %v", err)
-	}
-}
-
-func TestToolbridgeCodexProductionBindingRequiresCriticalDependencies(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		opts []fx.Option
-		want string
-	}{
-		{
-			name: "missing ServerManager",
-			opts: []fx.Option{
-				fx.Supply(newGraphTestCodexDriverFactory()),
-				fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
-			},
-			want: "*codexapp.ServerManager",
-		},
-		{
-			name: "missing DriverFactory",
-			opts: []fx.Option{
-				fx.Supply(&codexapp.ServerManager{}),
-				fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
-			},
-			want: "*codexapp.DriverFactory",
-		},
-		{
-			name: "missing toolbridge Handler",
-			opts: []fx.Option{
-				fx.Supply(&codexapp.ServerManager{}),
-				fx.Supply(newGraphTestCodexDriverFactory()),
-			},
-			want: "*toolbridge.Handler",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			opts := append([]fx.Option{
-				toolbridgeCodexBindingModule(),
-				fx.Provide(func() contract.SessionStarter { return graphTestSessionStarter{} }),
-			}, tc.opts...)
-			err := fx.ValidateApp(opts...)
-			if err == nil {
-				t.Fatalf("fx.ValidateApp() error = nil, want missing %s", tc.want)
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("fx.ValidateApp() error = %v, want %s", err, tc.want)
-			}
-		})
-	}
-}
-
-func TestToolbridgeCodexProductionBindingWrapsSessionStarter(t *testing.T) {
-	t.Parallel()
-
-	inner := graphTestSessionStarter{}
-	var starter contract.SessionStarter
-	app := fx.New(
-		toolbridgeCodexBindingModule(),
-		fx.Provide(func() contract.SessionStarter { return inner }),
-		fx.Supply(&codexapp.ServerManager{}),
-		fx.Supply(newGraphTestCodexDriverFactory()),
-		fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
-		fx.Populate(&starter),
-		fx.NopLogger,
-	)
-	if err := app.Err(); err != nil {
-		t.Fatalf("fx.New() error = %v", err)
-	}
-	if starter == nil {
-		t.Fatal("contract.SessionStarter = nil, want readiness wrapped starter")
-	}
-	if starter == contract.SessionStarter(inner) {
-		t.Fatal("contract.SessionStarter was not wrapped with toolbridge readiness")
 	}
 }
 
@@ -496,17 +417,3 @@ func appGraphValidationOptions() []fx.Option {
 type emptyFS struct{}
 
 func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }
-
-type graphTestSessionStarter struct{}
-
-func (graphTestSessionStarter) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
-	return nil, nil
-}
-
-func (graphTestSessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-	return nil, nil
-}
-
-func newGraphTestCodexDriverFactory() *codexapp.DriverFactory {
-	return codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
-}

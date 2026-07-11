@@ -1,4 +1,4 @@
-package app
+package toolbridgeadapter
 
 import (
 	"context"
@@ -20,30 +20,26 @@ import (
 	"go.uber.org/fx"
 )
 
-// toolbridgeAdaptersModule 将具体 store/module/provider 实现接到 toolbridge 的窄接口端口。
-// toolbridge 平台包不直接导入业务层，只有 app assembly 这一层知道各模块的具体类型。
-func toolbridgeAdaptersModule() fx.Option {
-	return fx.Provide(
-		provideToolbridgeAgentThreadLookup,
-		provideToolbridgeThreadConfigOverrideStore,
-		provideToolbridgeUIPreferenceReader,
-		provideToolbridgeWorkDirResolver,
-		provideToolbridgeMCPToolLifecycleBackfiller,
-		provideToolbridgeMCPToolLifecyclePolicyReader,
-	)
-}
-
-// toolbridgeCodexBindingModule 以 fx.Invoke 形式接入 Codex tool handler 绑定。
-func toolbridgeCodexBindingModule() fx.Option {
-	return fx.Options(
+// Module 将具体 store/module/provider 实现接到 toolbridge 的窄接口端口，
+// 并在调用者 root scope 保留 readiness、decorate、invoke 的原始装配顺序。
+var Module = fx.Options(
+	fx.Module("toolbridgeadapter",
 		fx.Provide(
-			newCodexToolbridgeReadinessProbe,
-			provideToolbridgeReadinessProbe,
+			provideToolbridgeAgentThreadLookup,
+			provideToolbridgeThreadConfigOverrideStore,
+			provideToolbridgeUIPreferenceReader,
+			provideToolbridgeWorkDirResolver,
+			provideToolbridgeMCPToolLifecycleBackfiller,
+			provideToolbridgeMCPToolLifecyclePolicyReader,
 		),
-		fx.Decorate(decorateSessionStarterWithToolbridgeReadiness),
-		fx.Invoke(bindToolbridgeCodexHandlers),
-	)
-}
+	),
+	fx.Provide(
+		newCodexToolbridgeReadinessProbe,
+		provideToolbridgeReadinessProbe,
+	),
+	fx.Decorate(decorateSessionStarterWithToolbridgeReadiness),
+	fx.Invoke(bindToolbridgeCodexHandlers),
+)
 
 // ----- binding store 适配器 -----
 
