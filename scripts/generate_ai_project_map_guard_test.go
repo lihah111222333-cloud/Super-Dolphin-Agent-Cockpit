@@ -88,14 +88,9 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 
 func assertAppAdapterProjectMapRoutes(t *testing.T, generated string) {
 	t.Helper()
-	assertOutputContainsAll(t, generated,
-		"internal/app/storeadapter/prompt/adapter.go",
-		"业务 Store 到 module 窄端口的适配器",
-		"internal/app/runtimeadapter/toolbridge/adapter.go",
-		"runtime consumer 的 Store/module 窄端口适配器",
-		"internal/app/internal/storeguard/nil.go",
-		"adapter 共享的 typed-nil fail-fast 检查 helper",
-	)
+	assertProjectMapPurpose(t, generated, "internal/app/storeadapter/prompt/adapter.go", "业务 Store 到 module 窄端口的适配器")
+	assertProjectMapPurpose(t, generated, "internal/app/runtimeadapter/toolbridge/adapter.go", "runtime consumer 的 Store/module 窄端口适配器")
+	assertProjectMapPurpose(t, generated, "internal/app/internal/storeguard/nil.go", "adapter 共享的 typed-nil fail-fast 检查 helper")
 	assertOutputContainsAll(t, generated,
 		"| 3 | Store adapters | `internal/app/storeadapter` |",
 		"| 6 | Runtime adapters | `internal/app/runtimeadapter` |",
@@ -107,6 +102,21 @@ func assertAppAdapterProjectMapRoutes(t *testing.T, generated string) {
 		"| `internal/app` | 4 | 全域汇总（root + adapter packages） |",
 	)
 	assertOutputOmitsAll(t, generated, "keepalive lookups、native tool descriptors")
+}
+
+func assertProjectMapPurpose(t *testing.T, generated, path, want string) {
+	t.Helper()
+	for _, line := range strings.Split(generated, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 6 || fields[0] != path {
+			continue
+		}
+		if fields[5] != want {
+			t.Fatalf("project map purpose mismatch for %q: got %q, want %q", path, fields[5], want)
+		}
+		return
+	}
+	t.Fatalf("project map TSV row missing for %q", path)
 }
 
 func TestProjectMapGeneratorRequiresExplicitFilesystemScanWithoutGit(t *testing.T) {
