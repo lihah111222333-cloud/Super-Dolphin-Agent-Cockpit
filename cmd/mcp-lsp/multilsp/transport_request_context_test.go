@@ -25,12 +25,11 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 	}
 	cleanupLeakedTransportAfterFailure(t, tr)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
 	errCh := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
 		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{
 			"payload": strings.Repeat("x", 32<<20),
 		})
