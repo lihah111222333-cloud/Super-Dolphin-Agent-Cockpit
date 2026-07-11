@@ -588,7 +588,9 @@ func writeArgsHelperScript(t *testing.T, argsPath string) string {
 func writeArgsHelperScriptWithName(t *testing.T, argsPath, name string) string {
 	t.Helper()
 	helper := filepath.Join(t.TempDir(), name)
-	body := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellQuote(argsPath) + "\n"
+	tempArgsPath := argsPath + ".tmp"
+	body := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellQuote(tempArgsPath) + "\n" +
+		"mv " + shellQuote(tempArgsPath) + " " + shellQuote(argsPath) + "\n"
 	if err := os.WriteFile(helper, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile(helper) error = %v", err)
 	}

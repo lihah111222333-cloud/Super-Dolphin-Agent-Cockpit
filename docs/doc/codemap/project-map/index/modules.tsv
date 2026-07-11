@@ -6,7 +6,7 @@ internal/module/appupdate/manifest.go	internal	modules	go-source	9424	业务模�
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
 internal/module/appupdate/rpc.go	internal	modules	go-source	1874	业务模块层	internal,module,appupdate,rpc,业务模块层
-internal/module/appupdate/service_test.go	internal	modules	go-test	23510	业务模块层	internal,module,appupdate,service,test,业务模块层
+internal/module/appupdate/service_test.go	internal	modules	go-test	23622	业务模块层	internal,module,appupdate,service,test,业务模块层
 internal/module/appupdate/service.go	internal	modules	go-source	26045	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	3923	业务模块层	internal,module,appupdate,windows,signature,业务模块层
 internal/module/cron/actors_test.go	internal	modules	go-test	2751	业务模块层	internal,module,cron,actors,test,业务模块层
