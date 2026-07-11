@@ -6,9 +6,9 @@ import (
 	"go/types"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/archtest/ssaload"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -17,24 +17,16 @@ const wideOrchestrationFamilyThreshold = 2
 func loadWideOrchestrationTypeGuardPackages(t *testing.T, root string) []*orchestrationServiceCheckedPackage {
 	t.Helper()
 
-	cfg := &packages.Config{
-		Dir:     root,
-		Mode:    packages.LoadSyntax,
-		Tests:   false,
-		Overlay: wideOrchestrationGuardOverlay(root),
-	}
-	loaded, err := packages.Load(cfg, "./cmd/...", "./internal/...")
+	loaded, err := ssaload.Load(ssaload.Options{RepoRoot: root, Patterns: []string{"./cmd/...", "./internal/..."}, Tests: false, Overlay: wideOrchestrationGuardOverlay(root), Include: func(pkg *packages.Package) bool {
+		return pkg != nil && isOrchestrationServiceTypeGuardProductionPackagePath(pkg.PkgPath) && len(pkg.GoFiles) > 0
+	}})
 	if err != nil {
 		t.Fatalf("load production packages: %v", err)
 	}
-	if errors := wideOrchestrationPackageLoadErrors(loaded); len(errors) > 0 {
-		t.Fatalf("load production packages returned errors:\n%s", strings.Join(errors, "\n"))
-	}
-
 	checked := make([]*orchestrationServiceCheckedPackage, 0, len(loaded))
-	packages.Visit(loaded, nil, func(pkg *packages.Package) {
+	for _, pkg := range loaded {
 		if pkg == nil || !isOrchestrationServiceTypeGuardProductionPackagePath(pkg.PkgPath) || len(pkg.Syntax) == 0 {
-			return
+			continue
 		}
 		checked = append(checked, &orchestrationServiceCheckedPackage{
 			pkgPath:   pkg.PkgPath,
@@ -43,7 +35,7 @@ func loadWideOrchestrationTypeGuardPackages(t *testing.T, root string) []*orches
 			types:     pkg.Types,
 			typesInfo: pkg.TypesInfo,
 		})
-	})
+	}
 	sort.Slice(checked, func(i, j int) bool {
 		return checked[i].pkgPath < checked[j].pkgPath
 	})
@@ -54,26 +46,6 @@ func wideOrchestrationGuardOverlay(root string) map[string][]byte {
 	return map[string][]byte{
 		filepath.Join(root, "cmd", "agent-terminal", "web-dist", "index.html"): []byte("<!doctype html><title>archtest</title>\n"),
 	}
-}
-
-func wideOrchestrationPackageLoadErrors(pkgs []*packages.Package) []string {
-	seen := map[string]bool{}
-	var out []string
-	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
-		if pkg == nil || !isOrchestrationServiceTypeGuardProductionPackagePath(pkg.PkgPath) {
-			return
-		}
-		for _, err := range pkg.Errors {
-			line := pkg.PkgPath + ": " + err.Error()
-			if seen[line] {
-				continue
-			}
-			seen[line] = true
-			out = append(out, line)
-		}
-	})
-	sort.Strings(out)
-	return out
 }
 
 func typeCheckWideOrchestrationFixturePackage(t *testing.T, importPath string, files map[string]string) *orchestrationServiceCheckedPackage {

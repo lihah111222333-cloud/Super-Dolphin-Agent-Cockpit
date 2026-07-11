@@ -234,41 +234,15 @@ func TestRegistryRejectsBrokenRule(t *testing.T) {
 }
 
 func TestBackendBoundaryRuleFactsDoNotJoinUnrelatedFunctions(t *testing.T) {
-	const source = `package nested
-func scanStore(t *testing.T, root string) {
-	_ = parseImportFiles(t, root, "internal/store")
-}
-func configFixture() { _ = "internal/platform/config" }
-func sqlcFixture() { _ = "internal/store/sqlc" }`
-	rel := "internal/archtest/nested/unrelated_facts_test.go"
-	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if violations := backendBoundaryConsumerFactViolations(rel, node); len(violations) != 0 {
-		t.Fatalf("unrelated functions must not be joined into one evaluator: %v", violations)
+	result := loadBackendBoundarySSAFixture(t, "unrelated_helpers")
+	if len(result.violations) != 0 {
+		t.Fatalf("unrelated functions must not be joined into one evaluator: %v", result.violations)
 	}
 }
 
 func TestBackendBoundaryRuleFactsRejectsConnectedHelperSplit(t *testing.T) {
-	const source = `package nested
-func TestStoreBoundary(t *testing.T) {
-	scanStore(t, "repo")
-	storeAllowFacts()
-}
-func scanStore(t *testing.T, root string) {
-	_ = parseImportFiles(t, root, "internal/store")
-}
-func storeAllowFacts() {
-	_ = "internal/platform/config"
-	_ = "internal/store/sqlc"
-}`
-	rel := "internal/archtest/nested/connected_facts_test.go"
-	node, err := parser.ParseFile(token.NewFileSet(), rel, source, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	violations := strings.Join(backendBoundaryConsumerFactViolations(rel, node), "\n")
+	result := loadBackendBoundarySSAFixture(t, "connected_helper_split")
+	violations := strings.Join(result.violations, "\n")
 	if !strings.Contains(violations, "procedural backend dependency evaluator duplicates the canonical registry") {
 		t.Fatalf("connected helper split must be rejected, got:\n%s", violations)
 	}
@@ -294,6 +268,7 @@ func TestBackendBoundaryRuleFactsHaveOneSource(t *testing.T) {
 			ruleIDSources[id] = append(ruleIDSources[id], sources...)
 		}
 	}
+	violations = append(violations, backendBoundaryProductionSSAConnectivityViolations(t, root, consumerFiles)...)
 	for id, sources := range ruleIDSources {
 		if len(sources) > 1 {
 			violations = append(violations, fmt.Sprintf("rule %q appears in multiple local default collections: %s", id, strings.Join(sources, ", ")))
@@ -384,14 +359,11 @@ func backendBoundaryFileSemanticViolations(rel string, node *ast.File) []string 
 }
 
 func declaresProceduralBackendDependencyBoundary(node *ast.File, packageStrings map[string]string) bool {
-	functions := collectProceduralBackendDependencyFacts(node, packageStrings)
-	for name := range functions {
-		connected := newBackendBoundaryDependencyFacts()
-		collectConnectedBackendBoundaryFacts(name, functions, make(map[string]bool), &connected)
-		if declaresProceduralStoreBoundary(connected.parseTargets, connected.facts) ||
-			declaresProceduralFXBoundary(connected.parseTargets, connected.facts) ||
-			declaresProceduralMCPServerFamilyBoundary(connected.parseTargets, connected.facts) ||
-			declaresProceduralPlatformControlBoundary(connected.parseTargets, connected.facts) {
+	for _, facts := range collectProceduralBackendDependencyFacts(node, packageStrings) {
+		if declaresProceduralStoreBoundary(facts.parseTargets, facts.facts) ||
+			declaresProceduralFXBoundary(facts.parseTargets, facts.facts) ||
+			declaresProceduralMCPServerFamilyBoundary(facts.parseTargets, facts.facts) ||
+			declaresProceduralPlatformControlBoundary(facts.parseTargets, facts.facts) {
 			return true
 		}
 	}
@@ -401,19 +373,17 @@ func declaresProceduralBackendDependencyBoundary(node *ast.File, packageStrings 
 type backendBoundaryDependencyFacts struct {
 	parseTargets map[string]bool
 	facts        map[string]bool
-	callees      map[string]bool
 }
 
 func newBackendBoundaryDependencyFacts() backendBoundaryDependencyFacts {
 	return backendBoundaryDependencyFacts{
 		parseTargets: make(map[string]bool),
 		facts:        make(map[string]bool),
-		callees:      make(map[string]bool),
 	}
 }
 
-func collectProceduralBackendDependencyFacts(node *ast.File, packageStrings map[string]string) map[string]backendBoundaryDependencyFacts {
-	functions := make(map[string]backendBoundaryDependencyFacts)
+func collectProceduralBackendDependencyFacts(node *ast.File, packageStrings map[string]string) []backendBoundaryDependencyFacts {
+	var functions []backendBoundaryDependencyFacts
 	for _, declaration := range node.Decls {
 		fn, ok := declaration.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -421,7 +391,7 @@ func collectProceduralBackendDependencyFacts(node *ast.File, packageStrings map[
 		}
 		collected := newBackendBoundaryDependencyFacts()
 		collectProceduralBackendFunctionFacts(fn, packageStrings, &collected)
-		functions[fn.Name.Name] = collected
+		functions = append(functions, collected)
 	}
 	return functions
 }
@@ -438,9 +408,6 @@ func collectProceduralBackendFunctionFacts(fn *ast.FuncDecl, packageStrings map[
 		if !ok {
 			return true
 		}
-		if callee, ok := call.Fun.(*ast.Ident); ok {
-			collected.callees[callee.Name] = true
-		}
 		if backendBoundaryCallName(call.Fun) != "parseImportFiles" {
 			return true
 		}
@@ -451,22 +418,6 @@ func collectProceduralBackendFunctionFacts(fn *ast.FuncDecl, packageStrings map[
 		}
 		return true
 	})
-}
-
-func collectConnectedBackendBoundaryFacts(name string, functions map[string]backendBoundaryDependencyFacts, visited map[string]bool, combined *backendBoundaryDependencyFacts) {
-	if visited[name] {
-		return
-	}
-	current, ok := functions[name]
-	if !ok {
-		return
-	}
-	visited[name] = true
-	mergeBackendBoundaryFactSet(combined.parseTargets, current.parseTargets)
-	mergeBackendBoundaryFactSet(combined.facts, current.facts)
-	for callee := range current.callees {
-		collectConnectedBackendBoundaryFacts(callee, functions, visited, combined)
-	}
 }
 
 func mergeBackendBoundaryFactSet(target, source map[string]bool) {

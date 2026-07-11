@@ -36,6 +36,11 @@ func prioritySSADisplayCallName(call *ssa.CallCommon, name string) string {
 
 // prioritySSACallReceiver 提取普通方法、方法值和方法表达式调用的 receiver。
 func prioritySSACallReceiver(call *ssa.CallCommon) ssa.Value {
+	return SSACallReceiver(call)
+}
+
+// SSACallReceiver 提取普通方法、方法值和方法表达式调用的 receiver。
+func SSACallReceiver(call *ssa.CallCommon) ssa.Value {
 	if call == nil {
 		return nil
 	}
@@ -69,6 +74,11 @@ func prioritySSABoundMethodReceiver(call *ssa.CallCommon) ssa.Value {
 
 // prioritySSAFunctionHasReceiver 判断 SSA 函数是否代表带 receiver 的方法。
 func prioritySSAFunctionHasReceiver(fn *ssa.Function) bool {
+	return SSAFunctionHasReceiver(fn)
+}
+
+// SSAFunctionHasReceiver 判断 SSA 函数是否代表带 receiver 的方法。
+func SSAFunctionHasReceiver(fn *ssa.Function) bool {
 	if fn == nil {
 		return false
 	}
@@ -122,7 +132,21 @@ func prioritySSAPackagePath(pkg *types.Package) string {
 }
 
 func prioritySSAFunctionPackagePath(fn *ssa.Function) string {
-	if fn == nil || fn.Pkg == nil || fn.Pkg.Pkg == nil {
+	return SSAFunctionPackagePath(fn)
+}
+
+// SSAFunctionPackagePath 返回普通函数、方法和闭包所属的 Go package path。
+func SSAFunctionPackagePath(fn *ssa.Function) string {
+	if fn == nil {
+		return ""
+	}
+	if fn.Pkg == nil || fn.Pkg.Pkg == nil {
+		if object := fn.Object(); object != nil && object.Pkg() != nil {
+			return object.Pkg().Path()
+		}
+		if parent := fn.Parent(); parent != nil {
+			return SSAFunctionPackagePath(parent)
+		}
 		return ""
 	}
 	return fn.Pkg.Pkg.Path()

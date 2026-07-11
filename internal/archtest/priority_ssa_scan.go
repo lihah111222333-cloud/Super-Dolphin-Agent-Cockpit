@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/archtest/ssaload"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )
@@ -56,18 +57,11 @@ func CollectPrioritySSAViolations(opts CheckOptions) ([]PrioritySSAViolation, er
 }
 
 func loadPrioritySSAPackages(repoRoot string) ([]*prioritySSAPackage, error) {
-	cfg := &packages.Config{
-		Dir:     repoRoot,
-		Mode:    packages.LoadSyntax,
-		Tests:   false,
-		Overlay: prioritySSAOverlay(repoRoot),
-	}
-	loaded, err := packages.Load(cfg, "./cmd/...", "./internal/...")
+	loaded, err := ssaload.Load(ssaload.Options{RepoRoot: repoRoot, Patterns: []string{"./cmd/...", "./internal/..."}, Tests: false, Overlay: prioritySSAOverlay(repoRoot), Include: func(pkg *packages.Package) bool {
+		return pkg != nil && prioritySSAProductionPackagePath(pkg.PkgPath) && len(pkg.GoFiles) > 0
+	}})
 	if err != nil {
 		return nil, fmt.Errorf("load priority SSA packages: %w", err)
-	}
-	if errors := prioritySSAPackageLoadErrors(loaded); len(errors) > 0 {
-		return nil, fmt.Errorf("load priority SSA packages returned errors:\n%s", strings.Join(errors, "\n"))
 	}
 	return prioritySSACheckedPackages(repoRoot, loaded), nil
 }
@@ -76,25 +70,6 @@ func prioritySSAOverlay(repoRoot string) map[string][]byte {
 	return map[string][]byte{
 		filepath.Join(repoRoot, "cmd", "agent-terminal", "web-dist", "index.html"): []byte("<!doctype html><title>archtest</title>\n"),
 	}
-}
-
-func prioritySSAPackageLoadErrors(pkgs []*packages.Package) []string {
-	seen := map[string]bool{}
-	var out []string
-	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
-		if pkg == nil || !prioritySSAProductionPackagePath(pkg.PkgPath) {
-			return
-		}
-		for _, err := range pkg.Errors {
-			line := fmt.Sprintf("%s: %s", pkg.PkgPath, err)
-			if !seen[line] {
-				out = append(out, line)
-				seen[line] = true
-			}
-		}
-	})
-	sort.Strings(out)
-	return out
 }
 
 func prioritySSACheckedPackages(repoRoot string, loaded []*packages.Package) []*prioritySSAPackage {
