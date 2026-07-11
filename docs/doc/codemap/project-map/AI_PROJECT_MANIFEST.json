@@ -2,9 +2,9 @@
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.js",
   "generated_at": "2026-07-11",
-  "files": 4005,
+  "files": 4009,
   "domains": {
-    "docs-agent": 852,
+    "docs-agent": 856,
     "other": 463,
     "app-ui": 300,
     "platform-provider": 962,
