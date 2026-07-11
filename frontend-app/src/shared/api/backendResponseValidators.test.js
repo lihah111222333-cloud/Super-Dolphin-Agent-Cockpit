@@ -197,6 +197,54 @@ describe('backend response validators', () => {
     })).toThrow('mcpServer/list response mcpServers.sqlite must not include command');
   });
 
+  it('validates the complete canonical toolbridge catalog response', () => {
+    expect(validate(RPC_METHODS.TOOLBRIDGE_TOOLS_LIST, {
+      tools: [{
+        serverName: 'lsp',
+        toolName: 'lsp_edit',
+        displayName: 'lsp_edit',
+        description: 'Edit source',
+        enabled: true,
+        disabledReason: '',
+      }],
+    })).toEqual({
+      tools: [{
+        serverName: 'lsp',
+        toolName: 'lsp_edit',
+        displayName: 'lsp_edit',
+        description: 'Edit source',
+        enabled: true,
+        disabledReason: '',
+      }],
+    });
+
+    expect(() => validate(RPC_METHODS.TOOLBRIDGE_TOOLS_LIST, {
+      tools: [{
+        serverName: 'lsp',
+        displayName: 'grep',
+        description: '',
+        enabled: true,
+        disabledReason: '',
+      }],
+    })).toThrow('toolbridge/tools/list response tools[0].toolName must be a non-empty string');
+
+    expect(() => validate(RPC_METHODS.TOOLBRIDGE_TOOLS_LIST, {
+      tools: [{
+        serverName: 'lsp',
+        toolName: 'grep',
+        displayName: 'grep',
+        description: '',
+        enabled: 'yes',
+        disabledReason: '',
+      }],
+    })).toThrow('toolbridge/tools/list response tools[0].enabled must be a boolean');
+
+    expect(() => validate(RPC_METHODS.TOOLBRIDGE_TOOLS_LIST, {
+      tools: [],
+      debug: true,
+    })).toThrow('toolbridge/tools/list response body must not include debug');
+  });
+
   it('wraps schema parser errors with method context', () => {
     expect(() => validate(RPC_METHODS.OBSERVABILITY_TRACE_GET, null)).toThrow(
       'observability/trace/get response observability response must be an object',

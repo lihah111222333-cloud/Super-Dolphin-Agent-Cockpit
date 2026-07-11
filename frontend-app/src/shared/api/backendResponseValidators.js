@@ -391,6 +391,15 @@ const MCP_SERVER_STATUS_RESPONSE_KEYS = new Set(['enabled']);
 const MCP_SERVER_CONTROL_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'serverName', 'server_name', 'added', 'enabled']);
 const THREAD_RECOVER_RESPONSE_KEYS = new Set(['thread', 'recovered', 'mode']);
 const THREAD_RECOVER_THREAD_KEYS = new Set(['id', 'status']);
+const TOOLBRIDGE_TOOLS_RESPONSE_KEYS = new Set(['tools']);
+const TOOLBRIDGE_TOOL_RESPONSE_KEYS = new Set([
+  'serverName',
+  'toolName',
+  'displayName',
+  'description',
+  'enabled',
+  'disabledReason',
+]);
 
 /**
  * @param {string} method
@@ -430,6 +439,41 @@ function validateThreadRecoverResponse(method, response) {
   if (!normalizeString(value.mode)) {
     throw new TypeError(`${method} response mode must be a non-empty string`);
   }
+  return value;
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateToolbridgeToolsListResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, TOOLBRIDGE_TOOLS_RESPONSE_KEYS, 'body');
+  if (!Array.isArray(value.tools)) {
+    throw new TypeError(`${method} response tools must be an array`);
+  }
+  const tools = /** @type {unknown[]} */ (value.tools);
+  tools.forEach((candidate, index) => {
+    const label = `tools[${index}]`;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      throw new TypeError(`${method} response ${label} must be an object`);
+    }
+    const tool = /** @type {Record<string, unknown>} */ (candidate);
+    assertOnlyResponseKeys(method, tool, TOOLBRIDGE_TOOL_RESPONSE_KEYS, label);
+    for (const key of ['serverName', 'toolName', 'displayName']) {
+      if (!normalizeString(tool[key])) {
+        throw new TypeError(`${method} response ${label}.${key} must be a non-empty string`);
+      }
+    }
+    for (const key of ['description', 'disabledReason']) {
+      if (typeof tool[key] !== 'string') {
+        throw new TypeError(`${method} response ${label}.${key} must be a string`);
+      }
+    }
+    if (typeof tool.enabled !== 'boolean') {
+      throw new TypeError(`${method} response ${label}.enabled must be a boolean`);
+    }
+  });
   return value;
 }
 
@@ -537,6 +581,7 @@ export function createBackendResponseValidators(methods) {
     [methods.MCP_SERVER_SQLITE_STOP]: validateControlResponse,
     [methods.MCP_SERVER_PLAYWRIGHT_START]: validateControlResponse,
     [methods.MCP_SERVER_PLAYWRIGHT_STOP]: validateControlResponse,
+    [methods.TOOLBRIDGE_TOOLS_LIST]: validateToolbridgeToolsListResponse,
     [methods.MODEL_PROVIDERS_APPLY]: validateModelProviderRegistryResponse,
     [methods.MODEL_PROVIDERS_LIST]: validateModelProviderRegistryResponse,
     [methods.OBSERVABILITY_ERROR_LIST]: validateObservabilityResultResponse,

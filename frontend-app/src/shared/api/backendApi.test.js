@@ -15,6 +15,7 @@ import {
   listDatasourceDocuments,
   listMCPToolLifecycle,
   listMCPServers,
+  listToolbridgeTools,
   exportMCPToolLifecycle,
   getVideoApiKey,
   RPC_METHODS,
@@ -41,6 +42,7 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return { files: [], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } };
   if (method === RPC_METHODS.MODEL_PROVIDERS_APPLY || method === RPC_METHODS.MODEL_PROVIDERS_LIST) return { activeVendorId: '', vendors: [] };
+  if (method === RPC_METHODS.TOOLBRIDGE_TOOLS_LIST) return { tools: [] };
   if (
     method === RPC_METHODS.OBSERVABILITY_ERROR_LIST
     || method === RPC_METHODS.OBSERVABILITY_RECENT_LIST
@@ -261,6 +263,30 @@ function guardedBackendResponse(method) {
     expect(typeof stopSQLiteMCPServer).toBe('function');
     expect(typeof startPlaywrightMCPServer).toBe('function');
     expect(typeof stopPlaywrightMCPServer).toBe('function');
+  });
+
+  it('lists the canonical toolbridge catalog for one cwd', async () => {
+    const response = { tools: [] };
+    const callAPI = vi.fn().mockResolvedValue(response);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.listToolbridgeTools({ cwd: '/repo/app' })).resolves.toEqual(response);
+
+    expect(callAPI).toHaveBeenCalledWith(
+      RPC_METHODS.TOOLBRIDGE_TOOLS_LIST,
+      { cwd: '/repo/app' },
+    );
+    expectInvalidInputDoesNotCall(
+      callAPI,
+      () => api.listToolbridgeTools({ cwd: '/repo/app', serverName: 'lsp' }),
+      'toolbridge/tools/list: unsupported payload field serverName',
+    );
+    expectInvalidInputDoesNotCall(
+      callAPI,
+      () => api.listToolbridgeTools({ cwd: ' ' }),
+      'toolbridge/tools/list: cwd is required',
+    );
+    expect(typeof listToolbridgeTools).toBe('function');
   });
 
   it('rejects MCP server public responses that include config details', async () => {

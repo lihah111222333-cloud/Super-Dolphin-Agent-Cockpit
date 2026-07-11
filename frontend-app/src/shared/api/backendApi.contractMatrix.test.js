@@ -93,6 +93,7 @@ describe('backend API contract matrix', () => {
       'OBSERVABILITY_STATUS',
       'DATASOURCE_V2_LIST',
       'DATASOURCE_V2_GET',
+      'TOOLBRIDGE_TOOLS_LIST',
     ];
 
     for (const key of expectedP1Reads) {
@@ -106,6 +107,7 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_WRITE.responseValidator).toBe('lspPromptHintResponse');
     expect(RPC_CONTRACT_REGISTRY.UI_STATE_GET.responseValidator).toBe('uiStateResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_LIST.responseValidator).toBe('mcpServerListResponse');
+    expect(RPC_CONTRACT_REGISTRY.TOOLBRIDGE_TOOLS_LIST.responseValidator).toBe('toolbridgeToolsListResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_SQLITE_START.responseValidator).toBe('mcpServerControlResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_SQLITE_STOP.responseValidator).toBe('mcpServerControlResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_PLAYWRIGHT_START.responseValidator).toBe('mcpServerControlResponse');

@@ -363,6 +363,10 @@ function mcpToolLifecycleExportPayload(params = {}) {
 
 function createMCPServerApi(callBackend) {
   return {
+    listToolbridgeTools: (params) => callBackend(
+      RPC_METHODS.TOOLBRIDGE_TOOLS_LIST,
+      toolbridgeToolsListPayload(params),
+    ),
     listMCPServers: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_LIST,
       rejectUnsupportedParamsPayload(RPC_METHODS.MCP_SERVER_LIST, params),
@@ -398,6 +402,15 @@ function createMCPServerApi(callBackend) {
   };
 }
 
+function toolbridgeToolsListPayload(params) {
+  const method = RPC_METHODS.TOOLBRIDGE_TOOLS_LIST;
+  const payload = { ...assertStrictPlainObject(method, params) };
+  const cwd = normalizeString(takePayloadField(payload, 'cwd'));
+  assertNoExtraPayloadFields(method, payload);
+  if (!cwd) throw new Error(`${method}: cwd is required`);
+  return { cwd };
+}
+
 
 export {
   requirePositiveInteger, requireObjectField, workflowTemplateRenderPayload, workflowTemplateSavePayload, workflowTemplateRollbackPayload, workflowTemplateListPayload,
@@ -406,4 +419,3 @@ export {
   deleteSkillPayload, rejectUnsupportedParamsPayload, normalizeMCPToolLifecycleString, mcpToolLifecycleString, mcpToolLifecycleSetPayload, mcpToolLifecycleListPayload,
   mcpToolLifecycleExportPayload, createMCPServerApi,
 };
-

@@ -180,6 +180,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   MCP_TOOL_LIFECYCLE_SET: contract('MCP_TOOL_LIFECYCLE_SET', 'setMCPToolLifecycle', 'P0', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle mutation', 'guarded payload']),
   MCP_TOOL_LIFECYCLE_LIST: contract('MCP_TOOL_LIFECYCLE_LIST', 'listMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle read', 'strict payload']),
   MCP_TOOL_LIFECYCLE_EXPORT: contract('MCP_TOOL_LIFECYCLE_EXPORT', 'exportMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle export', 'strict payload']),
+  TOOLBRIDGE_TOOLS_LIST: contract('TOOLBRIDGE_TOOLS_LIST', 'listToolbridgeTools', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE], ['canonical bindable tool read', 'strict cwd payload'], false, { responseValidator: 'toolbridgeToolsListResponse' }),
 
   THREAD_FORK: contract('THREAD_FORK', 'forkThread', 'P1', 'thread', [TESTS.API, TESTS.APP], ['canonical provider-history fork', 'params:threadId-only'], false, { responseValidator: 'threadForkResponse' }),
   THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'threadStartResponse' }),

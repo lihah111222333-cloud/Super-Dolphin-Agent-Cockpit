@@ -133,6 +133,7 @@ export const RPC_METHODS = Object.freeze({
   MCP_TOOL_LIFECYCLE_SET: 'mcpServer/toolLifecycle/set',
   MCP_TOOL_LIFECYCLE_LIST: 'mcpServer/toolLifecycle/list',
   MCP_TOOL_LIFECYCLE_EXPORT: 'mcpServer/toolLifecycle/export',
+  TOOLBRIDGE_TOOLS_LIST: 'toolbridge/tools/list',
 
   THREAD_FORK: 'thread/fork',
   THREAD_START: 'thread/start',
