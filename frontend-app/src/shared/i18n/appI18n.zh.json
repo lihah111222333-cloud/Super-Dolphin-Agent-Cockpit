@@ -95,6 +95,31 @@
         "prompt": "请和我头脑风暴一个创意方案，给出结构、备选方向和取舍建议。"
       }
     },
+    "slashCommands": {
+      "label": "命令与能力",
+      "loading": "正在加载",
+      "noResults": "没有匹配的命令",
+      "projectRequired": "请先选择项目",
+      "unavailable": "当前不可用",
+      "categories": {
+        "builtin": "聊天命令",
+        "skill": "技能",
+        "prompt": "提示词",
+        "automation": "自动化",
+        "mcp_tool": "MCP 工具"
+      },
+      "builtins": {
+        "newLabel": "新对话",
+        "newDescription": "保留当前项目并创建新对话草稿",
+        "clearLabel": "清空输入",
+        "clearDescription": "清空文本、附件和已选能力"
+      },
+      "removeCapability": "移除能力",
+      "staleCapability": "能力已失效，请移除后重新选择",
+      "unverifiedCapability": "能力目录尚未验证，请等待同步",
+      "promptLoadFailed": "读取提示词失败",
+      "catalogLoadFailed": "目录加载失败"
+    },
     "sendFailedTitle": "发送失败",
     "attachmentFailedTitle": "附件选择失败",
     "actionFailedTitle": "操作失败",

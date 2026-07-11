@@ -95,6 +95,31 @@
         "prompt": "Please brainstorm a creative direction with a structure, alternatives, and trade-offs."
       }
     },
+    "slashCommands": {
+      "label": "Commands and capabilities",
+      "loading": "Loading",
+      "noResults": "No matching commands",
+      "projectRequired": "Select a project first",
+      "unavailable": "Currently unavailable",
+      "categories": {
+        "builtin": "Chat commands",
+        "skill": "Skills",
+        "prompt": "Prompts",
+        "automation": "Automation",
+        "mcp_tool": "MCP tools"
+      },
+      "builtins": {
+        "newLabel": "New chat",
+        "newDescription": "Keep the current project and create a new chat draft",
+        "clearLabel": "Clear input",
+        "clearDescription": "Clear text, attachments, and selected capabilities"
+      },
+      "removeCapability": "Remove capability",
+      "staleCapability": "This capability is no longer available. Remove it and select it again.",
+      "unverifiedCapability": "The capability catalog has not been verified yet. Wait for synchronization.",
+      "promptLoadFailed": "Failed to load prompt",
+      "catalogLoadFailed": "Failed to load catalog"
+    },
     "sendFailedTitle": "Send failed",
     "attachmentFailedTitle": "Attachment selection failed",
     "actionFailedTitle": "Action failed",
