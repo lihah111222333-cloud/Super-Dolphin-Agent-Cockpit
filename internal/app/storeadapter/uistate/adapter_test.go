@@ -1,4 +1,4 @@
-package app
+package uistateadapter
 
 import (
 	"context"
@@ -205,8 +205,8 @@ func TestUIStateStoreAdaptersPreserveErrors(t *testing.T) {
 	}
 }
 
-// TestBusinessStoreAdaptersModuleOwnsUIStatePorts 通过真实 Fx lifecycle 证明 App bundle 拥有三个端口。
-func TestBusinessStoreAdaptersModuleOwnsUIStatePorts(t *testing.T) {
+// TestModuleOwnsUIStatePorts 通过真实 Fx lifecycle 证明 uistate adapter module 拥有三个端口。
+func TestModuleOwnsUIStatePorts(t *testing.T) {
 	preferences := &uiStatePreferenceStoreTestDouble{}
 	sharedFiles := &uiStateSharedFileReaderTestDouble{}
 	bindings := &uiStateBindingStoreTestDouble{}
@@ -218,7 +218,7 @@ func TestBusinessStoreAdaptersModuleOwnsUIStatePorts(t *testing.T) {
 		fx.Provide(func() uipreference.Store { return preferences }),
 		fx.Provide(func() sharedfilestore.Reader { return sharedFiles }),
 		fx.Provide(func() bindingstore.Store { return bindings }),
-		businessStoreAdaptersModule(),
+		Module,
 		fx.Populate(&preferencePort, &sharedFilePort, &bindingPort),
 	)
 	if err := app.Err(); err != nil {

@@ -1,4 +1,4 @@
-package app_test
+package datasourcev2adapter_test
 
 import (
 	"context"

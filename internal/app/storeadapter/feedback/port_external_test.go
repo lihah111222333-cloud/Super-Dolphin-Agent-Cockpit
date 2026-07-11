@@ -1,4 +1,4 @@
-package app_test
+package feedbackadapter_test
 
 import (
 	"context"

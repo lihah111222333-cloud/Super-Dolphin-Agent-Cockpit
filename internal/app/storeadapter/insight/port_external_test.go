@@ -1,4 +1,4 @@
-package app_test
+package insightadapter_test
 
 import (
 	"context"

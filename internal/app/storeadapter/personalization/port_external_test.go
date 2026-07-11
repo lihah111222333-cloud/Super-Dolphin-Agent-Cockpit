@@ -1,4 +1,4 @@
-package app_test
+package personalizationadapter_test
 
 import (
 	"context"

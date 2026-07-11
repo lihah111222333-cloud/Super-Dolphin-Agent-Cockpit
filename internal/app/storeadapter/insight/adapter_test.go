@@ -1,4 +1,4 @@
-package app
+package insightadapter
 
 import (
 	"context"

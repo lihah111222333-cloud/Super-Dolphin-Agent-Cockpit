@@ -1,4 +1,4 @@
-package app
+package datasourcev2adapter
 
 import (
 	"context"

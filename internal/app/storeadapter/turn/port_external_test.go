@@ -1,4 +1,4 @@
-package app_test
+package turnadapter_test
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package app
+package turnadapter
 
 import (
 	"context"

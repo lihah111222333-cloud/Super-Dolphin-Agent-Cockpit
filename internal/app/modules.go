@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/app/storeadapter"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
@@ -79,6 +80,7 @@ var Module = fx.Options(
 	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder, provideMCPControlSystemLogSink),
 	store.Module,
 	threadStoreAdaptersModule(),
+	storeadapter.Module,
 	businessStoreAdaptersModule(),
 	dashboard.Module,
 	datasource.Module,
