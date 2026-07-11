@@ -59,6 +59,30 @@ describe('frontend z-index token guard', () => {
     expect(validate()).toEqual([]);
   });
 
+  it.each([
+    ['non-root selector', VALID_TOKEN_SOURCE.replace(':root {', '.dead {')],
+    ['nested top-level at-rule', `@media (min-width: 1px) {${VALID_TOKEN_SOURCE}}`],
+    ['second top-level root rule', `${VALID_TOKEN_SOURCE}\n:root {}`],
+  ])('requires one unique top-level :root for token source: %s', (_name, tokenSource) => {
+    expect(validate({ tokenSource })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'token-source-root-count' }),
+    ]));
+  });
+
+  it('requires every token declaration to be a direct child of the canonical root', () => {
+    const tokenSource = VALID_TOKEN_SOURCE.replace(
+      '    --z-local-raised: 1;',
+      '    @media (min-width: 1px) { --z-local-raised: 1; }',
+    );
+
+    expect(validate({ tokenSource })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'token-definition-outside-root',
+        token: '--z-local-raised',
+      }),
+    ]));
+  });
+
   it('requires the exact token names without missing or additional definitions', () => {
     const tokenSource = VALID_TOKEN_SOURCE
       .replace('    --z-local-handle: 2;\n', '')
@@ -154,6 +178,36 @@ describe('frontend z-index token guard', () => {
         token: '--z-overlay-dialog',
       }),
     ]));
+  });
+
+  it.each([
+    ':not(#overlay-root .decoy) .escaped',
+    ':has(#overlay-root .decoy) .escaped',
+    ':is(#overlay-root .decoy) .escaped',
+    ':where(#overlay-root .decoy) .escaped',
+    ':is(:not(#overlay-root .decoy)) .escaped',
+    '[data-owner="#overlay-root .decoy"] .escaped',
+    '.\\#overlay-root .escaped',
+  ])('rejects overlay-root markers that are not an explicit ancestor: %s', (selector) => {
+    const violations = validate({
+      cssSource: `${VALID_CSS_SOURCE}\n${selector} { z-index: var(--z-overlay-dialog); }`,
+    });
+    expect(violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'global-token-outside-overlay-root',
+        selector,
+        token: '--z-overlay-dialog',
+      }),
+    ]));
+  });
+
+  it.each([
+    '#overlay-root[data-scope="dialog"] > .escaped',
+    ':is(.scope) #overlay-root .escaped',
+  ])('accepts an explicit top-level overlay-root ancestor: %s', (selector) => {
+    expect(validate({
+      cssSource: `${VALID_CSS_SOURCE}\n${selector} { z-index: var(--z-overlay-dialog); }`,
+    })).toEqual([]);
   });
 
   it('allows a ProjectSelector-style local popover to use a local token', () => {
