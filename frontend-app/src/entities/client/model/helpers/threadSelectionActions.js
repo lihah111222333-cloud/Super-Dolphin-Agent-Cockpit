@@ -17,6 +17,9 @@ function setThreadLoading(state, id, loading) {
 }
 
 function selectionIntentForOpen(coordinator, targetThreadId, options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, 'selectionSnapshot')) {
+    return coordinator.beginIfUnchanged(options.selectionSnapshot, targetThreadId);
+  }
   if (Object.prototype.hasOwnProperty.call(options, 'selectionIntent')) {
     return coordinator.isCurrent(options.selectionIntent) ? options.selectionIntent : null;
   }
@@ -269,6 +272,7 @@ export function createThreadSelectionActions(runtime, deps) {
   return {
     beginOpeningThread: (thread) => beginOpeningThread(runtime, thread, deps, coordinator),
     cancelOpeningThread: (selectionIntent) => cancelOpeningThread(runtime, selectionIntent, coordinator),
+    captureThreadSelection: () => coordinator.capture(),
     openThreadById: (threadId, options = {}) => openThreadById(runtime, threadId, options, deps, coordinator),
     setActiveThread: (threadId, options = {}) => setActiveThread(runtime, threadId, options, deps, coordinator),
     newThread: () => newThread(runtime, deps, coordinator),

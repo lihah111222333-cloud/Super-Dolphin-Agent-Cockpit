@@ -3165,6 +3165,31 @@ function registerBridgeEventHandlersForTest() {
     expect(middleB.selectionIntentId).toBeGreaterThan(firstA.selectionIntentId);
   });
 
+  it('rejects a conditional selection after a newer user selection invalidates its snapshot', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-b', cwd: '/repo/app', name: 'Thread B', provider: 'codex', status: 'idle' },
+      ],
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => ({
+      activeThreadId: threadId,
+      threads: [{ id: threadId, cwd: '/repo/app', provider: 'codex', status: 'idle' }],
+    }));
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    const snapshot = useClientStore.getState().captureThreadSelection?.();
+
+    await expect(useClientStore.getState().setActiveThread('thread-b')).resolves.toBe(true);
+    await expect(
+      useClientStore.getState().setActiveThread('thread-a', { selectionSnapshot: snapshot }),
+    ).resolves.toBe(false);
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-b');
+  });
+
   it('keeps C active when A B C thread syncs finish out of order', async () => {
     const syncA = deferred();
     const syncB = deferred();

@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   backend,
+  deferred,
   renderWorkflowPage,
   mockWorkflowDag,
   workflowDesignStore,
@@ -10,6 +11,7 @@ import {
   mockEnterpriseTemplates,
   openTemplateCatalog,
 } from './WorkflowPage.testSupport.jsx';
+import { useWorkflowActions } from './hooks/useWorkflowActions.js';
 
   beforeEach(() => {
   vi.clearAllMocks();
@@ -417,4 +419,88 @@ it('shows an explicit error when sending the enterprise template brief fails', a
   expect(await screen.findByRole('alert')).toHaveTextContent('发送政企模板需求失败：turn offline');
   expect(backend.startTurn).toHaveBeenCalled();
   expect(store.setActiveThread).not.toHaveBeenCalled();
+});
+
+it('keeps a newer user thread active when a generic workflow continuation returns late', async () => {
+  const started = deferred();
+  backend.startThread.mockReturnValue(started.promise);
+  let selectionGeneration = Object.freeze({});
+  let activeThreadId = 'thread-initial';
+  const setActivePage = vi.fn();
+  const store = {
+    ...workflowDesignStore(),
+    captureThreadSelection: vi.fn(() => selectionGeneration),
+    setActivePage,
+    setActiveThread: vi.fn(async (threadId, options = {}) => {
+      if (Object.prototype.hasOwnProperty.call(options, 'selectionSnapshot')) {
+        if (options.selectionSnapshot !== selectionGeneration) return false;
+      } else {
+        selectionGeneration = Object.freeze({});
+      }
+      activeThreadId = threadId;
+      return true;
+    }),
+  };
+  const actionState = { setActioning: vi.fn(), setError: vi.fn() };
+  const notices = { clearNotice: vi.fn() };
+  const { result } = renderHook(() => useWorkflowActions({
+    actionState,
+    derived: {},
+    list: {},
+    notices,
+    refresh: {},
+    selection: {},
+    setDesignSession: vi.fn(),
+    store,
+    workflowCwd: '/repo/app',
+  }));
+
+  let workflowAction;
+  act(() => {
+    workflowAction = result.current.startDesignFlow();
+  });
+  await waitFor(() => expect(backend.startThread).toHaveBeenCalledTimes(1));
+
+  act(() => {
+    selectionGeneration = Object.freeze({});
+    activeThreadId = 'thread-user';
+  });
+  await act(async () => {
+    started.resolve({ thread_id: 'thread-workflow' });
+    await workflowAction;
+  });
+
+  expect(activeThreadId).toBe('thread-user');
+  expect(setActivePage).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['captureThreadSelection', '自动化会话选择快照能力不可用'],
+  ['setActiveThread', '自动化会话选择能力不可用'],
+  ['setActivePage', '自动化页面导航能力不可用'],
+])('fails fast when the generic workflow store omits %s', async (missingAction, message) => {
+  const store = {
+    ...workflowDesignStore(),
+    captureThreadSelection: vi.fn(() => Object.freeze({})),
+  };
+  delete store[missingAction];
+  const actionState = { setActioning: vi.fn(), setError: vi.fn() };
+  const { result } = renderHook(() => useWorkflowActions({
+    actionState,
+    derived: {},
+    list: {},
+    notices: { clearNotice: vi.fn() },
+    refresh: {},
+    selection: {},
+    setDesignSession: vi.fn(),
+    store,
+    workflowCwd: '/repo/app',
+  }));
+
+  await act(async () => {
+    await result.current.startDesignFlow();
+  });
+
+  expect(actionState.setError).toHaveBeenCalledWith(`启动 AI 设计流程失败：${message}`);
+  expect(backend.startThread).not.toHaveBeenCalled();
 });

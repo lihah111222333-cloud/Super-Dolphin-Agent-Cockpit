@@ -36,4 +36,62 @@ describe('threadOpenCoordinator', () => {
     coordinator.invalidate();
     expect(coordinator.isCurrent(next)).toBe(false);
   });
+
+  it('conditionally begins a real target while the captured generation is unchanged', () => {
+    const coordinator = createThreadOpenCoordinator();
+    const snapshot = coordinator.capture?.();
+
+    const intent = coordinator.beginIfUnchanged?.(snapshot, 'thread-a');
+
+    expect(intent).toEqual(expect.objectContaining({ targetThreadId: 'thread-a' }));
+    expect(coordinator.isCurrent(intent)).toBe(true);
+  });
+
+  it('invalidates a captured generation after a newer begin', () => {
+    const coordinator = createThreadOpenCoordinator();
+    const snapshot = coordinator.capture?.();
+
+    coordinator.begin('thread-a');
+
+    expect(coordinator.beginIfUnchanged?.(snapshot, 'thread-b')).toBeNull();
+  });
+
+  it('invalidates a captured generation after a successful cancel', () => {
+    const coordinator = createThreadOpenCoordinator();
+    const current = coordinator.begin('thread-a');
+    const snapshot = coordinator.capture?.();
+
+    expect(coordinator.cancel(current)).toBe(true);
+    expect(coordinator.beginIfUnchanged?.(snapshot, 'thread-b')).toBeNull();
+  });
+
+  it('keeps a captured generation valid after a failed cancel', () => {
+    const coordinator = createThreadOpenCoordinator();
+    coordinator.begin('thread-a');
+    const snapshot = coordinator.capture?.();
+
+    expect(coordinator.cancel(Object.freeze({}))).toBe(false);
+    expect(coordinator.beginIfUnchanged?.(snapshot, 'thread-b')).toEqual(
+      expect.objectContaining({ targetThreadId: 'thread-b' }),
+    );
+  });
+
+  it('invalidates a captured generation when the current intent is invalidated', () => {
+    const coordinator = createThreadOpenCoordinator();
+    coordinator.begin('thread-a');
+    const snapshot = coordinator.capture?.();
+
+    coordinator.invalidate();
+
+    expect(coordinator.beginIfUnchanged?.(snapshot, 'thread-b')).toBeNull();
+  });
+
+  it('invalidates a captured generation even when invalidate starts with no current intent', () => {
+    const coordinator = createThreadOpenCoordinator();
+    const snapshot = coordinator.capture?.();
+
+    coordinator.invalidate();
+
+    expect(coordinator.beginIfUnchanged?.(snapshot, 'thread-a')).toBeNull();
+  });
 });
