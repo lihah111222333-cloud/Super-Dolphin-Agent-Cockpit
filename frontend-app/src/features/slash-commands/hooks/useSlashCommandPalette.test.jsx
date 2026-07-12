@@ -209,6 +209,23 @@ it.each(['Enter', 'Tab'])('selects the active option with %s', async (key) => {
   await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledTimes(1));
 });
 
+it('resets the active option when a new slash query opens', async () => {
+  const { store, textarea } = renderHarness();
+
+  fireEvent.change(textarea, { target: { value: '/rev' } });
+  await screen.findByRole('option', { name: /Code Review/ });
+  fireEvent.keyDown(textarea, { key: 'Enter' });
+  await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledTimes(1));
+
+  fireEvent.change(textarea, { target: { value: '/' } });
+  const newThread = await screen.findByRole('option', { name: /新建对话/ });
+  expect(newThread).toHaveAttribute('aria-selected', 'true');
+  fireEvent.keyDown(textarea, { key: 'Enter' });
+
+  expect(store.newThread).toHaveBeenCalledTimes(1);
+  expect(store.addComposerCapability).toHaveBeenCalledTimes(1);
+});
+
 it('dismisses with Escape without mutating the trigger', async () => {
   const { setDraftSpy, textarea } = renderHarness();
 

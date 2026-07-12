@@ -37,6 +37,15 @@ function nextActiveId(items, activeId, direction) {
   return enabled[nextIndex].id;
 }
 
+function activeIdForQuery(items, selection, query) {
+  const enabled = enabledItems(items);
+  if (selection.query === query && enabled.some((item) => item.id === selection.id)) {
+    return selection.id;
+  }
+  if (enabled.length === 0) return '';
+  return enabled[0].id;
+}
+
 function selectBuiltin(item, store) {
   if (item.payload.action === 'new') store.newThread();
   if (item.payload.action === 'clear') store.clearComposer();
@@ -94,7 +103,7 @@ export function useSlashCommandPalette(options) {
   } = options;
   const reactId = useId();
   const listboxId = `slash-command-listbox-${reactId.replace(/:/g, '')}`;
-  const [activeId, setActiveId] = useState('');
+  const [activeSelection, setActiveSelection] = useState({ id: '', query: '' });
   const [dismissedDraft, setDismissedDraft] = useState(null);
   const [selecting, setSelecting] = useState(false);
   const trigger = parseSlashCommandTrigger(draft);
@@ -112,6 +121,7 @@ export function useSlashCommandPalette(options) {
     () => rankSlashCommandItems(catalog.items, query),
     [catalog.items, query],
   );
+  const activeId = activeIdForQuery(items, activeSelection, query);
   const activeItem = items.find((item) => item.id === activeId);
   const activeOptionId = open && activeItem ? slashCommandOptionId(activeItem) : '';
 
@@ -120,11 +130,9 @@ export function useSlashCommandPalette(options) {
   }, [dismissedDraft, draft]);
 
   useEffect(() => {
-    if (!open) return;
-    const enabled = enabledItems(items);
-    if (enabled.some((item) => item.id === activeId)) return;
-    setActiveId(enabled.length > 0 ? enabled[0].id : '');
-  }, [activeId, items, open]);
+    if (!open || (activeSelection.id === activeId && activeSelection.query === query)) return;
+    setActiveSelection({ id: activeId, query });
+  }, [activeId, activeSelection, open, query]);
 
   const selectItem = useCallback(async (item) => {
     if (item.disabled || selecting) return false;
@@ -146,9 +154,13 @@ export function useSlashCommandPalette(options) {
     }
   }, [cwd, draft, selecting, service, setDraft, store, textareaRef]);
 
+  const setActiveId = useCallback((id) => {
+    setActiveSelection({ id, query });
+  }, [query]);
+
   const moveActive = useCallback((direction) => {
-    setActiveId((current) => nextActiveId(items, current, direction));
-  }, [items]);
+    setActiveSelection({ id: nextActiveId(items, activeId, direction), query });
+  }, [activeId, items, query]);
 
   const handleKeyDown = useCallback((event, keyOptions = {}) => {
     if (eventIsComposing(event, keyOptions) || !open) return false;

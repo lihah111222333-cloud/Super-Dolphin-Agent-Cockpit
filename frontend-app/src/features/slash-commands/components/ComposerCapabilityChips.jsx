@@ -45,7 +45,6 @@ function CapabilityChip({ copy, item, onRemove }) {
   return (
     <li
       className={`composer-capability-chip is-${item.availability}`}
-      role="listitem"
       title={reason || undefined}
     >
       <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
