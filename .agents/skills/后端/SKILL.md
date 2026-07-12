@@ -6,6 +6,8 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 
 # Go 后端开发规范 (V3 契约合规版)
 
+> **代码审查是交付的一部分：** 按本技能编写或修改的后端代码会依据 [`代码审查维度`](../代码审查维度/SKILL.md) 中与变更面适用的维度接受审查。实现时必须预留可复查的源码、测试、LSP diagnostics、门禁与 Git 状态证据；“能编译”或单次测试通过不代表审查通过。
+
 ## 子文件按需加载
 
 详细内容拆分在同目录子文件中。读完本文件后，根据任务只加载最相关的子文件；若任务跨越多个后端边界，再按证据追加读取。
@@ -74,6 +76,42 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | 单文件下限 | \<50 行文件不自动判错；只有当它只是无边界价值的碎片化包装时才合并，测试、契约、窄端口和清晰 owner 边界可以保留。 |
 | 隐藏实现 | 模块只暴露 Interface 和 `fx.Module`，具体的结构体实现应当保持包私有。 |
 | 接口定义 | 接口在使用方定义，而非实现方。 |
+
+---
+
+## 提交与推送门禁（证据主导）
+
+门禁结论必须由**本次实际提交或推送对象的可复查证据**支持，不能只根据计划、历史结果、代理口述、空日志、单个 `PASS` / `DONE` 或工作区曾经全绿作出判断。命令退出码为 0 只是必要条件；还必须确认检查对象、输出中的实际 gate、Git 对象和远端状态彼此一致。
+
+### 提交门禁
+
+| 判定项 | 必须保留的证据 | 判定规则 |
+|------|----------------|---------|
+| Hook 已启用 | `git config --get core.hooksPath` 指向 `.githooks`；首次接入使用 `make install-hooks` | 未启用 hook 时，不得把普通 `git commit` 描述为已经过仓库提交门禁。 |
+| pre-commit | 本次 `git commit` 输出中出现实际执行的 `pre-commit` gate 及最终 `pre-commit OK`，且命令退出码为 0 | 以 staged index 为检查对象；必须处理生成物刷新、全量 guard，以及变更语言对应的格式化、vet、测试或前端检查。 |
+| commit-msg | 本次提交输出或复跑证据显示中文提交信息 guard 与 fix-test guard 通过 | `fix` / `hotfix` / `bugfix` / `修复` 类提交必须在同一提交包含锁定缺陷的测试、fixture、golden 或 snapshot。 |
+| 提交对象 | `git rev-parse HEAD`、`git show --stat --oneline --decorate HEAD`，必要时核对 `git diff HEAD^ HEAD -- <scope>` | 必须证明门禁通过后生成的 commit 就是声称已提交的变更；只有工作区 diff 或暂存状态不算已提交。 |
+
+提交门禁失败、被跳过或证据缺失时，只能报告“未通过/未证实”。禁止使用 `--no-verify` 常态绕过；若用户明确授权紧急绕过，必须披露跳过了哪些 gate、补跑结果和仍缺失的证据，不得声称正常门禁已通过。
+
+### 推送门禁
+
+| 判定项 | 必须保留的证据 | 判定规则 |
+|------|----------------|---------|
+| 推送对象 | push 前记录 `git rev-parse HEAD`、当前分支与目标 remote/ref | `.githooks/pre-push` 只允许推送当前 `HEAD`；检查对象不一致即阻断。 |
+| pre-push | 本次 `git push` 输出中出现实际执行的提交信息、fix-test、AI maintenance 和变更影响面 gate，最终 `pre-push OK`，且 push 退出码为 0 | Go 变更按 push range 跑受影响包；前端变更跑 lint、非 e2e test、build；相关 sqlc、capability contract、技能镜像检查必须按 hook 条件执行。 |
+| 软门禁 | 输出中的 codemap / project-map drift warning 及对应失败命令 | 当前 pre-push 对这两类生成物漂移只告警、不阻断。可以报告“push hook 通过但有软门禁告警”，不得写成“全部门禁全绿”。 |
+| 远端落点 | push 成功输出，并用 `git ls-remote <remote> <ref>` 或等价远端查询确认目标 ref SHA 等于推送前记录的 `HEAD` | `pre-push OK` 只证明推送前检查通过，不证明远端已接收；远端 SHA 未对齐时不得声称“已推送”。 |
+
+### 结论口径
+
+- “可提交”：与变更面匹配的验证已通过，但尚未生成 commit。
+- “已提交”：提交门禁通过，且已核对 commit SHA 与提交内容；同时报告未提交/未跟踪的同范围改动。
+- “可推送”：提交对象和 pre-push 所需检查具备通过证据，但尚未确认远端更新。
+- “已推送”：`git push` 成功，且远端目标 ref SHA 与本地目标 commit 一致。
+- 任一强制 gate 失败均为 blocker；软门禁告警、未覆盖的 deferred E2E / CI 检查和脏工作区必须单独披露，不能被汇总成全绿。
+
+提交/推送 hook 的当前行为以 `.githooks/pre-commit`、`.githooks/commit-msg`、`.githooks/pre-push` 和 `.githooks/README.md` 为事实来源；技能不得复制一份与 hook 漂移的静态命令清单。
 
 ---
 
