@@ -56,8 +56,8 @@ In traditional setups, developers feel forced to feed the entire codebase into t
 
 Super Dolphin's self-guarding architecture creates a **clean, localized code modification loop** that operates under the "Zero-Knowledge" principle:
 *   **Narrow Context Only**: Because the repository has compiler-enforced interfaces, clear boundary rules, and auto-updating project maps, an AI agent only needs to load the target file and its immediate contract interfaces.
-*   **The Repository Guides the Agent**: If the AI attempts to violate architectural rules or introduce technical debt, the AST/SSA static gate will immediately block it and provide precise, compiler-grade diagnostics. 
-*   **Automatic Self-Healing**: The agent reads the compiler diagnostic output, self-corrects the code in-place, and tries again. 
+*   **The Repository Guides the Agent**: If the AI attempts to violate architectural rules or introduce technical debt, the AST/SSA static gate will immediately block it and provide precise, compiler-grade diagnostics.
+*   **Automatic Self-Healing**: The agent reads the compiler diagnostic output, self-corrects the code in-place, and tries again.
 
 This means **the AI never needs to read the entire project** to make safe, production-grade changes. The codebase itself acts as the deterministic coordinator.
 
