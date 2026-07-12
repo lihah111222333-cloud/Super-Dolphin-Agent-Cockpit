@@ -7,42 +7,20 @@ aliases: ["@注释规范", "@comments"]
 
 # super-agent-v3 注释规范
 
-## 函数级中文注释
+注释说明代码本身看不出的职责、原因、约束和风险，不逐行复述实现。中文自然简洁，通常 1-3 行；协议字段、错误文本和日志 key 保持源码原名。
 
-函数级中文注释写给维护系统的人看：先说明函数或关键代码块做什么，再补代码本身看不出来的原因、约束和风险。不要逐行复述实现。
+## 机器守卫
 
-必须补注释：
+`internal/archtest/guardlib.go` 检查所有导出函数/方法和达到复杂度阈值的私有函数；阈值以守卫源码和同包测试为事实源，不在技能中复制。测试文件不进入该函数注释守卫。确需跳过时使用 `// archguard:ignore func_comment -- 具体原因`；空理由或为过守卫灌水不合格。
 
-- 导出函数、导出方法、导出类型的关键方法。
-- 跨模块入口：provider、store、scheduler、thread、prompt、memory、skill、DAG、MCP、runtime。
-- 涉及状态变化、幂等、重试、锁、并发、恢复、fail-fast、权限或持久化边界。
-- 私有函数如果较长、分支复杂或嵌套深，需要说明负责什么、不能误改什么。
-- React hooks、store slice、service、复杂页面 controller 需要说明数据来源和本地状态边界。
+## 人工规范
 
-不要求给简单 getter/setter、小型纯映射、小 JSX 片段、测试内直观 helper 机械补注释。
+跨模块入口、状态迁移、幂等/重试、锁/并发、恢复、权限、持久化边界，以及复杂 React hook/store/service，应说明 owner、失败语义或不能误改的约束。简单 getter/setter、纯映射、小 JSX 和直观测试 helper 不机械补注释。
 
-## 风格
+## 验证
 
-- 中文自然简洁，优先 1-3 行。
-- 先写“做什么”，必要时再写“为什么/不能乱改/失败时怎样”。
-- 少用空泛工程词；除非代码领域名必须保留。
-- 错误字符串、协议字段和日志 key 保持英文或源码原名。
+- 普通 Go 文件：`./scripts/test_with_guard.sh <file.go>`。
+- 修改守卫：`./scripts/test_with_guard.sh ./internal/archtest -count=1`。
+- 跨面或提交前：`make guard`。
 
-## 守卫
-
-函数级注释守卫由 `internal/archtest/guardlib.go` 实现。改 Go 文件后按本仓库命令验证：
-
-```bash
-./scripts/test_with_guard.sh <file.go>
-make guard
-./scripts/test_with_guard.sh ./internal/archtest -count=1
-```
-
-## 常见错误
-
-| 错误 | 修正 |
-|---|---|
-| “处理数据”“执行逻辑”这类空话 | 写清楚处理哪个状态/边界 |
-| 注释复述每行代码 | 说明维护约束和风险 |
-| 英文模板搬运 | 用中文说明本仓库上下文 |
-| 为过守卫给所有小函数灌水 | 只给策略要求的函数补有效注释 |
+“处理数据”“执行逻辑”、英文模板和逐行翻译代码均为无效注释，应改写为具体状态、边界、原因或风险。

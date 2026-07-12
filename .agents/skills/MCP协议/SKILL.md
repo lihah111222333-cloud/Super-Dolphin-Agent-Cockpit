@@ -41,6 +41,7 @@ super-agent-v3 的 MCP 实现以源码和契约为准：
 3. stdio 和 legacy HTTP 共享语义时，错误 envelope、payload 日志和 scope 不能分叉。
 4. provider 配置只接受 `stdio` 或 `http` transport；未知 transport 必须报错。
 5. 修改 DAG 工具时必须处理版本冲突、running/active run 下的节点结构变更限制，以及 done/failed 状态的下游影响。
+6. server identity、transport、provider 和必需依赖为空时必须在构造或启动边界报错；不得用 `mcp-server`、`dev` 或空实现补成可运行状态，并补失败测试。
 
 ## 验证
 

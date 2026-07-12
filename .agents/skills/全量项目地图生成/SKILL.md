@@ -7,26 +7,24 @@ aliases: ["@全量项目地图生成", "@codemap"]
 
 # super-agent-v3 项目地图生成
 
-## 当前入口
+## 唯一事实源与产物
 
-- codemap 目录：`docs/doc/codemap`
-- 目录索引：`docs/doc/codemap/README.md`
-- 项目地图：`docs/doc/codemap/project-map/AI_PROJECT_MAP.md`
-- 能力清单：`docs/doc/codemap/capability-contract/capability_manifest.json`
+- 生成器：`scripts/generate_ai_project_map.mjs`。
+- 规则输入：`.ai-project-map.overrides.json`。
+- 生成物：`AI_PROJECT_MAP.md`、`AI_PROJECT_DRIFT.md`、`AI_PROJECT_MANIFEST.json` 和 `docs/guide/index/*.tsv`。
 
-不要使用旧后端子模块项目地图规则。
+分卷 codemap 由 `make codemap-*` 管理；能力契约由 `make capcontract-*` 管理。不得用 `make codemap-check` 代替项目地图校验。
 
 ## 规则
 
-1. 先读 `README.md` 和 `docs/doc/codemap/README.md`。
-2. 只打开相关 codemap 卷，避免扫生成目录。
-3. 不递归索引 `.worktrees`、`.agents`、`.claude`、frontend `node_modules/dist` 等生成/缓存目录。
-4. 修改 codemap 后必须跑 `make codemap-check`。
+1. 先读 README、codemap README 和生成器中的排除规则，不维护第二份排除清单。
+2. 修改生成器或 overrides 后运行 `make project-map-refresh`，不手改生成物。
+3. 完成前运行 `make project-map-check`；若同时改分卷 codemap 或能力契约，再追加对应 check。
 
 ## 常见错误
 
 | 错误 | 修正 |
 |---|---|
 | 生成旧业务子域维度 | 使用当前 cmd/internal/frontend-app 结构 |
-| 直接编辑过期生成物 | 查生成器或目标源 |
-| 不跑 codemap 校验 | 运行 `make codemap-check` |
+| 直接编辑过期生成物 | 修改 owner 后运行 `make project-map-refresh` |
+| 只跑 codemap-check | 项目地图必须运行 `make project-map-check` |

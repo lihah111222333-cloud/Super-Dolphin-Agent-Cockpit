@@ -18,7 +18,7 @@ aliases: ["@前端", "@frontend"]
 
 常见路径：
 
-- 页面：`frontend-app/src/pages`
+- 页面、功能与适配：`frontend-app/src/pages`、`src/features`、`src/services`、`src/adapters`
 - 实体状态：`frontend-app/src/entities`
 - 共享 API：`frontend-app/src/shared/api`
 - 全局样式：`frontend-app/src/styles.css`
