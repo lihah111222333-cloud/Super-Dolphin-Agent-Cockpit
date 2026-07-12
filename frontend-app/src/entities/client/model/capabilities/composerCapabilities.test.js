@@ -5,6 +5,7 @@ import {
   CAPABILITY_UNVERIFIED,
   addComposerCapability,
   cloneComposerCapabilities,
+  composerCapabilityRequestFields,
   composerCapabilitiesReady,
   normalizeComposerCapability,
   reconcileComposerCapabilities,
@@ -116,4 +117,42 @@ describe('composerCapabilities', () => {
       skillCapability({ availability: CAPABILITY_UNVERIFIED }),
     ])).toBe(false);
   });
+
+  it('serializes ready skills and tools into the turn facade', () => {
+    expect(composerCapabilityRequestFields([
+      skillCapability({
+        key: 'skill:project::review:/repo/skills/review',
+        ref: {
+          name: 'review',
+          scope: 'project',
+          personalType: '',
+          path: '/repo/skills/review',
+        },
+      }),
+      toolCapability(),
+    ])).toEqual({
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{
+        name: 'review',
+        scope: 'project',
+        path: '/repo/skills/review',
+      }],
+      manualSkillSelection: true,
+      enabledTools: ['lsp_edit'],
+    });
+  });
+
+  it.each([CAPABILITY_STALE, CAPABILITY_UNVERIFIED])(
+    'rejects a %s capability before RPC',
+    (availability) => {
+      expect(() => composerCapabilityRequestFields([
+        toolCapability({
+          key: 'mcp_tool:lsp:grep',
+          name: 'grep',
+          label: 'grep',
+          availability,
+        }),
+      ])).toThrow(`composer capability mcp_tool:lsp:grep is ${availability}`);
+    },
+  );
 });

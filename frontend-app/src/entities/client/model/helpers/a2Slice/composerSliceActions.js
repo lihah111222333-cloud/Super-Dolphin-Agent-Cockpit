@@ -211,7 +211,7 @@ function startDraftTurn(deps, request, threadId) {
     cwd: request.cwd,
     threadId,
     input: request.input,
-    manualSkillSelection: false,
+    ...request.capabilityPayload,
   });
 }
 
@@ -284,10 +284,33 @@ function createComposerActionSet(runtime, deps) {
     attachDroppedFilesForComposer: createAttachDroppedFilesForComposerAction(runtime, deps.attachment),
     attachPastedImagesForComposer: createAttachPastedImagesForComposerAction(runtime, deps.attachment),
     removeAttachment: createRemoveAttachmentAction(runtime, deps.attachment),
+    addComposerCapability: (capability) => runtime.set((state) => ({
+      composerCapabilities: deps.capability.addComposerCapability(
+        state.composerCapabilities,
+        capability,
+      ),
+    })),
+    removeComposerCapability: (key) => runtime.set((state) => ({
+      composerCapabilities: deps.capability.removeComposerCapability(
+        state.composerCapabilities,
+        key,
+      ),
+    })),
+    reconcileComposerCapabilities: (catalog) => runtime.set((state) => ({
+      composerCapabilities: deps.capability.reconcileComposerCapabilities(
+        state.composerCapabilities,
+        catalog,
+      ),
+    })),
     saveComposerModelConfig: createSaveComposerModelConfigAction(runtime, deps.model),
     restoreComposerModelInheritance: createRestoreComposerModelInheritanceAction(runtime, deps.model),
     saveComposerModelProvider: createSaveComposerModelProviderAction(runtime, deps.modelProvider),
     sendDraft: createSendDraftAction(runtime, deps.send),
+    clearComposer: () => runtime.set({
+      draft: '',
+      attachments: [],
+      composerCapabilities: [],
+    }),
     setDraft: (draft) => runtime.set({ draft }),
   };
 }

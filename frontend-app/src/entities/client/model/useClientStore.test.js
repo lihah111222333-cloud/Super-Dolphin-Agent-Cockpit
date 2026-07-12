@@ -99,6 +99,30 @@ function diagnosticBreadcrumbs() {
   }));
 }
 
+const boundCapabilities = [
+  {
+    kind: 'skill',
+    key: 'skill:project::review:/repo/app/.agents/skills/review',
+    name: 'review',
+    label: 'Code Review',
+    availability: 'ready',
+    ref: {
+      name: 'review',
+      scope: 'project',
+      personalType: '',
+      path: '/repo/app/.agents/skills/review',
+    },
+  },
+  {
+    kind: 'mcp_tool',
+    key: 'mcp_tool:lsp:lsp_edit',
+    name: 'lsp_edit',
+    label: 'LSP Edit',
+    serverName: 'lsp',
+    availability: 'ready',
+  },
+];
+
 function registerBridgeEventHandlersForTest() {
   const initialization = useClientStore.getState().initializeEvents();
   void initialization.catch((error) => {
@@ -2981,6 +3005,7 @@ function registerBridgeEventHandlersForTest() {
       activeThreadId: 'thread-legacy',
       draft: 'Continue legacy thread',
       attachments: [],
+      composerCapabilities: boundCapabilities,
       threads: [{ id: 'thread-legacy', name: 'Legacy', provider: 'codex', status: 'running' }],
     });
     backend.startTurn
@@ -3004,13 +3029,27 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'thread-legacy',
       input: [{ type: 'text', text: 'Continue legacy thread' }],
-      manualSkillSelection: false,
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{
+        name: 'review',
+        scope: 'project',
+        path: '/repo/app/.agents/skills/review',
+      }],
+      manualSkillSelection: true,
+      enabledTools: ['lsp_edit'],
     });
     expect(backend.startTurn).toHaveBeenNthCalledWith(2, {
       cwd: '/repo/app',
       threadId: 'thread-recovered',
       input: [{ type: 'text', text: 'Continue legacy thread' }],
-      manualSkillSelection: false,
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{
+        name: 'review',
+        scope: 'project',
+        path: '/repo/app/.agents/skills/review',
+      }],
+      manualSkillSelection: true,
+      enabledTools: ['lsp_edit'],
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-recovered');
     expect(useClientStore.getState().draft).toBe('');
@@ -4038,6 +4077,146 @@ function registerBridgeEventHandlersForTest() {
     expect(state.warningEntries[0]).toEqual(expect.objectContaining({
       level: 'error',
       event: 'thread.send.failed',
+    }));
+  });
+
+  it('clears text, attachments, and capabilities after a successful send', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      draft: 'Review this change',
+      attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
+      composerCapabilities: boundCapabilities,
+    });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
+
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      input: [
+        { type: 'text', text: 'Review this change' },
+        { type: 'mention', name: 'change.patch', path: '/tmp/change.patch' },
+      ],
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{
+        name: 'review',
+        scope: 'project',
+        path: '/repo/app/.agents/skills/review',
+      }],
+      manualSkillSelection: true,
+      enabledTools: ['lsp_edit'],
+    });
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      draft: '',
+      attachments: [],
+      composerCapabilities: [],
+    }));
+  });
+
+  it('restores text, attachments, and capabilities after a failed send', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      draft: 'Review this change',
+      attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
+      composerCapabilities: boundCapabilities,
+    });
+    backend.startTurn.mockRejectedValueOnce(new Error('turn/start failed'));
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow('turn/start failed');
+
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      draft: 'Review this change',
+      attachments: [expect.objectContaining({ path: '/tmp/change.patch' })],
+      composerCapabilities: [
+        expect.objectContaining({
+          key: 'skill:project::review:/repo/app/.agents/skills/review',
+        }),
+        expect.objectContaining({ key: 'mcp_tool:lsp:lsp_edit' }),
+      ],
+    }));
+    expect(backend.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      selectedSkills: ['review'],
+      manualSkillSelection: true,
+      enabledTools: ['lsp_edit'],
+    }));
+  });
+
+  it.each(['unverified', 'stale'])(
+    'blocks %s capabilities before turn/start',
+    async (availability) => {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        draft: 'Review this change',
+        attachments: [],
+        composerCapabilities: [{
+          kind: 'mcp_tool',
+          key: 'mcp_tool:lsp:grep',
+          name: 'grep',
+          label: 'grep',
+          serverName: 'lsp',
+          availability,
+        }],
+      });
+      backend.startTurn.mockReset();
+      backend.startTurn.mockResolvedValue({ ok: true });
+
+      await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+        `composer capability mcp_tool:lsp:grep is ${availability}`,
+      );
+      expect(backend.startTurn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not send capability-only composer state', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      draft: '',
+      attachments: [],
+      composerCapabilities: [boundCapabilities[1]],
+    });
+
+    await expect(useClientStore.getState().sendDraft()).resolves.toBe(false);
+    expect(backend.startTurn).not.toHaveBeenCalled();
+  });
+
+  it('exposes capability mutations and clears the whole composer', () => {
+    resetClientStoreForTests({
+      draft: 'Keep together',
+      attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
+      composerCapabilities: [],
+    });
+
+    useClientStore.getState().addComposerCapability(boundCapabilities[0]);
+    expect(useClientStore.getState().composerCapabilities).toEqual([
+      expect.objectContaining({ key: boundCapabilities[0].key }),
+    ]);
+
+    useClientStore.getState().reconcileComposerCapabilities({
+      kind: 'skill',
+      status: 'success',
+      items: [],
+    });
+    expect(useClientStore.getState().composerCapabilities[0]).toEqual(
+      expect.objectContaining({ availability: 'stale' }),
+    );
+
+    useClientStore.getState().removeComposerCapability(boundCapabilities[0].key);
+    useClientStore.getState().addComposerCapability(boundCapabilities[1]);
+    useClientStore.getState().clearComposer();
+
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      draft: '',
+      attachments: [],
+      composerCapabilities: [],
     }));
   });
 

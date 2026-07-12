@@ -3,6 +3,13 @@ import { firstOptionalPresent, optionalTextField } from '../../contractStoreMode
 import { deleteThread as deleteThreadRPC, listSharedFiles, recoverThread, readSharedFile, saveClipboardImage, selectFiles, setPreference, setThreadConfig } from '../../../../../shared/api/backendApi.js';
 import { sessionApi } from '../../../../../shared/api/sessionApi.js';
 import { appendUniqueAttachments, attachmentKey, buildTurnInput, createImageFileAttachment, droppedFilePath, fileListOf, fileLooksImage, normalizeAttachment, normalizeFileAttachment } from '../../composerAttachments.js';
+import {
+  addComposerCapability,
+  cloneComposerCapabilities,
+  composerCapabilityRequestFields,
+  reconcileComposerCapabilities,
+  removeComposerCapability,
+} from '../../capabilities/composerCapabilities.js';
 import { buildForkThreadState, cachedForkSharedFiles, createLoadForkSharedFiles, forkSourceTitle, initialForkSharedFilePaths, mergeForkSharedFilesWithSelected, normalizeForkSharedFiles } from '../../threadForkState.js';
 import { normalizeActiveProviderName, normalizeProviderConfigValue, normalizeProviderRuntimeConfig, requireProviderPreferenceValue } from '../providerRuntimeConfig.js';
 import { providerPreferenceKey } from '../providerPreferences.js';
@@ -69,6 +76,11 @@ const composerAttachmentActionDeps = {
 
 const composerActionDeps = {
   attachment: composerAttachmentActionDeps,
+  capability: {
+    addComposerCapability,
+    reconcileComposerCapabilities,
+    removeComposerCapability,
+  },
   model: {
     actionNotice,
     composerModelConfigTarget,
@@ -117,6 +129,7 @@ function createSendDraftRequest(state, cwd) {
   const attachments = state.attachments.map(normalizeAttachment).filter(Boolean);
   const input = buildTurnInput(text, attachments);
   if (input.length === 0) return null;
+  const capabilityPayload = composerCapabilityRequestFields(state.composerCapabilities);
   const previousActiveThreadId = state.activeThreadId;
   const previousThreadId = reusableThreadIdForSend(state, previousActiveThreadId);
   const launchIntentId = createLaunchIntentId();
@@ -127,8 +140,10 @@ function createSendDraftRequest(state, cwd) {
     text,
     attachments,
     input,
+    capabilityPayload,
     previousDraft: state.draft,
     previousAttachments: state.attachments,
+    previousComposerCapabilities: cloneComposerCapabilities(state.composerCapabilities),
     previousActiveThreadId,
     previousThreadId,
     launchIntentId,
@@ -246,6 +261,7 @@ function optimisticSendDraftState(state, request) {
     error: '',
     draft: '',
     attachments: [],
+    composerCapabilities: [],
     actionNotice: actionNotice('消息已发送，等待回复', 'info'),
     activeThreadId: request.provisionalThreadId,
     activityThreadAtById: {
@@ -343,6 +359,7 @@ function rollbackSendDraftState(state, request, error, options = {}) {
     ...(restoreComposer ? {
       draft: request.previousDraft,
       attachments: request.previousAttachments,
+      composerCapabilities: request.previousComposerCapabilities,
     } : {}),
     activeThreadId,
     timelinesByThread,
@@ -384,6 +401,7 @@ function saveFailedSendDraftSnapshot(runtime, request) {
     {
       draft: request.previousDraft,
       attachments: request.previousAttachments,
+      composerCapabilities: request.previousComposerCapabilities,
     },
   );
 }

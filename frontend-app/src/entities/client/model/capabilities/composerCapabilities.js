@@ -116,6 +116,33 @@ export function cloneComposerCapabilities(current) {
   return normalizeComposerCapabilities(current).map((item) => structuredClone(item));
 }
 
+function serializedSkillRef(ref) {
+  const serialized = {
+    name: ref.name,
+    scope: ref.scope,
+    path: ref.path,
+  };
+  if (ref.personalType) serialized.personalType = ref.personalType;
+  return serialized;
+}
+
+export function composerCapabilityRequestFields(current) {
+  const capabilities = normalizeComposerCapabilities(current);
+  const unavailable = capabilities.find((item) => item.availability !== CAPABILITY_READY);
+  if (unavailable) {
+    throw new Error(`composer capability ${unavailable.key} is ${unavailable.availability}`);
+  }
+  const skills = capabilities.filter((item) => item.kind === 'skill');
+  const tools = capabilities.filter((item) => item.kind === 'mcp_tool');
+  const payload = { manualSkillSelection: skills.length > 0 };
+  if (skills.length > 0) {
+    payload.selectedSkills = skills.map((item) => item.name);
+    payload.selectedSkillRefs = skills.map((item) => serializedSkillRef(item.ref));
+  }
+  if (tools.length > 0) payload.enabledTools = tools.map((item) => item.name);
+  return payload;
+}
+
 function catalogCapabilityKey(item, index) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
     throw new TypeError(`composer capability catalog item ${index} must be an object`);
