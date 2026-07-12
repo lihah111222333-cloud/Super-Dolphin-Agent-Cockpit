@@ -123,7 +123,18 @@ function createLongTaskObserver(callback) {
     return null;
   }
   const observer = new PerformanceObserver((list) => callback(list.getEntries()));
-  observer.observe({ type: 'longtask', buffered: true });
+  try {
+    observer.observe({ type: 'longtask', buffered: true });
+  }
+  catch (error) {
+    try {
+      observer.disconnect();
+    }
+    catch {
+      // The observe error is authoritative; disconnect is a secondary cleanup attempt.
+    }
+    throw error;
+  }
   return observer;
 }
 

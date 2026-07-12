@@ -301,6 +301,9 @@ function validateThreadPromptHistoryResponse(method, response) {
   if (typeof value.nextCursor !== 'string') {
     throw new TypeError(`${method} response nextCursor must be a string`);
   }
+  if (new TextEncoder().encode(value.nextCursor).byteLength > 2048) {
+    throw new TypeError(`${method} response nextCursor exceeds 2048 bytes`);
+  }
   if (typeof value.hasMore !== 'boolean') {
     throw new TypeError(`${method} response hasMore must be a boolean`);
   }
@@ -312,6 +315,9 @@ function validateThreadPromptHistoryResponse(method, response) {
   }
   if (typeof value.nonce !== 'string' || !normalizeString(value.nonce)) {
     throw new TypeError(`${method} response nonce must be a non-empty string`);
+  }
+  if (new TextEncoder().encode(value.nonce).byteLength > 2048) {
+    throw new TypeError(`${method} response nonce exceeds 2048 bytes`);
   }
   return value;
 }

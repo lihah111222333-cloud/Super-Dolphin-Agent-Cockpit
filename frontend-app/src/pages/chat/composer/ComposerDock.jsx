@@ -144,6 +144,7 @@ function ComposerDock({
     fetchPage: fetchPromptHistory,
     sendMessage,
     setDraft,
+    threadLifecycleSignal: store?.threads,
   });
 
   const handlePromptHistoryKeyDown = useComposerKeyHandler({

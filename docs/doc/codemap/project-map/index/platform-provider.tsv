@@ -772,8 +772,8 @@ internal/provider/claudecli/session_config.go	internal	platform-provider	go-sour
 internal/provider/claudecli/session_events_test.go	internal	platform-provider	go-test	16330	Claude CLI provider 集成	internal,provider,claudecli,session,events,test,Claude,CLI,集成
 internal/provider/claudecli/session_events.go	internal	platform-provider	go-source	15003	Claude CLI provider 集成	internal,provider,claudecli,session,events,Claude,CLI,集成
 internal/provider/claudecli/session_force_complete_test.go	internal	platform-provider	go-test	2604	Claude CLI provider 集成	internal,provider,claudecli,session,force,complete,test,Claude,CLI,集成
-internal/provider/claudecli/session_history_test.go	internal	platform-provider	go-test	4411	Claude CLI provider 集成	internal,provider,claudecli,session,history,test,Claude,CLI,集成
-internal/provider/claudecli/session_history.go	internal	platform-provider	go-source	3439	Claude CLI provider 集成	internal,provider,claudecli,session,history,Claude,CLI,集成
+internal/provider/claudecli/session_history_test.go	internal	platform-provider	go-test	8132	Claude CLI provider 集成	internal,provider,claudecli,session,history,test,Claude,CLI,集成
+internal/provider/claudecli/session_history.go	internal	platform-provider	go-source	9081	Claude CLI provider 集成	internal,provider,claudecli,session,history,Claude,CLI,集成
 internal/provider/claudecli/session_interrupt_cleanup.go	internal	platform-provider	go-source	1650	Claude CLI provider 集成	internal,provider,claudecli,session,interrupt,cleanup,Claude,CLI,集成
 internal/provider/claudecli/session_interrupt_pending_test.go	internal	platform-provider	go-test	1932	Claude CLI provider 集成	internal,provider,claudecli,session,interrupt,pending,test,Claude,CLI,集成
 internal/provider/claudecli/session_interrupt_test.go	internal	platform-provider	go-test	11253	Claude CLI provider 集成	internal,provider,claudecli,session,interrupt,test,Claude,CLI,集成

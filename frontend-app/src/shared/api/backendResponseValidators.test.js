@@ -281,6 +281,10 @@ describe('backend response validators', () => {
     })).toThrow('thread/promptHistory response entries[0] must not include raw');
     expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, nonce: '' }))
       .toThrow('thread/promptHistory response nonce must be a non-empty string');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, nonce: 'n'.repeat(2049) }))
+      .toThrow('thread/promptHistory response nonce exceeds 2048 bytes');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, nextCursor: 'c'.repeat(2049) }))
+      .toThrow('thread/promptHistory response nextCursor exceeds 2048 bytes');
     expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, nextCursor: '' }))
       .toThrow('thread/promptHistory response nextCursor must be non-empty when hasMore is true');
     expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, {

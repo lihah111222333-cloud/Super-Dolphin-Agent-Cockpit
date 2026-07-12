@@ -210,6 +210,36 @@ describe('ComposerDock', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it.each(['create', 'delete', 'archive', 'rename'])(
+    'passes the %s threads reference as the prompt-history lifecycle signal',
+    async (actionName) => {
+      const fetchPromptHistory = vi.fn()
+        .mockResolvedValueOnce({
+          entries: [{ threadId: 'thread1', messageId: 'before', text: 'before', createdAt: '2026-07-12T10:00:00Z' }],
+          nextCursor: '', hasMore: false, nonce: 'nonce-before',
+        })
+        .mockResolvedValueOnce({
+          entries: [{ threadId: 'thread1', messageId: actionName, text: actionName, createdAt: '2026-07-12T10:00:01Z' }],
+          nextCursor: '', hasMore: false, nonce: `nonce-${actionName}`,
+        });
+      function Harness({ threads }) {
+        const [draft, setDraft] = React.useState('draft');
+        return <ComposerDock {...baseProps} composer={createComposer()} draft={draft} fetchPromptHistory={fetchPromptHistory}
+          setDraft={setDraft} store={createStore({ threads })} />;
+      }
+      const { rerender } = render(<Harness threads={[{ id: 'thread1' }]} />);
+      const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+      textarea.setSelectionRange(0, 0);
+      fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+      await waitFor(() => expect(textarea).toHaveValue('before'));
+      rerender(<Harness threads={[{ id: 'thread1' }, { actionName }]} />);
+      textarea.setSelectionRange(0, 0);
+      fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+      await waitFor(() => expect(textarea).toHaveValue(actionName));
+      expect(fetchPromptHistory).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('keeps one textarea mounted while approval pending makes every composer action inert', () => {
     const inputRef = React.createRef();
     const store = createStore({

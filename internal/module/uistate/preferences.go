@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 )
@@ -321,8 +323,12 @@ func validateShortcutBindings(value any) error {
 		return errors.New("settings.shortcuts.bindings must contain at most 64 commands")
 	}
 	for commandID, rawBinding := range bindings {
-		if strings.TrimSpace(commandID) == "" || strings.TrimSpace(commandID) != commandID {
-			return errors.New("settings.shortcuts.bindings command id must be non-blank and trimmed")
+		if strings.TrimSpace(commandID) == "" ||
+			strings.TrimSpace(commandID) != commandID ||
+			utf8.RuneCountInString(commandID) > 128 {
+			return errors.New(
+				"settings.shortcuts.bindings command id must be non-blank, trimmed, and contain at most 128 characters",
+			)
 		}
 		if err := validateShortcutBinding(commandID, rawBinding); err != nil {
 			return err
@@ -442,9 +448,7 @@ func cloneTimestampMap(input map[string]int64) map[string]int64 {
 		return map[string]int64{}
 	}
 	out := make(map[string]int64, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
+	maps.Copy(out, input)
 	return out
 }
 

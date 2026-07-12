@@ -207,6 +207,7 @@
     "title": "Command palette",
     "searchPlaceholder": "Search commands",
     "empty": "No matching commands",
+    "turnInterruptDisabledReason": "No active task to interrupt",
     "labels": {
       "commands.palette.open": "Open command palette",
       "commands.chat.new": "New chat",

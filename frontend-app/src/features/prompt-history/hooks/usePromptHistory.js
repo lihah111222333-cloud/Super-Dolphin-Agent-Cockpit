@@ -14,16 +14,21 @@ export function usePromptHistory({
   fetchPage = fetchPromptHistoryPage,
   sendMessage,
   setDraft,
+  threadLifecycleSignal,
 }) {
   if (typeof fetchPage !== 'function') throw new Error('fetchPage is required');
   if (typeof sendMessage !== 'function') throw new Error('sendMessage is required');
   if (typeof setDraft !== 'function') throw new Error('setDraft is required');
 
-  const controller = useMemo(() => createPromptHistoryController({
-    fetchPage,
-    cwd,
-    activeThreadId,
-  }), [activeThreadId, cwd, fetchPage]);
+  const controller = useMemo(() => {
+    // The thread-list identity is a loss-only invalidation signal, not a copied state source.
+    void threadLifecycleSignal;
+    return createPromptHistoryController({
+      fetchPage,
+      cwd,
+      activeThreadId,
+    });
+  }, [activeThreadId, cwd, fetchPage, threadLifecycleSignal]);
 
   useEffect(() => {
     controller.captureDraft(draft);

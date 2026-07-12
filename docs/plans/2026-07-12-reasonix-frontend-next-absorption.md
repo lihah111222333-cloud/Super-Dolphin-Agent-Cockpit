@@ -1,6 +1,6 @@
 # Reasonix Frontend Next Absorption Implementation Plan
 
-> **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. In super-agent-v3, subagents may use platform-native dispatch directly; use mcp-orch DAG runs and nodes (`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`) only when persistent orchestration records are needed. Steps use checkbox (`- [ ]`) syntax for tracking. 本文是下一轮实施约束，不是现状说明；不得把目标描述成已经实现。
+> **Execution record:** 本文保留原任务约束、逐步实现说明与已完成的 Task 8 审查/门禁状态。实际执行拓扑以 §4 和 `docs/plans/evidence/reasonix-frontend-next/` 为准；不得用原始 lane/DAG 设想覆盖已发生的单 worktree 串行 handoff 事实。
 
 **Goal:** 在保持 V3 后端真相源、严格 RPC、现有 UI 分层和 AI 可维护门禁的前提下，吸收 Reasonix 中尚未落地且适合个人 AI 开发的四项机制：统一命令/快捷键注册表与命令面板、后端权威的输入历史带、无 UI 侵入的性能压力监测、可复现的长历史合成基准。
 
@@ -16,7 +16,7 @@
 - Reasonix: `/Users/mima0000/Desktop/wj/deepseek-reasonix@1f5740a2129ea54bda7c86755ed58c88b84c16b4`
 - 上一轮计划: `docs/plans/2026-07-11-reasonix-frontend-architecture-absorption.md`
 
-**Scope decision:** 四项能力各自形成可识别的原子 commit series、可按 lane 独立回退，但共同修改 app composition、shared API/diagnostics 和同一套全量前端门禁，因此保留一份总计划、三个独立实现 lane 与一个只做 cherry-pick/生成物/evidence 的 Integrator；禁止把任一 lane 的完成误报成整份计划完成。
+**Scope decision:** 编写时原设计把四项能力拆成三个独立 lane 与一个 Integrator；执行时该拓扑已被用户明确 override。实际执行固定为单一隔离 worktree、同一时刻至多一个 active serial implementer 与主 agent 实时监控/独立裁决。Tasks 0-7 由前任串行 implementer 在同一 branch 完成；Task 8 第一位 replacement implementer 串行完成 A/B 修复和 C 审查后，其 execution channel 无响应，主 agent 明确停止该代理，再由第二位 replacement implementer 顺序接管 C 证据、已裁决修复和后续 full gates。两次 handoff 均不使用 cherry-pick，交接时没有并行 implementer，也没有清理或丢失 worktree 文件。下文只把原 lane 设计保留为被覆盖的历史背景；任何执行证据不得虚构并行 worktree、reviewer 或 session，必须如实记录串行 handoff，也不得把任一 tranche 的完成误报成整份计划完成。
 
 ---
 
@@ -170,7 +170,7 @@ ComposerDock draft navigation
 - cursor 对前端不透明、带版本和 snapshot nonce；未知字段、非法 cursor、过大 limit、缺失/空 source revision 必须显式失败。
 - 前端控制器实例归 composer/cwd 所有，不能是 module singleton。
 - 首次按 `ArrowUp` 前保存当前未提交 draft 作为 sentinel；回到最新位置时原样恢复。
-- 只有 composer 为空、无 IME composition、无 selection range 且光标在边界时才触发历史导航。
+- unfinished draft 允许参与历史导航并作为 sentinel 保留；只有无 IME composition、selection collapsed，且 ArrowUp 位于第一逻辑行或 ArrowDown 位于最后逻辑行时才触发导航。
 - 重复 prompt 是合法历史，不按文本去重；顺序和 identity 由后端游标保证。
 - cwd 变化、成功发送、thread create/delete/archive/rename 或 snapshot nonce 变化时显式 invalidate；同秒连续写入相同文本也必须产生不同 source revision/nonce。
 
@@ -244,7 +244,7 @@ frontend-app/src/features/shortcut-settings/
 }
 ```
 
-约束：最多 64 个 override；command id/key 必须非空且有长度上限；每个 binding 只允许 `key/meta/ctrl/alt/shift`；修饰键必须为 boolean；未知字段、空键、重复有效组合显式失败。后端只验证通用 shape/size，command id 的唯一真相仍在前端 registry；前端加载时遇到未知 id 必须显示配置错误并阻止整份 override 生效，不能静默丢弃。Settings 保存使用整对象 replacement，保存成功后重新读取并重建 runtime；保存失败保留编辑草稿并显示错误，重置则写入空对象 `{}`，不得删除为 `null` 后依赖默认兜底。
+约束：最多 64 个 override；command id 必须 nonblank、trimmed 且长度为 1..128 个 Unicode code point，key 必须非空且长度为 1..32；每个 binding 只允许 `key/meta/ctrl/alt/shift`；修饰键必须为 boolean；未知字段、空键、重复有效组合显式失败。后端只验证通用 shape/size，command id 的唯一真相仍在前端 registry；前端加载时遇到未知 id 必须显示配置错误并阻止整份 override 生效，不能静默丢弃。Settings 保存使用整对象 replacement，保存成功后重新读取并重建 runtime；保存失败保留编辑草稿并显示错误，重置则写入空对象 `{}`，不得删除为 `null` 后依赖默认兜底。
 
 ### 3.2 Prompt history
 
@@ -363,43 +363,42 @@ frontend-app/package.json
 
 ## 4. 执行拓扑与所有权
 
-### 4.1 Integration base 与 lane worktrees
+### 4.1 实际 execution base 与单一 worktree
 
-```bash
-git -C /Users/mima0000/Desktop/wj/super-agent-v3 fetch origin
-git -C /Users/mima0000/Desktop/wj/super-agent-v3 worktree add \
-  /Users/mima0000/Desktop/wj/.worktrees/v3-reasonix-frontend-next \
-  -b codex/reasonix-frontend-next origin/main
-cd /Users/mima0000/Desktop/wj/.worktrees/v3-reasonix-frontend-next
-make codex-worktree-ready
-go run ./cmd/codex-worktree-setup verify
+计划输入和 execution base 仍为 `a7df089e32e4135a90f10a52f6ef10069cab8353`，不得把 Task 0 提交误写成 base。实际执行固定为：
+
+```text
+worktree: /Users/mima0000/Desktop/wj/super-agent-v3/.worktrees/reasonix-frontend-next-serial
+branch: codex/reasonix-frontend-next-serial
+execution base: a7df089e32e4135a90f10a52f6ef10069cab8353
 ```
 
-Task 0 只在 integration worktree 执行并提交 `00-baseline.md`。提交后记录唯一 lane base，再从该提交建立三个独立 worktree；禁止多个 lane 共享 worktree、Git index 或 HEAD：
+Tasks 0-7 已在该 branch 依次提交，不需要也不得执行 cherry-pick：
 
-```bash
-cd /Users/mima0000/Desktop/wj/.worktrees/v3-reasonix-frontend-next
-LANE_BASE=$(git rev-parse HEAD)
-git worktree add /Users/mima0000/Desktop/wj/.worktrees/v3-reasonix-frontend-next-command \
-  -b codex/reasonix-frontend-next-command "$LANE_BASE"
-git worktree add /Users/mima0000/Desktop/wj/.worktrees/v3-reasonix-frontend-next-history \
-  -b codex/reasonix-frontend-next-history "$LANE_BASE"
-git worktree add /Users/mima0000/Desktop/wj/.worktrees/v3-reasonix-frontend-next-diagnostics \
-  -b codex/reasonix-frontend-next-diagnostics "$LANE_BASE"
+```text
+Task 0  59ed17f9a75495c153d6ec54fd32f2fe7b48e204  docs(plan): 锁定 Reasonix 前端串行基线
+Task 1  8c299a6c69a0f30b9571d8ae3064708d870f4363  feat(frontend): 新增命令与快捷键契约
+Task 2  e8e6ce864f63717ecc227b6bfd7c33268a07fe49  feat(frontend): 将全局命令绑定到类型化快捷键
+Task 3  10bf5e54144085a1db02380d54c1900dc446dd7e  feat(frontend): 新增命令面板与快捷键设置
+Task 4  d48beefa79d7ce27614d5b5f651b68fd3e078a2d  feat(thread): 暴露权威输入历史分页
+Task 5  1fdee79f084862a8ba46ccee528134a0ce9e1acc  feat(frontend): 导航权威输入历史
+Task 6  ca9fbc7e7d0a30587a341f21ed3b8f86b805a9cd  feat(frontend): 上报有界性能压力
+Task 7  8db4361fcf2c48002699da40b09200a8197b894e  test(frontend): 新增长历史确定性基准
 ```
 
-每个 lane 在自己的 worktree 重新运行 `make codex-worktree-ready`、setup verify 与 LSP discovery。若任一目标 worktree/branch 已存在，先检查 `git status`、HEAD 和归属；不得删除或复用未知现场。Integrator 只在 lane commits 全部完成后，按 Task 8 固定顺序 cherry-pick，不直接编辑 lane 独占纯模块。
+每次继续前必须确认 worktree、branch、HEAD 和 index；发现未知 dirty、HEAD 偏离上述线性序列或额外 worktree 写入时立即停止。同一时刻至多一个 active serial implementer。Tasks 0-7 由前任 implementer 完成；Task 8 第一位 replacement implementer 完成 A/B 修复和 C 审查后因 execution channel 无响应被主 agent 顺序停止，第二位 replacement implementer 在保留全部 dirty 文件的前提下接管 C 证据、已裁决修复与 full gates。不存在两个 replacement implementer 同时活动，也没有文件丢失。当前 implementer 不得 spawn 子 agent、建立 DAG、新建 worktree 或 push。主 agent 全程实时监控，生产修复必须先由主 agent 裁决并授权。
 
-### 4.2 可并行 lane
+### 4.2 串行实现与审查面
 
-| Lane | 独立 worktree / 独占范围 | 可开始条件 | 禁止修改 |
+原 A/B/C lane 现在只表示三个串行审查面，不表示 branch、worktree、agent 或 reviewer：
+
+| Review surface | 范围 | 串行条件 | 禁止修改 |
 |---|---|---|---|
-| A Command | `...-command`；commands、keyboard、palette、shortcut-settings、App/ChatPage/Settings、i18n、uistate preference | Task 0 baseline commit | History、diagnostics、benchmark |
-| B History | `...-history`；message revision、thread prompt-history、frontend RPC/controller/Composer | Task 0 baseline commit | Command、Settings、diagnostics、benchmark |
-| C Diagnostics | `...-diagnostics`；trace allowlist、performance monitor、benchmark、timeline materialization、`main.jsx`、`package.json` | Task 0 baseline commit | Command、Settings、prompt history |
-| Integrator | `...-next`；按固定顺序 cherry-pick、生成物与 evidence | 各 lane RED/GREEN 证据齐全 | 不重写 lane 已验证纯模块；冲突必须回到 owning lane 修复后重新提交 |
+| A Command | commands、keyboard、palette、shortcut-settings、App/ChatPage/Settings、i18n、uistate preference | 先完成 live LSP 与 focused 证据并把 findings 交主 agent | History、diagnostics、benchmark |
+| B History | message revision、thread prompt-history、frontend RPC/controller/Composer、exact-cwd isolation | A 形成 disposition 后继续 | Command、Settings、diagnostics、benchmark |
+| C Diagnostics | trace allowlist、performance monitor、benchmark、timeline materialization、`main.jsx`、`package.json` | B 形成 disposition 后继续 | Command、Settings、prompt history |
 
-同一 lane 内的共享热点必须串行：A 的 `App.jsx`、`ChatPage.jsx`、Settings、`preferences.go` 与 i18n；B 的 `ComposerDock.jsx`、`backend/backendRpcMethods.js`、`backendApiFactoryThread.js`、`backendResponseValidators.js`、`contract.go`、`rpc.go`、`rpc_types.go`；C 的 trace constants/events、`main.jsx`、`package.json` 与 timeline hook。跨 lane 不允许声明同一个 owned file；生成 codemap/project-map/web-dist 只由 Integrator 刷新。
+Task 8 第一位 replacement implementer 依次完成 A → B → C live review，并完成已获授权的 A/B 修复；主 agent 独立复核每一面并给出 root adjudication。其 execution channel 无响应后，主 agent 先停止该代理，再启用第二位 replacement implementer 顺序接管 C 证据、已裁决修复与 full gates。任何时刻都只有一个 active implementer。裁决前 implementer 不得代填最终 disposition；当前 A/B/C findings 均已取得 root disposition。证据必须记录 Tasks 0-7 前任 implementer → Task 8 第一位 replacement implementer → Task 8 第二位 replacement implementer 的完整串行 handoff；生成物只在 generated-state guard 点名后由规范生成器刷新，禁止手改。
 
 依赖 DAG：
 
@@ -1088,19 +1087,43 @@ git commit -m "test(frontend): 新增长历史确定性基准"
 
 **Files:**
 
+- Modify: `docs/plans/2026-07-12-reasonix-frontend-next-absorption.md`
+- Modify: `frontend-app/src/App.jsx`
+- Modify: `frontend-app/src/App.test.jsx`
+- Modify: `frontend-app/src/app/AppErrorBoundary.test.jsx`
+- Modify: `frontend-app/src/app/commands/appCommandRegistry.js`
+- Modify: `frontend-app/src/app/commands/appCommandRegistry.test.js`
+- Modify: `frontend-app/src/features/prompt-history/hooks/usePromptHistory.js`
+- Modify: `frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx`
+- Modify: `frontend-app/src/main.jsx`
+- Modify: `frontend-app/src/pages/chat/composer/ComposerDock.jsx`
+- Modify: `frontend-app/src/pages/chat/composer/ComposerDock.test.jsx`
+- Modify: `frontend-app/src/shared/api/backendResponseValidators.js`
+- Modify: `frontend-app/src/shared/api/backendResponseValidators.test.js`
+- Modify: `frontend-app/src/shared/diagnostics/frontendPerformancePressure.js`
+- Modify: `frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js`
+- Modify: `frontend-app/src/shared/i18n/appI18n.en.json`
+- Modify: `frontend-app/src/shared/i18n/appI18n.zh.json`
+- Modify: `internal/module/thread/prompthistory/scanner.go`
+- Modify: `internal/module/thread/prompthistory/scanner_test.go`
+- Modify: `internal/module/uistate/preferences.go`
+- Modify: `internal/module/uistate/model_providers_test.go`
+- Modify: `internal/provider/claudecli/session_history.go`
+- Modify: `internal/provider/claudecli/session_history_test.go`
 - Create: `docs/plans/evidence/reasonix-frontend-next/01-command.md`
 - Create: `docs/plans/evidence/reasonix-frontend-next/02-prompt-history.md`
 - Create: `docs/plans/evidence/reasonix-frontend-next/03-performance.md`
 - Create: `docs/plans/evidence/reasonix-frontend-next/04-benchmark.md`
 - Create: `docs/plans/evidence/reasonix-frontend-next/05-full-gates.md`
 - Create: `docs/plans/evidence/reasonix-frontend-next/06-independent-review.md`
-- Modify: generated files reported by repository-owned generators only
 
-- [ ] **Step 1: 串行 cherry-pick lane commits**
+上述 22 个 source/test/config 路径均是 A/B/C 独立审查裁决后由主 agent 逐项授权的 repair；未授权扩面不进入 Task 8。`make guard` 未点名生成器，production build 对 `cmd/agent-terminal/web-dist` 无 diff，因此 Task 8 没有预提交生成刷新或生成物路径。
 
-In the integration worktree, verify a clean index and cherry-pick complete lane commits in this fixed order: A command/shortcut/palette/settings → B message revision/prompt-history/composer → C trace contract/performance/benchmark. Record every commit SHA. If cherry-pick conflicts on an owned file, abort that cherry-pick and return the conflict to the owning lane for a new commit；Integrator 不得在冲突中即席重写 lane 逻辑。Each successful cherry-pick is followed immediately by that lane's focused GREEN command.
+- [x] **Step 1: 核验串行提交链**
 
-- [ ] **Step 2: 运行 targeted suite**
+在固定 worktree 中验证 clean index、branch、execution base、当前 HEAD 与 §4.1 的八个完整 commit SHA。Tasks 0-7 已在线性 branch 上，不执行 cherry-pick。依次对 A command/shortcut/palette/settings → B message revision/prompt-history/composer → C trace contract/performance/benchmark 运行各自 focused GREEN，并把命令、计数和 exit 写入相应 evidence；发现提交链或 owned files 偏离即停止。
+
+- [x] **Step 2: 运行 targeted suite**
 
 ```bash
 cd frontend-app
@@ -1109,7 +1132,7 @@ npm exec -- vitest run src/app/commands src/shared/keyboard src/features/command
 
 Expected: PASS with exact file/test counts recorded in `05-full-gates.md`.
 
-- [ ] **Step 3: 运行 frontend/backend/repository full gates**
+- [x] **Step 3: 运行 frontend/backend/repository full gates**
 
 ```bash
 cd frontend-app
@@ -1124,23 +1147,50 @@ git diff --check
 
 Expected: all exit 0. Preserve first failures separately from later green reruns.
 
-- [ ] **Step 4: 刷新规范生成物**
+- [x] **Step 4: 核验规范生成物**
 
-Run only generators named by the failing generated-state guard. Re-run that guard and `git diff --check`. Do not hand-edit codemap, project-map, or `web-dist`.
+Task 8 的首次 `make guard` 只报告已授权 repair 的复杂度/注释 finding，未点名生成器；repair 后 guard 通过。`npm run build` 的规范同步完成后，`git diff --stat -- cmd/agent-terminal/web-dist` 与 exact name-status 均为空。因此没有预提交生成刷新，也没有手改 codemap、project-map 或 `web-dist`。
 
-- [ ] **Step 5: 三面独立复核**
+- [x] **Step 5: 三面串行审查与主 agent 独立裁决**
 
-Reviewer A reviews only command/shortcut/palette/settings; Reviewer B only message revision/prompt history/cwd isolation; Reviewer C only trace contract/performance/benchmark. Record every finding as `FIXED`, `REJECTED_WITH_EVIDENCE`, or `BLOCKED`, with reviewer identity/session and exact file/test evidence. A global `PASS` without per-finding disposition is invalid.
+Task 8 第一位 replacement implementer 按 A command/shortcut/palette/settings → B message revision/prompt history/exact-cwd isolation → C trace contract/performance/benchmark 顺序完成 live review；第二位 replacement implementer 只在前者被主 agent 顺序停止后接管 C 证据、已裁决修复与 full gates。每一面都使用 live LSP locate/inspect/xref/read/diagnostics，并把 findings 与精确文件/行/测试证据先交主 agent。全部 findings 已由主 agent 独立复核并裁决为 `CLOSED/FIXED` 或 `REJECTED_WITH_EVIDENCE`，不存在未裁决项。不得虚构多个并行 reviewer/session，也不得用全局 `PASS` 代替逐项 disposition。
 
-- [ ] **Step 6: 提交 evidence 与生成物**
+- [x] **Step 6: 准备 exact staged snapshot 与提交 handoff**
 
 ```bash
-git add docs/plans/evidence/reasonix-frontend-next
-git add docs/doc/codemap cmd/agent-terminal/web-dist
+git add docs/plans/2026-07-12-reasonix-frontend-next-absorption.md
+git add frontend-app/src/App.jsx
+git add frontend-app/src/App.test.jsx
+git add frontend-app/src/app/AppErrorBoundary.test.jsx
+git add frontend-app/src/app/commands/appCommandRegistry.js
+git add frontend-app/src/app/commands/appCommandRegistry.test.js
+git add frontend-app/src/features/prompt-history/hooks/usePromptHistory.js
+git add frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx
+git add frontend-app/src/main.jsx
+git add frontend-app/src/pages/chat/composer/ComposerDock.jsx
+git add frontend-app/src/pages/chat/composer/ComposerDock.test.jsx
+git add frontend-app/src/shared/api/backendResponseValidators.js
+git add frontend-app/src/shared/api/backendResponseValidators.test.js
+git add frontend-app/src/shared/diagnostics/frontendPerformancePressure.js
+git add frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js
+git add frontend-app/src/shared/i18n/appI18n.en.json
+git add frontend-app/src/shared/i18n/appI18n.zh.json
+git add internal/module/thread/prompthistory/scanner.go
+git add internal/module/thread/prompthistory/scanner_test.go
+git add internal/module/uistate/preferences.go
+git add internal/module/uistate/model_providers_test.go
+git add internal/provider/claudecli/session_history.go
+git add internal/provider/claudecli/session_history_test.go
+git add docs/plans/evidence/reasonix-frontend-next/01-command.md
+git add docs/plans/evidence/reasonix-frontend-next/02-prompt-history.md
+git add docs/plans/evidence/reasonix-frontend-next/03-performance.md
+git add docs/plans/evidence/reasonix-frontend-next/04-benchmark.md
+git add docs/plans/evidence/reasonix-frontend-next/05-full-gates.md
+git add docs/plans/evidence/reasonix-frontend-next/06-independent-review.md
 git commit -m "docs(plan): 记录 Reasonix 前端后续证据"
 ```
 
-Before the second `git add`, verify `git diff --name-only docs/doc/codemap cmd/agent-terminal/web-dist` contains only repository-generator output. If neither path changed, omit that command. If a generator reports a different path, stop and add that exact path to this plan before staging; do not use `git add -A`.
+如果 generated-state guard 点名规范生成器，先运行该生成器，再验证每个新增路径确属该 staged snapshot 的确定性输出，并逐路径 `git add <exact-path>`。没有实际生成变更时不得预先 stage `docs/doc/codemap` 或 `cmd/agent-terminal/web-dist` 目录；生成器报告不同路径时先把精确路径补入本计划并交主 agent 复核。禁止 `git add -A`、`git add .` 或 broad directory add。
 
 ---
 
@@ -1162,8 +1212,8 @@ docs/plans/evidence/reasonix-frontend-next/
 每份至少包含：
 
 ```text
-HEAD / origin/main / lane base / branch / worktree path
-lane commit SHAs and Integrator cherry-pick order
+execution HEAD / origin/main / execution base / branch / worktree path
+Task 0-7 complete commit SHAs in linear order
 owned files
 LSP locate/inspect/xref/read/diagnostics evidence
 RED command + expected failure + exit
@@ -1171,7 +1221,7 @@ GREEN command + pass count + exit
 full gate command + exit
 generated artifacts changed and generator
 remaining blockers
-reviewer identity/session and disposition
+review surface / serial implementer handoff / root adjudication
 ```
 
 空日志、只写 `PASS`、最后一次绿色重跑、或 reviewer 自报 `DONE` 都不是完成证据。首次 deterministic failure、flaky/timeout、生成物 churn 与最终重跑必须分别保留。
@@ -1206,6 +1256,6 @@ reviewer identity/session and disposition
 - LSP diagnostics 全部处理；无法处理项明确 blocker，不能写成 PASS。
 - targeted、frontend lint/test/build、相关 Go tests、repository guard 全部有命令、exit 和输出摘要。
 - generated artifacts 由规范生成器更新，`git diff --check` 通过，最终 diff 只包含本计划范围。
-- 三个 lane 使用独立 worktree/branch，Integrator 只按记录的 SHA 串行 cherry-pick；三个独立审查面均有逐项 disposition，所有 P0/P1 问题关闭或明确阻塞。
+- Tasks 0-8 使用固定单 worktree/branch，任一时刻至多一个 active serial implementer；Tasks 0-7 前任 implementer → Task 8 第一位 replacement implementer → Task 8 第二位 replacement implementer 的两次交接均为主 agent 控制的顺序 handoff。第一位 replacement 因 execution channel 无响应被停止后第二位才接管，期间没有并行 implementer、cherry-pick 或文件丢失。主 agent 全程实时监控并独立复核；A/B/C 三个串行审查面均有逐项 root disposition，所有 P0/P1 问题关闭或明确阻塞。
 
 完成后仍不代表吸收 Reasonix 的全部前端设计。`AnchoredPopover`、通用 Ask/Plan decision、多 Tab 工作台、OS 级全局快捷键继续保持 defer/reject，直到 V3 出现真实产品需求和 typed contract。

@@ -207,6 +207,7 @@
     "title": "命令面板",
     "searchPlaceholder": "搜索命令",
     "empty": "没有匹配的命令",
+    "turnInterruptDisabledReason": "当前没有可中断任务",
     "labels": {
       "commands.palette.open": "打开命令面板",
       "commands.chat.new": "新建对话",

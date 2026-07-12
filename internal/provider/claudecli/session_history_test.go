@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -58,6 +59,86 @@ func TestSessionMessagePageSourceRevisionStableAcrossPages(t *testing.T) {
 	second := readClaudeMessagePage(t, s, threadID, dto.MessagePageRequest{Limit: 2, Before: first.NextBefore})
 	requireClaudeSourceRevisionStable(t, first, second)
 	requireClaudeSourceRevisionPrivate(t, first.SourceRevision, dir, path, "claude-prompt-that-must-not-leak")
+}
+
+func TestSessionMessagePageResolvedFallbackPreservesPagination(t *testing.T) {
+	dir := t.TempDir()
+	const targetID = "agent-local"
+	const resolvedID = "claude-resolved"
+	writeClaudeHistoryMessages(t, dir, resolvedID, []string{"one", "two", "three"})
+	projectsDir := filepath.Join(dir, "projects", "test-project")
+	if err := os.WriteFile(filepath.Join(projectsDir, targetID+".jsonl"), []byte("noise\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &session{threadID: resolvedID, history: &historyBackend{sessionDir: dir}}
+	first := readClaudeMessagePage(t, s, targetID, dto.MessagePageRequest{Limit: 2})
+	if !first.HasMore || first.NextBefore == "" {
+		t.Fatalf("first page = %#v, want resolved continuation", first)
+	}
+	second := readClaudeMessagePage(t, s, targetID, dto.MessagePageRequest{Limit: 2, Before: first.NextBefore})
+	if len(second.Messages) != 1 || second.Messages[0].Content != "one" {
+		t.Fatalf("second page = %#v, want resolved message one", second)
+	}
+}
+
+func TestSessionMessagePageResolvedFallbackPropagatesReadError(t *testing.T) {
+	dir := t.TempDir()
+	const targetID = "agent-local"
+	const resolvedID = "claude-resolved"
+	writeClaudeHistoryMessages(t, dir, resolvedID, []string{"one"})
+	projectsDir := filepath.Join(dir, "projects", "test-project")
+	if err := os.WriteFile(filepath.Join(projectsDir, targetID+".jsonl"), []byte("noise\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolvedPath := filepath.Join(projectsDir, resolvedID+".jsonl")
+	if err := os.Chmod(resolvedPath, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(resolvedPath, 0o644) })
+	s := &session{threadID: resolvedID, history: &historyBackend{sessionDir: dir}}
+	if _, err := s.ReadMessagesPage(context.Background(), targetID, dto.MessagePageRequest{Limit: 2}); err == nil {
+		t.Fatal("ReadMessagesPage() error = nil, want resolved fallback read error")
+	}
+}
+
+func TestDecodeClaudeResolvedCursorRejectsInvalidWire(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"malformed base64": claudeResolvedCursorPrefix + "*",
+		"unknown version":  claudeResolvedCursorWireForTest(`{"version":2,"source":"resolved","before":"histpage:one"}`),
+		"unknown source":   claudeResolvedCursorWireForTest(`{"version":1,"source":"target","before":"histpage:one"}`),
+		"unknown field":    claudeResolvedCursorWireForTest(`{"version":1,"source":"resolved","before":"histpage:one","threadID":"secret"}`),
+		"trailing JSON":    claudeResolvedCursorWireForTest(`{"version":1,"source":"resolved","before":"histpage:one"}{}`),
+		"empty before":     claudeResolvedCursorWireForTest(`{"version":1,"source":"resolved","before":""}`),
+		"oversized wire":   claudeResolvedCursorPrefix + strings.Repeat("a", claudeResolvedCursorLimit),
+	}
+	for name, wire := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, _, err := decodeClaudeResolvedCursor(wire); err == nil {
+				t.Fatal("decodeClaudeResolvedCursor() error = nil, want invalid cursor error")
+			} else if err.Error() != "claudecli: invalid resolved history cursor" {
+				t.Fatalf("decodeClaudeResolvedCursor() error = %q, want private generic error", err)
+			}
+		})
+	}
+}
+
+func TestDecodeClaudeResolvedCursorPreservesRawTargetCursor(t *testing.T) {
+	t.Parallel()
+	const raw = "histpage:opaque-target-cursor"
+	before, resolved, err := decodeClaudeResolvedCursor(raw)
+	if err != nil {
+		t.Fatalf("decodeClaudeResolvedCursor() error = %v", err)
+	}
+	if resolved || before != raw {
+		t.Fatalf("decodeClaudeResolvedCursor() = (%q, %t), want (%q, false)", before, resolved, raw)
+	}
+}
+
+func claudeResolvedCursorWireForTest(payload string) string {
+	return claudeResolvedCursorPrefix + base64.RawURLEncoding.EncodeToString([]byte(payload))
 }
 
 func TestSessionMessagePageSourceRevisionChangesOnSameSecondAppend(t *testing.T) {

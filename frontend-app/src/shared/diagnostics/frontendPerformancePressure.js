@@ -71,7 +71,7 @@ function createPerformancePressureRuntime(dependencies, policy) {
     unsubscribers: [],
     stopped: false,
     timerID: undefined,
-    observer: undefined,
+    observer: null,
     longTaskSupported: false,
     heapSupported: ports.heapSample !== null,
     active: Boolean(ports.isVisible() && ports.isFocused()),
@@ -225,25 +225,71 @@ function handleLongTasks(runtime, entries) {
 function stopRuntime(runtime) {
   if (runtime.stopped) return;
   runtime.stopped = true;
-  if (runtime.timerID !== undefined) runtime.clearTimer(runtime.timerID);
-  if (runtime.observer !== null) runtime.observer.disconnect();
-  runtime.unsubscribers.forEach((unsubscribe) => unsubscribe());
+  let cleanupError;
+  const cleanup = (callback) => {
+    try {
+      callback();
+    }
+    catch (error) {
+      cleanupError ??= error;
+    }
+  };
+  if (runtime.timerID !== undefined) {
+    const timerID = runtime.timerID;
+    runtime.timerID = undefined;
+    cleanup(() => runtime.clearTimer(timerID));
+  }
+  runtime.unsubscribers.splice(0).reverse().forEach((unsubscribe) => cleanup(unsubscribe));
+  if (runtime.observer !== null) {
+    const observer = runtime.observer;
+    runtime.observer = null;
+    cleanup(() => observer.disconnect());
+  }
   runtime.pending.clear();
+  return cleanupError;
+}
+
+function stopRuntimeOrThrow(runtime) {
+  const cleanupError = stopRuntime(runtime);
+  if (cleanupError !== undefined) throw cleanupError;
+}
+
+function registerSubscription(runtime, subscribe, listener, owner) {
+  const unsubscribe = subscribe(listener);
+  if (typeof unsubscribe !== 'function') {
+    throw new TypeError(`frontend performance pressure ${owner} subscribe must return a function`);
+  }
+  runtime.unsubscribers.push(unsubscribe);
 }
 
 function startFrontendPerformancePressure(dependencies) {
   const runtime = createPerformancePressureRuntime(dependencies, FRONTEND_PERFORMANCE_POLICY);
-  runtime.observer = normalizeObserverContract(
-    runtime.observerFactory((entries) => handleLongTasks(runtime, entries)),
-  );
-  runtime.longTaskSupported = runtime.observer !== null;
-  runtime.unsubscribers.push(
-    runtime.subscribeVisibility(() => refreshActiveState(runtime)),
-    runtime.subscribeFocus(() => refreshActiveState(runtime)),
-  );
-  scheduleSample(runtime);
+  try {
+    runtime.observer = normalizeObserverContract(
+      runtime.observerFactory((entries) => handleLongTasks(runtime, entries)),
+    );
+    runtime.longTaskSupported = runtime.observer !== null;
+    registerSubscription(
+      runtime,
+      runtime.subscribeVisibility,
+      () => refreshActiveState(runtime),
+      'visibility',
+    );
+    registerSubscription(
+      runtime,
+      runtime.subscribeFocus,
+      () => refreshActiveState(runtime),
+      'focus',
+    );
+    scheduleSample(runtime);
+  }
+  catch (error) {
+    // The initialization error is authoritative; cleanup still attempts every acquired resource.
+    stopRuntime(runtime);
+    throw error;
+  }
   return Object.freeze({
-    stop: () => stopRuntime(runtime),
+    stop: () => stopRuntimeOrThrow(runtime),
     capabilities: Object.freeze({
       longTask: runtime.longTaskSupported,
       heap: runtime.heapSupported,

@@ -277,6 +277,70 @@ describe('frontend performance pressure policy', () => {
     monitor.stop();
   });
 
+  it('rolls back the observer and visibility subscription when focus subscription fails', () => {
+    const harness = createHarness();
+    const initializationError = new Error('focus subscribe failed');
+    harness.dependencies.focus.subscribe = () => {
+      throw initializationError;
+    };
+
+    let caughtError;
+    try {
+      startFrontendPerformancePressure(harness.dependencies);
+    }
+    catch (error) {
+      caughtError = error;
+    }
+    expect(caughtError).toBe(initializationError);
+    expect(harness.observerDisconnectCount()).toBe(1);
+    expect(harness.listenerCount()).toBe(0);
+    expect(harness.activeTimerCount()).toBe(0);
+  });
+
+  it('preserves the initialization error when observer cleanup also fails', () => {
+    const harness = createHarness();
+    const initializationError = new Error('focus subscribe failed');
+    const disconnect = vi.fn(() => {
+      throw new Error('secondary observer cleanup failed');
+    });
+    harness.dependencies.observerFactory = () => ({ disconnect });
+    harness.dependencies.focus.subscribe = () => {
+      throw initializationError;
+    };
+
+    let caughtError;
+    try {
+      startFrontendPerformancePressure(harness.dependencies);
+    }
+    catch (error) {
+      caughtError = error;
+    }
+    expect(caughtError).toBe(initializationError);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(harness.listenerCount()).toBe(0);
+    expect(harness.activeTimerCount()).toBe(0);
+  });
+
+  it('rolls back the observer and both subscriptions when initial scheduling fails', () => {
+    const harness = createHarness();
+    const initializationError = new Error('scheduler failed');
+    harness.dependencies.scheduler.setTimeout = () => {
+      throw initializationError;
+    };
+
+    let caughtError;
+    try {
+      startFrontendPerformancePressure(harness.dependencies);
+    }
+    catch (error) {
+      caughtError = error;
+    }
+    expect(caughtError).toBe(initializationError);
+    expect(harness.observerDisconnectCount()).toBe(1);
+    expect(harness.listenerCount()).toBe(0);
+    expect(harness.activeTimerCount()).toBe(0);
+  });
+
   it.each([
     ['null', null, false],
     ['undefined', undefined, true],

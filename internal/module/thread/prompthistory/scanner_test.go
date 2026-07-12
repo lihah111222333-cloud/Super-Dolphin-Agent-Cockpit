@@ -323,6 +323,30 @@ func TestScanPromptHistoryRejectsStaleNonceAndInvalidCursor(t *testing.T) {
 	}
 }
 
+func TestPromptHistoryCursorEnforcesEncodedWireLimit(t *testing.T) {
+	t.Parallel()
+	normal := promptHistoryCursor{Version: promptHistoryCursorVersion, Nonce: strings.Repeat("n", 64), Before: "cursor"}
+	wire, err := encodePromptHistoryCursor(normal)
+	if err != nil {
+		t.Fatalf("encodePromptHistoryCursor(normal) error = %v", err)
+	}
+	if _, err := decodePromptHistoryCursor(wire); err != nil {
+		t.Fatalf("decodePromptHistoryCursor(normal) error = %v", err)
+	}
+	oversized := promptHistoryCursor{Version: promptHistoryCursorVersion, Nonce: strings.Repeat("n", 64), Before: strings.Repeat("b", 1900)}
+	wire, err = encodePromptHistoryCursor(oversized)
+	if !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("encodePromptHistoryCursor(oversized) error = %v, wire bytes = %d", err, len(wire))
+	}
+	raw := encodePromptHistoryCursorForTest(`{"version":1,"nonce":"` + strings.Repeat("n", 64) + `","threadIndex":0,"before":"` + strings.Repeat("b", 1500) + `"}`)
+	if len(raw) <= maxPromptHistoryCursorBytes {
+		t.Fatalf("test cursor bytes = %d, want > %d", len(raw), maxPromptHistoryCursorBytes)
+	}
+	if _, err := decodePromptHistoryCursor(raw); !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("decodePromptHistoryCursor(oversized wire) error = %v", err)
+	}
+}
+
 func TestPromptHistoryNonceChangesForSameSecondDuplicateAndSnapshotLifecycle(t *testing.T) {
 	t.Parallel()
 

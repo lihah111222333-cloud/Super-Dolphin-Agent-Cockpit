@@ -52,8 +52,13 @@ function assertExactCommandDescriptor(descriptor) {
       throw new Error(`unknown command descriptor field: ${field}`);
     }
   }
-  if (!isNonBlankString(descriptor.id)
-    || !isNonBlankString(descriptor.labelKey)
+  if (!isNonBlankString(descriptor.id)) {
+    throw new Error('invalid command descriptor');
+  }
+  if ([...descriptor.id].length > 128) {
+    throw new Error('command id must be non-blank, trimmed, and contain at most 128 characters');
+  }
+  if (!isNonBlankString(descriptor.labelKey)
     || !isNonBlankString(descriptor.section)) {
     throw new Error('invalid command descriptor');
   }

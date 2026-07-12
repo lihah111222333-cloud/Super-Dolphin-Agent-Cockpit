@@ -111,6 +111,26 @@ describe('usePromptHistory', () => {
     expect(successfulFetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['create', 'delete', 'archive', 'rename'])(
+    'recreates the controller when a same-cwd thread lifecycle signal changes for %s',
+    async (actionName) => {
+      const fetchPage = vi.fn()
+        .mockResolvedValueOnce(page('before'))
+        .mockResolvedValueOnce(page(`after-${actionName}`));
+      const setDraft = vi.fn();
+      const common = { activeThreadId: 'thread-1', cwd: '/repo', draft: 'draft', fetchPage, sendMessage: vi.fn(), setDraft };
+      const { result, rerender } = renderHook(
+        ({ threadLifecycleSignal }) => usePromptHistory({ ...common, threadLifecycleSignal }),
+        { initialProps: { threadLifecycleSignal: [{ id: 'thread-1' }] } },
+      );
+      await act(async () => { await result.current.previous(); });
+      rerender({ threadLifecycleSignal: [{ id: 'thread-1' }, { actionName }] });
+      await act(async () => { await result.current.previous(); });
+      expect(setDraft).toHaveBeenLastCalledWith(`after-${actionName}`);
+      expect(fetchPage).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('fails fast when the API or send boundary is unavailable', () => {
     expect(() => renderHook(() => usePromptHistory({
       activeThreadId: '', cwd: '/repo', draft: '', fetchPage: null, sendMessage: vi.fn(), setDraft: vi.fn(),

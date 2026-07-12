@@ -397,6 +397,9 @@ func decodeAndValidateCursor(raw, requestNonce string, snapshot sourceSnapshot) 
 
 // decodePromptHistoryCursor 严格解码 version 1 base64url 游标并拒绝尾随值。
 func decodePromptHistoryCursor(raw string) (promptHistoryCursor, error) {
+	if len(raw) == 0 || len(raw) > maxPromptHistoryCursorBytes {
+		return promptHistoryCursor{}, ErrInvalidCursor
+	}
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil || len(decoded) == 0 || len(decoded) > maxPromptHistoryCursorBytes {
 		return promptHistoryCursor{}, ErrInvalidCursor
@@ -429,5 +432,9 @@ func encodePromptHistoryCursor(cursor promptHistoryCursor) (string, error) {
 	if err != nil || len(raw) > maxPromptHistoryCursorBytes {
 		return "", ErrInvalidCursor
 	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+	if len(encoded) > maxPromptHistoryCursorBytes {
+		return "", ErrInvalidCursor
+	}
+	return encoded, nil
 }

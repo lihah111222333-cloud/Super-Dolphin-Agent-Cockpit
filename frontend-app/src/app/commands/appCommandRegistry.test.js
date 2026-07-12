@@ -59,6 +59,13 @@ describe('app command registry', () => {
       .toThrow('duplicate command id: chat.new');
   });
 
+  it('accepts 128-character command ids and rejects longer ids', () => {
+    expect(defineAppCommandRegistry([commandDescriptor({ id: 'a'.repeat(128) })]))
+      .toHaveLength(1);
+    expect(() => defineAppCommandRegistry([commandDescriptor({ id: 'a'.repeat(129) })]))
+      .toThrow('command id must be non-blank, trimmed, and contain at most 128 characters');
+  });
+
   it.each(['extra', 'run', 'handler'])(
     'rejects the unknown descriptor field %s',
     (field) => {

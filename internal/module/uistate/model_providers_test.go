@@ -72,8 +72,10 @@ func TestShortcutBindingsPreferenceValidation(t *testing.T) {
 			"shift": false,
 		}
 	}
+	validCommandID := strings.Repeat("a", 128)
+	tooLongCommandID := strings.Repeat("a", 129)
 	tooManyBindings := make(map[string]any, 65)
-	for index := 0; index < 65; index++ {
+	for index := range 65 {
 		tooManyBindings["command."+strings.Repeat("x", index+1)] = validBinding("k")
 	}
 
@@ -87,6 +89,8 @@ func TestShortcutBindingsPreferenceValidation(t *testing.T) {
 		{name: "not object", value: []any{}, wantErr: true},
 		{name: "too many bindings", value: tooManyBindings, wantErr: true},
 		{name: "blank command id", value: map[string]any{"": validBinding("n")}, wantErr: true},
+		{name: "command id at limit", value: map[string]any{validCommandID: validBinding("n")}},
+		{name: "command id too long", value: map[string]any{tooLongCommandID: validBinding("n")}, wantErr: true},
 		{name: "blank key", value: map[string]any{"chat.new": validBinding("")}, wantErr: true},
 		{name: "key too long", value: map[string]any{"chat.new": validBinding(strings.Repeat("k", 33))}, wantErr: true},
 		{name: "binding not object", value: map[string]any{"chat.new": "n"}, wantErr: true},
@@ -104,6 +108,9 @@ func TestShortcutBindingsPreferenceValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := validatePreferenceValue("settings.shortcuts.bindings", test.value)
+			if err != nil && strings.Contains(err.Error(), tooLongCommandID) {
+				t.Fatal("validatePreferenceValue() error leaked overlong command id")
+			}
 			if test.wantErr && err == nil {
 				t.Fatal("validatePreferenceValue() error = nil, want validation failure")
 			}

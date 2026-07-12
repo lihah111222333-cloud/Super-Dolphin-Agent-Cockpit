@@ -547,7 +547,7 @@ function useAppShellState(store, skipBootstrap) {
 }
 
 function useBoundAppCommandRuntime(options) {
-  const { overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store } = options;
+  const { copy, overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store } = options;
   return useMemo(() => (overrides ? createAppCommandRuntime({
       registry: APP_COMMAND_REGISTRY,
       bindings: {
@@ -566,12 +566,12 @@ function useBoundAppCommandRuntime(options) {
         [APP_COMMAND_IDS.TURN_INTERRUPT]: {
           run: () => runUIAction(() => store.interruptActiveThread(), uiActionOptions(store)),
           canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
-          disabledReason: '当前没有可中断任务',
+          disabledReason: copy.turnInterruptDisabledReason,
         },
       },
       overrides,
       platform: appShortcutPlatform(),
-    }) : undefined), [overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
+    }) : undefined), [copy, overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
 }
 
 function AppCommandPalette({ copy, onClose, open, runtime }) {
@@ -637,6 +637,7 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
     runUIAction(() => store?.newThread?.(), uiActionOptions(store));
   }, [setActivePageFromSidebar, store]);
   const commandRuntime = useBoundAppCommandRuntime({
+    copy: copy.commands,
     overrides: shortcutController?.status === 'ready' ? shortcutController.validatedOverrides : undefined,
     setActivePage: setActivePageFromSidebar,
     setPaletteOpen,

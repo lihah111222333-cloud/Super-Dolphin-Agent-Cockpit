@@ -32,6 +32,13 @@ describe('AppErrorBoundary', () => {
     expect(mainSource).not.toContain('console.error(error)');
   });
 
+  it('disconnects a newly constructed long-task observer when observe fails', () => {
+    expect(mainSource).toMatch(
+      /const observer = new PerformanceObserver\([\s\S]*try \{[\s\S]*observer\.observe\(\{ type: 'longtask', buffered: true \}\);[\s\S]*catch \(error\) \{[\s\S]*try \{[\s\S]*observer\.disconnect\(\);[\s\S]*catch \{[\s\S]*throw error;/,
+    );
+    expect(mainSource).not.toMatch(/finally \{\s*throw error;/);
+  });
+
   it('contains render crashes and retries the child tree from an accessible fallback', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const reporter = vi.fn().mockResolvedValue(undefined);

@@ -1047,6 +1047,21 @@ async function showAllTraceDashboardEvents() {
     expect(screen.queryByRole('dialog', { name: '命令面板' })).not.toBeInTheDocument();
   });
 
+  it('localizes the disabled interrupt reason in the English command palette', async () => {
+    render(<App />);
+    await waitForBackendThreadHeading();
+    act(() => {
+      useClientStore.setState({ activeThreadId: '', activeTurnByThread: {} });
+    });
+    fireEvent.click(screen.getByRole('button', { name: '切换到 English' }));
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+
+    const palette = await screen.findByRole('dialog', { name: 'Command palette' });
+    const interrupt = within(palette).getByRole('option', { name: /Interrupt current task/ });
+    expect(interrupt).toHaveTextContent('No active task to interrupt');
+    expect(interrupt).not.toHaveTextContent('当前没有可中断任务');
+  });
+
   it('does not install an executable default dispatcher while shortcut preferences are pending', async () => {
     const shortcutLoad = deferred();
     mockShortcutPreferenceLoad(() => shortcutLoad.promise);
