@@ -386,6 +386,23 @@ Task 6  ca9fbc7e7d0a30587a341f21ed3b8f86b805a9cd  feat(frontend): 上报有界�
 Task 7  8db4361fcf2c48002699da40b09200a8197b894e  test(frontend): 新增长历史确定性基准
 ```
 
+上述 SHA 是执行 worktree 的历史快照，不是集成回放后的主分支 SHA。2026-07-13 安全集成时，Tasks 0-7 按原顺序回放为：
+
+```text
+Task 0  4b594e3c956e4306437f26389ac557f02c9851c4
+Task 1  0062ba219adb2f71f0654a88bb0d8bc5a9f64115
+Task 2  5be483fe7e59b3ed5b001f7e3b6b6f4a7d0d431d
+Task 3  be11af6ff70ef1bfab96c149d6ea045440d1ffbb
+Task 4  73ecb9372dbd6b230ae37fee2f9edffd7976761c
+Task 5  269ae5f65c26e796210245c5f5782a2972e5d368
+Task 6  6e0a739c095a82e70cf244c12ae850f4c982b295
+Task 7  fa727fff1b095fb4f8991f628bf0cf9a6a2ab435
+Task 8  4af6a419b846a5d7f115fc6de062ab8e8cf5733c
+Replay assembly  d37251c9081889e8b2acd04cbcef90261a6556c9
+```
+
+`d37251c90` 只对齐主线回放后的 Composer 测试装配和 canonical project-map 生成物；它不替换下方原执行阶段的门禁记录。当前主分支复核与历史执行证据必须分开陈述，详见 `05-full-gates.md` 和 `06-independent-review.md` 的 “Current-main replay verification”。
+
 每次继续前必须确认 worktree、branch、HEAD 和 index；发现未知 dirty、HEAD 偏离上述线性序列或额外 worktree 写入时立即停止。同一时刻至多一个 active serial implementer。Tasks 0-7 由前任 implementer 完成；Task 8 第一位 replacement implementer 完成 A/B 修复和 C 审查后因 execution channel 无响应被主 agent 顺序停止，第二位 replacement implementer 在保留全部 dirty 文件的前提下接管 C 证据、已裁决修复与 full gates。不存在两个 replacement implementer 同时活动，也没有文件丢失。当前 implementer 不得 spawn 子 agent、建立 DAG、新建 worktree 或 push。主 agent 全程实时监控，生产修复必须先由主 agent 裁决并授权。
 
 ### 4.2 串行实现与审查面

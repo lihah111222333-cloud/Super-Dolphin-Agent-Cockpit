@@ -86,10 +86,22 @@ describe('CommandPalette', () => {
     render(<CommandPalette open commands={commands} execute={execute} onClose={onClose} copy={localeCopies.en} />);
 
     const search = screen.getByRole('searchbox', { name: 'Search commands' });
+    const listbox = screen.getByRole('listbox', { name: 'Command palette' });
+    const initialOption = screen.getByRole('option', { name: /New chat/i });
+    expect(search).toHaveAttribute('aria-controls', listbox.id);
+    expect(search).toHaveAttribute('aria-activedescendant', initialOption.id);
+    expect(initialOption.id).not.toBe('');
+    expect(within(listbox).getByRole('group', { name: 'Chat' })).toContainElement(initialOption);
+    expect(within(listbox).getByRole('group', { name: 'Navigation' })).toContainElement(
+      screen.getByRole('option', { name: /Open settings/i }),
+    );
     fireEvent.keyDown(search, { key: 'End' });
-    expect(screen.getByRole('option', { name: /Toggle sidebar/i })).toHaveAttribute('aria-selected', 'true');
+    const lastOption = screen.getByRole('option', { name: /Toggle sidebar/i });
+    expect(lastOption).toHaveAttribute('aria-selected', 'true');
+    expect(search).toHaveAttribute('aria-activedescendant', lastOption.id);
     fireEvent.keyDown(search, { key: 'Home' });
     expect(screen.getByRole('option', { name: /New chat/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /New chat/i })).toHaveAttribute('id', initialOption.id);
     fireEvent.keyDown(search, { key: 'End' });
     fireEvent.keyDown(search, { key: 'Enter' });
 
@@ -104,6 +116,8 @@ describe('CommandPalette', () => {
 
     expect(screen.getByText('No matching commands')).toBeInTheDocument();
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox')).not.toHaveAttribute('aria-activedescendant');
+    expect(screen.getByRole('searchbox')).not.toHaveAttribute('aria-controls');
   });
 
   it('shows a disabled reason and does not execute the disabled command', () => {

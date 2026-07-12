@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 
 import { FocusTrapDialog } from '../../../shared/ui/FocusTrapDialog.jsx';
 import {
@@ -24,9 +24,10 @@ function executePaletteItem(item, execute, onClose) {
 }
 
 function CommandPaletteOption(options) {
-  const { execute, item, itemIndex, onClose, selectedIndex, setActiveIndex } = options;
+  const { execute, item, itemIndex, onClose, optionId, selectedIndex, setActiveIndex } = options;
   return (
     <button
+      id={optionId}
       type="button"
       role="option"
       aria-disabled={item.disabled}
@@ -46,10 +47,11 @@ function CommandPaletteOption(options) {
 }
 
 function CommandPaletteGroup(options) {
-  const { execute, group, itemIndexById, onClose, selectedIndex, setActiveIndex } = options;
+  const { execute, group, groupId, itemIndexById, onClose, optionIdByItemId, selectedIndex, setActiveIndex } = options;
+  const labelId = `${groupId}-label`;
   return (
-    <section className="command-palette__section">
-      <h3>{group.label}</h3>
+    <section className="command-palette__section" role="group" aria-labelledby={labelId}>
+      <h3 id={labelId}>{group.label}</h3>
       {group.items.map((item) => (
         <CommandPaletteOption
           execute={execute}
@@ -57,6 +59,7 @@ function CommandPaletteGroup(options) {
           itemIndex={itemIndexById.get(item.id)}
           key={item.id}
           onClose={onClose}
+          optionId={optionIdByItemId.get(item.id)}
           selectedIndex={selectedIndex}
           setActiveIndex={setActiveIndex}
         />
@@ -66,16 +69,18 @@ function CommandPaletteGroup(options) {
 }
 
 function CommandPaletteList(options) {
-  const { copy, execute, groups, itemIndexById, onClose, selectedIndex, setActiveIndex } = options;
+  const { copy, execute, groups, itemIndexById, listboxId, onClose, optionIdByItemId, selectedIndex, setActiveIndex } = options;
   return (
-    <div className="command-palette__list" role="listbox" aria-label={copy.title}>
-      {groups.map((group) => (
+    <div id={listboxId} className="command-palette__list" role="listbox" aria-label={copy.title}>
+      {groups.map((group, groupIndex) => (
         <CommandPaletteGroup
           execute={execute}
           group={group}
+          groupId={`${listboxId}-group-${groupIndex}`}
           itemIndexById={itemIndexById}
           key={group.section}
           onClose={onClose}
+          optionIdByItemId={optionIdByItemId}
           selectedIndex={selectedIndex}
           setActiveIndex={setActiveIndex}
         />
@@ -85,6 +90,7 @@ function CommandPaletteList(options) {
 }
 
 function CommandPaletteBody({ commands, execute, onClose, copy }) {
+  const paletteId = useId();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const projectedItems = useMemo(() => projectCommandPaletteItems(commands, copy), [commands, copy]);
@@ -92,6 +98,12 @@ function CommandPaletteBody({ commands, execute, onClose, copy }) {
   const groups = useMemo(() => groupCommandPaletteItems(items), [items]);
   const itemIndexById = useMemo(() => new Map(items.map((item, index) => [item.id, index])), [items]);
   const selectedIndex = items.length === 0 ? 0 : Math.min(activeIndex, items.length - 1);
+  const listboxId = `${paletteId}-listbox`;
+  const optionIdByItemId = useMemo(
+    () => new Map(projectedItems.map((item, index) => [item.id, `${paletteId}-option-${index}`])),
+    [paletteId, projectedItems],
+  );
+  const activeOptionId = items.length === 0 ? undefined : optionIdByItemId.get(items[selectedIndex].id);
 
   const handleKeyDown = (event) => {
     if (['Home', 'End', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
@@ -112,6 +124,8 @@ function CommandPaletteBody({ commands, execute, onClose, copy }) {
         <input
           type="search"
           role="searchbox"
+          aria-activedescendant={activeOptionId}
+          aria-controls={items.length === 0 ? undefined : listboxId}
           aria-label={copy.searchPlaceholder}
           placeholder={copy.searchPlaceholder}
           value={query}
@@ -129,7 +143,9 @@ function CommandPaletteBody({ commands, execute, onClose, copy }) {
           execute={execute}
           groups={groups}
           itemIndexById={itemIndexById}
+          listboxId={listboxId}
           onClose={onClose}
+          optionIdByItemId={optionIdByItemId}
           selectedIndex={selectedIndex}
           setActiveIndex={setActiveIndex}
         />

@@ -20,6 +20,32 @@
 7. `ca9fbc7e7d0a30587a341f21ed3b8f86b805a9cd`
 8. `8db4361fcf2c48002699da40b09200a8197b894e`
 
+## Current-main replay verification
+
+The execution identity and counts above are retained historical evidence from the isolated serial worktree. They are not rewritten as if they were produced after integration. The safe replay onto main produced this auditable mapping:
+
+| Task | Historical execution SHA | Replayed main SHA |
+|---|---|---|
+| 0 | `59ed17f9a75495c153d6ec54fd32f2fe7b48e204` | `4b594e3c956e4306437f26389ac557f02c9851c4` |
+| 1 | `8c299a6c69a0f30b9571d8ae3064708d870f4363` | `0062ba219adb2f71f0654a88bb0d8bc5a9f64115` |
+| 2 | `e8e6ce864f63717ecc227b6bfd7c33268a07fe49` | `5be483fe7e59b3ed5b001f7e3b6b6f4a7d0d431d` |
+| 3 | `10bf5e54144085a1db02380d54c1900dc446dd7e` | `be11af6ff70ef1bfab96c149d6ea045440d1ffbb` |
+| 4 | `d48beefa79d7ce27614d5b5f651b68fd3e078a2d` | `73ecb9372dbd6b230ae37fee2f9edffd7976761c` |
+| 5 | `1fdee79f084862a8ba46ccee528134a0ce9e1acc` | `269ae5f65c26e796210245c5f5782a2972e5d368` |
+| 6 | `ca9fbc7e7d0a30587a341f21ed3b8f86b805a9cd` | `6e0a739c095a82e70cf244c12ae850f4c982b295` |
+| 7 | `8db4361fcf2c48002699da40b09200a8197b894e` | `fa727fff1b095fb4f8991f628bf0cf9a6a2ab435` |
+
+Task 8 evidence was replayed as `4af6a419b846a5d7f115fc6de062ab8e8cf5733c`. The follow-up assembly commit `d37251c9081889e8b2acd04cbcef90261a6556c9` aligned the Composer test seam and canonical project-map artifacts after replay. A read-only current-main audit at `21363b4feab4ad2a432006f1a13812bfee32e776` then recorded:
+
+- exact targeted suite: exit `0`, 18/18 files and 259/259 tests;
+- seven affected Go packages: exit `0`;
+- contract typecheck and RPC audit: exit `0`, 140 methods / 140 registry entries, every drift or missing counter `0`;
+- default benchmark: six rows, every `materializedCount=80`, exact report keys and no fixture-content marker;
+- codemap check, project-map check, and `git diff --check`: exit `0`;
+- representative command/history/performance/Claude LSP diagnostics: zero diagnostics.
+
+These are post-replay verification facts, not replacements for the original RED/GREEN and full-gate history below.
+
 ## Retained pre-Task-8 full-test history
 
 Task 7 validation retained three distinct non-green events: one full-suite run completed all assertions but exited `1` during teardown with `EnvironmentTeardownError: Closing rpc while onUserConsoleLog was pending`; the standard `ChatPage.core` target separately exited `1` twice before a later exit `0`. The final hook-backed full suite then passed in two consecutive rounds at 144 files / 1,758 tests. These first failures are retained here and are not rewritten as PASS. Task 8 full-gate reruns below remain separate evidence.

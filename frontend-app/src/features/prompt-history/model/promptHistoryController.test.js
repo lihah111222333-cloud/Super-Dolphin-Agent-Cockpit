@@ -95,6 +95,45 @@ describe('promptHistoryController', () => {
     });
   });
 
+  it('keeps a restored draft selected when a pending previous page arrives late', async () => {
+    const pending = deferred();
+    const controller = createPromptHistoryController({
+      fetchPage: vi.fn(() => pending.promise),
+      cwd: '/repo',
+    });
+    controller.captureDraft('unfinished');
+
+    const previous = controller.previous();
+    expect(controller.next()).toBe('unfinished');
+    pending.resolve(page([entry('message-1', 'late history')]));
+
+    await expect(previous).resolves.toBeUndefined();
+    expect(controller.snapshot()).toEqual(expect.objectContaining({
+      entries: [entry('message-1', 'late history')],
+      index: -1,
+      draftSentinel: 'unfinished',
+    }));
+  });
+
+  it('reuses a pending page while honoring a new previous intent after next', async () => {
+    const pending = deferred();
+    const fetchPage = vi.fn(() => pending.promise);
+    const controller = createPromptHistoryController({ fetchPage, cwd: '/repo' });
+    controller.captureDraft('unfinished');
+
+    const stalePrevious = controller.previous();
+    expect(controller.next()).toBe('unfinished');
+    const currentPrevious = controller.previous();
+    expect(currentPrevious).not.toBe(stalePrevious);
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+    pending.resolve(page([entry('message-1', 'shared history')]));
+
+    await expect(stalePrevious).resolves.toBeUndefined();
+    await expect(currentPrevious).resolves.toBe('shared history');
+    expect(controller.snapshot().index).toBe(0);
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
   it('resets and retries stale nonce exactly once', async () => {
     const fetchPage = vi.fn()
       .mockRejectedValueOnce(staleError())

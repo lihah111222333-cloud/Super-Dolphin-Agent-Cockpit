@@ -9,6 +9,12 @@
 - Commit order: `59ed17f9a75495c153d6ec54fd32f2fe7b48e204`, `8c299a6c69a0f30b9571d8ae3064708d870f4363`, `e8e6ce864f63717ecc227b6bfd7c33268a07fe49`, `10bf5e54144085a1db02380d54c1900dc446dd7e`, `d48beefa79d7ce27614d5b5f651b68fd3e078a2d`, `1fdee79f084862a8ba46ccee528134a0ce9e1acc`, `ca9fbc7e7d0a30587a341f21ed3b8f86b805a9cd`, `8db4361fcf2c48002699da40b09200a8197b894e`.
 - Serial implementer handoff: Tasks 0-7 predecessor implementer -> Task 8 first replacement implementer (Surface A/B repair and C review) -> Task 8 second replacement implementer (C evidence, adjudicated C repair, and full gates). The first replacement's execution channel became unresponsive; root stopped it before starting the second. No parallel implementer/session, cleanup, or lost worktree file is claimed. Root independently adjudicates each surface.
 
+## Current-main replay verification
+
+The identity above intentionally remains the historical serial-worktree review snapshot. Safe integration replayed Tasks 0-7 to `4b594e3c9`, `0062ba219`, `5be483fe7`, `be11af6ff`, `73ecb9372`, `269ae5f65`, `6e0a739c0`, and `fa727fff1`; replayed Task 8 evidence to `4af6a419b`; and added assembly commit `d37251c90`. The full exact SHA mapping is retained in `05-full-gates.md`.
+
+A separate read-only audit at current main `21363b4feab4ad2a432006f1a13812bfee32e776` verified 18/18 focused frontend files and 259/259 tests, all seven affected Go packages, contract typecheck, the 140/140 RPC audit with zero missing/drift counters, the six-row bounded benchmark, codemap/project-map checks, `git diff --check`, and representative LSP diagnostics with zero findings. This current verification does not rewrite the historical execution counts or claim that the recycled worktree still exists.
+
 ## Review Surface A — command / shortcut / palette / settings
 
 ### Coverage

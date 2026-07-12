@@ -16,7 +16,9 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   let hasMore = false;
   let loaded = false;
   let generation = 0;
+  let navigationIntent = 0;
   let pending;
+  let pendingSelection;
   let draftSentinel = '';
 
   function captureDraft(draft) {
@@ -25,7 +27,9 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   }
 
   function previous() {
-    if (pending) return pending;
+    if (pending && pendingSelection?.intent === navigationIntent) return pendingSelection.promise;
+    const requestIntent = navigationIntent + 1;
+    navigationIntent = requestIntent;
     if (index + 1 < entries.length) {
       index += 1;
       return Promise.resolve(entries[index].text);
@@ -33,16 +37,28 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     if (loaded && !hasMore) {
       return Promise.resolve(index >= 0 ? entries[index].text : draftSentinel);
     }
-    const requestGeneration = generation;
-    const task = loadPrevious(requestGeneration, false);
-    const shared = task.finally(() => {
-      if (pending === shared) pending = undefined;
+    if (!pending) {
+      const requestGeneration = generation;
+      const task = loadPreviousPage(requestGeneration, false);
+      const shared = task.finally(() => {
+        if (pending === shared) pending = undefined;
+      });
+      pending = shared;
+    }
+    const selection = pending.then((pageLoaded) => {
+      if (!pageLoaded || requestIntent !== navigationIntent) return undefined;
+      if (index + 1 < entries.length) {
+        index += 1;
+        return entries[index].text;
+      }
+      return index >= 0 ? entries[index].text : draftSentinel;
     });
-    pending = shared;
-    return shared;
+    pendingSelection = { intent: requestIntent, promise: selection };
+    return selection;
   }
 
   function next() {
+    navigationIntent += 1;
     if (index > 0) {
       index -= 1;
       return entries[index].text;
@@ -53,8 +69,10 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
 
   function invalidate() {
     generation += 1;
+    navigationIntent += 1;
     resetPageState();
     pending = undefined;
+    pendingSelection = undefined;
   }
 
   function snapshot() {
@@ -70,7 +88,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     };
   }
 
-  async function loadPrevious(requestGeneration, staleRetried) {
+  async function loadPreviousPage(requestGeneration, staleRetried) {
     try {
       const response = await fetchPage({
         cwd: normalizedCwd,
@@ -79,23 +97,19 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
         nonce,
         limit: PROMPT_HISTORY_LIMIT,
       });
-      if (requestGeneration !== generation) return undefined;
+      if (requestGeneration !== generation) return false;
       assertPromptHistoryPage(response);
       entries = entries.concat(response.entries);
       cursor = response.nextCursor;
       nonce = response.nonce;
       hasMore = response.hasMore;
       loaded = true;
-      if (index + 1 < entries.length) {
-        index += 1;
-        return entries[index].text;
-      }
-      return index >= 0 ? entries[index].text : draftSentinel;
+      return true;
     } catch (error) {
-      if (requestGeneration !== generation) return undefined;
+      if (requestGeneration !== generation) return false;
       if (!staleRetried && isStalePromptHistoryError(error)) {
         resetPageState();
-        return loadPrevious(requestGeneration, true);
+        return loadPreviousPage(requestGeneration, true);
       }
       throw error;
     }

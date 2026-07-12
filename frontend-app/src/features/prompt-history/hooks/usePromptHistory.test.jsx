@@ -49,6 +49,51 @@ describe('usePromptHistory', () => {
     expect(fetchPage).toHaveBeenCalledTimes(1);
   });
 
+  it('does not overwrite a restored draft when pending previous navigation resolves late', async () => {
+    const pending = deferred();
+    const setDraft = vi.fn();
+    const { result } = renderHook(() => usePromptHistory({
+      activeThreadId: 'thread-1',
+      cwd: '/repo',
+      draft: 'unfinished',
+      fetchPage: vi.fn(() => pending.promise),
+      sendMessage: vi.fn(),
+      setDraft,
+    }));
+
+    let previous;
+    act(() => { previous = result.current.previous(); });
+    act(() => { result.current.next(); });
+    expect(setDraft).toHaveBeenLastCalledWith('unfinished');
+
+    pending.resolve(page('late-history'));
+    await act(async () => { await previous; });
+    expect(setDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors a new previous navigation while reusing the pending page request', async () => {
+    const pending = deferred();
+    const fetchPage = vi.fn(() => pending.promise);
+    const setDraft = vi.fn();
+    const { result } = renderHook(() => usePromptHistory({
+      activeThreadId: 'thread-1', cwd: '/repo', draft: 'unfinished', fetchPage,
+      sendMessage: vi.fn(), setDraft,
+    }));
+
+    let stalePrevious;
+    let currentPrevious;
+    act(() => { stalePrevious = result.current.previous(); });
+    act(() => { result.current.next(); });
+    act(() => { currentPrevious = result.current.previous(); });
+    pending.resolve(page('shared-history'));
+    await act(async () => { await Promise.all([stalePrevious, currentPrevious]); });
+
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+    expect(setDraft).toHaveBeenNthCalledWith(1, 'unfinished');
+    expect(setDraft).toHaveBeenNthCalledWith(2, 'shared-history');
+    expect(setDraft).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidates an old generation when cwd changes', async () => {
     const oldPage = deferred();
     const fetchPage = vi.fn()
