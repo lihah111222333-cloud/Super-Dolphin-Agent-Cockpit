@@ -1,13 +1,13 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
-  "generated_at": "2026-07-12",
+  "generated_at": "2026-07-13",
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4524,
+  "files": 4525,
   "domains": {
-    "docs-agent": 919,
+    "docs-agent": 920,
     "other": 628,
     "app-ui": 511,
     "platform-provider": 1014,
@@ -57,8 +57,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 919,
-        "size_kb": 164.1,
+        "file_count": 920,
+        "size_kb": 164.3,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
@@ -73,7 +73,7 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 668,
-    "docs": 911,
+    "docs": 912,
     "frontend-app": 509,
     "internal": 2121,
     "migrations": 112,
