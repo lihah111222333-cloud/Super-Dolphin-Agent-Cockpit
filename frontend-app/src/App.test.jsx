@@ -63,7 +63,7 @@ const backend = vi.hoisted(() => {
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
     createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
-    listMCPServers startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
+    listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
     listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
@@ -3093,7 +3093,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     await waitForBackendThreadHeading();
 
-    const composer = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const composer = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     expect(composer).toHaveAttribute('rows', '3');
     expect(composer).toHaveAttribute('placeholder', '随心输入');
   });

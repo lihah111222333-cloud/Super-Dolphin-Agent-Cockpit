@@ -1,4 +1,8 @@
-import React, { useEffect, useImperativeHandle, useRef } from 'react';
+import React, { useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { composerCapabilitiesReady } from '../../../entities/client/model/capabilities/composerCapabilities.js';
+import { ComposerCapabilityChips } from '../../../features/slash-commands/components/ComposerCapabilityChips.jsx';
+import { SlashCommandPalette } from '../../../features/slash-commands/components/SlashCommandPalette.jsx';
+import { useSlashCommandPalette } from '../../../features/slash-commands/hooks/useSlashCommandPalette.js';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { textValue } from '../../shared/pageShared.js';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal.jsx';
@@ -72,20 +76,45 @@ function ComposerDock({
   canUseProjectActions = true,
   inputRef,
   approvalPending = false,
+  slashCommandService,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const effectiveCanUseProjectActions = canUseProjectActions && !approvalPending;
   const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
+  const capabilitiesReady = composerCapabilitiesReady(store.composerCapabilities);
   const canInterrupt = effectiveCanUseProjectActions && Boolean(store?.hasInterruptibleThreadAction?.(modelThreadId));
-  const canSend = effectiveCanUseProjectActions && !sending && !canInterrupt && hasComposerInput;
+  const canSend = effectiveCanUseProjectActions
+    && capabilitiesReady
+    && !sending
+    && !canInterrupt
+    && hasComposerInput;
   const projectActionBlocked = !effectiveCanUseProjectActions;
   const projectActionBlockedTitle = copy.projectActionBlocked;
   const dockRef = useRef(null);
   const textareaRef = useComposerTextareaRef(inputRef);
+  const slashCopy = useMemo(() => ({
+    ...copy.slashCommands,
+    ariaLabel: copy.slashCommands.label,
+    loadError: copy.slashCommands.catalogLoadFailed,
+    selecting: copy.slashCommands.loading,
+  }), [copy.slashCommands]);
+  const palette = useSlashCommandPalette({
+    copy: slashCopy,
+    cwd: projectPath,
+    draft,
+    service: slashCommandService,
+    setDraft,
+    store,
+    textareaRef,
+  });
   useComposerDropTarget(dockRef, composer);
   useComposerDropTarget(textareaRef, composer);
 
-  const handleKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
+  const handleSendKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
+  const handleKeyDown = (event) => {
+    if (palette.handleKeyDown(event, { isComposing: composer.isComposing() })) return;
+    handleSendKeyDown(event);
+  };
   const handleTextareaChange = (event) => setDraft(event.target.value);
   const handleTextareaPaste = (event) => { runUIAction(() => composer.handlePaste(event)); };
 
@@ -101,10 +130,19 @@ function ComposerDock({
     >
       <div className="composer-card">
         {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">{copy.dropHint}</div> : null}
+        <SlashCommandPalette {...palette} copy={slashCopy} cwd={projectPath} />
         <ForkDraftCard store={store} />
         <ComposerAttachments attachments={attachments} onPreview={composer.previewAttachmentItem} onRemove={composer.removeAttachmentItem} />
+        <ComposerCapabilityChips
+          copy={copy.slashCommands}
+          items={store.composerCapabilities}
+          onRemove={store.removeComposerCapability}
+        />
         <ComposerTextarea
           ref={textareaRef}
+          ariaActiveDescendant={palette.activeOptionId === '' ? undefined : palette.activeOptionId}
+          ariaControls={palette.open ? palette.listboxId : undefined}
+          ariaExpanded={palette.open}
           copy={copy}
           draft={draft}
           onChange={handleTextareaChange}

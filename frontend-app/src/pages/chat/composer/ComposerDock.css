@@ -80,6 +80,7 @@
 }
 
 .composer-card {
+  position: relative;
   width: var(--conversation-content-width);
   margin: 0 var(--conversation-content-right-gutter) 0 var(--conversation-content-left-gutter);
   border: 1px solid var(--line-strong);
@@ -88,6 +89,96 @@
   box-shadow: var(--shadow);
   overflow-x: hidden;
   overflow-y: visible;
+}
+
+.slash-command-palette {
+  position: absolute;
+  inset-inline-start: 16px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(520px, calc(100% - 32px));
+  max-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.slash-command-palette__results {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.composer-capability-list {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.composer-capability-chip {
+  position: relative;
+  min-width: 0;
+  max-width: min(260px, 100%);
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 3px 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+  font-size: 12px;
+}
+
+.composer-capability-chip.is-stale,
+.composer-capability-chip.is-unverified {
+  border-color: color-mix(in srgb, var(--error) 46%, var(--line));
+}
+
+.composer-capability-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-capability-chip__warning {
+  flex: 0 0 auto;
+  color: var(--error);
+}
+
+.composer-capability-chip__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.composer .composer-capability-chip__remove {
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.composer .composer-capability-chip__remove:hover,
+.composer .composer-capability-chip__remove:focus-visible {
+  color: var(--error);
 }
 
 .composer--docked .composer-card {
@@ -777,6 +868,14 @@
 
   .composer.composer--floating[data-file-drop-target] .composer-model-wrap {
     max-width: min(132px, 34vw);
+  }
+}
+
+@media (max-width: 720px) {
+  .slash-command-palette {
+    inset-inline: 8px;
+    width: auto;
+    max-height: min(360px, 52vh);
   }
 }
 

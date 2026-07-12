@@ -1750,6 +1750,26 @@ describe('composer control styles', () => {
     expect(dropdown.overflow).toBe('visible');
   });
 
+  it('keeps the slash command palette opaque, bounded, and internally scrollable', () => {
+    const card = topLevelDeclarationsFor('.composer-card');
+    const palette = topLevelDeclarationsFor('.slash-command-palette');
+    const results = topLevelDeclarationsFor('.slash-command-palette__results');
+    const mobile = mediaDeclarationFor('(max-width: 720px)', '.slash-command-palette', 'inset-inline');
+
+    expect(card.position).toBe('relative');
+    expect(palette.position).toBe('absolute');
+    expect(palette.background).toBe('var(--surface)');
+    expect(palette.background).not.toMatch(/gradient/u);
+    expect(palette['max-height']).toBe('360px');
+    expect(palette.overflow).toBe('hidden');
+    expect(results['max-height']).toBe('360px');
+    expect(results['overflow-y']).toBe('auto');
+    expect(results['overscroll-behavior']).toBe('contain');
+    expect(mobile['inset-inline']).toBe('8px');
+    expect(mobile.width).toBe('auto');
+    expect(mobile['max-height']).toBe('min(360px, 52vh)');
+  });
+
   it('keeps the workbench composer send button visible when model text is long', () => {
     const actions = topLevelDeclarationsFor('.composer-actions');
     const wrap = topLevelDeclarationsFor('.composer-model-wrap');

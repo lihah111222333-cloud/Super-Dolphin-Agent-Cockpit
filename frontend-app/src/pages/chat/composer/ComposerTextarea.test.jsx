@@ -13,6 +13,9 @@ describe('ComposerTextarea', () => {
 
     render(
       <ComposerTextarea
+        ariaActiveDescendant="slash-option-review"
+        ariaControls="slash-listbox"
+        ariaExpanded
         draft="hello"
         onChange={onChange}
         onPaste={onPaste}
@@ -22,10 +25,15 @@ describe('ComposerTextarea', () => {
       />,
     );
 
-    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     expect(textarea).toHaveValue('hello');
     expect(textarea).toHaveAttribute('data-file-drop-target', '');
     expect(textarea).toHaveAttribute('id', 'composer-input');
+    expect(textarea).toHaveAttribute('aria-controls', 'slash-listbox');
+    expect(textarea).toHaveAttribute('aria-expanded', 'true');
+    expect(textarea).toHaveAttribute('aria-activedescendant', 'slash-option-review');
+    expect(textarea).toHaveAttribute('aria-autocomplete', 'list');
+    expect(textarea).toHaveAttribute('aria-haspopup', 'listbox');
 
     fireEvent.change(textarea, { target: { value: 'hello world' } });
     fireEvent.paste(textarea);

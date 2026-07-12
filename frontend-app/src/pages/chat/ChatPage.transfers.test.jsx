@@ -1,6 +1,7 @@
 import React from 'react';
-import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, createEvent, fireEvent, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import { renderWithQueryClient as render } from '../../__tests__/reactQueryRender.jsx';
 import { TestChatPageWrapper, createActiveThreadStore, onFilesDropped } from './__tests__/chatPageTestSupport.js';
   it('accepts direct file drops on the composer input', async () => {
     const store = createActiveThreadStore([

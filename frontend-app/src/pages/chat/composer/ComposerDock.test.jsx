@@ -1,5 +1,6 @@
-import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ComposerDock } from './ComposerDock.jsx';
 
@@ -24,18 +25,97 @@ function createComposer(overrides = {}) {
 
 function createStore(overrides = {}) {
   return {
+    addComposerCapability: vi.fn(),
+    clearComposer: vi.fn(),
+    composerCapabilities: [],
     forkDraft: { open: false },
     hasActiveThreadActions: vi.fn(() => true),
     hasInterruptibleThreadAction: vi.fn(() => false),
     interruptActiveThread: vi.fn(),
     openForkDraft: vi.fn(),
+    newThread: vi.fn(),
+    notifyAction: vi.fn(),
     provider: 'codex',
     providerConfig: { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' },
     threadConfigByThread: {},
     threadConfigLoadingByThread: {},
     threadConfigSaving: false,
+    reconcileComposerCapabilities: vi.fn(),
+    removeComposerCapability: vi.fn(),
     ...overrides,
   };
+}
+
+const reviewCapability = {
+  kind: 'skill',
+  key: 'skill:project::review:/repo/app/.agents/skills/review',
+  name: 'review',
+  label: 'Code Review',
+  ref: {
+    name: 'review',
+    scope: 'project',
+    personalType: '',
+    path: '/repo/app/.agents/skills/review',
+  },
+};
+
+const reviewItem = {
+  id: reviewCapability.key,
+  kind: 'skill',
+  name: 'review',
+  label: 'Code Review',
+  description: 'Review code',
+  keywords: ['review'],
+  payload: { capability: reviewCapability },
+  disabled: false,
+  disabledReason: '',
+};
+
+function createSlashCommandService() {
+  return {
+    loadSkills: vi.fn().mockResolvedValue([reviewItem]),
+    loadPrompts: vi.fn().mockResolvedValue([]),
+    loadAutomations: vi.fn().mockResolvedValue([]),
+    loadMCPTools: vi.fn().mockResolvedValue([]),
+    loadPromptContent: vi.fn(),
+  };
+}
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: Infinity },
+      mutations: { retry: false },
+    },
+  });
+}
+
+function renderDock(props, childWrapper = null) {
+  const dock = <ComposerDock {...props} />;
+  return render(
+    <QueryClientProvider client={createQueryClient()}>
+      {childWrapper ? childWrapper(dock) : dock}
+    </QueryClientProvider>,
+  );
+}
+
+function StatefulComposerDock({ initialDraft, setDraftSpy, ...props }) {
+  const [draft, setDraftState] = useState(initialDraft);
+  const setDraft = (value) => {
+    setDraftSpy(value);
+    setDraftState(value);
+  };
+  return <ComposerDock {...props} draft={draft} setDraft={setDraft} />;
+}
+
+function renderStatefulDock(props, initialDraft = '') {
+  const setDraftSpy = vi.fn();
+  const result = render(
+    <QueryClientProvider client={createQueryClient()}>
+      <StatefulComposerDock {...props} initialDraft={initialDraft} setDraftSpy={setDraftSpy} />
+    </QueryClientProvider>,
+  );
+  return { ...result, setDraftSpy };
 }
 
 const baseProps = {
@@ -109,7 +189,7 @@ describe('ComposerDock', () => {
     const store = createStore();
     const props = { ...baseProps, composer, store, selectFiles: vi.fn(), sendMessage: vi.fn(), setDraft: vi.fn() };
 
-    const { container } = render(<ComposerDock {...props} />);
+    const { container } = renderDock(props);
 
     const addFileButton = screen.getByRole('button', { name: '添加文件' });
     expect(addFileButton).toHaveAccessibleName('添加文件');
@@ -118,8 +198,8 @@ describe('ComposerDock', () => {
     expect(addFileButton.querySelector('.composer-attach-label')).toBeNull();
     fireEvent.click(addFileButton);
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
-    fireEvent.paste(screen.getByRole('textbox', { name: '输入给 Agent 的内容' }));
-    fireEvent.keyDown(screen.getByRole('textbox', { name: '输入给 Agent 的内容' }), { key: 'Enter' });
+    fireEvent.paste(screen.getByRole('combobox', { name: '输入给 Agent 的内容' }));
+    fireEvent.keyDown(screen.getByRole('combobox', { name: '输入给 Agent 的内容' }), { key: 'Enter' });
 
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--floating');
@@ -145,15 +225,14 @@ describe('ComposerDock', () => {
       setActiveProjectPath: vi.fn(),
     });
 
-    render(
-      <div className="sa-window" data-theme="light">
-        <ComposerDock
-          {...baseProps}
-          composer={createComposer()}
-          showProjectSelector
-          store={store}
-        />
-      </div>,
+    renderDock(
+      {
+        ...baseProps,
+        composer: createComposer(),
+        showProjectSelector: true,
+        store,
+      },
+      (dock) => <div className="sa-window" data-theme="light">{dock}</div>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
@@ -166,7 +245,7 @@ describe('ComposerDock', () => {
   it('exposes an accessible submit anchor only in send mode', () => {
     const props = { ...baseProps, composer: createComposer(), store: createStore(), sendMessage: vi.fn() };
 
-    render(<ComposerDock {...props} />);
+    renderDock(props);
 
     const submitButton = screen.getByTestId('composer-submit');
     expect(submitButton).toBe(screen.getByRole('button', { name: '发送消息' }));
@@ -182,7 +261,7 @@ describe('ComposerDock', () => {
   it('keeps the submit anchor disabled when the send action is unavailable', () => {
     const props = { ...baseProps, draft: '', composer: createComposer(), store: createStore(), sendMessage: vi.fn() };
 
-    render(<ComposerDock {...props} />);
+    renderDock(props);
 
     const submitButton = screen.getByTestId('composer-submit');
     expect(submitButton).toBe(screen.getByRole('button', { name: '发送消息' }));
@@ -195,7 +274,7 @@ describe('ComposerDock', () => {
   });
 
   it('uses the floating class for the new-chat intro composer', () => {
-    render(<ComposerDock {...baseProps} floating composer={createComposer()} store={createStore()} />);
+    renderDock({ ...baseProps, floating: true, composer: createComposer(), store: createStore() });
 
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
@@ -207,7 +286,7 @@ describe('ComposerDock', () => {
   it('switches the primary action to interrupt when the active thread is interruptible', () => {
     const store = createStore({ hasInterruptibleThreadAction: vi.fn(() => true) });
 
-    render(<ComposerDock {...baseProps} composer={createComposer()} store={store} />);
+    renderDock({ ...baseProps, composer: createComposer(), store });
 
     const interruptButton = screen.getByTestId('composer-interrupt');
     expect(interruptButton).toBe(screen.getByRole('button', { name: '中断当前执行' }));
@@ -218,5 +297,103 @@ describe('ComposerDock', () => {
     fireEvent.click(interruptButton);
 
     expect(store.interruptActiveThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the slash palette, exposes combobox state, and selects before sending', async () => {
+    const store = createStore();
+    const sendMessage = vi.fn();
+    renderStatefulDock({
+      ...baseProps,
+      composer: createComposer(),
+      sendMessage,
+      slashCommandService: createSlashCommandService(),
+      store,
+    });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+
+    fireEvent.change(textarea, { target: { value: '/' } });
+    expect(await screen.findByRole('listbox', { name: '命令与能力' })).toBeVisible();
+    fireEvent.change(textarea, { target: { value: '/rev' } });
+    await screen.findByRole('option', { name: /Code Review/u });
+
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveAttribute('aria-expanded', 'true');
+    expect(textarea).toHaveAttribute('aria-controls');
+    expect(textarea).toHaveAttribute('aria-activedescendant');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'skill', name: 'review' }),
+    ));
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('preserves normal Enter, Shift+Enter, and IME key behavior while the palette is closed', () => {
+    const composer = createComposer();
+    const sendMessage = vi.fn();
+    renderDock({ ...baseProps, composer, sendMessage, store: createStore() });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+
+    expect(fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    composer.isComposing.mockReturnValue(true);
+    expect(fireEvent.keyDown(textarea, { key: 'Enter' })).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    composer.isComposing.mockReturnValue(false);
+    expect(fireEvent.keyDown(textarea, { key: 'Enter' })).toBe(false);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches /clear through the composer action that owns text, attachments, and capabilities', async () => {
+    const sendMessage = vi.fn();
+    const store = createStore({
+      composerCapabilities: [{ ...reviewCapability, availability: 'ready' }],
+    });
+    renderStatefulDock({
+      ...baseProps,
+      attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
+      composer: createComposer(),
+      sendMessage,
+      slashCommandService: createSlashCommandService(),
+      store,
+    }, '/clear');
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+
+    await screen.findByRole('option', { name: /清空输入/u });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await waitFor(() => expect(store.clearComposer).toHaveBeenCalledTimes(1));
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not count a selected capability as sendable user input', () => {
+    const store = createStore({
+      composerCapabilities: [{ ...reviewCapability, availability: 'ready' }],
+    });
+    renderDock({
+      ...baseProps,
+      draft: '',
+      composer: createComposer(),
+      slashCommandService: createSlashCommandService(),
+      store,
+    });
+
+    expect(screen.getByTestId('composer-submit')).toBeDisabled();
+  });
+
+  it.each(['stale', 'unverified'])('blocks sending while a capability is %s', (availability) => {
+    const store = createStore({
+      composerCapabilities: [{ ...reviewCapability, availability }],
+    });
+    renderDock({
+      ...baseProps,
+      composer: createComposer(),
+      slashCommandService: createSlashCommandService(),
+      store,
+    });
+
+    expect(screen.getByTestId('composer-submit')).toBeDisabled();
   });
 });
