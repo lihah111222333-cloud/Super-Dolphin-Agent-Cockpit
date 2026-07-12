@@ -157,13 +157,19 @@ describe('ComposerDock', () => {
       );
     }
 
-    const { rerender } = render(<ApprovalComposerHarness approvalPending={false} />);
-    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const queryClient = createQueryClient();
+    const renderApprovalComposer = (approvalPending) => (
+      <QueryClientProvider client={queryClient}>
+        <ApprovalComposerHarness approvalPending={approvalPending} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(renderApprovalComposer(false));
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     fireEvent.change(textarea, { target: { value: 'draft kept through approval' } });
     expect(textarea).toHaveValue('draft kept through approval');
 
-    rerender(<ApprovalComposerHarness approvalPending />);
-    const pendingTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    rerender(renderApprovalComposer(true));
+    const pendingTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     const pendingDock = screen.getByTestId('composer-dock');
     expect.soft(pendingTextarea).toBe(textarea);
     expect.soft(pendingTextarea).toHaveValue('draft kept through approval');
@@ -174,8 +180,8 @@ describe('ComposerDock', () => {
       expect.soft(screen.getByRole('button', { name })).toBeDisabled();
     }
 
-    rerender(<ApprovalComposerHarness approvalPending={false} />);
-    const settledTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    rerender(renderApprovalComposer(false));
+    const settledTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     const settledDock = screen.getByTestId('composer-dock');
     expect.soft(settledTextarea).toBe(textarea);
     expect.soft(settledTextarea).toHaveValue('draft kept through approval');

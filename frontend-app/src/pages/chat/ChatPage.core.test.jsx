@@ -176,7 +176,7 @@ function approvalMessage(requestId, status = 'pending') {
   ])('focuses the still-mounted composer when a same-thread pending approval %s', async (_label, settledMessages) => {
     const pendingStore = createActiveThreadStore([approvalMessage(5)]);
     const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
-    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const originalTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
     nonComposerControl.focus();
     expect(document.activeElement).toBe(nonComposerControl);
@@ -189,7 +189,7 @@ function approvalMessage(requestId, status = 'pending') {
       />,
     );
 
-    const settledTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const settledTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     expect(settledTextarea).toBe(originalTextarea);
     await Promise.resolve();
     expect(settledTextarea).toHaveFocus();
@@ -198,7 +198,7 @@ function approvalMessage(requestId, status = 'pending') {
   it('does not focus the new thread composer when an approval settles after a thread switch', async () => {
     const threadOnePending = createActiveThreadStore([approvalMessage(5)]);
     const { rerender } = render(<TestChatPageWrapper store={threadOnePending} projectPath="/repo/app" />);
-    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const originalTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
     nonComposerControl.focus();
     expect(document.activeElement).toBe(nonComposerControl);
@@ -216,7 +216,7 @@ function approvalMessage(requestId, status = 'pending') {
     rerender(<TestChatPageWrapper store={threadTwoStore} projectPath="/repo/app" />);
     await Promise.resolve();
 
-    const threadTwoTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const threadTwoTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     expect(threadTwoTextarea).not.toHaveFocus();
     expect(document.activeElement).toBe(nonComposerControl);
   });
@@ -224,7 +224,7 @@ function approvalMessage(requestId, status = 'pending') {
   it('does not focus when a settled approval is replaced by a new pending approval', async () => {
     const pendingStore = createActiveThreadStore([approvalMessage(5)]);
     const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
-    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const originalTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
     nonComposerControl.focus();
     expect(document.activeElement).toBe(nonComposerControl);
@@ -241,7 +241,7 @@ function approvalMessage(requestId, status = 'pending') {
     );
     await Promise.resolve();
 
-    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     expect.soft(textarea).toBe(originalTextarea);
     expect.soft(textarea).not.toHaveFocus();
     expect.soft(screen.getByTestId('composer-dock')).toHaveAttribute('inert', '');
@@ -250,7 +250,7 @@ function approvalMessage(requestId, status = 'pending') {
   it('does not focus when a pending approval settles alongside a new terminal approval', async () => {
     const pendingStore = createActiveThreadStore([approvalMessage(5)]);
     const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
-    const originalTextarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const originalTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
     nonComposerControl.focus();
 
@@ -265,7 +265,7 @@ function approvalMessage(requestId, status = 'pending') {
     );
     await Promise.resolve();
 
-    const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     expect(textarea).toBe(originalTextarea);
     expect(textarea).not.toHaveFocus();
     expect(document.activeElement).toBe(nonComposerControl);

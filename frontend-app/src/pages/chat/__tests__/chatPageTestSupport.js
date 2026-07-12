@@ -1,4 +1,5 @@
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
 import mermaid from 'mermaid';
@@ -146,15 +147,29 @@ function getThreadCardByName(name) {
   return card;
 }
 
+function createChatPageQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+}
+
 function TestChatPage({ shellLayoutStore, ...props }) {
   const [defaultShellLayout] = React.useState(createShellLayoutTestHarness);
+  const [queryClient] = React.useState(createChatPageQueryClient);
   const resolvedShellLayoutStore = shellLayoutStore === undefined
     ? defaultShellLayout.store
     : shellLayoutStore;
-  return React.createElement(ChatPageComponent, {
-    ...props,
-    shellLayoutStore: resolvedShellLayoutStore,
-  });
+  return React.createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    React.createElement(ChatPageComponent, {
+      ...props,
+      shellLayoutStore: resolvedShellLayoutStore,
+    }),
+  );
 }
 
 function TestChatPageWrapper({ copy, shellLayoutStore, store, projectPath, rightPanelOpen: initialOpen = false }) {

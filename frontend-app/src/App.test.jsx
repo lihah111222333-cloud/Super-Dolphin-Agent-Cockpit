@@ -505,6 +505,7 @@ function mockSettingsAndThreadDefaults() {
   });
   backend.readBuiltinTools.mockResolvedValue({ tools: [] });
   backend.writeBuiltinTool.mockResolvedValue({ tools: [] });
+  backend.listToolbridgeTools.mockResolvedValue({ tools: [] });
   backend.listDashboardLogs.mockResolvedValue({ logs: [] });
   backend.getBuildInfo.mockResolvedValue({
     version: 'v1.2.3',

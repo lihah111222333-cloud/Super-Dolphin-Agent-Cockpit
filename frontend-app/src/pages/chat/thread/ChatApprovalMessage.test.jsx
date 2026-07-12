@@ -2,6 +2,7 @@ import React from 'react';
 import { existsSync, readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderWithQueryClient } from '../../../__tests__/reactQueryRender.jsx';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { Conversation } from './Conversation.jsx';
 
@@ -80,7 +81,7 @@ describe('ChatApprovalMessage', () => {
   });
 
   it('lets Conversation consume a display-only terminal approval', () => {
-    render(
+    renderWithQueryClient(
       <Conversation
         messages={[{ id: 'approval-fallback', kind: 'approval', status: 'approved', command: 'Fallback resolved' }]}
         sending={false}
@@ -90,7 +91,16 @@ describe('ChatApprovalMessage', () => {
         activeTurn={null}
         timelineBlocked={false}
         messageActions={{ onApproval: vi.fn() }}
-        store={{ smoothStreaming: false }}
+        store={{
+          addComposerCapability: vi.fn(),
+          clearComposer: vi.fn(),
+          composerCapabilities: [],
+          newThread: vi.fn(),
+          notifyAction: vi.fn(),
+          reconcileComposerCapabilities: vi.fn(),
+          removeComposerCapability: vi.fn(),
+          smoothStreaming: false,
+        }}
         draft=""
         setDraft={vi.fn()}
         sendMessage={vi.fn()}
