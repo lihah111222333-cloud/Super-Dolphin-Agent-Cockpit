@@ -227,12 +227,18 @@ describe('ComposerDock', () => {
         return <ComposerDock {...baseProps} composer={createComposer()} draft={draft} fetchPromptHistory={fetchPromptHistory}
           setDraft={setDraft} store={createStore({ threads })} />;
       }
-      const { rerender } = render(<Harness threads={[{ id: 'thread1' }]} />);
-      const textarea = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
+      const queryClient = createQueryClient();
+      const renderHarness = (threads) => (
+        <QueryClientProvider client={queryClient}>
+          <Harness threads={threads} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(renderHarness([{ id: 'thread1' }]));
+      const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
       textarea.setSelectionRange(0, 0);
       fireEvent.keyDown(textarea, { key: 'ArrowUp' });
       await waitFor(() => expect(textarea).toHaveValue('before'));
-      rerender(<Harness threads={[{ id: 'thread1' }, { actionName }]} />);
+      rerender(renderHarness([{ id: 'thread1' }, { actionName }]));
       textarea.setSelectionRange(0, 0);
       fireEvent.keyDown(textarea, { key: 'ArrowUp' });
       await waitFor(() => expect(textarea).toHaveValue(actionName));

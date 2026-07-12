@@ -5,14 +5,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4478,
+  "files": 4524,
   "domains": {
-    "docs-agent": 912,
-    "other": 626,
-    "app-ui": 477,
+    "docs-agent": 919,
+    "other": 628,
+    "app-ui": 511,
     "platform-provider": 1014,
     "orchestration": 419,
-    "modules": 720,
+    "modules": 723,
     "store-sql": 310
   },
   "index_files": {
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 477,
-        "size_kb": 97.2,
+        "file_count": 511,
+        "size_kb": 104.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -36,8 +36,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 720,
-        "size_kb": 140.1,
+        "file_count": 723,
+        "size_kb": 140.8,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -57,15 +57,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 912,
-        "size_kb": 162.6,
+        "file_count": 919,
+        "size_kb": 164.1,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 626,
-        "size_kb": 122.3,
+        "file_count": 628,
+        "size_kb": 122.6,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -73,9 +73,9 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 668,
-    "docs": 904,
-    "frontend-app": 475,
-    "internal": 2116,
+    "docs": 911,
+    "frontend-app": 509,
+    "internal": 2121,
     "migrations": 112,
     "pkg": 27,
     "scripts": 115,
