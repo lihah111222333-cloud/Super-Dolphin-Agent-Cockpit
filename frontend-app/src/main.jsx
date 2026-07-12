@@ -50,6 +50,7 @@ import {
   recordFrontendBootstrapBreadcrumb,
 } from './shared/diagnostics/frontendBreadcrumbs.js';
 import { installGlobalCrashHandlers } from './shared/diagnostics/frontendCrashReport.js';
+import { startFrontendPerformancePressure } from './shared/diagnostics/frontendPerformancePressure.js';
 
 const REACT_RENDER_SLOW_MS = 50;
 const isUITestMCPRun = !import.meta.env.PROD && import.meta.env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
@@ -107,12 +108,85 @@ function emitFrontendCrashReport(report) {
   });
 }
 
-installGlobalCrashHandlers({
+const cleanupGlobalCrashHandlers = installGlobalCrashHandlers({
   windowRef: window,
   reporter: emitFrontendCrashReport,
   routeId: appRouteId,
   breadcrumbs: frontendBreadcrumbSnapshotSource,
 });
+
+function createLongTaskObserver(callback) {
+  if (
+    typeof PerformanceObserver !== 'function'
+    || !PerformanceObserver.supportedEntryTypes?.includes('longtask')
+  ) {
+    return null;
+  }
+  const observer = new PerformanceObserver((list) => callback(list.getEntries()));
+  observer.observe({ type: 'longtask', buffered: true });
+  return observer;
+}
+
+function createHeapSampler() {
+  const memory = performance.memory;
+  if (
+    !memory
+    || !Number.isFinite(memory.usedJSHeapSize)
+    || !Number.isFinite(memory.jsHeapSizeLimit)
+    || memory.jsHeapSizeLimit <= 0
+  ) {
+    return null;
+  }
+  return {
+    sample: () => ({
+      used: performance.memory.usedJSHeapSize,
+      total: performance.memory.jsHeapSizeLimit,
+    }),
+  };
+}
+
+function subscribeWindowFocus(listener) {
+  window.addEventListener('focus', listener);
+  window.addEventListener('blur', listener);
+  return () => {
+    window.removeEventListener('focus', listener);
+    window.removeEventListener('blur', listener);
+  };
+}
+
+const frontendPerformancePressure = startFrontendPerformancePressure({
+  clock: { now: () => performance.now() },
+  scheduler: {
+    setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+    clearTimeout: (timerID) => window.clearTimeout(timerID),
+  },
+  visibility: {
+    isVisible: () => document.visibilityState === 'visible',
+    subscribe(listener) {
+      document.addEventListener('visibilitychange', listener);
+      return () => document.removeEventListener('visibilitychange', listener);
+    },
+  },
+  focus: {
+    isFocused: () => document.hasFocus(),
+    subscribe: subscribeWindowFocus,
+  },
+  observerFactory: createLongTaskObserver,
+  heap: createHeapSampler(),
+  reporter: emitFrontendTraceEvent,
+  onContractFailure() {
+    console.error('frontend.performance.reporter_contract_failed');
+  },
+});
+
+function cleanupFrontendDiagnostics() {
+  frontendPerformancePressure.stop();
+  cleanupGlobalCrashHandlers();
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(cleanupFrontendDiagnostics);
+}
 
 createRoot(document.getElementById('root')).render(
   createElement(

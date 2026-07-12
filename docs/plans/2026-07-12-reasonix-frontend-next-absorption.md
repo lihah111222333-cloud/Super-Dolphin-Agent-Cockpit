@@ -950,6 +950,7 @@ Expected: 新增 prompt-history feature 与修改计划会触发 pre-commit 自�
 - Modify: `frontend-app/src/shared/api/wails/wailsBridgeConstants.js`
 - Modify: `frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js`
 - Modify: `frontend-app/src/shared/api/wailsBridge.test.js`
+- Modify: `docs/plans/2026-07-12-reasonix-frontend-next-absorption.md`
 
 - [ ] **Step 1: 写 fake-clock/observer RED tests**
 
@@ -997,14 +998,16 @@ export function startFrontendPerformancePressure(deps) {
 }
 ```
 
-Reports use the exact trace envelope from §3.3: top-level only `phase`, `status`, optional `duration_ms`, and allowlisted `metadata`; sanitizer owns `ts`. Extend `FRONTEND_TRACE_ALLOWED_PHASES`, `FRONTEND_TRACE_ALLOWED_METADATA_KEYS`, and `shouldRemoteFlushFrontendTrace` for the four performance phases before wiring the monitor. Reuse `emitFrontendTraceEvent`; no component imports and no localStorage. A reporter `false` return is a contract failure, not capability absence; surface it through the existing visible diagnostics/error path and never mark the sample reported.
+Reports use the exact trace envelope from §3.3: top-level only `phase`, `status`, optional `duration_ms`, and allowlisted `metadata`; sanitizer owns `ts`. Extend `FRONTEND_TRACE_ALLOWED_PHASES`, `FRONTEND_TRACE_ALLOWED_METADATA_KEYS`, and `shouldRemoteFlushFrontendTrace` for the four performance phases before wiring the monitor. Reuse `emitFrontendTraceEvent`; no component imports and no localStorage. A reporter `false` return is a contract failure, not capability absence; surface only the fixed code `frontend.performance.reporter_contract_failed` through the existing developer/test-visible `console.error` diagnostics path and never mark the sample reported. This path is not end-user UI and must not include the thrown/rejected value, stack, path, prompt, DOM text, or any free-form reason.
 
 - [ ] **Step 4: 接入 main bootstrap，运行 GREEN 与提交**
 
 Start once beside existing crash/Profiler bootstrap and retain cleanup for test/HMR teardown. Run Step 2, `npm run typecheck:contracts`, `npm run audit:rpc-contracts`, and LSP diagnostics; expected PASS.
 
+新增 diagnostics 模块与修改计划会触发 pre-commit 自动刷新 canonical project-map；只纳入与 Task 6 staged snapshot 语义对应的 hook-owned 生成物。出现额外无关路径或任一 generated-state 校验失败即 BLOCKED；禁止手改生成物或使用 `--no-verify` 绕过 hook。
+
 ```bash
-git add frontend-app/src/shared/diagnostics/frontendPerformancePressure.js frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js frontend-app/src/main.jsx frontend-app/src/app/AppErrorBoundary.test.jsx frontend-app/src/shared/api/wails/wailsBridgeConstants.js frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js frontend-app/src/shared/api/wailsBridge.test.js
+git add frontend-app/src/shared/diagnostics/frontendPerformancePressure.js frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js frontend-app/src/main.jsx frontend-app/src/app/AppErrorBoundary.test.jsx frontend-app/src/shared/api/wails/wailsBridgeConstants.js frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js frontend-app/src/shared/api/wailsBridge.test.js docs/plans/2026-07-12-reasonix-frontend-next-absorption.md
 git commit -m "feat(frontend): 上报有界性能压力"
 ```
 

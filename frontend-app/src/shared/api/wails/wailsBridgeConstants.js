@@ -14,6 +14,12 @@ const FRONTEND_TRACE_INGEST_METHOD = 'observability/frontend/ingest';
 const FRONTEND_TRACE_BATCH_LIMIT = 50;
 const FRONTEND_TRACE_QUEUE_LIMIT = 500;
 const FRONTEND_TRACE_RPC_SLOW_MS = 1000;
+const FRONTEND_PERFORMANCE_TRACE_PHASES = new Set([
+  'frontend.performance.long_task_pressure',
+  'frontend.performance.event_loop_pressure',
+  'frontend.performance.heap_pressure',
+  'frontend.performance.capability_absent',
+]);
 const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'frontend.rpc.start',
   'frontend.rpc.done',
@@ -27,6 +33,7 @@ const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'frontend.warning',
   'frontend.patch.apply.slow',
   'frontend.render.slow',
+  ...FRONTEND_PERFORMANCE_TRACE_PHASES,
 ]);
 const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set([
   'req_id',
@@ -36,6 +43,13 @@ const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set([
   'breadcrumb_trail',
   'pending_count',
   'attempt',
+  'count',
+  'total_ms',
+  'max_ms',
+  'lag_bucket',
+  'heap_ratio_bucket',
+  'build',
+  'capability',
 ]);
 const FRONTEND_TRACE_ALLOWED_STATUSES = new Set(['ok', 'slow', 'error']);
 const FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES = new Set([
@@ -79,6 +93,7 @@ const FRONTEND_TRACE_SENSITIVE_TEXT_PATTERNS = [
 export {
   METHOD_IDS, WAILS_RUNTIME_MODULE, RPC_RESULT_PREVIEW_LIMIT,
   FRONTEND_TRACE_INGEST_METHOD, FRONTEND_TRACE_BATCH_LIMIT, FRONTEND_TRACE_QUEUE_LIMIT, FRONTEND_TRACE_RPC_SLOW_MS,
+  FRONTEND_PERFORMANCE_TRACE_PHASES,
   FRONTEND_TRACE_ALLOWED_PHASES, FRONTEND_TRACE_ALLOWED_METADATA_KEYS, FRONTEND_TRACE_ALLOWED_STATUSES,
   FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES, FRONTEND_RUNTIME_TRACE_SKIP_METHODS, FRONTEND_TRACE_FORBIDDEN_KEYS,
   BRIDGE_ERROR_DATA_SAFE_KEYS, FRONTEND_TRACE_SENSITIVE_TEXT_PATTERNS,

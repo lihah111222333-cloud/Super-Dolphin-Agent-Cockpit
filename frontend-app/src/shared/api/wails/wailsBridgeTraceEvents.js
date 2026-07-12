@@ -3,6 +3,7 @@
 import { isSafeNumber, parse as parseLosslessJSON } from 'lossless-json';
 import {
   METHOD_IDS, FRONTEND_TRACE_INGEST_METHOD, FRONTEND_TRACE_BATCH_LIMIT, FRONTEND_TRACE_QUEUE_LIMIT, FRONTEND_TRACE_RPC_SLOW_MS,
+  FRONTEND_PERFORMANCE_TRACE_PHASES,
   FRONTEND_TRACE_ALLOWED_PHASES, FRONTEND_TRACE_ALLOWED_METADATA_KEYS, FRONTEND_TRACE_ALLOWED_STATUSES,
   FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES, FRONTEND_RUNTIME_TRACE_SKIP_METHODS, FRONTEND_TRACE_FORBIDDEN_KEYS,
   FRONTEND_TRACE_SENSITIVE_TEXT_PATTERNS,
@@ -252,6 +253,10 @@ function sanitizeFrontendTraceEvent(event) {
   if (!FRONTEND_TRACE_ALLOWED_PHASES.has(phase)) return null;
   const status = safeTraceString(event.status).toLowerCase();
   if (!FRONTEND_TRACE_ALLOWED_STATUSES.has(status)) return null;
+  if (FRONTEND_PERFORMANCE_TRACE_PHASES.has(phase)) {
+    const expectedStatus = phase === 'frontend.performance.capability_absent' ? 'ok' : 'slow';
+    if (status !== expectedStatus) return null;
+  }
   const durationMS = Number(event.duration_ms);
   const out = {
     ts: createFrontendTraceTimestamp(),
@@ -290,6 +295,7 @@ function shouldRemoteFlushFrontendTrace(event) {
   if (event.status === 'slow') return true;
   if (FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES.has(event.phase)) return true;
   if (event.phase === 'frontend.patch.apply.slow' || event.phase === 'frontend.render.slow') return true;
+  if (FRONTEND_PERFORMANCE_TRACE_PHASES.has(event.phase)) return true;
   if (event.phase === 'frontend.rpc.done' && Number(event.duration_ms) >= FRONTEND_TRACE_RPC_SLOW_MS) return true;
   return isFrontendTraceDebugEnabled();
 }

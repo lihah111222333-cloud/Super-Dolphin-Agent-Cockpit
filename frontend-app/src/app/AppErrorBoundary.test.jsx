@@ -24,6 +24,12 @@ describe('AppErrorBoundary', () => {
     expect(mainSource.match(/breadcrumbs: frontendBreadcrumbSnapshotSource/g)).toHaveLength(2);
     expect(mainSource).not.toContain('createFrontendBreadcrumbBuffer()');
     expect(mainSource).not.toContain('frontendBreadcrumbs.record(');
+    expect(mainSource.match(/startFrontendPerformancePressure\(/g)).toHaveLength(1);
+    expect(mainSource).toContain('cleanupGlobalCrashHandlers()');
+    expect(mainSource).toContain('frontendPerformancePressure.stop()');
+    expect(mainSource).toContain('import.meta.hot.dispose(cleanupFrontendDiagnostics)');
+    expect(mainSource).toContain("console.error('frontend.performance.reporter_contract_failed')");
+    expect(mainSource).not.toContain('console.error(error)');
   });
 
   it('contains render crashes and retries the child tree from an accessible fallback', async () => {

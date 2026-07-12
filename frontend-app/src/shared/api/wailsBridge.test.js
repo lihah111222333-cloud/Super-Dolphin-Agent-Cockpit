@@ -1000,6 +1000,102 @@ describe('wails bridge frontend trace emitter', () => {
     delete window.__AO_WAILS_RUNTIME_TELEMETRY__;
   });
 
+  it('sanitizes and remotely flushes all frontend performance pressure phases', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { emitFrontendTraceEvent } = await import('./wailsBridge.js');
+    const events = [
+      {
+        phase: 'frontend.performance.long_task_pressure',
+        status: 'slow',
+        duration_ms: 420,
+        metadata: {
+          count: 2,
+          total_ms: 620,
+          max_ms: 420,
+          build: 'production',
+          prompt: 'secret prompt',
+        },
+        timestamp: 'forbidden timestamp',
+        stack: 'forbidden stack',
+      },
+      {
+        phase: 'frontend.performance.event_loop_pressure',
+        status: 'slow',
+        duration_ms: 150,
+        metadata: { lag_bucket: '150_299', path: '/Users/private' },
+        code: 'forbidden code',
+      },
+      {
+        phase: 'frontend.performance.heap_pressure',
+        status: 'slow',
+        metadata: { heap_ratio_bucket: '0.85_0.89', dom_text: 'private DOM text' },
+      },
+      {
+        phase: 'frontend.performance.capability_absent',
+        status: 'ok',
+        metadata: { capability: 'heap', reason: 'free text is forbidden' },
+      },
+    ];
+
+    events.forEach((event) => expect(emitFrontendTraceEvent(event)).toBe(true));
+
+    let flushed = [];
+    await waitFor(() => {
+      flushed = byID.mock.calls
+        .filter(([, method]) => method === 'observability/frontend/ingest')
+        .flatMap(([, , payload]) => payload.events);
+      expect(flushed).toHaveLength(4);
+    });
+    expect(flushed).toEqual([
+      {
+        phase: 'frontend.performance.long_task_pressure',
+        status: 'slow',
+        ts: expect.any(String),
+        duration_ms: 420,
+        metadata: { count: 2, total_ms: 620, max_ms: 420, build: 'production' },
+      },
+      {
+        phase: 'frontend.performance.event_loop_pressure',
+        status: 'slow',
+        ts: expect.any(String),
+        duration_ms: 150,
+        metadata: { lag_bucket: '150_299' },
+      },
+      {
+        phase: 'frontend.performance.heap_pressure',
+        status: 'slow',
+        ts: expect.any(String),
+        metadata: { heap_ratio_bucket: '0.85_0.89' },
+      },
+      {
+        phase: 'frontend.performance.capability_absent',
+        status: 'ok',
+        ts: expect.any(String),
+        metadata: { capability: 'heap' },
+      },
+    ]);
+    const serialized = JSON.stringify(flushed);
+    ['prompt', 'timestamp', 'stack', 'path', 'dom_text', 'reason', 'free text', '/Users/private']
+      .forEach((forbidden) => expect(serialized).not.toContain(forbidden));
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.performance.capability_absent',
+      status: 'slow',
+      metadata: { capability: 'heap' },
+    })).toBe(false);
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.performance.heap_pressure',
+      status: 'ok',
+      metadata: { heap_ratio_bucket: '0.85_0.89' },
+    })).toBe(false);
+  });
+
   it('flushes failed RPC traces through observability frontend ingest without sensitive payload fields', async () => {
     const backendError = new Error('backend unavailable');
     backendError.code = 'E_BACKEND';
