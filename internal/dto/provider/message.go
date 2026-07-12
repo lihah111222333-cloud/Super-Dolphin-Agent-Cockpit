@@ -30,7 +30,8 @@ type MessagePageRequest struct {
 
 // MessagePageResult 是消息分页查询的内部结果，不含总数字段。
 type MessagePageResult struct {
-	Messages   []Message
-	HasMore    bool
-	NextBefore string
+	Messages       []Message
+	HasMore        bool
+	NextBefore     string
+	SourceRevision string `json:"sourceRevision"`
 }

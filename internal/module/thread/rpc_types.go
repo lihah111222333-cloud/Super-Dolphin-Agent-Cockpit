@@ -12,6 +12,28 @@ type threadIDParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
+type promptHistoryParams struct {
+	CWD            string `json:"cwd"`
+	ActiveThreadID string `json:"activeThreadId,omitempty"`
+	Cursor         string `json:"cursor,omitempty"`
+	Nonce          string `json:"nonce,omitempty"`
+	Limit          int    `json:"limit"`
+}
+
+// UnmarshalJSON 解码 prompt history 参数，并拒绝所有未声明字段。
+func (p *promptHistoryParams) UnmarshalJSON(data []byte) error {
+	type raw promptHistoryParams
+	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/promptHistory", promptHistoryParams{}); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = promptHistoryParams(current)
+	return nil
+}
+
 // UnmarshalJSON 解码 thread id 参数，并兼容旧 camelCase threadId。
 func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 	type raw threadIDParams

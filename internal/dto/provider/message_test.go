@@ -37,3 +37,13 @@ func TestMessageJSONUsesCreatedAt(t *testing.T) {
 		t.Fatalf("Timestamp = %v, want %v", got.Timestamp, time.Unix(123, 0).UTC())
 	}
 }
+
+func TestMessagePageResultCarriesSourceRevision(t *testing.T) {
+	t.Parallel()
+
+	const want = "sha256:opaque-source-revision"
+	page := MessagePageResult{SourceRevision: want}
+	if page.SourceRevision != want {
+		t.Fatalf("SourceRevision = %q, want %q", page.SourceRevision, want)
+	}
+}

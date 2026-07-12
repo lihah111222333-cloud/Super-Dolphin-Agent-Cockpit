@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
@@ -106,6 +107,90 @@ func TestReadProviderMessagesPageReturnsRecentMessagesAndCursor(t *testing.T) {
 	requireHistoryPageContents(t, second.Messages, []string{"one", "two"})
 	requireHistoryPageIDsDoNotOverlap(t, first.Messages, second.Messages)
 	requireHistoryPageEnd(t, second)
+}
+
+func TestReadProviderMessagesPageEmptySuccessHasSourceRevision(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := writeCodexRolloutLines(t, root, "thread-empty-page", nil)
+	page, err := ReadProviderMessagesPage(
+		ReadRequest{Provider: "codex", RolloutPath: path},
+		dto.MessagePageRequest{Limit: 10},
+	)
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage() error = %v", err)
+	}
+	if len(page.Messages) != 0 || page.HasMore || page.NextBefore != "" {
+		t.Fatalf("empty page = messages:%#v hasMore:%v nextBefore:%q", page.Messages, page.HasMore, page.NextBefore)
+	}
+	if page.SourceRevision == "" {
+		t.Fatal("empty successful page SourceRevision is empty")
+	}
+}
+
+func TestMessagePageSourceRevisionChangesWhenJSONLAppends(t *testing.T) {
+	root := t.TempDir()
+	path := writeCodexRolloutLines(t, root, "thread-source-revision", []string{"first", "duplicate-secret"})
+	req := ReadRequest{Provider: "codex", RolloutPath: path}
+
+	beforeAppend, err := ReadProviderMessagesPage(req, dto.MessagePageRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage(before append) error = %v", err)
+	}
+	if beforeAppend.SourceRevision == "" {
+		t.Fatal("SourceRevision before append is empty")
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("OpenFile(append) error = %v", err)
+	}
+	if _, err := file.WriteString(codexRolloutMessageLine(31, "user", "input_text", "duplicate-secret")); err != nil {
+		_ = file.Close()
+		t.Fatalf("WriteString(append) error = %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close(append) error = %v", err)
+	}
+
+	afterAppend, err := ReadProviderMessagesPage(req, dto.MessagePageRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage(after append) error = %v", err)
+	}
+	if afterAppend.SourceRevision == "" {
+		t.Fatal("SourceRevision after append is empty")
+	}
+	if afterAppend.SourceRevision == beforeAppend.SourceRevision {
+		t.Fatalf("SourceRevision did not change after same-second duplicate append: %q", afterAppend.SourceRevision)
+	}
+}
+
+func TestMessagePageSourceRevisionStableAcrossPagesAndDoesNotExposePathOrContent(t *testing.T) {
+	root := t.TempDir()
+	const secret = "prompt-that-must-not-leak"
+	path := writeCodexRolloutLines(t, root, "thread-source-revision-private", []string{"one", "two", secret, "four"})
+	req := ReadRequest{Provider: "codex", RolloutPath: path}
+
+	first, err := ReadProviderMessagesPage(req, dto.MessagePageRequest{Limit: 2})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage(first) error = %v", err)
+	}
+	second, err := ReadProviderMessagesPage(req, dto.MessagePageRequest{Limit: 2, Before: first.NextBefore})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage(second) error = %v", err)
+	}
+	if first.SourceRevision == "" || second.SourceRevision == "" {
+		t.Fatalf("SourceRevision must be non-empty on every page: first=%q second=%q", first.SourceRevision, second.SourceRevision)
+	}
+	if first.SourceRevision != second.SourceRevision {
+		t.Fatalf("SourceRevision changed across one source snapshot: first=%q second=%q", first.SourceRevision, second.SourceRevision)
+	}
+	for _, forbidden := range []string{root, path, secret} {
+		if strings.Contains(first.SourceRevision, forbidden) {
+			t.Fatalf("SourceRevision exposes source detail %q", forbidden)
+		}
+	}
 }
 
 func TestReadProviderMessagesPageDropsTurnAbortedControlBlock(t *testing.T) {

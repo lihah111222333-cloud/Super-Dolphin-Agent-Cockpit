@@ -15,8 +15,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread/prompthistory"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
 )
 
 const eventTypeAgentMessage = "agent_message"
@@ -91,6 +93,93 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 		HasMore:    pageResult.HasMore,
 		NextBefore: pageResult.NextBefore,
 	}, nil
+}
+
+// ScanPromptHistory 仅扫描 request CWD 下的权威 thread 快照，并把稳定分页交给 pure scanner。
+func (s *service) ScanPromptHistory(ctx context.Context, req PromptHistoryRequest) (threaddto.PromptHistoryResult, error) {
+	if ctx == nil || s == nil || s.threadStore == nil || comparablePromptCWD(req.CWD) == "" {
+		return threaddto.PromptHistoryResult{}, prompthistory.ErrInvalidRequest
+	}
+	records, err := s.threadStore.ListAll(ctx)
+	if err != nil {
+		return threaddto.PromptHistoryResult{}, err
+	}
+	requestCWD := comparablePromptCWD(req.CWD)
+	exactRecords := make(map[string]ThreadRecord)
+	snapshots := make([]prompthistory.ThreadSnapshot, 0, len(records))
+	for _, record := range records {
+		threadID := strings.TrimSpace(record.ThreadID)
+		if comparablePromptCWD(record.Cwd) != requestCWD {
+			continue
+		}
+		exactRecords[threadID] = record
+		snapshots = append(snapshots, prompthistory.ThreadSnapshot{
+			ThreadID: threadID, Status: strings.TrimSpace(record.Status), UpdatedAt: record.UpdatedAt,
+		})
+	}
+	activeThreadID := strings.TrimSpace(req.ActiveThreadID)
+	if activeThreadID != "" {
+		if _, ok := exactRecords[activeThreadID]; !ok {
+			return threaddto.PromptHistoryResult{}, ErrPromptHistoryActiveThreadCWD
+		}
+	}
+	return prompthistory.ScanPromptHistory(ctx, prompthistory.Request{
+		Threads: snapshots, ActiveThreadID: activeThreadID,
+		Cursor: req.Cursor, Nonce: req.Nonce, Limit: req.Limit,
+		ReadPage: func(pageCtx context.Context, threadID string, pageReq dto.MessagePageRequest) (dto.MessagePageResult, error) {
+			return s.readPromptHistoryPage(pageCtx, exactRecords[threadID], pageReq)
+		},
+	})
+}
+
+// readPromptHistoryPage 只接受带稳定 SourceRevision 的 pager 或 JSONL 来源；绝不调用 legacy ReadHistory。
+func (s *service) readPromptHistoryPage(ctx context.Context, record ThreadRecord, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+	threadID := strings.TrimSpace(record.ThreadID)
+	binding, err := s.promptHistoryBinding(ctx, threadID)
+	if err != nil {
+		return dto.MessagePageResult{}, err
+	}
+	session, err := s.promptHistorySession(record, binding)
+	if err != nil && !errors.Is(err, contract.ErrSessionNotFound) {
+		return dto.MessagePageResult{}, err
+	}
+	if pager, ok := session.(messagePageReaderSession); ok {
+		return pager.ReadMessagesPage(ctx, historyTargetID(binding, threadID), req)
+	}
+	historyReq := readMessagesHistoryRequestForSession(threadID, binding, session)
+	page, pageErr := historyjsonl.ReadProviderMessagesPage(historyReq, req)
+	if pageErr == nil {
+		return page, nil
+	}
+	if historyjsonl.IsMissingProviderHistory(pageErr) {
+		return dto.MessagePageResult{}, ErrPromptHistoryRevisionUnavailable
+	}
+	return dto.MessagePageResult{}, pageErr
+}
+
+func (s *service) promptHistoryBinding(ctx context.Context, threadID string) (*threadBindingStoreRecord, error) {
+	if s.bindingStore == nil {
+		return nil, nil
+	}
+	binding, err := s.resolveBinding(ctx, threadID)
+	if errors.Is(err, contract.ErrNotFound) {
+		return nil, nil
+	}
+	return binding, err
+}
+
+func (s *service) promptHistorySession(record ThreadRecord, binding *threadBindingStoreRecord) (contract.Session, error) {
+	if s.sessions == nil {
+		return nil, contract.ErrSessionNotFound
+	}
+	agentID := strings.TrimSpace(s.lookupThreadAgent(record.ThreadID))
+	if agentID == "" {
+		agentID = strings.TrimSpace(record.AgentID)
+	}
+	if agentID == "" {
+		agentID = agentIDFromBinding(binding, record.ThreadID)
+	}
+	return s.sessions.GetSession(agentID)
 }
 
 // ReadRuntimeConfig 读取线程当前可见的 runtime config。
@@ -551,7 +640,7 @@ func estimateThreadTokens(ctx context.Context, session contract.Session, threadI
 // provider 压缩可能异步落盘，最多轮询三次；仍未下降时返回最后一次估算值供 UI 展示。
 func compactAfterTokens(ctx context.Context, session contract.Session, threadID string, before int) (int, error) {
 	last := before
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if i > 0 {
 			if err := waitCompactPoll(ctx); err != nil {
 				return 0, err

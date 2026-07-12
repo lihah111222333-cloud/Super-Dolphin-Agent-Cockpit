@@ -784,11 +784,11 @@ Expected: 新增 feature 与修改计划会触发 pre-commit 自动刷新 canoni
 - Create: `internal/dto/thread/prompt_history.go`
 - Create: `internal/dto/thread/prompt_history_test.go`
 - Modify: `internal/module/thread/history.go`
-- Modify: `internal/module/thread/lifecycle_helpers.go`
-- Modify: `internal/module/thread/persistence_port.go`
+- Modify: `internal/module/thread/history_test.go`
 - Modify: `internal/module/thread/contract.go`
 - Modify: `internal/module/thread/rpc.go`
 - Modify: `internal/module/thread/rpc_types.go`
+- Modify: `internal/module/thread/rpc_types_test.go`
 - Modify: `internal/module/thread/service_handlers_test.go`
 - Modify: `internal/dto/provider/message.go`
 - Modify: `internal/dto/provider/message_test.go`
@@ -796,6 +796,9 @@ Expected: 新增 feature 与修改计划会触发 pre-commit 自动刷新 canoni
 - Modify: `internal/util/historyjsonl/history_test.go`
 - Modify: `internal/provider/claudecli/session_history.go`
 - Modify: `internal/provider/claudecli/session_history_test.go`
+- Modify: `internal/archtest/priority_ssa_loader_parity_test.go`
+- Modify: `internal/archtest/backend_boundary_loader_parity_test.go`
+- Modify: `docs/internal-notes/RPC能力E2E覆盖矩阵.md`
 
 - [ ] **Step 1: 写 DTO、cursor 与 scan RED tests**
 
@@ -843,9 +846,9 @@ These aggregate wire types are owned by `internal/dto/thread/prompt_history.go`;
 
 - [ ] **Step 4: 实现 scanner、nonce 与 strict RPC**
 
-Reuse `readMessagesPageSource` and propagate `SourceRevision` through JSONL and `messagePageReaderSession` paths. JSONL revision is SHA-256 over non-secret source facts including file length and the last complete record digest; it must not contain the path, raw line or timestamp-only freshness. A provider page reader must return the same revision for every page of one source snapshot. The legacy `session.ReadHistory` fallback may remain for existing `thread/messages`, but `ScanPromptHistory` must reject it with a typed revision-unavailable error unless the provider supplies a stable revision port; it must not hash a page-local window or array index to fabricate freshness. Missing revision is an error.
+Reuse the existing `messagePageReaderSession` and `readMessagesHistoryRequestForSession` seams from the page-source path, and propagate `SourceRevision` through JSONL and provider pager results. JSONL revision is SHA-256 over non-secret source facts including file length and the last complete record digest; it must not contain the path, raw line or timestamp-only freshness. A provider page reader must return the same revision for every page of one source snapshot. The legacy `session.ReadHistory` fallback may remain for existing `thread/messages`, but `ScanPromptHistory` must reject it with a typed revision-unavailable error unless the provider supplies a stable revision port; it must not hash a page-local window or array index to fabricate freshness. Missing revision is an error.
 
-Normalize the request cwd with the thread module's canonical cwd comparison helper, list canonical `ThreadRecord` values, exact-filter to that cwd, enforce the 100-thread snapshot cap, and verify non-empty `activeThreadId` is in that set before calling any message reader. Scan only `role=user`; preserve duplicate text. Order active thread first, then exact-cwd threads by `updatedAt DESC, threadId ASC`. Compute nonce exactly as §3.2 from ordered identity/lifecycle/sourceRevision. Cursor JSON contains only version, nonce, thread index, and message `before`; base64url encode it, cap it at 2048 bytes, and reject unknown fields/version/nonce mismatch. Register `thread/promptHistory` with a strict typed handler.
+Normalize the request cwd by reusing the existing `comparablePromptCWD` helper without modifying `lifecycle_helpers.go`; list canonical `ThreadRecord` values through the existing `ThreadStore.ListAll` port without modifying `persistence_port.go`. Exact-filter to that cwd, enforce the 100-thread snapshot cap, and verify non-empty `activeThreadId` is in that set before calling any message reader. Scan only `role=user`; preserve duplicate text. Order active thread first, then exact-cwd threads by `updatedAt DESC, threadId ASC`. Compute nonce exactly as §3.2 from ordered identity/lifecycle/sourceRevision. Cursor JSON contains only version, nonce, thread index, and message `before`; base64url encode it, cap it at 2048 bytes, and reject unknown fields/version/nonce mismatch. Register `thread/promptHistory` with a strict typed handler.
 
 - [ ] **Step 5: 运行 GREEN、diagnostics 与提交**
 
@@ -856,11 +859,16 @@ go test ./internal/dto/provider ./internal/dto/thread ./internal/util/historyjso
 
 Expected: PASS. Then run LSP diagnostics on every Go file.
 
+The first pre-commit run is expected RED evidence: `coverage matrix missing discovered method thread/promptHistory`. Register the discovered method in the existing `thread` family as `planned` without changing its target or claiming unsupported E2E coverage.
+
 ```bash
-git add internal/module/thread/prompt_history_test.go internal/module/thread/prompthistory internal/module/thread/history.go internal/module/thread/lifecycle_helpers.go internal/module/thread/persistence_port.go internal/module/thread/contract.go internal/module/thread/rpc.go internal/module/thread/rpc_types.go internal/module/thread/service_handlers_test.go
+git add internal/module/thread/prompt_history_test.go internal/module/thread/prompthistory internal/module/thread/history.go internal/module/thread/history_test.go internal/module/thread/contract.go internal/module/thread/rpc.go internal/module/thread/rpc_types.go internal/module/thread/rpc_types_test.go internal/module/thread/service_handlers_test.go
 git add internal/dto/provider/message.go internal/dto/provider/message_test.go internal/dto/thread/prompt_history.go internal/dto/thread/prompt_history_test.go internal/util/historyjsonl/page.go internal/util/historyjsonl/history_test.go internal/provider/claudecli/session_history.go internal/provider/claudecli/session_history_test.go
+git add internal/archtest/priority_ssa_loader_parity_test.go internal/archtest/backend_boundary_loader_parity_test.go docs/internal-notes/RPC能力E2E覆盖矩阵.md docs/plans/2026-07-12-reasonix-frontend-next-absorption.md
 git commit -m "feat(thread): 暴露权威输入历史分页"
 ```
+
+Expected: 新增 Go package、DTO 与修改计划会触发 pre-commit 自动刷新 canonical project-map；只纳入与 Task 4 staged snapshot 语义对应的 hook-owned 生成物。出现额外无关路径或任一 generated-state 校验失败即 BLOCKED；禁止手改生成物或使用 `--no-verify` 绕过 hook。
 
 ### Task 5: Frontend Prompt History Contract 与 Composer 导航
 

@@ -3,10 +3,22 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread/prompthistory"
+)
+
+var (
+	ErrPromptHistoryActiveThreadCWD     = errors.New("active thread is outside the requested cwd")
+	ErrPromptHistoryInvalidRequest      = prompthistory.ErrInvalidRequest
+	ErrPromptHistoryStaleNonce          = prompthistory.ErrStaleNonce
+	ErrPromptHistoryInvalidCursor       = prompthistory.ErrInvalidCursor
+	ErrPromptHistoryThreadLimitExceeded = prompthistory.ErrThreadLimitExceeded
+	ErrPromptHistoryPageRead            = prompthistory.ErrPageRead
+	ErrPromptHistoryRevisionUnavailable = prompthistory.ErrSourceRevisionUnavailable
 )
 
 // SpawnRouting 复用 shared dto 中的 pending spawn 路由结果。
@@ -31,6 +43,7 @@ type Service interface {
 	Get(ctx context.Context, id string) (*Ref, error)
 	ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error)
 	ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error)
+	ScanPromptHistory(ctx context.Context, req PromptHistoryRequest) (threaddto.PromptHistoryResult, error)
 	GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
 	SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error)
 	SetModel(ctx context.Context, threadID, model string) (dto.ThreadConfig, error)
@@ -42,6 +55,15 @@ type Service interface {
 	SendCommand(ctx context.Context, threadID, command, args string) (any, error)
 	SetName(ctx context.Context, threadID, name string) error
 	Delete(ctx context.Context, threadID string) error
+}
+
+// PromptHistoryRequest 描述同一权威 CWD 下的输入历史分页请求。
+type PromptHistoryRequest struct {
+	CWD            string
+	ActiveThreadID string
+	Cursor         string
+	Nonce          string
+	Limit          int
 }
 
 // StartRequest 是新 thread 的启动输入。

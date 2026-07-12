@@ -54,6 +54,7 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/messages": platformrpc.ThreadHandler(func(ctx context.Context, p messagesParams) (any, error) {
 			return svc.ReadMessages(ctx, contract.ThreadIDFrom(ctx), p.Limit, p.Before)
 		}),
+		"thread/promptHistory": newPromptHistoryHandler(svc),
 
 		contract.ThreadRPCNameSet: platformrpc.ThreadHandler(func(ctx context.Context, p nameSetParams) (any, error) {
 			return nil, svc.SetName(ctx, contract.ThreadIDFrom(ctx), p.Name)
@@ -138,6 +139,56 @@ func newThreadListPageHandler(method string, svc Service, loaded bool) handler.F
 		}
 		return pager.ListPage(ctx, req)
 	})
+}
+
+// newPromptHistoryHandler 注册 strict typed prompt-history RPC，并在进入 service 前校验 wire 边界。
+func newPromptHistoryHandler(svc Service) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptHistoryParams) (any, error) {
+		if strings.TrimSpace(p.CWD) == "" {
+			return nil, platformrpc.ErrInvalidParams("prompt history cwd is required")
+		}
+		if p.Limit < 1 || p.Limit > 50 {
+			return nil, platformrpc.ErrInvalidParams("prompt history limit must be between 1 and 50")
+		}
+		if len(p.Cursor) > 2048 {
+			return nil, platformrpc.ErrInvalidParams("prompt history cursor exceeds 2048 bytes")
+		}
+		if len(p.Nonce) > 2048 {
+			return nil, platformrpc.ErrInvalidParams("prompt history nonce exceeds 2048 bytes")
+		}
+		result, err := svc.ScanPromptHistory(ctx, PromptHistoryRequest{
+			CWD: p.CWD, ActiveThreadID: p.ActiveThreadID,
+			Cursor: p.Cursor, Nonce: p.Nonce, Limit: p.Limit,
+		})
+		if err != nil {
+			return nil, promptHistoryRPCError(err)
+		}
+		return result, nil
+	})
+}
+
+// promptHistoryRPCError 把 scanner 的 typed 错误收敛为稳定 RPC code/message，禁止泄露源路径或消息内容。
+func promptHistoryRPCError(err error) error {
+	switch {
+	case errors.Is(err, ErrPromptHistoryActiveThreadCWD):
+		return platformrpc.ErrInvalidParams("active thread is outside the requested cwd")
+	case errors.Is(err, ErrPromptHistoryInvalidRequest):
+		return platformrpc.ErrInvalidParams("invalid prompt history request")
+	case errors.Is(err, ErrPromptHistoryThreadLimitExceeded):
+		return platformrpc.ErrInvalidParams("prompt history thread limit exceeded")
+	case errors.Is(err, ErrPromptHistoryStaleNonce):
+		return platformrpc.ErrConflict("prompt history snapshot is stale")
+	case errors.Is(err, ErrPromptHistoryInvalidCursor):
+		return platformrpc.ErrInvalidParams("invalid prompt history cursor")
+	case errors.Is(err, ErrPromptHistoryRevisionUnavailable):
+		return platformrpc.ErrCapabilityGate("prompt history source revision unavailable")
+	case errors.Is(err, ErrPromptHistoryPageRead):
+		return platformrpc.ErrInvalidState("prompt history page read failed")
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return err
+	default:
+		return platformrpc.ErrInvalidState("prompt history request failed")
+	}
 }
 
 func validateStartParams(p startParams) error {

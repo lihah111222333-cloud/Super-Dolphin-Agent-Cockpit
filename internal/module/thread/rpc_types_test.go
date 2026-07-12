@@ -254,12 +254,8 @@ func TestThreadRPCParamsRejectUnknownFields(t *testing.T) {
 		newTarget func() any
 		want      string
 	}{
-		{
-			name:      "thread id",
-			payload:   `{"threadId":"thread-1","surprise":true}`,
-			newTarget: func() any { return &threadIDParams{} },
-			want:      `thread id: unknown field "surprise"`,
-		},
+		{name: "thread id", payload: `{"threadId":"thread-1","surprise":true}`, newTarget: func() any { return &threadIDParams{} }, want: `thread id: unknown field "surprise"`},
+		{name: "prompt history", payload: `{"cwd":"/repo","limit":10,"surprise":true}`, newTarget: func() any { return &promptHistoryParams{} }, want: `thread/promptHistory: unknown field "surprise"`},
 		{
 			name:      "resume",
 			payload:   `{"threadId":"thread-1","cwd":"/repo","surprise":true}`,
@@ -316,7 +312,6 @@ func TestThreadRPCParamsRejectUnknownFields(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := json.Unmarshal([]byte(tt.payload), tt.newTarget())
@@ -457,7 +452,6 @@ func TestStartParamsRejectsInvalidManualSkillSelectionAliases(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var params startParams

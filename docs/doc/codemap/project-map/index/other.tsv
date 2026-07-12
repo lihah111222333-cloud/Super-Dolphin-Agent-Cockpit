@@ -370,8 +370,8 @@ internal/dto/provider/capability.go	internal	other	go-source	1232	provider/share
 internal/dto/provider/event_security_test.go	internal	other	go-test	1729	provider/shared DTO 与事件协议	internal,dto,provider,event,security,test,shared,DTO,与事件协议
 internal/dto/provider/event.go	internal	other	go-source	6063	provider/shared DTO 与事件协议	internal,dto,provider,event,shared,DTO,与事件协议
 internal/dto/provider/manifest.go	internal	other	go-source	2589	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
-internal/dto/provider/message_test.go	internal	other	go-test	921	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
-internal/dto/provider/message.go	internal	other	go-source	1152	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
+internal/dto/provider/message_test.go	internal	other	go-test	1205	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
+internal/dto/provider/message.go	internal	other	go-source	1211	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
 internal/dto/provider/session.go	internal	other	go-source	7217	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
 internal/dto/provider/thread_config.go	internal	other	go-source	1727	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
 internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
@@ -382,6 +382,8 @@ internal/dto/shared/event.go	internal	other	go-source	4569	provider/shared DTO �
 internal/dto/shared/input.go	internal	other	go-source	1210	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
 internal/dto/task/event.go	internal	other	go-source	724	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
 internal/dto/thread/event.go	internal	other	go-source	4374	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议
+internal/dto/thread/prompt_history_test.go	internal	other	go-test	807	provider/shared DTO 与事件协议	internal,dto,thread,prompt,history,test,provider,shared,DTO,与事件协议
+internal/dto/thread/prompt_history.go	internal	other	go-source	603	provider/shared DTO 与事件协议	internal,dto,thread,prompt,history,provider,shared,DTO,与事件协议
 internal/dto/tool/event.go	internal	other	go-source	2987	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
 internal/dto/turn/event.go	internal	other	go-source	2912	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
 internal/dto/turn/model.go	internal	other	go-source	883	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
@@ -444,9 +446,9 @@ internal/ui/wails/window.go	internal	other	go-source	6593	Wails binding 与 UI R
 internal/util/clone/clone.go	internal	other	go-source	2811	Internal shared utility packages	internal,util,clone,Internal,shared,utility,packages
 internal/util/configutil/configutil.go	internal	other	go-source	4643	Internal shared utility packages	internal,util,configutil,Internal,shared,utility,packages
 internal/util/ctxutil/ctxutil.go	internal	other	go-source	3150	Internal shared utility packages	internal,util,ctxutil,Internal,shared,utility,packages
-internal/util/historyjsonl/history_test.go	internal	other	go-test	8923	Internal shared utility packages	internal,util,historyjsonl,history,test,Internal,shared,utility,packages
+internal/util/historyjsonl/history_test.go	internal	other	go-test	12243	Internal shared utility packages	internal,util,historyjsonl,history,test,Internal,shared,utility,packages
 internal/util/historyjsonl/history.go	internal	other	go-source	12118	Internal shared utility packages	internal,util,historyjsonl,history,Internal,shared,utility,packages
-internal/util/historyjsonl/page.go	internal	other	go-source	9151	Internal shared utility packages	internal,util,historyjsonl,page,Internal,shared,utility,packages
+internal/util/historyjsonl/page.go	internal	other	go-source	12475	Internal shared utility packages	internal,util,historyjsonl,page,Internal,shared,utility,packages
 internal/util/idempotency/registry_test.go	internal	other	go-test	3061	Internal shared utility packages	internal,util,idempotency,registry,test,Internal,shared,utility,packages
 internal/util/idempotency/registry.go	internal	other	go-source	6407	Internal shared utility packages	internal,util,idempotency,registry,Internal,shared,utility,packages
 internal/util/identifier/uuid_test.go	internal	other	go-test	2051	Internal shared utility packages	internal,util,identifier,uuid,test,Internal,shared,utility,packages

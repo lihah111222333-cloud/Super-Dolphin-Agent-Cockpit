@@ -1,8 +1,14 @@
 package claudecli
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {
@@ -43,5 +49,82 @@ func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {
 	}
 	if string(got[2].Metadata) == "" {
 		t.Fatal("metadata-only message was not preserved")
+	}
+}
+
+func TestSessionMessagePageSourceRevisionStableAcrossPages(t *testing.T) {
+	dir, threadID, path, s := setupClaudeSourceRevisionSession(t)
+	first := readClaudeMessagePage(t, s, threadID, dto.MessagePageRequest{Limit: 2})
+	second := readClaudeMessagePage(t, s, threadID, dto.MessagePageRequest{Limit: 2, Before: first.NextBefore})
+	requireClaudeSourceRevisionStable(t, first, second)
+	requireClaudeSourceRevisionPrivate(t, first.SourceRevision, dir, path, "claude-prompt-that-must-not-leak")
+}
+
+func TestSessionMessagePageSourceRevisionChangesOnSameSecondAppend(t *testing.T) {
+	_, threadID, path, s := setupClaudeSourceRevisionSession(t)
+	before := readClaudeMessagePage(t, s, threadID, dto.MessagePageRequest{Limit: 2})
+	appendClaudeSameSecondDuplicate(t, path)
+	after := readClaudeMessagePage(t, s, threadID, dto.MessagePageRequest{Limit: 2})
+	if after.SourceRevision == "" {
+		t.Fatal("SourceRevision after append is empty")
+	}
+	if after.SourceRevision == before.SourceRevision {
+		t.Fatalf("SourceRevision did not change after same-second duplicate append: %q", after.SourceRevision)
+	}
+}
+
+func setupClaudeSourceRevisionSession(t *testing.T) (string, string, string, *session) {
+	t.Helper()
+	dir := t.TempDir()
+	threadID := "thread-source-revision"
+	writeClaudeHistoryMessages(t, dir, threadID, []string{"one", "two", "claude-prompt-that-must-not-leak", "four"})
+	path := filepath.Join(dir, "projects", "test-project", threadID+".jsonl")
+	return dir, threadID, path, &session{threadID: threadID, history: &historyBackend{sessionDir: dir}}
+}
+
+func readClaudeMessagePage(t *testing.T, s *session, threadID string, req dto.MessagePageRequest) dto.MessagePageResult {
+	t.Helper()
+	page, err := s.ReadMessagesPage(context.Background(), threadID, req)
+	if err != nil {
+		t.Fatalf("ReadMessagesPage() error = %v", err)
+	}
+	return page
+}
+
+func requireClaudeSourceRevisionStable(t *testing.T, first, second dto.MessagePageResult) {
+	t.Helper()
+	if first.SourceRevision == "" {
+		t.Fatal("first SourceRevision is empty")
+	}
+	if second.SourceRevision == "" {
+		t.Fatal("second SourceRevision is empty")
+	}
+	if first.SourceRevision != second.SourceRevision {
+		t.Fatalf("SourceRevision changed across one source snapshot: first=%q second=%q", first.SourceRevision, second.SourceRevision)
+	}
+}
+
+func requireClaudeSourceRevisionPrivate(t *testing.T, revision string, forbidden ...string) {
+	t.Helper()
+	for _, value := range forbidden {
+		if strings.Contains(revision, value) {
+			t.Fatalf("SourceRevision exposes source detail %q", value)
+		}
+	}
+}
+
+func appendClaudeSameSecondDuplicate(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("OpenFile(append) error = %v", err)
+	}
+	const line = `{"type":"user","timestamp":"2026-07-12T01:02:03Z","message":{"role":"user","content":[{"type":"text","text":"claude-prompt-that-must-not-leak"}]}}`
+	if _, err := file.WriteString(line + "\n"); err != nil {
+		_ = file.Close()
+		t.Fatalf("WriteString(append) error = %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close(append) error = %v", err)
 	}
 }

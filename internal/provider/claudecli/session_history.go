@@ -59,9 +59,10 @@ func (s *session) ReadMessagesPage(ctx context.Context, threadID string, req dto
 		}
 	}
 	return dto.MessagePageResult{
-		Messages:   toProviderHistoryWithOffsets(page.Items, page.Offsets),
-		HasMore:    page.HasMore,
-		NextBefore: page.NextBefore,
+		Messages:       toProviderHistoryWithOffsets(page.Items, page.Offsets),
+		HasMore:        page.HasMore,
+		NextBefore:     page.NextBefore,
+		SourceRevision: page.SourceRevision,
 	}, nil
 }
 

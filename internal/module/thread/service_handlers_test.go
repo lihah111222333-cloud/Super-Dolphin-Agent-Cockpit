@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/creachadair/jrpc2"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
@@ -34,10 +38,10 @@ func TestNewThreadHandlersRegistersExpectedRoutes(t *testing.T) {
 	t.Parallel()
 
 	got := NewThreadHandlers(&stubThreadService{}, nil).Handlers
-	if len(got) != 34 {
-		t.Fatalf("len(Handlers) = %d, want 34", len(got))
+	if len(got) != 35 {
+		t.Fatalf("len(Handlers) = %d, want 35", len(got))
 	}
-	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/listPage", "thread/loaded/listPage", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff"} {
+	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/listPage", "thread/loaded/listPage", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff", "thread/promptHistory"} {
 		if _, ok := got[method]; !ok {
 			t.Fatalf("Handlers missing %q", method)
 		}
@@ -48,6 +52,175 @@ func TestNewThreadHandlersRegistersExpectedRoutes(t *testing.T) {
 	removedManualTaskRoute := "ui/thread/" + strings.Join([]string{"promote", "task"}, "-")
 	if _, ok := got[removedManualTaskRoute]; ok {
 		t.Fatalf("Handlers unexpectedly contains removed manual task endpoint")
+	}
+}
+
+func TestPromptHistoryParamsRejectUnknownFieldAndInvalidBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		params      string
+		wantMessage string
+	}{
+		{name: "unknown field", params: `{"cwd":"/repo","limit":10,"extra":true}`, wantMessage: "invalid parameters"},
+		{name: "zero limit", params: `{"cwd":"/repo","limit":0}`, wantMessage: "prompt history limit must be between 1 and 50"},
+		{name: "oversized limit", params: `{"cwd":"/repo","limit":51}`, wantMessage: "prompt history limit must be between 1 and 50"},
+		{name: "oversized cursor", params: `{"cwd":"/repo","limit":10,"cursor":"` + strings.Repeat("x", 2049) + `"}`, wantMessage: "prompt history cursor exceeds 2048 bytes"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubThreadService{}
+			server := newThreadTestServer(stub)
+			_, err := server.Dispatch(context.Background(), "thread/promptHistory", json.RawMessage(tc.params))
+			var rpcErr *jrpc2.Error
+			if !errors.As(err, &rpcErr) || rpcErr.Code != jrpc2.Code(contract.CodeInvalidParams) {
+				t.Fatalf("Dispatch(thread/promptHistory) error = %v, want invalid params", err)
+			}
+			if !strings.Contains(rpcErr.Message, tc.wantMessage) {
+				t.Fatalf("rpc message = %q, want stable fragment %q", rpcErr.Message, tc.wantMessage)
+			}
+			if stub.promptHistoryCalls != 0 {
+				t.Fatalf("ScanPromptHistory calls = %d, want 0", stub.promptHistoryCalls)
+			}
+		})
+	}
+}
+
+func TestPromptHistoryHandlerReturnsExactWireKeys(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 7, 12, 1, 2, 3, 0, time.UTC)
+	stub := newPromptHistoryWireStub(createdAt)
+	got := dispatchPromptHistoryWire(t, stub)
+	requirePromptHistoryExactKeys(t, got, "entries", "nextCursor", "hasMore", "nonce")
+	requirePromptHistoryWireEntry(t, got, createdAt)
+	requirePromptHistoryWireMetadata(t, got)
+	requirePromptHistoryCapturedRequest(t, stub)
+}
+
+func newPromptHistoryWireStub(createdAt time.Time) *stubThreadService {
+	return &stubThreadService{stubThreadServicePromptHistory: stubThreadServicePromptHistory{
+		promptHistoryResult: threaddto.PromptHistoryResult{
+			Entries: []threaddto.PromptHistoryEntry{{
+				ThreadID:  "thread-1",
+				MessageID: "42",
+				Text:      "prompt text",
+				CreatedAt: createdAt,
+			}},
+			NextCursor: "opaque-cursor",
+			HasMore:    true,
+			Nonce:      "opaque-nonce",
+		},
+	}}
+}
+
+func dispatchPromptHistoryWire(t *testing.T, stub *stubThreadService) map[string]any {
+	t.Helper()
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/promptHistory", json.RawMessage(`{"cwd":"/repo","activeThreadId":"thread-1","cursor":"cursor-in","nonce":"nonce-in","limit":10}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/promptHistory) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/promptHistory) error = %v", err)
+	}
+	return got
+}
+
+func requirePromptHistoryWireEntry(t *testing.T, got map[string]any, createdAt time.Time) {
+	t.Helper()
+	entries, ok := got["entries"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("entries = %#v, want one entry", got["entries"])
+	}
+	entry, ok := entries[0].(map[string]any)
+	if !ok {
+		t.Fatalf("entry = %#v, want object", entries[0])
+	}
+	requirePromptHistoryExactKeys(t, entry, "threadId", "messageId", "text", "createdAt")
+	if entry["threadId"] != "thread-1" || entry["messageId"] != "42" || entry["text"] != "prompt text" || entry["createdAt"] != createdAt.Format(time.RFC3339) {
+		t.Fatalf("entry = %#v, want exact prompt history fields", entry)
+	}
+}
+
+func requirePromptHistoryWireMetadata(t *testing.T, got map[string]any) {
+	t.Helper()
+	if got["nextCursor"] != "opaque-cursor" || got["hasMore"] != true || got["nonce"] != "opaque-nonce" {
+		t.Fatalf("response metadata = %#v", got)
+	}
+}
+
+func requirePromptHistoryCapturedRequest(t *testing.T, stub *stubThreadService) {
+	t.Helper()
+	if stub.promptHistoryCalls != 1 || stub.promptHistoryReq.CWD != "/repo" || stub.promptHistoryReq.ActiveThreadID != "thread-1" || stub.promptHistoryReq.Cursor != "cursor-in" || stub.promptHistoryReq.Nonce != "nonce-in" || stub.promptHistoryReq.Limit != 10 {
+		t.Fatalf("ScanPromptHistory request/calls = %#v/%d", stub.promptHistoryReq, stub.promptHistoryCalls)
+	}
+}
+
+func TestPromptHistoryHandlerMapsTypedErrorsWithoutSourceLeakage(t *testing.T) {
+	t.Parallel()
+	const (
+		fixtureCWD    = "/private/repository/path"
+		fixturePrompt = "prompt-secret"
+	)
+	tests := []struct {
+		name        string
+		sentinel    error
+		wantCode    jrpc2.Code
+		wantMessage string
+	}{
+		{name: "active cwd", sentinel: ErrPromptHistoryActiveThreadCWD, wantCode: jrpc2.Code(contract.CodeInvalidParams), wantMessage: "active thread is outside the requested cwd"},
+		{name: "invalid request", sentinel: ErrPromptHistoryInvalidRequest, wantCode: jrpc2.Code(contract.CodeInvalidParams), wantMessage: "invalid prompt history request"},
+		{name: "thread cap", sentinel: ErrPromptHistoryThreadLimitExceeded, wantCode: jrpc2.Code(contract.CodeInvalidParams), wantMessage: "prompt history thread limit exceeded"},
+		{name: "stale nonce", sentinel: ErrPromptHistoryStaleNonce, wantCode: jrpc2.Code(contract.CodeConflict), wantMessage: "prompt history snapshot is stale"},
+		{name: "invalid cursor", sentinel: ErrPromptHistoryInvalidCursor, wantCode: jrpc2.Code(contract.CodeInvalidParams), wantMessage: "invalid prompt history cursor"},
+		{name: "revision unavailable", sentinel: ErrPromptHistoryRevisionUnavailable, wantCode: jrpc2.Code(contract.CodeCapabilityGate), wantMessage: "prompt history source revision unavailable"},
+		{name: "page read", sentinel: ErrPromptHistoryPageRead, wantCode: jrpc2.Code(contract.CodeInvalidState), wantMessage: "prompt history page read failed"},
+		{name: "generic failure", sentinel: errors.New("unexpected prompt history failure"), wantCode: jrpc2.Code(contract.CodeInvalidState), wantMessage: "prompt history request failed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubThreadService{stubThreadServicePromptHistory: stubThreadServicePromptHistory{
+				promptHistoryErr: fmt.Errorf("%w: %s %s", tc.sentinel, fixtureCWD, fixturePrompt),
+			}}
+			server := newThreadTestServer(stub)
+			_, err := server.Dispatch(context.Background(), "thread/promptHistory", json.RawMessage(`{"cwd":"`+fixtureCWD+`","limit":10}`))
+			var rpcErr *jrpc2.Error
+			if !errors.As(err, &rpcErr) || rpcErr.Code != tc.wantCode {
+				t.Fatalf("Dispatch(thread/promptHistory) error = %v, want code %v", err, tc.wantCode)
+			}
+			if rpcErr.Message != tc.wantMessage {
+				t.Fatalf("rpc message = %q, want %q", rpcErr.Message, tc.wantMessage)
+			}
+			if strings.Contains(rpcErr.Message, fixtureCWD) || strings.Contains(rpcErr.Message, fixturePrompt) {
+				t.Fatalf("rpc message exposes fixture source: %q", rpcErr.Message)
+			}
+		})
+	}
+}
+
+func TestPromptHistoryRPCErrorPreservesContextTermination(t *testing.T) {
+	for name, cause := range map[string]error{"canceled": context.Canceled, "deadline": context.DeadlineExceeded} {
+		t.Run(name, func(t *testing.T) {
+			wrapped := fmt.Errorf("wrapped: %w", cause)
+			if got := promptHistoryRPCError(wrapped); got != wrapped {
+				t.Fatalf("promptHistoryRPCError() = %v, want original %v", got, wrapped)
+			}
+		})
+	}
+}
+
+func requirePromptHistoryExactKeys(t *testing.T, got map[string]any, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("JSON keys = %#v, want exactly %#v", got, want)
+	}
+	for _, key := range want {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("JSON object missing key %q: %#v", key, got)
+		}
 	}
 }
 
@@ -590,6 +763,7 @@ func newThreadTestServer(svc Service) *rpcpkg.Server {
 type stubThreadService struct {
 	stubThreadServiceLifecycleNoop
 	stubThreadServiceListNoop
+	stubThreadServicePromptHistory
 
 	startReq           StartRequest
 	startResult        StartResult
@@ -657,6 +831,19 @@ func (s *stubThreadService) ReadMessages(_ context.Context, threadID string, lim
 	s.readMessagesLimit = limit
 	s.readMessagesBefore = before
 	return s.readMessagesResult, nil
+}
+
+type stubThreadServicePromptHistory struct {
+	promptHistoryReq    PromptHistoryRequest
+	promptHistoryResult threaddto.PromptHistoryResult
+	promptHistoryErr    error
+	promptHistoryCalls  int
+}
+
+func (s *stubThreadServicePromptHistory) ScanPromptHistory(_ context.Context, req PromptHistoryRequest) (threaddto.PromptHistoryResult, error) {
+	s.promptHistoryCalls++
+	s.promptHistoryReq = req
+	return s.promptHistoryResult, s.promptHistoryErr
 }
 func (stubThreadServiceLifecycleNoop) GetConfig(context.Context, string) (dto.ThreadConfig, error) {
 	return dto.ThreadConfig{}, nil

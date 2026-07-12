@@ -2,7 +2,10 @@ package historyjsonl
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,14 +16,19 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
-const historyPageCursorPrefix = "histpage:"
+const (
+	historyPageCursorPrefix = "histpage:"
+	sourceRevisionDomain    = "super-dolphin/historyjsonl/source-revision/v1\x00"
+	sourceRevisionReadChunk = 64 * 1024
+)
 
 // JSONLPageResult 是倒序分页读取 JSONL 后返回给上层的通用结果。
 type JSONLPageResult[T any] struct {
-	Items      []T     // 当前页按时间正序排列的业务项。
-	Offsets    []int64 // 每条记录在文件中的起始偏移，用作稳定消息 ID。
-	HasMore    bool    // 是否还有更早的记录可继续读取。
-	NextBefore string  // 下一页 before 游标；为空表示没有下一页。
+	Items          []T     // 当前页按时间正序排列的业务项。
+	Offsets        []int64 // 每条记录在文件中的起始偏移，用作稳定消息 ID。
+	HasMore        bool    // 是否还有更早的记录可继续读取。
+	NextBefore     string  // 下一页 before 游标；为空表示没有下一页。
+	SourceRevision string  // 当前文件 snapshot 的不透明版本；跨页保持一致。
 }
 
 // offsetCursor 是 history page 游标的 wire 结构，编码后不能随意改字段名。
@@ -41,9 +49,10 @@ func ReadProviderMessagesPage(req ReadRequest, pageReq dto.MessagePageRequest) (
 		return dto.MessagePageResult{}, err
 	}
 	return dto.MessagePageResult{
-		Messages:   messagesWithPageOffsets(page.Items, page.Offsets),
-		HasMore:    page.HasMore,
-		NextBefore: page.NextBefore,
+		Messages:       messagesWithPageOffsets(page.Items, page.Offsets),
+		HasMore:        page.HasMore,
+		NextBefore:     page.NextBefore,
+		SourceRevision: page.SourceRevision,
 	}, nil
 }
 
@@ -66,9 +75,10 @@ func ReadProviderMessagesPageOrError(req ReadRequest, pageReq dto.MessagePageReq
 		return dto.MessagePageResult{}, err
 	}
 	return dto.MessagePageResult{
-		Messages:   messagesWithPageOffsets(page.Items, page.Offsets),
-		HasMore:    page.HasMore,
-		NextBefore: page.NextBefore,
+		Messages:       messagesWithPageOffsets(page.Items, page.Offsets),
+		HasMore:        page.HasMore,
+		NextBefore:     page.NextBefore,
+		SourceRevision: page.SourceRevision,
 	}, nil
 }
 
@@ -98,14 +108,20 @@ func ReadJSONLPage[T any](path string, limit int, before string, parse func([]by
 	if err != nil {
 		return JSONLPageResult[T]{}, err
 	}
+	revision, err := computeJSONLSourceRevision(file, size)
+	if err != nil {
+		return JSONLPageResult[T]{}, err
+	}
 	if beforeOffset == 0 {
-		return JSONLPageResult[T]{}, nil
+		return JSONLPageResult[T]{SourceRevision: revision}, nil
 	}
 	records, err := readJSONLRecordsBackward(file, beforeOffset, limit+1, parse)
 	if err != nil {
 		return JSONLPageResult[T]{}, err
 	}
-	return buildJSONLPage(records, limit), nil
+	page := buildJSONLPage(records, limit)
+	page.SourceRevision = revision
+	return page, nil
 }
 
 // validateJSONLPageRequest 拒绝无效分页参数，避免后续循环出现空 parser 或非正 limit。
@@ -123,7 +139,7 @@ func validateJSONLPageRequest[T any](limit int, parse func([]byte) (T, bool)) er
 func openJSONLPageFile(path string) (*os.File, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("open history jsonl: %w", err)
 	}
 	info, err := file.Stat()
 	if err != nil {
@@ -135,6 +151,90 @@ func openJSONLPageFile(path string) (*os.File, int64, error) {
 		return nil, 0, errors.New("history jsonl path is a directory")
 	}
 	return file, info.Size(), nil
+}
+
+// computeJSONLSourceRevision 由 snapshot 长度和最后一条完整记录摘要生成不透明版本。
+// 全程使用 ReadAt，不能移动分页读取依赖的文件游标。
+func computeJSONLSourceRevision(file *os.File, size int64) (string, error) {
+	recordDigest, err := lastCompleteJSONLRecordDigest(file, size)
+	if err != nil {
+		return "", err
+	}
+	var encodedSize [8]byte
+	binary.BigEndian.PutUint64(encodedSize[:], uint64(size))
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(sourceRevisionDomain))
+	_, _ = hash.Write(encodedSize[:])
+	_, _ = hash.Write(recordDigest[:])
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// lastCompleteJSONLRecordDigest 定位最后一个换行结束的非空记录，并仅返回其摘要。
+func lastCompleteJSONLRecordDigest(file *os.File, size int64) ([sha256.Size]byte, error) {
+	emptyDigest := sha256.Sum256(nil)
+	end, err := findPreviousJSONLNewline(file, size)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	for end >= 0 {
+		previous, err := findPreviousJSONLNewline(file, end)
+		if err != nil {
+			return [sha256.Size]byte{}, err
+		}
+		digest, nonEmpty, err := digestJSONLRecordRange(file, previous+1, end)
+		if err != nil {
+			return [sha256.Size]byte{}, err
+		}
+		if nonEmpty {
+			return digest, nil
+		}
+		if previous < 0 {
+			break
+		}
+		end = previous
+	}
+	return emptyDigest, nil
+}
+
+// findPreviousJSONLNewline 在 before 之前分块查找换行位置；找不到时返回 -1。
+func findPreviousJSONLNewline(file *os.File, before int64) (int64, error) {
+	for end := before; end > 0; {
+		start := max(end-sourceRevisionReadChunk, int64(0))
+		buffer := make([]byte, int(end-start))
+		if _, err := file.ReadAt(buffer, start); err != nil {
+			return 0, fmt.Errorf("read history jsonl revision tail: %w", err)
+		}
+		if index := bytes.LastIndexByte(buffer, '\n'); index >= 0 {
+			return start + int64(index), nil
+		}
+		end = start
+	}
+	return -1, nil
+}
+
+// digestJSONLRecordRange 流式摘要一条记录，并区分空白行与真实 JSONL 记录。
+func digestJSONLRecordRange(file *os.File, start, end int64) ([sha256.Size]byte, bool, error) {
+	hash := sha256.New()
+	nonEmpty := false
+	buffer := make([]byte, sourceRevisionReadChunk)
+	for offset := start; offset < end; {
+		readSize := int64(len(buffer))
+		if remaining := end - offset; remaining < readSize {
+			readSize = remaining
+		}
+		chunk := buffer[:int(readSize)]
+		if _, err := file.ReadAt(chunk, offset); err != nil {
+			return [sha256.Size]byte{}, false, fmt.Errorf("read history jsonl revision record: %w", err)
+		}
+		if len(bytes.TrimSpace(chunk)) > 0 {
+			nonEmpty = true
+		}
+		_, _ = hash.Write(chunk)
+		offset += readSize
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest, nonEmpty, nil
 }
 
 // buildJSONLPage 将倒序读取的记录恢复为页面正序，并生成下一页游标。
@@ -193,10 +293,7 @@ func readJSONLRecordsBackward[T any](
 // readPreviousJSONLChunk 读取当前偏移之前的一块内容，并拼接上轮遗留后缀。
 func readPreviousJSONLChunk(reader io.ReaderAt, pos int64, suffix []byte) (int64, []byte, error) {
 	const chunkSize int64 = 64 * 1024
-	readSize := chunkSize
-	if pos < readSize {
-		readSize = pos
-	}
+	readSize := min(chunkSize, pos)
 	start := pos - readSize
 	chunk := make([]byte, readSize)
 	if _, err := reader.ReadAt(chunk, start); err != nil {

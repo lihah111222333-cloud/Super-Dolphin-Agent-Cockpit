@@ -480,7 +480,7 @@ func (s *historyTestSession) ReadMessagesPage(_ context.Context, threadID string
 }
 
 func hasHistoryTestPage(page dto.MessagePageResult) bool {
-	return len(page.Messages) != 0 || page.HasMore || page.NextBefore != ""
+	return len(page.Messages) != 0 || page.HasMore || page.NextBefore != "" || strings.TrimSpace(page.SourceRevision) != ""
 }
 
 func cloneHistoryTestPage(page dto.MessagePageResult) dto.MessagePageResult {
