@@ -349,8 +349,8 @@ internal/platform/difftracker/types.go	internal	platform-provider	go-source	2624
 internal/platform/discovery/discovery_test.go	internal	platform-provider	go-test	2893	基础设施层	internal,platform,discovery,test,基础设施层
 internal/platform/discovery/discovery.go	internal	platform-provider	go-source	6413	基础设施层	internal,platform,discovery,基础设施层
 internal/platform/eventsurface/bind_payloads.go	internal	platform-provider	go-source	1870	基础设施层	internal,platform,eventsurface,bind,payloads,基础设施层
-internal/platform/eventsurface/bind_test.go	internal	platform-provider	go-test	14090	基础设施层	internal,platform,eventsurface,bind,test,基础设施层
-internal/platform/eventsurface/bind.go	internal	platform-provider	go-source	18068	基础设施层	internal,platform,eventsurface,bind,基础设施层
+internal/platform/eventsurface/bind_test.go	internal	platform-provider	go-test	14523	基础设施层	internal,platform,eventsurface,bind,test,基础设施层
+internal/platform/eventsurface/bind.go	internal	platform-provider	go-source	18132	基础设施层	internal,platform,eventsurface,bind,基础设施层
 internal/platform/eventsurface/legacy_test.go	internal	platform-provider	go-test	2363	基础设施层	internal,platform,eventsurface,legacy,test,基础设施层
 internal/platform/eventsurface/legacy.go	internal	platform-provider	go-source	3941	基础设施层	internal,platform,eventsurface,legacy,基础设施层
 internal/platform/eventsurface/methods_test.go	internal	platform-provider	go-test	4334	基础设施层	internal,platform,eventsurface,methods,test,基础设施层
@@ -496,11 +496,11 @@ internal/platform/rlimit/rlimit_unix.go	internal	platform-provider	go-source	165
 internal/platform/rlimit/rlimit_windows.go	internal	platform-provider	go-source	151	基础设施层	internal,platform,rlimit,windows,基础设施层
 internal/platform/rpc/approval_cleanup_runner_test.go	internal	platform-provider	go-test	6373	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,cleanup,runner,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/approval_cleanup_runner.go	internal	platform-provider	go-source	2414	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,cleanup,runner,JSON-RPC,transport,dispatch,push,与审批框架
-internal/platform/rpc/approval_events.go	internal	platform-provider	go-source	4873	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,events,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/approval_events.go	internal	platform-provider	go-source	4926	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,events,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/approval_lifecycle_test.go	internal	platform-provider	go-test	6233	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,lifecycle,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/approval_lifecycle.go	internal	platform-provider	go-source	2192	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,lifecycle,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/approval_support.go	internal	platform-provider	go-source	10087	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,support,JSON-RPC,transport,dispatch,push,与审批框架
-internal/platform/rpc/approval_test.go	internal	platform-provider	go-test	12081	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,test,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/approval_test.go	internal	platform-provider	go-test	12511	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/approval.go	internal	platform-provider	go-source	16873	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/codec_golden_test.go	internal	platform-provider	go-test	664	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,codec,golden,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/codec.go	internal	platform-provider	go-source	681	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,codec,JSON-RPC,transport,dispatch,push,与审批框架
@@ -851,8 +851,8 @@ internal/provider/codexapp/driver.go	internal	platform-provider	go-source	17395	
 internal/provider/codexapp/dynamic_skill_tools_e2e_test.go	internal	platform-provider	go-test	14747	Codex app/server provider 集成	internal,provider,codexapp,dynamic,skill,tools,e2e,test,Codex,app,server,集成
 internal/provider/codexapp/dynamic_tool_details_test.go	internal	platform-provider	go-test	4865	Codex app/server provider 集成	internal,provider,codexapp,dynamic,tool,details,test,Codex,app,server,集成
 internal/provider/codexapp/env_allowlist_test.go	internal	platform-provider	go-test	5381	Codex app/server provider 集成	internal,provider,codexapp,env,allowlist,test,Codex,app,server,集成
-internal/provider/codexapp/event_map_test.go	internal	platform-provider	go-test	21420	Codex app/server provider 集成	internal,provider,codexapp,event,map,test,Codex,app,server,集成
-internal/provider/codexapp/event_map.go	internal	platform-provider	go-source	25703	Codex app/server provider 集成	internal,provider,codexapp,event,map,Codex,app,server,集成
+internal/provider/codexapp/event_map_test.go	internal	platform-provider	go-test	22228	Codex app/server provider 集成	internal,provider,codexapp,event,map,test,Codex,app,server,集成
+internal/provider/codexapp/event_map.go	internal	platform-provider	go-source	25774	Codex app/server provider 集成	internal,provider,codexapp,event,map,Codex,app,server,集成
 internal/provider/codexapp/factory.go	internal	platform-provider	go-source	13031	Codex app/server provider 集成	internal,provider,codexapp,factory,Codex,app,server,集成
 internal/provider/codexapp/forcecomplete_approval_race_test.go	internal	platform-provider	go-test	15161	Codex app/server provider 集成	internal,provider,codexapp,forcecomplete,approval,race,test,Codex,app,server,集成
 internal/provider/codexapp/history_rollout_path_test.go	internal	platform-provider	go-test	3187	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,path,test,Codex,app,server,集成

@@ -287,6 +287,22 @@ function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, 
   }, [actionState, list, notices, refresh, workflowCwd]);
 }
 
+function captureWorkflowThreadSelection(store) {
+  if (typeof store?.captureThreadSelection !== 'function') throw new Error('自动化会话选择快照能力不可用');
+  if (typeof store?.setActiveThread !== 'function') throw new Error('自动化会话选择能力不可用');
+  if (typeof store?.setActivePage !== 'function') throw new Error('自动化页面导航能力不可用');
+  return store.captureThreadSelection();
+}
+
+async function navigateToWorkflowThread(store, threadId, selectionSnapshot) {
+  if (threadId) {
+    const selected = await store.setActiveThread(threadId, { selectionSnapshot });
+    if (selected === false) return false;
+  }
+  store.setActivePage('chat');
+  return true;
+}
+
 function useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd }) {
   return useCallback(async (template = null, options = {}) => {
     if (!workflowCwd) return;
@@ -306,7 +322,11 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
         message: '正在启动 AI 设计流程',
       }));
     }
+    let selectionSnapshot;
     try {
+      if (!isEnterpriseTemplate && !stayOnWorkflow) {
+        selectionSnapshot = captureWorkflowThreadSelection(store);
+      }
       if (typeof store?.resolveLaunchPreferences !== 'function') throw new Error('自动化启动配置不可用');
       const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
       const { config: launchConfigRaw, ...launchPayload } = objectValue(launchPreferences);
@@ -324,8 +344,7 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
         setDesignSession?.(freeDesignSessionSnapshot(workflowTemplateDesignPatch(threadId, 'submitted', message)));
         return;
       }
-      if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
-      if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
+      await navigateToWorkflowThread(store, threadId, selectionSnapshot);
     } catch (err) {
       actionState.setError((template ? '启动政企模板失败：' : '启动 AI 设计流程失败：') + errorMessage(err));
       if (isEnterpriseTemplate) {

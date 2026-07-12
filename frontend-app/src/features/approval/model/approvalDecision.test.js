@@ -36,12 +36,36 @@ describe('approvalDecision', () => {
     })).toEqual(expect.objectContaining({ requestId: 13, status: 'rejected', terminal: true }));
 
     for (const message of [
+      { kind: 'approval', status: 'pending' },
       { kind: 'approval', requestId: 0, status: 'pending' },
       { kind: 'approval', requestId: '11', status: 'pending' },
+      { kind: 'approval', requestId: '11', status: 'approved' },
       { kind: 'approval', requestId: 11, status: 'completed' },
     ]) {
       expect(() => approvalRequestFromMessage(message)).toThrow();
     }
+  });
+
+  it('models terminal approvals without identity as display-only', () => {
+    expect(approvalRequestFromMessage({
+      kind: 'approval',
+      status: 'approved',
+    })).toEqual({
+      requestId: null,
+      status: 'approved',
+      terminal: true,
+      displayOnly: true,
+    });
+    expect(approvalRequestFromMessage({
+      kind: 'approval',
+      requestId: 31,
+      status: 'rejected',
+    })).toEqual({
+      requestId: 31,
+      status: 'rejected',
+      terminal: true,
+      displayOnly: false,
+    });
   });
 
   it('accepts only approval choices and blocks terminal resubmission', () => {

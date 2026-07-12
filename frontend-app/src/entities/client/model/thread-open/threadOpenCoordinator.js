@@ -1,8 +1,13 @@
 function createThreadOpenCoordinator() {
   let nextIntentId = 0;
   let currentIntent = null;
+  let generation = Object.freeze({});
 
   const isCurrent = (intent) => intent !== null && intent === currentIntent;
+  const capture = () => generation;
+  const advanceGeneration = () => {
+    generation = Object.freeze({});
+  };
   const canReleaseTarget = (intent) => intent !== null && (
     isCurrent(intent)
     || currentIntent === null
@@ -16,6 +21,7 @@ function createThreadOpenCoordinator() {
       throw new Error('thread open intent id exhausted');
     }
     nextIntentId += 1;
+    advanceGeneration();
     currentIntent = Object.freeze({
       selectionIntentId: nextIntentId,
       targetThreadId,
@@ -25,15 +31,20 @@ function createThreadOpenCoordinator() {
   const cancel = (intent) => {
     if (!isCurrent(intent)) return false;
     currentIntent = null;
+    advanceGeneration();
     return true;
   };
   const invalidate = () => {
     const invalidatedIntent = currentIntent;
     currentIntent = null;
+    advanceGeneration();
     return invalidatedIntent;
   };
+  const beginIfUnchanged = (snapshot, targetThreadId) => (
+    snapshot === generation ? begin(targetThreadId) : null
+  );
 
-  return { begin, cancel, invalidate, isCurrent, canReleaseTarget };
+  return { begin, beginIfUnchanged, cancel, capture, invalidate, isCurrent, canReleaseTarget };
 }
 
 export { createThreadOpenCoordinator };

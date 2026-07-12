@@ -47,6 +47,34 @@ import {
 } from './clientStoreSendModel.js';
 import { writeThreadInfoClipboard } from './clientStoreThreadClipboard.js';
 
+const APPROVAL_SUBMIT_TIMEOUT_MS = 15_000;
+const APPROVAL_SUBMIT_TIMEOUT_CODE = 'APPROVAL_SUBMIT_TIMEOUT';
+
+function approvalSubmitTimeoutError() {
+  const error = new Error('审批提交超时');
+  error.code = APPROVAL_SUBMIT_TIMEOUT_CODE;
+  return error;
+}
+
+function approvalSubmitIsTimeout(error) {
+  return error?.code === APPROVAL_SUBMIT_TIMEOUT_CODE;
+}
+
+async function respondApprovalWithinTimeout(params) {
+  let timeoutId = 0;
+  try {
+    return await Promise.race([
+      respondApprovalRPC(params),
+      new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(approvalSubmitTimeoutError()), APPROVAL_SUBMIT_TIMEOUT_MS);
+      }),
+    ]);
+  }
+  finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function promotedDashboardCommandState(state, request, started) {
   return {
     ...promotedDraftThreadState(state, request, started),
@@ -169,7 +197,7 @@ function warnApprovalFailed(runtime, requestId, decision, error) {
   runtime.addWarning('error', 'timeline.approval.respond.failed', { requestId, approved: decision, error: message });
 }
 
-async function respondApprovalAction(runtime, item, approved) {
+async function respondApprovalAction(runtime, deps, item, approved) {
   const requestId = positiveApprovalRequestIdFromFields(item);
   const decision = Boolean(approved);
   if (requestId <= 0) {
@@ -180,18 +208,23 @@ async function respondApprovalAction(runtime, item, approved) {
     warnDuplicateApprovalSubmit(runtime, requestId, decision);
     return false;
   }
+  deps.recordApproval('start');
   runtime.set((state) => approvalSubmitPatch(state, requestId, decision));
   try {
-    const result = await respondApprovalRPC({ requestId, approved: decision });
+    const result = await respondApprovalWithinTimeout({ requestId, approved: decision });
     if (result?.ok === false) {
+      deps.recordApproval('failure');
       warnApprovalNotPending(runtime, requestId, decision);
       return false;
     }
+    deps.recordApproval('success');
     runtime.notifyAction('审批结果已提交', 'success', { requestId });
     return true;
   }
   catch (error) {
+    deps.recordApproval(approvalSubmitIsTimeout(error) ? 'timeout' : 'failure');
     warnApprovalFailed(runtime, requestId, decision, error);
+    if (approvalSubmitIsTimeout(error)) throw error;
     return false;
   }
   finally {
@@ -199,7 +232,7 @@ async function respondApprovalAction(runtime, item, approved) {
   }
 }
 
-function createActiveThreadActions(runtime) {
+function createActiveThreadActions(runtime, deps) {
   return {
     interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),
     forceCompleteActiveThread: () => runtime.activeThreadRPC('thread.force_complete', forceCompleteTurn),
@@ -210,7 +243,7 @@ function createActiveThreadActions(runtime) {
     hasInterruptibleThreadAction: () => hasInterruptibleThreadAction(runtime),
     hasForceCompleteThreadAction: () => hasInterruptibleThreadAction(runtime),
     refreshActiveThreadStatus: () => refreshActiveThreadStatusAction(runtime),
-    respondApproval: (item, approved) => respondApprovalAction(runtime, item, approved),
+    respondApproval: (item, approved) => respondApprovalAction(runtime, deps, item, approved),
   };
 }
 

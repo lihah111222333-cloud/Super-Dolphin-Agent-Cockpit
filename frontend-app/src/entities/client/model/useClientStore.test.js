@@ -89,6 +89,15 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
 }));
 
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
+import * as frontendBreadcrumbs from '../../../shared/diagnostics/frontendBreadcrumbs.js';
+
+function diagnosticBreadcrumbs() {
+  return frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests().map(({ actionCode, routeId, phase }) => ({
+    actionCode,
+    routeId,
+    phase,
+  }));
+}
 
 function registerBridgeEventHandlersForTest() {
   const initialization = useClientStore.getState().initializeEvents();
@@ -100,6 +109,7 @@ function registerBridgeEventHandlersForTest() {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    frontendBreadcrumbs.resetFrontendBreadcrumbsForTests?.();
     bridgeCallback = null;
     bridgeOptions = null;
     runtimeReconnectCallback = null;
@@ -251,6 +261,20 @@ function registerBridgeEventHandlersForTest() {
       contextWindowTokens: 400,
       usedPercent: 17.5,
     });
+  });
+
+  it('records each central active-page transition once and ignores same-page updates', () => {
+    resetClientStoreForTests({ activePage: 'chat' });
+
+    useClientStore.getState().setActivePage('settings');
+    useClientStore.getState().setActivePage('settings');
+    useClientStore.getState().setActivePage('memory');
+
+    expect(useClientStore.getState().activePage).toBe('memory');
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'app.navigation', routeId: 'settings', phase: 'complete' },
+      { actionCode: 'app.navigation', routeId: 'memory', phase: 'complete' },
+    ]);
   });
 
   it('fails bootstrap when the active provider preference is missing', async () => {
@@ -3163,6 +3187,31 @@ function registerBridgeEventHandlersForTest() {
     expect(latestA).toEqual(expect.objectContaining({ targetThreadId: 'thread-a' }));
     expect(latestA.selectionIntentId).toBeGreaterThan(middleB.selectionIntentId);
     expect(middleB.selectionIntentId).toBeGreaterThan(firstA.selectionIntentId);
+  });
+
+  it('rejects a conditional selection after a newer user selection invalidates its snapshot', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', cwd: '/repo/app', name: 'Thread A', provider: 'codex', status: 'idle' },
+        { id: 'thread-b', cwd: '/repo/app', name: 'Thread B', provider: 'codex', status: 'idle' },
+      ],
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => ({
+      activeThreadId: threadId,
+      threads: [{ id: threadId, cwd: '/repo/app', provider: 'codex', status: 'idle' }],
+    }));
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    const snapshot = useClientStore.getState().captureThreadSelection?.();
+
+    await expect(useClientStore.getState().setActiveThread('thread-b')).resolves.toBe(true);
+    await expect(
+      useClientStore.getState().setActiveThread('thread-a', { selectionSnapshot: snapshot }),
+    ).resolves.toBe(false);
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-b');
   });
 
   it('keeps C active when A B C thread syncs finish out of order', async () => {
@@ -6308,6 +6357,10 @@ function registerBridgeEventHandlersForTest() {
       message: '审批结果已提交',
       tone: 'success',
     }));
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+    ]);
   });
 
   it('rejects malformed timeline approval request ids before calling the approval RPC', async () => {
@@ -6326,6 +6379,7 @@ function registerBridgeEventHandlersForTest() {
       message: '当前审批缺少请求编号，无法提交',
       tone: 'error',
     }));
+    expect(diagnosticBreadcrumbs()).toEqual([]);
   });
 
   it('keeps approval RPC submission idempotent per request id while in flight', async () => {
@@ -6347,10 +6401,108 @@ function registerBridgeEventHandlersForTest() {
       approved: true,
       inFlight: true,
     }));
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+    ]);
 
     pendingApproval.resolve({ ok: true });
     await expect(first).resolves.toBe(true);
     expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+    ]);
+  });
+
+  it('records not-pending and ordinary approval failures as one failed terminal without private fields', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+    backend.respondApproval.mockResolvedValueOnce({ ok: false });
+
+    await expect(useClientStore.getState().respondApproval({ requestId: 11 }, true)).resolves.toBe(false);
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
+    ]);
+
+    frontendBreadcrumbs.resetFrontendBreadcrumbsForTests();
+    backend.respondApproval.mockRejectedValueOnce(new Error('private failure /Users/alice'));
+    await expect(useClientStore.getState().respondApproval({ requestId: 12 }, false)).resolves.toBe(false);
+    expect(diagnosticBreadcrumbs()).toEqual([
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
+    ]);
+  });
+
+  it('times out the owned approval attempt and keeps a retried request isolated from the late transport', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstApproval = deferred();
+      const secondApproval = deferred();
+      backend.respondApproval
+        .mockReturnValueOnce(firstApproval.promise)
+        .mockReturnValueOnce(secondApproval.promise);
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+      });
+
+      let firstOutcome;
+      const first = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+      const firstHandled = first.then(
+        (value) => { firstOutcome = { status: 'fulfilled', value }; },
+        (error) => { firstOutcome = { status: 'rejected', error }; },
+      );
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushPromises();
+
+      expect(firstOutcome).toMatchObject({
+        status: 'rejected',
+        error: { code: 'APPROVAL_SUBMIT_TIMEOUT', message: '审批提交超时' },
+      });
+      expect(diagnosticBreadcrumbs()).toEqual([
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'timeout' },
+      ]);
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+
+      const second = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+      await flushPromises();
+      expect(backend.respondApproval).toHaveBeenCalledTimes(2);
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
+        approved: true,
+        inFlight: true,
+      }));
+
+      firstApproval.resolve({ ok: true });
+      await flushPromises();
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
+        approved: true,
+        inFlight: true,
+      }));
+
+      secondApproval.resolve({ ok: true });
+      await expect(second).resolves.toBe(true);
+      await firstHandled;
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+      expect(diagnosticBreadcrumbs()).toEqual([
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'timeout' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+        { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not call interrupt when the selected running thread has no active turn id', async () => {

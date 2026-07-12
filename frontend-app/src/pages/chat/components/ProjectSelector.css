@@ -32,6 +32,10 @@
   outline: none;
 }
 
+#overlay-root .project-selector-popover {
+  z-index: var(--z-overlay-popover);
+}
+
 .project-dropdown {
   width: 100%;
   max-height: min(320px, 60vh);

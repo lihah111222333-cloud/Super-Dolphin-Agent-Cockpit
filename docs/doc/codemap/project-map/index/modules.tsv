@@ -710,8 +710,8 @@ internal/module/uistate/timeline/phase2_projector_pending_helpers_test.go	intern
 internal/module/uistate/timeline/phase2_projector_pending_test.go	internal	modules	go-test	19841	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/projector_parity_test.go	internal	modules	go-test	12444	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,parity,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/projector_parity.go	internal	modules	go-source	21915	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,parity,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/projector.go	internal	modules	go-source	13354	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/timeline_guard_shard06_test.go	internal	modules	go-test	12957	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,guard,shard06,test,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/projector.go	internal	modules	go-source	13444	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/timeline_guard_shard06_test.go	internal	modules	go-test	13959	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,guard,shard06,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/timeline_test.go	internal	modules	go-test	11551	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/timeline.go	internal	modules	go-source	9310	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,UI,事件投影,sidebar,状态
 internal/module/uistate/tracing_test.go	internal	modules	go-test	5722	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,tracing,test,UI,事件投影,sidebar,timeline,状态

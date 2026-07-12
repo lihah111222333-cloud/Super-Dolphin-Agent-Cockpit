@@ -10,7 +10,7 @@ describe('chatHeaderFeedbackForStore', () => {
     })).toEqual({ message: 'Saved', tone: 'success' });
   });
 
-  it('projects requesting only for the active thread', () => {
+  it('projects canonical pending without requiring a resolved thread record', () => {
     expect(chatHeaderFeedbackForStore({
       activeThreadId: 'thread-1',
       bootstrapStatus: 'ready',
@@ -26,6 +26,19 @@ describe('chatHeaderFeedbackForStore', () => {
       bootstrapStatus: 'ready',
       threadRecoveryPendingByThread: { 'thread-1': true },
     })).toBeNull();
+  });
+
+  it('projects canonical recovery pending when the active identity is an alias', () => {
+    expect(chatHeaderFeedbackForStore({
+      activeThreadId: 'agent-1',
+      bootstrapStatus: 'ready',
+      threads: [{ id: 'thread-1', agentId: 'agent-1' }],
+      threadRecoveryPendingByThread: { 'thread-1': true },
+    })).toEqual({
+      message: '正在恢复',
+      tone: 'info',
+      recoveryRequesting: true,
+    });
   });
 
   it('preserves accepted wording without claiming recovery completed', () => {

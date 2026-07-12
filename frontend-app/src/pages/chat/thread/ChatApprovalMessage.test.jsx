@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
+import { Conversation } from './Conversation.jsx';
 
 function confirmChoice(choiceLabel) {
   fireEvent.click(screen.getByRole('button', { name: choiceLabel }));
@@ -61,6 +62,50 @@ describe('ChatApprovalMessage', () => {
     expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '拒绝' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();
+  });
+
+  it('renders a terminal approval without request identity as display-only', () => {
+    render(
+      <ChatApprovalMessage
+        message={{ id: 'approval-fallback', kind: 'approval', status: 'rejected', command: 'Fallback resolved' }}
+        actions={{ onApproval: vi.fn() }}
+        formatTime={() => '--:--'}
+      />
+    );
+
+    expect(screen.getByText('审批结果已提交')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '拒绝' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();
+  });
+
+  it('lets Conversation consume a display-only terminal approval', () => {
+    render(
+      <Conversation
+        messages={[{ id: 'approval-fallback', kind: 'approval', status: 'approved', command: 'Fallback resolved' }]}
+        sending={false}
+        activeThreadId="thread-1"
+        activeThread={{ id: 'thread-1', status: 'idle' }}
+        statusEntry={null}
+        activeTurn={null}
+        timelineBlocked={false}
+        messageActions={{ onApproval: vi.fn() }}
+        store={{ smoothStreaming: false }}
+        draft=""
+        setDraft={vi.fn()}
+        sendMessage={vi.fn()}
+        attachments={[]}
+        attachPaths={vi.fn()}
+        attachDroppedFiles={vi.fn()}
+        removeAttachment={vi.fn()}
+        selectFiles={vi.fn()}
+        projectPath="/tmp/project"
+        modelThreadId="thread-1"
+      />
+    );
+
+    expect(screen.getAllByText('Fallback resolved')).toHaveLength(2);
+    expect(screen.getByText('审批结果已提交')).toBeInTheDocument();
   });
 
   it('fails closed before rendering malformed approval request ids', () => {
@@ -129,6 +174,11 @@ describe('ChatApprovalMessage', () => {
     expect(legacySource).toMatch(/export\s*\{[\s\S]*\}\s*from\s*['"][^'"]*features\/approval\/model\/approvalDecision\.js['"]/);
     expect(legacySource).not.toMatch(/\bfunction\b|new Set\s*\(/);
   });
+
+  it('delegates approval timeout ownership to the client store', () => {
+    const source = readFileSync('src/pages/chat/thread/ChatApprovalMessage.jsx', 'utf8');
+    expect(source).not.toMatch(/Promise\.race|setTimeout|APPROVAL_TIMEOUT/);
+  });
 });
 
 describe('ChatApprovalMessage bug-locking', () => {
@@ -151,22 +201,22 @@ describe('ChatApprovalMessage bug-locking', () => {
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
   });
 
-  it('shows timeout errors and lets the user retry without auto double-submit', async () => {
-    vi.useFakeTimers();
-    const onApproval = vi.fn(() => new Promise(() => {})); // never resolves
+  it('shows store-owned timeout errors and lets the user retry explicitly', async () => {
+    const timeoutError = Object.assign(new Error('审批提交超时'), { code: 'APPROVAL_SUBMIT_TIMEOUT' });
+    const onApproval = vi.fn()
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce(true);
     const onError = vi.fn();
     render(
       <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
     );
     confirmChoice('同意');
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-    // microtask flush so catch/finally in submitApproval completes
-    await act(async () => { await Promise.resolve(); });
-    expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时');
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时'));
     expect(screen.getByRole('alert')).toHaveTextContent('审批提交超时');
+    expect(screen.getByRole('button', { name: '同意' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
-    expect(onApproval).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(onApproval).toHaveBeenCalledTimes(2));
   });
 });

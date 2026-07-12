@@ -595,9 +595,9 @@ function approvalMessage(requestId, status = 'pending') {
 
   it.each([
     ['wheel up', (timeline) => fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 0, deltaY: -40 })],
-    ['touch upward', (timeline) => {
-      fireEvent.touchStart(timeline, { touches: [{ clientY: 120 }] });
-      fireEvent.touchMove(timeline, { touches: [{ clientY: 70 }] });
+    ['touch toward older content', (timeline) => {
+      fireEvent.touchStart(timeline, { touches: [{ clientY: 70 }] });
+      fireEvent.touchMove(timeline, { touches: [{ clientY: 120 }] });
     }],
     ['PageUp', (timeline) => fireEvent.keyDown(timeline, { key: 'PageUp' })],
     ['Home', (timeline) => fireEvent.keyDown(timeline, { key: 'Home' })],
@@ -625,6 +625,8 @@ function approvalMessage(requestId, status = 'pending') {
 
     fireEvent.wheel(timeline, { ctrlKey: true, deltaX: 0, deltaY: -40 });
     fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 80, deltaY: -10 });
+    fireEvent.touchStart(timeline, { touches: [{ clientY: 120 }] });
+    fireEvent.touchMove(timeline, { touches: [{ clientY: 70 }] });
     fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'ArrowUp' });
     requestAnimationFrameSpy.mockClear();
     metrics.setScrollHeight(1280);

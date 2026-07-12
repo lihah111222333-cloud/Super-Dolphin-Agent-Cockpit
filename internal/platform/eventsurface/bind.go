@@ -399,6 +399,9 @@ func toolApprovalRequestedPayload(ev tooldto.ToolApprovalRequested) map[string]a
 
 func toolApprovalResolvedPayload(ev tooldto.ToolApprovalResolved) map[string]any {
 	payload := toolApprovalHeaderPayload(ev.ToolApprovalHeader)
+	if ev.RequestID > 0 {
+		payload["requestId"] = ev.RequestID
+	}
 	payload["approved"] = ev.Approved
 	setString(payload, "decision", ev.Decision)
 	setString(payload, "reviewedBy", ev.ReviewedBy)

@@ -15,14 +15,20 @@ function validatedApprovalRequest(request) {
   if (!request || Array.isArray(request) || typeof request !== 'object') {
     throw new TypeError('审批请求必须是对象');
   }
-  const requestId = positiveApprovalRequestIdFromFields(request);
-  if (requestId <= 0) throw new TypeError('审批请求缺少有效编号');
   const status = request.status;
   if (!APPROVAL_STATUSES.has(status)) throw new TypeError('审批请求状态无效');
+  const terminal = status !== 'pending';
+  const hasRequestId = Object.prototype.hasOwnProperty.call(request, 'requestId')
+    || Object.prototype.hasOwnProperty.call(request, 'request_id');
+  const requestId = positiveApprovalRequestIdFromFields(request);
+  if (requestId <= 0 && (!terminal || hasRequestId)) {
+    throw new TypeError('审批请求缺少有效编号');
+  }
   return {
-    requestId,
+    requestId: requestId > 0 ? requestId : null,
     status,
-    terminal: status !== 'pending',
+    terminal,
+    displayOnly: terminal && requestId <= 0,
   };
 }
 

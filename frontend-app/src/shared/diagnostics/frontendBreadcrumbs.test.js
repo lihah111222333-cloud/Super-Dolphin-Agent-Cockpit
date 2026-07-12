@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { createFrontendBreadcrumbBuffer } from './frontendBreadcrumbs.js';
+import * as frontendBreadcrumbs from './frontendBreadcrumbs.js';
 import breadcrumbsSource from './frontendBreadcrumbs.js?raw';
 
 describe('frontend breadcrumb buffer', () => {
+  beforeEach(() => {
+    frontendBreadcrumbs.resetFrontendBreadcrumbsForTests?.();
+  });
+
   it('routes breadcrumb fields through the shared safe log sanitizer', () => {
     expect(breadcrumbsSource).toContain("from './safeLogFields.js'");
     expect(breadcrumbsSource).toContain('safeLogFields(');
@@ -19,21 +24,21 @@ describe('frontend breadcrumb buffer', () => {
       now: () => timestamps.shift(),
     });
 
-    breadcrumbs.record({ actionCode: 'app.open', routeId: 'chat', phase: 'start' });
-    breadcrumbs.record({ actionCode: 'thread.select', routeId: 'chat', phase: 'accepted' });
-    breadcrumbs.record({ actionCode: 'settings.open', routeId: 'settings', phase: 'complete' });
+    breadcrumbs.record({ actionCode: 'app.bootstrap', routeId: 'app', phase: 'start' });
+    breadcrumbs.record({ actionCode: 'app.navigation', routeId: 'chat', phase: 'complete' });
+    breadcrumbs.record({ actionCode: 'approval.submit', routeId: 'settings', phase: 'success' });
 
     expect(breadcrumbs.snapshot()).toEqual([
       {
-        actionCode: 'thread.select',
+        actionCode: 'app.navigation',
         routeId: 'chat',
-        phase: 'accepted',
+        phase: 'complete',
         timestamp: '2026-07-11T13:00:01.000Z',
       },
       {
-        actionCode: 'settings.open',
+        actionCode: 'approval.submit',
         routeId: 'settings',
-        phase: 'complete',
+        phase: 'success',
         timestamp: '2026-07-11T13:00:02.000Z',
       },
     ]);
@@ -58,5 +63,85 @@ describe('frontend breadcrumb buffer', () => {
       prompt: 'private prompt body',
     })).toThrow('frontend breadcrumb must not include prompt');
     expect(breadcrumbs.snapshot()).toEqual([]);
+  });
+
+  it.each([
+    [
+      'actionCode',
+      { actionCode: 'chat.send', routeId: 'app', phase: 'start' },
+      'frontend breadcrumb actionCode is not allowed',
+    ],
+    [
+      'routeId',
+      { actionCode: 'app.bootstrap', routeId: '/Users/alice/private', phase: 'start' },
+      'frontend breadcrumb routeId is not allowed',
+    ],
+    [
+      'phase',
+      { actionCode: 'app.bootstrap', routeId: 'app', phase: 'accepted' },
+      'frontend breadcrumb phase is not allowed',
+    ],
+  ])('rejects %s values outside the low-cardinality breadcrumb contract', (_field, input, message) => {
+    const breadcrumbs = createFrontendBreadcrumbBuffer({ capacity: 2 });
+
+    expect(() => breadcrumbs.record(input)).toThrow(message);
+    expect(breadcrumbs.snapshot()).toEqual([]);
+  });
+
+  it('accepts app plus the eight current page route identifiers without importing client state', () => {
+    const breadcrumbs = createFrontendBreadcrumbBuffer({ capacity: 9 });
+    const routeIds = [
+      'app',
+      'chat',
+      'prompts',
+      'workflows',
+      'skills',
+      'memory',
+      'observability',
+      'files',
+      'settings',
+    ];
+
+    for (const routeId of routeIds) {
+      breadcrumbs.record({ actionCode: 'app.navigation', routeId, phase: 'complete' });
+    }
+
+    expect(breadcrumbs.snapshot().map((entry) => entry.routeId)).toEqual(routeIds);
+  });
+
+  it('owns one production ring behind a frozen snapshot-only source and narrow recorders', () => {
+    const source = frontendBreadcrumbs.frontendBreadcrumbSnapshotSource;
+
+    expect(Object.isFrozen(source)).toBe(true);
+    expect(Object.keys(source)).toEqual(['snapshot']);
+    expect(source).not.toHaveProperty('record');
+
+    frontendBreadcrumbs.recordFrontendBootstrapBreadcrumb();
+    frontendBreadcrumbs.recordFrontendNavigationBreadcrumb('settings');
+    frontendBreadcrumbs.recordFrontendApprovalBreadcrumb('start');
+    frontendBreadcrumbs.recordFrontendApprovalBreadcrumb('success');
+
+    expect(frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests()).toEqual(source.snapshot());
+    expect(source.snapshot().map(({ actionCode, routeId, phase }) => ({
+      actionCode,
+      routeId,
+      phase,
+    }))).toEqual([
+      { actionCode: 'app.bootstrap', routeId: 'app', phase: 'start' },
+      { actionCode: 'app.navigation', routeId: 'settings', phase: 'complete' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
+      { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
+    ]);
+  });
+
+  it('resets the production owner between tests and rejects values outside named recorder contracts', () => {
+    expect(frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests()).toEqual([]);
+    expect(() => frontendBreadcrumbs.recordFrontendNavigationBreadcrumb('app')).toThrow(
+      'frontend navigation breadcrumb routeId is not allowed',
+    );
+    expect(() => frontendBreadcrumbs.recordFrontendApprovalBreadcrumb('complete')).toThrow(
+      'frontend approval breadcrumb phase is not allowed',
+    );
+    expect(frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests()).toEqual([]);
   });
 });

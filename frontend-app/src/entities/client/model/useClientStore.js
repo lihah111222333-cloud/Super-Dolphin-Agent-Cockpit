@@ -20,6 +20,10 @@ import { createForkSlice } from './forkSlice.js';
 import { createProjectSlice } from './projectSlice.js';
 import { createRuntimeSlice } from './runtimeSlice.js';
 import {
+  recordFrontendApprovalBreadcrumb,
+  recordFrontendNavigationBreadcrumb,
+} from '../../../shared/diagnostics/frontendBreadcrumbs.js';
+import {
   PROVIDER_ACTIVE_PREF_KEY,
   requireActiveProviderPreference,
 } from './helpers/providerRuntimeConfig.js';
@@ -102,6 +106,11 @@ const runtimeActionDeps = {
   shouldAutoLoadThreadConfig,
 };
 
+const breadcrumbActionDeps = {
+  recordApproval: (phase) => recordFrontendApprovalBreadcrumb(phase),
+  recordNavigation: (routeId) => recordFrontendNavigationBreadcrumb(routeId),
+};
+
 function createClientStore(set, get) {
   const runtime = createClientStoreRuntime(set, get);
   const composerDeps = {
@@ -114,7 +123,7 @@ function createClientStore(set, get) {
   return {
     ...baseState,
     ...createRuntimeSlice(runtime, runtimeActionDeps),
-    ...createNavigationActions(runtime),
+    ...createNavigationActions(runtime, breadcrumbActionDeps),
     ...createPromptWorkflowCacheActions(runtime),
     ...createResourcePageCacheActions(runtime),
     ...createProviderConfigActions(runtime),
@@ -134,7 +143,7 @@ function createClientStore(set, get) {
     ...createForkSlice(runtime, forkActionDeps),
     ...createComposerSlice(runtime, composerDeps),
     ...createDashboardCommandActions(runtime),
-    ...createActiveThreadActions(runtime),
+    ...createActiveThreadActions(runtime, breadcrumbActionDeps),
     ...createThreadCopyActions(runtime),
     ...createThreadRenamePinActions(runtime),
     ...createThreadArchiveActions(runtime),

@@ -2,6 +2,7 @@ package eventsurface
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -161,6 +162,17 @@ func TestToolCallEndPayloadIncludesPersistFailure(t *testing.T) {
 		seen[ev.method] = payloadMap(ev.payload)
 	}
 	assertRecoveryAndToolSurfacePayloads(t, seen)
+}
+
+func TestToolApprovalResolvedPayloadIncludesRequestID(t *testing.T) {
+	var resolved tooldto.ToolApprovalResolved
+	if err := json.Unmarshal([]byte(`{"request_id":101}`), &resolved); err != nil {
+		t.Fatalf("unmarshal resolved approval: %v", err)
+	}
+	payload := toolApprovalResolvedPayload(resolved)
+	if payload["requestId"] != int64(101) {
+		t.Fatalf("resolved requestId = %#v, want 101", payload["requestId"])
+	}
 }
 
 func publishRecoveryAndToolSurfaceEvents(dispatcher *event.Dispatcher) {

@@ -63,24 +63,127 @@ function splitSelectors(selector) {
   return selectors;
 }
 
+function topLevelOverlayRootIndexes(selector) {
+  const marker = '#overlay-root';
+  const indexes = [];
+  let parentheses = 0;
+  let brackets = 0;
+  let quote = '';
+  let escaped = false;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const char = selector[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '[') {
+      brackets += 1;
+      continue;
+    }
+    if (char === ']') {
+      if (brackets === 0) return [];
+      brackets -= 1;
+      continue;
+    }
+    if (brackets > 0) continue;
+    if (char === '(') {
+      parentheses += 1;
+      continue;
+    }
+    if (char === ')') {
+      if (parentheses === 0) return [];
+      parentheses -= 1;
+      continue;
+    }
+    if (parentheses === 0 && selector.startsWith(marker, index)) indexes.push(index);
+  }
+
+  if (escaped || quote || parentheses !== 0 || brackets !== 0) return [];
+  return indexes;
+}
+
+function attributeSelectorEnd(selector, start) {
+  let quote = '';
+  let escaped = false;
+  for (let index = start + 1; index < selector.length; index += 1) {
+    const char = selector[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '[') return -1;
+    if (char === ']') return index + 1;
+  }
+  return -1;
+}
+
+function isSelectorBoundary(char) {
+  return char === ' ' || char === '\n' || char === '\r' || char === '\t' || char === '\f' || char === '>';
+}
+
 function hasExplicitOverlayRootAncestor(selector) {
   const marker = '#overlay-root';
-  const markerIndex = selector.indexOf(marker);
-  if (markerIndex < 0) return false;
-  const suffix = selector.slice(markerIndex + marker.length);
-  const attributes = suffix.match(/^(?:\[[^\]]+\])*/)?.[0] || '';
-  const remainder = suffix.slice(attributes.length);
-  return /^(?:\s+|>)/.test(remainder);
+  return topLevelOverlayRootIndexes(selector).some((markerIndex) => {
+    let suffixIndex = markerIndex + marker.length;
+    while (selector[suffixIndex] === '[') {
+      suffixIndex = attributeSelectorEnd(selector, suffixIndex);
+      if (suffixIndex < 0) return false;
+    }
+    return isSelectorBoundary(selector[suffixIndex]);
+  });
 }
 
 function declarationLine(declaration) {
   return declaration.source?.start?.line || 1;
 }
 
-function tokenDefinitions(root) {
+function tokenDefinitions(root, violations) {
+  const rootRules = root.nodes.filter(
+    (node) => node.type === 'rule' && node.selector.trim() === ':root',
+  );
+  if (rootRules.length !== 1) {
+    violations.push({ code: 'token-source-root-count', count: rootRules.length });
+  }
+  const canonicalRoot = rootRules.length === 1 ? rootRules[0] : null;
   const definitions = new Map();
   root.walkDecls((declaration) => {
     if (!declaration.prop.startsWith('--z-')) return;
+    if (declaration.parent !== canonicalRoot) {
+      violations.push({
+        code: 'token-definition-outside-root',
+        line: declarationLine(declaration),
+        token: declaration.prop,
+      });
+      if (!EXPECTED_TOKEN_SET.has(declaration.prop)) {
+        violations.push({ code: 'token-set-mismatch', token: declaration.prop });
+      }
+      return;
+    }
     const entries = definitions.get(declaration.prop) || [];
     entries.push(declaration);
     definitions.set(declaration.prop, entries);
@@ -89,7 +192,7 @@ function tokenDefinitions(root) {
 }
 
 function validateTokenDefinitions(root, violations) {
-  const definitions = tokenDefinitions(root);
+  const definitions = tokenDefinitions(root, violations);
   for (const token of EXPECTED_TOKENS) {
     if (!definitions.has(token)) violations.push({ code: 'token-set-mismatch', token });
   }
