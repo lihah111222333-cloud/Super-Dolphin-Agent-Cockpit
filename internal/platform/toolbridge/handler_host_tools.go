@@ -25,6 +25,16 @@ type peerToolsListOutcome struct {
 	err        error
 }
 
+// ToolCatalogEntry 描述一个可由输入区显式绑定的 canonical 工具。
+type ToolCatalogEntry struct {
+	ServerName     string `json:"serverName"`
+	ToolName       string `json:"toolName"`
+	DisplayName    string `json:"displayName"`
+	Description    string `json:"description"`
+	Enabled        bool   `json:"enabled"`
+	DisabledReason string `json:"disabledReason"`
+}
+
 // listPeerToolsForCodex 并发查询 Codex 需要暴露的 peer 工具列表。
 // 输出顺序仍按 kinds 入参排序，避免动态工具面因 goroutine 完成顺序发生抖动。
 func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []peerToolsListOutcome {
@@ -115,6 +125,103 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 		return nil, ErrNoPeerAvailable
 	}
 	return toCodexDynamicTools(merged), nil
+}
+
+// ListToolCatalog 返回指定工作区中通过 lifecycle policy 的 host、orchestration 和 LSP 工具。
+func (h *Handler) ListToolCatalog(ctx context.Context, cwd string) ([]ToolCatalogEntry, error) {
+	workspaceRoot, err := normalizeMCPToolLifecycleWorkspaceRoot(cwd)
+	if err != nil {
+		return nil, err
+	}
+	if h == nil {
+		return nil, fmt.Errorf("toolbridge tool catalog handler is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var hostTools []dto.MCPTool
+	if h.hostTools != nil {
+		hostTools = h.hostTools.ListHostTools()
+	}
+	outcomes := h.listPeerToolsForCodex(ctx, dto.ClientKindOrch, dto.ClientKindLSP)
+	if err := joinPeerToolErrors(outcomes); err != nil {
+		return nil, fmt.Errorf("toolbridge tool catalog peer discovery failed: %w", err)
+	}
+	for i := range outcomes {
+		serverName := outcomes[i].clientKind
+		if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, serverName, serverName, outcomes[i].tools); err != nil {
+			return nil, err
+		}
+		outcomes[i].tools, err = h.filterMCPToolLifecycleTools(
+			ctx,
+			workspaceRoot,
+			serverName,
+			serverName,
+			outcomes[i].tools,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return h.buildToolCatalog(hostTools, outcomes)
+}
+
+// buildToolCatalog 按 host、orchestration、LSP 顺序合并工具，并保持现有 host-first shadow 规则。
+func (h *Handler) buildToolCatalog(hostTools []dto.MCPTool, outcomes []peerToolsListOutcome) ([]ToolCatalogEntry, error) {
+	seenSources := make(map[string]string)
+	host, err := canonicalCatalogTools("host", hostTools)
+	if err != nil {
+		return nil, err
+	}
+	merged := h.appendDynamicToolsWithShadowWarning(nil, seenSources, "host", host)
+	for _, outcome := range outcomes {
+		canonical, err := canonicalCatalogTools(outcome.clientKind, outcome.tools)
+		if err != nil {
+			return nil, err
+		}
+		merged = h.appendDynamicToolsWithShadowWarning(merged, seenSources, outcome.clientKind, canonical)
+	}
+	if len(merged) == 0 {
+		return nil, ErrNoPeerAvailable
+	}
+	out := make([]ToolCatalogEntry, 0, len(merged))
+	for _, tool := range merged {
+		out = append(out, ToolCatalogEntry{
+			ServerName:     seenSources[tool.Name],
+			ToolName:       tool.Name,
+			DisplayName:    tool.Name,
+			Description:    strings.TrimSpace(tool.Description),
+			Enabled:        true,
+			DisabledReason: "",
+		})
+	}
+	return out, nil
+}
+
+// canonicalCatalogTools 校验单一来源内的 canonical 名称唯一性。
+func canonicalCatalogTools(serverName string, tools []dto.MCPTool) ([]dto.MCPTool, error) {
+	seen := make(map[string]struct{}, len(tools))
+	out := make([]dto.MCPTool, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			return nil, fmt.Errorf("toolbridge tool catalog %s tool name is required", serverName)
+		}
+		if serverName != "host" {
+			name = canonicalCodexToolName(serverName, name)
+			if serverName == dto.ClientKindLSP && (name == "edit" || name == "completion") {
+				name = "lsp_" + name
+			}
+		}
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("toolbridge tool catalog %s canonical name %q conflicts", serverName, name)
+		}
+		seen[name] = struct{}{}
+		tool.Name = name
+		out = append(out, tool)
+	}
+	return out, nil
 }
 
 // backfillListToolsForCodexPeerDiscovery 为旧版 Codex 动态工具列表入口补写 peer owner。

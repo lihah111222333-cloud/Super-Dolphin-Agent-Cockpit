@@ -109,6 +109,7 @@ var Module = fx.Options(
 	// 桌面进程不能再嵌入 orchestration module，否则本地 launcher 会把桌面二进制当子进程拉起并导致 agent 失败。
 	fx.Provide(
 		AsRPCRunner,
+		newToolCatalogHandlers,
 		newToolbridgeHandlerRef,
 		fx.Annotate(newMCPOrchDAGRuntime, fx.As(new(contract.DAGRuntime))),
 		fx.Annotate(
