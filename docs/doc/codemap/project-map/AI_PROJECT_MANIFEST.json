@@ -5,12 +5,12 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4452,
+  "files": 4476,
   "domains": {
-    "docs-agent": 909,
-    "other": 624,
-    "app-ui": 457,
-    "platform-provider": 1013,
+    "docs-agent": 911,
+    "other": 626,
+    "app-ui": 476,
+    "platform-provider": 1014,
     "orchestration": 419,
     "modules": 720,
     "store-sql": 310
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 457,
-        "size_kb": 92.3,
+        "file_count": 476,
+        "size_kb": 96.9,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1013,
-        "size_kb": 186.5,
+        "file_count": 1014,
+        "size_kb": 186.7,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,15 +57,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 909,
-        "size_kb": 162,
+        "file_count": 911,
+        "size_kb": 162.4,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 624,
-        "size_kb": 121.9,
+        "file_count": 626,
+        "size_kb": 122.3,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -73,9 +73,9 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 668,
-    "docs": 901,
-    "frontend-app": 455,
-    "internal": 2113,
+    "docs": 903,
+    "frontend-app": 474,
+    "internal": 2116,
     "migrations": 112,
     "pkg": 27,
     "scripts": 115,

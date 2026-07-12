@@ -663,7 +663,7 @@ internal/platform/toolbridge/diff_gen.go	internal	platform-provider	go-source	27
 internal/platform/toolbridge/handler_codex_surface_store.go	internal	platform-provider	go-source	8910	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,codex,surface,store,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_dag_launch_test.go	internal	platform-provider	go-test	2466	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,dag,launch,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_dag_launch.go	internal	platform-provider	go-source	3821	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,dag,launch,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/handler_host_tools.go	internal	platform-provider	go-source	21360	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,host,tools,provider,与,MCP,桥接
+internal/platform/toolbridge/handler_host_tools.go	internal	platform-provider	go-source	24944	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,host,tools,provider,与,MCP,桥接
 internal/platform/toolbridge/handler_launch_args_test.go	internal	platform-provider	go-test	1651	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,launch,args,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_launch_args.go	internal	platform-provider	go-source	655	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,launch,args,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_log.go	internal	platform-provider	go-source	554	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,log,provider,与,MCP,tools,桥接
@@ -723,6 +723,7 @@ internal/platform/toolbridge/stdio_process_windows.go	internal	platform-provider
 internal/platform/toolbridge/subscribers_test.go	internal	platform-provider	go-test	3146	provider 与 MCP tools 桥接	internal,platform,toolbridge,subscribers,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/subscribers.go	internal	platform-provider	go-source	1238	provider 与 MCP tools 桥接	internal,platform,toolbridge,subscribers,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/test_helpers_test.go	internal	platform-provider	go-test	235	provider 与 MCP tools 桥接	internal,platform,toolbridge,test,helpers,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/tool_catalog_test.go	internal	platform-provider	go-test	4297	provider 与 MCP tools 桥接	internal,platform,toolbridge,tool,catalog,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/types_test.go	internal	platform-provider	go-test	2219	provider 与 MCP tools 桥接	internal,platform,toolbridge,types,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/types.go	internal	platform-provider	go-source	8476	provider 与 MCP tools 桥接	internal,platform,toolbridge,types,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/workflow_template_tools_test.go	internal	platform-provider	go-test	12513	provider 与 MCP tools 桥接	internal,platform,toolbridge,workflow,template,tools,test,provider,与,MCP,桥接

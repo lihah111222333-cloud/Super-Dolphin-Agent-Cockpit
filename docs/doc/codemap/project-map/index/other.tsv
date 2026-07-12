@@ -29,7 +29,7 @@ internal/app/internal/storeguard/nil_test.go	internal	other	go-test	1681	adapter
 internal/app/internal/storeguard/nil.go	internal	other	go-source	561	adapter 共享的 typed-nil fail-fast 检查 helper	internal,app,storeguard,nil,adapter,共享的,typed-nil,fail-fast,检查,helper
 internal/app/modules_e2efixture_test.go	internal	other	go-test	3871	root Fx/app 装配、runner 与 graph closure	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,graph,closure
 internal/app/modules_graph_test.go	internal	other	go-test	18719	root Fx/app 装配、runner 与 graph closure	internal,app,modules,graph,test,root,Fx,装配,runner,与,closure
-internal/app/modules.go	internal	other	go-source	7521	root Fx/app 装配、runner 与 graph closure	internal,app,modules,root,Fx,装配,runner,与,graph,closure
+internal/app/modules.go	internal	other	go-source	7547	root Fx/app 装配、runner 与 graph closure	internal,app,modules,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,graph,closure
@@ -107,6 +107,8 @@ internal/app/storeadapter/uistate/module.go	internal	other	go-source	275	业务 
 internal/app/storeadapter/uistate/port_external_test.go	internal	other	go-test	1280	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,uistate,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7271	root Fx/app 装配、runner 与 graph closure	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,graph,closure
 internal/app/thread_orchestration_adapter.go	internal	other	go-source	10078	root Fx/app 装配、runner 与 graph closure	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,graph,closure
+internal/app/tool_catalog_rpc_test.go	internal	other	go-test	2064	root Fx/app 装配、runner 与 graph closure	internal,app,tool,catalog,rpc,test,root,Fx,装配,runner,与,graph,closure
+internal/app/tool_catalog_rpc.go	internal	other	go-source	1793	root Fx/app 装配、runner 与 graph closure	internal,app,tool,catalog,rpc,root,Fx,装配,runner,与,graph,closure
 internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2515	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,field,writes,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/agent_lifecycle_port_boundary_test.go	internal	other	go-test	750	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,lifecycle,port,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/app_adapter_package_boundary_test.go	internal	other	go-test	4099	架构守卫、baseline ratchet 与冻结规则	internal,archtest,app,adapter,package,boundary,test,架构守卫,baseline,ratchet,与冻结规则

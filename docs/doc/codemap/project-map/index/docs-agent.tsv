@@ -447,6 +447,7 @@ docs/plans/2026-07-10-mcp-orch-boundary-refactor.md	docs	docs-agent	doc	15138	�
 docs/plans/2026-07-10-mcp-orch-boundary-review-followup.md	docs	docs-agent	doc	7729	历史计划与迁移执行文档	docs,plans,2026,07,10,mcp,orch,boundary,review,followup,历史计划与迁移执行文档
 docs/plans/2026-07-10-priority-ssa-error-exception-tags.md	docs	docs-agent	doc	5278	历史计划与迁移执行文档	docs,plans,2026,07,10,priority,ssa,error,exception,tags,历史计划与迁移执行文档
 docs/plans/2026-07-10-priority-ssa-true-debt-remediation.md	docs	docs-agent	doc	7118	历史计划与迁移执行文档	docs,plans,2026,07,10,priority,ssa,true,debt,remediation,历史计划与迁移执行文档
+docs/plans/2026-07-11-chat-slash-command-palette.md	docs	docs-agent	doc	82400	历史计划与迁移执行文档	docs,plans,2026,07,11,chat,slash,command,palette,历史计划与迁移执行文档
 docs/plans/2026-07-11-internal-app-store-adapter-package-split.md	docs	docs-agent	doc	47272	历史计划与迁移执行文档	docs,plans,2026,07,11,internal,app,store,adapter,package,split,历史计划与迁移执行文档
 docs/plans/2026-07-11-p0-p1-contract-alignment.md	docs	docs-agent	doc	4900	历史计划与迁移执行文档	docs,plans,2026,07,11,p0,p1,contract,alignment,历史计划与迁移执行文档
 docs/plans/2026-07-11-reasonix-frontend-architecture-absorption-execution.md	docs	docs-agent	doc	207347	历史计划与迁移执行文档	docs,plans,2026,07,11,reasonix,frontend,architecture,absorption,execution,历史计划与迁移执行文档
@@ -861,6 +862,7 @@ docs/superpowers/specs/2026-07-10-chat-project-thread-navigation-design.md	docs	
 docs/superpowers/specs/2026-07-10-chat-turn-process-composer-redesign-design.md	docs	docs-agent	doc	4120	项目文档体系	docs,superpowers,specs,2026,07,10,chat,turn,process,composer,redesign,design,项目文档体系
 docs/superpowers/specs/2026-07-10-lsp-and-p1-remediation-design.md	docs	docs-agent	doc	17720	项目文档体系	docs,superpowers,specs,2026,07,10,lsp,and,p1,remediation,design,项目文档体系
 docs/superpowers/specs/2026-07-10-mcp-orch-boundary-refactor-design.md	docs	docs-agent	doc	8034	项目文档体系	docs,superpowers,specs,2026,07,10,mcp,orch,boundary,refactor,design,项目文档体系
+docs/superpowers/specs/2026-07-11-chat-slash-command-palette-design.md	docs	docs-agent	doc	9641	项目文档体系	docs,superpowers,specs,2026,07,11,chat,slash,command,palette,design,项目文档体系
 docs/superpowers/specs/2026-07-11-p0-p1-contract-alignment-design.md	docs	docs-agent	doc	2274	项目文档体系	docs,superpowers,specs,2026,07,11,p0,p1,contract,alignment,design,项目文档体系
 docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md	docs	docs-agent	doc	207381	项目文档体系	docs,superpowers,specs,2026,07,11,unified,native,subagent,control,plane,design,项目文档体系
 docs/superpowers/specs/2026-07-12-super-dolphin-agent-open-source-release-design.md	docs	docs-agent	doc	22949	项目文档体系	docs,superpowers,specs,2026,07,12,super,dolphin,agent,open,source,release,design,项目文档体系

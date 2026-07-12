@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 )
 
 type stubToolCatalogLister struct {
