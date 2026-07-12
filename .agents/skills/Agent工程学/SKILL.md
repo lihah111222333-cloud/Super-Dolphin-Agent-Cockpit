@@ -1,8 +1,8 @@
 ---
 name: "Agent工程学"
 display_name: "Agent工程学"
-description: "当你需要规划多步骤工程任务、拆分可验证的子代理工作，或管理多模型协同与评估优先的开发流程时使用。"
-trigger_words: ["agentic-engineering", "agent workflow", "subagent", "parallel agents", "eval-first", "cost-aware", "多代理", "子代理", "代理工程"]
+description: "仅当用户明确点名 `Agent工程学` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # Agent 工程学 (Agentic Engineering)

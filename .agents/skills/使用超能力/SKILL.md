@@ -1,7 +1,7 @@
 ---
 name: 使用超能力
-description: "当你需要在对话开始或执行任务前确保先检查并调用适用技能时使用。"
-trigger_words: ["@使用超能力", "@using-superpowers"]
+description: "仅当用户明确点名 `使用超能力` 技能时使用。"
+disable_model_invocation: true
 ---
 
 <SUBAGENT-STOP>

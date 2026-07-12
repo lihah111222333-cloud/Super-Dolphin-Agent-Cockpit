@@ -1,6 +1,7 @@
 ---
 name: 测试规范
-description: 当在 super-agent-v3 中编写、审查或修复测试，选择验证命令，或处理 guard/test 失败时使用。
+description: "仅当用户明确点名 `测试规范` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@测试规范", "@testing"]
 ---
 

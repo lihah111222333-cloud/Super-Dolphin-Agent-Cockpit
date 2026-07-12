@@ -1,6 +1,7 @@
 ---
 name: 日志与错误处理
-description: 当在 super-agent-v3 中设计、实现或审查错误传播、JSON-RPC/MCP 错误、日志字段、诊断输出或 fail-fast 行为时使用。
+description: "仅当用户明确点名 `日志与错误处理` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@日志与错误处理", "@error-handling", "@logging"]
 ---
 

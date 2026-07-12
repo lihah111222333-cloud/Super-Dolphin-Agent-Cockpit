@@ -1,6 +1,7 @@
 ---
 name: 编写计划
-description: 当你已有多步骤任务的规格或需求，并且准备碰代码前使用
+description: "仅当用户明确点名 `编写计划` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@编写计划", "@writing-plans"]
 ---
 

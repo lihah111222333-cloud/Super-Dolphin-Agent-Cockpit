@@ -1,6 +1,7 @@
 ---
 name: 思维与决策辅助
-description: 面临决策分析或评估争议输入时使用。
+description: "仅当用户明确点名 `思维与决策辅助` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # 身份与目的

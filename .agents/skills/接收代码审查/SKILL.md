@@ -1,6 +1,7 @@
 ---
 name: 接收代码审查
-description: 收到代码审查反馈、准备实现建议前使用，尤其是反馈不清楚或技术上可疑时；要求技术严谨和验证，而不是表演式同意或盲目实现
+description: "仅当用户明确点名 `接收代码审查` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@接收代码审查", "@receive-review"]
 ---
 

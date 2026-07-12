@@ -1,6 +1,7 @@
 ---
 name: UI设计
-description: 当用户以 UI设计 名称要求在 super-agent-v3 中做 UI/UX 设计、审查或美化时使用；默认遵循 frontend-app 现有 React/CSS 模式。
+description: "仅当用户明确点名 `UI设计` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@UI设计", "@ui-design", "@ui-ux-design"]
 ---
 

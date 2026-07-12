@@ -1,6 +1,7 @@
 ---
 name: 系统化调试
-description: 遇到任何 bug、测试失败或意外行为，并且准备提出修复前使用
+description: "仅当用户明确点名 `系统化调试` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@系统化调试", "@系统性调试", "@debug"]
 ---
 

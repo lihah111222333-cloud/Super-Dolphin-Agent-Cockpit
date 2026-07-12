@@ -1,7 +1,7 @@
 ---
 name: 安全工程师规范
-description: 在 super-agent-v3 中进行安全设计、代码审计、漏洞修复或合规检查时使用。
-tags: [security, appsec, owasp, audit, encryption, auth, vulnerability, 安全, 渗透测试, 代码审计, 加密, 认证]
+description: "仅当用户明确点名 `安全工程师规范` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # 安全工程师规范 (Security Engineer Standards)

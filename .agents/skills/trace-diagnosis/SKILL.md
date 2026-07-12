@@ -1,6 +1,7 @@
 ---
 name: trace-diagnosis
-description: Use when the user provides trace_id, traceid, traceparent, span_id, or asks to diagnose slow requests, local observability JSONL logs, or distributed tracing.
+description: "仅当用户明确点名 `trace-diagnosis` 技能时使用。"
+disable_model_invocation: true
 version: "1.0.0"
 ---
 

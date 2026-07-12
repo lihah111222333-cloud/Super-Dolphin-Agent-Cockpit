@@ -1,6 +1,7 @@
 ---
 name: super-dolphin-workflow
-description: "Use when working in <workspace> on the user's recurring operations: inspecting current work status, implementing approved plans, fixing bugs with minimal verified changes, running CodeTrust-style audits plus repo-native checks, validating frontend-app or Go backend changes, updating/committing local main only when explicitly requested, or creating/updating repo-local skills."
+description: "仅当用户明确点名 `super-dolphin-workflow` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # Super Dolphin Workflow

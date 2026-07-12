@@ -1,8 +1,8 @@
 ---
 name: "MCP协议"
 display_name: "MCP协议"
-description: "当你需要在 super-agent-v3 中实现或维护 cmd/mcp-* sidecar、MCP tools/resources、stdio MCP、legacy HTTP MCP 或 provider MCP 配置时使用。"
-trigger_words: ["mcp-server-patterns", "MCP", "Model Context Protocol", "mcp server", "stdio MCP", "legacy HTTP", "tool", "resource", "prompt", "协议"]
+description: "仅当用户明确点名 `MCP协议` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # MCP 协议与服务模式

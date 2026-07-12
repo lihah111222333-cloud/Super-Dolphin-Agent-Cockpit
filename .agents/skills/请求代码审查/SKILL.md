@@ -1,6 +1,7 @@
 ---
 name: 请求代码审查
-description: 完成任务、实现重要功能，或合并前需要验证工作是否满足要求时使用
+description: "仅当用户明确点名 `请求代码审查` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@请求代码审查", "@request-review"]
 ---
 

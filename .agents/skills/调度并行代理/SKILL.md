@@ -1,6 +1,7 @@
 ---
 name: 调度并行代理
-description: 当面临 2 个以上彼此独立、没有共享状态或顺序依赖的任务时使用
+description: "仅当用户明确点名 `调度并行代理` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@调度并行代理", "@并行代理调度", "@parallel-agent-orchestration"]
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: 完成前验证
-description: 准备声称工作已完成、已修复或已通过时，在提交或创建 PR 前使用；要求先运行验证命令并确认输出，再做任何成功声明；永远先证据、后断言
+description: "仅当用户明确点名 `完成前验证` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@完成前验证", "@verification-before-completion"]
 ---
 

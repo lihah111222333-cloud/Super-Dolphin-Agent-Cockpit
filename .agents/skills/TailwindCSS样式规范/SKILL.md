@@ -1,6 +1,7 @@
 ---
 name: TailwindCSS 样式规范
-description: 仅当用户明确要求 TailwindCSS，或目标前端已经包含 Tailwind 依赖时使用；super-agent-v3 默认不引入 Tailwind。
+description: "仅当用户明确要求 `TailwindCSS 样式规范` 技能时使用；super-agent-v3 默认不引入 Tailwind。"
+disable_model_invocation: true
 aliases: ["@TailwindCSS样式规范", "@tailwind"]
 ---
 

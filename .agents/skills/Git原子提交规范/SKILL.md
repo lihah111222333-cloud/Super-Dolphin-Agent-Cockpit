@@ -1,6 +1,7 @@
 ---
 name: Git原子提交规范
-description: 当在 super-agent-v3 中准备 stage、commit、push、拆分提交或审查提交边界时使用。
+description: "仅当用户明确点名 `Git原子提交规范` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@Git原子提交规范", "@git-commit"]
 ---
 

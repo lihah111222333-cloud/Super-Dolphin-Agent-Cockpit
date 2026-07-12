@@ -1,6 +1,7 @@
 ---
 name: 结束开发分支
-description: 当实现已完成、验证已跑完，并且需要决定如何在 super-agent-v3 中提交、保留、推送或清理 worktree 时使用。
+description: "仅当用户明确点名 `结束开发分支` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@结束开发分支", "@完成开发分支", "@finish-branch"]
 ---
 

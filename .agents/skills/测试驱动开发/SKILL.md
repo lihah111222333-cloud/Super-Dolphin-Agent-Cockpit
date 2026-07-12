@@ -1,7 +1,7 @@
 ---
 name: "测试驱动开发"
-description: "实现任何功能或 bug 修复时，在编写实现代码前使用 (触发词：TDD)"
-trigger_words: ["@测试驱动开发", "@tdd", "@TDD"]
+description: "仅当用户明确点名 `测试驱动开发` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # 测试驱动开发（TDD）

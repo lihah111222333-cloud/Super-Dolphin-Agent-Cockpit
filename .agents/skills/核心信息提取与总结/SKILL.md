@@ -1,6 +1,7 @@
 ---
 name: 核心信息提取与总结
-description: 需要从长文本中提取核心信息或生成结构化总结时使用。
+description: "仅当用户明确点名 `核心信息提取与总结` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # 身份与目的

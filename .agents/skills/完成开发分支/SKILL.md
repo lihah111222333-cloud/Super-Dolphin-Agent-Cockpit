@@ -1,6 +1,7 @@
 ---
 name: 完成开发分支
-description: 当用户以 完成开发分支 名称请求 super-agent-v3 分支收尾、提交、推送、PR 或 worktree 清理时使用。
+description: "仅当用户明确点名 `完成开发分支` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@完成开发分支", "@结束开发分支", "@finish-branch"]
 ---
 

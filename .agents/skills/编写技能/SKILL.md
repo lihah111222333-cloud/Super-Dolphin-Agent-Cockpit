@@ -1,6 +1,7 @@
 ---
 name: 编写技能
-description: 当在 super-agent-v3 中创建、编辑、迁移或部署 repo-local 技能，或修复 provider mirror / canonical skill 漂移时使用。
+description: "仅当用户明确点名 `编写技能` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@编写技能", "@writing-skills"]
 ---
 

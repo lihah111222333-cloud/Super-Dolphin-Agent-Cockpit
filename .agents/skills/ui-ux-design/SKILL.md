@@ -1,7 +1,7 @@
 ---
 name: ui-ux-design
-description: "当你需要设计品牌视觉、界面样式、设计系统、Logo、图标、演示文稿、横幅或社交媒体图片时使用。"
-trigger_words: ["design", "logo", "CIP", "mockup", "slides", "banner", "icon", "social photo", "brand", "design system", "token", "component", "style", "presentation", "cover", "header", "设计", "标志", "演示", "横幅", "图标", "社交媒体", "品牌", "设计系统", "生成", "创建", "制作", "海报", "封面", "样式", "界面", "组件", "主题", "配色", "字体", "布局", "令牌", "幻灯片", "PPT", "广告", "头图", "美化", "优化", "响应式"]
+description: "仅当用户明确点名 `ui-ux-design` 技能时使用。"
+disable_model_invocation: true
 ---
 
 ## 子模块索引

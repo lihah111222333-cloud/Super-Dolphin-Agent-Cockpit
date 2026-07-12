@@ -1,6 +1,7 @@
 ---
 name: react-doctor
-description: Use when the user explicitly requests react-doctor, `/doctor`, or a React diagnostics cleanup pass.
+description: "仅当用户明确点名 `react-doctor` 技能时使用。"
+disable_model_invocation: true
 version: "1.1.0"
 ---
 

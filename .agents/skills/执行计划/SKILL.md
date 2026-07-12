@@ -1,7 +1,7 @@
 ---
 name: "执行计划"
-description: "当你需要按一份书面实现计划在隔离会话中逐步执行任务、保留审查检查点并在阻塞或验证失败时停下确认时使用。"
-trigger_words: ["@执行计划", "@execute-plan"]
+description: "仅当用户明确点名 `执行计划` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # 执行计划

@@ -1,6 +1,7 @@
 ---
 name: 注释规范
-description: 当在 super-agent-v3 中编写或审查 Go 函数级中文注释、React hooks/service/controller 注释，或处理注释守卫失败时使用。
+description: "仅当用户明确点名 `注释规范` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@注释规范", "@comments"]
 ---
 

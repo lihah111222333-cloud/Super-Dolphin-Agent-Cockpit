@@ -1,6 +1,7 @@
 ---
 name: 安全工程师
-description: 当用户以 安全工程师 名称要求在 super-agent-v3 中进行安全设计、代码审计、漏洞修复或合规检查时使用。
+description: "仅当用户明确点名 `安全工程师` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@安全工程师", "@安全工程师规范", "@security"]
 ---
 

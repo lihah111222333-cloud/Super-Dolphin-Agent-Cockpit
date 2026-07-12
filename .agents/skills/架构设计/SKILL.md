@@ -1,6 +1,7 @@
 ---
 name: 架构设计
-description: 当在 super-agent-v3 中评估或修改模块边界、依赖方向、fx 装配、MCP sidecar、provider/runtime、store 或 frontend 架构时使用。
+description: "仅当用户明确点名 `架构设计` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@架构设计", "@architecture"]
 ---
 

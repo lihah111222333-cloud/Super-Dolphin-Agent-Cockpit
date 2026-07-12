@@ -4,7 +4,7 @@
     {
       "name": "使用git工作区",
       "selected_source_id": "project/使用git工作区",
-      "selected_content_hash": "9713f40bab00fee218c483a7c7c5b299e7451e07a7560cd70d1077484d0a31f1",
+      "selected_content_hash": "2c33f2fdea2ea46495036896938543dcab75113a4447d4a65fa46a5c47d5835c",
       "excluded_source_ids": [
         "personal/hub/使用git工作区",
         "personal/user/使用git工作区"
@@ -25,14 +25,14 @@
         {
           "canonical_id": "project/使用git工作区",
           "scope": "project",
-          "content_hash": "9713f40bab00fee218c483a7c7c5b299e7451e07a7560cd70d1077484d0a31f1"
+          "content_hash": "2c33f2fdea2ea46495036896938543dcab75113a4447d4a65fa46a5c47d5835c"
         }
       ]
     },
     {
       "name": "完成前验证",
       "selected_source_id": "project/完成前验证",
-      "selected_content_hash": "6f82944901c2b889da65611ca516b618477d0ad5c48094f314931e2ddf3e9579",
+      "selected_content_hash": "124a6f6c8960dcf8879b82a8ac3c1249b0992db43666b8c6e39798924ef7416b",
       "excluded_source_ids": [
         "personal/hub/完成前验证"
       ],
@@ -46,14 +46,14 @@
         {
           "canonical_id": "project/完成前验证",
           "scope": "project",
-          "content_hash": "6f82944901c2b889da65611ca516b618477d0ad5c48094f314931e2ddf3e9579"
+          "content_hash": "124a6f6c8960dcf8879b82a8ac3c1249b0992db43666b8c6e39798924ef7416b"
         }
       ]
     },
     {
       "name": "执行计划",
       "selected_source_id": "project/执行计划",
-      "selected_content_hash": "826c8f6abf95c2debff1b0928f5c5a13e652e4d8d6fae927fc869df90d6fde2c",
+      "selected_content_hash": "916e657e6175259a7ee5f730a9aeebf56b56becc50b1a7522d879c7e01ca8b72",
       "excluded_source_ids": [
         "personal/hub/执行计划"
       ],
@@ -67,14 +67,14 @@
         {
           "canonical_id": "project/执行计划",
           "scope": "project",
-          "content_hash": "826c8f6abf95c2debff1b0928f5c5a13e652e4d8d6fae927fc869df90d6fde2c"
+          "content_hash": "916e657e6175259a7ee5f730a9aeebf56b56becc50b1a7522d879c7e01ca8b72"
         }
       ]
     },
     {
       "name": "接收代码审查",
       "selected_source_id": "project/接收代码审查",
-      "selected_content_hash": "052b2b879015f82d6ec1af52cd5a9b5dfbea81ac300a5ad6c1f06baf67fec5e5",
+      "selected_content_hash": "28dcf58aefe60e9c4ad6658106741da87ad9689b1b8ccb832df2074af4ddb6f4",
       "excluded_source_ids": [
         "personal/hub/接收代码审查"
       ],
@@ -88,14 +88,14 @@
         {
           "canonical_id": "project/接收代码审查",
           "scope": "project",
-          "content_hash": "052b2b879015f82d6ec1af52cd5a9b5dfbea81ac300a5ad6c1f06baf67fec5e5"
+          "content_hash": "28dcf58aefe60e9c4ad6658106741da87ad9689b1b8ccb832df2074af4ddb6f4"
         }
       ]
     },
     {
       "name": "测试驱动开发",
       "selected_source_id": "project/测试驱动开发",
-      "selected_content_hash": "83dbbf93778b994c260705f63509f39a0f6c506587bb2a53e49ab44d2e0f2f24",
+      "selected_content_hash": "fcaf86f5540b5045dedc3270b958914f7704183602c34a105b26541b689123a5",
       "excluded_source_ids": [
         "personal/hub/测试驱动开发"
       ],
@@ -109,14 +109,14 @@
         {
           "canonical_id": "project/测试驱动开发",
           "scope": "project",
-          "content_hash": "83dbbf93778b994c260705f63509f39a0f6c506587bb2a53e49ab44d2e0f2f24"
+          "content_hash": "fcaf86f5540b5045dedc3270b958914f7704183602c34a105b26541b689123a5"
         }
       ]
     },
     {
       "name": "系统化调试",
       "selected_source_id": "project/系统化调试",
-      "selected_content_hash": "36de49a4e8956e2a3960c98ea3dce7663be7cf009927298f34ecac245928a678",
+      "selected_content_hash": "7246a7848e3d648e3ccbad5f6c1e1c2593ca8b19402f2d640f63eed70b3b0efe",
       "excluded_source_ids": [
         "personal/hub/系统化调试"
       ],
@@ -130,14 +130,14 @@
         {
           "canonical_id": "project/系统化调试",
           "scope": "project",
-          "content_hash": "36de49a4e8956e2a3960c98ea3dce7663be7cf009927298f34ecac245928a678"
+          "content_hash": "7246a7848e3d648e3ccbad5f6c1e1c2593ca8b19402f2d640f63eed70b3b0efe"
         }
       ]
     },
     {
       "name": "结束开发分支",
       "selected_source_id": "project/结束开发分支",
-      "selected_content_hash": "158d857779f5bb71875bcefc95273d21869f4cff6a313e9fc1d352ef461fc90d",
+      "selected_content_hash": "19082ba722a8763e322bb8536d1ec6fb8fa3d12b7f54ec4ff6261b6830a4ad88",
       "excluded_source_ids": [
         "personal/hub/结束开发分支"
       ],
@@ -151,14 +151,14 @@
         {
           "canonical_id": "project/结束开发分支",
           "scope": "project",
-          "content_hash": "158d857779f5bb71875bcefc95273d21869f4cff6a313e9fc1d352ef461fc90d"
+          "content_hash": "19082ba722a8763e322bb8536d1ec6fb8fa3d12b7f54ec4ff6261b6830a4ad88"
         }
       ]
     },
     {
       "name": "编写技能",
       "selected_source_id": "project/编写技能",
-      "selected_content_hash": "1fb4be17844991ac9b8f575d1fcd577dbe13666726249c89cdf8f06bb0ef81fc",
+      "selected_content_hash": "094a8e08abcffffb10fff79dd9c4f88d65e44f166b4e5afe0648b2984954b970",
       "excluded_source_ids": [
         "personal/hub/编写技能"
       ],
@@ -172,14 +172,14 @@
         {
           "canonical_id": "project/编写技能",
           "scope": "project",
-          "content_hash": "1fb4be17844991ac9b8f575d1fcd577dbe13666726249c89cdf8f06bb0ef81fc"
+          "content_hash": "094a8e08abcffffb10fff79dd9c4f88d65e44f166b4e5afe0648b2984954b970"
         }
       ]
     },
     {
       "name": "编写计划",
       "selected_source_id": "project/编写计划",
-      "selected_content_hash": "53e057f367c5f745a91c3fdeec342ac1a76b8089a6767e5e47163d838349225a",
+      "selected_content_hash": "18a0f07018c8bcaec08d1789d303b92788559d21a466c8c1cb50a2ed4d7658b5",
       "excluded_source_ids": [
         "personal/hub/编写计划"
       ],
@@ -193,14 +193,14 @@
         {
           "canonical_id": "project/编写计划",
           "scope": "project",
-          "content_hash": "53e057f367c5f745a91c3fdeec342ac1a76b8089a6767e5e47163d838349225a"
+          "content_hash": "18a0f07018c8bcaec08d1789d303b92788559d21a466c8c1cb50a2ed4d7658b5"
         }
       ]
     },
     {
       "name": "请求代码审查",
       "selected_source_id": "project/请求代码审查",
-      "selected_content_hash": "d4eb7c79452d5b7124a33eb80dc1efa8550d62d56ed3cf390755ef3f916cc4e6",
+      "selected_content_hash": "f2510d96be12ddb4be4ac202bf5521dfdd34d3efdb2086d6e1a4c8feabd86707",
       "excluded_source_ids": [
         "personal/hub/请求代码审查"
       ],
@@ -214,14 +214,14 @@
         {
           "canonical_id": "project/请求代码审查",
           "scope": "project",
-          "content_hash": "d4eb7c79452d5b7124a33eb80dc1efa8550d62d56ed3cf390755ef3f916cc4e6"
+          "content_hash": "f2510d96be12ddb4be4ac202bf5521dfdd34d3efdb2086d6e1a4c8feabd86707"
         }
       ]
     },
     {
       "name": "调度并行代理",
       "selected_source_id": "project/调度并行代理",
-      "selected_content_hash": "a9760f54e60ac00f910ea9152775e9ef04b2848a31d11bb64a54a9f817f80bc0",
+      "selected_content_hash": "90089514162ebec4914ee231ad6e2ab1e8c8b2aecadb20306cd8113bce6bb741",
       "excluded_source_ids": [
         "personal/hub/调度并行代理"
       ],
@@ -235,14 +235,14 @@
         {
           "canonical_id": "project/调度并行代理",
           "scope": "project",
-          "content_hash": "a9760f54e60ac00f910ea9152775e9ef04b2848a31d11bb64a54a9f817f80bc0"
+          "content_hash": "90089514162ebec4914ee231ad6e2ab1e8c8b2aecadb20306cd8113bce6bb741"
         }
       ]
     },
     {
       "name": "使用超能力",
       "selected_source_id": "project/使用超能力",
-      "selected_content_hash": "eb069fc4bc2255842dadd46a963013d20d3afba234bc6b27e70b6dec74de7ad0",
+      "selected_content_hash": "b2b19357fe1627ccc2acc22a38d5fe9a35c1591d50f22c159541220f7dc9621c",
       "excluded_source_ids": [
         "personal/imported/使用超能力"
       ],
@@ -256,14 +256,14 @@
         {
           "canonical_id": "project/使用超能力",
           "scope": "project",
-          "content_hash": "eb069fc4bc2255842dadd46a963013d20d3afba234bc6b27e70b6dec74de7ad0"
+          "content_hash": "b2b19357fe1627ccc2acc22a38d5fe9a35c1591d50f22c159541220f7dc9621c"
         }
       ]
     },
     {
       "name": "头脑风暴",
       "selected_source_id": "project/头脑风暴",
-      "selected_content_hash": "626a9b9b56119953931484a42a359ae700ef13c3cb95325a02ec53fabe3517f3",
+      "selected_content_hash": "fe77dc5fa069f7b6ec517e9c26934f4a1d0c4c26cf85647ec0592c864833a969",
       "excluded_source_ids": [
         "personal/imported/头脑风暴"
       ],
@@ -277,14 +277,14 @@
         {
           "canonical_id": "project/头脑风暴",
           "scope": "project",
-          "content_hash": "626a9b9b56119953931484a42a359ae700ef13c3cb95325a02ec53fabe3517f3"
+          "content_hash": "fe77dc5fa069f7b6ec517e9c26934f4a1d0c4c26cf85647ec0592c864833a969"
         }
       ]
     },
     {
       "name": "子代理驱动开发",
       "selected_source_id": "project/子代理驱动开发",
-      "selected_content_hash": "1450b3afab59134cdb3e0c61b96acea8c06958a4e3dfe93b87fba003e83ebbd7",
+      "selected_content_hash": "2f81fceb71f91474110525faf0ee3f58011bf6e9ce9b7c0c0fa22ad7b2718d66",
       "excluded_source_ids": [
         "personal/imported/子代理驱动开发"
       ],
@@ -298,14 +298,14 @@
         {
           "canonical_id": "project/子代理驱动开发",
           "scope": "project",
-          "content_hash": "1450b3afab59134cdb3e0c61b96acea8c06958a4e3dfe93b87fba003e83ebbd7"
+          "content_hash": "2f81fceb71f91474110525faf0ee3f58011bf6e9ce9b7c0c0fa22ad7b2718d66"
         }
       ]
     },
     {
       "name": "思维与决策辅助",
       "selected_source_id": "project/思维与决策辅助",
-      "selected_content_hash": "af9edd82db52a7e9ae56903e41a0bacad865e0a977065607977b7ac1f90dccd5",
+      "selected_content_hash": "81c7c75ebed2ba88c9ec27a95718e04744abaac790f6ccc66affe34b8566c783",
       "excluded_source_ids": [
         "personal/imported/思维与决策辅助"
       ],
@@ -319,7 +319,7 @@
         {
           "canonical_id": "project/思维与决策辅助",
           "scope": "project",
-          "content_hash": "af9edd82db52a7e9ae56903e41a0bacad865e0a977065607977b7ac1f90dccd5"
+          "content_hash": "81c7c75ebed2ba88c9ec27a95718e04744abaac790f6ccc66affe34b8566c783"
         }
       ]
     }

@@ -1,6 +1,7 @@
 ---
 name: refactoring-guardrails
-description: 在 super-agent-v3 中进行重构、函数拆分、抽取公共逻辑、重排文件或需要行为护栏时使用。
+description: "仅当用户明确点名 `refactoring-guardrails` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@refactoring-guardrails", "@重构护栏"]
 ---
 

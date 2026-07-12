@@ -1,6 +1,7 @@
 ---
 name: 并行代理调度
-description: 当用户以 并行代理调度 名称要求在 super-agent-v3 中并发审查、调查或修复多个独立任务时使用。
+description: "仅当用户明确点名 `并行代理调度` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@并行代理调度", "@调度并行代理", "@parallel-agent-orchestration"]
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: 子代理开发
-description: 当用户以 子代理开发 名称要求在 super-agent-v3 中用子代理执行实现计划、审查或修复任务时使用。
+description: "仅当用户明确点名 `子代理开发` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@子代理开发", "@子代理驱动开发", "@subagent-driven-development"]
 ---
 

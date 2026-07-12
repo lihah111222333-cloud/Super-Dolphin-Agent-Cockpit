@@ -1,6 +1,7 @@
 ---
 name: 使用git工作区
-description: 开始需要与当前工作区隔离的功能工作，或执行实现计划前使用；在 super-agent-v3 中创建 codex/ 分支 worktree 并保护 dirty 边界。
+description: "仅当用户明确点名 `使用git工作区` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@使用git工作区", "@Git工作树", "@git-worktrees"]
 ---
 

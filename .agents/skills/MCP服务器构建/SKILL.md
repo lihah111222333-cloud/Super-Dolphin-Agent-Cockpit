@@ -1,6 +1,7 @@
 ---
 name: MCP服务器构建
-description: 当用户以 MCP服务器构建 名称要求在 super-agent-v3 中新增、维护或审查 MCP sidecar/tool/server 时使用。
+description: "仅当用户明确点名 `MCP服务器构建` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@MCP服务器构建", "@MCP协议"]
 ---
 

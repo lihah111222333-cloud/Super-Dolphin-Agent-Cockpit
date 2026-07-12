@@ -1,6 +1,7 @@
 ---
 name: Git工作树
-description: 当用户以 Git工作树/Git worktree 名称请求在 super-agent-v3 中创建或检查隔离工作区时使用。
+description: "仅当用户明确点名 `Git工作树` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@Git工作树", "@使用git工作区", "@git-worktrees"]
 ---
 

@@ -1,7 +1,8 @@
 ---
 name: "video-generate"
 display_name: "video-generate"
-description: "用户要求生成视频、制作短视频、生成抖音视频、生成视频内容时。"
+description: "仅当用户明确点名 `video-generate` 技能时使用。"
+disable_model_invocation: true
 ---
 
 # 视频生成技能（含自动配音）

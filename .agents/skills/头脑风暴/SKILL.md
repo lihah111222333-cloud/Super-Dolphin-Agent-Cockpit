@@ -1,6 +1,7 @@
 ---
 name: 头脑风暴
-description: "在任何创造性工作之前必须使用此技能：创建功能、构建组件、添加能力或修改行为。在实现之前探索用户意图、需求和设计。"
+description: "仅当用户明确点名 `头脑风暴` 技能时使用。"
+disable_model_invocation: true
 aliases: ["@头脑风暴", "@brainstorm"]
 ---
 
