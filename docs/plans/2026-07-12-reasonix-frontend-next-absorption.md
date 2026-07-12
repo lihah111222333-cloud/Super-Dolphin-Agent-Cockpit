@@ -1023,6 +1023,7 @@ git commit -m "feat(frontend): 上报有界性能压力"
 - Create: `frontend-app/src/pages/chat/model/timelineMaterializationModel.test.js`
 - Modify: `frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js`
 - Modify: `frontend-app/package.json`
+- Modify: `docs/plans/2026-07-12-reasonix-frontend-next-absorption.md`
 
 - [ ] **Step 1: 写 fixture/materialization/JSON RED tests**
 
@@ -1030,7 +1031,10 @@ git commit -m "feat(frontend): 上报有界性能压力"
 const history = buildChatHistoryFixture({ turns: 5000, toolsPerTurn: 3, archived: true, seed: 7 });
 expect(history).toHaveLength(5000 * 5);
 expect(selectMaterializedTimeline(history, 80)).toEqual(history.slice(-80));
-expect(JSON.stringify(measureChatHistoryCase(history))).not.toContain('synthetic-message-body');
+const result = measureChatHistoryCase(history, {
+  caseName: 'turns-5000-tools-3', turns: 5000, toolsPerTurn: 3, node: 'v-test', commit: 'test',
+});
+expect(JSON.stringify(result)).not.toContain('synthetic-message-body');
 ```
 
 Default cases are 200/1000/5000 turns with 1/3 tools. The 10000-turn case exists only behind `--extended`. Timing and heap values are numbers but never compared with a machine-wide absolute threshold.
@@ -1060,7 +1064,7 @@ Modify `useTimelineMaterialization.js` to consume these exports; delete its dupl
 
 - [ ] **Step 4: 实现 deterministic runner 与 package script**
 
-The underlying Node script must print one JSON document with only `case`, `turns`, `toolsPerTurn`, `materializedCount`, `durationMs`, `heapDeltaBytes`, `node`, and `commit`. It must not print fixture content. Add exactly `"benchmark:chat-history": "node scripts/chat-history-benchmark.mjs"` to `package.json`; consumers that parse stdout must invoke it with `npm run --silent` because normal npm lifecycle headers are not JSON.
+The underlying Node script must print one JSON array document. Default mode emits the exact cross-product of turns `200/1000/5000` and `toolsPerTurn` `1/3`; `10000 × 1/3` is appended only for `--extended`. Every array item has only `case`, `turns`, `toolsPerTurn`, `materializedCount`, `durationMs`, `heapDeltaBytes`, `node`, and `commit`. It must not print fixture content. Add exactly `"benchmark:chat-history": "node scripts/chat-history-benchmark.mjs"` to `package.json`; consumers that parse stdout must invoke it with `npm run --silent` because normal npm lifecycle headers are not JSON.
 
 - [ ] **Step 5: 运行 GREEN、报告解析与提交**
 
@@ -1068,13 +1072,15 @@ The underlying Node script must print one JSON document with only `case`, `turns
 cd frontend-app
 npm exec -- vitest run scripts/chat-history-benchmark.test.mjs src/pages/chat/model/chatHistoryBenchmarkFixture.test.js src/pages/chat/model/timelineMaterializationModel.test.js --no-file-parallelism --maxWorkers=1
 npm run --silent benchmark:chat-history > /tmp/v3-chat-history-benchmark.json
-node -e 'JSON.parse(require("fs").readFileSync("/tmp/v3-chat-history-benchmark.json","utf8"))'
+node -e 'const raw=require("fs").readFileSync("/tmp/v3-chat-history-benchmark.json","utf8"); const rows=JSON.parse(raw); const keys=["case","turns","toolsPerTurn","materializedCount","durationMs","heapDeltaBytes","node","commit"]; if(!Array.isArray(rows)||rows.length!==6||rows.some((row)=>JSON.stringify(Object.keys(row))!==JSON.stringify(keys)||!Number.isFinite(row.durationMs)||!Number.isFinite(row.heapDeltaBytes))||raw.includes("synthetic-message-body")||raw.includes("fixture_tool_")||raw.includes("content")) process.exit(1)'
 ```
 
-Expected: PASS and valid JSON. Do not commit `/tmp` output.
+Expected: PASS and one valid six-item JSON array. Every item has the exact eight keys above, numeric `durationMs`/`heapDeltaBytes`, and the serialized report contains no fixture body. Do not compare timing or heap values against an absolute machine-wide threshold. Do not commit `/tmp` output.
+
+新增 benchmark/model 文件、package script 与修改计划会触发 pre-commit 自动刷新 canonical project-map；只纳入与 Task 7 staged snapshot 语义对应的 hook-owned 生成物。出现额外无关路径或任一 generated-state 校验失败即 BLOCKED；禁止手改生成物或使用 `--no-verify` 绕过 hook。
 
 ```bash
-git add frontend-app/scripts/chat-history-benchmark.mjs frontend-app/scripts/chat-history-benchmark.test.mjs frontend-app/src/pages/chat/model frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js frontend-app/package.json
+git add frontend-app/scripts/chat-history-benchmark.mjs frontend-app/scripts/chat-history-benchmark.test.mjs frontend-app/src/pages/chat/model frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js frontend-app/package.json docs/plans/2026-07-12-reasonix-frontend-next-absorption.md
 git commit -m "test(frontend): 新增长历史确定性基准"
 ```
 

@@ -9,13 +9,15 @@ frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vit
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	233638	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	2394	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	2467	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
 frontend-app/public/favicon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	19498	当前 React/Vite 前端包	frontend,app,public,wails,runtime,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.test.js	frontend-app	app-ui	js-test	17803	当前 React/Vite 前端包	frontend,app,public,wails,runtime,test,当前,React,Vite,前端包
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
+frontend-app/scripts/chat-history-benchmark.mjs	frontend-app	app-ui	js-source	3595	React 前端构建与校验脚本	frontend,app,scripts,chat,history,benchmark,React,前端构建与校验脚本
+frontend-app/scripts/chat-history-benchmark.test.mjs	frontend-app	app-ui	js-test	4193	React 前端构建与校验脚本	frontend,app,scripts,chat,history,benchmark,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-runner-contract.test.mjs	frontend-app	app-ui	js-test	1236	React 前端构建与校验脚本	frontend,app,scripts,desktop,runner,contract,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	10249	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-test	2380	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
@@ -232,7 +234,7 @@ frontend-app/src/pages/chat/hooks/useRuntimePanelLayout.js	frontend-app	app-ui	j
 frontend-app/src/pages/chat/hooks/useScrollIntentManager.js	frontend-app	app-ui	js-source	6210	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useScrollIntentManager,React,页面与路由级,UI
 frontend-app/src/pages/chat/hooks/useScrollIntentManager.test.jsx	frontend-app	app-ui	jsx	4686	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useScrollIntentManager,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/hooks/useSmoothStreamingText.js	frontend-app	app-ui	js-source	2782	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useSmoothStreamingText,React,页面与路由级,UI
-frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js	frontend-app	app-ui	js-source	2307	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,React,页面与路由级,UI
+frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js	frontend-app	app-ui	js-source	2216	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,React,页面与路由级,UI
 frontend-app/src/pages/chat/hooks/useTimelineMaterialization.test.jsx	frontend-app	app-ui	jsx	2108	React 页面与路由级 UI	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/ImageLightbox.jsx	frontend-app	app-ui	jsx	1160	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,ImageLightbox,React,页面与路由级,UI
 frontend-app/src/pages/chat/markdown/MarkdownDirectiveChip.jsx	frontend-app	app-ui	jsx	1393	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MarkdownDirectiveChip,React,页面与路由级,UI
@@ -249,6 +251,8 @@ frontend-app/src/pages/chat/markdown/MermaidDiagram.jsx	frontend-app	app-ui	jsx	
 frontend-app/src/pages/chat/markdown/MermaidDiagram.test.jsx	frontend-app	app-ui	jsx	6445	React 页面与路由级 UI	frontend,app,src,pages,chat,markdown,MermaidDiagram,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatHeaderModel.js	frontend-app	app-ui	js-source	1262	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHeaderModel,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatHeaderModel.test.js	frontend-app	app-ui	js-test	3099	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHeaderModel,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js	frontend-app	app-ui	js-source	2005	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHistoryBenchmarkFixture,React,页面与路由级,UI
+frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.test.js	frontend-app	app-ui	js-test	1900	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatHistoryBenchmarkFixture,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatUiActions.js	frontend-app	app-ui	js-source	65	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatUiActions,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatUiActions.test.js	frontend-app	app-ui	js-test	833	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatUiActions,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/chatUiActions.test.jsx	frontend-app	app-ui	jsx	833	React 页面与路由级 UI	frontend,app,src,pages,chat,model,chatUiActions,test,React,页面与路由级,UI
@@ -258,6 +262,8 @@ frontend-app/src/pages/chat/model/projectSelectorModel.js	frontend-app	app-ui	js
 frontend-app/src/pages/chat/model/scrollIntentModel.js	frontend-app	app-ui	js-source	1795	React 页面与路由级 UI	frontend,app,src,pages,chat,model,scrollIntentModel,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/scrollIntentModel.test.js	frontend-app	app-ui	js-test	3079	React 页面与路由级 UI	frontend,app,src,pages,chat,model,scrollIntentModel,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/model/smoothStreamingModel.js	frontend-app	app-ui	js-source	1066	React 页面与路由级 UI	frontend,app,src,pages,chat,model,smoothStreamingModel,React,页面与路由级,UI
+frontend-app/src/pages/chat/model/timelineMaterializationModel.js	frontend-app	app-ui	js-source	641	React 页面与路由级 UI	frontend,app,src,pages,chat,model,timelineMaterializationModel,React,页面与路由级,UI
+frontend-app/src/pages/chat/model/timelineMaterializationModel.test.js	frontend-app	app-ui	js-test	1648	React 页面与路由级 UI	frontend,app,src,pages,chat,model,timelineMaterializationModel,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/CodePreviewDialog.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,CodePreviewDialog,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/CodePreviewDialog.jsx	frontend-app	app-ui	jsx	3536	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,CodePreviewDialog,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/CodePreviewDialog.test.jsx	frontend-app	app-ui	jsx	1930	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,CodePreviewDialog,test,React,页面与路由级,UI

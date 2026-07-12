@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
-
-const TIMELINE_INITIAL_MATERIALIZED_MESSAGES = 80;
-const TIMELINE_MATERIALIZATION_INCREMENT = 80;
+import {
+  TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+  TIMELINE_MATERIALIZATION_INCREMENT,
+  selectMaterializedTimeline,
+} from '../model/timelineMaterializationModel.js';
 
 function timelineMaterializationKey({ activeThreadId, introMode, timelineContentBlocked }) {
   const threadId = activeThreadId === null || activeThreadId === undefined ? '' : activeThreadId;
@@ -25,14 +27,11 @@ function useTimelineMaterialization({ activeThreadId, introMode, messages, timel
   if (activeMaterialization !== materialization) {
     setMaterialization(activeMaterialization);
   }
-  const materializedCount = Math.min(
-    Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, activeMaterialization.count),
-    Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, messageCount),
+  const visibleMessages = useMemo(
+    () => selectMaterializedTimeline(messages, activeMaterialization.count),
+    [activeMaterialization.count, messages],
   );
-
-  const visibleStart = Math.max(0, messageCount - materializedCount);
-  const visibleMessages = useMemo(() => messages.slice(visibleStart), [messages, visibleStart]);
-  const hiddenOlderCount = visibleStart;
+  const hiddenOlderCount = Math.max(0, messageCount - visibleMessages.length);
   const revealOlder = useCallback(() => {
     setMaterialization((current) => {
       const currentCount = current.key === materializationKey
