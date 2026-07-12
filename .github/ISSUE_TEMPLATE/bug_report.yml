@@ -1,0 +1,95 @@
+name: Bug report
+description: Report a reproducible defect in Super Dolphin Agent.
+title: "[Bug] "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a defect. Do not include credentials, user data, private traces, unredacted logs, or vulnerability details. Use SECURITY.md for security reports.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Desktop UI
+        - Agent or runtime lifecycle
+        - Provider integration
+        - MCP or LSP sidecar
+        - Governance, guards, or generated maps
+        - Storage or SQLite
+        - Build, packaging, or update flow
+        - Documentation
+        - Other project-controlled area
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit SHA
+      description: Provide the exact Super Dolphin Agent commit where the defect occurs.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include operating system, architecture, Go version, Node.js version, and relevant provider or language-server versions.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest deterministic sequence that demonstrates the defect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Explain the observable result that should occur.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Explain what occurred, including the failing command and exit status when relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Include minimal diagnostics, logs, screenshots, or test output with secrets, user data, and local paths removed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and regression information
+      description: Describe affected workflows, whether this worked on another commit, and any safe workaround.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for the same defect.
+          required: true
+        - label: I removed credentials, user data, private traces, unredacted logs, and machine-specific paths.
+          required: true
+        - label: This report does not contain vulnerability details; security reports follow SECURITY.md.
+          required: true

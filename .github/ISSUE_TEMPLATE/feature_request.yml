@@ -1,0 +1,89 @@
+name: Feature request
+description: Propose a focused capability or behavior change for Super Dolphin Agent.
+title: "[Feature] "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the developer problem before the solution. Keep the request focused and do not include credentials, user data, private traces, or vulnerability details.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Target area
+      options:
+        - Desktop UI
+        - Agent or runtime lifecycle
+        - Provider integration
+        - MCP or LSP sidecar
+        - Governance, guards, or generated maps
+        - Storage or SQLite
+        - Build, packaging, or update flow
+        - Documentation or contributor experience
+        - Other project-controlled area
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Developer problem
+      description: Explain the current limitation, who encounters it, and why existing behavior is insufficient.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable behavior or workflow that would solve the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain existing commands, integrations, or narrower solutions you evaluated.
+    validations:
+      required: true
+
+  - type: textarea
+    id: governance
+    attributes:
+      label: Governance and architecture impact
+      description: Identify affected contracts, module boundaries, providers, generated maps, guards, data, or compatibility surfaces.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risks and failure modes
+      description: Describe security, privacy, reliability, migration, rollback, or maintenance risks.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Acceptance evidence
+      description: Explain how tests, diagnostics, a demo, or another reproducible check could prove the feature works.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for the same request.
+          required: true
+        - label: I described a problem and outcome rather than only naming a preferred implementation.
+          required: true
+        - label: I removed credentials, user data, private traces, unredacted logs, and machine-specific paths.
+          required: true
+        - label: This request does not contain vulnerability details; security reports follow SECURITY.md.
+          required: true

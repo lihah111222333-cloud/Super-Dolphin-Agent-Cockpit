@@ -2,146 +2,114 @@
 
 🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
 
+**面向 AI 编写软件的自守护仓库。** AI 智能体负责实现改动；由仓库拥有的地图、契约、测试与门禁决定这些改动是否足够安全，可以留下。
+
 > [!IMPORTANT]
-> **🤖 100% AI 编写与守护**
-> 本仓库的所有代码与文档——包括全部 Go 后端逻辑、React 前端界面、AST/SSA 编译器级守卫规则以及本说明文档——**完全由 AI 智能体自主编写和重构**，人类仅负责提供宏观的架构方向与设计决策。这是“自防御仓库模式（Self-Guarding Repo Pattern）”最真实的活体实证。
+> **维护者声明：原创代码与项目自有文档 100% 由 AI 编写，由人类指导，由仓库守护。** 产品代码、测试代码和项目自有文档均由 AI 智能体编写或重构。人类负责产品意图、架构裁决、凭据和发布。AI 作者身份不代表绝对正确：每项被接受的改动仍必须通过仓库拥有的证据与门禁。上游法律和社区文本保留其原始署名。
 
-**AI 原生的软件治理与多智能体开发控制平面。**
+Super Dolphin Agent 是一个 **AI 原生的软件治理与多智能体开发控制平面**。它把本地桌面运行时、MCP 编排、多语言 LSP 导航、Provider 集成、持久化工作流和机器强制执行的工程边界整合为一个可工作的参考实现。
 
-Super Dolphin Agent 面向以 AI 智能体为主要维护力量的软件项目。它在一个桌面控制平面中整合多智能体会话、工具执行、MCP 编排、多语言 LSP、定时任务、记忆、Provider 原生技能、实时事件流与机器强制的工程边界。
-
-英文 [README.md](README.md) 是规范真源。若翻译与英文在产品含义、命令、路径、环境变量、规则 ID 或许可证身份上存在差异，以英文为准。
-
-## 它具体是做什么的？
-
-Super Dolphin Agent 不是聊天机器人、Cursor 提示词模板或 API 包装器。它是一个**本地桌面运行态环境与编译器级软件治理防火墙**，旨在让 AI 智能体自主开发和维护软件，同时确保代码库不会沦为屎山。
-
-它通过将系统拆分为以下三个协同运行的支柱，彻底解决了**“AI 编码黑盒熵增”**的问题：
-
-1. **本地控制中心（桌面应用）**：基于 Wails 的桌面应用（`cmd/agent-terminal`），提供可视化控制台。它能启动和观察多智能体会话、实时查看工具调用链、用自然语言调度定时任务、管理本地 SQLite 向量记忆，并实时以事件流形式输出 AI 工作区日志。
-2. **代码智能引擎（LSP 与 MCP Sidecars 旁路进程）**：
-   - **LSP 旁路进程 (`cmd/mcp-lsp`)**：通用多语言 Language Server Protocol 服务，负责为 AI 索引整个代码仓，为其提供精准、结构化的“跳转定义”、“查找引用”和“类型层级分析”等编译器级代码感知能力，代替粗暴的文本搜索。
-   - **编排旁路进程 (`cmd/mcp-orch`)**：协调 Model Context Protocol (MCP) 并管理工具执行 DAG（有向无环图），确保 AI 必须通过结构化、受控的接口读写文件与运行指令，而不是滥用裸 bash 脚本。
-3. **免疫系统（AST/SSA 单元测试守卫）**：直接嵌入在项目的 Go 单元测试集（`internal/archtest`）中。它在测试运行时，会将 AI 变更的代码编译为 Go 编译器底层的**静态单赋值（SSA）中间表示**进行数据流分析。这能物理卡死 AI 的各种代码坏味道（如静默吞错、在 OnStart 里造成死锁、或者跨越洋葱架构边界调用底层的 Data/Store），从源头上拦截不合格的 Git commit。
-
-### 生产级参考实现（学习防腐治理）
-
-Super Dolphin Agent 是一套生产级的多智能体编排系统。虽然专为实际生产负载设计，但它同时可以作为一个高标准的参考仓库，供开发者学习：
-
-1. **如何解决氛围编程的痛点（免受 AI 结构熵增）**：它提供了一套完整的、经生产验证的“免疫软件工程”蓝图。它向开发者展示了如何在标准的 Go 单元测试中编写 AST 语法分析、构建 SSA 静态数据流分析，以及如何设计自动收紧的质量棘轮门禁，以此保护项目不受 AI 编码熵增的侵蚀。
-2. **生产级的多智能体架构设计**：项目本身的源码就是一套干净、基于依赖注入（`fx` 框架）、契约优先（`internal/contract`）的多 Agent 桌面控制平面的工业级实现。它为以下技术方向提供了清晰的参考模式：
-   - 如何安全地启动、关闭和恢复并发运行的 Agent 协程（Worker Goroutines）。
-   - 如何拉起 Stdio MCP 旁路子进程，并将裸 JSON-RPC 协议转换为类型安全的 Go 结构体。
-   - 如何在本地 JSONL 数据库中持久化与管理会话历史。
-   - 如何设计和运行基于 SQLite 的本地向量记忆搜索。
+英文 [README.md](README.md) 是规范概览。各译本保持相同的产品范围、命令、路径、环境变量、仓库身份和许可证。详细事实见[架构说明](docs/open-source/ARCHITECTURE.md)、[治理实证](docs/open-source/GOVERNANCE.md)以及生成的[代码地图](docs/doc/codemap/README.md)。
 
 <!-- sd:why -->
-## 为纯 AI 维护而设计
+## 为什么需要 Super Dolphin
 
-“AI 维护”不是让 AI 在没有审查的情况下任意改代码，也不要求 AI 一次理解整个仓库。它意味着 AI 是主要实现力量，而仓库本身提供完成可靠修改所需的导航、约束与证据。人类继续负责产品目标、高影响决策、凭据与发布。
+大多数 Agent 框架优化的是任务执行。Super Dolphin 还治理一项已完成任务可以对长期演进的软件系统做出什么改动。
 
-维护闭环围绕“有限上下文”设计：
+它的维护闭环分为五个阶段：
 
-1. 通过生成式代码地图和文件级 AI 项目地图定位变更面。
-2. 通过能力契约和明确的架构约定理解公开行为。
-3. 通过 LSP 的定义、引用、调用层级和 diagnostics 修改小范围代码。
-4. 通过 AST、SSA、依赖边界、复杂度预算和 fail-fast 规则限制改动。
-5. 通过聚焦测试、生成物检查和变更感知门禁证明结果后，才允许提交或推送。
+1. **定位**：通过生成的代码地图和能力契约找到目标区域。
+2. **理解**：通过 LSP 获取定义、引用、调用层级和诊断。
+3. **修改**：只改动边界明确且所有权清晰的狭窄范围。
+4. **约束**：用 AST/SSA 规则、依赖边界、复杂度预算和 fail-fast 契约约束 diff。
+5. **证明**：用聚焦测试、生成物检查和变更感知门禁证明结果。
 
-这套机制不依赖“人类或 AI 必须把整个代码库记在脑中”这一脆弱前提。
+### 有界上下文维护
 
-### 干净的 AI 闭环：无需“全仓扫读”
+本仓库的设计目标，是让常规改动不必把整个代码库装入单个模型上下文。生成式导航、窄契约和确定性失败信号帮助智能体找到相关范围，并快速修复违规。
 
-在传统的开发流程中，人们往往觉得必须将整个项目代码塞进 AI 的上下文窗口中。但这会导致 Token 消耗爆炸、注意力涣散，并显著增加 AI 的幻觉。
-
-Super Dolphin 的自防御架构创造了一个**极度干净、局部的代码修改闭环**，遵循“最小化已知”原则：
-*   **仅加载窄上下文**：得益于仓库内强制执行的接口契约、清晰的依赖边界以及自动更新的 project map，AI 智能体在修改代码时，**仅需要加载目标文件及其直接相邻的契约接口**。
-*   **仓库自带导航与纠偏**：如果 AI 的改动违反了架构设计或引入了垃圾代码，AST/SSA 静态守卫会立刻阻断并抛出精准的编译器级报错诊断。
-*   **AI 自动诊断与自愈**：智能体直接读取终端的错误输出，在原位完成修正并重新提交。
-
-这实现了**“AI 无需通读整个项目即可进行安全修改”**的纯净闭环，极大地节省了 Token 开销，并彻底杜绝了全局代码腐化。
-
+这不保证所有改动都是局部的。横跨多个模块的工作仍需更广泛的引用与影响面分析，所有被接受的改动也仍须具备相应的测试和评审证据。
 
 ### 项目由来：直面 AI 代码腐化
 
-Super Dolphin Agent 于 2026 年 3 月 19 日从 `go-agent-v2` 的全新迁移开始。V2 是我们此前开发的商业闭源原型项目，结合了自动化量化交易与多智能体桌面控制。该原型已经证明了产品价值：智能体会话、工具、Provider、事件、恢复和桌面交互都工作良好。然而，它完全是由 AI 智能体仅在 *软约束*（Markdown 指南和系统提示词）下编写完成的。
+Super Dolphin 于 2026 年 3 月 19 日启动，是 `go-agent-v2` 的全新后继项目；后者是一个结合自动化量化交易工作流与多智能体桌面控制的私有原型。根据维护者的发布前记录，该原型能够工作，但只依赖软约束，导致其架构逐渐变得难以推理：
 
-在没有机器强制执行的“仓库免疫守卫”情况下，每次局部的功能添加都在侵蚀全局架构的清晰度。久而久之，V2 累加了 80 多个手写 RPC 方法，参数绑定、校验、能力判断、日志、错误映射和注册路径分散在不同文件。生命周期逻辑散落在多个 manager 文件中，并混入异步恢复副作用和隐式状态机。中心事件处理器一度膨胀到 557 行；手工对象的初始化装配超过 200 行。代码虽然仍在运行，但要回答“系统的权威行为到底在哪里”已经变得越来越难。
+- 80 多个 RPC 方法累积出多套并行的绑定、校验、能力判断和日志路径；
+- 生命周期所有权分散到多个 manager 和异步副作用中；
+- 一个中心事件处理器增长到 557 行；
+- 手工应用装配超过 200 行。
 
-这就是我们定义的 **AI 代码腐化（AI Code Rot 或 AI 结构熵）**：这不是指责开发者，也不等于系统立即不能运行，它意味着系统局部功能仍然正常，但其全局契约、依赖边界与代码质量已在退化。高速的 AI 迭代会显著放大这种失败模式，因为每个局部看似合理的补丁都可能暗中增加一条隐式路径，最终迫使整个项目陷入 AI 因上下文上限和代码混乱而无法安全推进的泥潭。
+我们把这种状态称为 **AI 代码腐化（AI code rot）**：局部改动仍然工作，但全局契约、所有权边界和可读性持续退化。私有历史不是公开证据；因此，公开仓库提供的是由这些问题产生的守卫、回归 fixture 和可复现命令。
 
-最初的 V3 决策拒绝在约 8.3 万行的旧系统上原地换引擎。旧系统被保留为行为证据，各项能力则按函数粒度迁入显式契约。Super Dolphin 是将这些教训转化为公共开源范式后的产物，将仓库本身打造为了对抗 AI 熵增的免疫系统：
-
-| V2 的结构熵 | Super Dolphin 的回应 |
+| V2 失效模式 | Super Dolphin 的回应 |
 |---|---|
-| 手写 RPC 与分散的横切逻辑 | typed request、统一契约面、显式 middleware 与错误语义 |
-| 生命周期迁移和副作用散落 | 声明式状态迁移、类型安全事件与明确 owner 的 lifecycle runner |
-| 手工 `New()` / `Close()` 对象图 | `fx` 组合根与显式启动/关闭所有权 |
-| 业务模块耦合存储和外部适配器 | 洋葱边界、Module-owned Port 与防腐 adapter |
-| 混合抽象层级的巨型函数 | 组合方法与 `80 / 4 / 10` 函数、嵌套、复杂度预算 |
-| 依赖评审者记住约定 | AST/SSA 守卫、地图、清单、hooks 与可复现证据 |
+| 并行的手写 RPC 路径 | 类型化请求、单一契约面、显式 middleware 与错误语义 |
+| 分散的生命周期副作用 | 声明式状态迁移、类型化事件和所有权明确的 lifecycle runner |
+| 手工对象图 | `fx` 组合以及明确的启动、关闭所有权 |
+| 业务代码耦合 adapter | 洋葱边界、模块自有 port 和防腐 adapter |
+| 混合抽象层级的巨型函数 | 本仓库专用的 `80 / 4 / 10` 函数长度、嵌套与复杂度预算 |
+| 把评审者记忆当作规则 | AST/SSA 守卫、生成地图、manifest、hook 和可复现证据 |
 
-因此，V2 不是需要隐藏的历史，而是 Super Dolphin 治理体系持续对抗的失效模型。
+`80 / 4 / 10` 预算不是普适的代码风格规则，而是针对这个编排密集型仓库设置并持续收紧的约束：默认有效函数长度 `<= 80`、嵌套 `<= 4`、圈复杂度 `<= 10`。
 
-### 工程防腐：阻断 AI Code Rot
+### 仓库强制执行什么
 
-AI 能快速生产代码，也能快速放大架构漂移。Super Dolphin 把这种漂移视为 **AI Code Rot（AI 代码腐化）**，并尽量在引入位置附近把它转换成机器可见的错误。
-
-| 防腐层 | 阻断的问题 | 仓库中的证据 |
+| 层级 | 防范的问题 | 仓库证据 |
 |---|---|---|
-| 导航真源 | 改错子系统、依赖过期心智模型 | `docs/doc/codemap`、project map、capability manifest |
-| 架构边界 | Module 直接依赖 Store、Provider、UI 或 Command 实现 | 类型化边界注册表与 AST import 评估 |
-| 语义守卫 | 吞错、静默兜底、不安全生命周期与过宽编排接口 | AST 守卫与 priority SSA 分析 |
-| 复杂度预算 | 一个函数混入业务、基础设施、协议和持久化细节 | 默认函数有效行数 `<= 80`、嵌套 `<= 4`、圈复杂度 `<= 10` |
-| 债务棘轮 | 新改动继续恶化旧债，或通过重建基线“洗白” | 生产/测试冻结分区拒绝新增违规，并在代码改善时自动收缩 |
-| 可复现门禁 | 没有地图、测试、生成物与精确证据却宣称完成 | pre-commit、pre-push 与变更感知 AI maintenance gates |
+| 导航真源 | 修改错误的子系统或依赖过时的项目认知 | `docs/doc/codemap`、project map、capability manifest |
+| 架构边界 | 领域代码越过边界访问 Store、Provider、UI 或 Command 实现 | 类型化后端边界注册表与 AST import 求值 |
+| 语义守卫 | 忽略错误、静默 fallback、不安全的生命周期路径和宽服务传播 | AST 守卫与 priority SSA 分析 |
+| 复杂度棘轮 | 新代码增加已知结构债务 | 函数、嵌套、复杂度以及 production/test freeze 分区 |
+| 验收证据 | 把智能体的“完成”状态当作证明 | 聚焦测试、生成状态检查、Git hook 和变更感知门禁 |
 
-80 行不是适用于所有项目的教条，而是针对本项目编排型负载的边界：流程函数应表达同一抽象层级，通过组合方法调用窄接口，而不是把协议、数据库和业务细节写成几百行流水账。更深的规则是：**策略必须可见，细节必须封装，例外必须显式且可测量。**
+### 有历史来源的案例
 
-### 为什么它不是又一个 Agent Framework
+维护者记录了五起发布前事件，如今均有公开回归证据：LSP 使用了错误 worktree 的 scope、Provider identity 缺失、持久 Agent 缺少运行时真相、异步 UI 失败被静默吞掉，以及架构守卫被 type alias 绕过。
 
-| 常见 Agent Framework | Super Dolphin Agent |
+请阅读[治理实证](docs/open-source/GOVERNANCE.md)中对历史事件与公开证据边界的说明，并运行其中保留的全部证明。
+
+### 为什么它不是又一个 Agent 框架
+
+| 常见 Agent 框架 | Super Dolphin Agent |
 |---|---|
 | 优化任务执行 | 治理任务如何改变真实软件系统 |
-| 给 AI 更多工具和上下文 | 给 AI 有限上下文、能力契约和允许的依赖方向 |
-| 把任务运行结束视为成功 | 要求测试、diagnostics、生成状态和 Git 证据 |
-| 主要依赖提示词纪律 | 在代码、测试、hooks 和生成清单中执行不变量 |
-| 用默认值或重试掩盖故障 | 配置、状态或依赖异常时立即 fail-fast |
-
-```text
-目标
-  -> 代码地图 + 能力契约
-  -> 通过 LSP/MCP 的小范围 AI 修改
-  -> AST/SSA/架构守卫
-  -> 聚焦测试 + 生成物检查
-  -> 可审查证据
-  -> 接受提交
-```
+| 给智能体更多工具和上下文 | 给智能体有界上下文和允许的依赖方向 |
+| 把一次运行结束视为成功 | 要求测试、诊断、生成状态检查和 Git 证据 |
+| 主要依赖提示词纪律 | 在代码、测试、hook 和生成 manifest 中强制不变量 |
+| 用重试或默认值掩盖状态缺失 | 配置、身份、所有权或依赖缺失时 fail-fast |
 
 <!-- sd:architecture -->
-## 架构概览
+## 架构
 
 ```text
-cmd/                 桌面入口、MCP 编排与多语言 LSP sidecar
-frontend-app/        当前 React/Vite 桌面前端
-internal/contract/   跨模块接口与 DTO
-internal/module/     Turn、Prompt、Cron、Memory、Skill 等业务逻辑
-internal/platform/   DB、RPC、配置与运行时安全
-internal/provider/   Codex、Claude CLI 等 AI Provider 适配器
-internal/store/      基于 sqlc 的持久化适配与手写包装
-pkg/                 可复用公共库
+frontend-app/             React/Vite desktop UI
+        |
+cmd/agent-terminal/       Wails host and RPC boundary
+        |
+internal/app/             composition and anti-corruption adapters
+        |
+internal/contract/        stable ports and DTOs
+        |
+internal/module/          business capabilities
+   |             |
+internal/store/   internal/provider/
+SQLite/sqlc       Codex and provider runtime integration
+
+cmd/mcp-lsp/              generic multi-language LSP peer
+cmd/mcp-orch/             orchestration, DAG, cron, and agent tools
 ```
 
-核心业务层只依赖内层契约；Store 充当领域与 SQL 实现之间的防腐层；Provider、MCP、UI 位于外层；`cmd/*` 和组合根负责显式装配。详见[代码地图](docs/doc/codemap/README.md)与[洋葱架构契约](docs/%E5%A5%91%E7%BA%A6/onion-architecture-convention.md)。
+关键依赖规则是所有权向内：模块定义自身需要的 port，adapter 实现这些 port；Platform 和 Provider 包不得向上导入业务模块。后端边界注册表是生成架构规则地图的单一真源。
 
-## 核心能力
+组件职责、数据流、真源和已知范围见[架构说明](docs/open-source/ARCHITECTURE.md)。文件级导航请使用生成的[代码地图](docs/doc/codemap/README.md)。
 
-- 多智能体会话、恢复、分叉、调度和实时事件流。
-- MCP 编排 sidecar 与通用多语言 LSP peer。
-- Cron、Memory、Prompt、Thread 与 Provider 原生技能管理。
-- Codex 和 Claude CLI Provider 适配，边界由统一契约保护。
-- SQLite 持久化、Wails 桌面宿主与 React/Vite 前端。
-- 代码地图、项目地图、能力契约、Archtest 与 AI 维护门禁。
+### 当前范围
+
+- 桌面应用及其针对本仓库的治理闭环已经在这里实现。
+- `make guard` 及相关检查治理的是本仓库；它们不被宣传为适用于任意仓库的通用扫描器。
+- 已检入的公共源码策略和校验基础组件属于发布就绪基础。完整的源码导出 CLI、密封 receipt 工作流、公共 CI 门禁和独立守卫发行物尚未作为已发布能力提供。
+- 文档中的规范 GitHub URL 是公开发布目标。只有仓库所有者完成发布检查清单后，clone、Issue 与私密报告链接才可用。
+- 当前桌面 Provider 流程需要 Codex。只有明确针对 Claude Provider 集成的工作才使用 Claude。
 
 <!-- sd:quick-start -->
 ## 快速开始
@@ -149,41 +117,56 @@ pkg/                 可复用公共库
 ### 前置条件
 
 - Go 1.25.7
-- Node.js 20+
-- 已安装并登录 OpenAI Codex CLI（当前新 UI 桌面流程必需）
-- `gopls`，以及 JS/TS 导航所需的 `typescript-language-server` 与 `typescript@5.9.3`
-- Claude Code CLI 仅在明确使用 Claude Provider 时需要
+- Node.js 20+ 与 npm
+- 已安装并完成认证的 OpenAI Codex CLI（`codex`）
+- `gopls`
+- `typescript-language-server` 与 TypeScript 5.9.3
+
+下面的 clone 命令指向规范公共仓库，将在正式发布后可用。在此之前，现有维护者应继续使用当前已获授权的 checkout。
 
 ```bash
 git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
 cd super-dolphin-agent
 make install-hooks
-( cd frontend-app && npm install )
-./run-new-ui-desktop.sh
+
+go install golang.org/x/tools/gopls@latest
+npm install -g typescript-language-server typescript@5.9.3
+( cd frontend-app && npm ci )
 ```
 
-Windows PowerShell：
+运行当前桌面开发流程：
 
-```powershell
-git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
-cd super-dolphin-agent
-make install-hooks
-cd frontend-app; npm install; cd ..
+```bash
+# macOS
+./run-new-ui-desktop.sh
+
+# Windows PowerShell
 .\run-new-ui-desktop.ps1
 ```
 
-SQLite 默认位于 `SUPER_DOLPHIN_HOME/super-dolphin.db`；可通过 `SUPER_DOLPHIN_SQLITE_PATH` 指定其他本地文件。运行时规范技能位于 `<workspace>/.agents/skills/` 与 `~/.super-dolphin/skills/personal/{user,agent,imported}/`。
+SQLite 会自动创建在 `SUPER_DOLPHIN_HOME/super-dolphin.db`。设置 `SUPER_DOLPHIN_SQLITE_PATH` 可以使用其他本地文件。PostgreSQL 环境变量不是产品数据库的配置入口。
+
+构建与测试：
+
+```bash
+make build-plain
+make test
+make frontend-app-build && go test ./... -count=1
+( cd frontend-app && npm run lint && npm test && npm run build )
+```
+
+使用 linked Git worktree 的贡献者必须在编辑前构建并验证 worktree 本地的 LSP peer。确切命令见[贡献指南](CONTRIBUTING.md#worktree-and-lsp-readiness)。
 
 <!-- sd:governance-demo -->
 ## 可复现的治理证明
 
-先查看某次变更会选择哪些门禁：
+查看一个明确变更文件会选择哪些门禁，但不实际执行：
 
 ```bash
-./scripts/ai_maintenance_gates.sh --print-plan --base HEAD
+./scripts/ai_maintenance_gates.sh --print-plan --changed-file README.md
 ```
 
-直接运行核心防腐检查：
+运行本仓库的核心治理检查：
 
 ```bash
 make guard
@@ -192,33 +175,38 @@ make project-map-check
 make capcontract-check
 ```
 
-这些命令验证架构规则、AST/SSA 守卫、代码导航生成物、project map 漂移和 capability contract。检查模式只读并在真源过期时失败；只有明确更新真源时才使用对应的 `*-refresh` 目标。
+这些命令验证架构规则、守卫行为、生成式导航、project map 漂移和 capability manifest。它们只适用于本仓库，并会在真源过期时失败，而不会静默刷新。只有在所属真源被有意修改时，才使用显式的 `*-refresh` 目标。
 
-完整验证：
+## 代码质量
 
-```bash
-make test
-( cd frontend-app && npm run lint && npm test && npm run build )
-```
+| 指标 | 当前真源 |
+|---|---|
+| 架构测试 | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 329 runnable `Test*` functions across 127 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| 架构规则 | [生成的后端边界地图](docs/doc/codemap/13-archtest-boundaries.md) |
+| 测试覆盖率 | 从当前测试运行重新计算；不声明静态百分比 |
+| CI | [GitHub Actions](.github/workflows/ci.yml) |
 
 <!-- sd:security -->
 ## 安全
 
-- 不要提交凭据、Provider home、本地数据库、日志、用户 Memory 或机器配置。
-- 缺失配置与异常依赖遵循 [fail-fast 契约](docs/%E5%A5%91%E7%BA%A6/fail-fast-convention.md)，静默兜底属于缺陷。
-- 公共源码导出器只读取已提交 Git 对象，并通过默认拒绝策略排除内部计划、归档、运行证据、本地工作区与未跟踪文件。
-- 敏感漏洞应私下报告给仓库所有者，不要在公开 Issue 中附带利用细节、密钥或用户数据。
+不要提交凭据、Provider home、本地数据库、日志、用户 Memory 或机器特定配置。身份、所有权、配置或依赖缺失时必须 fail-closed，不能静默降级。
+
+请通过[安全策略](SECURITY.md)中的私密流程报告漏洞。不要在公开 Issue 中提交漏洞利用细节、密钥、trace payload 或用户数据。
 
 <!-- sd:community -->
 ## 社区与贡献
 
-欢迎 Issue 和范围明确的 Pull Request。请保持改动小而可验证，遵守模块边界，为修复提供同提交回归测试，并运行与变更面匹配的门禁。架构决策应落成契约和可执行守卫，而不只存在于提示词中。
+欢迎范围明确的 Issue 和 Pull Request。请从以下文档开始：
 
-- [代码地图](docs/doc/codemap/README.md)
-- [架构契约](docs/%E5%A5%91%E7%BA%A6/README.md)
-- [项目 Agent 指令](AGENTS.md)
-- [Apache License 2.0](LICENSE)
+- [贡献指南](CONTRIBUTING.md)
+- [支持](SUPPORT.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [路线图](docs/open-source/ROADMAP.md)
+- [变更日志](CHANGELOG.md)
+- [发布检查清单](docs/open-source/RELEASE_CHECKLIST.md)
+
+欢迎 AI 辅助的贡献，但贡献者仍须对提交的 diff、测试、安全、许可证和证据负责。生成式回答或一次通过的 Agent 运行不能代替仓库门禁。
 
 ## 许可证
 
-本项目采用 [Apache License 2.0](LICENSE)，版权声明见 [NOTICE](NOTICE)。
+本项目采用 [Apache License 2.0](LICENSE)。项目及第三方署名说明见 [NOTICE](NOTICE)。

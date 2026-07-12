@@ -2,182 +2,171 @@
 
 🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Deutsch](README.de.md)
 
+**Das selbstschützende Repository für KI-geschriebene Software.** KI-Agenten implementieren Änderungen; repository-eigene Maps, Contracts, Tests und Gates entscheiden, ob diese Änderungen sicher genug sind, um erhalten zu bleiben.
+
 > [!IMPORTANT]
-> **🤖 100% KI-geschrieben und geschützt**
-> Dieses gesamte Repository – einschließlich aller Go-Backend-Logik, des React-Frontends, der AST/SSA-Schutzregeln auf Compiler-Ebene und dieser Dokumentation – wurde **ausschließlich von KI-Agenten** unter menschlicher Architekturführung geschrieben und refaktoriert. Es dient als Live-Proof-of-Concept für das Self-Guarding-Repository-Muster.
+> **Erklärung der Maintainer: Originalcode und projekteigene Dokumentation sind zu 100% KI-geschrieben, von Menschen gesteuert und durch das Repository geschützt.** Produktcode, Testcode und projekteigene Dokumentation werden von KI-Agenten geschrieben oder refaktoriert. Menschen bleiben für Produktabsicht, Architekturentscheidungen, Zugangsdaten und Veröffentlichungen verantwortlich. KI-Autorschaft bedeutet keine Unfehlbarkeit: Jede akzeptierte Änderung unterliegt weiterhin den repository-eigenen Nachweisen und Gates. Rechtliche und Community-Texte aus Upstream-Quellen behalten ihre ursprüngliche Namensnennung.
 
-**KI-native Software-Governance und Kontrollplattform für Multi-Agenten-Entwicklung.**
+Super Dolphin Agent ist eine **KI-native Software-Governance und Kontrollplattform für Multi-Agenten-Entwicklung**. Es verbindet eine lokale Desktop-Runtime, MCP-Orchestrierung, mehrsprachige LSP-Navigation, Provider-Integrationen, persistente Workflows und maschinell erzwungene Engineering-Grenzen in einer funktionsfähigen Referenzimplementierung.
 
-Super Dolphin Agent ist für Softwareprojekte konzipiert, die überwiegend von KI-Agenten gewartet werden. Die Desktop-Kontrollplattform vereint Multi-Agenten-Sitzungen, Tool-Ausführung, MCP-Orchestrierung, mehrsprachiges LSP, Zeitplanung, Memory, Provider-native Skills, Echtzeit-Ereignisströme und maschinell erzwungene Engineering-Grenzen.
-
-Die englische [README.md](README.md) ist die normative Quelle. Bei Abweichungen in Produktbedeutung, Befehlen, Pfaden, Umgebungsvariablen, Regel-IDs oder Lizenzangaben gilt die englische Fassung.
-
-## Was es wirklich tut
-
-Super Dolphin Agent ist kein Chatbot, kein Template für Cursor-Regeln und kein API-Wrapper. Es ist eine **lokale Desktop-Laufzeitumgebung und eine Governance-Firewall auf Compiler-Ebene**, die entwickelt wurde, damit KI-Agenten Software autonom entwickeln und warten können, ohne die Codebasis in ein Chaos zu verwandeln.
-
-Es löst das Problem der **"Black-Box-KI-Entropie"**, indem es das System in drei koordinierte Teile aufteilt:
-
-1. **Das lokale Kontrollzentrum (Desktop-App)**: Eine Wails-basierte Desktop-Schnittstelle (`cmd/agent-terminal`), mit der Sie Multi-Agenten-Sitzungen ausführen und anzeigen, Tool-Ausführungen überwachen, automatisierte Cron-Jobs in natürlicher Sprache planen, SQLite-gestützten Vektorspeicher verwalten und Log-Dateien des KI-Arbeitsbereichs in Echtzeit streamen können.
-2. **Die Code-Intelligenz-Engine (LSP- und MCP-Sidecars)**:
-   - **LSP-Sidecar (`cmd/mcp-lsp`)**: Ein generisches mehrsprachiges Language Server Protocol (LSP)-Sidecar, das Ihr Repository indiziert und der KI präzise, strukturierte Code-Definitionen, Referenzen und Typhierarchien zur Verfügung stellt, anstatt auf fragile Textsuche angewiesen zu sein.
-   - **Orchestrierungs-Sidecar (`cmd/mcp-orch`)**: Koordiniert Modellkontextprotokolle (MCP) und verwaltet Tool-Ausführungs-DAGs, um sicherzustellen, dass die KI Dateien über eine sichere, strukturierte Schnittstelle liest und schreibt und nicht über beliebige Bash-Skripte.
-3. **Das Immunsystem (AST/SSA-Unit-Tests)**: Direkt in Ihre Go-Testsuite (`internal/archtest`) integriert, kompiliert es modifizierten Code in die Static Single Assignment (SSA)-Zwischendarstellung auf Compiler-Ebene von Go, um Datenflussprüfungen durchzuführen. Dadurch werden gängige KI-Antipatterns (Ignorieren von Fehlern, Einschleusen von Deadlocks oder Verletzen von Onion-Architekturgrenzen) blockiert, bevor sie in Git committet werden können.
-
-### Referenz auf Produktionsniveau (Erlernen von Code-Schutz/Antikorruption)
-
-Super Dolphin Agent ist ein Multi-Agenten-Orchestrierungssystem auf Produktionsniveau. Obwohl es für reale Produktions-Workloads konzipiert ist, dient es als erstklassiges Referenz-Repository, aus dem Entwickler lernen können:
-
-1. **Wie man den Schmerz des Vibe Coding löst (Immune Software Engineering)**: Es bietet einen vollständigen, produktionserprobten Bauplan zum Schutz einer Codebasis vor KI-gesteuerter Entropie. Es zeigt, wie man AST-Regeln schreibt, SSA-Aufrufdiagramme erstellt und sich automatisch verkleinernde Qualitäts-Ratschen in Standard-Go-Unit-Tests ausführt.
-2. **Multi-Agenten-Architektur auf Produktionsniveau**: Die Codebasis selbst ist eine saubere, mit Dependency Injection (`fx`) und Verträgen versehene (`internal/contract`) Implementierung einer Multi-Agenten-Kontrollplattform. Sie enthält klare Referenzmuster für:
-   - Starten, Stoppen und Wiederherstellen von concurrent Agent-Worker-Goroutinen.
-   - Erzeugen von Stdio-MCP-Sidecar-Prozessen und Übersetzen von reinem JSON-RPC in typisierte Go-Strukturen.
-   - Erhalten des Thread-Verlaufs in projektlokalen JSONL-Datenbanken.
-   - Implementieren der SQLite-basierten Vektorspeichersuche.
+Die englische [README.md](README.md) ist die maßgebliche Übersicht. Die Übersetzungen bewahren denselben Produktumfang, dieselben Befehle, Pfade, Umgebungsvariablen, dieselbe Repository-Identität und Lizenz. Ausführliche Fakten stehen in [Architecture](docs/open-source/ARCHITECTURE.md), [Governance in Action](docs/open-source/GOVERNANCE.md) und der generierten [Code Map](docs/doc/codemap/README.md).
 
 <!-- sd:why -->
-## Für KI-Wartung entworfen
+## Warum Super Dolphin existiert
 
-„KI-gewartet“ bedeutet weder ungeprüften Code noch, dass eine KI das gesamte Repository auf einmal verstehen muss. KI ist die primäre Implementierungskraft; das Repository liefert Orientierung, Einschränkungen und Beweise, damit jede Änderung klein und prüfbar bleibt. Menschen behalten die Verantwortung für Produktziele, folgenreiche Entscheidungen, Zugangsdaten und Releases.
+Die meisten Agent Frameworks optimieren die Ausführung von Aufgaben. Super Dolphin steuert zusätzlich, was eine abgeschlossene Aufgabe in einem langlebigen Softwaresystem verändern darf.
 
-Der Wartungszyklus basiert auf begrenztem Kontext:
+Der Wartungszyklus besteht aus fünf Phasen:
 
-1. Orientierung durch generierte Code Maps und eine dateibasierte AI project map.
-2. Verständnis des Verhaltens durch capability contracts und explizite Architekturkonventionen.
-3. Änderung einer kleinen Fläche mit LSP definitions, references, call hierarchies und diagnostics.
-4. Begrenzung durch AST-, SSA- und Abhängigkeitsregeln, Komplexitätsbudgets und fail-fast policies.
-5. Nachweis durch fokussierte Tests, Prüfungen generierter Artefakte und änderungssensitive Gates vor commit oder push.
+1. **Orientieren** mit generierten Code Maps und Capability Contracts.
+2. **Verstehen** von Definitionen, Referenzen, Aufrufhierarchien und Diagnosen über LSP.
+3. **Ändern** einer eng begrenzten Fläche mit eindeutigem Ownership.
+4. **Begrenzen** des Diffs mit AST/SSA-Regeln, Abhängigkeitsgrenzen, Komplexitätsbudgets und Fail-Fast-Contracts.
+5. **Nachweisen** des Ergebnisses mit fokussierten Tests, Prüfungen generierter Artefakte und änderungssensitiven Gates.
 
-Damit entfällt die fragile Annahme, ein Mensch oder eine KI müsse die gesamte Codebasis im Gedächtnis halten.
+### Wartung mit begrenztem Kontext
 
-### Der saubere KI-Kreislauf: Kein "Full-Repo Scanning" erforderlich
+Das Repository ist so ausgelegt, dass routinemäßige Änderungen nicht die gesamte Codebasis in einen einzigen Modellkontext laden müssen. Generierte Navigation, enge Contracts und deterministische Fehler helfen einem Agenten, die relevante Fläche zu finden und Regelverletzungen schnell zu beheben.
 
-Bei herkömmlichen Entwicklungsansätzen haben Entwickler oft das Gefühl, die gesamte Codebasis in das Kontextfenster des KI-Agenten einspeisen zu müssen. Dies führt jedoch zu einer Explosion des Token-Verbrauchs, sättigt die Aufmerksamkeit des Modells und erhöht das Risiko von KI-Halluzinationen.
+Das garantiert nicht, dass jede Änderung lokal bleibt. Querschnittsänderungen erfordern weiterhin eine breitere Referenz- und Auswirkungsanalyse, und jede akzeptierte Änderung benötigt die zugehörigen Tests und Review-Nachweise.
 
-Die selbstschützende Architektur von Super Dolphin schafft einen **sauberen, lokalisierten Code-Änderungszyklus**, der nach dem Prinzip des "Minimalen Wissens" (Zero-Knowledge) funktioniert:
-*   **Nur begrenzter Kontext**: Dank der vom Compiler erzwungenen Schnittstellenverträge, klarer Abgrenzungsregeln und automatisch aktualisierter project maps muss der KI-Agent nur die Zieldatei und deren direkt angrenzende Vertrags-Schnittstellen laden.
-*   **Das Repository führt den Agenten**: Wenn die KI versucht, Architekturregeln zu verletzen oder technische Schulden einzuführen, blockiert das statische AST/SSA-Gate dies sofort und liefert präzise Diagnosemeldungen (Diagnostics) auf Compiler-Ebene.
-*   **Automatische Selbstheilung (Self-Healing)**: Der Agent liest die Diagnosefehler des Compilers, korrigiert den Code direkt vor Ort und versucht die Operation erneut.
+### Ursprung: AI Code Rot entgegentreten
 
-Dies bedeutet, dass **die KI niemals das gesamte Projekt lesen muss**, um sichere Änderungen auf Produktionsniveau durchzuführen. Die Codebasis selbst fungiert als deterministischer Koordinator.
+Super Dolphin begann am 19. März 2026 als vollständig neu entwickelter Nachfolger von `go-agent-v2`, einem privaten Prototyp, der automatisierte quantitative Trading-Workflows mit Multi-Agenten-Desktopsteuerung verband. Laut den Aufzeichnungen der Maintainer aus der Zeit vor der Veröffentlichung funktionierte der Prototyp, doch weiche Vorgaben allein machten seine Architektur zunehmend schwerer nachvollziehbar:
 
+- Mehr als 80 RPC-Methoden sammelten parallele Pfade für Binding, Validierung, Capability-Prüfung und Logging an.
+- Lifecycle-Ownership verteilte sich auf mehrere Manager und asynchrone Seiteneffekte.
+- Ein zentraler Event Handler wuchs auf 557 Zeilen.
+- Die manuelle Anwendungsassemblierung überschritt 200 Zeilen.
 
-### Ursprung: Von der V2-Entropie zu Super Dolphin
+Wir nennen diesen Zustand **AI Code Rot**: Lokale Änderungen funktionieren weiterhin, während globale Contracts, Ownership-Grenzen und Verständlichkeit verfallen. Die private Historie ist kein öffentlicher Nachweis; das öffentliche Repository stellt stattdessen die daraus entstandenen Guards, Regression Fixtures und reproduzierbaren Befehle bereit.
 
-Super Dolphin Agent begann am 19. März 2026 als saubere Migration von `go-agent-v2`. V2 hatte den Produktwert bereits bewiesen: Agenten-Sitzungen, Tools, Provider, Ereignisse, Recovery und Desktop-Erlebnis funktionierten. Das Problem war nicht fehlende Funktionalität, sondern dass erfolgreiche lokale Erweiterungen die globale Verständlichkeit schrittweise zerstörten.
-
-V2 sammelte mehr als 80 handgeschriebene RPC-Methoden, während binding, validation, capability checks, logging, error mapping und parallele Registrierungswege im System verteilt waren. Die lifecycle-Wahrheit lag in mehreren manager files, einem überlagerten effektiven Zustand, einer impliziten Neben-Zustandsmaschine und asynchronen Recovery-Nebenwirkungen. Ein zentraler event handler wuchs auf 557 Zeilen; der Bus auf Dutzende message/topic-Konstanten; die manuelle Anwendungsverdrahtung auf mehr als 200 Zeilen. Der Code lief weiter, doch die Frage „Wo liegt das maßgebliche Verhalten?“ wurde immer schwerer zu beantworten.
-
-Das Projekt nennt diesen Zustand **Software-Korrosion**. Gemeint sind weder schlechte Entwickler noch zwingend kaputte Ausgaben, sondern ein System, dessen lokale Teile funktionieren, während contracts, ownership und Änderungsgrenzen zu implizitem Wissen werden. Schnelle KI-Iteration verstärkt dies, weil jeder plausible lokale patch einen weiteren versteckten Pfad hinzufügen kann.
-
-Die ursprüngliche V3-Entscheidung lehnte eine Operation am laufenden System mit rund 83.000 Zeilen ab. Das alte System blieb als Verhaltensbeleg bestehen; Fähigkeiten wurden Funktion für Funktion in explizite contracts migriert.
-
-| V2-Entropie | Antwort von Super Dolphin |
+| Fehlermodus in V2 | Antwort von Super Dolphin |
 |---|---|
-| Handgeschriebene RPC-Pfade und verstreute Querschnittslogik | typed requests, ein contract, explizite middleware und error semantics |
-| Verteilte lifecycle transitions und Nebenwirkungen | deklarative state transitions, typisierte events und runner mit klarem owner |
-| Manueller `New()` / `Close()`-Objektgraph | `fx` composition und explizites Start-/Stop-ownership |
-| Kopplung von Fachmodulen an storage/adapters | onion boundaries, Module-owned Ports und anti-corruption adapters |
-| Riesenfunktionen mit gemischten Abstraktionsebenen | composed methods und `80 / 4 / 10` für Länge, Verschachtelung und Komplexität |
-| Konventionen im Gedächtnis der reviewer | AST/SSA guards, maps, manifests, hooks und reproduzierbare Belege |
+| Parallele, handgeschriebene RPC-Pfade | Typisierte Requests, eine Contract-Fläche, explizite Middleware und Fehlersemantik |
+| Verteilte Lifecycle-Seiteneffekte | Deklarative Transitionen, typisierte Events und Lifecycle Runner mit eindeutigem Ownership |
+| Manuelle Objektgraphen | `fx`-Composition mit explizitem Ownership für Start und Beendigung |
+| An Adapter gekoppelter Business Code | Onion-Grenzen, Module-owned Ports und Anti-Corruption-Adapter |
+| Riesenfunktionen mit vermischten Abstraktionsebenen | Ein repository-spezifisches `80 / 4 / 10`-Budget für Funktionslänge, Verschachtelung und Komplexität |
+| Reviewer-Gedächtnis als Policy | AST/SSA-Guards, generierte Maps, Manifeste, Hooks und reproduzierbare Nachweise |
 
-V2 ist daher keine zu verbergende Geschichte, sondern das Fehlermodell, gegen das Super Dolphins Governance gebaut ist.
+Das `80 / 4 / 10`-Budget ist keine universelle Stilregel. Es ist eine schrittweise verschärfte Vorgabe für dieses orchestrierungsintensive Repository: standardmäßig effektive Funktionslänge `<= 80`, Verschachtelung `<= 4` und zyklomatische Komplexität `<= 10`.
 
-### Technischer Korrosionsschutz gegen AI Code Rot
+### Was das Repository erzwingt
 
-KI kann Code schnell erzeugen; ohne harte Grenzen verstärkt sie ebenso schnell Architekturdrift. Super Dolphin behandelt diese Drift als **AI Code Rot** und verwandelt sie möglichst nahe am Entstehungsort in maschinenlesbare Fehler.
-
-| Schutzschicht | Was sie verhindert | Nachweis im Repository |
+| Ebene | Schützt vor | Nachweis im Repository |
 |---|---|---|
-| Navigationswahrheit | Bearbeitung des falschen Subsystems oder veraltete mentale Modelle | `docs/doc/codemap`, project map, capability manifest |
-| Architekturgrenzen | Direkte Abhängigkeiten von Module zu Store, Provider, UI oder Command | typisiertes Grenzregister und AST-import-Auswertung |
-| Semantische Guards | Ignorierte Fehler, silent fallback, unsichere lifecycle patterns, zu breite seams | AST guards und priority SSA analysis |
-| Komplexitätsbudget | Riesenfunktionen mit vermischter Fachlogik, Infrastruktur, Protokoll und Persistenz | effektive Funktionslänge `<= 80`, Verschachtelung `<= 4`, zyklomatische Komplexität `<= 10` |
-| Schulden-Ratsche | Verschlechterung bekannter Altlasten oder Verschleierung durch neue baseline | production/test freeze weist Regressionen ab und schrumpft bei Verbesserungen |
-| Reproduzierbare Gates | Erfolgsaussage ohne Maps, Tests, Artefakte oder exakte Belege | pre-commit, pre-push und änderungssensitive AI maintenance gates |
+| Navigationswahrheit | Bearbeitung des falschen Subsystems oder Nutzung veralteten Projektwissens | `docs/doc/codemap`, Project Map, Capability Manifest |
+| Architekturgrenzen | Zugriffe von Domain Code auf Store-, Provider-, UI- oder Command-Implementierungen | Typisiertes Backend-Boundary-Register und AST-Importauswertung |
+| Semantische Guards | Ignorierte Fehler, Silent Fallback, unsichere Lifecycle-Pfade und Weitergabe zu breiter Services | AST-Guards und priorisierte SSA-Analyse |
+| Komplexitäts-Ratchets | Zunahme bekannter struktureller Schulden durch neuen Code | Partitionen für Funktion, Verschachtelung, Komplexität sowie Production/Test Freeze |
+| Abnahmenachweise | Bewertung des „Done“-Status eines Agenten als Beweis | Fokussierte Tests, Prüfungen generierten Zustands, Git Hooks und änderungssensitive Gates |
 
-Die 80-Zeilen-Grenze ist kein Dogma für jedes System. Sie passt zur orchestrierungsintensiven Last dieses Repositorys, bei der composed methods auf einer Abstraktionsebene sicherer sind als monolithische Abläufe. Die tiefere Regel lautet: **Policy sichtbar machen, Details hinter engen interfaces kapseln und Ausnahmen explizit sowie messbar halten.**
+### Historisch belegte Fälle
+
+Die Maintainer berichten von fünf Vorfällen vor der Veröffentlichung, für die heute öffentliche Regression-Nachweise existieren: LSP-Scope aus dem falschen Worktree, fehlende Provider Identity, fehlende Runtime Truth für einen persistenten Agenten, still verworfene asynchrone UI-Fehler und ein Type-Alias-Bypass in einem Architektur-Guard.
+
+Lies in [Governance in Action](docs/open-source/GOVERNANCE.md), wie historische Vorfälle von öffentlichen Nachweisen abgegrenzt werden, und führe alle dort erhaltenen Beweise aus.
 
 ### Warum dies kein weiteres Agent Framework ist
 
 | Typisches Agent Framework | Super Dolphin Agent |
 |---|---|
-| Optimiert Aufgabenausführung | Steuert, wie Aufgaben ein reales Softwaresystem verändern |
-| Liefert mehr Tools und Kontext | Liefert begrenzten Kontext, capability contracts und erlaubte Abhängigkeitsrichtungen |
-| Wertet ein beendetes run als Erfolg | Verlangt tests, diagnostics, generierten Zustand und Git-Belege |
-| Verlässt sich auf Prompt-Disziplin | Erzwingt Invarianten in code, tests, hooks und manifests |
-| Verdeckt Fehler mit retries oder defaults | Bricht bei ungültiger Konfiguration, Zustand oder Abhängigkeit fail-fast ab |
-
-```text
-intent
-  -> code map + capability contract
-  -> begrenzte KI-Änderung über LSP/MCP
-  -> AST/SSA/architecture guards
-  -> focused tests + generated artifact checks
-  -> reviewable evidence
-  -> accepted commit
-```
+| Optimiert die Ausführung von Aufgaben | Steuert, wie Aufgaben ein reales Softwaresystem verändern |
+| Gibt Agenten mehr Tools und Kontext | Gibt Agenten begrenzten Kontext und erlaubte Abhängigkeitsrichtungen |
+| Wertet einen abgeschlossenen Run als Erfolg | Verlangt Tests, Diagnosen, Prüfungen generierten Zustands und Git-Nachweise |
+| Verlässt sich hauptsächlich auf Prompt-Disziplin | Erzwingt Invarianten in Code, Tests, Hooks und generierten Manifesten |
+| Verdeckt fehlenden Zustand durch Retries oder Defaults | Bricht bei fehlender Konfiguration, Identität, Ownership oder Abhängigkeit sofort ab |
 
 <!-- sd:architecture -->
-## Architekturüberblick
+## Architektur
 
 ```text
-cmd/                 Desktop-Einstiege, MCP-Orchestrierung und mehrsprachiger LSP sidecar
-frontend-app/        aktuelle React/Vite Desktop-UI
-internal/contract/   modulübergreifende interfaces und DTOs
-internal/module/     Fachlogik für Turn, Prompt, Cron, Memory und Skill
-internal/platform/   DB, RPC, Konfiguration und Laufzeitsicherheit
-internal/provider/   Provider adapter für Codex, Claude CLI und weitere
-internal/store/      sqlc-basierte Persistenzadapter und manuelle wrapper
-pkg/                 wiederverwendbare öffentliche Bibliotheken
+frontend-app/             React/Vite desktop UI
+        |
+cmd/agent-terminal/       Wails host and RPC boundary
+        |
+internal/app/             composition and anti-corruption adapters
+        |
+internal/contract/        stable ports and DTOs
+        |
+internal/module/          business capabilities
+   |             |
+internal/store/   internal/provider/
+SQLite/sqlc       Codex and provider runtime integration
+
+cmd/mcp-lsp/              generic multi-language LSP peer
+cmd/mcp-orch/             orchestration, DAG, cron, and agent tools
 ```
 
-Die Fachlogik hängt nur von inneren contracts ab. Store bildet die anti-corruption layer zwischen Domäne und SQL; Provider, MCP und UI liegen außen; `cmd/*` und composition roots verdrahten alles explizit. Siehe [Code Map](docs/doc/codemap/README.md) und [Onion-Architecture-Vertrag](docs/%E5%A5%91%E7%BA%A6/onion-architecture-convention.md).
+Die zentrale Abhängigkeitsregel ist nach innen gerichtetes Ownership: Module definieren die benötigten Ports, Adapter implementieren diese Ports; Platform- und Provider-Pakete dürfen nicht nach oben in Business-Module importieren. Das Backend-Boundary-Register ist die einzige Quelle, aus der die Architekturregelkarte generiert wird.
 
-## Kernfunktionen
+[Architecture](docs/open-source/ARCHITECTURE.md) beschreibt Komponentenverantwortung, Datenfluss, Wahrheitsquellen und bekannten Umfang. Für die Navigation auf Dateiebene dient die generierte [Code Map](docs/doc/codemap/README.md).
 
-- Multi-Agenten-session, resume, fork, scheduling und Echtzeit-Ereignisse.
-- MCP-Orchestrierungs-sidecar und generischer mehrsprachiger LSP peer.
-- Cron, Memory, Prompt, Thread und Provider-native Skills.
-- Adapter für Codex und Claude CLI mit einheitlichem contract.
-- SQLite-Persistenz, Wails-Desktop-Host und React/Vite-UI.
-- Code map, project map, capability contract, Archtest und AI maintenance gates.
+### Aktueller Umfang
+
+- Die Desktop-Anwendung und ihr repository-spezifischer Governance-Zyklus sind hier implementiert.
+- `make guard` und die zugehörigen Prüfungen steuern dieses Repository; sie werden nicht als allgemeiner Scanner für beliebige Repositories beworben.
+- Die eingecheckte Public-Source-Policy und die Validierungsbausteine bilden die Grundlage für die Veröffentlichungsreife. Eine vollständige Source-Export-CLI, ein versiegelter Receipt-Workflow, ein öffentliches CI-Gate und eine eigenständige Guard-Distribution sind noch keine veröffentlichten Fähigkeiten.
+- Die kanonische GitHub-URL in dieser Dokumentation ist das Veröffentlichungsziel. Clone-, Issue- und Private-Reporting-Links werden erst nutzbar, nachdem der Repository-Eigentümer die Release-Checkliste abgeschlossen hat.
+- Codex wird für den aktuellen Desktop-Provider-Ablauf benötigt. Claude wird nur für Arbeiten eingesetzt, die ausdrücklich seine Provider-Integration betreffen.
 
 <!-- sd:quick-start -->
 ## Schnellstart
 
-Voraussetzungen: Go 1.25.7, Node.js 20+, authentifizierte OpenAI Codex CLI, `gopls`, `typescript-language-server` und `typescript@5.9.3`. Claude Code CLI ist nur für den Claude Provider erforderlich.
+### Voraussetzungen
+
+- Go 1.25.7
+- Node.js 20+ und npm
+- Installierte und authentifizierte OpenAI Codex CLI (`codex`)
+- `gopls`
+- `typescript-language-server` und TypeScript 5.9.3
+
+Der folgende Clone-Befehl zielt auf das kanonische öffentliche Repository und funktioniert nach der Veröffentlichung. Bis dahin sollen bestehende Maintainer ihren aktuell autorisierten Checkout verwenden.
 
 ```bash
 git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
 cd super-dolphin-agent
 make install-hooks
-( cd frontend-app && npm install )
-./run-new-ui-desktop.sh
+
+go install golang.org/x/tools/gopls@latest
+npm install -g typescript-language-server typescript@5.9.3
+( cd frontend-app && npm ci )
 ```
 
-Windows PowerShell:
+Aktuellen Desktop-Entwicklungsablauf starten:
 
-```powershell
-git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
-cd super-dolphin-agent
-make install-hooks
-cd frontend-app; npm install; cd ..
+```bash
+# macOS
+./run-new-ui-desktop.sh
+
+# Windows PowerShell
 .\run-new-ui-desktop.ps1
 ```
 
-SQLite verwendet standardmäßig `SUPER_DOLPHIN_HOME/super-dolphin.db`. Mit `SUPER_DOLPHIN_SQLITE_PATH` kann eine andere lokale Datei gewählt werden. Kanonische Skills liegen unter `<workspace>/.agents/skills/` und `~/.super-dolphin/skills/personal/{user,agent,imported}/`.
+SQLite wird automatisch unter `SUPER_DOLPHIN_HOME/super-dolphin.db` angelegt. Mit `SUPER_DOLPHIN_SQLITE_PATH` kann eine andere lokale Datei verwendet werden. PostgreSQL-Umgebungsvariablen sind kein Konfigurationsweg für die Produktdatenbank.
+
+Build und Tests:
+
+```bash
+make build-plain
+make test
+make frontend-app-build && go test ./... -count=1
+( cd frontend-app && npm run lint && npm test && npm run build )
+```
+
+Contributors mit verknüpften Git Worktrees müssen vor dem Bearbeiten den Worktree-lokalen LSP-Peer bauen und verifizieren. Die genauen Befehle stehen unter [Contributing](CONTRIBUTING.md#worktree-and-lsp-readiness).
 
 <!-- sd:governance-demo -->
 ## Reproduzierbarer Governance-Nachweis
 
-Ausgewählte Gates für eine Änderung anzeigen:
+Ausgewählte Gates für eine explizit geänderte Datei anzeigen, ohne sie auszuführen:
 
 ```bash
-./scripts/ai_maintenance_gates.sh --print-plan --base HEAD
+./scripts/ai_maintenance_gates.sh --print-plan --changed-file README.md
 ```
 
-Zentrale Korrosionsschutzprüfungen ausführen:
+Zentrale Governance-Prüfungen des Repositorys ausführen:
 
 ```bash
 make guard
@@ -186,33 +175,38 @@ make project-map-check
 make capcontract-check
 ```
 
-Vollständige Prüfung:
+Diese Befehle prüfen Architekturregeln, Guard-Verhalten, generierte Navigation, Project-Map-Drift und das Capability Manifest. Sie gelten für dieses Repository und schlagen bei veralteter Wahrheit fehl, statt sie stillschweigend zu aktualisieren. Explizite `*-refresh`-Targets dürfen nur verwendet werden, wenn die besitzende Quelle absichtlich geändert wurde.
 
-```bash
-make test
-( cd frontend-app && npm run lint && npm test && npm run build )
-```
+## Codequalität
 
-Die Checks sind schreibgeschützt und schlagen fehl, wenn generierte Wahrheit veraltet ist. Verwende die passenden `*-refresh` targets nur bei einer beabsichtigten Aktualisierung.
+| Metrik | Aktuelle Wahrheitsquelle |
+|---|---|
+| Architekturtests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 329 runnable `Test*` functions across 127 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architekturregeln | [Generierte Backend-Boundary-Map](docs/doc/codemap/13-archtest-boundaries.md) |
+| Testabdeckung | Aus einem aktuellen Testlauf neu berechnen; es wird kein statischer Prozentsatz behauptet |
+| CI | [GitHub Actions](.github/workflows/ci.yml) |
 
 <!-- sd:security -->
 ## Sicherheit
 
-- Keine Zugangsdaten, Provider homes, lokalen Datenbanken, logs, user memory oder rechnerbezogene Konfiguration committen.
-- Fehlende Konfiguration und defekte Abhängigkeiten folgen dem [fail-fast contract](docs/%E5%A5%91%E7%BA%A6/fail-fast-convention.md); silent fallback gilt als Fehler.
-- Der öffentliche Source exporter liest nur committete Git objects und schließt mit einer default-deny policy interne Pläne, archives, run evidence, lokale workspaces und untracked files aus.
-- Sensible Schwachstellen privat an den Repository-Eigentümer melden; keine exploits, secrets oder Nutzerdaten in öffentliche Issues schreiben.
+Keine Zugangsdaten, Provider Homes, lokalen Datenbanken, Logs, User Memory oder maschinenspezifische Konfiguration committen. Fehlende Identität, fehlendes Ownership, fehlende Konfiguration oder Abhängigkeiten müssen geschlossen fehlschlagen, statt sich stillschweigend abzuschwächen.
+
+Schwachstellen über das private Verfahren in der [Security Policy](SECURITY.md) melden. Keine Exploit-Details, Secrets, Trace Payloads oder Nutzerdaten in ein öffentliches Issue schreiben.
 
 <!-- sd:community -->
 ## Community und Beiträge
 
-Issues und fokussierte Pull Requests sind willkommen. Änderungen sollen klein und überprüfbar bleiben, Modulgrenzen einhalten, bei fixes regression tests im selben commit enthalten und die passenden Gates ausführen. Architekturentscheidungen gehören in contracts und ausführbare guards, nicht nur in prompts.
+Fokussierte Issues und Pull Requests sind willkommen. Einstiegspunkte:
 
-- [Code Map](docs/doc/codemap/README.md)
-- [Architekturverträge](docs/%E5%A5%91%E7%BA%A6/README.md)
-- [Projektanweisungen für Agents](AGENTS.md)
-- [Apache License 2.0](LICENSE)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Support](SUPPORT.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Roadmap](docs/open-source/ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+- [Release Checklist](docs/open-source/RELEASE_CHECKLIST.md)
+
+KI-unterstützte Beiträge sind willkommen, doch Contributors bleiben für den eingereichten Diff, Tests, Sicherheit, Lizenzierung und Nachweise verantwortlich. Eine generierte Antwort oder ein erfolgreicher Agent Run ersetzt keine Repository-Gates.
 
 ## Lizenz
 
-Lizenziert unter der [Apache License 2.0](LICENSE). Copyright-Hinweise stehen in [NOTICE](NOTICE).
+Lizenziert unter der [Apache License 2.0](LICENSE). Hinweise zur Namensnennung des Projekts und Dritter stehen in [NOTICE](NOTICE).

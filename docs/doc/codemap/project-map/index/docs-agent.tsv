@@ -345,6 +345,10 @@ docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	
 docs/li/reasonix-absorption-spikes/event-wire-methods.md	docs	docs-agent	doc	1078	项目文档体系	docs,li,reasonix,absorption,spikes,event,wire,methods,项目文档体系
 docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md	docs	docs-agent	doc	530	项目文档体系	docs,li,reasonix,absorption,spikes,mcp,tool,lifecycle,项目文档体系
 docs/li/reasonix-absorption-spikes/prompt-prefix-shape.md	docs	docs-agent	doc	628	项目文档体系	docs,li,reasonix,absorption,spikes,prompt,prefix,shape,项目文档体系
+docs/open-source/ARCHITECTURE.md	docs	docs-agent	doc	9765	项目文档体系	docs,open,source,ARCHITECTURE,项目文档体系
+docs/open-source/GOVERNANCE.md	docs	docs-agent	doc	11529	项目文档体系	docs,open,source,GOVERNANCE,项目文档体系
+docs/open-source/RELEASE_CHECKLIST.md	docs	docs-agent	doc	5049	项目文档体系	docs,open,source,RELEASE,CHECKLIST,项目文档体系
+docs/open-source/ROADMAP.md	docs	docs-agent	doc	3152	项目文档体系	docs,open,source,ROADMAP,项目文档体系
 docs/pians/2026-06-29-production-risk-remediation-evidence.md	docs	docs-agent	doc	15046	项目文档体系	docs,pians,2026,06,29,production,risk,remediation,evidence,项目文档体系
 docs/pians/2026-06-29-production-risk-remediation-evidence.schema.md	docs	docs-agent	doc	857	项目文档体系	docs,pians,2026,06,29,production,risk,remediation,evidence,schema,项目文档体系
 docs/pians/2026-06-29-production-risk-remediation-plan.md	docs	docs-agent	doc	67372	项目文档体系	docs,pians,2026,06,29,production,risk,remediation,plan,项目文档体系
@@ -898,9 +902,9 @@ docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	�
 docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
-README.de.md	(root)	docs-agent	doc	16457	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
-README.es.md	(root)	docs-agent	doc	16841	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
-README.ja.md	(root)	docs-agent	doc	18627	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
-README.ko.md	(root)	docs-agent	doc	17059	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	23740	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
-README.zh-CN.md	(root)	docs-agent	doc	15130	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
+README.de.md	(root)	docs-agent	doc	13780	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
+README.es.md	(root)	docs-agent	doc	14118	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
+README.ja.md	(root)	docs-agent	doc	14379	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
+README.ko.md	(root)	docs-agent	doc	13520	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	12115	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.zh-CN.md	(root)	docs-agent	doc	11175	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
