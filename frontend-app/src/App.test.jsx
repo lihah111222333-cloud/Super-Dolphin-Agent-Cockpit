@@ -986,6 +986,33 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
 
+  it('dispatches the real new-chat, settings, sidebar, and palette commands from the app window', async () => {
+    render(<App />);
+
+    await waitForBackendThreadHeading();
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
+    await screen.findByText('我们应该在 燧元 中构建什么？');
+
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('settings'));
+
+    const appShell = screen.getByTestId('frontend-app');
+    const sidebarWasOpen = appShell.classList.contains('sidebar-open');
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+    await waitFor(() => expect(appShell.classList.contains('sidebar-open')).not.toBe(sidebarWasOpen));
+
+    expect(appShell).toHaveAttribute('data-command-palette-open', 'false');
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    await waitFor(() => expect(appShell).toHaveAttribute('data-command-palette-open', 'true'));
+  });
+
+  it('removes the ChatPage-global Escape listener after app command dispatch owns interruption', async () => {
+    render(<App />);
+    await waitForBackendThreadHeading();
+
+    expect(chatPageSource).not.toContain('useChatInterruptShortcut');
+  });
+
   it('shows an app update banner after the background check finds a new version', async () => {
     vi.useFakeTimers();
     backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: '0.1.1' });
@@ -4072,14 +4099,31 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('interrupts the selected conversation when Escape is pressed', async () => {
+    const interruptActiveThread = vi.spyOn(useClientStore.getState(), 'interruptActiveThread');
     render(<App />);
     await waitForBackendThreadHeading();
 
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
     await waitFor(() => {
+      expect(interruptActiveThread).toHaveBeenCalledTimes(1);
       expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
     });
+  });
+
+  it('leaves Escape to an open local surface without interrupting or preventing it', async () => {
+    render(<App />);
+    await waitForBackendThreadHeading();
+    const localSurface = document.createElement('div');
+    localSurface.setAttribute('role', 'dialog');
+    document.body.append(localSurface);
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
+    act(() => window.dispatchEvent(event));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+    localSurface.remove();
   });
 
   it('does not interrupt the selected conversation when Escape is handled by the composer', async () => {

@@ -106,19 +106,6 @@ function renderCodePreviewMarkdown(content) {
   return <CodePreviewMarkdown content={content} />;
 }
 
-function shouldIgnoreGlobalEscape(target) {
-  const element = target instanceof Element ? target : null;
-  if (!element) return false;
-  const tagName = element.tagName.toLowerCase();
-  if (['input', 'textarea', 'select', 'option'].includes(tagName)) return true;
-  if (element.isContentEditable) return true;
-  return Boolean(element.closest('dialog, [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
-}
-
-function hasOpenLocalEscapeSurface() {
-  return Boolean(document.querySelector('dialog[open], [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
-}
-
 /*
 function providerToggleState(store) {
   const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
@@ -199,21 +186,6 @@ function handleTimelineCitationAction(payload, { store, openFileRef }) {
   appendComposerCitation(store, payload);
 }
 
-function useChatInterruptShortcut(store, activeThreadId) {
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (shouldIgnoreGlobalEscape(event.target)) return;
-      if (hasOpenLocalEscapeSurface()) return;
-      if (!store.hasActiveThreadActions?.()) return;
-      event.preventDefault();
-      runUIAction(() => store.interruptActiveThread?.());
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [store, activeThreadId]);
-}
-
 function useActiveChatThreadSync(store, activeThreadId) {
   const timelineReady = Boolean(activeThreadId && store.threadTimelineReadyByThread?.[activeThreadId]);
   const loading = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
@@ -274,7 +246,6 @@ function ChatPage(props) {
     layoutRef: chatLayoutRef,
   });
   useActiveChatThreadSync(store, activeThreadId);
-  useChatInterruptShortcut(store, activeThreadId);
   const layoutColumns = rightPanelOpen
     ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : 'minmax(0, 1fr)';

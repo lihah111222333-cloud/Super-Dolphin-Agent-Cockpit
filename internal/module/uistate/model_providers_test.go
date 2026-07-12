@@ -62,6 +62,83 @@ func TestModelProvidersSaveRejectsInvalidRegistry(t *testing.T) {
 	}
 }
 
+func TestShortcutBindingsPreferenceValidation(t *testing.T) {
+	validBinding := func(key string) map[string]any {
+		return map[string]any{
+			"key":   key,
+			"meta":  false,
+			"ctrl":  true,
+			"alt":   false,
+			"shift": false,
+		}
+	}
+	tooManyBindings := make(map[string]any, 65)
+	for index := 0; index < 65; index++ {
+		tooManyBindings["command."+strings.Repeat("x", index+1)] = validBinding("k")
+	}
+
+	tests := []struct {
+		name    string
+		value   any
+		wantErr bool
+	}{
+		{name: "empty", value: map[string]any{}},
+		{name: "valid", value: map[string]any{"chat.new": validBinding("n")}},
+		{name: "not object", value: []any{}, wantErr: true},
+		{name: "too many bindings", value: tooManyBindings, wantErr: true},
+		{name: "blank command id", value: map[string]any{"": validBinding("n")}, wantErr: true},
+		{name: "blank key", value: map[string]any{"chat.new": validBinding("")}, wantErr: true},
+		{name: "key too long", value: map[string]any{"chat.new": validBinding(strings.Repeat("k", 33))}, wantErr: true},
+		{name: "binding not object", value: map[string]any{"chat.new": "n"}, wantErr: true},
+		{name: "missing field", value: map[string]any{"chat.new": map[string]any{
+			"key": "n", "meta": false, "ctrl": true, "alt": false,
+		}}, wantErr: true},
+		{name: "extra field", value: map[string]any{"chat.new": map[string]any{
+			"key": "n", "meta": false, "ctrl": true, "alt": false, "shift": false, "run": true,
+		}}, wantErr: true},
+		{name: "modifier not bool", value: map[string]any{"chat.new": map[string]any{
+			"key": "n", "meta": false, "ctrl": "yes", "alt": false, "shift": false,
+		}}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePreferenceValue("settings.shortcuts.bindings", test.value)
+			if test.wantErr && err == nil {
+				t.Fatal("validatePreferenceValue() error = nil, want validation failure")
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("validatePreferenceValue() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestShortcutBindingsCloneJSONValueDoesNotAliasNestedBindings(t *testing.T) {
+	original := map[string]any{
+		"chat.new": map[string]any{
+			"key": "n", "meta": false, "ctrl": true, "alt": false, "shift": false,
+		},
+	}
+	cloned, ok := cloneJSONValue(original).(map[string]any)
+	if !ok {
+		t.Fatalf("cloneJSONValue() type = %T, want map[string]any", cloned)
+	}
+	clonedBinding, ok := cloned["chat.new"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloned binding type = %T, want map[string]any", cloned["chat.new"])
+	}
+	clonedBinding["key"] = "m"
+	originalBinding := original["chat.new"].(map[string]any)
+	if got := originalBinding["key"]; got != "n" {
+		t.Fatalf("original key = %v after cloned mutation, want n", got)
+	}
+	originalBinding["ctrl"] = false
+	if got := clonedBinding["ctrl"]; got != true {
+		t.Fatalf("cloned ctrl = %v after original mutation, want true", got)
+	}
+}
+
 // TestModelProvidersRejectMissingCwd 确认模型提供方 RPC 不会写入默认偏好作用域。
 func TestModelProvidersRejectMissingCwd(t *testing.T) {
 	server := newModelProviderTestServer(t)

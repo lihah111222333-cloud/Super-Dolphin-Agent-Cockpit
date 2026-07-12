@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { UNSAFE_PortalProvider } from 'react-aria';
 import { useShallow } from 'zustand/react/shallow';
@@ -51,6 +51,9 @@ import {
   selectAppShellStore,
 } from './app/appShellModel.js';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
+import { APP_COMMAND_IDS, defineAppCommandRegistry } from './app/commands/appCommandRegistry.js';
+import { createAppCommandRuntime } from './app/commands/appCommandRuntime.js';
+import { useAppCommandDispatcher } from './app/commands/useAppCommandDispatcher.js';
 
 
 
@@ -73,6 +76,54 @@ const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'memory', label: 'Memory', labelKey: 'memory', icon: Brain },
   { id: 'observability', label: 'Logs', labelKey: 'observability', icon: Database },
 ]);
+const APP_COMMAND_REGISTRY = defineAppCommandRegistry([
+  {
+    id: APP_COMMAND_IDS.PALETTE_OPEN,
+    labelKey: 'commands.palette.open',
+    section: 'application',
+    defaultShortcut: { key: 'k', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.CHAT_NEW,
+    labelKey: 'commands.chat.new',
+    section: 'chat',
+    defaultShortcut: { key: 'n', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.SETTINGS_OPEN,
+    labelKey: 'commands.settings.open',
+    section: 'navigation',
+    defaultShortcut: { key: ',', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.SIDEBAR_TOGGLE,
+    labelKey: 'commands.sidebar.toggle',
+    section: 'navigation',
+    defaultShortcut: { key: 'b', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.TURN_INTERRUPT,
+    labelKey: 'commands.turn.interrupt',
+    section: 'chat',
+    defaultShortcut: { key: 'Escape' },
+  },
+]);
+const EMPTY_SHORTCUT_OVERRIDES = Object.freeze({});
+
+function appShortcutPlatform() {
+  if (typeof navigator === 'undefined') throw new Error('browser shortcut platform is unavailable');
+  const browserPlatform = `${String(navigator.platform)} ${String(navigator.userAgent)}`.toLowerCase();
+  if (browserPlatform.includes('mac')) return 'darwin';
+  if (browserPlatform.includes('win')) return 'win32';
+  if (browserPlatform.includes('linux')) return 'linux';
+  const runtimePlatform = globalThis.process?.platform;
+  if (['darwin', 'linux', 'win32'].includes(runtimePlatform)) return runtimePlatform;
+  throw new Error(`unsupported browser shortcut platform: ${browserPlatform || 'unknown'}`);
+}
+
+function hasOpenLocalEscapeSurface() {
+  return Boolean(document.querySelector('dialog[open], [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
+}
 
 function workflowSubpageLabel(workflowView, copy) {
   if (workflowView === 'templates') return copy.templatePageTitle;
@@ -526,6 +577,33 @@ function useAppShellState(store, skipBootstrap) {
   return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
+function useBoundAppCommandRuntime({ setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store }) {
+  return useMemo(() => createAppCommandRuntime({
+    registry: APP_COMMAND_REGISTRY,
+    bindings: {
+      [APP_COMMAND_IDS.PALETTE_OPEN]: {
+        run: () => setPaletteOpen(true),
+      },
+      [APP_COMMAND_IDS.CHAT_NEW]: {
+        run: startNewChat,
+      },
+      [APP_COMMAND_IDS.SETTINGS_OPEN]: {
+        run: () => setActivePage('settings'),
+      },
+      [APP_COMMAND_IDS.SIDEBAR_TOGGLE]: {
+        run: () => setSidebarOpen((open) => !open),
+      },
+      [APP_COMMAND_IDS.TURN_INTERRUPT]: {
+        run: () => runUIAction(() => store.interruptActiveThread(), uiActionOptions(store)),
+        canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
+        disabledReason: '当前没有可中断任务',
+      },
+    },
+    overrides: EMPTY_SHORTCUT_OVERRIDES,
+    platform: appShortcutPlatform(),
+  }), [setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
+}
+
 function AppWindow({ shell, shellLayoutStore, store }) {
   const routeStore = useClientStore();
   const {
@@ -552,6 +630,7 @@ function AppWindow({ shell, shellLayoutStore, store }) {
     }
     return true;
   });
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
   const activeLabel = appPageTitleLabel(store.activePage, copy);
   const currentPageLabel = currentPageLabelOverride || activeLabel;
@@ -574,8 +653,16 @@ function AppWindow({ shell, shellLayoutStore, store }) {
     setActivePageFromSidebar('chat');
     runUIAction(() => store?.newThread?.(), uiActionOptions(store));
   }, [setActivePageFromSidebar, store]);
+  const commandRuntime = useBoundAppCommandRuntime({
+    setActivePage: setActivePageFromSidebar,
+    setPaletteOpen,
+    setSidebarOpen,
+    startNewChat,
+    store,
+  });
+  useAppCommandDispatcher({ runtime: commandRuntime });
   return (
-    <div className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-theme={theme} data-testid="frontend-app">
+    <div className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-command-palette-open={paletteOpen} data-theme={theme} data-testid="frontend-app">
       <button
         type="button"
         className="workbench-toggle"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ const (
 	preferenceThreadArchivesChat       = "threadArchives.chat"
 	preferenceShowInjectedPromptInChat = "settings.showInjectedPromptInChat"
 	preferenceProviderActive           = "settings.provider.active"
+	preferenceShortcutBindings         = "settings.shortcuts.bindings"
 
 	defaultProviderActive = "codex"
 	recentTurnLimit       = 20
@@ -296,14 +298,84 @@ func boolPreferencePointer(value any, fallback bool) *bool {
 	return &resolved
 }
 
+// validatePreferenceValue 按偏好键执行严格校验，拒绝把无效值写入偏好存储。
 func validatePreferenceValue(key string, value any) error {
 	switch normalizePreferenceKey(key) {
 	case preferenceStallThresholdSec:
 		if asPositiveInt(value, 30) <= 0 {
 			return errInvalidStallThresholdSec
 		}
+	case preferenceShortcutBindings:
+		return validateShortcutBindings(value)
 	}
 	return nil
+}
+
+// validateShortcutBindings 校验快捷键对象的命令数量、命令标识与每条绑定结构。
+func validateShortcutBindings(value any) error {
+	bindings, ok := value.(map[string]any)
+	if !ok {
+		return errors.New("settings.shortcuts.bindings must be an object")
+	}
+	if len(bindings) > 64 {
+		return errors.New("settings.shortcuts.bindings must contain at most 64 commands")
+	}
+	for commandID, rawBinding := range bindings {
+		if strings.TrimSpace(commandID) == "" || strings.TrimSpace(commandID) != commandID {
+			return errors.New("settings.shortcuts.bindings command id must be non-blank and trimmed")
+		}
+		if err := validateShortcutBinding(commandID, rawBinding); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateShortcutBinding 校验单条绑定仅包含固定字段及其严格 JSON 类型。
+func validateShortcutBinding(commandID string, rawBinding any) error {
+	binding, ok := rawBinding.(map[string]any)
+	if !ok {
+		return fmt.Errorf("settings.shortcuts.bindings.%s must be an object", commandID)
+	}
+	if len(binding) != 5 {
+		return fmt.Errorf("settings.shortcuts.bindings.%s must contain exactly key/meta/ctrl/alt/shift", commandID)
+	}
+	for field := range binding {
+		if !isShortcutBindingField(field) {
+			return fmt.Errorf("settings.shortcuts.bindings.%s contains unknown field %s", commandID, field)
+		}
+	}
+	if err := validateShortcutKey(commandID, binding["key"]); err != nil {
+		return err
+	}
+	for _, modifier := range []string{"meta", "ctrl", "alt", "shift"} {
+		if _, ok := binding[modifier].(bool); !ok {
+			return fmt.Errorf("settings.shortcuts.bindings.%s.%s must be boolean", commandID, modifier)
+		}
+	}
+	return nil
+}
+
+// validateShortcutKey 校验快捷键主键是长度受限且无首尾空白的字符串。
+func validateShortcutKey(commandID string, value any) error {
+	shortcutKey, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("settings.shortcuts.bindings.%s.key must be a trimmed string with length 1..32", commandID)
+	}
+	if shortcutKey == "" || strings.TrimSpace(shortcutKey) != shortcutKey || len(shortcutKey) > 32 {
+		return fmt.Errorf("settings.shortcuts.bindings.%s.key must be a trimmed string with length 1..32", commandID)
+	}
+	return nil
+}
+
+// isShortcutBindingField 判断字段是否属于持久化快捷键的固定结构。
+func isShortcutBindingField(field string) bool {
+	switch field {
+	case "key", "meta", "ctrl", "alt", "shift":
+		return true
+	default:
+		return false
+	}
 }
 
 func preferenceRawValue(values map[string]any, keys ...string) any {
