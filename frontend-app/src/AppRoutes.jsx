@@ -60,6 +60,7 @@ export function ActivePageContent(props) {
     projectPath,
     rightPanelOpen,
     shellLayoutStore,
+    shortcutController,
     setMemoryPageSimilarCount,
     setRightPanelOpen,
     store,
@@ -94,6 +95,6 @@ export function ActivePageContent(props) {
   }
   if (activePage === 'files') return <FilesPageRoute copy={copy} projectPath={projectPath} store={store} />;
   if (activePage === 'observability') return <ObservabilityPage copy={copy.observability} />;
-  if (activePage === 'settings') return <SettingsPage copy={copy.settings} projectPath={projectPath} />;
+  if (activePage === 'settings') return <SettingsPage copy={copy.settings} projectPath={projectPath} shortcutController={shortcutController} />;
   return null;
 }

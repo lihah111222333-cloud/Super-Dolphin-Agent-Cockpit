@@ -1,0 +1,75 @@
+.shortcut-settings-card {
+  display: grid;
+  gap: 16px;
+}
+
+.shortcut-settings-card > header,
+.shortcut-settings-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shortcut-settings-card h2,
+.shortcut-settings-card p,
+.shortcut-settings-card__list {
+  margin: 0;
+}
+
+.shortcut-settings-card__list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.shortcut-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.shortcut-setting__copy,
+.shortcut-setting__keys {
+  display: grid;
+  gap: 4px;
+}
+
+.shortcut-setting__copy small,
+.shortcut-setting__keys small {
+  color: var(--text-muted);
+}
+
+.shortcut-setting__keys {
+  justify-items: end;
+}
+
+.shortcut-setting__keys button {
+  min-width: 96px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.shortcut-settings-card__error {
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .shortcut-setting {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shortcut-setting__keys {
+    justify-items: stretch;
+  }
+}

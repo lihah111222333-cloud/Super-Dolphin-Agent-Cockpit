@@ -203,6 +203,30 @@
     "copiedOutput": "Copied",
     "copyOutputFailed": "Copy failed"
   },
+  "commands": {
+    "title": "Command palette",
+    "searchPlaceholder": "Search commands",
+    "empty": "No matching commands",
+    "labels": {
+      "commands.palette.open": "Open command palette",
+      "commands.chat.new": "New chat",
+      "commands.settings.open": "Open settings",
+      "commands.sidebar.toggle": "Toggle sidebar",
+      "commands.turn.interrupt": "Interrupt current task"
+    },
+    "help": {
+      "commands.palette.openHelp": "Search and run application commands",
+      "commands.chat.newHelp": "Start an empty conversation",
+      "commands.settings.openHelp": "Open application preferences",
+      "commands.sidebar.toggleHelp": "Expand or collapse the sidebar",
+      "commands.turn.interruptHelp": "Interrupt the active task"
+    },
+    "sections": {
+      "application": "Application",
+      "chat": "Chat",
+      "navigation": "Navigation"
+    }
+  },
   "settings": {
     "title": "Settings",
     "refreshBuildInfo": "Refresh build info",
@@ -224,6 +248,14 @@
     "logoutTab": "Log out",
     "projectCwdRequired": "Current project path is empty, so settings cannot be saved",
     "buildInfoRefreshed": "Build info refreshed",
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "description": "Customize application command shortcuts.",
+      "loading": "Loading shortcuts...",
+      "save": "Save shortcuts",
+      "reset": "Reset to defaults",
+      "edit": "Edit shortcut"
+    },
     "about": {
       "version": "Version",
       "runtime": "Runtime",

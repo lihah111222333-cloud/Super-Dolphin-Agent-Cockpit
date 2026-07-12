@@ -2,7 +2,9 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { SettingsPage } from './SettingsPage.jsx';
+import settingsPageSource from './SettingsPage.jsx?raw';
 
 const backend = vi.hoisted(() => ({
   applyModelProvider: vi.fn(),
@@ -70,21 +72,21 @@ function createTestQueryClient() {
   });
 }
 
-function settingsPageView(queryClient, projectPath) {
+function settingsPageView(queryClient, projectPath, pageProps = {}) {
   return (
     <QueryClientProvider client={queryClient}>
-      <SettingsPage projectPath={projectPath} />
+      <SettingsPage projectPath={projectPath} {...pageProps} />
     </QueryClientProvider>
   );
 }
 
-function renderSettingsPage(projectPath = '/repo/app') {
+function renderSettingsPage(projectPath = '/repo/app', pageProps = {}) {
   const queryClient = createTestQueryClient();
-  const result = render(settingsPageView(queryClient, projectPath));
+  const result = render(settingsPageView(queryClient, projectPath, pageProps));
   return {
     queryClient,
     ...result,
-    rerenderSettingsPage: (nextProjectPath) => result.rerender(settingsPageView(queryClient, nextProjectPath)),
+    rerenderSettingsPage: (nextProjectPath) => result.rerender(settingsPageView(queryClient, nextProjectPath, pageProps)),
   };
 }
 
@@ -185,6 +187,47 @@ describe('SettingsPage module', () => {
     const logOutButtons = within(panel).getAllByRole('button', { name: '退出登录' });
     expect(logOutButtons).toHaveLength(2);
     logOutButtons.forEach((button) => expect(button).toBeDisabled());
+  });
+});
+
+describe('SettingsPage shortcut controller boundary', () => {
+  it.each([
+    ['zh', '键盘快捷键', '新建对话'],
+    ['en', 'Keyboard shortcuts', 'New chat'],
+  ])('renders only the injected controller with %s copy', async (locale, title, commandLabel) => {
+    const localeCopy = APP_COPY[locale];
+    const shortcutController = {
+      status: 'ready',
+      error: '',
+      commands: [{
+        id: 'chat.new',
+        label: commandLabel,
+        help: locale === 'zh' ? '开始一个空对话' : 'Start an empty conversation',
+        defaultDisplay: 'Ctrl+N',
+        currentDisplay: 'Ctrl+N',
+        isCustomized: false,
+      }],
+      setDraftBinding: vi.fn(),
+      save: vi.fn(),
+      reset: vi.fn(),
+    };
+
+    renderSettingsPage('/repo/app', {
+      copy: localeCopy.settings,
+      shortcutController,
+    });
+
+    const card = screen.getByTestId('shortcut-settings-card');
+    expect(within(card).getByRole('heading', { name: title })).toBeInTheDocument();
+    expect(within(card).getByText(commandLabel)).toBeInTheDocument();
+    expect(localeCopy.settings.shortcuts).toBeDefined();
+    expect(backend.getPreference).not.toHaveBeenCalledWith(expect.objectContaining({ key: 'settings.shortcuts.bindings' }));
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({ key: 'settings.shortcuts.bindings' }));
+  });
+
+  it('does not import or create a second shortcut settings hook', () => {
+    expect(settingsPageSource).not.toContain('useShortcutSettings');
+    expect(settingsPageSource).not.toContain('settings.shortcuts.bindings');
   });
 });
 

@@ -92,3 +92,41 @@ export function defineAppCommandRegistry(descriptors) {
   });
   return Object.freeze(result);
 }
+
+export const APP_COMMAND_REGISTRY = defineAppCommandRegistry([
+  {
+    id: APP_COMMAND_IDS.PALETTE_OPEN,
+    labelKey: 'commands.palette.open',
+    helpKey: 'commands.palette.openHelp',
+    section: 'application',
+    defaultShortcut: { key: 'k', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.CHAT_NEW,
+    labelKey: 'commands.chat.new',
+    helpKey: 'commands.chat.newHelp',
+    section: 'chat',
+    defaultShortcut: { key: 'n', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.SETTINGS_OPEN,
+    labelKey: 'commands.settings.open',
+    helpKey: 'commands.settings.openHelp',
+    section: 'navigation',
+    defaultShortcut: { key: ',', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.SIDEBAR_TOGGLE,
+    labelKey: 'commands.sidebar.toggle',
+    helpKey: 'commands.sidebar.toggleHelp',
+    section: 'navigation',
+    defaultShortcut: { key: 'b', mod: true },
+  },
+  {
+    id: APP_COMMAND_IDS.TURN_INTERRUPT,
+    labelKey: 'commands.turn.interrupt',
+    helpKey: 'commands.turn.interruptHelp',
+    section: 'chat',
+    defaultShortcut: { key: 'Escape' },
+  },
+]);

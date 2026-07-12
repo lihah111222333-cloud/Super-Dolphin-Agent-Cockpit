@@ -16,6 +16,7 @@ function dispatchCommandShortcut(event, runtime) {
 
 export function useAppCommandDispatcher({ eventTarget = window, runtime }) {
   useEffect(() => {
+    if (!runtime) return undefined;
     const onKeyDown = (event) => dispatchCommandShortcut(event, runtime);
     eventTarget.addEventListener('keydown', onKeyDown);
     return () => eventTarget.removeEventListener('keydown', onKeyDown);

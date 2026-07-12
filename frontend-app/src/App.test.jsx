@@ -126,6 +126,24 @@ function waitForBackendThreadHeading() {
   return screen.findByRole('heading', { name: '后端线程' });
 }
 
+const appPreferenceDefaults = Object.freeze({
+  'settings.provider.active': 'codex',
+  'settings.provider.codex.model': 'gpt-5.5',
+  'settings.provider.codex.effort': 'xhigh',
+  'settings.provider.codex.codexHome': '~/.codex',
+  'settings.provider.codex.codexInstanceKey': 'default',
+  'settings.provider.codex.codexModelProvider': 'openai',
+  'settings.provider.claude.model': 'sonnet',
+  'settings.provider.claude.effort': 'high',
+});
+
+function mockShortcutPreferenceLoad(loadShortcutPreference) {
+  backend.getPreference.mockImplementation(({ key }) => {
+    if (key === 'settings.shortcuts.bindings') return loadShortcutPreference();
+    return Promise.resolve(appPreferenceDefaults[key] ?? null);
+  });
+}
+
 function openPluginsAndSkillsPage() {
   fireEvent.click(screen.getByLabelText('插件与技能'));
 }
@@ -1013,6 +1031,101 @@ async function showAllTraceDashboardEvents() {
     expect(chatPageSource).not.toContain('useChatInterruptShortcut');
   });
 
+  it('renders the real command palette state, executes a command, and closes the dialog', async () => {
+    mockShortcutPreferenceLoad(() => Promise.resolve({}));
+    render(<App />);
+    await waitForBackendThreadHeading();
+    await act(async () => Promise.resolve());
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+
+    const palette = screen.getByRole('dialog', { name: '命令面板' });
+    fireEvent.change(within(palette).getByRole('searchbox'), { target: { value: '打开设置' } });
+    fireEvent.click(within(palette).getByRole('option', { name: /打开设置/ }));
+
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('settings'));
+    expect(screen.queryByRole('dialog', { name: '命令面板' })).not.toBeInTheDocument();
+  });
+
+  it('does not install an executable default dispatcher while shortcut preferences are pending', async () => {
+    const shortcutLoad = deferred();
+    mockShortcutPreferenceLoad(() => shortcutLoad.promise);
+    render(<App />);
+    await waitForBackendThreadHeading();
+
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
+
+    expect(screen.getByRole('heading', { name: '后端线程' })).toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['load rejection', new Error('preference backend unavailable')],
+    ['unknown command', { 'unknown.command': { key: 'x', meta: false, ctrl: true, alt: false, shift: false } }],
+    ['effective conflict', { 'settings.open': { key: 'n', meta: false, ctrl: true, alt: false, shift: false } }],
+  ])('blocks all shortcuts and shows a visible configuration error for %s', async (_name, result) => {
+    mockShortcutPreferenceLoad(() => (
+      result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
+    ));
+    render(<App />);
+    await waitForBackendThreadHeading();
+
+    const error = await screen.findByTestId('shortcut-config-error');
+    expect(error).toHaveAttribute('role', 'alert');
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
+
+    expect(screen.getByRole('heading', { name: '后端线程' })).toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+  });
+
+  it('uses the authoritative loaded shortcut override instead of the default binding', async () => {
+    mockShortcutPreferenceLoad(() => Promise.resolve({
+      'chat.new': { key: 'm', meta: false, ctrl: true, alt: false, shift: false },
+    }));
+    render(<App />);
+    await waitForBackendThreadHeading();
+    await act(async () => Promise.resolve());
+
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
+    expect(screen.getByRole('heading', { name: '后端线程' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'm', ctrlKey: true });
+    await screen.findByText('我们应该在 燧元 中构建什么？');
+  });
+
+  it('rebinds the runtime only after save completes its authoritative read-after-write', async () => {
+    let shortcutPreference = {};
+    mockShortcutPreferenceLoad(() => Promise.resolve(shortcutPreference));
+    backend.setPreference.mockImplementation(({ key, value }) => {
+      if (key === 'settings.shortcuts.bindings') shortcutPreference = value;
+      return Promise.resolve({ ok: true });
+    });
+    render(<App />);
+    await waitForBackendThreadHeading();
+    await act(async () => Promise.resolve());
+
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+    const shortcutCard = await screen.findByTestId('shortcut-settings-card');
+    fireEvent.keyDown(within(shortcutCard).getByRole('button', { name: /修改快捷键.*新建对话/ }), {
+      key: 'm',
+      ctrlKey: true,
+    });
+    fireEvent.click(within(shortcutCard).getByRole('button', { name: '保存快捷键' }));
+    await waitFor(() => expect(backend.setPreference).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      key: 'settings.shortcuts.bindings',
+      value: { 'chat.new': { key: 'm', meta: false, ctrl: true, alt: false, shift: false } },
+    }));
+    await waitFor(() => expect(backend.getPreference.mock.calls.filter(([params]) => (
+      params.key === 'settings.shortcuts.bindings'
+    ))).toHaveLength(2));
+
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
+    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'm', ctrlKey: true });
+    await screen.findByText('我们应该在 燧元 中构建什么？');
+  });
+
   it('shows an app update banner after the background check finds a new version', async () => {
     vi.useFakeTimers();
     backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: '0.1.1' });
@@ -1492,6 +1605,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App skipBootstrap />);
+    await act(async () => Promise.resolve());
 
     expect(screen.queryByRole('button', { name: '中断当前执行' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();

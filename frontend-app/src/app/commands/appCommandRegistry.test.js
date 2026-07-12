@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { APP_COMMAND_IDS, defineAppCommandRegistry } from './appCommandRegistry.js';
+import * as registryModule from './appCommandRegistry.js';
 
 function commandDescriptor(overrides = {}) {
   return {
@@ -16,6 +17,18 @@ function commandDescriptor(overrides = {}) {
 }
 
 describe('app command registry', () => {
+  it('owns the single canonical descriptor list without executable bindings', () => {
+    const registry = registryModule.APP_COMMAND_REGISTRY;
+
+    expect(registry).toBeDefined();
+    expect(registry.map(({ id }) => id)).toEqual(Object.values(APP_COMMAND_IDS));
+    for (const descriptor of registry) {
+      expect(descriptor).not.toHaveProperty('run');
+      expect(descriptor).not.toHaveProperty('canExecute');
+      expect(descriptor).not.toHaveProperty('disabledReason');
+    }
+  });
+
   it('publishes the fixed command identifiers as immutable descriptor keys', () => {
     expect(APP_COMMAND_IDS).toEqual({
       PALETTE_OPEN: 'command.palette.open',

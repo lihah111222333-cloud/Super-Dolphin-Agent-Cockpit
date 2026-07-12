@@ -25,6 +25,16 @@ function createEventTarget() {
 }
 
 describe('useAppCommandDispatcher', () => {
+  it('does not install a listener while the validated runtime is unavailable', () => {
+    const eventTarget = createEventTarget()
+
+    const view = render(<DispatcherHarness eventTarget={eventTarget} runtime={undefined} />)
+
+    expect(eventTarget.addEventListener).not.toHaveBeenCalled()
+    view.unmount()
+    expect(eventTarget.removeEventListener).not.toHaveBeenCalled()
+  })
+
   it('installs exactly one app-window keydown listener and removes the same listener', () => {
     const eventTarget = createEventTarget()
     const runtime = { commands: [], execute: vi.fn() }

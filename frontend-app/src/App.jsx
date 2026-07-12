@@ -51,9 +51,12 @@ import {
   selectAppShellStore,
 } from './app/appShellModel.js';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
-import { APP_COMMAND_IDS, defineAppCommandRegistry } from './app/commands/appCommandRegistry.js';
+import { appCommandPreferencePort } from './app/commands/appCommandPreferencePort.js';
+import { APP_COMMAND_IDS, APP_COMMAND_REGISTRY } from './app/commands/appCommandRegistry.js';
 import { createAppCommandRuntime } from './app/commands/appCommandRuntime.js';
 import { useAppCommandDispatcher } from './app/commands/useAppCommandDispatcher.js';
+import { CommandPalette } from './features/command-palette/ui/CommandPalette.jsx';
+import { useShortcutSettings } from './features/shortcut-settings/hooks/useShortcutSettings.js';
 
 
 
@@ -76,40 +79,6 @@ const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'memory', label: 'Memory', labelKey: 'memory', icon: Brain },
   { id: 'observability', label: 'Logs', labelKey: 'observability', icon: Database },
 ]);
-const APP_COMMAND_REGISTRY = defineAppCommandRegistry([
-  {
-    id: APP_COMMAND_IDS.PALETTE_OPEN,
-    labelKey: 'commands.palette.open',
-    section: 'application',
-    defaultShortcut: { key: 'k', mod: true },
-  },
-  {
-    id: APP_COMMAND_IDS.CHAT_NEW,
-    labelKey: 'commands.chat.new',
-    section: 'chat',
-    defaultShortcut: { key: 'n', mod: true },
-  },
-  {
-    id: APP_COMMAND_IDS.SETTINGS_OPEN,
-    labelKey: 'commands.settings.open',
-    section: 'navigation',
-    defaultShortcut: { key: ',', mod: true },
-  },
-  {
-    id: APP_COMMAND_IDS.SIDEBAR_TOGGLE,
-    labelKey: 'commands.sidebar.toggle',
-    section: 'navigation',
-    defaultShortcut: { key: 'b', mod: true },
-  },
-  {
-    id: APP_COMMAND_IDS.TURN_INTERRUPT,
-    labelKey: 'commands.turn.interrupt',
-    section: 'chat',
-    defaultShortcut: { key: 'Escape' },
-  },
-]);
-const EMPTY_SHORTCUT_OVERRIDES = Object.freeze({});
-
 function appShortcutPlatform() {
   if (typeof navigator === 'undefined') throw new Error('browser shortcut platform is unavailable');
   const browserPlatform = `${String(navigator.platform)} ${String(navigator.userAgent)}`.toLowerCase();
@@ -577,34 +546,48 @@ function useAppShellState(store, skipBootstrap) {
   return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
-function useBoundAppCommandRuntime({ setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store }) {
-  return useMemo(() => createAppCommandRuntime({
-    registry: APP_COMMAND_REGISTRY,
-    bindings: {
-      [APP_COMMAND_IDS.PALETTE_OPEN]: {
-        run: () => setPaletteOpen(true),
+function useBoundAppCommandRuntime(options) {
+  const { overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store } = options;
+  return useMemo(() => (overrides ? createAppCommandRuntime({
+      registry: APP_COMMAND_REGISTRY,
+      bindings: {
+        [APP_COMMAND_IDS.PALETTE_OPEN]: {
+          run: () => setPaletteOpen(true),
+        },
+        [APP_COMMAND_IDS.CHAT_NEW]: {
+          run: startNewChat,
+        },
+        [APP_COMMAND_IDS.SETTINGS_OPEN]: {
+          run: () => setActivePage('settings'),
+        },
+        [APP_COMMAND_IDS.SIDEBAR_TOGGLE]: {
+          run: () => setSidebarOpen((open) => !open),
+        },
+        [APP_COMMAND_IDS.TURN_INTERRUPT]: {
+          run: () => runUIAction(() => store.interruptActiveThread(), uiActionOptions(store)),
+          canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
+          disabledReason: '当前没有可中断任务',
+        },
       },
-      [APP_COMMAND_IDS.CHAT_NEW]: {
-        run: startNewChat,
-      },
-      [APP_COMMAND_IDS.SETTINGS_OPEN]: {
-        run: () => setActivePage('settings'),
-      },
-      [APP_COMMAND_IDS.SIDEBAR_TOGGLE]: {
-        run: () => setSidebarOpen((open) => !open),
-      },
-      [APP_COMMAND_IDS.TURN_INTERRUPT]: {
-        run: () => runUIAction(() => store.interruptActiveThread(), uiActionOptions(store)),
-        canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
-        disabledReason: '当前没有可中断任务',
-      },
-    },
-    overrides: EMPTY_SHORTCUT_OVERRIDES,
-    platform: appShortcutPlatform(),
-  }), [setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
+      overrides,
+      platform: appShortcutPlatform(),
+    }) : undefined), [overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
 }
 
-function AppWindow({ shell, shellLayoutStore, store }) {
+function AppCommandPalette({ copy, onClose, open, runtime }) {
+  if (!runtime) return null;
+  return (
+    <CommandPalette
+      open={open}
+      commands={runtime.commands}
+      execute={runtime.execute}
+      onClose={onClose}
+      copy={copy}
+    />
+  );
+}
+
+function AppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
   const routeStore = useClientStore();
   const {
     memoryBadge,
@@ -615,7 +598,7 @@ function AppWindow({ shell, shellLayoutStore, store }) {
     toggleTheme,
     updateBanner,
   } = shell;
-  const { copy, locale, toggleLocale } = useAppLanguage();
+  const { copy, locale, toggleLocale } = language;
   const [currentPageState, setCurrentPageState] = useState({ activePage: store.activePage, workflowView: 'automation' });
   if (currentPageState.activePage !== store.activePage) {
     setCurrentPageState({ activePage: store.activePage, workflowView: 'automation' });
@@ -654,6 +637,7 @@ function AppWindow({ shell, shellLayoutStore, store }) {
     runUIAction(() => store?.newThread?.(), uiActionOptions(store));
   }, [setActivePageFromSidebar, store]);
   const commandRuntime = useBoundAppCommandRuntime({
+    overrides: shortcutController?.status === 'ready' ? shortcutController.validatedOverrides : undefined,
     setActivePage: setActivePageFromSidebar,
     setPaletteOpen,
     setSidebarOpen,
@@ -663,6 +647,9 @@ function AppWindow({ shell, shellLayoutStore, store }) {
   useAppCommandDispatcher({ runtime: commandRuntime });
   return (
     <div className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-command-palette-open={paletteOpen} data-theme={theme} data-testid="frontend-app">
+      {shortcutController?.status === 'error' ? (
+        <output role="alert" data-testid="shortcut-config-error">{shortcutController.error}</output>
+      ) : null}
       <button
         type="button"
         className="workbench-toggle"
@@ -736,19 +723,46 @@ function AppWindow({ shell, shellLayoutStore, store }) {
                 onWorkflowViewChange={handleWorkflowViewChange}
                 rightPanelOpen={rightPanelOpen}
                 shellLayoutStore={shellLayoutStore}
+                shortcutController={shortcutController}
                 setRightPanelOpen={setRightPanelOpen}
               />
             </Suspense>
           </div>
         </main>
       </div>
+      <AppCommandPalette copy={copy.commands} onClose={() => setPaletteOpen(false)} open={paletteOpen} runtime={commandRuntime} />
     </div>
   );
+}
+
+function shortcutSettingsCwd(store) {
+  const cwd = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd;
+  if (cwd === '') return '';
+  if (typeof cwd !== 'string' || cwd.trim() !== cwd) throw new Error('shortcut settings cwd is required');
+  return cwd;
+}
+
+function ConfiguredAppWindow({ language, shortcutCwd, ...props }) {
+  const shortcutController = useShortcutSettings({
+    copy: language.copy.commands,
+    cwd: shortcutCwd,
+    getPreference: appCommandPreferencePort.getPreference,
+    platform: appShortcutPlatform(),
+    registry: APP_COMMAND_REGISTRY,
+    setPreference: appCommandPreferencePort.setPreference,
+  });
+  return <AppWindow {...props} language={language} shortcutController={shortcutController} />;
+}
+
+function AppWindowShortcutBoundary({ language, shell, shellLayoutStore, store }) {
+  const shortcutCwd = shortcutSettingsCwd(store);
+  return <ConfiguredAppWindow language={language} shell={shell} shellLayoutStore={shellLayoutStore} shortcutCwd={shortcutCwd} store={store} />;
 }
 
 function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = false }) {
   const store = useClientStore(useShallow(selectAppShellStore));
   const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
+  const language = useAppLanguage();
   const [shellLayoutStore] = useState(() => createShellLayoutStore({
     storage: shellLayoutStorage === undefined
       ? requiredAppStoragePort('shell layout storage')
@@ -767,7 +781,7 @@ function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = f
     <UNSAFE_PortalProvider getContainer={() => overlayRoot}>
       {uiTestMCPMode
         ? <UITestMCPShell />
-        : <AppWindow shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
+        : <AppWindowShortcutBoundary language={language} shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
     </UNSAFE_PortalProvider>
   );
 }

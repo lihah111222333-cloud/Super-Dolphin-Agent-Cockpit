@@ -203,6 +203,30 @@
     "copiedOutput": "已复制",
     "copyOutputFailed": "复制失败"
   },
+  "commands": {
+    "title": "命令面板",
+    "searchPlaceholder": "搜索命令",
+    "empty": "没有匹配的命令",
+    "labels": {
+      "commands.palette.open": "打开命令面板",
+      "commands.chat.new": "新建对话",
+      "commands.settings.open": "打开设置",
+      "commands.sidebar.toggle": "切换侧边栏",
+      "commands.turn.interrupt": "中断当前执行"
+    },
+    "help": {
+      "commands.palette.openHelp": "搜索并执行应用命令",
+      "commands.chat.newHelp": "开始一个空对话",
+      "commands.settings.openHelp": "打开应用设置",
+      "commands.sidebar.toggleHelp": "展开或折叠侧边栏",
+      "commands.turn.interruptHelp": "中断当前活动任务"
+    },
+    "sections": {
+      "application": "应用",
+      "chat": "对话",
+      "navigation": "导航"
+    }
+  },
   "settings": {
     "title": "设置",
     "refreshBuildInfo": "刷新构建信息",
@@ -224,6 +248,14 @@
     "logoutTab": "退出登录",
     "projectCwdRequired": "当前项目路径为空，无法保存设置",
     "buildInfoRefreshed": "构建信息已刷新",
+    "shortcuts": {
+      "title": "键盘快捷键",
+      "description": "自定义应用命令快捷键。",
+      "loading": "正在加载快捷键...",
+      "save": "保存快捷键",
+      "reset": "恢复默认设置",
+      "edit": "修改快捷键"
+    },
     "about": {
       "version": "版本",
       "runtime": "运行时",

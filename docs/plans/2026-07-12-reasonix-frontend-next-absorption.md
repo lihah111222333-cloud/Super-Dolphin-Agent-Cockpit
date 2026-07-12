@@ -573,6 +573,7 @@ git commit -m "feat(frontend): 新增命令与快捷键契约"
 - Create: `frontend-app/src/app/commands/useAppCommandDispatcher.test.jsx`
 - Modify: `frontend-app/src/App.jsx`
 - Modify: `frontend-app/src/App.test.jsx`
+- Modify: `frontend-app/src/AppRoutes.jsx`
 - Modify: `frontend-app/src/pages/chat/ChatPage.jsx`
 - Modify: `internal/module/uistate/preferences.go`
 - Modify: `internal/module/uistate/model_providers_test.go`
@@ -680,12 +681,28 @@ git commit -m "feat(frontend): 将全局命令绑定到类型化快捷键"
 - Create: `frontend-app/src/features/shortcut-settings/ui/ShortcutSettingsCard.jsx`
 - Create: `frontend-app/src/features/shortcut-settings/ui/ShortcutSettingsCard.test.jsx`
 - Create: `frontend-app/src/features/shortcut-settings/ui/ShortcutSettingsCard.css`
+- Create: `frontend-app/src/app/commands/appCommandPreferencePort.js`
+- Create: `frontend-app/src/app/commands/appCommandPreferencePort.test.js`
+- Modify: `frontend-app/src/app/commands/appCommandRegistry.js`
+- Modify: `frontend-app/src/app/commands/appCommandRegistry.test.js`
+- Modify: `frontend-app/src/app/commands/useAppCommandDispatcher.js`
+- Modify: `frontend-app/src/app/commands/useAppCommandDispatcher.test.jsx`
 - Modify: `frontend-app/src/App.jsx`
 - Modify: `frontend-app/src/App.test.jsx`
+- Modify: `frontend-app/src/AppRoutes.jsx`
 - Modify: `frontend-app/src/pages/settings/SettingsPage.jsx`
 - Modify: `frontend-app/src/pages/settings/SettingsPage.test.jsx`
 - Modify: `frontend-app/src/shared/i18n/appI18n.zh.json`
 - Modify: `frontend-app/src/shared/i18n/appI18n.en.json`
+- Modify: `docs/plans/2026-07-12-reasonix-frontend-next-absorption.md`
+
+`APP_SIZE_BUDGET_REGISTRY_OWNER_EXTRACTION`: Task 2 后 `App.jsx` 已达到 784 行，逼近 800 行生产文件门禁。Task 3 在功能接入前先用测试锁定并把唯一 canonical descriptor list 移入现有 `appCommandRegistry.js` owner；`App.jsx` 只导入该常量并继续绑定 handler，registry 仍保持 descriptor-only，禁止创建第二份列表或用不可读压缩绕过尺寸门禁。
+
+`SHORTCUT_CONFIG_BLOCKS_DISPATCHER_INSTALLATION`: App 始终调用唯一 `useAppCommandDispatcher`，但在快捷键偏好尚未加载或整组校验失败时传入 unavailable runtime；dispatcher effect 必须直接跳过 listener 安装，禁止用空命令或默认快捷键 runtime 兜底。只有 authoritative override 校验完成后才允许安装全局 listener。
+
+`APP_COMMAND_PREFERENCE_PORT_BOUNDARY`: `App.jsx` 不得直接 import generic `getPreference/setPreference`；`appCommandPreferencePort.js` 是 command owner 下的窄适配器，只允许 `settings.shortcuts.bindings` 并精确转发读写，任何其它 key 必须 fail fast，禁止扩大 shared-surface allowlist。
+
+`SHORTCUT_PREFERENCE_KEY_SINGLE_OWNER`: `settings.shortcuts.bindings` 字面量只由 shortcut-settings pure model 定义并导出，hook 与 command preference port 必须共同 import 该常量，禁止复制第二份 key。空 cwd 的 controller 状态固定为 unavailable，save/reset 必须拒绝 `shortcut settings are unavailable without cwd` 且不得调用 port；Settings card 同时禁用两个写入口。
 
 - [ ] **Step 1: 编写 palette model 与 component RED tests**
 
@@ -730,14 +747,32 @@ export function CommandPalette({ open, commands, execute, onClose, copy }) {
 
 - [ ] **Step 4: 接入 App composition 并运行 GREEN**
 
-Render `CommandPalette` from the `paletteOpen` state and handler already bound in Task 2; pass only `runtime.commands` and `runtime.execute`. Create the single shortcut controller in App composition, rebuild runtime from its validated overrides, and pass that controller to `SettingsPageView` for `ShortcutSettingsCard`. Loading failure、unknown id 或 effective conflict 显示配置错误并阻止 dispatcher 安装；不得回退到默认 shortcut 后继续。Run Step 2, `App.test.jsx`, Settings tests, z-index Vitest, and the production z-index guard. Expected: PASS.
+Render `CommandPalette` from the `paletteOpen` state and handler already bound in Task 2; pass only `runtime.commands` and `runtime.execute`. Create the single shortcut controller in App composition, rebuild runtime from its validated overrides, and pass that controller to `SettingsPageView` for `ShortcutSettingsCard`. Loading failure、unknown id 或 effective conflict 显示配置错误并阻止 dispatcher 安装；不得回退到默认 shortcut 后继续。空 cwd 是显式 no-project 状态：controller 保持 unavailable，dispatcher 不安装 listener；非空但非法的 cwd 必须 fail fast。Run Step 2, `App.test.jsx`, Settings tests, z-index Vitest, and the production z-index guard. Expected: PASS.
 
 - [ ] **Step 5: 原子提交**
 
 ```bash
-git add frontend-app/src/features/command-palette frontend-app/src/features/shortcut-settings frontend-app/src/App.jsx frontend-app/src/App.test.jsx frontend-app/src/pages/settings/SettingsPage.jsx frontend-app/src/pages/settings/SettingsPage.test.jsx frontend-app/src/shared/i18n
+git add \
+  docs/plans/2026-07-12-reasonix-frontend-next-absorption.md \
+  frontend-app/src/App.jsx \
+  frontend-app/src/App.test.jsx \
+  frontend-app/src/AppRoutes.jsx \
+  frontend-app/src/app/commands/appCommandPreferencePort.js \
+  frontend-app/src/app/commands/appCommandPreferencePort.test.js \
+  frontend-app/src/app/commands/appCommandRegistry.js \
+  frontend-app/src/app/commands/appCommandRegistry.test.js \
+  frontend-app/src/app/commands/useAppCommandDispatcher.js \
+  frontend-app/src/app/commands/useAppCommandDispatcher.test.jsx \
+  frontend-app/src/features/command-palette \
+  frontend-app/src/features/shortcut-settings \
+  frontend-app/src/pages/settings/SettingsPage.jsx \
+  frontend-app/src/pages/settings/SettingsPage.test.jsx \
+  frontend-app/src/shared/i18n/appI18n.en.json \
+  frontend-app/src/shared/i18n/appI18n.zh.json
 git commit -m "feat(frontend): 新增命令面板与快捷键设置"
 ```
+
+Expected: 新增 feature 与修改计划会触发 pre-commit 自动刷新 canonical project-map；仅当生成物语义对应 Task 3 时纳入提交，出现额外无关路径则 BLOCKED。
 
 ### Task 4: 后端权威 Prompt History RPC
 
