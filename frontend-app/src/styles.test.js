@@ -74,6 +74,7 @@ const EXPECTED_Z_INDEX_FILES = [
   'src/pages/chat/ChatMessages.css',
   'src/pages/chat/ChatPage.css',
   'src/pages/chat/ChatPageWorkbench.css',
+  'src/pages/chat/components/ProjectSelector.css',
   'src/pages/chat/composer/ComposerDock.css',
   'src/pages/chat/runtime/RuntimePanel.css',
   'src/pages/memory/MemoryPage.css',
@@ -281,7 +282,7 @@ describe('layer token and overlay host contract', () => {
     expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
   });
 
-  it('keeps all 39 active z-index declarations in 11 files on exact known token references', () => {
+  it('keeps all 40 active z-index declarations in 12 files on exact known token references', () => {
     const declarations = activeZIndexDeclarations();
     const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
     const invalid = declarations.filter((declaration) => {
@@ -289,9 +290,31 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(39);
+    expect(declarations).toHaveLength(40);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
+  });
+
+  it('shares one light palette rule between the app shell and overlay host', () => {
+    const expectedSelectors = new Set([
+      '.sa-window[data-theme="light"]',
+      '#overlay-root[data-theme="light"]',
+    ]);
+    const stylesRoot = postcss.parse(cssSources.get('src/styles.css'), { from: 'src/styles.css' });
+    const paletteRules = stylesRoot.nodes.filter((node) => (
+      node.type === 'rule'
+      && splitSelectors(node.selector).some((selector) => expectedSelectors.has(selector))
+    ));
+
+    expect(paletteRules).toHaveLength(1);
+    expect(new Set(splitSelectors(paletteRules[0].selector))).toEqual(expectedSelectors);
+
+    const declarations = {};
+    paletteRules[0].walkDecls((declaration) => {
+      declarations[declaration.prop] = declaration.value;
+    });
+    expect(declarations['--surface']).toBe('#ffffff');
+    expect(declarations['--text-pri']).toBe('#1b1c18');
   });
 
   it('classifies missing, duplicate, nested, and misordered overlay hosts', () => {
@@ -1654,6 +1677,7 @@ describe('composer control styles', () => {
   it('gives the portalled project menu an opaque component-owned surface', () => {
     const trigger = topLevelDeclarationsFor('.sa-window .composer-meta .project-select');
     const popover = topLevelDeclarationsFor('.project-selector-popover');
+    const hostPopover = topLevelDeclarationsFor('#overlay-root .project-selector-popover');
     const menu = topLevelDeclarationsFor('.project-dropdown');
     const row = topLevelDeclarationsFor('.project-dropdown-row');
 
@@ -1663,6 +1687,7 @@ describe('composer control styles', () => {
     expect(popover.border).toBe('1px solid var(--border)');
     expect(popover['border-radius']).toBe('8px');
     expect(popover['box-shadow']).toBe('var(--shadow)');
+    expect(hostPopover['z-index']).toBe('var(--z-overlay-popover)');
     expect(menu.display).toBe('grid');
     expect(menu['overflow-y']).toBe('auto');
     expect(row.display).toBe('grid');

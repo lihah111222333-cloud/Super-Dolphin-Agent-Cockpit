@@ -89,7 +89,8 @@ pre, code, kbd, samp, .monospace, .syntax, pre *, code * {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
-.sa-window[data-theme="light"] {
+.sa-window[data-theme="light"],
+#overlay-root[data-theme="light"] {
   color-scheme: light;
   --bg: #fbf9f3;
   --bg-elevated: #fbf9f3;
