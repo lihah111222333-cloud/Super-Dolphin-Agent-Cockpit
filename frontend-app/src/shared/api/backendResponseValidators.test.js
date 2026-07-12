@@ -77,6 +77,8 @@ describe('backend response validators', () => {
   it('accepts the exact Go UI state status map wire shapes', () => {
     const response = {
       threads: [],
+      agents: [],
+      token_usage: {},
       statuses: { 'thread-1': 'running' },
       statusHeadersByThread: { 'thread-1': 'Thinking' },
       statusDetailsByThread: { 'thread-1': 'Inspecting state' },
@@ -88,6 +90,38 @@ describe('backend response validators', () => {
     };
 
     expect(validate(RPC_METHODS.UI_STATE_GET, response)).toBe(response);
+  });
+
+  it.each([
+    ['threads-only', { threads: [] }, 'agents, token_usage or tokenUsage'],
+    ['agents-only', { agents: [] }, 'threads, token_usage or tokenUsage'],
+    ['token_usage-only', { token_usage: {} }, 'threads, agents'],
+  ])('rejects incomplete %s UI state snapshots', (_name, response, missingFields) => {
+    expect(() => validate(RPC_METHODS.UI_STATE_GET, response)).toThrow(
+      `ui/state/get response missing UI state snapshot fields; required: ${missingFields}`,
+    );
+  });
+
+  it('accepts complete UI state snapshots with canonical snake or camel token usage', () => {
+    const snakeResponse = { threads: [], agents: [], token_usage: {} };
+    const camelResponse = { threads: [], agents: [], tokenUsage: {} };
+
+    expect(validate(RPC_METHODS.UI_STATE_GET, snakeResponse)).toBe(snakeResponse);
+    expect(validate(RPC_METHODS.UI_STATE_GET, camelResponse)).toBe(camelResponse);
+  });
+
+  it('binds sidebar responses to their partial wire contract and validates status map types', () => {
+    const response = {
+      statuses: { 'thread-1': 'running' },
+      interruptibleByThread: { 'thread-1': true },
+    };
+
+    expect(validate(RPC_METHODS.UI_SIDEBAR_GET, response)).toBe(response);
+    expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
+      interruptibleByThread: { 'thread-1': 'true' },
+    })).toThrow(
+      'ui/sidebar/get response interruptibleByThread.thread-1 must be a boolean',
+    );
   });
 
   it.each([
@@ -141,6 +175,8 @@ describe('backend response validators', () => {
   ])('rejects malformed Go UI state %s maps', (field, malformed, message) => {
     expect(() => validate(RPC_METHODS.UI_STATE_GET, {
       threads: [],
+      agents: [],
+      token_usage: {},
       [field]: malformed,
     })).toThrow(message);
   });
