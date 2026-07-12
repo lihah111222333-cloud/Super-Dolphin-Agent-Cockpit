@@ -207,7 +207,7 @@ frontend-app/src/pages/chat/composer/AttachmentPreviewModal.jsx	frontend-app	app
 frontend-app/src/pages/chat/composer/composerAttachmentKey.js	frontend-app	app-ui	js-source	210	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,composerAttachmentKey,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerAttachments.jsx	frontend-app	app-ui	jsx	1586	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerAttachments,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerAttachments.test.jsx	frontend-app	app-ui	jsx	5340	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerAttachments,test,React,页面与路由级,UI
-frontend-app/src/pages/chat/composer/ComposerDock.css	frontend-app	app-ui	css	20097	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,React,页面与路由级,UI
+frontend-app/src/pages/chat/composer/ComposerDock.css	frontend-app	app-ui	css	20116	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerDock.jsx	frontend-app	app-ui	jsx	7467	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerDock.test.jsx	frontend-app	app-ui	jsx	15448	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerMeta.jsx	frontend-app	app-ui	jsx	3078	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerMeta,React,页面与路由级,UI
