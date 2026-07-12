@@ -471,14 +471,17 @@ go test ./internal/module/thread ./internal/module/uistate -count=1
 git status --short
 ```
 
-Expected: PASS and no source/generated drift other than the owned `00-baseline.md`, or the first pre-existing failure/drift is preserved verbatim in `00-baseline.md` before stopping. If an unmodified build changes `cmd/agent-terminal/web-dist`、codemap 或 project-map, record the exact paths and generator output as `BLOCKED_BASELINE_DRIFT`; do not commit that drift or create lane worktrees from a dirty integration base.
+Expected: PASS and no source/generated drift from the unmodified build, other than the owned plan/evidence documents already present in the worktree; otherwise preserve the first pre-existing failure/drift verbatim in `00-baseline.md` before stopping. The pre-commit hook is separately required to regenerate and stage the project-map index from the staged snapshot, so adding this plan and `00-baseline.md` is expected to update `AI_PROJECT_DRIFT.md`、`AI_PROJECT_MANIFEST.json`、`AI_PROJECT_MAP.md` and `index/docs-agent.tsv`. Mark `BLOCKED_BASELINE_DRIFT` only when generated changes do not correspond to the staged docs, a generated-state check fails, or additional generated paths appear. If the unmodified build itself changes `cmd/agent-terminal/web-dist`、codemap 或 project-map, record the exact paths and generator output and stop.
 
 - [ ] **Step 4: 提交基线证据**
 
 ```bash
+git add docs/plans/2026-07-12-reasonix-frontend-next-absorption.md
 git add docs/plans/evidence/reasonix-frontend-next/00-baseline.md
-git commit -m "docs(plan): lock Reasonix frontend next baseline"
+git commit -m "docs(plan): 锁定 Reasonix 前端串行基线"
 ```
+
+Expected: the repository pre-commit hook refreshes and stages the four project-map files named above from the staged plan/evidence snapshot, then all generated-state and guard checks pass. The resulting commit therefore contains the two owned docs plus those four hook-owned generated files. Do not hand-edit them or use `--no-verify`; unexpected paths or failed checks are blockers.
 
 ### Task 1: 单一 Command Registry 与纯 Shortcut Model
 
@@ -557,7 +560,7 @@ Expected: tests PASS and diagnostics are empty.
 
 ```bash
 git add frontend-app/src/app/commands frontend-app/src/shared/keyboard
-git commit -m "feat(frontend): add command and shortcut contracts"
+git commit -m "feat(frontend): 新增命令与快捷键契约"
 ```
 
 ### Task 2: Command Runtime、全局 Dispatcher 与 Typed Preference
@@ -658,7 +661,7 @@ Run Step 2 plus `npm run typecheck:contracts`; expected PASS. Then run diagnosti
 
 ```bash
 git add frontend-app/src/app/commands/appCommandRuntime.js frontend-app/src/app/commands/appCommandRuntime.test.js frontend-app/src/app/commands/useAppCommandDispatcher.js frontend-app/src/app/commands/useAppCommandDispatcher.test.jsx frontend-app/src/App.jsx frontend-app/src/App.test.jsx frontend-app/src/pages/chat/ChatPage.jsx internal/module/uistate/preferences.go internal/module/uistate/model_providers_test.go
-git commit -m "feat(frontend): bind global commands to typed shortcuts"
+git commit -m "feat(frontend): 将全局命令绑定到类型化快捷键"
 ```
 
 ### Task 3: Command Palette UI 与可访问性
@@ -733,7 +736,7 @@ Render `CommandPalette` from the `paletteOpen` state and handler already bound i
 
 ```bash
 git add frontend-app/src/features/command-palette frontend-app/src/features/shortcut-settings frontend-app/src/App.jsx frontend-app/src/App.test.jsx frontend-app/src/pages/settings/SettingsPage.jsx frontend-app/src/pages/settings/SettingsPage.test.jsx frontend-app/src/shared/i18n
-git commit -m "feat(frontend): add command palette and shortcut settings"
+git commit -m "feat(frontend): 新增命令面板与快捷键设置"
 ```
 
 ### Task 4: 后端权威 Prompt History RPC
@@ -821,7 +824,7 @@ Expected: PASS. Then run LSP diagnostics on every Go file.
 ```bash
 git add internal/module/thread/prompt_history_test.go internal/module/thread/prompthistory internal/module/thread/history.go internal/module/thread/lifecycle_helpers.go internal/module/thread/persistence_port.go internal/module/thread/contract.go internal/module/thread/rpc.go internal/module/thread/rpc_types.go internal/module/thread/service_handlers_test.go
 git add internal/dto/provider/message.go internal/dto/provider/message_test.go internal/dto/thread/prompt_history.go internal/dto/thread/prompt_history_test.go internal/util/historyjsonl/page.go internal/util/historyjsonl/history_test.go internal/provider/claudecli/session_history.go internal/provider/claudecli/session_history_test.go
-git commit -m "feat(thread): expose authoritative prompt history pages"
+git commit -m "feat(thread): 暴露权威输入历史分页"
 ```
 
 ### Task 5: Frontend Prompt History Contract 与 Composer 导航
@@ -884,7 +887,7 @@ Run Step 2, then `npm run typecheck:contracts` and `npm run audit:rpc-contracts`
 
 ```bash
 git add frontend-app/src/features/prompt-history frontend-app/src/shared/api/backend/backendRpcMethods.js frontend-app/src/shared/api/backend/backendApiFactoryThread.js frontend-app/src/shared/api/backendResponseValidators.js frontend-app/src/shared/api/backendResponseValidators.test.js frontend-app/src/shared/api/backendApi.contractMatrix.js frontend-app/src/shared/api/backendApi.contractMatrix.test.js frontend-app/src/shared/api/backendApi.test.js frontend-app/src/pages/chat/composer/ComposerDock.jsx frontend-app/src/pages/chat/composer/ComposerDock.test.jsx
-git commit -m "feat(frontend): navigate authoritative prompt history"
+git commit -m "feat(frontend): 导航权威输入历史"
 ```
 
 ### Task 6: Headless Performance Pressure Monitor
@@ -953,7 +956,7 @@ Start once beside existing crash/Profiler bootstrap and retain cleanup for test/
 
 ```bash
 git add frontend-app/src/shared/diagnostics/frontendPerformancePressure.js frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js frontend-app/src/main.jsx frontend-app/src/app/AppErrorBoundary.test.jsx frontend-app/src/shared/api/wails/wailsBridgeConstants.js frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js frontend-app/src/shared/api/wailsBridge.test.js
-git commit -m "feat(frontend): report bounded performance pressure"
+git commit -m "feat(frontend): 上报有界性能压力"
 ```
 
 ### Task 7: 长历史合成 Benchmark 与非抖动门禁
@@ -1020,7 +1023,7 @@ Expected: PASS and valid JSON. Do not commit `/tmp` output.
 
 ```bash
 git add frontend-app/scripts/chat-history-benchmark.mjs frontend-app/scripts/chat-history-benchmark.test.mjs frontend-app/src/pages/chat/model frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js frontend-app/package.json
-git commit -m "test(frontend): add deterministic long-history benchmark"
+git commit -m "test(frontend): 新增长历史确定性基准"
 ```
 
 ### Task 8: 集成、全量门禁、生成物与独立复核
@@ -1076,7 +1079,7 @@ Reviewer A reviews only command/shortcut/palette/settings; Reviewer B only messa
 ```bash
 git add docs/plans/evidence/reasonix-frontend-next
 git add docs/doc/codemap cmd/agent-terminal/web-dist
-git commit -m "docs(plan): record Reasonix frontend next evidence"
+git commit -m "docs(plan): 记录 Reasonix 前端后续证据"
 ```
 
 Before the second `git add`, verify `git diff --name-only docs/doc/codemap cmd/agent-terminal/web-dist` contains only repository-generator output. If neither path changed, omit that command. If a generator reports a different path, stop and add that exact path to this plan before staging; do not use `git add -A`.
