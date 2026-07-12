@@ -23,6 +23,7 @@ function stringListValue(value, index, field, source) {
 }
 
 function stringList(raw, field, source) {
+  if (raw[field] === undefined) return [];
   if (!Array.isArray(raw[field])) {
     throw new TypeError(`${source} ${field} must be an array`);
   }
@@ -37,7 +38,6 @@ function adaptSkillCommand(raw, index) {
   const name = requiredText(raw, 'name', source);
   const displayName = optionalText(raw, 'display_name', source);
   const dir = requiredText(raw, 'dir', source);
-  requiredText(raw, 'skill_file', source);
   const scope = requiredText(raw, 'scope', source);
   if (scope !== 'project' && scope !== 'personal') {
     throw new TypeError(`${source} scope is unsupported: ${scope}`);
