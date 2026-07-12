@@ -45,6 +45,7 @@ function createThreadApi(callBackend) {
     listThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LIST_PAGE, params)),
     listLoadedThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LOADED_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LOADED_LIST_PAGE, params)),
     getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, threadMessagesPayload(params)),
+    getPromptHistory: (params) => callBackend(RPC_METHODS.THREAD_PROMPT_HISTORY, promptHistoryPayload(params)),
     resolveThreadIdentity: (params) => callBackend(RPC_METHODS.THREAD_RESOLVE, threadIdOnlyPayload(RPC_METHODS.THREAD_RESOLVE, params)),
     archiveThread: (params) => callBackend(RPC_METHODS.THREAD_ARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_ARCHIVE, params)),
     unarchiveThread: (params) => callBackend(RPC_METHODS.THREAD_UNARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_UNARCHIVE, params)),
@@ -116,6 +117,38 @@ function threadMessagesPayload(params) {
   const before = takePayloadField(unused, 'before');
   assertNoExtraPayloadFields(RPC_METHODS.THREAD_MESSAGES, unused);
   return cleanObject({ threadId, limit, before });
+}
+
+function promptHistoryPayload(params) {
+  const method = RPC_METHODS.THREAD_PROMPT_HISTORY;
+  const payload = { ...requireCwd(method, params) };
+  const cwd = takePayloadField(payload, 'cwd');
+  const activeThreadId = takeNormalizedPromptHistoryString(method, payload, 'activeThreadId');
+  const cursor = takeOpaquePromptHistoryString(method, payload, 'cursor');
+  const nonce = takeOpaquePromptHistoryString(method, payload, 'nonce');
+  const limit = takePayloadField(payload, 'limit');
+  assertNoExtraPayloadFields(method, payload);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    throw new Error(`${method}: limit must be an integer between 1 and 50`);
+  }
+  return { cwd, activeThreadId, cursor, nonce, limit };
+}
+
+function takeNormalizedPromptHistoryString(method, payload, key) {
+  const value = takePayloadField(payload, key);
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new TypeError(`${method}: ${key} must be a string`);
+  return value.trim();
+}
+
+function takeOpaquePromptHistoryString(method, payload, key) {
+  const value = takePayloadField(payload, key);
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new TypeError(`${method}: ${key} must be a string`);
+  if (new TextEncoder().encode(value).byteLength > 2048) {
+    throw new Error(`${method}: ${key} exceeds 2048 bytes`);
+  }
+  return value;
 }
 
 function threadConfigPayload(params) {
@@ -360,7 +393,7 @@ export function createBackendApi(deps = {}) {
   };
 }
 export {
-  createThreadApi, threadListPagePayload, threadIdOnlyPayload, threadMessagesPayload, threadConfigPayload, threadScopedPayload,
+  createThreadApi, threadListPagePayload, threadIdOnlyPayload, threadMessagesPayload, promptHistoryPayload, threadConfigPayload, threadScopedPayload,
   resolveThreadIdAliases, threadStartPayload, turnStartPayload, turnInterruptPayload, forceCompleteTurnPayload, approvalRespondPayload,
   compactThreadPayload, createNativeApi,
 };

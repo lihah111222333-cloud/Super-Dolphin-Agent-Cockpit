@@ -68,6 +68,7 @@ describe('backend API contract matrix', () => {
   it('keeps P1 read families explicitly represented', () => {
     const expectedP1Reads = [
       'THREAD_MESSAGES',
+      'THREAD_PROMPT_HISTORY',
       'THREAD_RESOLVE',
       'THREAD_CONFIG_GET',
       'UI_STATE_GET',
@@ -115,6 +116,7 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.THREAD_FORK.responseValidator).toBe('threadForkResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_START.responseValidator).toBe('threadStartResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_MESSAGES.responseValidator).toBe('threadMessagesResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_PROMPT_HISTORY.responseValidator).toBe('threadPromptHistoryResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_RESOLVE.responseValidator).toBe('threadResolveResponse');
     expect(RPC_CONTRACT_REGISTRY.SKILLS_LOCAL_READ.responseValidator).toBe('skillReadResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_START.responseValidator).toBe('turnStartResponse');

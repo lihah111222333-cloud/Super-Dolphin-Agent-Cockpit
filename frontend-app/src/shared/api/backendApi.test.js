@@ -8,6 +8,7 @@ import {
   downloadAppUpdate,
   emitFrontendTraceEvent,
   getDatasourceDocument,
+  getPromptHistory,
   importDatasourceLocalFile,
   installAppUpdate,
   installLatestAppUpdate,
@@ -1658,6 +1659,43 @@ function expectSkillEditorCalls(callAPI) {
     expect(() => api.getThreadMessages({ threadId: '' })).toThrow('threadId is required');
     expect(() => api.getThreadMessages({ threadId: 'thread-1', surprise: true })).toThrow('thread/messages: unsupported payload field surprise');
     expect(() => api.resolveThreadIdentity({})).toThrow('threadId is required');
+  });
+
+  it('wraps prompt history with the exact bounded request contract', async () => {
+    const response = { entries: [], nextCursor: '', hasMore: false, nonce: 'nonce-1' };
+    const callAPI = vi.fn().mockResolvedValue(response);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.getPromptHistory({
+      cwd: ' /repo/app ',
+      activeThreadId: 'thread-1',
+      cursor: ' cursor-1 ',
+      nonce: ' nonce-1 ',
+      limit: 50,
+    })).resolves.toBe(response);
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_PROMPT_HISTORY, {
+      cwd: '/repo/app',
+      activeThreadId: 'thread-1',
+      cursor: ' cursor-1 ',
+      nonce: ' nonce-1 ',
+      limit: 50,
+    });
+
+    for (const params of [
+      { cwd: '', limit: 50 },
+      { cwd: '/repo/app', limit: 0 },
+      { cwd: '/repo/app', limit: 51 },
+      { cwd: '/repo/app', limit: 1.5 },
+      { cwd: '/repo/app', limit: '10' },
+      { cwd: '/repo/app', cursor: 'x'.repeat(2049), limit: 10 },
+      { cwd: '/repo/app', nonce: 'x'.repeat(2049), limit: 10 },
+      { cwd: '/repo/app', cursor: '界'.repeat(683), limit: 10 },
+      { cwd: '/repo/app', limit: 10, surprise: true },
+    ]) {
+      expect(() => api.getPromptHistory(params)).toThrow();
+    }
+    expect(callAPI).toHaveBeenCalledTimes(1);
+    expect(getPromptHistory).toBeTypeOf('function');
   });
 
   it('wraps video API key RPCs with named facade methods', async () => {

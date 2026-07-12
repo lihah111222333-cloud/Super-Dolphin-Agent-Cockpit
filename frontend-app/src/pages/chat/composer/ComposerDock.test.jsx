@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ComposerDock } from './ComposerDock.jsx';
+import { ComposerDock, shouldNavigatePromptHistory } from './ComposerDock.jsx';
 
 function createComposer(overrides = {}) {
   return {
@@ -133,6 +133,83 @@ const baseProps = {
 };
 
 describe('ComposerDock', () => {
+  it('navigates history only for an unhandled collapsed caret at the multiline boundary', () => {
+    const textarea = document.createElement('textarea');
+    textarea.value = 'first\nsecond\nthird';
+    const keyEvent = (overrides = {}) => ({
+      altKey: false,
+      ctrlKey: false,
+      defaultPrevented: false,
+      isComposing: false,
+      key: 'ArrowUp',
+      keyCode: 38,
+      metaKey: false,
+      shiftKey: false,
+      ...overrides,
+    });
+
+    textarea.setSelectionRange(2, 2);
+    expect(shouldNavigatePromptHistory(keyEvent(), textarea, 'previous')).toBe(true);
+    textarea.setSelectionRange(8, 8);
+    expect(shouldNavigatePromptHistory(keyEvent(), textarea, 'previous')).toBe(false);
+    textarea.setSelectionRange(8, 8);
+    expect(shouldNavigatePromptHistory(keyEvent({ key: 'ArrowDown', keyCode: 40 }), textarea, 'next')).toBe(false);
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    expect(shouldNavigatePromptHistory(keyEvent({ key: 'ArrowDown', keyCode: 40 }), textarea, 'next')).toBe(true);
+
+    textarea.setSelectionRange(0, 3);
+    expect(shouldNavigatePromptHistory(keyEvent(), textarea, 'previous')).toBe(false);
+    textarea.setSelectionRange(0, 0);
+    expect(shouldNavigatePromptHistory(keyEvent({ defaultPrevented: true }), textarea, 'previous')).toBe(false);
+    expect(shouldNavigatePromptHistory(keyEvent({ isComposing: true }), textarea, 'previous')).toBe(false);
+    expect(shouldNavigatePromptHistory(keyEvent({ keyCode: 229 }), textarea, 'previous')).toBe(false);
+    expect(shouldNavigatePromptHistory(keyEvent({ metaKey: true }), textarea, 'previous')).toBe(false);
+  });
+
+  it('replaces draft from history without sending and restores the draft sentinel', async () => {
+    const fetchPromptHistory = vi.fn().mockResolvedValue({
+      entries: [{
+        threadId: 'thread1',
+        messageId: 'message-1',
+        text: 'older prompt',
+        createdAt: '2026-07-12T10:00:00Z',
+      }],
+      nextCursor: '',
+      hasMore: false,
+      nonce: 'nonce-1',
+    });
+    const sendMessage = vi.fn();
+    function HistoryHarness() {
+      const [draft, setDraft] = React.useState('unfinished');
+      return (
+        <ComposerDock
+          {...baseProps}
+          composer={createComposer()}
+          draft={draft}
+          fetchPromptHistory={fetchPromptHistory}
+          sendMessage={sendMessage}
+          setDraft={setDraft}
+          store={createStore()}
+        />
+      );
+    }
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <HistoryHarness />
+      </QueryClientProvider>,
+    );
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+    textarea.setSelectionRange(0, 0);
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    await waitFor(() => expect(textarea).toHaveValue('older prompt'));
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    await waitFor(() => expect(textarea).toHaveValue('unfinished'));
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('keeps one textarea mounted while approval pending makes every composer action inert', () => {
     const inputRef = React.createRef();
     const store = createStore({

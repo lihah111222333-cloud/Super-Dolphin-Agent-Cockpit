@@ -1,5 +1,6 @@
 import React, { useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { composerCapabilitiesReady } from '../../../entities/client/model/capabilities/composerCapabilities.js';
+import { usePromptHistory } from '../../../features/prompt-history/hooks/usePromptHistory.js';
 import { ComposerCapabilityChips } from '../../../features/slash-commands/components/ComposerCapabilityChips.jsx';
 import { SlashCommandPalette } from '../../../features/slash-commands/components/SlashCommandPalette.jsx';
 import { useSlashCommandPalette } from '../../../features/slash-commands/hooks/useSlashCommandPalette.js';
@@ -52,6 +53,32 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
   };
 }
 
+function shouldNavigatePromptHistory(event, textarea, direction) {
+  const expectedKey = direction === 'previous' ? 'ArrowUp' : direction === 'next' ? 'ArrowDown' : '';
+  if (!expectedKey || event.key !== expectedKey || event.defaultPrevented) return false;
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+  const keyCode = Number(event.keyCode || event.which || 0);
+  if (event.isComposing || event.nativeEvent?.isComposing || keyCode === 229) return false;
+  if (!textarea || typeof textarea.value !== 'string') return false;
+  const { selectionStart, selectionEnd, value } = textarea;
+  if (!Number.isInteger(selectionStart) || selectionStart !== selectionEnd) return false;
+  if (direction === 'previous') return value.lastIndexOf('\n', selectionStart - 1) === -1;
+  return value.indexOf('\n', selectionStart) === -1;
+}
+
+function useComposerKeyHandler({ canSend, composer, promptHistory, sendMessage }) {
+  const handleSendKey = useComposerSendKeyHandler({ canSend, composer, sendMessage });
+  return (event) => {
+    const direction = event.key === 'ArrowUp' ? 'previous' : event.key === 'ArrowDown' ? 'next' : '';
+    if (direction && !composer.isComposing() && shouldNavigatePromptHistory(event, event.currentTarget, direction)) {
+      event.preventDefault();
+      runUIAction(() => promptHistory[direction]());
+      return;
+    }
+    handleSendKey(event);
+  };
+}
+
 function useComposerTextareaRef(inputRef) {
   const textareaRef = useRef(null);
   useImperativeHandle(inputRef, () => textareaRef.current);
@@ -77,6 +104,7 @@ function ComposerDock({
   inputRef,
   approvalPending = false,
   slashCommandService,
+  fetchPromptHistory,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const effectiveCanUseProjectActions = canUseProjectActions && !approvalPending;
@@ -109,11 +137,24 @@ function ComposerDock({
   });
   useComposerDropTarget(dockRef, composer);
   useComposerDropTarget(textareaRef, composer);
+  const promptHistory = usePromptHistory({
+    activeThreadId: modelThreadId,
+    cwd: projectPath,
+    draft,
+    fetchPage: fetchPromptHistory,
+    sendMessage,
+    setDraft,
+  });
 
-  const handleSendKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
+  const handlePromptHistoryKeyDown = useComposerKeyHandler({
+    canSend,
+    composer,
+    promptHistory,
+    sendMessage: promptHistory.send,
+  });
   const handleKeyDown = (event) => {
     if (palette.handleKeyDown(event, { isComposing: composer.isComposing() })) return;
-    handleSendKeyDown(event);
+    handlePromptHistoryKeyDown(event);
   };
   const handleTextareaChange = (event) => setDraft(event.target.value);
   const handleTextareaPaste = (event) => { runUIAction(() => composer.handlePaste(event)); };
@@ -161,7 +202,7 @@ function ComposerDock({
           projectActionBlocked={projectActionBlocked}
           projectActionBlockedTitle={projectActionBlockedTitle}
           selectFiles={selectFiles}
-          sendMessage={sendMessage}
+          sendMessage={promptHistory.send}
           showProviderToggle={showProviderToggle}
           showProjectSelector={showProjectSelector}
           store={store}
@@ -184,4 +225,5 @@ function ComposerPreviewModal({ composer }) {
   );
 }
 
-export { ComposerDock };
+// eslint-disable-next-line react-refresh/only-export-components
+export { ComposerDock, shouldNavigatePromptHistory };

@@ -24,6 +24,9 @@ const TESTS = Object.freeze({
   SKILLS: 'src/pages/skills/SkillsPage.test.jsx',
   OBSERVABILITY: 'src/pages/observability/ObservabilityPage.test.jsx',
   OBSERVABILITY_PAGE_SERVICE: 'src/pages/observability/services/observabilityPageService.test.js',
+  PROMPT_HISTORY_CONTROLLER: 'src/features/prompt-history/model/promptHistoryController.test.js',
+  PROMPT_HISTORY_HOOK: 'src/features/prompt-history/hooks/usePromptHistory.test.jsx',
+  COMPOSER: 'src/pages/chat/composer/ComposerDock.test.jsx',
   WAILS_BRIDGE: 'src/shared/api/wailsBridge.test.js',
 });
 const EMPTY_CONTRACT_FIELD = '';
@@ -187,6 +190,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   THREAD_LIST_PAGE: contract('THREAD_LIST_PAGE', 'listThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded list page']),
   THREAD_LOADED_LIST_PAGE: contract('THREAD_LOADED_LIST_PAGE', 'listLoadedThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded loaded list page']),
   THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadMessagesResponse' }),
+  THREAD_PROMPT_HISTORY: contract('THREAD_PROMPT_HISTORY', 'getPromptHistory', 'P1', 'thread', [TESTS.API, TESTS.PROMPT_HISTORY_CONTROLLER, TESTS.PROMPT_HISTORY_HOOK, TESTS.COMPOSER], ['authoritative prompt history read'], false, { responseValidator: 'threadPromptHistoryResponse' }),
   THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadResolveResponse' }),
   THREAD_ARCHIVE: contract('THREAD_ARCHIVE', 'archiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
   THREAD_UNARCHIVE: contract('THREAD_UNARCHIVE', 'unarchiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),

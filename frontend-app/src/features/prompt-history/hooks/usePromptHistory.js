@@ -1,0 +1,56 @@
+import { useCallback, useEffect, useMemo } from 'react';
+
+import { getPromptHistory } from '../../../shared/api/backendApi.js';
+import { createPromptHistoryController } from '../model/promptHistoryController.js';
+
+function fetchPromptHistoryPage(params) {
+  return getPromptHistory(params);
+}
+
+export function usePromptHistory({
+  activeThreadId,
+  cwd,
+  draft,
+  fetchPage = fetchPromptHistoryPage,
+  sendMessage,
+  setDraft,
+}) {
+  if (typeof fetchPage !== 'function') throw new Error('fetchPage is required');
+  if (typeof sendMessage !== 'function') throw new Error('sendMessage is required');
+  if (typeof setDraft !== 'function') throw new Error('setDraft is required');
+
+  const controller = useMemo(() => createPromptHistoryController({
+    fetchPage,
+    cwd,
+    activeThreadId,
+  }), [activeThreadId, cwd, fetchPage]);
+
+  useEffect(() => {
+    controller.captureDraft(draft);
+  }, [controller, draft]);
+
+  useEffect(() => () => controller.invalidate(), [controller]);
+
+  const previous = useCallback(async () => {
+    const selected = await controller.previous();
+    if (typeof selected === 'string') setDraft(selected);
+    return selected;
+  }, [controller, setDraft]);
+
+  const next = useCallback(() => {
+    const selected = controller.next();
+    setDraft(selected);
+    return selected;
+  }, [controller, setDraft]);
+
+  const send = useCallback(async (...args) => {
+    const result = await sendMessage(...args);
+    if (result !== false) controller.invalidate();
+    return result;
+  }, [controller, sendMessage]);
+
+  const invalidate = useCallback(() => controller.invalidate(), [controller]);
+  const snapshot = useCallback(() => controller.snapshot(), [controller]);
+
+  return { previous, next, send, invalidate, snapshot };
+}

@@ -245,6 +245,51 @@ describe('backend response validators', () => {
     })).toThrow('toolbridge/tools/list response body must not include debug');
   });
 
+  it('accepts only the exact prompt history response contract', () => {
+    const response = {
+      entries: [{
+        threadId: 'thread-1',
+        messageId: 'message-1',
+        text: 'duplicate prompt',
+        createdAt: '2026-07-12T10:00:00Z',
+      }, {
+        threadId: 'thread-1',
+        messageId: 'message-2',
+        text: 'duplicate prompt',
+        createdAt: '2026-07-12T09:00:00Z',
+      }],
+      nextCursor: 'cursor-1',
+      hasMore: true,
+      nonce: 'nonce-1',
+    };
+
+    expect(validate(RPC_METHODS.THREAD_PROMPT_HISTORY, response)).toBe(response);
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, debug: true }))
+      .toThrow('thread/promptHistory response body must not include debug');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, entries: null }))
+      .toThrow('thread/promptHistory response entries must be an array');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, {
+      ...response,
+      entries: Array.from({ length: 51 }, (_, index) => ({
+        ...response.entries[0],
+        messageId: `message-${index}`,
+      })),
+    })).toThrow('thread/promptHistory response entries must not exceed 50');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, {
+      ...response,
+      entries: [{ ...response.entries[0], raw: 'secret' }],
+    })).toThrow('thread/promptHistory response entries[0] must not include raw');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, nonce: '' }))
+      .toThrow('thread/promptHistory response nonce must be a non-empty string');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, { ...response, nextCursor: '' }))
+      .toThrow('thread/promptHistory response nextCursor must be non-empty when hasMore is true');
+    expect(() => validate(RPC_METHODS.THREAD_PROMPT_HISTORY, {
+      ...response,
+      hasMore: false,
+      nextCursor: 'unexpected-cursor',
+    })).toThrow('thread/promptHistory response nextCursor must be empty when hasMore is false');
+  });
+
   it('wraps schema parser errors with method context', () => {
     expect(() => validate(RPC_METHODS.OBSERVABILITY_TRACE_GET, null)).toThrow(
       'observability/trace/get response observability response must be an object',

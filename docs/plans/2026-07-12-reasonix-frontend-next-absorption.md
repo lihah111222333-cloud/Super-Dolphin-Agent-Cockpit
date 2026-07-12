@@ -880,6 +880,7 @@ Expected: 新增 Go package、DTO 与修改计划会触发 pre-commit 自动刷�
 - Create: `frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx`
 - Modify: `frontend-app/src/shared/api/backend/backendRpcMethods.js`
 - Modify: `frontend-app/src/shared/api/backend/backendApiFactoryThread.js`
+- Modify: `frontend-app/src/shared/api/backendApi.js`
 - Modify: `frontend-app/src/shared/api/backendResponseValidators.js`
 - Modify: `frontend-app/src/shared/api/backendResponseValidators.test.js`
 - Modify: `frontend-app/src/shared/api/backendApi.contractMatrix.js`
@@ -887,6 +888,7 @@ Expected: 新增 Go package、DTO 与修改计划会触发 pre-commit 自动刷�
 - Modify: `frontend-app/src/shared/api/backendApi.test.js`
 - Modify: `frontend-app/src/pages/chat/composer/ComposerDock.jsx`
 - Modify: `frontend-app/src/pages/chat/composer/ComposerDock.test.jsx`
+- Modify: `docs/plans/2026-07-12-reasonix-frontend-next-absorption.md`
 
 - [ ] **Step 1: 写 API/controller/composer RED tests**
 
@@ -920,6 +922,8 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId }
 
 The state machine must expose `captureDraft`, async `previous`, `next`, `invalidate`, and `snapshot`. It owns entries/index/cursor/nonce/generation/pending/draft sentinel. It retries stale nonce exactly once and throws the second stale error. It is created per hook instance, never at module scope.
 
+`backend/backendApiFactoryThread.js` remains the sole prompt-history payload/facade owner. `backendApi.js` only destructures and exports that singleton `getPromptHistory` facade; `usePromptHistory` injects it by default while tests may inject `fetchPage`. The hook must not call `callBackend` or assemble RPC payloads directly.
+
 - [ ] **Step 4: 接入 ComposerDock boundary policy**
 
 Add `shouldNavigatePromptHistory(event, textarea, direction)` as a tested pure helper. It returns true only when draft navigation is at the top/bottom boundary, selection is collapsed, IME is inactive, and the event is not already prevented. Selected history replaces draft but never calls send.
@@ -929,9 +933,11 @@ Add `shouldNavigatePromptHistory(event, textarea, direction)` as a tested pure h
 Run Step 2, then `npm run typecheck:contracts` and `npm run audit:rpc-contracts`. Expected: PASS.
 
 ```bash
-git add frontend-app/src/features/prompt-history frontend-app/src/shared/api/backend/backendRpcMethods.js frontend-app/src/shared/api/backend/backendApiFactoryThread.js frontend-app/src/shared/api/backendResponseValidators.js frontend-app/src/shared/api/backendResponseValidators.test.js frontend-app/src/shared/api/backendApi.contractMatrix.js frontend-app/src/shared/api/backendApi.contractMatrix.test.js frontend-app/src/shared/api/backendApi.test.js frontend-app/src/pages/chat/composer/ComposerDock.jsx frontend-app/src/pages/chat/composer/ComposerDock.test.jsx
+git add frontend-app/src/features/prompt-history frontend-app/src/shared/api/backend/backendRpcMethods.js frontend-app/src/shared/api/backend/backendApiFactoryThread.js frontend-app/src/shared/api/backendApi.js frontend-app/src/shared/api/backendResponseValidators.js frontend-app/src/shared/api/backendResponseValidators.test.js frontend-app/src/shared/api/backendApi.contractMatrix.js frontend-app/src/shared/api/backendApi.contractMatrix.test.js frontend-app/src/shared/api/backendApi.test.js frontend-app/src/pages/chat/composer/ComposerDock.jsx frontend-app/src/pages/chat/composer/ComposerDock.test.jsx docs/plans/2026-07-12-reasonix-frontend-next-absorption.md
 git commit -m "feat(frontend): 导航权威输入历史"
 ```
+
+Expected: 新增 prompt-history feature 与修改计划会触发 pre-commit 自动刷新 canonical project-map；只纳入与 Task 5 staged snapshot 语义对应的 hook-owned 生成物。出现额外无关路径或任一 generated-state 校验失败即 BLOCKED；禁止手改生成物或使用 `--no-verify` 绕过 hook。
 
 ### Task 6: Headless Performance Pressure Monitor
 

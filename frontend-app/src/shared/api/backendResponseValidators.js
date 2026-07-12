@@ -279,6 +279,64 @@ function validateThreadMessagesResponse(method, response) {
   return value;
 }
 
+const PROMPT_HISTORY_RESPONSE_KEYS = new Set(['entries', 'nextCursor', 'hasMore', 'nonce']);
+const PROMPT_HISTORY_ENTRY_KEYS = new Set(['threadId', 'messageId', 'text', 'createdAt']);
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateThreadPromptHistoryResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, PROMPT_HISTORY_RESPONSE_KEYS, 'body');
+  if (!Array.isArray(value.entries)) {
+    throw new TypeError(`${method} response entries must be an array`);
+  }
+  if (value.entries.length > 50) {
+    throw new TypeError(`${method} response entries must not exceed 50`);
+  }
+  for (let index = 0; index < value.entries.length; index += 1) {
+    validatePromptHistoryEntry(method, value.entries[index], index);
+  }
+  if (typeof value.nextCursor !== 'string') {
+    throw new TypeError(`${method} response nextCursor must be a string`);
+  }
+  if (typeof value.hasMore !== 'boolean') {
+    throw new TypeError(`${method} response hasMore must be a boolean`);
+  }
+  if (value.hasMore && !value.nextCursor) {
+    throw new TypeError(`${method} response nextCursor must be non-empty when hasMore is true`);
+  }
+  if (!value.hasMore && value.nextCursor !== '') {
+    throw new TypeError(`${method} response nextCursor must be empty when hasMore is false`);
+  }
+  if (typeof value.nonce !== 'string' || !normalizeString(value.nonce)) {
+    throw new TypeError(`${method} response nonce must be a non-empty string`);
+  }
+  return value;
+}
+
+/**
+ * @param {string} method
+ * @param {any} entry
+ * @param {number} index
+ */
+function validatePromptHistoryEntry(method, entry, index) {
+  const label = `entries[${index}]`;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new TypeError(`${method} response ${label} must be an object`);
+  }
+  assertOnlyResponseKeys(method, entry, PROMPT_HISTORY_ENTRY_KEYS, label);
+  for (const key of ['threadId', 'messageId', 'createdAt']) {
+    if (typeof entry[key] !== 'string' || !normalizeString(entry[key])) {
+      throw new TypeError(`${method} response ${label}.${key} must be a non-empty string`);
+    }
+  }
+  if (typeof entry.text !== 'string') {
+    throw new TypeError(`${method} response ${label}.text must be a string`);
+  }
+}
+
 /**
  * @param {string} method
  * @param {any} response
@@ -597,6 +655,7 @@ export function createBackendResponseValidators(methods) {
     [methods.THREAD_FORK]: validateThreadForkResponse,
     [methods.THREAD_START]: validateThreadStartResponse,
     [methods.THREAD_MESSAGES]: validateThreadMessagesResponse,
+    [methods.THREAD_PROMPT_HISTORY]: validateThreadPromptHistoryResponse,
     [methods.THREAD_RECOVER]: validateThreadRecoverResponse,
     [methods.THREAD_RESOLVE]: validateThreadResolveResponse,
     [methods.TURN_START]: validateTurnStartResponse,

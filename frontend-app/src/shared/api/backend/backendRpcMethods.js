@@ -140,6 +140,7 @@ export const RPC_METHODS = Object.freeze({
   THREAD_LIST_PAGE: 'thread/listPage',
   THREAD_LOADED_LIST_PAGE: 'thread/loaded/listPage',
   THREAD_MESSAGES: 'thread/messages',
+  THREAD_PROMPT_HISTORY: 'thread/promptHistory',
   THREAD_RESOLVE: 'thread/resolve',
   THREAD_ARCHIVE: 'thread/archive',
   THREAD_UNARCHIVE: 'thread/unarchive',
