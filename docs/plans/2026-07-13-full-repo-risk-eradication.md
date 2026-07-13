@@ -394,6 +394,7 @@ frontend listCronJobs API request
 - `scripts/capcontract/main.go`、`scripts/capcontract/main_test.go`
 - `docs/doc/codemap/capability-contract/capability_manifest.json`，只允许由 `make capcontract-refresh` 生成
 - `internal/module/workflowtemplate/rpc.go` 及同包 RPC/序列化测试
+- `.github/workflows/ci.yml`、`internal/archtest/ratchet_test.go`，Linux 主 job 与 macOS/Windows smoke 共同执行同一 manifest 字节检查
 
 不允许修改 `run-new-ui-desktop.ps1`：Windows 已有不执行脚本表达式的 `Import-DotEnvFile`，本风险只针对 Bash `source`。不修改任何 dirty README；开发入口行为通过 Bash `--help`/错误信息和 `internal/app/new_ui_scripts_test.go` 固定。
 
