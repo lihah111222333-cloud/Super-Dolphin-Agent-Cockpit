@@ -58,8 +58,12 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 func (s *session) requestToolApprovalWithContext(ctx context.Context, method string, params json.RawMessage) error {
 	payload := decodeEventPayload(params)
 	requestID, hasRequestID := strictApprovalRequestID(payload, "requestId", "request_id")
+	if hasRequestID {
+		s.logApprovalRequestReceived(requestID, method)
+	}
 	if err := validateApprovalPayload(payload); err != nil {
 		if hasRequestID {
+			s.logApprovalRequestFailed(requestID, method, "parse", err)
 			return s.sendApprovalDecision(requestID, approvalParseFailedDecision(err))
 		}
 		s.failTurns(err)
@@ -68,6 +72,7 @@ func (s *session) requestToolApprovalWithContext(ctx context.Context, method str
 	req, requestID, ok := s.buildApprovalRequest(method, payload)
 	if !ok {
 		err := errors.New("codexapp: approval_parse_failed: approval request identity is required")
+		s.logApprovalRequestFailed(requestID, method, "parse", err)
 		s.failTurns(err)
 		return err
 	}
@@ -81,10 +86,19 @@ func (s *session) requestToolApprovalWithContext(ctx context.Context, method str
 		return s.sendApprovalDecision(requestID, decision)
 	}
 	decision, err := s.requestApprovalDecision(req)
-	s.finishProcessedApproval(key, entry, decision, err)
 	if err != nil {
-		return err
+		s.logApprovalRequestFailed(requestID, method, "decision", err)
+		if errors.Is(err, context.Canceled) {
+			s.finishProcessedApproval(key, entry, decision, err)
+			return err
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			decision = approvalDeadlineExceededDecision(err)
+		} else {
+			decision = approvalDecisionFailedDecision(err)
+		}
 	}
+	s.finishProcessedApproval(key, entry, decision, nil)
 	return s.sendApprovalDecision(requestID, decision)
 }
 
@@ -150,6 +164,62 @@ func approvalParseFailedDecision(err error) contract.ApprovalDecision {
 		Approved: &approved,
 		Reason:   err.Error(),
 	}
+}
+
+func approvalDeadlineExceededDecision(err error) contract.ApprovalDecision {
+	approved := false
+	return contract.ApprovalDecision{
+		Approved: &approved,
+		Reason:   fmt.Sprintf("approval deadline exceeded: %v", err),
+	}
+}
+
+func approvalDecisionFailedDecision(err error) contract.ApprovalDecision {
+	approved := false
+	return contract.ApprovalDecision{
+		Approved: &approved,
+		Reason:   fmt.Sprintf("approval decision failed: %v", err),
+	}
+}
+
+func (s *session) logApprovalRequestReceived(requestID int64, method string) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Info("codexapp: approval request received",
+		"request_id", requestID,
+		"method", strings.TrimSpace(method),
+	)
+}
+
+func (s *session) logApprovalRequestFailed(requestID int64, method, stage string, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("codexapp: approval request failed",
+		"request_id", requestID,
+		"method", strings.TrimSpace(method),
+		"stage", stage,
+		"error", err,
+	)
+}
+
+func (s *session) logApprovalRequestResponded(requestID int64, decision contract.ApprovalDecision) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	outcome := "unspecified"
+	if decision.Approved != nil {
+		if *decision.Approved {
+			outcome = "approved"
+		} else {
+			outcome = "declined"
+		}
+	}
+	s.logger.Info("codexapp: approval request responded",
+		"request_id", requestID,
+		"outcome", outcome,
+	)
 }
 
 func approvalDecisionContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -298,7 +368,11 @@ func (s *session) sendApprovalDecision(requestID int64, decision contract.Approv
 		return errors.New("codexapp: approval request id is required")
 	}
 	if s == nil || s.transport == nil {
-		return errors.New("codexapp: approval transport is not initialized")
+		err := errors.New("codexapp: approval transport is not initialized")
+		if s != nil {
+			s.logApprovalRequestFailed(requestID, "approval/respond", "transport", err)
+		}
+		return err
 	}
 	params := map[string]any{"requestId": requestID}
 	if decision.Approved != nil {
@@ -310,7 +384,12 @@ func (s *session) sendApprovalDecision(requestID int64, decision contract.Approv
 		params["decision"] = reason
 	}
 	_, err := callWithTimeout(s.ctx, callTargetFunc(s.callTransport), 10*time.Second, "approval/respond", params)
-	return err
+	if err != nil {
+		s.logApprovalRequestFailed(requestID, "approval/respond", "respond", err)
+		return err
+	}
+	s.logApprovalRequestResponded(requestID, decision)
+	return nil
 }
 
 func cloneApprovalDecision(decision contract.ApprovalDecision) contract.ApprovalDecision {
