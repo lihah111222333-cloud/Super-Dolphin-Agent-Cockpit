@@ -251,8 +251,8 @@ internal/mcpserver/common/scope.go	internal	platform-provider	go-source	7347	MCP
 internal/mcpserver/common/server_scope_test.go	internal	platform-provider	go-test	18235	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,scope,test,MCP,公共框架,bootstrap,与,transport
 internal/mcpserver/common/server_test.go	internal	platform-provider	go-test	24235	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,test,MCP,公共框架,bootstrap,与,transport
 internal/mcpserver/common/server.go	internal	platform-provider	go-source	18930	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,MCP,公共框架,bootstrap,与,transport
-internal/mcpserver/common/stdio_test.go	internal	platform-provider	go-test	2014	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,stdio,test,MCP,server,公共框架,bootstrap,与,transport
-internal/mcpserver/common/stdio.go	internal	platform-provider	go-source	7140	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,stdio,MCP,server,公共框架,bootstrap,与,transport
+internal/mcpserver/common/stdio_test.go	internal	platform-provider	go-test	4343	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,stdio,test,MCP,server,公共框架,bootstrap,与,transport
+internal/mcpserver/common/stdio.go	internal	platform-provider	go-source	8429	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,stdio,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/structured_content_test.go	internal	platform-provider	go-test	4320	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,structured,content,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/structured_content.go	internal	platform-provider	go-source	1352	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,structured,content,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_error_envelope_test.go	internal	platform-provider	go-test	8061	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,test,MCP,server,公共框架,bootstrap,与,transport
@@ -357,8 +357,8 @@ internal/platform/eventsurface/methods_test.go	internal	platform-provider	go-tes
 internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2565	基础设施层	internal,platform,eventsurface,methods,基础设施层
 internal/platform/eventsurface/remote_decode.go	internal	platform-provider	go-source	2246	基础设施层	internal,platform,eventsurface,remote,decode,基础设施层
 internal/platform/eventsurface/task_contract_test.go	internal	platform-provider	go-test	2446	基础设施层	internal,platform,eventsurface,task,contract,test,基础设施层
-internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	9776	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
-internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	6734	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
+internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	10901	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
+internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	7044	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatcher_test.go	internal	platform-provider	go-test	14441	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatcher,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatcher.go	internal	platform-provider	go-source	7549	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatcher,hook,配置,执行与三阶段拦截
 internal/platform/hooks/event_relay.go	internal	platform-provider	go-source	5835	hook 配置、执行与三阶段拦截	internal,platform,hooks,event,relay,hook,配置,执行与三阶段拦截
@@ -519,8 +519,8 @@ internal/platform/rpc/module.go	internal	platform-provider	go-source	8158	JSON-R
 internal/platform/rpc/push_embed_test.go	internal	platform-provider	go-test	13470	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,embed,test,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push_embed.go	internal	platform-provider	go-source	9320	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,embed,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push_test.go	internal	platform-provider	go-test	7295	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,test,JSON-RPC,transport,dispatch,与审批框架
-internal/platform/rpc/push_worker_test.go	internal	platform-provider	go-test	14626	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,test,JSON-RPC,transport,dispatch,与审批框架
-internal/platform/rpc/push_worker.go	internal	platform-provider	go-source	7375	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,JSON-RPC,transport,dispatch,与审批框架
+internal/platform/rpc/push_worker_test.go	internal	platform-provider	go-test	16585	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,test,JSON-RPC,transport,dispatch,与审批框架
+internal/platform/rpc/push_worker.go	internal	platform-provider	go-source	8370	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push.go	internal	platform-provider	go-source	11002	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/ready_file_test.go	internal	platform-provider	go-test	5680	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,ready,file,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/ready_file.go	internal	platform-provider	go-source	3746	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,ready,file,JSON-RPC,transport,dispatch,push,与审批框架

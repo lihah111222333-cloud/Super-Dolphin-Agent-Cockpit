@@ -16,11 +16,19 @@ import (
 // transportMode 表示 stdio 传输的帧格式模式。
 type transportMode int
 
-// MaxStdioMessageBytes 限制 stdio MCP 单条 JSON-RPC 消息大小。
-const MaxStdioMessageBytes = 1 << 20
+// stdio framed transport 的 body 与 header 都必须有独立上限，避免无换行头耗尽进程内存。
+const (
+	MaxStdioMessageBytes    = 1 << 20
+	MaxStdioHeaderLineBytes = 16 << 10
+	MaxStdioHeaderBytes     = 64 << 10
+	MaxStdioHeaderLines     = 64
+)
 
-// errStdioMessageTooLarge 标记 stdio 单条消息超过固定上限。
-var errStdioMessageTooLarge = errors.New("mcp stdio: message exceeds stdio message limit")
+// framed 限额错误分别标识 body 和 header，调用方不得把协议输入异常降级为 EOF。
+var (
+	errStdioMessageTooLarge = errors.New("mcp stdio: message exceeds stdio message limit")
+	errStdioHeaderTooLarge  = errors.New("mcp stdio: header exceeds stdio header limit")
+)
 
 // stdio transport 模式常量，modeUnknown 表示尚未从输入流探测到 framing。
 const (
@@ -78,7 +86,7 @@ func (r *stdioRawLimitReader) Exceeded() bool {
 // NewStdioTransport 创建支持 raw JSON 与 Content-Length framed 两种模式的 stdio transport。
 func NewStdioTransport(stdin io.Reader, stdout io.Writer) *StdioTransport {
 	transport := &StdioTransport{
-		reader: bufio.NewReader(stdin),
+		reader: bufio.NewReaderSize(stdin, MaxStdioHeaderLineBytes),
 		writer: stdout,
 	}
 	if closer, ok := stdin.(io.Closer); ok {
@@ -192,16 +200,17 @@ func (t *StdioTransport) readRaw() (json.RawMessage, error) {
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-// readFramed 读取 Content-Length framed 消息，并拒绝缺失或非法长度头。
+// readFramed 读取 Content-Length framed 消息，并在读取阶段限制 header 资源占用。
 func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	length := -1
+	headerBytes := 0
+	headerLines := 0
 	for {
-		line, err := t.reader.ReadString('\n')
+		line, done, err := t.readFramedHeaderLine(&headerBytes, &headerLines)
 		if err != nil {
 			return nil, err
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
+		if done {
 			break
 		}
 		parsed, err := parseStdioContentLengthHeader(line, length)
@@ -223,6 +232,34 @@ func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	return validateFramedJSON(body)
 }
 
+// readFramedHeaderLine 读取一行完整 framed header；字节上限包含行尾换行符，空行不计入 header 行数。
+func (t *StdioTransport) readFramedHeaderLine(headerBytes, headerLines *int) (string, bool, error) {
+	raw, err := t.reader.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return "", false, errStdioHeaderTooLarge
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if len(raw) > MaxStdioHeaderLineBytes {
+		return "", false, errStdioHeaderTooLarge
+	}
+	*headerBytes += len(raw)
+	if *headerBytes > MaxStdioHeaderBytes {
+		return "", false, errStdioHeaderTooLarge
+	}
+	line := strings.TrimSuffix(string(raw), "\n")
+	line = strings.TrimSuffix(line, "\r")
+	if line == "" {
+		return "", true, nil
+	}
+	*headerLines++
+	if *headerLines > MaxStdioHeaderLines {
+		return "", false, errStdioHeaderTooLarge
+	}
+	return line, false, nil
+}
+
 // parseStdioContentLengthHeader 解析单行 framed header，并忽略非 Content-Length 头。
 func parseStdioContentLengthHeader(line string, current int) (int, error) {
 	name, value, ok := strings.Cut(line, ":")
@@ -231,6 +268,9 @@ func parseStdioContentLengthHeader(line string, current int) (int, error) {
 	}
 	if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 		return current, nil
+	}
+	if current >= 0 {
+		return current, errors.New("mcp stdio: duplicate Content-Length header")
 	}
 	length, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil || length < 0 {
