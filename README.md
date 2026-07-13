@@ -16,7 +16,7 @@ The English README is the canonical overview. Translations preserve the same pro
 
 Most agent frameworks optimize task execution. Super Dolphin also governs what a completed task is allowed to change in a long-lived software system.
 
-Its maintenance loop has five stages:
+Its maintenance loop has six stages:
 
 1. **Orient** with generated code maps and capability contracts.
 2. **Understand** definitions, references, call hierarchies, and diagnostics through LSP.
@@ -24,24 +24,44 @@ Its maintenance loop has five stages:
 4. **Constrain** the diff with AST/SSA rules, dependency boundaries, complexity budgets, and fail-fast contracts.
 5. **Prove** the result with focused tests, generated-artifact checks, and change-aware gates.
 
+6. **Learn** from proven fixes: extract the root cause, generalize the invariant, and promote recurring patterns into regression evidence or executable guards.
+
+### Guardrails for vibe coding
+
+AI can generate code tens or hundreds of times faster than a person can write it, so the bottleneck moves from code production to testing and trustworthy delivery. Fixing one occurrence is not completion if the same defect pattern can remain elsewhere or return in AI-generated code.
+
+Super Dolphin periodically consolidates evidence from bugs proven by tests or real use into reusable engineering knowledge. Stable patterns are promoted into repository-owned tests, fixtures, AST/SSA rules, dependency policies, or other executable gates. If an AI agent reproduces a known bad smell, the gate rejects the change and forces a repair before delivery.
+
+Skills and prompts can guide generation; guards constrain what may be accepted. A candidate guard still requires reproducible evidence, a generalizable invariant, and deterministic acceptance checks—this is evidence-driven ratcheting, not blind self-modification. The repository currently implements automatic memory consolidation and extensive guard infrastructure; fully automatic end-to-end promotion of every fix into a new executable guard remains an engineering direction rather than a claim of complete coverage.
+
+This is the direction of AI-native vibe coding: humans specify intent, architecture, and acceptance boundaries; AI generates within those specifications; the repository learns from defects and becomes progressively more robust and legible instead of depending on people to rediscover the same class of bug.
+
 ### Bounded-context maintenance
 
 The repository is designed so routine changes do not require loading the entire codebase into one model context. Generated navigation, narrow contracts, and deterministic failures help an agent find the relevant surface and repair violations quickly.
 
 This is not a guarantee that every change is local. Cross-cutting work still requires broader reference and impact analysis, and all accepted changes remain subject to the relevant tests and review evidence.
 
-### Origin: confronting AI code rot
+### Development journey: why Super Dolphin exists
 
-Super Dolphin began on March 19, 2026 as a clean-slate successor to `go-agent-v2`, a private prototype that combined automated quantitative-trading workflows with multi-agent desktop controls. According to the maintainers' pre-publication records, the prototype worked, but soft constraints alone allowed its architecture to become progressively harder to reason about:
+Super Dolphin is the third major stage in a continuous engineering lineage:
+
+1. **The first stage** was a Python command-line multi-agent tool. It validated that models could split tasks, cooperate through tools, and complete real engineering work.
+2. **`go-agent-v2` was the direct predecessor of this project.** It grew from internal task dispatch into a working engineering system that combined automated quantitative-trading workflows, multi-agent desktop controls, provider integration, and persistent execution. It proved that the product direction was useful in real work; it was not a disposable prototype.
+3. **Super Dolphin / V3 began on March 19, 2026** as a new architectural generation. It carries forward the predecessor's capabilities and operational lessons while rebuilding the foundations required for long-term AI-driven development.
+
+The reason for V3 was not that the predecessor could not work. The predecessor worked and kept accumulating features, but AI could generate local changes faster than a convention-driven architecture could safely absorb them. Tests could prove an individual path while ownership, lifecycle, dependency direction, and legibility still degraded across the system. According to the maintainers' pre-publication records, the pressure became visible in concrete forms:
 
 - more than 80 RPC methods accumulated parallel binding, validation, capability, and logging paths;
 - lifecycle ownership became distributed across managers and asynchronous side effects;
 - a central event handler reached 557 lines;
 - manual application assembly exceeded 200 lines.
 
-We call this **AI code rot**: local changes continue to work while global contracts, ownership boundaries, and legibility decay. The private history is not public evidence; the public repository instead exposes the resulting guards, regression fixtures, and reproducible commands.
+This is why V3 was created as more than a feature upgrade. It moves architectural knowledge out of reviewer memory and prompts into repository-owned contracts, code maps, typed boundaries, regression evidence, and executable gates. We call the failure mode it addresses **AI code rot**: local changes continue to work while global contracts, ownership boundaries, and legibility decay.
 
-| V2 failure mode | Super Dolphin response |
+The predecessor's private development history is maintainer-supplied context rather than public evidence. The public repository therefore exposes the architectural responses, guards, regression fixtures, and reproducible commands produced from those lessons.
+
+| Pressure observed in the predecessor | Super Dolphin response |
 |---|---|
 | Parallel hand-written RPC paths | Typed requests, one contract surface, explicit middleware and error semantics |
 | Distributed lifecycle side effects | Declarative transitions, typed events, and owned lifecycle runners |

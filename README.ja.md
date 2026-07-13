@@ -16,7 +16,7 @@ Super Dolphin Agent は、**AI ネイティブなソフトウェアガバナン�
 
 多くの Agent framework は task execution を最適化します。Super Dolphin はそれに加えて、完了した task が長期運用される software system にどのような変更を加えてよいかを統制します。
 
-保守ループは次の 5 段階で構成されます。
+保守ループは次の 6 段階で構成されます。
 
 1. **Orient**：生成された code map と capability contract で対象を特定します。
 2. **Understand**：LSP を通じて definition、reference、call hierarchy、diagnostics を確認します。
@@ -24,24 +24,44 @@ Super Dolphin Agent は、**AI ネイティブなソフトウェアガバナン�
 4. **Constrain**：AST/SSA rule、dependency boundary、complexity budget、fail-fast contract で diff を制約します。
 5. **Prove**：focused test、generated-artifact check、change-aware gate で結果を証明します。
 
+6. **Learn**：実証済みの修正から根本原因を抽出し、不変条件として一般化し、繰り返すパターンを regression evidence または実行可能な guard へ昇格させます。
+
+### Vibe coding に guardrail を与える
+
+AI は人間の数十倍から数百倍の速度でコードを生成できるため、ボトルネックはコード生成から test と信頼できる delivery へ移ります。同じ欠陥パターンが別の場所に残ったり、AI 生成コードに再び現れたりするなら、一件を直しただけでは完了ではありません。
+
+Super Dolphin は、test または実利用で問題だと証明された bug fix evidence を定期的に統合し、再利用可能な engineering knowledge にします。安定したパターンは、リポジトリ所有の test、fixture、AST/SSA rule、dependency policy、その他の実行可能な gate に昇格されます。AI が既知の bad smell を再生成すると、gate が変更を拒否し、delivery の前に修正を強制します。
+
+Skill と prompt は生成を導けますが、guard は何を受け入れられるかを強制します。候補となる guard には、再現可能な evidence、一般化可能な invariant、決定的な acceptance check が必要です。これは無制限な自己変更ではなく、evidence-driven な ratchet です。現在のリポジトリは自動 memory consolidation と広範な guard infrastructure を実装していますが、すべての修正を新しい実行可能な guard へ完全自動で end-to-end 昇格させることは、継続中の engineering direction であり、完全な網羅を主張するものではありません。
+
+これは AI-native vibe coding が進む方向です。人間が intent、architecture、acceptance boundary を定義し、AI はその specification 内でのみコードを生成します。リポジトリは欠陥から学び、同種の bug を人手で何度も発見・処理することに頼らず、より堅牢で明快になっていきます。
+
 ### 境界づけられたコンテキストでの保守
 
 このリポジトリは、通常の変更でコードベース全体を一つの model context に読み込む必要がないよう設計されています。生成された navigation、狭い contract、決定的な failure signal により、エージェントは関連範囲を見つけ、違反を迅速に修正できます。
 
 すべての変更が局所的になるという保証ではありません。複数領域にまたがる作業には、より広い reference と impact analysis が必要です。受け入れられる変更には、対応する test と review evidence が引き続き求められます。
 
-### 起源：AI code rot への対抗
+### 開発の歩み：なぜ Super Dolphin が生まれたのか
 
-Super Dolphin は 2026 年 3 月 19 日、`go-agent-v2` のクリーンスレートな後継として始まりました。V2 は、自動化されたクオンツ取引 workflow とマルチエージェントのデスクトップ制御を組み合わせた非公開 prototype でした。保守担当者の公開前記録によると、prototype は動作していましたが、soft constraint だけでは architecture の理解が次第に困難になりました。
+Super Dolphin は、連続する engineering evolution の第 3 の主要段階です。
+
+1. **第 1 段階**は Python command-line multi-agent tool でした。Model が task を分割し、tool を通じて協調し、実際の engineering work を完了できることを検証しました。
+2. **`go-agent-v2` はこのプロジェクトの直接の前身です。** 内部向け task dispatch tool から、クオンツ取引の自動 workflow、multi-agent desktop control、Provider integration、persistent execution を統合した実用的な engineering system へ発展しました。実際の業務で product direction の価値を証明したものであり、破棄を前提とした prototype ではありません。
+3. **Super Dolphin / V3 は 2026 年 3 月 19 日に開始**され、新しい architecture generation となりました。前身で検証された capability と運用上の lesson を継承しながら、長期的な AI-driven development に必要な基盤を再構築しています。
+
+V3 が必要になった理由は、前身が動かなかったからではありません。前身は動作し、機能を増やし続けました。しかし、AI が局所的な変更を生成する速度が、convention と人手の review に依存する architecture の安全な吸収速度を上回りました。個別の path を test で証明できても、system 全体の ownership、lifecycle、dependency direction、可読性は劣化し続けます。保守担当者の公開前記録では、その圧力が次の形で現れました。
 
 - 80 を超える RPC method に、並行した binding、validation、capability、logging の経路が蓄積した。
 - lifecycle ownership が複数の manager と非同期 side effect に分散した。
 - 中央の event handler が 557 行に達した。
 - 手動の application assembly が 200 行を超えた。
 
-この状態を **AI code rot** と呼びます。局所的な変更は動作し続ける一方で、global contract、ownership boundary、可読性が劣化していく状態です。非公開の履歴そのものは公開 evidence ではありません。その代わり、公開リポジトリは、そこから生まれた guard、regression fixture、再現可能な command を提示します。
+したがって V3 は単なる feature upgrade ではありません。Reviewer の記憶や prompt に置かれていた architecture knowledge を、リポジトリ所有の contract、code map、typed boundary、regression evidence、実行可能な gate へ移します。対象とする failure mode が **AI code rot**、つまり局所的な変更は動作していても global contract、ownership boundary、可読性が劣化する状態です。
 
-| V2 の failure mode | Super Dolphin の対応 |
+前身の非公開な開発履歴は、公開 evidence ではなく maintainer 提供の context です。そのため公開リポジトリは、そこから得た lesson に基づく architecture response、guard、regression fixture、再現可能な command を提示します。
+
+| 前身で観測された engineering pressure | Super Dolphin の対応 |
 |---|---|
 | 並行する手書き RPC path | typed request、単一の contract surface、明示的な middleware と error semantics |
 | 分散した lifecycle side effect | 宣言的 transition、typed event、owner が明確な lifecycle runner |

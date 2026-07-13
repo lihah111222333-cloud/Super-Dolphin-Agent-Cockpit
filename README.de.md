@@ -16,7 +16,7 @@ Die englische [README.md](README.md) ist die maßgebliche Übersicht. Die Übers
 
 Die meisten Agent Frameworks optimieren die Ausführung von Aufgaben. Super Dolphin steuert zusätzlich, was eine abgeschlossene Aufgabe in einem langlebigen Softwaresystem verändern darf.
 
-Der Wartungszyklus besteht aus fünf Phasen:
+Der Wartungszyklus besteht aus sechs Phasen:
 
 1. **Orientieren** mit generierten Code Maps und Capability Contracts.
 2. **Verstehen** von Definitionen, Referenzen, Aufrufhierarchien und Diagnosen über LSP.
@@ -24,24 +24,44 @@ Der Wartungszyklus besteht aus fünf Phasen:
 4. **Begrenzen** des Diffs mit AST/SSA-Regeln, Abhängigkeitsgrenzen, Komplexitätsbudgets und Fail-Fast-Contracts.
 5. **Nachweisen** des Ergebnisses mit fokussierten Tests, Prüfungen generierter Artefakte und änderungssensitiven Gates.
 
+6. **Lernen** aus nachgewiesenen Fehlerbehebungen: Ursache ableiten, Invariante verallgemeinern und wiederkehrende Muster zu Regressionsevidenz oder ausführbaren Guards hochstufen.
+
+### Guardrails für Vibe Coding
+
+KI kann Code zehn- bis hundertmal schneller erzeugen als ein Mensch ihn schreibt. Dadurch verschiebt sich der Engpass von der Codeproduktion zu Tests und vertrauenswürdiger Auslieferung. Eine einzelne Fundstelle zu beheben ist nicht abgeschlossen, wenn dasselbe Fehlermuster andernorts weiterbestehen oder in KI-generiertem Code zurückkehren kann.
+
+Super Dolphin konsolidiert regelmäßig Bugfix-Evidenz, die durch Tests oder reale Nutzung nachgewiesen wurde, zu wiederverwendbarem Engineering-Wissen. Stabile Muster werden zu repository-eigenen Tests, Fixtures, AST/SSA-Regeln, Dependency Policies oder anderen ausführbaren Gates hochgestuft. Erzeugt ein KI-Agent einen bekannten Bad Smell erneut, lehnt das Gate die Änderung ab und erzwingt eine Korrektur vor der Auslieferung.
+
+Skills und Prompts können die Generierung anleiten; Guards erzwingen, was akzeptiert werden darf. Ein Guard-Kandidat benötigt reproduzierbare Evidenz, eine verallgemeinerbare Invariante und deterministische Abnahmeprüfungen. Das ist ein evidenzgetriebener Ratchet, keine unkontrollierte Selbstmodifikation. Das Repository implementiert bereits automatische Memory Consolidation und eine umfangreiche Guard-Infrastruktur; die vollständig automatische End-to-End-Hochstufung jeder Fehlerbehebung zu einem neuen ausführbaren Guard bleibt eine Engineering-Richtung und ist keine Behauptung vollständiger Abdeckung.
+
+Das ist die Richtung von KI-nativem Vibe Coding: Menschen definieren Absicht, Architektur und Akzeptanzgrenzen; KI erzeugt Code nur innerhalb dieser Spezifikationen; das Repository lernt aus Defekten und wird schrittweise robuster und verständlicher, ohne darauf angewiesen zu sein, dass Menschen dieselbe Fehlerklasse immer wieder neu entdecken.
+
 ### Wartung mit begrenztem Kontext
 
 Das Repository ist so ausgelegt, dass routinemäßige Änderungen nicht die gesamte Codebasis in einen einzigen Modellkontext laden müssen. Generierte Navigation, enge Contracts und deterministische Fehler helfen einem Agenten, die relevante Fläche zu finden und Regelverletzungen schnell zu beheben.
 
 Das garantiert nicht, dass jede Änderung lokal bleibt. Querschnittsänderungen erfordern weiterhin eine breitere Referenz- und Auswirkungsanalyse, und jede akzeptierte Änderung benötigt die zugehörigen Tests und Review-Nachweise.
 
-### Ursprung: AI Code Rot entgegentreten
+### Entwicklungsgeschichte: Warum Super Dolphin entstand
 
-Super Dolphin begann am 19. März 2026 als vollständig neu entwickelter Nachfolger von `go-agent-v2`, einem privaten Prototyp, der automatisierte quantitative Trading-Workflows mit Multi-Agenten-Desktopsteuerung verband. Laut den Aufzeichnungen der Maintainer aus der Zeit vor der Veröffentlichung funktionierte der Prototyp, doch weiche Vorgaben allein machten seine Architektur zunehmend schwerer nachvollziehbar:
+Super Dolphin ist die dritte große Stufe einer kontinuierlichen Engineering-Entwicklung:
+
+1. **Die erste Stufe** war ein in Python geschriebenes Multi-Agenten-Kommandozeilenwerkzeug. Es bestätigte, dass Modelle Aufgaben aufteilen, über Werkzeuge zusammenarbeiten und echte Engineering-Arbeit erledigen können.
+2. **`go-agent-v2` war der direkte Vorgänger dieses Projekts.** Es entwickelte sich von einer internen Aufgabenverteilung zu einem produktiv nutzbaren Engineering-System, das automatisierte quantitative Trading-Workflows, Multi-Agenten-Desktopsteuerung, Provider-Integration und persistente Ausführung verband. Es bewies den Wert der Produktrichtung in realer Arbeit und war kein Wegwerfprototyp.
+3. **Super Dolphin / V3 startete am 19. März 2026** als neue Architekturgeneration. Es übernimmt die Fähigkeiten und Betriebserfahrungen des Vorgängers und baut zugleich die Grundlagen für langfristige KI-getriebene Entwicklung neu auf.
+
+V3 entstand nicht, weil der Vorgänger nicht funktionierte. Er funktionierte und erhielt laufend neue Funktionen. KI konnte lokale Änderungen jedoch schneller erzeugen, als eine von Konventionen und menschlichen Reviews abhängige Architektur sie sicher aufnehmen konnte. Tests konnten einen einzelnen Pfad bestätigen, während Ownership, Lifecycle, Abhängigkeitsrichtung und Verständlichkeit im Gesamtsystem weiter verfielen. Laut den Aufzeichnungen der Maintainer vor der Veröffentlichung zeigte sich dieser Druck konkret:
 
 - Mehr als 80 RPC-Methoden sammelten parallele Pfade für Binding, Validierung, Capability-Prüfung und Logging an.
 - Lifecycle-Ownership verteilte sich auf mehrere Manager und asynchrone Seiteneffekte.
 - Ein zentraler Event Handler wuchs auf 557 Zeilen.
 - Die manuelle Anwendungsassemblierung überschritt 200 Zeilen.
 
-Wir nennen diesen Zustand **AI Code Rot**: Lokale Änderungen funktionieren weiterhin, während globale Contracts, Ownership-Grenzen und Verständlichkeit verfallen. Die private Historie ist kein öffentlicher Nachweis; das öffentliche Repository stellt stattdessen die daraus entstandenen Guards, Regression Fixtures und reproduzierbaren Befehle bereit.
+Deshalb ist V3 mehr als ein Feature-Upgrade. Architekturwissen wird aus dem Gedächtnis von Reviewern und aus Prompts in repository-eigene Contracts, Code Maps, typisierte Grenzen, Regressionsevidenz und ausführbare Gates verlagert. Der adressierte Fehlermodus ist **AI Code Rot**: Lokale Änderungen funktionieren weiterhin, während globale Contracts, Ownership-Grenzen und Verständlichkeit verfallen.
 
-| Fehlermodus in V2 | Antwort von Super Dolphin |
+Die private Entwicklungsgeschichte des Vorgängers ist von den Maintainern bereitgestellter Kontext und kein öffentlicher Nachweis. Das öffentliche Repository zeigt daher die aus diesen Erkenntnissen entstandenen Architekturantworten, Guards, Regression Fixtures und reproduzierbaren Befehle.
+
+| Beim Vorgänger beobachteter Engineering-Druck | Antwort von Super Dolphin |
 |---|---|
 | Parallele, handgeschriebene RPC-Pfade | Typisierte Requests, eine Contract-Fläche, explizite Middleware und Fehlersemantik |
 | Verteilte Lifecycle-Seiteneffekte | Deklarative Transitionen, typisierte Events und Lifecycle Runner mit eindeutigem Ownership |

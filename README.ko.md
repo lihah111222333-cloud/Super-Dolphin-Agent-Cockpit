@@ -16,7 +16,7 @@ Super Dolphin Agent는 **AI 네이티브 소프트웨어 거버넌스 및 멀티
 
 대부분의 Agent framework는 task execution을 최적화합니다. Super Dolphin은 여기서 더 나아가 완료된 task가 장기간 유지되는 software system을 어떻게 변경할 수 있는지 통제합니다.
 
-유지보수 루프는 다섯 단계로 구성됩니다.
+유지보수 루프는 여섯 단계로 구성됩니다.
 
 1. **Orient**: 생성된 code map과 capability contract로 대상 영역을 찾습니다.
 2. **Understand**: LSP를 통해 definition, reference, call hierarchy, diagnostics를 확인합니다.
@@ -24,24 +24,44 @@ Super Dolphin Agent는 **AI 네이티브 소프트웨어 거버넌스 및 멀티
 4. **Constrain**: AST/SSA rule, dependency boundary, complexity budget, fail-fast contract로 diff를 제한합니다.
 5. **Prove**: focused test, generated-artifact check, change-aware gate로 결과를 증명합니다.
 
+6. **Learn**: 검증된 수정에서 근본 원인을 추출하고 invariant로 일반화한 뒤, 반복되는 패턴을 regression evidence 또는 실행 가능한 guard로 승격합니다.
+
+### Vibe coding을 위한 guardrail
+
+AI는 사람이 작성하는 것보다 수십 배에서 수백 배 빠르게 코드를 생성할 수 있으므로 병목은 코드 생산에서 test와 신뢰할 수 있는 delivery로 이동합니다. 같은 결함 패턴이 다른 위치에 남아 있거나 AI 생성 코드에 다시 나타날 수 있다면, 한 사례만 수정한 것은 완료가 아닙니다.
+
+Super Dolphin은 test 또는 실제 사용에서 잘못된 것으로 입증된 bug fix evidence를 주기적으로 통합해 재사용 가능한 engineering knowledge로 만듭니다. 안정된 패턴은 저장소가 소유한 test, fixture, AST/SSA rule, dependency policy 또는 기타 실행 가능한 gate로 승격됩니다. AI가 알려진 bad smell을 다시 생성하면 gate가 변경을 거부하고 delivery 전에 수정을 강제합니다.
+
+Skill과 prompt는 생성을 안내하지만 guard는 무엇을 수용할 수 있는지 강제합니다. 후보 guard에는 재현 가능한 evidence, 일반화 가능한 invariant, 결정적인 acceptance check가 필요합니다. 이는 통제되지 않은 자기 수정이 아니라 evidence-driven ratchet입니다. 현재 저장소는 자동 memory consolidation과 광범위한 guard infrastructure를 구현하고 있지만, 모든 수정을 새로운 실행 가능한 guard로 완전 자동 end-to-end 승격하는 것은 완전한 적용을 주장하는 기능이 아니라 계속 발전시키는 engineering direction입니다.
+
+이것이 AI-native vibe coding이 나아갈 방향입니다. 인간은 intent, architecture, acceptance boundary를 정의하고 AI는 그 specification 안에서만 코드를 생성합니다. 저장소는 결함에서 학습하고 engineering baseline을 계속 강화하여, 같은 종류의 bug를 사람이 반복해서 찾아 처리하지 않아도 더 견고하고 명확해집니다.
+
 ### 제한된 컨텍스트를 이용한 유지보수
 
 이 저장소는 일반적인 변경을 위해 전체 코드베이스를 하나의 model context에 넣지 않아도 되도록 설계되었습니다. 생성된 navigation, 좁은 contract, 결정적 failure signal은 에이전트가 관련 영역을 찾고 위반을 빠르게 수정하도록 돕습니다.
 
 모든 변경이 국소적이라는 보장은 아닙니다. 여러 영역을 가로지르는 작업에는 더 넓은 reference 및 impact analysis가 필요하며, 수용되는 모든 변경에는 관련 test와 review evidence가 계속 요구됩니다.
 
-### 기원: AI code rot에 맞서다
+### 개발 과정: Super Dolphin이 만들어진 이유
 
-Super Dolphin은 2026년 3월 19일 `go-agent-v2`의 완전히 새로운 후속 프로젝트로 시작했습니다. V2는 자동화된 퀀트 트레이딩 workflow와 멀티 에이전트 데스크톱 제어를 결합한 비공개 prototype이었습니다. 유지관리자의 공개 전 기록에 따르면 prototype은 동작했지만, soft constraint만으로는 architecture를 점점 이해하기 어려워졌습니다.
+Super Dolphin은 연속적인 engineering evolution의 세 번째 주요 단계입니다.
+
+1. **첫 번째 단계**는 Python command-line multi-agent tool이었습니다. Model이 task를 분할하고 tool을 통해 협업하며 실제 engineering work를 완료할 수 있는지 검증했습니다.
+2. **`go-agent-v2`는 이 프로젝트의 직접적인 전신입니다.** 내부 task dispatch tool에서 자동화된 퀀트 트레이딩 workflow, multi-agent desktop control, Provider integration, persistent execution을 통합한 실제 동작하는 engineering system으로 발전했습니다. 실제 업무에서 product direction의 가치를 증명했으며, 폐기를 전제로 한 prototype이 아니었습니다.
+3. **Super Dolphin / V3는 2026년 3월 19일 시작**된 새로운 architecture generation입니다. 전신에서 검증한 capability와 운영 lesson을 이어받으면서 장기적인 AI-driven development에 필요한 기반을 다시 구축했습니다.
+
+V3가 필요해진 이유는 전신이 동작하지 않았기 때문이 아닙니다. 전신은 실제로 동작하며 기능을 계속 확장했습니다. 그러나 AI가 국소 변경을 생성하는 속도가 convention과 사람의 review에 의존하는 architecture가 안전하게 흡수할 수 있는 속도를 넘어섰습니다. 개별 path를 test로 증명하더라도 system 전체의 ownership, lifecycle, dependency direction, 가독성은 계속 약해질 수 있었습니다. 유지관리자의 공개 전 기록에서 이 압력은 다음과 같이 나타났습니다.
 
 - 80개가 넘는 RPC method에 병렬 binding, validation, capability, logging 경로가 누적되었습니다.
 - lifecycle ownership이 여러 manager와 비동기 side effect로 분산되었습니다.
 - 중앙 event handler가 557줄까지 늘어났습니다.
 - 수동 application assembly가 200줄을 넘었습니다.
 
-이 상태를 **AI code rot**이라고 부릅니다. 국소 변경은 계속 동작하지만 global contract, ownership boundary, 가독성이 서서히 무너지는 상태입니다. 비공개 기록 자체는 공개 evidence가 아닙니다. 대신 공개 저장소는 그 결과로 만들어진 guard, regression fixture, 재현 가능한 command를 제공합니다.
+따라서 V3는 단순한 feature upgrade가 아닙니다. Reviewer의 기억과 prompt에 있던 architecture knowledge를 저장소가 소유한 contract, code map, typed boundary, regression evidence, 실행 가능한 gate로 옮깁니다. 해결하려는 failure mode가 바로 **AI code rot**, 즉 국소 변경은 계속 동작하지만 global contract, ownership boundary, 가독성이 약해지는 상태입니다.
 
-| V2 failure mode | Super Dolphin의 대응 |
+전신의 비공개 개발 이력은 공개 evidence가 아니라 maintainer가 제공한 context입니다. 따라서 공개 저장소는 그 lesson에서 만들어진 architecture response, guard, regression fixture, 재현 가능한 command를 제공합니다.
+
+| 전신에서 관찰된 engineering pressure | Super Dolphin의 대응 |
 |---|---|
 | 병렬로 존재하는 수동 RPC path | typed request, 단일 contract surface, 명시적 middleware와 error semantics |
 | 분산된 lifecycle side effect | 선언적 transition, typed event, owner가 명확한 lifecycle runner |

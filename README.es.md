@@ -16,7 +16,7 @@ El [README.md](README.md) en inglés es la descripción normativa. Las traduccio
 
 La mayoría de los Agent frameworks optimizan la ejecución de tareas. Super Dolphin también gobierna qué puede modificar una tarea completada dentro de un sistema de software de larga duración.
 
-Su ciclo de mantenimiento tiene cinco etapas:
+Su ciclo de mantenimiento tiene seis etapas:
 
 1. **Orientar** mediante code maps generados y capability contracts.
 2. **Comprender** definiciones, referencias, jerarquías de llamadas y diagnósticos mediante LSP.
@@ -24,24 +24,44 @@ Su ciclo de mantenimiento tiene cinco etapas:
 4. **Restringir** el diff mediante reglas AST/SSA, límites de dependencias, presupuestos de complejidad y contratos fail-fast.
 5. **Demostrar** el resultado mediante tests focalizados, comprobaciones de artefactos generados y gates sensibles al cambio.
 
+6. **Aprender** de correcciones demostradas: extraer la causa raíz, generalizar el invariante y promover patrones recurrentes a evidencia de regresión o guards ejecutables.
+
+### Guardrails para el vibe coding
+
+La IA puede generar código decenas o cientos de veces más rápido que una persona, por lo que el cuello de botella pasa de producir código a probarlo y entregarlo con confianza. Corregir una instancia no es terminar si el mismo patrón de defecto puede seguir presente en otros lugares o reaparecer en código generado por IA.
+
+Super Dolphin consolida periódicamente evidencia de bug fixes demostrados por tests o por el uso real como conocimiento de ingeniería reutilizable. Los patrones estables se promueven a tests, fixtures, reglas AST/SSA, políticas de dependencias u otros gates ejecutables propiedad del repositorio. Si un agente de IA reproduce un bad smell conocido, el gate rechaza el cambio y obliga a repararlo antes de la entrega.
+
+Los Skills y prompts pueden guiar la generación; los guards imponen qué puede aceptarse. Todo guard candidato necesita evidencia reproducible, un invariante generalizable y comprobaciones de aceptación deterministas: es un ratchet basado en evidencia, no una automodificación ciega. El repositorio ya implementa consolidación automática de memoria y una amplia infraestructura de guards; la promoción end-to-end totalmente automática de cada corrección a un nuevo guard ejecutable sigue siendo una dirección de ingeniería, no una afirmación de cobertura completa.
+
+Esta es la dirección del vibe coding nativo de IA: las personas definen la intención, la arquitectura y los límites de aceptación; la IA genera únicamente dentro de esas especificaciones; el repositorio aprende de los defectos y se vuelve progresivamente más robusto y legible, sin depender de que las personas redescubran la misma clase de bug.
+
 ### Mantenimiento con contexto acotado
 
 El repositorio está diseñado para que los cambios habituales no requieran cargar todo el código fuente en un único contexto del modelo. La navegación generada, los contracts estrechos y los fallos deterministas ayudan al agente a encontrar la superficie relevante y reparar las infracciones con rapidez.
 
 Esto no garantiza que todos los cambios sean locales. El trabajo transversal sigue exigiendo un análisis más amplio de referencias e impacto, y todo cambio aceptado continúa sujeto a los tests y la evidencia de revisión correspondientes.
 
-### Origen: afrontar el AI code rot
+### Evolución del desarrollo: por qué existe Super Dolphin
 
-Super Dolphin nació el 19 de marzo de 2026 como sucesor desde cero de `go-agent-v2`, un prototipo privado que combinaba workflows automatizados de trading cuantitativo con controles de escritorio multiagente. Según los registros de los mantenedores anteriores a la publicación, el prototipo funcionaba, pero las restricciones blandas por sí solas hicieron que su arquitectura fuese cada vez más difícil de razonar:
+Super Dolphin es la tercera gran etapa de una evolución de ingeniería continua:
+
+1. **La primera etapa** fue una herramienta multiagente de línea de comandos escrita en Python. Validó que los modelos podían dividir tareas, colaborar mediante herramientas y completar trabajo de ingeniería real.
+2. **`go-agent-v2` fue el predecesor directo de este proyecto.** Evolucionó desde un sistema interno de distribución de tareas hasta un sistema de ingeniería operativo que reunía workflows automatizados de trading cuantitativo, controles de escritorio multiagente, integración con Providers y ejecución persistente. Demostró el valor de la dirección del producto en trabajo real; no era un prototipo desechable.
+3. **Super Dolphin / V3 comenzó el 19 de marzo de 2026** como una nueva generación arquitectónica. Conserva las capacidades y lecciones operativas del predecesor, mientras reconstruye las bases necesarias para un desarrollo de largo plazo impulsado por IA.
+
+V3 no nació porque el predecesor no funcionara. Funcionaba y seguía acumulando funciones, pero la IA podía generar cambios locales más rápido de lo que una arquitectura basada en convenciones y revisión humana podía absorber con seguridad. Los tests podían demostrar una ruta individual mientras el ownership, el lifecycle, la dirección de dependencias y la legibilidad seguían degradándose en el conjunto del sistema. Según los registros de los mantenedores anteriores a la publicación, esa presión tomó formas concretas:
 
 - más de 80 métodos RPC acumularon rutas paralelas de binding, validation, capability y logging;
 - el ownership del lifecycle se dispersó entre managers y efectos secundarios asíncronos;
 - un event handler central alcanzó 557 líneas;
 - el ensamblado manual de la aplicación superó las 200 líneas.
 
-Llamamos a esto **AI code rot**: los cambios locales siguen funcionando mientras se degradan los contracts globales, los límites de ownership y la legibilidad. El historial privado no constituye evidencia pública; en su lugar, el repositorio público expone los guards, los fixtures de regresión y los comandos reproducibles que surgieron de esos problemas.
+Por eso V3 es más que una actualización funcional. Traslada el conocimiento arquitectónico desde la memoria de los reviewers y los prompts hacia contracts, code maps, límites tipados, evidencia de regresión y gates ejecutables propiedad del repositorio. El modo de fallo que combate es el **AI code rot**: los cambios locales siguen funcionando mientras se degradan los contracts globales, los límites de ownership y la legibilidad.
 
-| Modo de fallo de V2 | Respuesta de Super Dolphin |
+El historial privado del predecesor es contexto aportado por los mantenedores, no evidencia pública. Por ello, el repositorio público expone las respuestas arquitectónicas, los guards, los fixtures de regresión y los comandos reproducibles creados a partir de esas lecciones.
+
+| Presión observada en el predecesor | Respuesta de Super Dolphin |
 |---|---|
 | Rutas RPC manuales y paralelas | Requests tipadas, una única superficie de contract, middleware explícito y semántica de errores |
 | Efectos del lifecycle distribuidos | Transiciones declarativas, eventos tipados y lifecycle runners con ownership definido |
