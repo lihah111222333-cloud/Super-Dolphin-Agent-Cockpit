@@ -1,6 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-AGENTS.md	(root)	docs-agent	doc	8757	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	8321	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	8892	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	8456	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
 docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11837	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
