@@ -5,15 +5,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4527,
+  "files": 4532,
   "domains": {
     "docs-agent": 921,
-    "other": 628,
+    "other": 630,
     "app-ui": 512,
-    "platform-provider": 1014,
+    "platform-provider": 1015,
     "orchestration": 419,
-    "modules": 723,
-    "store-sql": 310
+    "modules": 724,
+    "store-sql": 311
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -36,22 +36,22 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 723,
-        "size_kb": 140.8,
+        "file_count": 724,
+        "size_kb": 140.9,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1014,
-        "size_kb": 186.7,
+        "file_count": 1015,
+        "size_kb": 186.9,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 310,
-        "size_kb": 46.1,
+        "file_count": 311,
+        "size_kb": 46.3,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 628,
-        "size_kb": 122.6,
+        "file_count": 630,
+        "size_kb": 122.8,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -75,9 +75,9 @@
     "cmd": 668,
     "docs": 913,
     "frontend-app": 510,
-    "internal": 2121,
+    "internal": 2124,
     "migrations": 112,
-    "pkg": 27,
+    "pkg": 29,
     "scripts": 115,
     "sql": 30,
     "test": 9,
@@ -234,7 +234,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0027,
+    "unknown_ratio": 0.0026,
     "unknown_files": 12,
     "thresholds": {
       "max_unknown_ratio": 0.05

@@ -664,6 +664,39 @@ func TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails(t *testing.T) 
 	assertSubmittedTurnState(ctx, t, db, "", StatusSubmitting)
 }
 
+func TestFinalizeRecoveredRunRollsBackRunWhenJobFenceFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, _ := openSubmitRunStore(t, "recover-finalize-rollback")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+	if err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "claim-token", ActiveTurnID: "turn-submit",
+		SubmittedAt: now, Now: now,
+	}); err != nil {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v", err)
+	}
+
+	err := store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: StatusSubmitted,
+		MarkFailedParams: MarkFailedParams{
+			ID: "job-submit", ClaimToken: "wrong-token", RunID: "run-submit", ExpectedActiveTurnID: "turn-submit",
+			LastRunAt: now, LastTurnID: "turn-submit", LastStatus: StatusObserveLost,
+			LastErrorAt: now, LastError: "observe failed", NextRunAt: now.Add(time.Hour), Now: now,
+		},
+	})
+	if !errors.Is(err, ErrClaimTokenMismatch) {
+		t.Fatalf("FinalizeRecoveredRun() error = %v, want %v", err, ErrClaimTokenMismatch)
+	}
+	run, err := store.GetRunByID(ctx, "run-submit")
+	if err != nil {
+		t.Fatalf("GetRunByID() error = %v", err)
+	}
+	if run.Status != StatusSubmitted {
+		t.Fatalf("run status = %q, want transaction rollback to %q", run.Status, StatusSubmitted)
+	}
+}
+
 // ----- migration + query lint (schema-level guarantees) -----
 
 func TestClaimQueryUsesSQLiteAtomicClaimSemantics(t *testing.T) {

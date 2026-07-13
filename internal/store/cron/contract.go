@@ -69,6 +69,7 @@ type Store interface {
 	ReleaseClaim(ctx context.Context, id, claimToken string, now time.Time) error
 	MarkFinished(ctx context.Context, params MarkFinishedParams) error
 	MarkFailed(ctx context.Context, params MarkFailedParams) error
+	FinalizeRecoveredRun(ctx context.Context, params FinalizeRecoveredRunParams) error
 	SetActiveTurn(ctx context.Context, params SetActiveTurnParams) error
 	SubmitRunWithActiveTurn(ctx context.Context, params SubmitRunWithActiveTurnParams) error
 
@@ -228,6 +229,12 @@ type MarkFailedParams struct {
 	NextRunAt            time.Time
 	NextRetryAt          time.Time
 	Now                  time.Time
+}
+
+// FinalizeRecoveredRunParams atomically moves a recovered run and its claimed job to one terminal state.
+type FinalizeRecoveredRunParams struct {
+	MarkFailedParams
+	ExpectedRunStatus string
 }
 
 // SetActiveTurnParams 绑定任务当前活跃 turn，空 ThreadID 或 AgentID 会保留已有身份信息。

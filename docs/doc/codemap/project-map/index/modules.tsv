@@ -10,7 +10,7 @@ internal/module/appupdate/service_test.go	internal	modules	go-test	23622	业务�
 internal/module/appupdate/service.go	internal	modules	go-source	26045	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	3923	业务模块层	internal,module,appupdate,windows,signature,业务模块层
 internal/module/cron/actors_test.go	internal	modules	go-test	2751	业务模块层	internal,module,cron,actors,test,业务模块层
-internal/module/cron/contract.go	internal	modules	go-source	13335	业务模块层	internal,module,cron,contract,业务模块层
+internal/module/cron/contract.go	internal	modules	go-source	13671	业务模块层	internal,module,cron,contract,业务模块层
 internal/module/cron/lease_actor.go	internal	modules	go-source	1682	业务模块层	internal,module,cron,lease,actor,业务模块层
 internal/module/cron/module.go	internal	modules	go-source	4179	业务模块层	internal,module,cron,业务模块层
 internal/module/cron/progress_subscriber_test.go	internal	modules	go-test	3967	业务模块层	internal,module,cron,progress,subscriber,test,业务模块层
@@ -20,9 +20,10 @@ internal/module/cron/schedule_test.go	internal	modules	go-test	3396	业务模块
 internal/module/cron/schedule.go	internal	modules	go-source	4262	业务模块层	internal,module,cron,schedule,业务模块层
 internal/module/cron/scheduler_publish_test.go	internal	modules	go-test	4500	业务模块层	internal,module,cron,scheduler,publish,test,业务模块层
 internal/module/cron/scheduler_publish.go	internal	modules	go-source	1864	业务模块层	internal,module,cron,scheduler,publish,业务模块层
-internal/module/cron/scheduler_recovery.go	internal	modules	go-source	14493	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
-internal/module/cron/scheduler_test.go	internal	modules	go-test	31539	业务模块层	internal,module,cron,scheduler,test,业务模块层
-internal/module/cron/scheduler.go	internal	modules	go-source	16782	业务模块层	internal,module,cron,scheduler,业务模块层
+internal/module/cron/scheduler_recovery_finalize_test.go	internal	modules	go-test	7562	业务模块层	internal,module,cron,scheduler,recovery,finalize,test,业务模块层
+internal/module/cron/scheduler_recovery.go	internal	modules	go-source	17352	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
+internal/module/cron/scheduler_test.go	internal	modules	go-test	31567	业务模块层	internal,module,cron,scheduler,test,业务模块层
+internal/module/cron/scheduler.go	internal	modules	go-source	16936	业务模块层	internal,module,cron,scheduler,业务模块层
 internal/module/cron/service_test.go	internal	modules	go-test	18326	业务模块层	internal,module,cron,service,test,业务模块层
 internal/module/cron/service.go	internal	modules	go-source	13425	业务模块层	internal,module,cron,service,业务模块层
 internal/module/cron/subscribers_test.go	internal	modules	go-test	3981	业务模块层	internal,module,cron,subscribers,test,业务模块层

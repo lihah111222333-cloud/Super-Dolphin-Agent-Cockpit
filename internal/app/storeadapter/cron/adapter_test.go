@@ -96,6 +96,9 @@ func (*cronStoreClaimTestDouble) MarkFinished(context.Context, cronstore.MarkFin
 func (*cronStoreClaimTestDouble) MarkFailed(context.Context, cronstore.MarkFailedParams) error {
 	return nil
 }
+func (*cronStoreClaimTestDouble) FinalizeRecoveredRun(context.Context, cronstore.FinalizeRecoveredRunParams) error {
+	return nil
+}
 func (*cronStoreClaimTestDouble) SetActiveTurn(context.Context, cronstore.SetActiveTurnParams) error {
 	return nil
 }

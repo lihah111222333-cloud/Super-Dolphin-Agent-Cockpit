@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
-	"log/slog"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 )
 
 const recoverDanglingRunsBatchLimit int32 = 128
@@ -302,17 +303,14 @@ func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job JobRecord,
 	if scheduleErr != nil {
 		return scheduleErr
 	}
-	if casErr := s.store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFailed, Error: err.Error(), UpdatedAt: now}); casErr != nil {
-		s.logger.Warn("cron: recovered CAS submitting->failed failed",
-			slog.String("run_id", run.ID),
-			slog.String("error", casErr.Error()),
-		)
-	}
-	return s.store.MarkFailed(ctx, MarkFailedParams{
-		ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: run.TurnID,
-		LastRunAt: run.ScheduledAt, LastTurnID: run.TurnID, LastStatus: statusFailed,
-		LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, NextRetryAt: nextRetryAt, Now: now,
-	})
+	return s.finalizeRecoveredRun(ctx, job, run, statusFailed, s.store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: run.Status,
+		MarkFailedParams: MarkFailedParams{
+			ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: run.TurnID,
+			LastRunAt: run.ScheduledAt, LastTurnID: run.TurnID, LastStatus: statusFailed,
+			LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, NextRetryAt: nextRetryAt, Now: now,
+		},
+	}))
 }
 
 // finalizeRecoveredObserveLost 将恢复时无法追踪的 run 标记为 observe_lost，不触发重试。
@@ -323,17 +321,83 @@ func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job JobRec
 		return scheduleErr
 	}
 	// 恢复期的 observe_lost 也不自动 retry；旧 turn 状态未知时，新 turn 会造成重复。
-	if casErr := s.store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusObserveLost, Error: err.Error(), UpdatedAt: now}); casErr != nil {
-		s.logger.Warn("cron: recovered CAS submitted->observe_lost failed",
-			slog.String("run_id", run.ID),
-			slog.String("error", casErr.Error()),
-		)
+	return s.finalizeRecoveredRun(ctx, job, run, statusObserveLost, s.store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: run.Status,
+		MarkFailedParams: MarkFailedParams{
+			ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: turnID,
+			LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: statusObserveLost,
+			LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, Now: now,
+		},
+	}))
+}
+
+// finalizeRecoveredRun 复核事务冲突是否为同一终态的幂等完成，并保留所有非幂等错误。
+func (s *Scheduler) finalizeRecoveredRun(ctx context.Context, job JobRecord, run RunRecord, terminalStatus string, finalizeErr error) error {
+	if finalizeErr == nil {
+		return nil
 	}
-	return s.store.MarkFailed(ctx, MarkFailedParams{
-		ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: turnID,
-		LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: statusObserveLost,
-		LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, Now: now,
-	})
+	if !isRecoveryFinalizeConflict(finalizeErr) {
+		s.recordRecoveryFinalizeError(job, run, terminalStatus, finalizeErr)
+		return finalizeErr
+	}
+	cronmetrics.IncRecoveryFinalizeConflict()
+	s.logger.Warn("cron: recovery finalization conflict",
+		slog.String("metric", cronRecoveryFinalizeConflictMetric),
+		slog.String("job_id", job.ID),
+		slog.String("run_id", run.ID),
+		slog.String("turn_id", run.TurnID),
+		slog.String("expected_status", run.Status),
+		slog.String("terminal_status", terminalStatus),
+		slog.String("error", finalizeErr.Error()),
+	)
+	currentRun, currentJob, readErr := s.readRecoveryFinalizeState(ctx, run.ID, job.ID)
+	if readErr != nil {
+		err := errors.Join(finalizeErr, readErr)
+		s.recordRecoveryFinalizeError(job, run, terminalStatus, err)
+		return err
+	}
+	if recoveredFinalizationMatches(currentRun, currentJob, job.ID, run.TurnID, terminalStatus) {
+		return nil
+	}
+	err := fmt.Errorf("cron: recovered finalization conflict job_id=%s run_id=%s expected_status=%s terminal_status=%s: %w", job.ID, run.ID, run.Status, terminalStatus, finalizeErr)
+	s.recordRecoveryFinalizeError(job, run, terminalStatus, err)
+	return err
+}
+
+func isRecoveryFinalizeConflict(err error) bool {
+	return errors.Is(err, ErrStoreClaimTokenMismatch) || errors.Is(err, ErrStoreStatusTransitionRefused)
+}
+
+func (s *Scheduler) readRecoveryFinalizeState(ctx context.Context, runID, jobID string) (RunRecord, JobRecord, error) {
+	currentRun, err := s.store.GetRunByID(ctx, runID)
+	if err != nil {
+		return RunRecord{}, JobRecord{}, err
+	}
+	currentJob, err := s.store.GetJobByID(ctx, jobID)
+	return currentRun, currentJob, err
+}
+
+// recoveredFinalizationMatches 判断重读后的 run/job 是否已共同落到同一合法终态。
+func recoveredFinalizationMatches(currentRun RunRecord, currentJob JobRecord, jobID, turnID, terminalStatus string) bool {
+	return currentRun.JobID == jobID && currentRun.TurnID == turnID && currentRun.Status == terminalStatus &&
+		currentJob.LastStatus == terminalStatus && currentJob.LastTurnID == turnID &&
+		currentJob.ActiveTurnID == "" && currentJob.ClaimToken == ""
+}
+
+// recordRecoveryFinalizeError keeps recovery-finalization errors visible without
+// weakening the caller-visible error. The required identity and expected status
+// fields make a stale turn or lost claim diagnosable from one log event.
+func (s *Scheduler) recordRecoveryFinalizeError(job JobRecord, run RunRecord, terminalStatus string, err error) {
+	cronmetrics.IncRecoveryFinalizeError()
+	s.logger.Error("cron: recovery finalization failed",
+		slog.String("metric", cronRecoveryFinalizeErrorMetric),
+		slog.String("job_id", job.ID),
+		slog.String("run_id", run.ID),
+		slog.String("turn_id", run.TurnID),
+		slog.String("expected_status", run.Status),
+		slog.String("terminal_status", terminalStatus),
+		slog.String("error", err.Error()),
+	)
 }
 
 // ExtendClaimForTurnProgress 在 turn 进度事件到达时延长 active job 的 claim。

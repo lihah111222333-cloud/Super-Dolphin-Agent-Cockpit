@@ -427,11 +427,12 @@ internal/platform/mcpcontrol/subscribers.go	internal	platform-provider	go-source
 internal/platform/mcpcontrol/sweeper_runner_test.go	internal	platform-provider	go-test	4951	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,sweeper,runner,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/sweeper_runner.go	internal	platform-provider	go-source	845	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,sweeper,runner,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/sweeper.go	internal	platform-provider	go-source	6431	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,sweeper,MCP,控制平面与,peer,注册
+internal/platform/metrics/cron.go	internal	platform-provider	go-source	1148	基础设施层	internal,platform,metrics,cron,基础设施层
 internal/platform/metrics/dag_dispatch_retry_test.go	internal	platform-provider	go-test	905	基础设施层	internal,platform,metrics,dag,dispatch,retry,test,基础设施层
 internal/platform/metrics/dag.go	internal	platform-provider	go-source	2628	基础设施层	internal,platform,metrics,dag,基础设施层
 internal/platform/metrics/http_test.go	internal	platform-provider	go-test	1417	基础设施层	internal,platform,metrics,http,test,基础设施层
 internal/platform/metrics/http.go	internal	platform-provider	go-source	826	基础设施层	internal,platform,metrics,http,基础设施层
-internal/platform/metrics/metrics_test.go	internal	platform-provider	go-test	3368	基础设施层	internal,platform,metrics,test,基础设施层
+internal/platform/metrics/metrics_test.go	internal	platform-provider	go-test	4533	基础设施层	internal,platform,metrics,test,基础设施层
 internal/platform/metrics/metrics.go	internal	platform-provider	go-source	1419	基础设施层	internal,platform,metrics,基础设施层
 internal/platform/metrics/skill_alert_rules_test.go	internal	platform-provider	go-test	920	基础设施层	internal,platform,metrics,skill,alert,rules,test,基础设施层
 internal/platform/metrics/skill_prometheus_config_test.go	internal	platform-provider	go-test	874	基础设施层	internal,platform,metrics,skill,prometheus,config,test,基础设施层

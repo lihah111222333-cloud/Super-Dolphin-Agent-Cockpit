@@ -53,6 +53,9 @@ func (externalCronSchedulerClaimStore) MarkFinished(context.Context, cron.MarkFi
 func (externalCronSchedulerClaimStore) MarkFailed(context.Context, cron.MarkFailedParams) error {
 	return nil
 }
+func (externalCronSchedulerClaimStore) FinalizeRecoveredRun(context.Context, cron.FinalizeRecoveredRunParams) error {
+	return nil
+}
 func (externalCronSchedulerClaimStore) SetActiveTurn(context.Context, cron.SetActiveTurnParams) error {
 	return nil
 }
@@ -67,6 +70,9 @@ func (externalCronSchedulerRunStore) CASRunStatus(context.Context, cron.CASRunSt
 }
 func (externalCronSchedulerRunStore) SetRunTurn(context.Context, cron.SetRunTurnParams) error {
 	return nil
+}
+func (externalCronSchedulerRunStore) GetRunByID(context.Context, string) (cron.RunRecord, error) {
+	return cron.RunRecord{}, nil
 }
 func (externalCronSchedulerRunStore) GetRunningRunByTurnID(context.Context, string) (cron.RunRecord, error) {
 	return cron.RunRecord{}, nil

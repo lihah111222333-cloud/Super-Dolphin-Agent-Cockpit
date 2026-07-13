@@ -55,10 +55,10 @@ internal/app/runtimeadapter/toolbridge/adapter.go	internal	other	go-source	13615
 internal/app/session_ports_test.go	internal	other	go-test	1303	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,test,root,Fx,装配,runner,与,graph,closure
 internal/app/session_ports.go	internal	other	go-source	538	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,root,Fx,装配,runner,与,graph,closure
 internal/app/sharedfile_adapter.go	internal	other	go-source	922	root Fx/app 装配、runner 与 graph closure	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,graph,closure
-internal/app/storeadapter/cron/adapter_test.go	internal	other	go-test	18067	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,test,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/cron/adapter.go	internal	other	go-source	16399	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/adapter_test.go	internal	other	go-test	18198	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/adapter.go	internal	other	go-source	17261	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/cron/module.go	internal	other	go-source	268	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,module,业务,Store,到,窄端口的适配器
-internal/app/storeadapter/cron/port_external_test.go	internal	other	go-test	3349	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,port,external,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/port_external_test.go	internal	other	go-test	3612	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/adapter_test.go	internal	other	go-test	19654	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/adapter.go	internal	other	go-source	19653	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/module.go	internal	other	go-source	513	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,module,业务,Store,到,窄端口的适配器
@@ -122,7 +122,7 @@ internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test
 internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2084	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	7524	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	42216	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	42407	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_analyzer_test.go	internal	other	go-test	26114	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,analyzer,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_test.go	internal	other	go-test	6977	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_test.go	internal	other	go-test	27100	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,test,架构守卫,baseline,ratchet,与冻结规则
@@ -464,6 +464,8 @@ internal/util/toolresults/path_test.go	internal	other	go-test	706	Internal share
 internal/util/toolresults/path.go	internal	other	go-source	716	Internal shared utility packages	internal,util,toolresults,path,Internal,shared,utility,packages
 internal/util/util.go	internal	other	go-source	1711	Internal shared utility packages	internal,util,Internal,shared,utility,packages
 Makefile	(root)	other	file	15260	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+pkg/cronmetrics/cronmetrics_test.go	pkg	other	go-test	524	可复用公共库	pkg,cronmetrics,test,可复用公共库
+pkg/cronmetrics/cronmetrics.go	pkg	other	go-source	1206	可复用公共库	pkg,cronmetrics,可复用公共库
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	5884	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3359	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库

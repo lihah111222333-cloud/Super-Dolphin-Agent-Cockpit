@@ -296,6 +296,12 @@ type MarkFailedParams struct {
 	Now                  time.Time
 }
 
+// FinalizeRecoveredRunParams keeps recovered run and job terminal updates in one store transaction.
+type FinalizeRecoveredRunParams struct {
+	MarkFailedParams
+	ExpectedRunStatus string
+}
+
 // SetActiveTurnParams 是 scheduler 绑定当前活跃 turn 的领域参数。
 type SetActiveTurnParams struct {
 	ID           string
@@ -370,11 +376,13 @@ type SchedulerStore interface {
 	ExtendClaim(ctx context.Context, params LeaseParams) error
 	MarkFinished(ctx context.Context, params MarkFinishedParams) error
 	MarkFailed(ctx context.Context, params MarkFailedParams) error
+	FinalizeRecoveredRun(ctx context.Context, params FinalizeRecoveredRunParams) error
 	SetActiveTurn(ctx context.Context, params SetActiveTurnParams) error
 
 	InsertRun(ctx context.Context, params InsertRunParams) (RunRecord, error)
 	CASRunStatus(ctx context.Context, params CASRunStatusParams) error
 	SetRunTurn(ctx context.Context, params SetRunTurnParams) error
+	GetRunByID(ctx context.Context, id string) (RunRecord, error)
 	GetRunningRunByTurnID(ctx context.Context, turnID string) (RunRecord, error)
 	ListUnresolvedRuns(ctx context.Context) ([]RunRecord, error)
 	GetJobByID(ctx context.Context, id string) (JobRecord, error)

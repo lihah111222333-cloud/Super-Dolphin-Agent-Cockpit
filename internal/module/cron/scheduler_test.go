@@ -23,6 +23,7 @@ type recordingCronStore struct {
 	recordingCronRunWriteStore
 	recordingCronTerminalStore
 	recordingCronCompatibilityStore
+	recordingCronRecoveryStore
 
 	mu                      sync.Mutex
 	claimFn                 func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error)
