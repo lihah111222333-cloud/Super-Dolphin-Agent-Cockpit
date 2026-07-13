@@ -40,13 +40,26 @@ Skill과 prompt는 생성을 안내하지만 guard는 무엇을 수용할 수 �
 
 [Hermes Agent](https://github.com/NousResearch/hermes-agent)와 [OpenClaw](https://github.com/openclaw/openclaw) 같은 유명 프로젝트는 자율 실행, 폭넓은 tool 사용, persistent memory, 재사용 가능한 Skill의 가치를 보여 줍니다. Hermes는 경험에서 Skill을 만들고 개선하는 learning loop를 강조하며, OpenClaw는 OS, messaging platform, service 전반에서 작업하는 personal AI assistant를 강조합니다.
 
-Agent system의 capability는 고정되어 있지 않습니다. Community는 Skill, MCP Server, Provider, tool, plugin, workflow를 계속 추가하여 Hermes Agent, OpenClaw 또는 현재의 다른 선도 Agent와 동등하거나 더 강한 기능을 만들 수 있습니다. 따라서 Super Dolphin은 기능 수가 가장 많거나 특정 시점의 단일 capability가 가장 강한 것을 장기적 우위로 정의하지 않습니다.
+Agent system의 capability는 고정되어 있지 않습니다. 이 프로젝트는 한 사람이 시작했고 주로 AI가 작성했으므로 한 maintainer의 시간, 경험, use case에는 한계가 있으며 Community의 공동 참여가 필요합니다. Contributor는 module, integration, UI, Skill, MCP, Provider, tool을 PR로 직접 제출할 수 있고 구현을 작성하지 않고 target scenario, specification, acceptance test, 실제 defect를 제공할 수도 있습니다. 이 engineering system은 Community code와 AI-generated code에 동일한 강한 제약을 적용하고 아직 구현되지 않은 요구를 AI engineering task로 바꾸어 architecture, contract, gate에 맞는 완전한 module을 생성하거나 수정하도록 강제합니다. Community collaboration과 AI 생성 속도를 함께 확대하여 한 maintainer가 모든 capability를 직접 작성하지 않고도 Hermes Agent와 OpenClaw를 빠르게 따라잡거나 넘어서는 방식입니다.
 
 이 유명 프로젝트들은 Agent-first vibe coding의 고유한 한계도 보여 줍니다. 더 강한 autonomy, 더 많은 tool, persistent memory, 자기 개선 Skill만으로는 repository evolution이 통제 가능해지지 않습니다. AI Agent가 대규모 codebase를 계속 수정할 때 누가 architecture를 지키고, 중요한 property를 test하며, 이미 잘못된 것으로 입증된 pattern의 재발을 막고, 어떤 code를 남길 수 있는지 결정할 것인지라는 문제가 그대로 남습니다.
 
 Code가 사람보다 수십 배에서 수백 배 빠르게 생성되어도 사람의 review capacity는 같은 비율로 확장될 수 없습니다. Repository가 강제하는 specification, contract, regression test, 실행 가능한 gate가 없다면 전문 engineering team조차 점차 code에 대한 control을 잃습니다. 국소 기능은 계속 동작할 수 있지만 중복 path, lifecycle 모호성, hidden coupling, 검증되지 않은 assumption이 누적되어 system을 이해하고 test하고 delivery하고 유지하는 일이 계속 어려워집니다.
 
 Super Dolphin의 우위는 **sustainable iteration**입니다. Repository 자체를 control system으로 취급하여 community가 추가하는 새로운 capability를 흡수하면서도 codebase가 빠르게 유지 불가능한 architecture로 변하는 것을 막습니다. Specification이 intent를 정의하고, typed contract와 dependency boundary가 구현을 제한하며, test와 regression fixture가 입증된 behavior를 보존하고, AST/SSA guard와 change-aware gate가 알려진 bad smell을 거부합니다. 기능은 계속 성장할 수 있지만 repository의 executable specification을 만족하는 code만 수용됩니다.
+
+### 선도 Agent와 동등해지고 넘어서는 capability route
+
+AI가 빠르게 code를 생성하는 시대에는 capability code 자체가 희소 자원이 아닙니다. 희소한 것은 Community의 요구와 기여를 적합한 module로 안정적으로 바꾸는 engineering constraint입니다. Super Dolphin은 다음 route를 사용합니다.
+
+1. **Community가 추격할 실제 scenario를 정의한다.** Hermes Agent나 OpenClaw가 해결했거나 아직 해결하지 못한 workflow, 기대 결과, failure case를 제공합니다.
+2. **Scenario를 executable specification으로 만든다.** Code를 생성하거나 제출하기 전에 module ownership, typed contract, dependency direction, security boundary, acceptance test, delivery evidence를 정의합니다.
+3. **Community PR과 AI generation의 두 경로로 구현한다.** Contributor는 완전한 module이나 제한된 integration을 PR할 수 있고, AI는 code map과 LSP로 backend, integration, 필요한 UI, test, documentation을 구현할 수 있습니다. 어느 쪽도 architecture를 우회할 수 없습니다.
+4. **동일한 hard gate로 모든 code를 적합하게 만든다.** Build, test, E2E scenario, permission 및 lifecycle check, AST/SSA guard, dependency boundary, change-aware gate가 Community code와 AI-generated code를 동일하게 검사하고 부적합하면 Contributor 또는 AI에 수정을 강제합니다.
+5. **실제 task로 parity를 증명한다.** “한 번 답했다”는 parity가 아닙니다. Target workflow와 failure path를 재현 가능하게 완료해야 validated capability가 됩니다.
+6. **Community 사용 경험을 다음 생성 제약으로 바꾼다.** Production failure, regression, 반복 fix를 fixture, specification, 실행 가능한 guard로 만들어 이후 제출되거나 생성된 module이 기존 defect를 피하게 합니다.
+
+이것은 한 maintainer가 모든 기능을 직접 작성하는 route가 아닙니다. Community는 code, 문제, evidence를 기여할 수 있고 이 engineering system은 Community code를 제약하며 AI가 module을 보완하고 수정하게 합니다. 제한된 유지보수 역량을 Community collaboration과 AI engineering throughput으로 확대해 유지 가능성을 지키면서 Hermes Agent와 OpenClaw를 빠르게 따라잡거나 넘어서는 것을 목표로 합니다.
 
 ### 제한된 컨텍스트를 이용한 유지보수
 
