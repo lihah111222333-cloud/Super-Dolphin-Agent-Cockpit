@@ -297,6 +297,7 @@ Go sharedFilePreviewResult
 - `internal/store/cron/contract.go`
 - `internal/store/cron/store.go`
 - `internal/store/cron/store_test.go`
+- `internal/store/cron/list_page.go`、`internal/store/cron/list_page_test.go`，隔离分页实现与 fixture 以满足生产/测试文件尺寸门禁
 - `internal/module/cron/contract.go`
 - `internal/module/cron/service.go`
 - `internal/module/cron/rpc.go`
