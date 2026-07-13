@@ -24,6 +24,8 @@
 
 文件：`docs/plans/2026-07-11-agentic-testing-harness-foundation.md`
 
+状态（2026-07-14）：本地 Foundation 已完成并提交为独立仓库 `codex/foundation` 的 `d79431a4529bb0c2129c9d91070b5f74d0dd25e7`；完整证据见 [Foundation Task 12](2026-07-11-agentic-testing-harness-foundation.md#task-12-add-the-codex-skill-ci-and-fresh-package-smoke)。独立仓库尚未配置 Git remote，因此 hosted Linux/macOS/Windows 与 Node support lanes 尚无 run 证据，不得描述为跨平台 PASS。
+
 交付一个可安装、可运行的只读 Web 纵切：
 
 - versioned contracts；
@@ -41,10 +43,9 @@
 ```bash
 cd /Users/l4place/Documents/agentic-testing-harness
 npm ci
-npx playwright install chromium
+npm exec --offline -- playwright install chromium
 npm run verify
-npm run test:e2e:web
-npm pack --dry-run
+npm run pack:dry-run
 ```
 
 预期：全部 exit 0；read session 的写动作返回 `POLICY_BLOCKED`；EOF、`SIGINT` 和非法 JSONL 都完成 target/browser cleanup。

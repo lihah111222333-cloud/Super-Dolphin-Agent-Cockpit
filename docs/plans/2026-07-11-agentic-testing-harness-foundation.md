@@ -901,7 +901,7 @@ git commit -m "test: 验证 Web Agent 探索纵切"
 - Create: `.github/workflows/ci.yml`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write failing Skill and package tests**
+- [x] **Step 1: Write failing Skill and package tests**
 
 ```ts
 it('Skill uses only public ath commands', async () => {
@@ -917,32 +917,47 @@ it('packed CLI runs doctor from a clean directory', async () => {
 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npm test -- tests/skill/skill-contract.test.ts tests/package/fresh-install.test.ts`
 
 Expected: FAIL because Skill, workflow, and package helper do not exist.
 
-- [ ] **Step 3: Implement Skill and reproducible CI**
+- [x] **Step 3: Implement Skill and reproducible CI**
 
 Skill instructions run `ath doctor`, select read mode for ordinary exploration, hold the stream process handle, send one JSON request at a time, stop on any contract/policy/isolation error, and report `explored` separately from `candidate` or `replay_passed`. CI installs Node 20.19.0, runs `npm ci`, runs `npx playwright install --with-deps chromium` on Linux, then lint/typecheck/test/build/package smoke. macOS and Windows run unit, Web fixture, and package smoke with `npx playwright install chromium`.
 
-- [ ] **Step 4: Run the complete Foundation gate**
+- [x] **Step 4: Run the complete Foundation gate**
 
 ```bash
 npm ci
-npx playwright install chromium
+npm exec --offline -- playwright install chromium
 npm run verify
+npm run test:skill
 npm run test:e2e:web
-npm pack --dry-run
+npm run test:package
+npm run pack:dry-run
 ```
 
 Expected: all commands exit 0; test output has no skipped critical test and the package list contains the `ath` bin plus built public packages.
 
-- [ ] **Step 5: Commit Foundation completion**
+- [x] **Step 5: Commit Foundation completion**
 
 ```bash
 git add skills tests/package tests/skill .github/workflows/ci.yml README.md package.json package-lock.json
 git diff --cached --check
 git commit -m "ci: 完成 harness foundation 验证闭环"
 ```
+
+**Implementation record (2026-07-14):**
+
+- Independent repository branch `codex/foundation` completed at commit `d79431a4529bb0c2129c9d91070b5f74d0dd25e7` (`ci: 完成 harness foundation 验证闭环`); its tracked and untracked status was clean immediately after commit.
+- `skills/codex-agentic-testing-harness` exposes only the public `ath` boundary, owns one JSONL request at a time, enforces exact envelope/revision fields, and distinguishes `explored`, `candidate`, and `replay_passed`. The official Skill validator, its `agents/openai.yaml`, and the repository Skill contract all passed.
+- Missing configured run roots are created through one private no-follow directory preparation path shared by doctor and live session startup. Observation locator fields survive only when the Playwright action resolver round-trips them to the exact visible element; DOM mutation, hidden matching, locator-count, 300-element, deadline, handle-cleanup, and combined timeout/cleanup-failure boundaries fail closed under regression tests.
+- Release validation now has one discovered seven-package registry, an exclusive private build lock, declaration/runtime dependency-closure scanning, bounded pack subprocesses, exact internal-version checks, and fresh external-consumer installation. The consumer directly depends only on the CLI tarball, resolves unpublished internal packages through exact tarball overrides, enables lifecycle handling, rejects workspace symlinks, and invokes only its installed local `ath`.
+- `.github/workflows/ci.yml` pins npm `11.17.0`, actions by commit SHA, Node `20.19.0` on Ubuntu 24.04, macOS 15 arm64, and Windows 2022, plus Ubuntu support lanes for Node `22.13.0`, `24`, and `26`. The independent repository has no Git remote, so no hosted run URL or cross-platform PASS is claimed; those lanes must run after a remote is configured.
+- Clean local verification ran `npm ci` (exit 0, 0 vulnerabilities; npm reported allow-scripts notices for optional `fsevents` installers), `npm exec --offline -- playwright install chromium` (exit 0), and then `npm run verify` (exit 0). The final run passed 36 unit files with 923 tests and one Windows-only test skipped on macOS, Skill 3/3, Web E2E 5/5, package smoke 30/30, clean build validation, and a seven-package pack receipt with `athBin` and `dependencyClosure` true.
+- A zero-source-knowledge forward exercise used only the Skill and public CLI: doctor passed with empty stderr; session `session-22f0eadc-1ff2-4366-be88-2dd4b8111b9f` observed revision 1, selected the first eligible unique locator `heading/Home`, completed `waitFor` at revision 2, finished as `explored`, and rendered a report with 5 retained receipts and 0 dropped. Stream and report exited 0 with empty stderr, and the exact ignored run directory was boundary-checked and removed without reading run files.
+- Final independent review found no remaining Critical or Important issue after the combined observation-timeout plus cleanup-failure reason was preserved through aggregation and proven to trigger runtime containment.
+- LSP navigation for the independent repository remains blocked: narrowed `grep`, `structure`, `inspect`, `xref`, `file(read_file)`, and `file(diagnostics)` calls all returned `path_outside_workspace` because the trusted root is `/Users/l4place/Documents/Super-Dolphin`; diagnostics are not recorded as PASS.
+- For these Super-Dolphin Markdown records, LSP `grep`, document structure, and `file(read_file)` succeeded, but narrowed Markdown hover, references, and post-edit diagnostics repeatedly failed during client initialization with `LSP initialize request: EOF`; Markdown diagnostics are likewise not recorded as PASS.

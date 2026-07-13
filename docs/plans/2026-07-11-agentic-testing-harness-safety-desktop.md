@@ -14,7 +14,11 @@
 
 ## Preconditions
 
-在 `/Users/l4place/Documents/agentic-testing-harness` 的新分支 `codex/safety-desktop` 执行。开始前要求 Foundation 的 `npm run verify` 和 `npm run test:e2e:web` 均 exit 0。
+Foundation 本地基线固定为独立仓库 commit `d79431a4529bb0c2129c9d91070b5f74d0dd25e7`。该基线已在 clean `npm ci` 与 Chromium provisioning 后通过 `npm run verify`：923 项 unit 通过、1 项 Windows-only 用例在 macOS 跳过、Skill 3/3、Web E2E 5/5、package smoke 30/30，且七包 pack closure 通过。
+
+独立仓库当前没有 Git remote，所以 hosted Linux/macOS/Windows 与 Node `22.13.0`/`24`/`26` lanes 尚无可引用 run。配置 remote 后必须先让 commit `d79431a4529bb0c2129c9d91070b5f74d0dd25e7` 的完整 CI 矩阵通过；在此之前不得声称跨平台 Foundation 已验收，也不得开放 Safety/Desktop 实现。
+
+满足 hosted CI 前置条件后，在 `/Users/l4place/Documents/agentic-testing-harness` 从上述 commit 创建新分支 `codex/safety-desktop`，不得从其他未验证工作树状态分支。
 
 ### Task 1: Harden evidence redaction and artifact budgets
 
