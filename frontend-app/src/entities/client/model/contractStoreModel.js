@@ -130,7 +130,7 @@ export function parseRequiredTimestamp(value, label) {
   const minute = Number(minuteText);
   const second = Number(secondText);
   const millisecond = Number(milliText.padEnd(3, '0'));
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+  if (year < 1970 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
     failContract(label, 'an ISO-8601 UTC timestamp');
   }
   return (((daysBeforeYear(year) + daysBeforeMonth(year, month) + day - 1) * 24 + hour) * 60 + minute) * 60 * 1000 + second * 1000 + millisecond;

@@ -4,6 +4,9 @@ import { METHOD_IDS } from './wailsBridgeConstants.js';
 import { writeBridgeLog } from './wailsBridgeLogRuntime.js';
 import { currentMonotonicMS, elapsedMS } from './wailsBridgeTraceEvents.js';
 import { callAPI, callByID } from './wailsBridgeRpc.js';
+import { assertSafeSharedFilePreviewURL } from './sharedFilePreviewContract.js';
+
+const SHARED_FILE_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
 
 const SHARED_FILE_PREVIEW_FIELD_CONSUMERS = Object.freeze({
   url: Object.freeze({
@@ -127,38 +130,6 @@ function hasOwnBridgeProperty(value, key) {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function assertSharedFilePreviewURL(method, value) {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new TypeError(`${method} response url must be a safe loopback preview URL`);
-  }
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch (error) {
-    throw new TypeError(`${method} response url must be a safe loopback preview URL`, { cause: error });
-  }
-  const hostname = parsed.hostname.toLowerCase();
-  const loopback = hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
-  const ids = parsed.searchParams.getAll('id');
-  const queryKeys = [...parsed.searchParams.keys()];
-  if (
-    parsed.protocol !== 'http:'
-    || !loopback
-    || !parsed.port
-    || parsed.pathname !== '/shared-file-preview'
-    || parsed.username
-    || parsed.password
-    || parsed.hash
-    || ids.length !== 1
-    || !ids[0].trim()
-    || queryKeys.length !== 1
-    || queryKeys[0] !== 'id'
-  ) {
-    throw new TypeError(`${method} response url must be a safe loopback preview URL`);
-  }
-  return value;
-}
-
 function nativeSelectFilesResponse(method, raw, { allowArray = false } = {}) {
   if (allowArray && Array.isArray(raw)) {
     return assertNativeStringArray(method, 'paths', raw);
@@ -235,15 +206,15 @@ function nativeSharedFilePreviewResponse(method, raw) {
       throw new TypeError(`${method} response contains unknown field ${field}`);
     }
   }
-  const url = assertSharedFilePreviewURL(method, value.url);
+  const url = assertSafeSharedFilePreviewURL(value.url, `${method} response url`);
   if (typeof value.path !== 'string' || !value.path.trim()) {
     throw new TypeError(`${method} response path must be a non-empty string`);
   }
   if (typeof value.contentType !== 'string' || !value.contentType.trim()) {
     throw new TypeError(`${method} response contentType must be a non-empty string`);
   }
-  if (!Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 0) {
-    throw new TypeError(`${method} response sizeBytes must be a non-negative safe integer`);
+  if (!Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 0 || value.sizeBytes > SHARED_FILE_PREVIEW_MAX_BYTES) {
+    throw new TypeError(`${method} response sizeBytes must be within the preview size limit`);
   }
   if (Object.keys(value).length !== expectedFields.length) {
     const missing = expectedFields.find((field) => !hasOwnBridgeProperty(value, field));
@@ -365,13 +336,18 @@ async function previewSharedFile({ path } = {}) {
   writeBridgeLog('info', 'ui.previewSharedFile.start', { path: filePath });
   const raw = await callAPI('ui/sharedFile/open', { path: filePath, preview: true });
   writeBridgeLog('info', 'ui.previewSharedFile.done', { path: filePath });
-  return nativeSharedFilePreviewResponse('ui/sharedFile/open', raw);
+  const response = nativeSharedFilePreviewResponse('ui/sharedFile/open', raw);
+  if (response.path !== filePath) {
+    throw new TypeError('ui/sharedFile/open response path must match requested path');
+  }
+  return response;
 }
 
 export {
   SHARED_FILE_PREVIEW_FIELD_CONSUMERS,
+  SHARED_FILE_PREVIEW_MAX_BYTES,
   selectProjectDir, selectProjectDirs, normalizeSelectFilesOptions, assertNativeResponseObject, assertNativeStringArray, nativePathListResponse,
   firstDiagnosticPath, normalizeBridgeInputString, nativeSelectFilesResponse, nativeDatasourceImportFileResponse, nativeDroppedTextFilesResponse, nativeTextFileSaveResponse,
-  nativeSharedFileOpenResponse, nativeSharedFilePreviewResponse, assertSharedFilePreviewURL, selectFiles, selectDatasourceImportFile, readDroppedTextFiles, saveClipboardImage,
+  nativeSharedFileOpenResponse, nativeSharedFilePreviewResponse, selectFiles, selectDatasourceImportFile, readDroppedTextFiles, saveClipboardImage,
   saveTextFile, openSharedFile, previewSharedFile,
 };

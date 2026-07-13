@@ -17,6 +17,8 @@ describe('required timestamp contract', () => {
     '2026-02-30T00:00:00Z',
     '2025-02-29T00:00:00Z',
     '2026-04-31T00:00:00Z',
+    '1969-12-31T23:59:59Z',
+    '0000-01-01T00:00:00Z',
   ])('rejects impossible UTC calendar date %s', (value) => {
     expect(() => parseRequiredTimestamp(value, 'timestamp')).toThrow('timestamp');
   });
