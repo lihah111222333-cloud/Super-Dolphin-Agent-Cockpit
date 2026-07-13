@@ -49,6 +49,9 @@ func (s *cronJobQuerierStub) ListCronJobs(ctx context.Context) ([]sqlc.CronJob, 
 	}
 	return nil, nil
 }
+func (s *cronJobQuerierStub) ListCronJobsPage(ctx context.Context, _ sqlc.ListCronJobsPageParams) ([]sqlc.CronJob, error) {
+	return s.ListCronJobs(ctx)
+}
 func (s *cronJobQuerierStub) DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error {
 	if s.deleteFn != nil {
 		return s.deleteFn(ctx, arg.ID)

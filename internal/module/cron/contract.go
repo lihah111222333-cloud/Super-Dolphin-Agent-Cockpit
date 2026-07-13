@@ -17,7 +17,7 @@ import (
 type Service interface {
 	CreateJob(ctx context.Context, req CreateJobRequest) (Job, error)
 	GetJob(ctx context.Context, id string) (Job, error)
-	ListJobs(ctx context.Context) ([]Job, error)
+	ListJobsPage(ctx context.Context, params ListJobsPageParams) (JobPage, error)
 	UpdateJob(ctx context.Context, req UpdateJobRequest) (Job, error)
 	SetJobEnabled(ctx context.Context, id string, enabled bool) error
 	DeleteJob(ctx context.Context, id string) error
@@ -36,7 +36,25 @@ var (
 	ErrInvalidConfig        = errors.New("cron: config is invalid for provider")
 	ErrNotFound             = errors.New("cron: job not found")
 	ErrJobDisabled          = errors.New("cron: cannot trigger disabled job")
+	ErrInvalidListLimit     = errors.New("cron: list limit must be within range")
+	ErrInvalidListCursor    = errors.New("cron: list cursor is invalid")
 )
+
+// MaxCronListLimit is the fixed API capacity boundary for cronjob/list.
+const MaxCronListLimit int32 = 100
+
+// ListJobsPageParams is the module-side bounded list request.
+type ListJobsPageParams struct {
+	Limit  int32
+	Cursor string
+}
+
+// JobPage is the module-side paged result for cronjob/list.
+type JobPage struct {
+	Jobs       []Job
+	NextCursor string
+	HasMore    bool
+}
 
 const (
 	providerCodex = "codex"
@@ -67,6 +85,7 @@ var (
 	ErrStoreEmptyProvider = errors.New("cron: provider is required")
 	// ErrStoreEmptyScheduleExpr 表示持久化请求缺少调度表达式。
 	ErrStoreEmptyScheduleExpr = errors.New("cron: schedule_expr is required")
+	ErrStoreInvalidListCursor = errors.New("cron: list cursor is invalid")
 )
 
 // CreateJobRequest 是 CreateJob 的已校验输入。
@@ -360,12 +379,19 @@ type SetRunTurnParams struct {
 type Store interface {
 	CreateJob(ctx context.Context, params CreateJobParams) (JobRecord, error)
 	GetJobByID(ctx context.Context, id string) (JobRecord, error)
-	ListJobs(ctx context.Context) ([]JobRecord, error)
+	ListJobsPage(ctx context.Context, params ListJobsPageParams) (JobRecordPage, error)
 	DeleteJob(ctx context.Context, id string) error
 	UpdateJobSchedule(ctx context.Context, params UpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
 	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
 	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]RunRecord, error)
+}
+
+// JobRecordPage keeps the page boundary below the service DTO conversion.
+type JobRecordPage struct {
+	Jobs       []JobRecord
+	NextCursor string
+	HasMore    bool
 }
 
 // SchedulerStore 是 scheduler 状态机使用的持久化端口。

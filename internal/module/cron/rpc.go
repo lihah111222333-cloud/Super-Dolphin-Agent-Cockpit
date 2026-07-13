@@ -58,11 +58,19 @@ type cronListRunsParams struct {
 	Limit int32  `json:"limit,omitempty"`
 }
 
+// cronListParams is the strict wire contract for bounded cronjob/list requests.
+type cronListParams struct {
+	Limit  int32   `json:"limit"`
+	Cursor *string `json:"cursor"`
+}
+
 // JSON-RPC 响应类型的 JSON tag 固定为前端既有字段名，避免破坏旧 UI 调用。
 
 // cronListResponse 是 cronjob/list 的 JSON-RPC 响应。
 type cronListResponse struct {
-	Jobs []Job `json:"jobs"`
+	Jobs       []Job  `json:"jobs"`
+	NextCursor string `json:"next_cursor"`
+	HasMore    bool   `json:"has_more"`
 }
 
 // cronDeleteResponse 是 cronjob/delete 的 JSON-RPC 响应，返回被删除 job 的 ID。
@@ -156,16 +164,19 @@ func getHandler(svc Service) func(context.Context, cronIDParams) (Job, error) {
 }
 
 // listHandler 构造 cronjob/list 的处理函数。
-func listHandler(svc Service) func(context.Context, struct{}) (cronListResponse, error) {
-	return func(ctx context.Context, _ struct{}) (cronListResponse, error) {
-		jobs, err := svc.ListJobs(ctx)
+func listHandler(svc Service) func(context.Context, cronListParams) (cronListResponse, error) {
+	return func(ctx context.Context, p cronListParams) (cronListResponse, error) {
+		if p.Cursor == nil {
+			return cronListResponse{}, mapRPCError(ErrInvalidListCursor)
+		}
+		page, err := svc.ListJobsPage(ctx, ListJobsPageParams{Limit: p.Limit, Cursor: *p.Cursor})
 		if err != nil {
 			return cronListResponse{}, mapRPCError(err)
 		}
-		if jobs == nil {
-			jobs = []Job{}
+		if page.Jobs == nil {
+			page.Jobs = []Job{}
 		}
-		return cronListResponse{Jobs: jobs}, nil
+		return cronListResponse{Jobs: page.Jobs, NextCursor: page.NextCursor, HasMore: page.HasMore}, nil
 	}
 }
 
@@ -268,6 +279,8 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrInvalidTimezone),
 		errors.Is(err, ErrInvalidMaxAttempts),
 		errors.Is(err, ErrInvalidConfig),
+		errors.Is(err, ErrInvalidListLimit),
+		errors.Is(err, ErrInvalidListCursor),
 		errors.Is(err, ErrProviderNotSupported),
 		errors.Is(err, ErrJobDisabled),
 		errors.Is(err, ErrStoreEmptyID),

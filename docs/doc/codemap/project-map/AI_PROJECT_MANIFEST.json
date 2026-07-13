@@ -5,15 +5,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4535,
+  "files": 4541,
   "domains": {
     "docs-agent": 921,
-    "other": 630,
-    "app-ui": 515,
-    "platform-provider": 1015,
+    "other": 631,
+    "app-ui": 516,
+    "platform-provider": 1016,
     "orchestration": 419,
-    "modules": 724,
-    "store-sql": 311
+    "modules": 725,
+    "store-sql": 313
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 515,
-        "size_kb": 105.3,
+        "file_count": 516,
+        "size_kb": 105.5,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -36,22 +36,22 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 724,
-        "size_kb": 140.9,
+        "file_count": 725,
+        "size_kb": 141.1,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1015,
-        "size_kb": 186.9,
+        "file_count": 1016,
+        "size_kb": 187.1,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 311,
-        "size_kb": 46.3,
+        "file_count": 313,
+        "size_kb": 46.5,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 630,
-        "size_kb": 122.8,
+        "file_count": 631,
+        "size_kb": 123,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -74,8 +74,8 @@
     "(root)": 12,
     "cmd": 668,
     "docs": 913,
-    "frontend-app": 513,
-    "internal": 2124,
+    "frontend-app": 514,
+    "internal": 2129,
     "migrations": 112,
     "pkg": 29,
     "scripts": 115,

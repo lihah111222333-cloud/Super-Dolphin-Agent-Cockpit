@@ -128,10 +128,10 @@ type Querier interface {
 	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]ListCommandCardVersionsRow, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsByJobParams) ([]CronJobRun, error)
-	ListCronJobs(ctx context.Context) ([]CronJob, error)
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
+	ListCronJobsPage(ctx context.Context, arg ListCronJobsPageParams) ([]CronJob, error)
 	ListDatasourceDocumentPromptMetadata(ctx context.Context, arg ListDatasourceDocumentPromptMetadataParams) ([]ListDatasourceDocumentPromptMetadataRow, error)
 	ListDatasourceDocuments(ctx context.Context, arg ListDatasourceDocumentsParams) ([]ListDatasourceDocumentsRow, error)
 	ListDatasourcePromptDocuments(ctx context.Context, arg ListDatasourcePromptDocumentsParams) ([]ListDatasourcePromptDocumentsRow, error)

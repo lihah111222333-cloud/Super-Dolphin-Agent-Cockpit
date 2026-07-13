@@ -26,6 +26,7 @@ import {
   cronIdPayload,
   cronSetEnabledPayload,
   cronListRunsPayload,
+  cronListPayload,
   cronJobMutationPayload,
   codeFilePayload,
 } from './backendApiPayloads.js';
@@ -124,7 +125,7 @@ function workflowTemplateListPayload(params) {
 
 function createCronApi(callBackend) {
   return {
-    listCronJobs: () => callBackend(RPC_METHODS.CRONJOB_LIST, {}),
+    listCronJobs: (params) => callBackend(RPC_METHODS.CRONJOB_LIST, cronListPayload(params)),
     getCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_GET, cronIdPayload(RPC_METHODS.CRONJOB_GET, params)),
     createCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_CREATE, cronJobMutationPayload(RPC_METHODS.CRONJOB_CREATE, params)),
     updateCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_UPDATE, cronJobMutationPayload(RPC_METHODS.CRONJOB_UPDATE, params, { requireId: true })),

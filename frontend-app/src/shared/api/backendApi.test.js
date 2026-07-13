@@ -39,6 +39,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
 }
 
 function guardedBackendResponse(method) {
+  if (method === RPC_METHODS.CRONJOB_LIST) return { jobs: [], next_cursor: '', has_more: false };
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ) return { hint: 'effective prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return { files: [], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } };
@@ -1490,7 +1491,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps cronjob RPCs with validated payload shapes', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
     const cronPayload = {
       cwd: '/repo/app',
@@ -1508,7 +1509,7 @@ function expectSkillEditorCalls(callAPI) {
       maxAttempts: 2,
     };
 
-    await api.listCronJobs();
+    await api.listCronJobs({ limit: 25, cursor: '' });
     await api.getCronJob({ id: 'job-1' });
     await api.createCronJob(cronPayload);
     await api.updateCronJob({ ...cronPayload, id: 'job-1', name: 'nightly v2', enabled: false });
@@ -1517,7 +1518,7 @@ function expectSkillEditorCalls(callAPI) {
     await api.setCronJobEnabled({ id: 'job-1', enabled: true });
     await api.listCronJobRuns({ jobId: 'job-1', limit: 50 });
 
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_LIST, {});
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_LIST, { limit: 25, cursor: '' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_GET, { id: 'job-1' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_CREATE, {
       cwd: '/repo/app',

@@ -183,7 +183,7 @@ run_codex() {
 # ───────────────────────── F3 Cron ─────────────────────────
 run_cron() {
   heading "F3 Cron 定时任务 (P1b)"
-  expect_ok    F3.1 cronjob/list '{}' '.result'
+  expect_ok    F3.1 cronjob/list '{"limit":25,"cursor":""}' '.result | ((keys | sort) == ["has_more","jobs","next_cursor"]) and (.jobs | type == "array") and (.next_cursor | type == "string") and (.has_more | type == "boolean")'
   expect_ok    F3.2 cronjob/create "{
     \"name\":\"p21-uat-job\",
     \"schedule\":\"*/1 * * * *\",

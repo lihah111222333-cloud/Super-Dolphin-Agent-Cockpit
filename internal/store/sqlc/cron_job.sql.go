@@ -600,7 +600,7 @@ func (q *Queries) ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsB
 	return items, nil
 }
 
-const listCronJobs = `-- name: ListCronJobs :many
+const listCronJobsClaimedBy = `-- name: ListCronJobsClaimedBy :many
 SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        model, cwd, config, skills, notify_channel, enabled, next_run_at,
        last_scheduled_at, last_run_at, claimed_at, claimed_by,
@@ -608,11 +608,18 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-ORDER BY created_at DESC, id DESC
+WHERE claimed_by = ? AND claim_token <> ''
+ORDER BY id ASC
 `
 
-func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
-	rows, err := q.db.QueryContext(ctx, listCronJobs)
+type ListCronJobsClaimedByParams struct {
+	ClaimedBy string `db:"claimed_by" json:"claimed_by"`
+}
+
+// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
+// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
+func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listCronJobsClaimedBy, arg.ClaimedBy)
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +674,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
 	return items, nil
 }
 
-const listCronJobsClaimedBy = `-- name: ListCronJobsClaimedBy :many
+const listCronJobsPage = `-- name: ListCronJobsPage :many
 SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        model, cwd, config, skills, notify_channel, enabled, next_run_at,
        last_scheduled_at, last_run_at, claimed_at, claimed_by,
@@ -675,18 +682,19 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-WHERE claimed_by = ? AND claim_token <> ''
-ORDER BY id ASC
+WHERE (created_at, id) < (CAST(?1 AS INTEGER), CAST(?2 AS TEXT))
+ORDER BY created_at DESC, id DESC
+LIMIT ?3
 `
 
-type ListCronJobsClaimedByParams struct {
-	ClaimedBy string `db:"claimed_by" json:"claimed_by"`
+type ListCronJobsPageParams struct {
+	CursorCreatedAt int64  `db:"cursor_created_at" json:"cursor_created_at"`
+	CursorID        string `db:"cursor_id" json:"cursor_id"`
+	LimitPlusOne    int64  `db:"limit_plus_one" json:"limit_plus_one"`
 }
 
-// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
-// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
-func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error) {
-	rows, err := q.db.QueryContext(ctx, listCronJobsClaimedBy, arg.ClaimedBy)
+func (q *Queries) ListCronJobsPage(ctx context.Context, arg ListCronJobsPageParams) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listCronJobsPage, arg.CursorCreatedAt, arg.CursorID, arg.LimitPlusOne)
 	if err != nil {
 		return nil, err
 	}

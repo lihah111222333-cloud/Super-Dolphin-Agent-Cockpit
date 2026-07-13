@@ -31,7 +31,7 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
 FROM cron_jobs
 WHERE id = ?;
 
--- name: ListCronJobs :many
+-- name: ListCronJobsPage :many
 SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        model, cwd, config, skills, notify_channel, enabled, next_run_at,
        last_scheduled_at, last_run_at, claimed_at, claimed_by,
@@ -39,7 +39,9 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-ORDER BY created_at DESC, id DESC;
+WHERE (created_at, id) < (CAST(sqlc.arg(cursor_created_at) AS INTEGER), CAST(sqlc.arg(cursor_id) AS TEXT))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(limit_plus_one);
 
 -- name: DeleteCronJob :exec
 DELETE FROM cron_jobs WHERE id = ?;

@@ -44,6 +44,8 @@ var (
 	ErrEmptyProvider           = errors.New("cron: provider is required")
 	ErrEmptyScheduleExpr       = errors.New("cron: schedule_expr is required")
 	ErrEmptyClaimToken         = errors.New("cron: claim_token is required")
+	ErrInvalidListLimit        = errors.New("cron: list limit must be within range")
+	ErrInvalidListCursor       = errors.New("cron: list cursor is invalid")
 )
 
 // Store 是 cron 持久化接口，隔离 sqlc 行结构和上层调度模块。
@@ -51,7 +53,7 @@ var (
 type Store interface {
 	CreateJob(ctx context.Context, params CreateJobParams) (Job, error)
 	GetJobByID(ctx context.Context, id string) (Job, error)
-	ListJobs(ctx context.Context) ([]Job, error)
+	ListJobsPage(ctx context.Context, params ListJobsPageParams) (JobPage, error)
 	DeleteJob(ctx context.Context, id string) error
 	UpdateJobSchedule(ctx context.Context, params UpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
@@ -88,6 +90,21 @@ type Store interface {
 
 	// ListJobsClaimedBy 只返回仍由指定调度身份持有且 claim_token 非空的任务。
 	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error)
+}
+
+// ListJobsPageParams is the bounded keyset request for cron job listings.
+// Cursor is opaque at this boundary; an empty string is the only first-page marker.
+type ListJobsPageParams struct {
+	Limit  int32
+	Cursor string
+}
+
+// JobPage is a bounded cron job response. NextCursor is always present and
+// empty on the final page.
+type JobPage struct {
+	Jobs       []Job
+	NextCursor string
+	HasMore    bool
 }
 
 // Job 是 cron_jobs 行的跨模块 DTO，承载调度、租约、最近 turn 和失败重试状态。

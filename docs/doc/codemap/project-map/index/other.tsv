@@ -55,10 +55,10 @@ internal/app/runtimeadapter/toolbridge/adapter.go	internal	other	go-source	13615
 internal/app/session_ports_test.go	internal	other	go-test	1303	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,test,root,Fx,装配,runner,与,graph,closure
 internal/app/session_ports.go	internal	other	go-source	538	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,root,Fx,装配,runner,与,graph,closure
 internal/app/sharedfile_adapter.go	internal	other	go-source	922	root Fx/app 装配、runner 与 graph closure	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,graph,closure
-internal/app/storeadapter/cron/adapter_test.go	internal	other	go-test	18198	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,test,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/cron/adapter.go	internal	other	go-source	17261	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/adapter_test.go	internal	other	go-test	18241	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/adapter.go	internal	other	go-source	17628	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/cron/module.go	internal	other	go-source	268	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,module,业务,Store,到,窄端口的适配器
-internal/app/storeadapter/cron/port_external_test.go	internal	other	go-test	3612	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,port,external,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/port_external_test.go	internal	other	go-test	3650	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/adapter_test.go	internal	other	go-test	19654	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/adapter.go	internal	other	go-source	19653	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/module.go	internal	other	go-source	513	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,module,业务,Store,到,窄端口的适配器
@@ -138,6 +138,7 @@ internal/archtest/bus_callback_guard_test.go	internal	other	go-test	10818	架构
 internal/archtest/ci_cross_platform_smoke_guard_test.go	internal	other	go-test	2229	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,cross,platform,smoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/code_size_guard_test.go	internal	other	go-test	8440	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/contract_import_boundary_test.go	internal	other	go-test	2833	架构守卫、baseline ratchet 与冻结规则	internal,archtest,contract,import,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/cron_list_field_guard_test.go	internal	other	go-test	7045	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cron,list,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cross_domain_guard_test.go	internal	other	go-test	767	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3887	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_designer_prompt_refresh_test.go	internal	other	go-test	1891	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,refresh,test,架构守卫,baseline,ratchet,与冻结规则
@@ -601,7 +602,7 @@ scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1251	工程自动化、�
 scripts/test_with_guard.ps1	scripts	other	script	12071	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.sh	scripts	other	script	2684	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	4208	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
-scripts/uat-p21.sh	scripts	other	script	9414	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
+scripts/uat-p21.sh	scripts	other	script	9595	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_risk_evidence.py	scripts	other	py	7460	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,risk,evidence,工程自动化,测试守卫,代码地图与开发脚本

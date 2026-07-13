@@ -118,12 +118,6 @@ func (s *recordingCronTerminalStore) GetJobByID(ctx context.Context, id string) 
 	}
 	return JobRecord{}, nil
 }
-func (s *recordingCronStore) ListJobs(ctx context.Context) ([]JobRecord, error) {
-	if s.listJobsFn != nil {
-		return s.listJobsFn(ctx)
-	}
-	return nil, nil
-}
 
 // Unused store methods keep the programmable double compatible with older scheduler tests.
 func (recordingCronCompatibilityStore) CreateJob(context.Context, CreateJobParams) (JobRecord, error) {

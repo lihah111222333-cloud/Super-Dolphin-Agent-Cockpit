@@ -17,8 +17,10 @@ func (externalCronStore) GetJobByID(context.Context, string) (cron.JobRecord, er
 	return cron.JobRecord{}, nil
 }
 
-func (externalCronStore) ListJobs(context.Context) ([]cron.JobRecord, error) { return nil, nil }
-func (externalCronStore) DeleteJob(context.Context, string) error            { return nil }
+func (externalCronStore) ListJobsPage(context.Context, cron.ListJobsPageParams) (cron.JobRecordPage, error) {
+	return cron.JobRecordPage{}, nil
+}
+func (externalCronStore) DeleteJob(context.Context, string) error { return nil }
 func (externalCronStore) UpdateJobSchedule(context.Context, cron.UpdateJobScheduleParams) error {
 	return nil
 }

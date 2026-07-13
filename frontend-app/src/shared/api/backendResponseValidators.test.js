@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 
 import { RPC_METHODS } from './backendApi.js';
 import { createBackendResponseValidators } from './backendResponseValidators.js';
 
 const validators = createBackendResponseValidators(RPC_METHODS);
+
+test('cron list response requires exact snake_case page fields', () => {
+  const validate = validators[RPC_METHODS.CRONJOB_LIST];
+  expect(validate(RPC_METHODS.CRONJOB_LIST, { jobs: [], next_cursor: '', has_more: false })).toEqual({ jobs: [], next_cursor: '', has_more: false });
+  expect(() => validate(RPC_METHODS.CRONJOB_LIST, { jobs: [], nextCursor: '', has_more: false })).toThrow(/exactly/);
+  expect(() => validate(RPC_METHODS.CRONJOB_LIST, { jobs: [], next_cursor: '', has_more: false, extra: true })).toThrow(/exactly/);
+});
 
 function validate(method, response) {
   const validator = validators[method];

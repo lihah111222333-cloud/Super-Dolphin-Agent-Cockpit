@@ -315,7 +315,7 @@ internal/platform/db/sqlite_runtime_test.go	internal	platform-provider	go-test	1
 internal/platform/db/sqlite/backup_restore_smoke_test.go	internal	platform-provider	go-test	4149	基础设施层	internal,platform,db,sqlite,backup,restore,smoke,test,基础设施层
 internal/platform/db/sqlite/migrate_test.go	internal	platform-provider	go-test	12233	基础设施层	internal,platform,db,sqlite,migrate,test,基础设施层
 internal/platform/db/sqlite/migrate.go	internal	platform-provider	go-source	13955	基础设施层	internal,platform,db,sqlite,migrate,基础设施层
-internal/platform/db/sqlite/migrations/001_baseline.sql	internal	platform-provider	sql	42036	基础设施层	internal,platform,db,sqlite,migrations,001,baseline,基础设施层
+internal/platform/db/sqlite/migrations/001_baseline.sql	internal	platform-provider	sql	42128	基础设施层	internal,platform,db,sqlite,migrations,001,baseline,基础设施层
 internal/platform/db/sqlite/migrations/104_prompt_recall_topics.sql	internal	platform-provider	sql	281	基础设施层	internal,platform,db,sqlite,migrations,104,prompt,recall,topics,基础设施层
 internal/platform/db/sqlite/migrations/105_dashboard_task_dags_order_index.sql	internal	platform-provider	sql	92	基础设施层	internal,platform,db,sqlite,migrations,105,dashboard,task,dags,order,index,基础设施层
 internal/platform/db/sqlite/migrations/106_agent_provider_binding_codex_home_alias_repair.sql	internal	platform-provider	sql	911	基础设施层	internal,platform,db,sqlite,migrations,106,agent,provider,binding,codex,home,alias,repair,基础设施层
@@ -329,9 +329,10 @@ internal/platform/db/sqlite/migrations/113_bus_exception_log_flags.sql	internal	
 internal/platform/db/sqlite/migrations/114_cron_job_runs_turn_status_index.sql	internal	platform-provider	sql	151	基础设施层	internal,platform,db,sqlite,migrations,114,cron,job,runs,turn,status,index,基础设施层
 internal/platform/db/sqlite/migrations/115_agent_thread_paging_indexes.sql	internal	platform-provider	sql	262	基础设施层	internal,platform,db,sqlite,migrations,115,agent,thread,paging,indexes,基础设施层
 internal/platform/db/sqlite/migrations/116_datasource_documents.sql	internal	platform-provider	sql	733	基础设施层	internal,platform,db,sqlite,migrations,116,datasource,documents,基础设施层
+internal/platform/db/sqlite/migrations/117_cron_jobs_list_paging_index.sql	internal	platform-provider	sql	92	基础设施层	internal,platform,db,sqlite,migrations,117,cron,jobs,list,paging,index,基础设施层
 internal/platform/db/sqlite/mixed_write_pressure_test.go	internal	platform-provider	go-test	22194	基础设施层	internal,platform,db,sqlite,mixed,write,pressure,test,基础设施层
 internal/platform/db/sqlite/open.go	internal	platform-provider	go-source	9804	基础设施层	internal,platform,db,sqlite,open,基础设施层
-internal/platform/db/sqlite/query_plan_test.go	internal	platform-provider	go-test	5800	基础设施层	internal,platform,db,sqlite,query,plan,test,基础设施层
+internal/platform/db/sqlite/query_plan_test.go	internal	platform-provider	go-test	6039	基础设施层	internal,platform,db,sqlite,query,plan,test,基础设施层
 internal/platform/db/sqlite/release_smoke_fixture_test.go	internal	platform-provider	go-test	18449	基础设施层	internal,platform,db,sqlite,release,smoke,fixture,test,基础设施层
 internal/platform/db/sqlite/release_smoke_large_fixture_stress_test.go	internal	platform-provider	go-test	2769	基础设施层	internal,platform,db,sqlite,release,smoke,large,fixture,stress,test,基础设施层
 internal/platform/db/sqlite/schema_baseline_test.go	internal	platform-provider	go-test	15233	基础设施层	internal,platform,db,sqlite,schema,baseline,test,基础设施层

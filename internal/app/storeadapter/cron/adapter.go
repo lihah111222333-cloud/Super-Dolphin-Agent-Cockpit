@@ -90,13 +90,16 @@ func (a *cronJobStoreAdapter) GetJobByID(ctx context.Context, id string) (cron.J
 	return fromStoreJob(row), mapCronStoreError(err)
 }
 
-// ListJobs 列出任务并逐条转换为 cron 模块内部记录。
-func (a *cronJobStoreAdapter) ListJobs(ctx context.Context) ([]cron.JobRecord, error) {
-	rows, err := a.store.ListJobs(ctx)
+// ListJobsPage 显式转换分页 DTO，避免把 store 类型泄漏到 cron 模块。
+func (a *cronJobStoreAdapter) ListJobsPage(ctx context.Context, p cron.ListJobsPageParams) (cron.JobRecordPage, error) {
+	page, err := a.store.ListJobsPage(ctx, cronstore.ListJobsPageParams{Limit: p.Limit, Cursor: p.Cursor})
 	if err != nil {
-		return nil, mapCronStoreError(err)
+		if errors.Is(err, cronstore.ErrInvalidListCursor) {
+			return cron.JobRecordPage{}, fmt.Errorf("%w: %v", cron.ErrStoreInvalidListCursor, err)
+		}
+		return cron.JobRecordPage{}, mapCronStoreError(err)
 	}
-	return fromStoreJobs(rows), nil
+	return cron.JobRecordPage{Jobs: fromStoreJobs(page.Jobs), NextCursor: page.NextCursor, HasMore: page.HasMore}, nil
 }
 
 // DeleteJob 删除任务，并把 not found 等 store 错误映射到本包错误。

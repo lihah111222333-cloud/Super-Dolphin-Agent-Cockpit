@@ -103,21 +103,27 @@ func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	return toJob(row)
 }
 
-// ListJobs 列出全部定时任务并转换为对外 DTO。
-func (s *service) ListJobs(ctx context.Context) ([]Job, error) {
-	rows, err := s.store.ListJobs(ctx)
-	if err != nil {
-		return nil, err
+// ListJobsPage 在进入 store 前校验 API 容量边界，并转换分页 DTO。
+func (s *service) ListJobsPage(ctx context.Context, params ListJobsPageParams) (JobPage, error) {
+	if params.Limit <= 0 || params.Limit > MaxCronListLimit {
+		return JobPage{}, ErrInvalidListLimit
 	}
-	out := make([]Job, len(rows))
-	for i, r := range rows {
+	page, err := s.store.ListJobsPage(ctx, params)
+	if err != nil {
+		if errors.Is(err, ErrStoreInvalidListCursor) {
+			return JobPage{}, ErrInvalidListCursor
+		}
+		return JobPage{}, err
+	}
+	out := make([]Job, len(page.Jobs))
+	for i, r := range page.Jobs {
 		job, err := toJob(r)
 		if err != nil {
-			return nil, err
+			return JobPage{}, err
 		}
 		out[i] = job
 	}
-	return out, nil
+	return JobPage{Jobs: out, NextCursor: page.NextCursor, HasMore: page.HasMore}, nil
 }
 
 // UpdateJob 更新定时任务配置并重算调度时间。
