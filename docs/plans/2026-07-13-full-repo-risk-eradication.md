@@ -298,6 +298,7 @@ Go sharedFilePreviewResult
 - `internal/store/cron/store.go`
 - `internal/store/cron/store_test.go`
 - `internal/store/cron/list_page.go`、`internal/store/cron/list_page_test.go`，隔离分页实现与 fixture 以满足生产/测试文件尺寸门禁
+- `internal/platform/db/sqlite/migrations/001_baseline.sql`、`117_cron_jobs_list_paging_index.sql`、`internal/platform/db/sqlite/query_plan_test.go`，为 keyset 查询提供正式索引并用 EXPLAIN 锁定
 - `internal/module/cron/rpc_list_page_test.go`，验证 `cursor` wire 必填与分页响应映射
 - `internal/archtest/cron_list_field_guard_test.go`，动态锁定 Go/sqlc DTO 与 mapper 字段链
 - `internal/module/cron/contract.go`
@@ -315,19 +316,20 @@ Go sharedFilePreviewResult
 - `frontend-app/src/shared/api/backendApi.test.js`
 - 新增或扩展的 Cron page DTO 字段 registry/guard 测试
 - `frontend-app/src/shared/api/backendCronListContract.test.js`，逐字段验证前端请求/响应契约
+- `scripts/uat-p21.sh`，同步必填分页请求并断言分页响应字段
 
 ### 最优修复
 
 - 使用 keyset cursor，不用 offset。SQL 固定为：
 
 ```sql
-WHERE created_at < :cursor_created_at
-   OR (created_at = :cursor_created_at AND id < :cursor_id)
+WHERE (created_at, id) < (:cursor_created_at, :cursor_id)
 ORDER BY created_at DESC, id DESC
 LIMIT :limit_plus_one
 ```
 
-- 首页使用空 cursor 并跳过 predicate；查询 `limit+1` 条，只返回前 `limit` 条。
+- 建立 `(created_at DESC, id DESC)` 正式复合索引，并用 `EXPLAIN QUERY PLAN` 锁定 tuple keyset 范围扫描，禁止全表扫描或临时排序。
+- wire 首页仍使用空 cursor；store 将其显式映射为 `(MaxInt64, 最大 ID 哨兵)`，使首页与后续页复用同一个可索引 tuple predicate。查询 `limit+1` 条，只返回前 `limit` 条。
 - `HasMore` 由第 `limit+1` 条是否存在决定；`NextCursor` 从最后一条**已返回**记录编码。末页必须返回 `has_more=false` 和必填空字符串 `next_cursor`，不得省略字段或生成指向自身的 cursor。
 - wire 请求字段固定为 `limit`、`cursor`；wire 响应字段固定为 `jobs`、`next_cursor`、`has_more`，前端不得接受 camelCase/旧字段别名。Go 内部字段使用 `Limit/Cursor/Jobs/NextCursor/HasMore` 并显式 mapper。
 - `limit` 在 RPC 与前端 `listCronJobs(params)` 都必填，合法范围 `1..MaxCronListLimit`；不得使用隐式默认值。超限直接 invalid argument，store 不再接受无界调用。
@@ -400,6 +402,8 @@ frontend listCronJobs API request
 - `internal/module/workflowtemplate/rpc.go` 及同包 RPC/序列化测试
 - `sql/queries/db_query.sql`、`internal/store/sqlc/db_query.sql.go`、`internal/store/sqlc/querier.go`，仅消除 `PlaceholderDBQuery` 无类型 `NULL` 生成的 `interface{}` hint，保持零行语义
 - `internal/store/dbquery/store.go`、`internal/store/dbquery/store_test.go`，同步收紧 Placeholder 消费类型并锁定零行契约
+- `scripts/ai_maintenance/main.go`、`scripts/sqlc_verify_worktree_guard_test.go`，pre-commit/worker 使用稳定重生成门禁，pre-push/CI 保持 clean-tree SQLC 门禁
+- `sql/queries/cron_job.sql`、`internal/store/sqlc/cron_job.sql.go`、`internal/store/cron/store_test.go`，仅为既有 cursor/thread/agent 参数补显式 SQL 类型，消除 sqlc 生成的 `interface{}` hint
 - `.github/workflows/ci.yml`、`internal/archtest/ratchet_test.go`，Linux 主 job 与 macOS/Windows smoke 共同执行同一 manifest 字节检查
 
 不允许修改 `run-new-ui-desktop.ps1`：Windows 已有不执行脚本表达式的 `Import-DotEnvFile`，本风险只针对 Bash `source`。不修改任何 dirty README；开发入口行为通过 Bash `--help`/错误信息和 `internal/app/new_ui_scripts_test.go` 固定。
@@ -442,8 +446,9 @@ frontend listCronJobs API request
 4. L04 远端/本地门禁。
 5. L05 前端契约。
 6. L06 provider approval。
-7. L07 Cron 分页字段链。
-8. L08 清理与 diagnostics。
+7. G0 SQLC worktree 门禁修复；这是所有包含正确 staged SQLC 生成物提交的前置治理依赖，独立提交后再继续业务 lane。
+8. L07 Cron 分页字段链。
+9. L08 清理与 diagnostics。
 
 ### 最终验证
 

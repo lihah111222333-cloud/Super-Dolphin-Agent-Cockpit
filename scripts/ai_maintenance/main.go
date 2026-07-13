@@ -348,7 +348,7 @@ func gateRunners(plan gatePlan) map[string]func() error {
 		"codemap:check":         generatedCheck("make", "codemap-check"),
 		"project-map:check":     generatedCheck("make", "project-map-check"),
 		"repo:guard":            func() error { return runCommand("", "make", "guard") },
-		"sqlc:verify":           func() error { return runCommand("", "make", "sqlc-verify") },
+		"sqlc:verify":           func() error { return runCommand("", "make", "sqlc-verify-worktree") },
 		"diff:whitespace":       func() error { return runCommand("", "git", "diff", "--check") },
 	}
 }
@@ -653,7 +653,7 @@ func commandForGatePresent(commands []evidenceCommand, gate string) bool {
 		"codemap:check":            {"make codemap-check"},
 		"project-map:check":        {"make project-map-check"},
 		"repo:guard":               {"make guard"},
-		"sqlc:verify":              {"make sqlc-verify"},
+		"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"},
 	}
 	for _, cmd := range commands {
 		for _, want := range wants[gate] {
