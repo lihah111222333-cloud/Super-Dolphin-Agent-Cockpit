@@ -7,10 +7,18 @@ FRONTEND_APP_DIR="$PROJECT_DIR/frontend-app"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 
 if [ -f "$PROJECT_DIR/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$PROJECT_DIR/.env"
-  set +a
+  echo "❌ .env is not supported because shell-sourcing it can execute commands." >&2
+  echo "   Remove .env, run ./run-new-ui-desktop.sh --help, and export required variables explicitly." >&2
+  exit 1
+fi
+
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: export NAME=value; ./run-new-ui-desktop.sh"
+  echo "Environment configuration must be supplied explicitly; .env files are rejected."
+  exit 0
+elif [ "$#" -ne 0 ]; then
+  echo "❌ unsupported argument: $1 (use --help)" >&2
+  exit 1
 fi
 
 ensure_dev_control_session_token() {

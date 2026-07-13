@@ -202,7 +202,7 @@ type Querier interface {
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT ?;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 	// file keeps a typed placeholder until sqlc generation is introduced.
-	PlaceholderDBQuery(ctx context.Context) ([]interface{}, error)
+	PlaceholderDBQuery(ctx context.Context) ([]string, error)
 	// SQLite does not support DML inside CTEs; Task rewrite: DELETE then INSERT.
 	// The Go layer wraps these in a transaction. This placeholder keeps the
 	// same query name so generated code compiles; real atomicity is in the Go tx.

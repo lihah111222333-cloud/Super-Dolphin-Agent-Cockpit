@@ -112,7 +112,7 @@ internal/module/mcp_server_npx/service_test.go	internal	modules	go-test	13168	�
 internal/module/mcp_server_npx/service.go	internal	modules	go-source	5941	业务模块层	internal,module,mcp,server,npx,service,业务模块层
 internal/module/mcp_server/config_helpers.go	internal	modules	go-source	5622	业务模块层	internal,module,mcp,server,config,helpers,业务模块层
 internal/module/mcp_server/http_tools_security_test.go	internal	modules	go-test	8051	业务模块层	internal,module,mcp,server,http,tools,security,test,业务模块层
-internal/module/mcp_server/http_tools.go	internal	modules	go-source	8675	业务模块层	internal,module,mcp,server,http,tools,业务模块层
+internal/module/mcp_server/http_tools.go	internal	modules	go-source	8466	业务模块层	internal,module,mcp,server,http,tools,业务模块层
 internal/module/mcp_server/lifecycle_export_test.go	internal	modules	go-test	2556	业务模块层	internal,module,mcp,server,lifecycle,export,test,业务模块层
 internal/module/mcp_server/lifecycle.go	internal	modules	go-source	11245	业务模块层	internal,module,mcp,server,lifecycle,业务模块层
 internal/module/mcp_server/module.go	internal	modules	go-source	599	业务模块层	internal,module,mcp,server,业务模块层
@@ -124,7 +124,7 @@ internal/module/mcp_server/postgres.go	internal	modules	go-source	5010	业务模
 internal/module/mcp_server/rpc_test.go	internal	modules	go-test	16713	业务模块层	internal,module,mcp,server,rpc,test,业务模块层
 internal/module/mcp_server/rpc.go	internal	modules	go-source	11869	业务模块层	internal,module,mcp,server,rpc,业务模块层
 internal/module/mcp_server/service_test.go	internal	modules	go-test	28196	业务模块层	internal,module,mcp,server,service,test,业务模块层
-internal/module/mcp_server/service.go	internal	modules	go-source	25051	业务模块层	internal,module,mcp,server,service,业务模块层
+internal/module/mcp_server/service.go	internal	modules	go-source	23620	业务模块层	internal,module,mcp,server,service,业务模块层
 internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	7216	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
 internal/module/mcp_server/sqlite.go	internal	modules	go-source	8852	业务模块层	internal,module,mcp,server,sqlite,业务模块层
 internal/module/mcp_server/store.go	internal	modules	go-source	383	业务模块层	internal,module,mcp,server,store,业务模块层

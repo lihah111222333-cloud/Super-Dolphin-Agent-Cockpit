@@ -197,18 +197,6 @@ func readMCPHTTPResponseBody(body io.Reader) ([]byte, error) {
 	return raw, nil
 }
 
-func httpErrorBodySuffix(raw []byte) string {
-	text := strings.TrimSpace(string(raw))
-	if text == "" {
-		return ""
-	}
-	const limit = 512
-	if len(text) > limit {
-		text = text[:limit]
-	}
-	return ": " + text
-}
-
 // decodeMCPHTTPRPCResult 校验 JSON-RPC 响应外壳；远端 error 属于请求失败，畸形响应属于协议错误。
 func decodeMCPHTTPRPCResult(method string, raw []byte, expectResponse bool) (json.RawMessage, error) {
 	raw = bytes.TrimSpace(raw)

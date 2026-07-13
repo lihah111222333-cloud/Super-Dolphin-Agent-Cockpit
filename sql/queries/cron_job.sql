@@ -202,8 +202,8 @@ WHERE cron_jobs.id = sqlc.arg(id)
 -- name: SetCronJobActiveTurn :execrows
 UPDATE cron_jobs
 SET active_turn_id = sqlc.arg(active_turn_id),
-    thread_id      = COALESCE(NULLIF(sqlc.arg(thread_id), ''), thread_id),
-    agent_id       = COALESCE(NULLIF(sqlc.arg(agent_id), ''), agent_id),
+    thread_id      = COALESCE(NULLIF(CAST(sqlc.arg(thread_id) AS TEXT), ''), thread_id),
+    agent_id       = COALESCE(NULLIF(CAST(sqlc.arg(agent_id) AS TEXT), ''), agent_id),
     updated_at     = sqlc.arg(now)
 WHERE id = sqlc.arg(id) AND claim_token = sqlc.arg(claim_token);
 
@@ -237,8 +237,8 @@ WHERE id = sqlc.arg(id) AND status = sqlc.arg(expected_status);
 -- name: SetCronJobRunTurn :execrows
 UPDATE cron_job_runs
 SET turn_id       = sqlc.arg(turn_id),
-    thread_id     = COALESCE(NULLIF(sqlc.arg(thread_id), ''), thread_id),
-    agent_id      = COALESCE(NULLIF(sqlc.arg(agent_id), ''), agent_id),
+    thread_id     = COALESCE(NULLIF(CAST(sqlc.arg(thread_id) AS TEXT), ''), thread_id),
+    agent_id      = COALESCE(NULLIF(CAST(sqlc.arg(agent_id) AS TEXT), ''), agent_id),
     submitted_at  = sqlc.arg(submitted_at),
     updated_at    = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
@@ -285,7 +285,7 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        updated_at
 FROM cron_job_runs
 WHERE status IN ('submitting', 'submitted', 'running')
-  AND (sqlc.arg(cursor) = '' OR id > sqlc.arg(cursor))
+  AND (CAST(sqlc.arg(cursor) AS TEXT) = '' OR id > CAST(sqlc.arg(cursor) AS TEXT))
 ORDER BY id ASC
 LIMIT sqlc.arg(limit);
 

@@ -712,7 +712,7 @@ func TestClaimQueryUsesSQLiteAtomicClaimSemantics(t *testing.T) {
 		"LIMIT sqlc.arg(max_claim)",
 		"claim_token      = sqlc.arg(claim_token)", "active_turn_id = sqlc.arg(expected_active_turn_id)",
 		"cron_job_runs.id = sqlc.arg(run_id)", "cron_job_runs.job_id = cron_jobs.id",
-		"cron_job_runs.turn_id = sqlc.arg(expected_active_turn_id)", "COALESCE(NULLIF(sqlc.arg(thread_id), ''), thread_id)",
+		"cron_job_runs.turn_id = sqlc.arg(expected_active_turn_id)", "COALESCE(NULLIF(CAST(sqlc.arg(thread_id) AS TEXT), ''), thread_id)",
 	} {
 		if !contains(sql, want) {
 			t.Fatalf("cron_job.sql missing required fragment %q", want)

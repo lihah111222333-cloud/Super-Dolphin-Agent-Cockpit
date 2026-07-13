@@ -404,6 +404,7 @@ frontend listCronJobs API request
 - `internal/store/dbquery/store.go`、`internal/store/dbquery/store_test.go`，同步收紧 Placeholder 消费类型并锁定零行契约
 - `scripts/ai_maintenance/main.go`、`scripts/sqlc_verify_worktree_guard_test.go`，pre-commit/worker 使用稳定重生成门禁，pre-push/CI 保持 clean-tree SQLC 门禁
 - `sql/queries/cron_job.sql`、`internal/store/sqlc/cron_job.sql.go`、`internal/store/cron/store_test.go`，仅为既有 cursor/thread/agent 参数补显式 SQL 类型，消除 sqlc 生成的 `interface{}` hint
+- `internal/store/cron/sqlc_type_contract_test.go`，仅承接上述 SQLC 参数类型契约测试；这是主审批准的联集态扩写，用于避免 L07+L08 合并后 `store_test.go` 超过 800 行硬门禁，不改变测试语义
 - `.github/workflows/ci.yml`、`internal/archtest/ratchet_test.go`，Linux 主 job 与 macOS/Windows smoke 共同执行同一 manifest 字节检查
 
 不允许修改 `run-new-ui-desktop.ps1`：Windows 已有不执行脚本表达式的 `Import-DotEnvFile`，本风险只针对 Bash `source`。不修改任何 dirty README；开发入口行为通过 Bash `--help`/错误信息和 `internal/app/new_ui_scripts_test.go` 固定。

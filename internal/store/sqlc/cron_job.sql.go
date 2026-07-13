@@ -804,14 +804,14 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        updated_at
 FROM cron_job_runs
 WHERE status IN ('submitting', 'submitted', 'running')
-  AND (?1 = '' OR id > ?1)
+  AND (CAST(?1 AS TEXT) = '' OR id > CAST(?1 AS TEXT))
 ORDER BY id ASC
 LIMIT ?2
 `
 
 type ListUnresolvedCronJobRunsPageParams struct {
-	Cursor interface{} `db:"cursor" json:"cursor"`
-	Limit  int64       `db:"limit" json:"limit"`
+	Cursor string `db:"cursor" json:"cursor"`
+	Limit  int64  `db:"limit" json:"limit"`
 }
 
 // Bounded scheduler boot recovery page. The caller advances cursor with the
@@ -1053,19 +1053,19 @@ func (q *Queries) RenewLease(ctx context.Context, arg RenewLeaseParams) (int64, 
 const setCronJobActiveTurn = `-- name: SetCronJobActiveTurn :execrows
 UPDATE cron_jobs
 SET active_turn_id = ?1,
-    thread_id      = COALESCE(NULLIF(?2, ''), thread_id),
-    agent_id       = COALESCE(NULLIF(?3, ''), agent_id),
+    thread_id      = COALESCE(NULLIF(CAST(?2 AS TEXT), ''), thread_id),
+    agent_id       = COALESCE(NULLIF(CAST(?3 AS TEXT), ''), agent_id),
     updated_at     = ?4
 WHERE id = ?5 AND claim_token = ?6
 `
 
 type SetCronJobActiveTurnParams struct {
-	ActiveTurnID string      `db:"active_turn_id" json:"active_turn_id"`
-	ThreadID     interface{} `db:"thread_id" json:"thread_id"`
-	AgentID      interface{} `db:"agent_id" json:"agent_id"`
-	Now          int64       `db:"now" json:"now"`
-	ID           string      `db:"id" json:"id"`
-	ClaimToken   string      `db:"claim_token" json:"claim_token"`
+	ActiveTurnID string `db:"active_turn_id" json:"active_turn_id"`
+	ThreadID     string `db:"thread_id" json:"thread_id"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	Now          int64  `db:"now" json:"now"`
+	ID           string `db:"id" json:"id"`
+	ClaimToken   string `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error) {
@@ -1104,20 +1104,20 @@ func (q *Queries) SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledPa
 const setCronJobRunTurn = `-- name: SetCronJobRunTurn :execrows
 UPDATE cron_job_runs
 SET turn_id       = ?1,
-    thread_id     = COALESCE(NULLIF(?2, ''), thread_id),
-    agent_id      = COALESCE(NULLIF(?3, ''), agent_id),
+    thread_id     = COALESCE(NULLIF(CAST(?2 AS TEXT), ''), thread_id),
+    agent_id      = COALESCE(NULLIF(CAST(?3 AS TEXT), ''), agent_id),
     submitted_at  = ?4,
     updated_at    = ?5
 WHERE id = ?6
 `
 
 type SetCronJobRunTurnParams struct {
-	TurnID      string      `db:"turn_id" json:"turn_id"`
-	ThreadID    interface{} `db:"thread_id" json:"thread_id"`
-	AgentID     interface{} `db:"agent_id" json:"agent_id"`
-	SubmittedAt *int64      `db:"submitted_at" json:"submitted_at"`
-	UpdatedAt   int64       `db:"updated_at" json:"updated_at"`
-	ID          string      `db:"id" json:"id"`
+	TurnID      string `db:"turn_id" json:"turn_id"`
+	ThreadID    string `db:"thread_id" json:"thread_id"`
+	AgentID     string `db:"agent_id" json:"agent_id"`
+	SubmittedAt *int64 `db:"submitted_at" json:"submitted_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	ID          string `db:"id" json:"id"`
 }
 
 func (q *Queries) SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error) {
