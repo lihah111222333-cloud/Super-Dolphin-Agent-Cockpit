@@ -550,6 +550,10 @@ git commit -m "feat: 实现受控 Playwright 浏览器运行时"
 ### Task 7: Implement the Web adapter and target identity
 
 **Files:**
+- Modify: `tsconfig.json`
+- Modify: `scripts/build.mjs`
+- Modify: `scripts/assert-build-output.mjs`
+- Modify: `package-lock.json`
 - Create: `packages/adapter-web/package.json`
 - Create: `packages/adapter-web/tsconfig.json`
 - Create: `packages/adapter-web/src/allocate-port.ts`
@@ -561,11 +565,13 @@ git commit -m "feat: 实现受控 Playwright 浏览器运行时"
 - [ ] **Step 1: Write a failing wrong-target test**
 
 ```ts
-it('rejects a healthy server with the wrong nonce', async () => {
-  const server = await startIdentityFixture({ nonce: 'other-run' });
-  const adapter = new WebAdapter({ expectedNonce: 'session-nonce', baseURL: server.url });
-  await expect(adapter.verifyIdentity(context)).rejects.toThrow(/target identity mismatch/);
-  await server.close();
+it('rejects a managed target that reports the wrong nonce', async () => {
+  const adapter = new WebAdapter(isolation, webTargetOptions('wrong-nonce'));
+  const provisioned = await adapter.provision(readProvisionContext(isolation));
+  await expect(adapter.launch({
+    sessionId: 'session-1',
+    targetId: provisioned.targetId,
+  })).rejects.toMatchObject({ code: 'TARGET_ERROR' });
 });
 ```
 
@@ -577,14 +583,29 @@ Expected: FAIL because the adapter does not exist.
 
 - [ ] **Step 3: Implement managed launch and identity verification**
 
-Reserve a free port before spawning the target command and pass `ATH_TARGET_PORT` plus `ATH_TARGET_NONCE`. Health verification requires an exact `x-agentic-testing-harness-nonce` header and captures source root/build identity from configured headers. Existing servers are never reused. Shutdown delegates to `ManagedProcess` and then proves the port is free.
+Reserve a candidate loopback port before spawning the target command and pass only the light-isolation allowlist plus `ATH_TARGET_PORT` and a 256-bit `ATH_TARGET_NONCE`. Because the listener must be released before a normal child can bind, explicitly treat the interval as a TOCTOU window: nonce, source-root, and build identity are the fail-closed acceptance gate, not a claim of continuous socket ownership. The adapter constructs its own numeric-loopback endpoint and never accepts or reuses a caller-supplied server URL.
+
+Spawn without a shell and create/register `ManagedProcess` before the first post-spawn await. The target state machine rejects concurrent or repeated launch, cross-session or cross-target contexts, write mode under light isolation, and all running operations after shutdown or unexpected child exit. Launch or verification failure aborts outstanding health requests, stops the full process tree, and proves the exact port can be rebound. Shutdown coalesces, delegates to `ManagedProcess`, performs the same bind proof, and preserves `ISOLATION_ERROR` separately from `TARGET_ERROR` and `INFRASTRUCTURE_ERROR`.
+
+Health verification accepts only `http://127.0.0.1:<port>` and an absolute same-origin path, does not follow redirects, requires status 200, and compares one exact `x-agentic-testing-harness-nonce` plus configured source-root/build headers. Missing, repeated, comma-coalesced, unsafe, or mismatched identity fails immediately. Connection readiness retries use one monotonic deadline; target exit or cancellation closes the request socket and polling timer, and a verified header response is accepted without consuming an unbounded body.
+
+Configuration, nested identity values, command arguments, adapter contexts, and attestation data are copied through bounded data descriptors and reject Proxy, accessor, callable, sparse, extra-field, or non-JSON shapes. The package public export exposes only `WebAdapter`, `WebAdapterError`, and their contract types; port allocation, HTTP verification, child handles, and test helpers remain internal subpaths.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
 ```bash
 npm test -- packages/adapter-web
 npm run typecheck
-git add packages/adapter-web package.json package-lock.json
+npm run lint
+npm run build
+node scripts/assert-build-output.mjs packages/adapter-web
+npm pack --dry-run --json --workspace @agentic-testing-harness/adapter-web
+```
+
+Expected: adapter identity, lifecycle, failure cleanup, cancellation, and port-rebind tests PASS; the full workspace remains green; build and pack contain production entries only and the package export blocks internal subpaths.
+
+```bash
+git add packages/adapter-web package-lock.json tsconfig.json scripts/build.mjs scripts/assert-build-output.mjs
 git diff --cached --check
 git commit -m "feat: 增加 Web target 身份与生命周期适配"
 ```
