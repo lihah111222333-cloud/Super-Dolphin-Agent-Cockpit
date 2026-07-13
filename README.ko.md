@@ -42,7 +42,9 @@ Skill과 prompt는 생성을 안내하지만 guard는 무엇을 수용할 수 �
 
 Agent system의 capability는 고정되어 있지 않습니다. 이 프로젝트는 한 사람이 시작했고 주로 AI가 작성했으므로 한 maintainer의 시간, 경험, use case에는 한계가 있으며 Community의 공동 참여가 필요합니다. Contributor는 module, integration, UI, Skill, MCP, Provider, tool을 PR로 직접 제출할 수 있고 구현을 작성하지 않고 target scenario, specification, acceptance test, 실제 defect를 제공할 수도 있습니다. 이 engineering system은 Community code와 AI-generated code에 동일한 강한 제약을 적용하고 아직 구현되지 않은 요구를 AI engineering task로 바꾸어 architecture, contract, gate에 맞는 완전한 module을 생성하거나 수정하도록 강제합니다. Community collaboration과 AI 생성 속도를 함께 확대하여 한 maintainer가 모든 capability를 직접 작성하지 않고도 Hermes Agent와 OpenClaw를 빠르게 따라잡거나 넘어서는 방식입니다.
 
-이 유명 프로젝트들은 Agent-first vibe coding의 고유한 한계도 보여 줍니다. 더 강한 autonomy, 더 많은 tool, persistent memory, 자기 개선 Skill만으로는 repository evolution이 통제 가능해지지 않습니다. AI Agent가 대규모 codebase를 계속 수정할 때 누가 architecture를 지키고, 중요한 property를 test하며, 이미 잘못된 것으로 입증된 pattern의 재발을 막고, 어떤 code를 남길 수 있는지 결정할 것인지라는 문제가 그대로 남습니다.
+Hermes Agent와 OpenClaw는 autonomous execution, 폭넓은 tool integration, rapid iteration이 어디까지 도달할 수 있는지 보여 줍니다. 동시에 공통 과제도 분명하게 합니다. Feature, channel, runtime environment가 계속 확장되면 test와 국소 guard만으로 repository를 계속 이해하고 진화시키기 어렵습니다. 지나치게 큰 core module, 분산된 responsibility, 추적하기 어려운 impact path는 개별 feature가 계속 동작하더라도 system 전체의 maintenance cost를 계속 높일 수 있습니다.
+
+이것이 Super Dolphin이 해결하도록 설계된 문제입니다. Code를 AI만 생산하든 AI와 뛰어난 human engineer가 함께 빠르게 생산하든, 지속 가능한 속도에는 repository가 강제하는 specification, contract, regression test, 실행 가능한 gate가 필요합니다. 이를 통해 architecture, 입증된 behavior, product intent를 일관되게 유지합니다.
 
 Code가 사람보다 수십 배에서 수백 배 빠르게 생성되어도 사람의 review capacity는 같은 비율로 확장될 수 없습니다. Repository가 강제하는 specification, contract, regression test, 실행 가능한 gate가 없다면 전문 engineering team조차 점차 code에 대한 control을 잃습니다. 국소 기능은 계속 동작할 수 있지만 중복 path, lifecycle 모호성, hidden coupling, 검증되지 않은 assumption이 누적되어 system을 이해하고 test하고 delivery하고 유지하는 일이 계속 어려워집니다.
 
@@ -79,7 +81,11 @@ Function이 작고 symbol이 많다는 이유만으로 문제로 취급하지 �
 
 AI는 명확히 지정된 design을 구현할 수 있지만 business semantics를 스스로 소유하거나 결정할 수 없습니다. 어떤 문제를 해결할지, feature가 무엇을 의미하는지, module이 어떻게 동작해야 하는지, 최종 user-visible outcome이 무엇인지, 어떤 tradeoff를 허용할지는 code generation이 아니라 방향 결정의 문제입니다.
 
-따라서 engineer는 여전히 이 프로젝트의 중심입니다. Engineer가 product direction, business semantics, module responsibility, architecture, acceptance criteria, risk boundary를 정의하고 AI는 repository gate 아래에서 이를 code, test, documentation, 반복 가능한 maintenance work로 변환합니다. 목표는 engineer를 제거하는 것이 아니라 모든 작은 function을 직접 읽고 작성하는 일에서 의미, evidence, system evolution을 통제하는 일로 집중을 옮기는 것입니다. **Engineer는 여전히 steering wheel을 잡은 driver이며, 탈것이 자전거에서 supercar로 바뀌었을 뿐입니다.**
+사람이 의사결정을 내리고 언제나 steering wheel을 잡습니다. 해결할 문제, business semantics, 의도한 user-visible outcome, 허용할 tradeoff를 결정합니다. AI가 code를 작성한 뒤에도 사람은 feature가 의도한 need를 실제로 충족하는지 검증해야 합니다. 이 책임은 agent에게 넘길 수 없습니다.
+
+Code production이 빨라진다고 test가 무료가 되거나 기하급수적으로 저렴해지지는 않습니다. 검증할 change, 조합, business-risk surface가 더 많아지므로 code를 더 빨리 작성할수록 test와 acceptance의 부담은 커집니다. 이 architecture는 machine이 검출하거나 예방할 수 있는 problem의 약 90%를 contract, static guard, test, gate로 다룹니다. 남은 약 10%는 사람이 검증합니다. requirement가 올바르게 표현됐는지, 실제 사용에서 behavior가 맞는지, product가 여전히 올바른 방향으로 가는지입니다.
+
+따라서 engineer는 여전히 이 프로젝트의 중심입니다. Engineer가 product direction, business semantics, module responsibility, architecture, acceptance criteria, risk boundary를 정의하고 AI는 repository gate 아래에서 이를 code, test, documentation, 반복 가능한 maintenance work로 변환합니다. 목표는 engineer를 제거하는 것이 아니라 모든 작은 function을 직접 읽고 작성하는 일에서 의미, evidence, system evolution을 통제하는 일로 집중을 옮기는 것입니다. **Engineer는 언제나 steering wheel을 잡습니다. AI는 engineering throughput을 높이지만 business direction이나 delivery result에 대한 판단을 대체하지는 못합니다.**
 
 ### AI 유지보수성 독립 평가
 

@@ -42,7 +42,9 @@ Skill と prompt は生成を導けますが、guard は何を受け入れられ
 
 Agent system の capability は固定ではありません。本プロジェクトは一人で立ち上げ、主に AI によって記述されているため、一人の maintainer の時間、経験、use case には限界があり、Community との共同開発が必要です。Contributor は module、integration、UI、Skill、MCP、Provider、tool の PR を直接提出でき、実装を書かずに target scenario、specification、acceptance test、実際の defect を提供することもできます。本 engineering system は Community code と AI-generated code に同じ強い制約を適用し、未実装の要求を AI の engineering task に変換して、architecture、contract、gate に適合する完全な module の生成または修正を強制します。これにより Community collaboration と AI の生成速度を同時に活かし、一人の maintainer が全 capability を手書きせずに Hermes Agent や OpenClaw に迅速に追いつき、超えることを目指せます。
 
-これらの著名なプロジェクトは、Agent-first vibe coding に固有の限界も示しています。より強い autonomy、多数の tool、persistent memory、自己改善する Skill だけでは、repository evolution は制御可能になりません。AI Agent が大規模な codebase を継続的に変更するとき、誰が architecture を守り、重要な property を test し、既知の bad pattern の再発を防ぎ、どの code を残せるかを決めるのかという問題が残ります。
+Hermes Agent と OpenClaw は、autonomous execution、幅広い tool integration、rapid iteration がどこまで到達できるかを示しています。同時に、共通の課題も明らかにします。Feature、channel、runtime environment が拡大し続けると、test と局所的な guard だけでは repository の理解しやすさや進化可能性を維持できません。大きすぎる core module、分散した responsibility、追跡しにくい impact path により、個別 feature は動き続けても、system 全体の maintenance cost は上がり続けます。
+
+これが Super Dolphin が解決する問題です。Code を AI だけで生産する場合でも、AI と優秀な human engineer が共同で高速に生産する場合でも、持続可能な速度には repository が強制する specification、contract、regression test、実行可能な gate が必要です。それらにより architecture、実証済みの behavior、product intent を一貫させます。
 
 Code が人間の数十倍から数百倍の速度で生成されても、人間の review capacity は同じ比率では増やせません。Repository が強制する specification、contract、regression test、実行可能な gate がなければ、専門的な engineering team でさえ徐々に code の control を失います。局所機能は動き続けても、重複 path、lifecycle の曖昧さ、hidden coupling、未検証の assumption が蓄積し、system は理解、test、delivery、保守のすべてで難しくなります。
 
@@ -79,7 +81,11 @@ Function が小さく symbol が多いことだけを問題とはみなしませ
 
 AI は明確に指定された design を実装できますが、business semantics を自ら所有・裁定することはできません。何を解決するのか、feature が何を意味するのか、module がどう動くべきか、最終的な user-visible outcome は何か、どの tradeoff を受け入れるかは、code generation ではなく方向を決める問題です。
 
-したがって engineer は本プロジェクトの中心に残ります。Engineer が product direction、business semantics、module responsibility、architecture、acceptance criteria、risk boundary を定義し、AI が repository gate の下でそれらを code、test、documentation、反復可能な maintenance work に変換します。目的は engineer を排除することではなく、すべての小さな function を手で読み書きする作業から、意味、evidence、system evolution の統制へ集中を移すことです。**Engineer は今も steering wheel を握る driver であり、乗り物が自転車から supercar に変わっただけです。**
+人間が意思決定し、常に steering wheel を握ります。解くべき問題、business semantics、意図する user-visible outcome、受け入れられる tradeoff を決めます。AI が code を書いた後も、人間は feature が意図した need を実際に満たすかを検証しなければなりません。この責任を agent に委ねることはできません。
+
+Code production が速くなっても、test が無料になったり指数関数的に安くなったりはしません。検証すべき change、組合せ、business-risk surface が増えるため、code を速く書くほど test と acceptance の負荷は上がります。本 architecture は、machine が検出または予防できる problem の約 90% を contract、static guard、test、gate の対象に置いています。残る約 10% は人間が検証します。requirement が正しく表現されたか、実際の利用で behavior が正しいか、product が正しい方向に進んでいるかです。
+
+したがって engineer は本プロジェクトの中心に残ります。Engineer が product direction、business semantics、module responsibility、architecture、acceptance criteria、risk boundary を定義し、AI が repository gate の下でそれらを code、test、documentation、反復可能な maintenance work に変換します。目的は engineer を排除することではなく、すべての小さな function を手で読み書きする作業から、意味、evidence、system evolution の統制へ集中を移すことです。**Engineer は常に steering wheel を握ります。AI は engineering throughput を高めますが、business direction や delivery result の判断を置き換えることはできません。**
 
 ### AI 保守性の独立評価
 
