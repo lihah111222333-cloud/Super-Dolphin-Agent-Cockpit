@@ -797,7 +797,7 @@ Actual independent-repository commits: `6b66e99` (CLI protocol/session terminati
 - Modify: `packages/cli/src/main.ts`
 - Test: `packages/cli/src/commands.test.ts`
 
-- [ ] **Step 1: Write failing command tests**
+- [x] **Step 1: Write failing command tests**
 
 ```ts
 it('init refuses to overwrite an existing config', async () => {
@@ -813,17 +813,17 @@ it('doctor reports the Chromium capability', async () => {
 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npm test -- packages/cli/src/commands.test.ts`
 
 Expected: FAIL because commands do not exist.
 
-- [ ] **Step 3: Implement commands**
+- [x] **Step 3: Implement commands**
 
 `init` writes a typed config containing one `web-local` profile and never overwrites. `doctor` checks Node version, direct Playwright resolution, Chromium executable, writable runs directory, and reports Docker as optional in Foundation. `report` reads only validated result/evidence files. `replay` loads a redacted candidate, starts a fresh live session, executes each action with current revisions, evaluates its oracles, and returns `replay_passed` only when every oracle succeeds.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 ```bash
 npm test -- packages/cli/src/commands.test.ts
@@ -832,6 +832,8 @@ git add packages/cli
 git diff --cached --check
 git commit -m "feat: 增加 harness 初始化诊断与重放命令"
 ```
+
+Actual independent-repository commit: `c8898a1` (versioned init/doctor/report/replay commands, strict run reader/writer boundaries, replay evidence, and bounded one-shot CLI output). Final verification passed lint, typecheck, build, package dry-run, clean-directory `ath doctor --json`, and 90/90 Vitest suites: 910 tests total, 909 passed, with one explicitly Windows-only pending test. The final read-only review found no reproducible Critical or Important issue. Repository LSP evidence remains blocked because `/Users/l4place/Documents/agentic-testing-harness` is outside the configured trusted workspace roots; narrowed LSP grep/structure attempts returned `path_outside_workspace`, so diagnostics are not reported as passing.
 
 ### Task 11: Build the Web fixture and end-to-end vertical slice
 

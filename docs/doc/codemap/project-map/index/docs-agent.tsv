@@ -409,7 +409,7 @@ docs/plans/2026-07-07-ai-maintenance-boundaries-parallel-agents.md	docs	docs-age
 docs/plans/2026-07-07-ai-maintenance-boundaries.md	docs	docs-agent	doc	193430	历史计划与迁移执行文档	docs,plans,2026,07,ai,maintenance,boundaries,历史计划与迁移执行文档
 docs/plans/2026-07-08-desktop-wide-ui-e2e.md	docs	docs-agent	doc	13357	历史计划与迁移执行文档	docs,plans,2026,07,08,desktop,wide,ui,e2e,历史计划与迁移执行文档
 docs/plans/2026-07-08-settings-provider-save-e2e.md	docs	docs-agent	doc	38861	历史计划与迁移执行文档	docs,plans,2026,07,08,settings,provider,save,e2e,历史计划与迁移执行文档
-docs/plans/2026-07-11-agentic-testing-harness-foundation.md	docs	docs-agent	doc	57211	历史计划与迁移执行文档	docs,plans,2026,07,11,agentic,testing,harness,foundation,历史计划与迁移执行文档
+docs/plans/2026-07-11-agentic-testing-harness-foundation.md	docs	docs-agent	doc	57944	历史计划与迁移执行文档	docs,plans,2026,07,11,agentic,testing,harness,foundation,历史计划与迁移执行文档
 docs/plans/2026-07-11-agentic-testing-harness-roadmap.md	docs	docs-agent	doc	6651	历史计划与迁移执行文档	docs,plans,2026,07,11,agentic,testing,harness,roadmap,历史计划与迁移执行文档
 docs/plans/2026-07-11-agentic-testing-harness-safety-desktop.md	docs	docs-agent	doc	21121	历史计划与迁移执行文档	docs,plans,2026,07,11,agentic,testing,harness,safety,desktop,历史计划与迁移执行文档
 docs/plans/2026-07-11-agentic-testing-harness-super-dolphin-adoption.md	docs	docs-agent	doc	25240	历史计划与迁移执行文档	docs,plans,2026,07,11,agentic,testing,harness,super,dolphin,adoption,历史计划与迁移执行文档
@@ -818,7 +818,7 @@ docs/superpowers/specs/2026-07-03-agentic-e2e-business-flow-discovery-design.md	
 docs/superpowers/specs/2026-07-03-codex-cli-permission-sync-design.md	docs	docs-agent	doc	9639	项目文档体系	docs,superpowers,specs,2026,07,03,codex,cli,permission,sync,design,项目文档体系
 docs/superpowers/specs/2026-07-08-desktop-wide-ui-e2e-design.md	docs	docs-agent	doc	6866	项目文档体系	docs,superpowers,specs,2026,07,08,desktop,wide,ui,e2e,design,项目文档体系
 docs/superpowers/specs/2026-07-08-settings-provider-save-e2e-design.md	docs	docs-agent	doc	6785	项目文档体系	docs,superpowers,specs,2026,07,08,settings,provider,save,e2e,design,项目文档体系
-docs/superpowers/specs/2026-07-11-agentic-testing-harness-extraction-design.md	docs	docs-agent	doc	20958	项目文档体系	docs,superpowers,specs,2026,07,11,agentic,testing,harness,extraction,design,项目文档体系
+docs/superpowers/specs/2026-07-11-agentic-testing-harness-extraction-design.md	docs	docs-agent	doc	22024	项目文档体系	docs,superpowers,specs,2026,07,11,agentic,testing,harness,extraction,design,项目文档体系
 docs/superpowers/需求文档/全功能UI重构-未完成.md	docs	docs-agent	doc	5711	项目文档体系	docs,superpowers,需求文档,全功能UI重构,未完成,项目文档体系
 docs/superpowers/需求文档/发布验收清单-未完成.md	docs	docs-agent	doc	3472	项目文档体系	docs,superpowers,需求文档,发布验收清单,未完成,项目文档体系
 docs/superpowers/需求文档/后台页面字段清单-未完成.md	docs	docs-agent	doc	3991	项目文档体系	docs,superpowers,需求文档,后台页面字段清单,未完成,项目文档体系

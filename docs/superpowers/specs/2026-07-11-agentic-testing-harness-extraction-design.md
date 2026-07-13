@@ -310,6 +310,8 @@ runs/<session-id>/
 
 `events.jsonl` 是追加式事件账本。每个 action receipt 包含前一事件 hash，以发现意外修改；该 hash chain 不被描述为对恶意宿主的密码学防护。
 
+`RunReader` 在调用方信任 `runsRoot` 及其宿主的前提下，验证版本化 schema、路径与文件身份、hash/head 一致性、source candidate 交叉引用，以及重放 oracle 的重新计算结果。控制 `runsRoot` 的恶意宿主仍可伪造一组内部自洽的 source、replay 和 result 文件；Foundation 的本地报告因此只表示“在该信任边界内可验证的一致性”，不表示来源证明、远程证明或不可伪造的 provenance。若需要跨宿主证明，必须另行设计外部信任锚、签名密钥托管和透明日志。
+
 Action receipt 至少记录：
 
 - observation revision；
@@ -333,6 +335,8 @@ Action receipt 至少记录：
 - 单 artifact、单 session 和 retention 都有硬预算。
 
 `candidate.yaml` 和 Markdown 报告只能引用已经脱敏的事件及 artifact，不能重新读取原始 target 数据拼装报告。
+
+Foundation 的 durable replay proof 要求最终 observation 和 oracle 判定字段保持可验证的原始结构。若配置的脱敏规则，或运行时实际触发的内建脱敏，会删除或替换这些 proof 字段，重放必须在写入 proof event 或发布成功结果之前以 `POLICY_BLOCKED` 终止；不得把被脱敏后的字段当作通过证据，也不得回退为 `passed: true`。支持私密 oracle 的承诺式证明属于后续外部信任锚设计范围。
 
 ### 9.2 结果状态
 
