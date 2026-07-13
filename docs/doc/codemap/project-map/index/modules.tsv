@@ -382,7 +382,7 @@ internal/module/rag/chunker_test.go	internal	modules	go-test	2949	业务模块�
 internal/module/rag/chunker.go	internal	modules	go-source	8208	业务模块层	internal,module,rag,chunker,业务模块层
 internal/module/skill/approval_test.go	internal	modules	go-test	16715	skill canonical 管理与 provider-native mirror	internal,module,skill,approval,test,canonical,管理与,provider-native,mirror
 internal/module/skill/approval.go	internal	modules	go-source	14660	skill canonical 管理与 provider-native mirror	internal,module,skill,approval,canonical,管理与,provider-native,mirror
-internal/module/skill/builtin_seed_test.go	internal	modules	go-test	4993	skill canonical 管理与 provider-native mirror	internal,module,skill,builtin,seed,test,canonical,管理与,provider-native,mirror
+internal/module/skill/builtin_seed_test.go	internal	modules	go-test	3307	skill canonical 管理与 provider-native mirror	internal,module,skill,builtin,seed,test,canonical,管理与,provider-native,mirror
 internal/module/skill/canonical_store_test.go	internal	modules	go-test	26969	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,test,管理与,provider-native,mirror
 internal/module/skill/canonical_store.go	internal	modules	go-source	22605	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,管理与,provider-native,mirror
 internal/module/skill/contract.go	internal	modules	go-source	16233	skill canonical 管理与 provider-native mirror	internal,module,skill,contract,canonical,管理与,provider-native,mirror

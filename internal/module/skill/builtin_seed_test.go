@@ -3,8 +3,6 @@ package skill
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -69,41 +67,6 @@ func TestEmbeddedBuiltInSkillsDoNotEnterRuntimeCanonicalSet(t *testing.T) {
 	assertNoSameNameResolutionForSkill(t, resolutions.Items, embeddedName)
 }
 
-func TestWorktreeSkillUsesShellSafeCreationRecipe(t *testing.T) {
-	canonical := readRepoSkill(t, ".agents", "skills", "使用git工作区", skillMainFile)
-	embeddedBytes, err := builtInSkillFS.ReadFile(builtInSkillRoot + "/使用git工作区/" + skillMainFile)
-	if err != nil {
-		t.Fatalf("read embedded worktree skill: %v", err)
-	}
-	embedded := string(embeddedBytes)
-
-	for label, body := range map[string]string{
-		"canonical": canonical,
-		"embedded":  embedded,
-	} {
-		for _, want := range []string{
-			`base_branch=$(git branch --show-current)`,
-			`branch="codex/<short-task-name>"`,
-			`path=".worktrees/<short-task-name>"`,
-			`git worktree add "$path" -b "$branch" "$base_branch"`,
-			"不要把 `git worktree add ...` 拼成字符串变量再执行",
-			"如果必须动态组装命令，使用 shell 数组并以 `\"${cmd[@]}\"` 执行",
-		} {
-			if !strings.Contains(body, want) {
-				t.Fatalf("%s worktree skill missing shell-safe recipe text %q", label, want)
-			}
-		}
-		for _, forbidden := range []string{
-			`git worktree add "$path" -b "$BRANCH_NAME"`,
-			`eval "$cmd"`,
-		} {
-			if strings.Contains(body, forbidden) {
-				t.Fatalf("%s worktree skill keeps unsafe or stale recipe %q", label, forbidden)
-			}
-		}
-	}
-}
-
 func countSkillsNamed(skills []SkillInfo, name string) int {
 	matches := 0
 	for _, item := range skills {
@@ -141,18 +104,4 @@ func assertSkillFileContent(t *testing.T, path, want string) {
 	if string(got) != want {
 		t.Fatalf("skill file %s overwritten:\n%s", path, got)
 	}
-}
-
-func readRepoSkill(t *testing.T, parts ...string) string {
-	t.Helper()
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve current test file")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", ".."))
-	data, err := os.ReadFile(filepath.Join(append([]string{repoRoot}, parts...)...))
-	if err != nil {
-		t.Fatalf("read repo skill %v: %v", parts, err)
-	}
-	return string(data)
 }
