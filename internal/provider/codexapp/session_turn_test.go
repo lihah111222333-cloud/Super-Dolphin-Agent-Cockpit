@@ -22,7 +22,7 @@ func TestStartTurnAppliesTurnToolScopeRuntimeConfig(t *testing.T) {
 		}
 		return mustJSON(map[string]any{"ok": true})
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -64,7 +64,7 @@ func TestStartTurnRejectsUnknownInputBeforeRuntimeConfigMutation(t *testing.T) {
 		turnStartCalls++
 		return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-unexpected"}})
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -99,7 +99,7 @@ func TestStartTurnRejectsUnknownInputBeforeRuntimeConfigMutation(t *testing.T) {
 func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
 	turnParams := make(chan map[string]any, 1)
 	serverURL := startTurnDynamicToolsRPCServer(t, turnParams)
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -200,7 +200,7 @@ func TestStartTurnPreservesExplicitOverrideGPT5Model(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -248,7 +248,7 @@ func TestStartTurnRuntimeGPTDefaultRequiresModelList(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -292,7 +292,7 @@ func TestTurnStartFailsWhenRequiredModelListEmpty(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -330,7 +330,7 @@ func TestStartTurnNormalizesRuntimeMinimalEffortToLow(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -369,7 +369,7 @@ func TestStartTurnSendsRuntimeSandboxPolicy(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

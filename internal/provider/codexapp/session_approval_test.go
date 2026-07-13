@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"sync"
 	"testing"
@@ -28,6 +29,33 @@ func TestRequestApprovalDecisionAutoDeclinesWithoutFrontend(t *testing.T) {
 	}
 	if decision.Reason != "decline" {
 		t.Fatalf("requestApprovalDecision() reason = %q, want %q", decision.Reason, "decline")
+	}
+}
+
+func TestHandleApprovalRequestWithNilManagerFailsTurnAndCancelsSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	handle := &turnHandle{localID: "turn-1", done: make(chan struct{})}
+	s := &session{
+		ctx:          ctx,
+		cancel:       cancel,
+		turns:        map[string]*turnHandle{"turn-1": handle},
+		activeTurnID: "turn-1",
+	}
+
+	s.handleApprovalRequest("item/commandExecution/requestApproval", []byte(`{"requestId":1}`))
+
+	select {
+	case <-handle.Done():
+	case <-time.After(time.Second):
+		t.Fatal("approval request with nil manager left turn pending")
+	}
+	if !errors.Is(handle.Err(), errApprovalManagerRequired) {
+		t.Fatalf("turn error = %v, want %v", handle.Err(), errApprovalManagerRequired)
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("approval request with nil manager did not cancel session")
 	}
 }
 

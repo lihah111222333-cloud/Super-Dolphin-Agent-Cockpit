@@ -103,7 +103,7 @@ func (s *recoveryOrderServer) snapshot() []string {
 // legal startup contract.
 func newTestRuntimeSession(t *testing.T, wsURL string) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), wsURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), wsURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession(): %v", err)
 	}
@@ -193,7 +193,7 @@ func TestSessionRuntimeConnectionDeadCoalescesRecovery(t *testing.T) {
 	// coalesced counters *after* the burst. Even if the worker drains in
 	// between, only the first signal beats the buffered-1 channel semantics;
 	// the remainder are counted as coalesced.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		s.runtime.NotifyRecovery("connection-dead", "burst")
 	}
 
@@ -240,7 +240,7 @@ func TestSessionRuntimeCloseSuppressesNewRecovery(t *testing.T) {
 	// Any NotifyRecovery call AFTER Close must be dropped, not enqueued.
 	signalsBefore := s.runtime.RecoverySignalsTotal()
 	droppedBefore := s.runtime.DroppedSignalsTotal()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		s.runtime.NotifyRecovery("connection-dead", "post-close")
 	}
 	if got := s.runtime.RecoverySignalsTotal() - signalsBefore; got != 0 {

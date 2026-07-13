@@ -351,7 +351,7 @@ func receiveForceCompleteParams(t *testing.T, ch <-chan map[string]any, timeoutM
 
 func newForceCompleteTestSession(t *testing.T, serverURL string) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

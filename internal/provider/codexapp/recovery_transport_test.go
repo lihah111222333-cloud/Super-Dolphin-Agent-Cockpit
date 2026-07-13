@@ -535,7 +535,7 @@ func (r *sessionRecoveryRPCRecorder) assertCounts(t *testing.T) {
 
 func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

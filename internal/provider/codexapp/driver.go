@@ -23,6 +23,15 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
+var errApprovalManagerRequired = errors.New("codexapp: approval manager is required")
+
+func requireApprovalManager(approvals *rpc.ApprovalManager) error {
+	if approvals == nil {
+		return errApprovalManagerRequired
+	}
+	return nil
+}
+
 // DriverFactory 持有创建 Codex provider driver 所需的运行时依赖。
 // tool surface 回调可在 fx 装配后注入，Create 会读取当前回调并隔离到新 driver。
 type DriverFactory struct {
@@ -150,6 +159,14 @@ func (d *driver) Name() string { return "codex" }
 // StartSession 准备 Codex home、工具面和 runtime 后启动新线程会话。
 // runtime 必须先于 start RPC 启动，否则 app-server 响应没有 reader 接收。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	if err := requireApprovalManager(d.approvals); err != nil {
+		return nil, err
+	}
+	return d.startSession(ctx, req)
+}
+
+// startSession 在依赖校验后执行请求准备、会话构造和远端线程启动。
+func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	var err error
 	req, err = d.prepareStartSessionRequest(ctx, req)
 	if err != nil {
@@ -207,6 +224,14 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 // ResumeSession 按已持久化的 Codex identity 恢复远端线程。
 // 恢复失败会清理新建 session 并清掉过期 provider thread 绑定，避免下一次继续读错历史。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	if err := requireApprovalManager(d.approvals); err != nil {
+		return nil, err
+	}
+	return d.resumeSession(ctx, req)
+}
+
+// resumeSession 在依赖校验后恢复远端线程并重建动态工具面。
+func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	var err error
 	req.ProviderThreadID, err = requireProviderResumeThreadID("codexapp", req.ProviderThreadID)
 	if err != nil {

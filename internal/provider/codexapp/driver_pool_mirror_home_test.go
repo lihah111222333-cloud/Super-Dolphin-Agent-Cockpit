@@ -31,7 +31,7 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-default-codex-home",

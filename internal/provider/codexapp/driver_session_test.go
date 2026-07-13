@@ -11,6 +11,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 )
 
@@ -18,6 +19,10 @@ type stubRuntimeReporter struct {
 	last  contract.RuntimeReport
 	calls int
 	err   error
+}
+
+func testApprovalManager() *rpc.ApprovalManager {
+	return rpc.NewApprovalManager(nil, nil)
 }
 
 func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.RuntimeReport) error {
@@ -28,9 +33,9 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 
 func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123 ")
-	got, ok := newDriver(nil, nil, nil, nil, nil, nil, nil, nil, nil).(*driver)
+	got, ok := newDriver(nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil))
 	}
 	if got.logger == nil {
 		t.Fatal("newDriver() logger = nil")
@@ -47,7 +52,7 @@ func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	var prepared contract.CodexToolSurfaceScope
 	var bound contract.CodexToolSurfaceScope
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
@@ -184,7 +189,7 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
-	got := newDriver(nil, nil, nil, reporter, nil, nil, nil, nil, nil).(*driver)
+	got := newDriver(nil, nil, testApprovalManager(), reporter, nil, nil, nil, nil, nil).(*driver)
 	if err := got.reportRuntime(" agent-1 ", got.serverURL); err != nil {
 		t.Fatalf("reportRuntime() error = %v", err)
 	}
@@ -211,8 +216,30 @@ func TestCodexDriverFactoryRequiresDependencyProfile(t *testing.T) {
 	}
 }
 
+func TestCodexDriverFactoryRequiresApprovalManager(t *testing.T) {
+	params := completeCodexDriverFactoryParamsForTest()
+	params.Approvals = nil
+
+	_, err := provideDriverFactory(params)
+	if !errors.Is(err, errApprovalManagerRequired) {
+		t.Fatalf("provideDriverFactory() error = %v, want %v", err, errApprovalManagerRequired)
+	}
+}
+
+func TestDriverStartAndResumeRequireApprovalManagerBeforeRequestPreparation(t *testing.T) {
+	d := &driver{}
+
+	if _, err := d.StartSession(context.Background(), dto.StartSessionRequest{}); !errors.Is(err, errApprovalManagerRequired) {
+		t.Fatalf("StartSession() error = %v, want %v", err, errApprovalManagerRequired)
+	}
+	if _, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{}); !errors.Is(err, errApprovalManagerRequired) {
+		t.Fatalf("ResumeSession() error = %v, want %v", err, errApprovalManagerRequired)
+	}
+}
+
 func completeCodexDriverFactoryParamsForTest() DriverFactoryParams {
 	return DriverFactoryParams{
+		Approvals:  rpc.NewApprovalManager(nil, nil),
 		Reporter:   &stubRuntimeReporter{},
 		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
 	}
@@ -299,6 +326,7 @@ func newCodexDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.Ru
 	}
 	serverURL := startCodexRPCServer(t, runtimeReportCodexRPCResult)
 	driver := &driver{
+		approvals: testApprovalManager(),
 		pool:      newSingleURLPoolForTest(t, serverURL),
 		mirror:    &recordingSkillMirrorReconciler{},
 		reporter:  modeReporter,
@@ -348,7 +376,7 @@ func codexResumeRequestForRuntimeReportTest(t *testing.T) dto.ResumeSessionReque
 func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	t.Parallel()
 
-	s, err := newSession(context.Background(), nil, startCodexTestServer(t), " agent-1 ", nil, nil, nil)
+	s, err := newSession(context.Background(), nil, startCodexTestServer(t), " agent-1 ", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -705,6 +733,7 @@ func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T
 		return startSessionInjectResult(method, wantHome)
 	})
 	d := &driver{
+		approvals: testApprovalManager(),
 		pool:      newSingleURLPoolForTest(t, serverURL),
 		mirror:    &recordingSkillMirrorReconciler{},
 		listTools: noopCodexToolLister,
@@ -753,6 +782,7 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 		return canonicalCodexHomeResult(method, wantHome)
 	})
 	d := &driver{
+		approvals: testApprovalManager(),
 		pool:      newSingleURLPoolForTest(t, serverURL),
 		mirror:    &recordingSkillMirrorReconciler{},
 		listTools: noopCodexToolLister,
@@ -793,6 +823,7 @@ func TestDriverStartSessionSendsRestrictedSandboxPolicyOnWire(t *testing.T) {
 		return mustJSON(map[string]any{"ok": true})
 	})
 	d := &driver{
+		approvals: testApprovalManager(),
 		pool:      newSingleURLPoolForTest(t, serverURL),
 		mirror:    &recordingSkillMirrorReconciler{},
 		listTools: noopCodexToolLister,

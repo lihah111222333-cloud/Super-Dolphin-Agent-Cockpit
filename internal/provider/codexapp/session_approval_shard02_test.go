@@ -119,7 +119,7 @@ func TestApprovalPayloadMalformedReturnsErrorDecision(t *testing.T) {
 	server := startApprovalRespondRecorderServer(t, recorder)
 	defer server.Close()
 
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	hookCalled := false
 	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
 		hookCalled = true
@@ -161,7 +161,7 @@ func TestRequestToolApprovalRejectsStringRequestIDWithoutTruncating(t *testing.T
 	server := startApprovalRespondRecorderServer(t, recorder)
 	defer server.Close()
 
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	hookCalled := false
 	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
 		hookCalled = true
@@ -278,7 +278,7 @@ func TestRequestToolApprovalDoesNotReuseDecisionWhenRequestIDIsReusedForDifferen
 	server := startApprovalRespondRecorderServer(t, recorder)
 	defer server.Close()
 
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	hookCalls := installSequentialApprovalHook(t, s, []contract.ApprovalDecision{
 		rpcDecision(false, "safe declined"),
 		rpcDecision(true, "danger reviewed"),
@@ -336,7 +336,7 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 		release:  make(chan struct{}),
 		decision: rpcDecision(false, "decline"),
 	}
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	s.approvalDecisionHook = requester.RequestApproval
 	s.runtime.Start()
 	defer closeCodexTestSession(t, s)

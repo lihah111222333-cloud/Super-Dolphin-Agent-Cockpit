@@ -352,7 +352,7 @@ func codexAppResumeIdentityContractCase() contracttest.Case {
 			}
 		})
 		reporter := &stubRuntimeReporter{}
-		d := &driver{pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}}
+		d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}}
 		resumed, err := d.ResumeSession(context.Background(), req)
 		if err != nil {
 			t.Fatalf("ResumeSession() error = %v", err)
@@ -374,7 +374,7 @@ func codexAppToolbridgeContractCase() contracttest.Case {
 		serverURL := startToolBridgeRPCServer(t, recorder)
 		manager := &ServerManager{}
 		listToolsCalls := 0
-		got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		got := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			listToolsCalls++
 			return []codexprotocol.DynamicToolSchema{{
 				Name:        "contract.echo",
@@ -465,7 +465,7 @@ func codexAppRuntimeReportContractCase() contracttest.Case {
 	return contracttest.Case{Name: "session url runtime report", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
 		reporter := &stubRuntimeReporter{}
-		d := &driver{reporter: reporter}
+		d := &driver{approvals: testApprovalManager(), reporter: reporter}
 		s := newRuntimeReportSessionForTest(" agent-1 ", " ws://127.0.0.1:4567/ws ")
 		finishRuntimeReportSession(t, d, s)
 		assertRuntimeReportFromSessionURL(t, reporter, s, 4567)
@@ -593,6 +593,7 @@ func newCodexAppContractDriverEnv() *codexAppContractDriverEnv {
 		closeServer()
 	}
 	env.driver = &driver{
+		approvals: testApprovalManager(),
 		pool:      pool,
 		mirror:    &recordingSkillMirrorReconciler{},
 		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) { return nil, nil },

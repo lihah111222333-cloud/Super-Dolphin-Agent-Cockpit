@@ -28,8 +28,17 @@ type processedApprovalEntry struct {
 
 const processedApprovalLimit = 1000
 
+// handleApprovalRequest 接收运行时审批请求；依赖损坏时失败当前 turn 并取消会话。
 func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 	if s.approvals == nil {
+		err := fmt.Errorf("%w: runtime approval request cannot be handled", errApprovalManagerRequired)
+		if s.logger != nil {
+			s.logger.Error("codexapp: approval request rejected because manager is unavailable", "method", method, "error", err)
+		}
+		s.failTurns(err)
+		if s.cancel != nil {
+			s.cancel()
+		}
 		return
 	}
 	payload := append(json.RawMessage(nil), params...)

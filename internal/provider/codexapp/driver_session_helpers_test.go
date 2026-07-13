@@ -79,7 +79,7 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
 	serverURL := startCodexRPCServer(t, resumeApprovalPolicyResult)
-	d := &driver{pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
 	workDir := t.TempDir()
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:           "codex",
@@ -104,7 +104,7 @@ func TestDriverResumeSessionRejectsMissingProviderThreadID(t *testing.T) {
 	t.Parallel()
 
 	serverURL := startCodexRPCServer(t, resumeApprovalPolicyResult)
-	d := &driver{pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
 	_, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:           "codex",
 		AgentID:            "agent-1",
