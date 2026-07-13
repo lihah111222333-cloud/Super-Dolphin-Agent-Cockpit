@@ -17,6 +17,10 @@ var ErrSkillMissingCWD = errors.New("cwd is required")
 // ErrSkillSameNameConflict 表示多个 canonical skill 同名且没有显式策略选择单一来源。
 var ErrSkillSameNameConflict = errors.New("skill same-name conflict")
 
+// ErrSkillRefIdentityMismatch 表示结构化 skill 引用无法精确匹配 canonical inventory。
+// 调用方不得将该错误降级为 name-only 查找，否则可能切换到不同 scope 或 owner。
+var ErrSkillRefIdentityMismatch = errors.New("skill ref identity mismatch")
+
 // SkillApprovalRequiredError 表示 skill artifact 执行前需要用户审批。
 // Request 保留审批载荷，调用方据此展示审批 UI 并阻断执行。
 type SkillApprovalRequiredError struct {

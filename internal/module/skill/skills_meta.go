@@ -3,12 +3,10 @@ package skill
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -25,83 +23,6 @@ type skillRecord struct {
 
 var internalSkillMarkerSummaryPattern = regexp.MustCompile(`^</?[A-Z][A-Z0-9_-]*>$`)
 
-type skillScanRootKind uint8
-
-const (
-	skillScanRootProject skillScanRootKind = iota + 1
-)
-
-type skillScanRoot struct {
-	path         string
-	kind         skillScanRootKind
-	scope        string
-	personalType string
-}
-
-// scanSkills 扫描skills。
-func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
-	roots := s.scanSkillRoots(cwd)
-	if len(roots) == 0 {
-		return nil, nil
-	}
-	projectSkillsRoot := s.projectSkillsRootForCWD(cwd)
-	records := make([]skillRecord, 0, 16)
-	for _, root := range roots {
-		if _, err := os.Stat(root.path); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return nil, err
-		}
-		err := filepath.WalkDir(root.path, func(path string, entry os.DirEntry, walkErr error) error {
-			return s.visitSkillEntry(root, path, entry, walkErr, projectSkillsRoot, &records)
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	sort.SliceStable(records, func(i, j int) bool {
-		return strings.ToLower(records[i].info.Name) < strings.ToLower(records[j].info.Name)
-	})
-	return records, nil
-}
-
-func (s *service) scanSkillRoots(cwd string) []skillScanRoot {
-	roots := make([]skillScanRoot, 0, 1)
-	if projectRoot := strings.TrimSpace(s.projectSkillsRootForCWD(cwd)); projectRoot != "" {
-		roots = append(roots, skillScanRoot{path: projectRoot, kind: skillScanRootProject, scope: skillScopeProject})
-	}
-	return roots
-}
-
-// visitSkillEntry 处理 WalkDir 扫描到的单个条目。
-// 只有符合当前 root 深度规则的 SKILL.md 会被解析，目录和非目标文件会被跳过。
-func (s *service) visitSkillEntry(root skillScanRoot, path string, entry os.DirEntry, walkErr error, projectSkillsRoot string, records *[]skillRecord) error {
-	if walkErr != nil || entry == nil {
-		return walkErr
-	}
-	depth, err := scanSkillEntryDepth(root.path, path)
-	if err != nil {
-		return err
-	}
-	if entry.IsDir() {
-		return visitSkillDir(root, path, entry.Name(), depth)
-	}
-	if !shouldVisitSkillFile(root, entry.Name(), depth) {
-		return nil
-	}
-	// 根据当前 root 和 service 状态排定 defaultTrust：项目级 root → untrusted，用户级 → trusted。
-	// frontmatter 中显式 `trust:` 会在 parseSkillInfo 内覆盖此默认值。
-	defaultTrust := s.defaultTrustForRoot(root.path, projectSkillsRoot)
-	record, err := parseSkillRecord(root.path, path, defaultTrust)
-	if err != nil {
-		return err
-	}
-	record.info.Scope = root.scope
-	record.info.PersonalType = root.personalType
-	*records = append(*records, record)
-	return nil
-}
-
 func scanSkillEntryDepth(rootPath, path string) (int, error) {
 	rel, err := filepath.Rel(rootPath, path)
 	if err != nil {
@@ -113,26 +34,14 @@ func scanSkillEntryDepth(rootPath, path string) (int, error) {
 	return strings.Count(rel, string(filepath.Separator)) + 1, nil
 }
 
-func visitSkillDir(root skillScanRoot, path, name string, depth int) error {
-	if path != root.path && strings.HasPrefix(name, ".") && name != ".system" {
+func visitSkillDir(rootPath, path, name string, _ int) error {
+	if path != rootPath && strings.HasPrefix(name, ".") && name != ".system" {
 		return filepath.SkipDir
 	}
 	if name == ".git" {
 		return filepath.SkipDir
 	}
 	return nil
-}
-
-func shouldVisitSkillFile(root skillScanRoot, name string, depth int) bool {
-	if !strings.EqualFold(name, skillMainFile) {
-		return false
-	}
-	return true
-}
-
-// defaultTrustForRoot 根据 root 路径在 service 两个配置 root 中的归属，推断默认信任域。
-func (s *service) defaultTrustForRoot(root, projectSkillsRoot string) TrustScope {
-	return inferTrustFromRoot(root, projectSkillsRoot, "")
 }
 
 // parseSkillRecord 读取并解析单个 SKILL.md。
@@ -160,12 +69,15 @@ func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, 
 	if err != nil {
 		return skillRecord{}, err
 	}
-	info := parseSkillInfo(rel, dir, string(data), defaultTrust)
+	info, err := parseSkillInfo(rel, dir, string(data), defaultTrust)
+	if err != nil {
+		return skillRecord{}, err
+	}
 	return skillRecord{info: info, path: path, rel: filepath.ToSlash(rel)}, nil
 }
 
 // parseSkillInfo 解析技能info。
-func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo {
+func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) (SkillInfo, error) {
 	info := SkillInfo{Name: fallbackSkillName(rel), Dir: dir}
 	frontmatter, body, ok := splitFrontmatter(content)
 	if ok {
@@ -174,6 +86,9 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 			key, value, ok := parseMetaLine(lines[i])
 			if !ok {
 				continue
+			}
+			if metaKeyMatch(key, trustMetaKeys) && !parseTrustScope(parseScalar(value)).Valid() {
+				return SkillInfo{}, fmt.Errorf("trust must be user, project, or signed: %q", parseScalar(value))
 			}
 			i += applyMetaLine(&info, key, value, lines[i+1:])
 		}
@@ -206,7 +121,7 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 	// frontmatter 或正文任一变化都会改变 hash 并触发重新审批。
 	sum := sha256.Sum256([]byte(content))
 	info.ContentHash = hex.EncodeToString(sum[:])
-	return info
+	return info, nil
 }
 
 // capSkillTrustByRoot 按 skill 所在根目录限制 frontmatter 声明的信任域。
@@ -557,37 +472,6 @@ func uniqStrings(values []string) []string {
 		out = append(out, value)
 	}
 	return out
-}
-
-// upsertSkillSummary 在 SKILL.md frontmatter 中插入或替换 summary。
-// 没有 frontmatter 时会创建最小 frontmatter；空 summary 则保留原内容。
-func upsertSkillSummary(content, summary string) string {
-	summary = strings.TrimSpace(summary)
-	frontmatter, body, ok := splitFrontmatter(content)
-	if !ok {
-		if summary == "" {
-			return content
-		}
-		return strings.Join([]string{"---", `summary: "` + strings.ReplaceAll(summary, `"`, `\"`) + `"`, "---", "", strings.TrimSpace(content)}, "\n")
-	}
-	lines := strings.Split(frontmatter, "\n")
-	next := make([]string, 0, len(lines)+1)
-	wrote := false
-	for _, line := range lines {
-		key, _, ok := parseMetaLine(line)
-		if ok && (key == "summary" || key == "digest") {
-			if summary != "" {
-				next = append(next, `summary: "`+strings.ReplaceAll(summary, `"`, `\"`)+`"`)
-			}
-			wrote = true
-			continue
-		}
-		next = append(next, line)
-	}
-	if !wrote && summary != "" {
-		next = append(next, `summary: "`+strings.ReplaceAll(summary, `"`, `\"`)+`"`)
-	}
-	return strings.Join([]string{"---", strings.Join(next, "\n"), "---", body}, "\n")
 }
 
 func skillSlug(name string) string { return skillidentity.Slug(name) }

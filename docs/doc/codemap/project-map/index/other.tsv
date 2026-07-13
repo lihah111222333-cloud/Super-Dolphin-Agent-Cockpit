@@ -3,13 +3,13 @@ cmd/agent-runtime/main_test.go	cmd	other	go-test	3600	Agent runtime command entr
 cmd/agent-runtime/main.go	cmd	other	go-source	1195	Agent runtime command entry and tests	cmd,agent,runtime,main,Agent,command,entry,and,tests
 cmd/codex-worktree-setup/atomic_unix.go	cmd	other	go-source	381	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,atomic,unix,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/atomic_windows.go	cmd	other	go-source	483	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,atomic,windows,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/codex-worktree-setup/main.go	cmd	other	go-source	2313	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/main.go	cmd	other	go-source	2380	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/setup_config.go	cmd	other	go-source	9632	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,config,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/setup_paths.go	cmd	other	go-source	4548	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,paths,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/setup_probe.go	cmd	other	go-source	7291	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,probe,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/setup_test.go	cmd	other	go-test	6532	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/codex-worktree-setup/setup.go	cmd	other	go-source	4410	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	6226	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,integration,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/setup.go	cmd	other	go-source	9496	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	7201	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,integration,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	10023	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
@@ -284,7 +284,7 @@ internal/archtest/toolpolicy_dependency_guard_test.go	internal	other	go-test	167
 internal/archtest/trajectory_readonly_test.go	internal	other	go-test	1165	架构守卫、baseline ratchet 与冻结规则	internal,archtest,trajectory,readonly,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ui_wails_guard_test.go	internal	other	go-test	2351	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ui,wails,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/video_skill_contract_test.go	internal	other	go-test	839	架构守卫、baseline ratchet 与冻结规则	internal,archtest,video,skill,contract,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/wire_dto_field_registry_test.go	internal	other	go-test	7564	架构守卫、baseline ratchet 与冻结规则	internal,archtest,wire,dto,field,registry,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/wire_dto_field_registry_test.go	internal	other	go-test	9667	架构守卫、baseline ratchet 与冻结规则	internal,archtest,wire,dto,field,registry,test,架构守卫,baseline,ratchet,与冻结规则
 internal/contract/agent_state_test.go	internal	other	go-test	916	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_state.go	internal	other	go-source	14354	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_workflow_test.go	internal	other	go-test	5083	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,workflow,test,跨模块稳定接口,事件和,DTO,边界
@@ -302,7 +302,7 @@ internal/contract/dag_final_output_test.go	internal	other	go-test	2532	跨模块
 internal/contract/dag_start_response_test.go	internal	other	go-test	1228	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dependency_policy_test.go	internal	other	go-test	6276	跨模块稳定接口、事件和 DTO 边界	internal,contract,dependency,policy,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dream.go	internal	other	go-source	2468	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
-internal/contract/errors.go	internal	other	go-source	3220	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
+internal/contract/errors.go	internal	other	go-source	3504	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
 internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界
 internal/contract/hooks.go	internal	other	go-source	3874	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
 internal/contract/insight.go	internal	other	go-source	3160	跨模块稳定接口、事件和 DTO 边界	internal,contract,insight,跨模块稳定接口,事件和,DTO,边界

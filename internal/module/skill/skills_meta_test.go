@@ -78,7 +78,11 @@ func TestParseSkillInfo_ReadsTitleAsDisplayNameAlias(t *testing.T) {
 // helperParse wraps parseSkillInfo with a fixed rel/dir so tests focus on content parsing.
 func helperParse(t *testing.T, content string, defaultTrust TrustScope) SkillInfo {
 	t.Helper()
-	return parseSkillInfo("foo", "/tmp/foo", content, defaultTrust)
+	info, err := parseSkillInfo("foo", "/tmp/foo", content, defaultTrust)
+	if err != nil {
+		t.Fatalf("parse skill info: %v", err)
+	}
+	return info
 }
 
 func TestParseSkillInfo_ContentHashStableAndCorrect(t *testing.T) {
@@ -128,22 +132,12 @@ func TestParseSkillInfo_SafetyFallbackToProject(t *testing.T) {
 	}
 }
 
-// 非法 trust 值（如 "banana"）应被 parseTrustScope 返回 TrustUnknown，
-// 使 parseSkillInfo 的回填逻辑回落到 defaultTrust，而不是被误写为 TrustUnknown。
-func TestParseSkillInfo_InvalidFrontmatterTrustUsesDefault(t *testing.T) {
-	content := "---\nname: foo\ntrust: banana\n---\nbody"
-	info := helperParse(t, content, TrustUser)
-	if info.Trust != TrustUser {
-		t.Fatalf("invalid trust value should fall back to default (TrustUser): got %q", info.Trust)
-	}
-}
-
-// defaultTrust 也非法时（TrustUnknown）最终应回落到安全兑底 TrustProject。
-func TestParseSkillInfo_InvalidFrontmatterAndInvalidDefault_FallbackToProject(t *testing.T) {
-	content := "---\nname: foo\ntrust: nonsense\n---\nbody"
-	info := helperParse(t, content, TrustUnknown)
-	if info.Trust != TrustProject {
-		t.Fatalf("both invalid should safety-fallback to TrustProject: got %q", info.Trust)
+func TestParseSkillInfo_InvalidFrontmatterTrustRejected(t *testing.T) {
+	for _, defaultTrust := range []TrustScope{TrustUser, TrustProject, TrustUnknown} {
+		_, err := parseSkillInfo("foo", "/tmp/foo", "---\nname: foo\ntrust: banana\n---\nbody", defaultTrust)
+		if err == nil || !strings.Contains(err.Error(), "trust must be user, project, or signed") {
+			t.Fatalf("default trust %q invalid trust error = %v", defaultTrust, err)
+		}
 	}
 }
 

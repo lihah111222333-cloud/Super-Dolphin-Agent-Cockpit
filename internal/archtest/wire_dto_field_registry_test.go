@@ -1,8 +1,12 @@
 package archtest
 
 import (
+	"encoding/json"
 	"maps"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -19,6 +23,59 @@ type wireDTOFieldRule struct {
 	Type   reflect.Type
 	Mapped []string
 	Exempt map[string]string
+}
+
+type skillInfoConsumerField struct {
+	Field     string `json:"field"`
+	Validator string `json:"validator"`
+	Consumer  string `json:"consumer"`
+}
+
+// TestSkillInfoConsumerRegistryMatchesProducerJSONFields binds the runtime frontend
+// registry to contract.SkillInfo. Adding or removing a producer field must update the
+// frontend validator registry in the same change.
+func TestSkillInfoConsumerRegistryMatchesProducerJSONFields(t *testing.T) {
+	t.Parallel()
+
+	fields := collectWireDTOJSONFields(reflect.TypeFor[contract.SkillInfo]())
+	registry := loadSkillInfoConsumerRegistry(t)
+	registered := make(map[string]string, len(registry))
+	for _, entry := range registry {
+		if strings.TrimSpace(entry.Field) == "" || strings.TrimSpace(entry.Validator) == "" || strings.TrimSpace(entry.Consumer) == "" {
+			t.Fatalf("SkillInfo consumer registry contains incomplete entry: %+v", entry)
+		}
+		if _, exists := registered[entry.Field]; exists {
+			t.Fatalf("SkillInfo consumer registry contains duplicate field %q", entry.Field)
+		}
+		registered[entry.Field] = entry.Validator
+	}
+
+	assertWireDTOFieldsCovered(t, "internal/contract.SkillInfo -> skillSlashCommandAdapter", fields, registered)
+	assertWireDTORegistryCurrent(t, "internal/contract.SkillInfo -> skillSlashCommandAdapter", fields, registered)
+}
+
+func loadSkillInfoConsumerRegistry(t *testing.T) []skillInfoConsumerField {
+	t.Helper()
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve wire DTO field registry test path")
+	}
+	path := filepath.Join(
+		filepath.Dir(currentFile),
+		"..", "..", "frontend-app", "src", "features", "slash-commands", "adapters", "skillInfoFieldRegistry.json",
+	)
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("read SkillInfo consumer registry: %v", err)
+	}
+	var registry []skillInfoConsumerField
+	if err := json.Unmarshal(data, &registry); err != nil {
+		t.Fatalf("decode SkillInfo consumer registry: %v", err)
+	}
+	if len(registry) == 0 {
+		t.Fatal("SkillInfo consumer registry must not be empty")
+	}
+	return registry
 }
 
 // TestWireDTORegistryCoversSelectedSurfaceFields 扩展 FileMetrics 之外的字段守卫。

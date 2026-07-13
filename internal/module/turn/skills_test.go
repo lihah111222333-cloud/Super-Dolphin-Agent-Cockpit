@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -285,5 +286,40 @@ func TestApplyHydrationWithConflict_UntrustedSummary_RedactedForTriggerAndForce(
 		if out.Source != source {
 			t.Fatalf("source %q should be preserved, got %+v", source, out)
 		}
+	}
+}
+
+func TestHydrationInfoForRef_StructuredIdentityMustMatchExactly(t *testing.T) {
+	info := contract.SkillInfo{
+		Name:  "review",
+		Scope: "project",
+		Dir:   "/repo/.agents/skills/review",
+	}
+	index, err := skillInfoIndex([]contract.SkillInfo{info})
+	if err != nil {
+		t.Fatalf("build skill info index: %v", err)
+	}
+
+	got, found, err := hydrationInfoForRef(dto.SkillRef{
+		Name:  "review",
+		Scope: "project",
+		Path:  "/repo/.agents/skills/review",
+	}, index)
+	if err != nil || !found || got.Dir != info.Dir {
+		t.Fatalf("exact structured lookup = (%+v, %v, %v), want exact match", got, found, err)
+	}
+
+	_, found, err = hydrationInfoForRef(dto.SkillRef{
+		Name:  "review",
+		Scope: "personal",
+		Path:  "/stale/skills/review",
+	}, index)
+	if found || !errors.Is(err, contract.ErrSkillRefIdentityMismatch) {
+		t.Fatalf("stale structured lookup = (found=%v, err=%v), want identity mismatch", found, err)
+	}
+
+	got, found, err = hydrationInfoForRef(dto.SkillRef{Name: "review"}, index)
+	if err != nil || !found || got.Dir != info.Dir {
+		t.Fatalf("legacy name-only lookup = (%+v, %v, %v), want compatibility match", got, found, err)
 	}
 }

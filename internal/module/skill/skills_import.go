@@ -74,7 +74,10 @@ func validateWritableSkillMainContent(root, path, content string) error {
 	if err != nil {
 		return err
 	}
-	info := parseSkillInfo(rel, filepath.Dir(path), content, TrustProject)
+	info, err := parseSkillInfo(rel, filepath.Dir(path), content, TrustProject)
+	if err != nil {
+		return err
+	}
 	if _, _, err := normalizeSkillIdentityName(info.Name, info.DisplayName); err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidSkillName, info.Name)
 	}

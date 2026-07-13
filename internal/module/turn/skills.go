@@ -330,7 +330,7 @@ func allowHydratedSummary(info contract.SkillInfo, ref dto.SkillRef, policy skil
 // Source=Unspecified、trigger、force 等来源不得因为 name-only hydration 看到 summary。
 // untrusted full body 不在 selected hydration 中注入；provider runtime 也不再
 // 通过 turn 注入正文，而是由 provider-native mirror 交给 Claude/Codex 自行发现。
-func (s *service) applyHydrationWithConflict(ctx context.Context, ref dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) (dto.SkillRef, error) {
+func (s *service) applyHydrationWithConflict(_ context.Context, ref dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) (dto.SkillRef, error) {
 	info, found, err := hydrationInfoForRef(ref, index)
 	if err != nil {
 		return ref, err
@@ -362,9 +362,13 @@ func hydrateSkillSummary(ref dto.SkillRef, info contract.SkillInfo, policy skill
 	return ref
 }
 
-// hydrationInfoForRef 查找单个 ref 的 SkillInfo，同名冲突会返回 ErrSkillSameNameConflict。
+// hydrationInfoForRef 查找单个 ref 的 SkillInfo。结构化引用必须精确命中；
+// 只有不含身份字段的旧 name-only 引用允许兼容查找。
 func hydrationInfoForRef(ref dto.SkillRef, index map[string]contract.SkillInfo) (contract.SkillInfo, bool, error) {
 	info, ok := index[skillInfoLookupKey(ref.Name, ref.Scope, ref.PersonalType, ref.Path)]
+	if !ok && hasStructuredSkillIdentity(ref) {
+		return contract.SkillInfo{}, false, contract.ErrSkillRefIdentityMismatch
+	}
 	if !ok {
 		info, ok = index[strings.ToLower(strings.TrimSpace(ref.Name))]
 	}
@@ -375,6 +379,13 @@ func hydrationInfoForRef(ref dto.SkillRef, index map[string]contract.SkillInfo) 
 		return contract.SkillInfo{}, false, contract.ErrSkillSameNameConflict
 	}
 	return info, true, nil
+}
+
+func hasStructuredSkillIdentity(ref dto.SkillRef) bool {
+	return strings.TrimSpace(ref.Key) != "" ||
+		strings.TrimSpace(ref.Scope) != "" ||
+		strings.TrimSpace(ref.PersonalType) != "" ||
+		strings.TrimSpace(ref.Path) != ""
 }
 
 // shortSkillHash 取前 12 位 hex 作为 SkillRef.Version 的稳定版本标识。

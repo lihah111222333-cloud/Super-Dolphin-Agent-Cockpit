@@ -12,6 +12,49 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/ownerperms"
 )
 
+func TestValidateCanonicalSkillInfoFailsFast(t *testing.T) {
+	base := SkillInfo{
+		Name:        "review",
+		Dir:         "/repo/.agents/skills/review",
+		Scope:       skillScopeProject,
+		Trust:       TrustProject,
+		ContentHash: strings.Repeat("a", 64),
+	}
+	if err := validateCanonicalSkillInfo(base); err != nil {
+		t.Fatalf("valid SkillInfo rejected: %v", err)
+	}
+
+	cases := map[string]SkillInfo{
+		"project owner": func() SkillInfo {
+			info := base
+			info.PersonalType = personalSkillTypeUser
+			return info
+		}(),
+		"personal owner": func() SkillInfo {
+			info := base
+			info.Scope = skillScopePersonal
+			return info
+		}(),
+		"trust": func() SkillInfo {
+			info := base
+			info.Trust = TrustUnknown
+			return info
+		}(),
+		"content hash": func() SkillInfo {
+			info := base
+			info.ContentHash = "not-a-hash"
+			return info
+		}(),
+	}
+	for name, info := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := validateCanonicalSkillInfo(info); err == nil {
+				t.Fatalf("validateCanonicalSkillInfo(%+v) succeeded, want error", info)
+			}
+		})
+	}
+}
+
 func TestCanonicalStoreListIncludesProjectAndActivePersonal(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()

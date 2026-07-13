@@ -1,0 +1,16 @@
+[
+  { "field": "name", "validator": "requiredText", "consumer": "command identity and SkillRef.name" },
+  { "field": "display_name", "validator": "optionalText", "consumer": "command label" },
+  { "field": "dir", "validator": "requiredText", "consumer": "command identity and SkillRef.path" },
+  { "field": "scope", "validator": "scope", "consumer": "command identity and SkillRef.scope" },
+  { "field": "personal_type", "validator": "optionalText", "consumer": "command identity and SkillRef.personalType" },
+  { "field": "description", "validator": "requiredString", "consumer": "command description" },
+  { "field": "summary", "validator": "requiredString", "consumer": "command description fallback" },
+  { "field": "trigger_words", "validator": "optionalStringList", "consumer": "command keywords" },
+  { "field": "force_words", "validator": "optionalStringList", "consumer": "command keywords" },
+  { "field": "trust", "validator": "optionalTrust", "consumer": "validated security metadata" },
+  { "field": "allowed_tools", "validator": "optionalStringList", "consumer": "validated security metadata" },
+  { "field": "disable_model_invocation", "validator": "optionalBoolean", "consumer": "validated invocation policy" },
+  { "field": "content_hash", "validator": "optionalText", "consumer": "validated version metadata" },
+  { "field": "replaces_native", "validator": "optionalStringListMap", "consumer": "validated provider replacement metadata" }
+]

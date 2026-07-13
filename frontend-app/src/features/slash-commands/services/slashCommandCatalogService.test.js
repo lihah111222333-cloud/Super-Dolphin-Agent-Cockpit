@@ -5,7 +5,6 @@ const validSkill = {
   name: 'review',
   display_name: 'Code Review',
   dir: '/repo/.agents/skills/review',
-  skill_file: '/repo/.agents/skills/review/SKILL.md',
   scope: 'project',
   personal_type: '',
   description: 'Review code',

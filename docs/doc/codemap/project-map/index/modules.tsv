@@ -383,8 +383,8 @@ internal/module/rag/chunker.go	internal	modules	go-source	8208	业务模块层	i
 internal/module/skill/approval_test.go	internal	modules	go-test	16715	skill canonical 管理与 provider-native mirror	internal,module,skill,approval,test,canonical,管理与,provider-native,mirror
 internal/module/skill/approval.go	internal	modules	go-source	14660	skill canonical 管理与 provider-native mirror	internal,module,skill,approval,canonical,管理与,provider-native,mirror
 internal/module/skill/builtin_seed_test.go	internal	modules	go-test	3307	skill canonical 管理与 provider-native mirror	internal,module,skill,builtin,seed,test,canonical,管理与,provider-native,mirror
-internal/module/skill/canonical_store_test.go	internal	modules	go-test	26969	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,test,管理与,provider-native,mirror
-internal/module/skill/canonical_store.go	internal	modules	go-source	22605	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,管理与,provider-native,mirror
+internal/module/skill/canonical_store_test.go	internal	modules	go-test	28032	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,test,管理与,provider-native,mirror
+internal/module/skill/canonical_store.go	internal	modules	go-source	23905	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,管理与,provider-native,mirror
 internal/module/skill/contract.go	internal	modules	go-source	16233	skill canonical 管理与 provider-native mirror	internal,module,skill,contract,canonical,管理与,provider-native,mirror
 internal/module/skill/create_skill_test.go	internal	modules	go-test	4584	skill canonical 管理与 provider-native mirror	internal,module,skill,create,test,canonical,管理与,provider-native,mirror
 internal/module/skill/cwd_scope_test.go	internal	modules	go-test	9863	skill canonical 管理与 provider-native mirror	internal,module,skill,cwd,scope,test,canonical,管理与,provider-native,mirror
@@ -458,12 +458,12 @@ internal/module/skill/skillhash/hash.go	internal	modules	go-source	14191	skill c
 internal/module/skill/skills_fs_test.go	internal	modules	go-test	28618	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_fs.go	internal	modules	go-source	17441	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_import_test.go	internal	modules	go-test	23935	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,test,canonical,管理与,provider-native,mirror
-internal/module/skill/skills_import.go	internal	modules	go-source	16591	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,canonical,管理与,provider-native,mirror
+internal/module/skill/skills_import.go	internal	modules	go-source	16629	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_inventory_test.go	internal	modules	go-test	4256	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,inventory,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_match_test.go	internal	modules	go-test	6362	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_match.go	internal	modules	go-source	6759	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,canonical,管理与,provider-native,mirror
-internal/module/skill/skills_meta_test.go	internal	modules	go-test	11466	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,test,canonical,管理与,provider-native,mirror
-internal/module/skill/skills_meta.go	internal	modules	go-source	17515	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,canonical,管理与,provider-native,mirror
+internal/module/skill/skills_meta_test.go	internal	modules	go-test	11082	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,test,canonical,管理与,provider-native,mirror
+internal/module/skill/skills_meta.go	internal	modules	go-source	13760	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,canonical,管理与,provider-native,mirror
 internal/module/skill/summarysuggest/execute_test.go	internal	modules	go-test	572	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,test,canonical,管理与,provider-native,mirror
 internal/module/skill/summarysuggest/execute.go	internal	modules	go-source	2163	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,canonical,管理与,provider-native,mirror
 internal/module/skill/system_review.go	internal	modules	go-source	1930	skill canonical 管理与 provider-native mirror	internal,module,skill,system,review,canonical,管理与,provider-native,mirror
@@ -652,8 +652,8 @@ internal/module/turn/skill_evaluator_test.go	internal	modules	go-test	7514	turn 
 internal/module/turn/skill_evaluator.go	internal	modules	go-source	3109	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,evaluator,启动,执行,审批与,provider,调度
 internal/module/turn/skill_extractor_test.go	internal	modules	go-test	9026	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,extractor,test,启动,执行,审批与,provider,调度
 internal/module/turn/skill_extractor.go	internal	modules	go-source	11950	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,extractor,启动,执行,审批与,provider,调度
-internal/module/turn/skills_test.go	internal	modules	go-test	11275	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,test,启动,执行,审批与,provider,调度
-internal/module/turn/skills.go	internal	modules	go-source	14277	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,启动,执行,审批与,provider,调度
+internal/module/turn/skills_test.go	internal	modules	go-test	12420	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,test,启动,执行,审批与,provider,调度
+internal/module/turn/skills.go	internal	modules	go-source	14684	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,启动,执行,审批与,provider,调度
 internal/module/turn/test_msg/send_text_test.go	internal	modules	go-test	5499	turn 启动、执行、审批与 provider 调度	internal,module,turn,test,msg,send,text,启动,执行,审批与,provider,调度
 internal/module/turn/thread_cleanup.go	internal	modules	go-source	1151	turn 启动、执行、审批与 provider 调度	internal,module,turn,thread,cleanup,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_budget.go	internal	modules	go-source	7018	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,budget,启动,执行,审批与,provider,调度

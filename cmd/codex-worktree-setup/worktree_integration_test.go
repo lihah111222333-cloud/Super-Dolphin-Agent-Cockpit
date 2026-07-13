@@ -14,7 +14,9 @@ func TestReadyAndVerifyLinkedWorktree(t *testing.T) {
 	linkedRoot, companionBin := createLinkedWorktreeFixture(t)
 	t.Setenv("PATH", strings.Join([]string{companionBin, os.Getenv("PATH")}, string(os.PathListSeparator)))
 
-	report, err := runSetup(context.Background(), setupOptions{Command: commandReady, Worktree: linkedRoot})
+	report, err := runSetup(context.Background(), setupOptions{
+		Command: commandReady, Worktree: linkedRoot, FrontendCommand: frontendInstaller(t),
+	})
 	if err != nil {
 		t.Fatalf("ready linked worktree: %v", err)
 	}
@@ -45,7 +47,9 @@ func TestVerifyRejectsLanguageServerDiagnosticsFailure(t *testing.T) {
 	linkedRoot, companionBin := createLinkedWorktreeFixture(t)
 	t.Setenv("PATH", strings.Join([]string{companionBin, os.Getenv("PATH")}, string(os.PathListSeparator)))
 
-	if _, err := runSetup(context.Background(), setupOptions{Command: commandReady, Worktree: linkedRoot}); err != nil {
+	if _, err := runSetup(context.Background(), setupOptions{
+		Command: commandReady, Worktree: linkedRoot, FrontendCommand: frontendInstaller(t),
+	}); err != nil {
 		t.Fatalf("ready linked worktree: %v", err)
 	}
 	t.Setenv("FAKE_LSP_DIAGNOSTICS_ERROR", "broken language server")
@@ -69,10 +73,12 @@ func createLinkedWorktreeFixture(t *testing.T) (string, string) {
 	writeFixtureFile(t, filepath.Join(mainRoot, "go.mod"), "module example.com/worktree-fixture\n\ngo 1.22\n")
 	writeFixtureFile(t, filepath.Join(mainRoot, "cmd", "mcp-lsp", "main.go"), fakeMCPServerSource)
 	writeFixtureFile(t, filepath.Join(mainRoot, "frontend-app", "src", "main.jsx"), "export const ready = true;\n")
+	writeFixtureFile(t, filepath.Join(mainRoot, "frontend-app", "package.json"), "{}\n")
+	writeFixtureFile(t, filepath.Join(mainRoot, "frontend-app", "package-lock.json"), "{}\n")
 	runGitFixture(t, mainRoot, "init", "--initial-branch=main")
 	runGitFixture(t, mainRoot, "config", "user.name", "Codex Test")
 	runGitFixture(t, mainRoot, "config", "user.email", "codex-test@example.invalid")
-	runGitFixture(t, mainRoot, "add", "go.mod", "cmd/mcp-lsp/main.go", "frontend-app/src/main.jsx")
+	runGitFixture(t, mainRoot, "add", "go.mod", "cmd/mcp-lsp/main.go", "frontend-app")
 	runGitFixture(t, mainRoot, "commit", "-m", "fixture")
 	runGitFixture(t, mainRoot, "worktree", "add", "-b", "codex/integration", linkedRoot)
 
@@ -84,6 +90,24 @@ func createLinkedWorktreeFixture(t *testing.T) (string, string) {
 		writeExecutable(t, filepath.Join(companionBin, executableName(name)))
 	}
 	return canonicalTestPath(t, linkedRoot), companionBin
+}
+
+func frontendInstaller(t *testing.T) frontendCommandRunner {
+	t.Helper()
+	return func(_ context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name != "npm" || strings.Join(args, " ") != "ci" {
+			t.Fatalf("frontend command = %s %s, want npm ci", name, strings.Join(args, " "))
+		}
+		nodeModules := filepath.Join(dir, "node_modules")
+		if err := os.MkdirAll(filepath.Join(nodeModules, ".bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFixtureFile(t, filepath.Join(nodeModules, ".package-lock.json"), "{}\n")
+		for _, binary := range []string{"eslint", "vitest", "vite"} {
+			writeExecutable(t, filepath.Join(nodeModules, ".bin", nodeBinName(binary)))
+		}
+		return []byte("installed"), nil
+	}
 }
 
 func writeFixtureFile(t *testing.T, path, content string) {

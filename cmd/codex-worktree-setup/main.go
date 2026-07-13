@@ -22,10 +22,11 @@ const (
 )
 
 type setupOptions struct {
-	Command  setupCommand
-	Worktree string
-	Binary   string
-	Config   string
+	Command         setupCommand
+	Worktree        string
+	Binary          string
+	Config          string
+	FrontendCommand frontendCommandRunner
 }
 
 // main 解析显式子命令并用稳定退出码报告配置错误或运行时失败。

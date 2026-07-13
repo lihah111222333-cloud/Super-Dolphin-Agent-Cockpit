@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -242,7 +243,7 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 		return nil, err
 	}
 	if entry.IsDir() {
-		return nil, visitSkillDir(skillScanRoot{path: root.path}, path, entry.Name(), depth)
+		return nil, visitSkillDir(root.path, path, entry.Name(), depth)
 	}
 	if !strings.EqualFold(entry.Name(), skillMainFile) {
 		return nil, nil
@@ -263,20 +264,54 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 	if err != nil {
 		return nil, err
 	}
-	parsed.info.Name = name
-	parsed.info.DisplayName = displayName
-	parsed.info.Scope = root.scope
-	parsed.info.PersonalType = root.personalType
+	return newCanonicalSkillRecord(parsed.info, root, path, dir, dirHash, name, displayName)
+}
+
+func newCanonicalSkillRecord(info SkillInfo, root canonicalScanRoot, path, dir, dirHash, name, displayName string) (*canonicalSkillRecord, error) {
+	info.Name = name
+	info.DisplayName = displayName
+	info.Scope = root.scope
+	info.PersonalType = root.personalType
+	if err := validateCanonicalSkillInfo(info); err != nil {
+		return nil, fmt.Errorf("validate canonical skill info %s: %w", path, err)
+	}
 	return &canonicalSkillRecord{
 		Name:         name,
 		Scope:        root.scope,
 		PersonalType: root.personalType,
 		Dir:          dir,
 		SkillFile:    path,
-		ContentHash:  parsed.info.ContentHash,
+		ContentHash:  info.ContentHash,
 		DirHash:      dirHash,
-		info:         parsed.info,
+		info:         info,
 	}, nil
+}
+
+// validateCanonicalSkillInfo 在 canonical 记录进入 inventory 前校验跨层字段不变量。
+func validateCanonicalSkillInfo(info SkillInfo) error {
+	if strings.TrimSpace(info.Name) == "" {
+		return errors.New("name is required")
+	}
+	if strings.TrimSpace(info.Dir) == "" {
+		return errors.New("dir is required")
+	}
+	scope, personalType, err := normalizeSkillTarget(info.Scope, info.PersonalType)
+	if err != nil {
+		return err
+	}
+	if scope != info.Scope || personalType != info.PersonalType {
+		return fmt.Errorf("scope identity is not canonical: scope=%q personal_type=%q", info.Scope, info.PersonalType)
+	}
+	if !info.Trust.Valid() {
+		return fmt.Errorf("trust is invalid: %q", info.Trust)
+	}
+	if len(info.ContentHash) != 64 {
+		return fmt.Errorf("content_hash must be 64 hex characters, got %d", len(info.ContentHash))
+	}
+	if _, err := hex.DecodeString(info.ContentHash); err != nil {
+		return fmt.Errorf("content_hash must be hex: %w", err)
+	}
+	return nil
 }
 
 // canonicalSameNameConflicts 找出同名 skill 多来源冲突，调用方必须 fail-closed 或展示给用户处理。
