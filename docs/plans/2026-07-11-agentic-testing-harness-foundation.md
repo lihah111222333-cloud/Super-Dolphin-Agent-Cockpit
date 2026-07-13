@@ -613,6 +613,19 @@ git commit -m "feat: 增加 Web target 身份与生命周期适配"
 ### Task 8: Compose a live session in the SDK
 
 **Files:**
+- Modify: `package-lock.json`
+- Modify: `tsconfig.json`
+- Modify: `scripts/build.mjs`
+- Modify: `scripts/assert-build-output.mjs`
+- Modify: `packages/runtime-playwright/src/browser-runtime.ts`
+- Modify: `packages/runtime-playwright/src/egress-proxy.ts`
+- Modify: `packages/runtime-playwright/src/execute-action.ts`
+- Modify: `packages/runtime-playwright/src/resolve-locator.ts`
+- Modify: `packages/runtime-playwright/src/runtime-state.ts`
+- Modify: `packages/runtime-playwright/src/index.ts`
+- Test: `packages/runtime-playwright/src/browser-runtime.test.ts`
+- Test: `packages/runtime-playwright/src/egress-proxy.test.ts`
+- Test: `packages/runtime-playwright/src/execute-action.test.ts`
 - Create: `packages/sdk/package.json`
 - Create: `packages/sdk/tsconfig.json`
 - Create: `packages/sdk/src/config.ts`
@@ -624,8 +637,12 @@ git commit -m "feat: 增加 Web target 身份与生命周期适配"
 - [ ] **Step 1: Write a failing in-process session test**
 
 ```ts
-it('keeps runtime handles alive across observe and act', async () => {
-  const session = await startSession(webFixtureConfig('read'));
+it('keeps runtime handles alive across observe and act without exposing them', async () => {
+  const session = await startSession({
+    config: defineConfig(webFixtureConfig()),
+    target: 'fixture',
+    mode: 'read',
+  });
   const first = await session.observe();
   const receipt = await session.act({
     revision: first.revision,
@@ -634,6 +651,14 @@ it('keeps runtime handles alive across observe and act', async () => {
   expect(receipt.nextRevision).toBe(first.revision + 1);
   expect((await session.observe()).url).toContain('/details');
   await session.finish();
+});
+
+it('settles background network events and preserves the exact hard limit', async () => {
+  const session = await startSession(networkFixtureConfig({ maxNetworkEvents: 2 }));
+  await session.observe();
+  await triggerOneBackgroundRequest();
+  expect(session.status().budget).toMatchObject({ networkEvents: 2, exhausted: true });
+  await expect(session.finish()).resolves.toMatchObject({ status: 'explored' });
 });
 ```
 
@@ -645,14 +670,39 @@ Expected: FAIL because SDK composition does not exist.
 
 - [ ] **Step 3: Implement the orchestrator and typed config loader**
 
-`startSession` provisions isolation, launches and verifies the adapter, launches the runtime, marks Core ready, and returns one live `HarnessSession` object. `act` performs revision validation, adapter risk classification, policy authorization, runtime execution, invariant checks, evidence append, and a fresh observation. Cleanup order is runtime → adapter → isolation; every attempted cleanup is recorded, and failure never converts the result to success. Load `agentic-testing-harness.config.ts` with Jiti and validate the exported config before target launch.
+Load `agentic-testing-harness.config.ts` with Jiti using an enumerable, non-callable default data export. `defineConfig` recursively copies and freezes strict bounded data: reject Proxy, accessor, callable, sparse-array, class-instance, unknown-field, unsafe header/health path, invalid budget, and secret-bearing command shapes instead of coercing or falling back. Resolve `runsRoot` relative to the config file and validate the resolved object again before any target launch.
 
-- [ ] **Step 4: Verify GREEN and commit**
+Capture and validate `startSession` input before creating a run directory. For a valid request, create `RunWriter`, `Redactor`, and `EvidenceLedger` before isolation or target side effects so every later startup failure can publish a durable result. Then create light isolation, provision/launch the Web adapter, verify exact target identity, launch the browser runtime, settle the initial observation, mark Core ready, and return one live `HarnessSession`. The session owns isolation, adapter, runtime, state machine, budget, ledger, and writer for its full lifetime, while its public surface exposes only frozen `status`, `observe`, `act`, and `finish` data—never a browser, page, adapter, process, or isolation handle.
+
+Feed every proxy-observed request count into Core through a synchronous cumulative network callback installed from the same post-probe baseline as the hard proxy limit. Charge initial, subresource, action, and background requests exactly once. Reaching `maxNetworkEvents` is allowed and reported as exhausted; the next request is blocked before upstream connection. The callback is synchronous-only, its failure latches the proxy guard, and a session-local pending failure is adopted by `status`, cached or fresh `observe`, `act`, and `finish`. Reject bounded HTTPS origins until per-request TLS tunnel accounting is enforceable rather than silently weakening the limit.
+
+Keep one operation in flight per session. `act` captures strict JSON, validates the current observation revision, obtains adapter risk classification, settles pending network state, authorizes against mode and budget, enters the Core action state, consumes the action budget, checks the before invariant, executes through `BrowserRuntime`, settles network state, checks the after invariant, completes the state transition, collects adapter evidence, appends the action event, obtains and appends one fresh observation, and only then publishes the new cached revision. Classification, runtime, invariant, evidence, or fresh-observation failure remains terminal once execution has begun; a stale revision or an ordinary read-mode write denial does not bypass Core or execute the action.
+
+Persist real execution evidence rather than restating the request. Locator actions record total and visually visible match counts, strict-visible uniqueness, and the satisfied visible/hidden state. Runtime receipts record before/after page URL, managed-page count, and browser connectivity; Web sessions explicitly record bridge non-applicability, plus invariant results, before-observation summary, cumulative network count, isolation provider/mode, and artifact refs. Redact and preflight exact persisted bytes before append. `events.jsonl` remains append-only with `sequence`, `previousHash`, and SHA-256 receipt hash, and every terminal `result.json` anchors the final ledger head and dropped count.
+
+On finish and failed startup, attempt cleanup strictly runtime → adapter → isolation and append `cleanup.attempted` before each available cleanup without stopping later steps. Browser containment and public `close()` share coalesced Promises. A module-private `WeakSet` brands only genuine guard errors raised after successful containment; the exported predicate permits the SDK to preserve the original policy/product classification without treating that guard as a cleanup failure. Forged errors and any real containment, adapter, isolation, or evidence-write failure remain infrastructure failures. Startup and finish publish matching `policy_blocked`, `product_failed`, or `infrastructure_failed` results only after cleanup attempts; cleanup can escalate a result but never convert failure to success.
+
+Add the SDK to TypeScript references, workspace build output, and production-output checks. `@agentic-testing-harness/sdk` exports only the package root backed by `dist/index.js` and `dist/index.d.ts`; `src/index.ts` re-exports the strict config, loader, session interfaces, starter, and stable error class. Runtime public additions are limited to the hard-limit/count-callback launch options, JSON-safe execution and observation summaries, locator evidence types, and the contained-guard predicate; the `BrowserRuntime` method set remains `observe`, `execute`, `captureArtifact`, and `close`. Tests, test-only helpers, and internal subpaths must not appear in build or pack output.
+
+- [ ] **Step 4: Verify GREEN, public exports, and pack output**
 
 ```bash
-npm test -- packages/sdk
+npm test -- packages/sdk packages/runtime-playwright
+npm run lint
 npm run typecheck
-git add packages/sdk package.json package-lock.json
+npm test
+npm run build
+node scripts/assert-build-output.mjs packages/runtime-playwright packages/sdk
+npm pack --dry-run --json --workspace @agentic-testing-harness/runtime-playwright
+npm pack --dry-run --json --workspace @agentic-testing-harness/sdk
+```
+
+Expected: targeted SDK/runtime coverage and the full workspace PASS; lint, typecheck, and build are green; both packages contain production root entries only, with no tests, test-only helpers, internal subpaths, or live handles.
+
+- [ ] **Step 5: Commit SDK composition**
+
+```bash
+git add packages/sdk packages/runtime-playwright package-lock.json tsconfig.json scripts/build.mjs scripts/assert-build-output.mjs
 git diff --cached --check
 git commit -m "feat: 装配长生命周期 harness 会话"
 ```
