@@ -192,6 +192,36 @@ func assertHookOverflowCalls(t *testing.T, calls []hookDispatchRequest) {
 	}
 }
 
+func TestHookDispatchWorkerStopWaitsForEnqueueLinearizationGate(t *testing.T) {
+	worker := newHookDispatchWorker(nil, pkglogger.Get())
+	worker.Start()
+
+	worker.mu.Lock()
+	stopDone := make(chan error, 1)
+	var stopWG sync.WaitGroup
+	defer stopWG.Wait()
+	stopWG.Go(func() {
+		stopDone <- worker.Stop(context.Background())
+	})
+
+	select {
+	case err := <-stopDone:
+		worker.mu.Unlock()
+		t.Fatalf("Stop returned before acquiring enqueue gate: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	worker.mu.Unlock()
+
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not complete after enqueue gate released")
+	}
+}
+
 // TestHookDispatchWorkerEnqueueAfterStopDrops 固定 Stop 后的唯一丢弃路径。
 // Stop 之后订阅已停止，新的 Enqueue 必须不进入队列，避免关闭后的事件重新激活 worker。
 func TestHookDispatchWorkerEnqueueAfterStopDrops(t *testing.T) {
@@ -209,9 +239,22 @@ func TestHookDispatchWorkerEnqueueAfterStopDrops(t *testing.T) {
 
 	payload := mcp.HookPayload{AgentID: "agent-A", ThreadID: "thread-A", Context: json.RawMessage(`{}`)}
 	beforeEnq := w.EnqueuedTotal()
+	beforeWake := len(w.wake)
 	w.Enqueue("session.start", time.Now(), payload)
 	if got := w.EnqueuedTotal(); got != beforeEnq {
 		t.Errorf("EnqueuedTotal after post-Stop enqueue = %d, want %d", got, beforeEnq)
+	}
+	if got := w.RejectedAfterStopTotal(); got != 1 {
+		t.Errorf("RejectedAfterStopTotal = %d, want 1", got)
+	}
+	if got := len(w.wake); got != beforeWake {
+		t.Errorf("wake length after post-Stop enqueue = %d, want %d", got, beforeWake)
+	}
+	w.mu.Lock()
+	queueLen := len(w.queue)
+	w.mu.Unlock()
+	if queueLen != 0 {
+		t.Errorf("queue length after post-Stop enqueue = %d, want 0", queueLen)
 	}
 	if got := len(fanout.Calls()); got != 0 {
 		t.Errorf("DispatchAfter invoked after Stop: %d, want 0", got)
