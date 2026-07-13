@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -90,6 +92,7 @@ func runMain(args []string) error {
 	}
 }
 
+// runPlan 解析变更路径并输出只读 gate plan JSON。
 func runPlan(args []string, stdout *os.File) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
@@ -109,7 +112,10 @@ func runPlan(args []string, stdout *os.File) error {
 			return err
 		}
 	}
-	plan := buildGatePlan(files)
+	plan, err := buildGatePlan(files)
+	if err != nil {
+		return err
+	}
 	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(plan)
@@ -135,16 +141,9 @@ func runGates(args []string) error {
 			return err
 		}
 	}
-	plan := buildGatePlan(files)
-	if *skipDeferredE2E {
-		var err error
-		plan.AffectedGoPackages, err = excludeDeferredE2EGoPackages(
-			plan.AffectedGoPackages,
-			"scripts/ai_maintenance/deferred_e2e_packages.txt",
-		)
-		if err != nil {
-			return err
-		}
+	plan, err := gatePlanForRun(files, *skipDeferredE2E)
+	if err != nil {
+		return err
 	}
 	if *printPlan {
 		enc := json.NewEncoder(os.Stdout)
@@ -161,6 +160,20 @@ func runGates(args []string) error {
 	return executeGatePlan(plan)
 }
 
+// gatePlanForRun 构造执行计划，并按显式开关移除延迟 E2E 包。
+func gatePlanForRun(files []string, skipDeferredE2E bool) (gatePlan, error) {
+	plan, err := buildGatePlan(files)
+	if err != nil || !skipDeferredE2E {
+		return plan, err
+	}
+	plan.AffectedGoPackages, err = excludeDeferredE2EGoPackages(
+		plan.AffectedGoPackages,
+		"scripts/ai_maintenance/deferred_e2e_packages.txt",
+	)
+	return plan, err
+}
+
+// runValidateEvidence 解析变更范围并校验指定 evidence 文件是否满足计划要求。
 func runValidateEvidence(args []string) error {
 	fs := flag.NewFlagSet("validate-evidence", flag.ContinueOnError)
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
@@ -181,12 +194,29 @@ func runValidateEvidence(args []string) error {
 			return err
 		}
 	}
-	return validateEvidenceFile(*evidencePath, buildGatePlan(files))
+	plan, err := buildGatePlan(files)
+	if err != nil {
+		return err
+	}
+	return validateEvidenceFile(*evidencePath, plan)
 }
 
 // buildGatePlan 把 changed files 映射成必须执行的命令和必须提交的证据项。
 // 路由规则保持路径前缀级别，避免把任务语义藏进不可审计的动态推断。
-func buildGatePlan(files []string) gatePlan {
+func buildGatePlan(files []string) (gatePlan, error) {
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return gatePlan{}, fmt.Errorf("resolve repository root for capability path rules: %w", err)
+	}
+	return buildGatePlanForRepo(repoRoot, files)
+}
+
+// buildGatePlanForRepo 使用 generator AST 派生的 capability roots 构造计划；解析失败时拒绝产出不完整计划。
+func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
+	capabilityRules, err := capcontract.LoadPathRules(repoRoot)
+	if err != nil {
+		return gatePlan{}, fmt.Errorf("load capability-contract path rules: %w", err)
+	}
 	normalized := normalizeFiles(files)
 	plan := gatePlan{ChangedFiles: normalized}
 	gates := map[string]bool{"diff:whitespace": true}
@@ -194,7 +224,11 @@ func buildGatePlan(files []string) gatePlan {
 	generated := map[string]bool{}
 	backendChanged := false
 	for _, file := range normalized {
-		if applyFileGateRules(file, gates, evidence, generated) {
+		backendFile, err := applyFileGateRules(file, capabilityRules, gates, evidence, generated)
+		if err != nil {
+			return gatePlan{}, err
+		}
+		if backendFile {
 			backendChanged = true
 		}
 	}
@@ -209,12 +243,19 @@ func buildGatePlan(files []string) gatePlan {
 	if backendChanged {
 		plan.AffectedGoPackages = affectedGoPackages(normalized)
 	}
-	return plan
+	return plan, nil
 }
 
 // applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(file string, gates, evidence, generated map[string]bool) bool {
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gates, evidence, generated map[string]bool) (bool, error) {
 	backendChanged := applySourceGateRules(file, gates, evidence)
+	capabilityChanged, err := capabilityRules.Match(file)
+	if err != nil {
+		return false, fmt.Errorf("match capability-contract path %q: %w", file, err)
+	}
+	if capabilityChanged {
+		gates["capcontract:check"] = true
+	}
 	if aiMaintenanceRelevant(file) {
 		gates["ai-maintenance:self-test"] = true
 	}
@@ -229,7 +270,7 @@ func applyFileGateRules(file string, gates, evidence, generated map[string]bool)
 		generated[file] = true
 		evidence["generated:source"] = true
 	}
-	return backendChanged
+	return backendChanged, nil
 }
 
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。
@@ -346,6 +387,7 @@ func gateRunners(plan gatePlan) map[string]func() error {
 		"frontend:embed-verify": func() error { return runCommand("", "make", "frontend-embed-verify") },
 		"codemap:check":         generatedCheck("make", "codemap-check"),
 		"project-map:check":     generatedCheck("make", "project-map-check"),
+		"capcontract:check":     func() error { return runCommand("", "make", "capcontract-check") },
 		"repo:guard":            func() error { return runCommand("", "make", "guard") },
 		"sqlc:verify":           func() error { return runCommand("", "make", "sqlc-verify") },
 		"diff:whitespace":       func() error { return runCommand("", "git", "diff", "--check") },
@@ -651,6 +693,7 @@ func commandForGatePresent(commands []evidenceCommand, gate string) bool {
 		"frontend:embed-verify":    {"make frontend-embed-verify"},
 		"codemap:check":            {"make codemap-check"},
 		"project-map:check":        {"make project-map-check"},
+		"capcontract:check":        {"make capcontract-check"},
 		"repo:guard":               {"make guard"},
 		"sqlc:verify":              {"make sqlc-verify"},
 	}
@@ -773,6 +816,7 @@ func codemapRelevant(file string) bool {
 func generatedCodemapFile(file string) bool {
 	return file == "docs/doc/codemap/ai-index.json" ||
 		file == "docs/doc/codemap/README.md" ||
+		file == "docs/doc/codemap/capability-contract/capability_manifest.json" ||
 		strings.HasPrefix(file, "docs/doc/codemap/project-map/")
 }
 
@@ -796,6 +840,7 @@ func orderedGates(values map[string]bool) []string {
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",
+		"capcontract:check",
 		"repo:guard",
 		"diff:whitespace",
 	}

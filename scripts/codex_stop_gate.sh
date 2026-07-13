@@ -117,18 +117,18 @@ changed_files() {
 
 is_frontend_code_path() {
   case "$1" in
-    ${FRONTEND_PROJECT}/node_modules/*|\
-    ${FRONTEND_PROJECT}/.vite-cache/*|\
-    ${FRONTEND_PROJECT}/.build-cache/*|\
-    ${FRONTEND_PROJECT}/dist/*|\
-    ${FRONTEND_PROJECT}/playwright-report/*|\
-    ${FRONTEND_PROJECT}/test-results/*|\
-    ${FRONTEND_PROJECT}/review/*|\
-    ${FRONTEND_PROJECT}/full_test_output.txt|\
-    ${FRONTEND_PROJECT}/.DS_Store)
+    "${FRONTEND_PROJECT}"/node_modules/*|\
+    "${FRONTEND_PROJECT}"/.vite-cache/*|\
+    "${FRONTEND_PROJECT}"/.build-cache/*|\
+    "${FRONTEND_PROJECT}"/dist/*|\
+    "${FRONTEND_PROJECT}"/playwright-report/*|\
+    "${FRONTEND_PROJECT}"/test-results/*|\
+    "${FRONTEND_PROJECT}"/review/*|\
+    "${FRONTEND_PROJECT}"/full_test_output.txt|\
+    "${FRONTEND_PROJECT}"/.DS_Store)
       return 1
       ;;
-    ${FRONTEND_PROJECT}/*)
+    "${FRONTEND_PROJECT}"/*)
       return 0
       ;;
     *)
@@ -161,20 +161,6 @@ is_hook_change() {
     .codex/.gitignore|\
     scripts/codex_stop_gate.sh|\
     scripts/tests/test_codex_stop_gate_plan.sh)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-is_capcontract_change() {
-  case "$1" in
-    docs/doc/codemap/capability-contract/*|\
-    internal/devtools/capcontract/*|\
-    scripts/capcontract.go|\
-    scripts/capcontract/*)
       return 0
       ;;
     *)
@@ -272,6 +258,33 @@ if [[ -z "${CHANGED_FILES}" ]]; then
   exit 0
 fi
 
+CAPCONTRACT_PATH_RULES_HELPER="scripts/capcontract/path_rules.sh"
+if [[ ! -r "${CAPCONTRACT_PATH_RULES_HELPER}" ]]; then
+  log "capcontract path rules: missing helper ${CAPCONTRACT_PATH_RULES_HELPER}"
+  if ${PRINT_PLAN}; then
+    exit 1
+  fi
+  emit_block "Codex Stop gate failed: capcontract path rules helper is missing."
+  exit 0
+fi
+# shellcheck source=scripts/capcontract/path_rules.sh
+if ! source "${CAPCONTRACT_PATH_RULES_HELPER}"; then
+  log "capcontract path rules: failed to source ${CAPCONTRACT_PATH_RULES_HELPER}"
+  if ${PRINT_PLAN}; then
+    exit 1
+  fi
+  emit_block "Codex Stop gate failed: capcontract path rules helper could not be loaded."
+  exit 0
+fi
+if ! load_capcontract_path_rules "${GO_BIN}"; then
+  log "capcontract path rules: failed to load generator-derived rules"
+  if ${PRINT_PLAN}; then
+    exit 1
+  fi
+  emit_block "Codex Stop gate failed: capcontract path rules could not be generated."
+  exit 0
+fi
+
 HAS_GO_GUARD=false
 HAS_FRONTEND_GUARD=false
 HAS_HOOK_TEST=false
@@ -288,8 +301,17 @@ while IFS= read -r file; do
   if is_hook_change "${file}"; then
     HAS_HOOK_TEST=true
   fi
-  if is_capcontract_change "${file}"; then
+  capcontract_match_status=0
+  is_capcontract_change "${file}" || capcontract_match_status=$?
+  if [[ "${capcontract_match_status}" -eq 0 ]]; then
     HAS_CAPCONTRACT_GUARD=true
+  elif [[ "${capcontract_match_status}" -gt 1 ]]; then
+    log "capcontract path rules: failed to classify changed path ${file}"
+    if ${PRINT_PLAN}; then
+      exit 1
+    fi
+    emit_block "Codex Stop gate failed: a changed path could not be classified for the capability contract."
+    exit 0
   fi
 done <<< "${CHANGED_FILES}"
 

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENFORCEMENT_BASELINE_FILE="$ROOT_DIR/scripts/commit_title_enforcement_baseline.txt"
 cd "$ROOT_DIR"
 
 usage() {
@@ -102,8 +103,43 @@ check_message_file() {
   echo "✅ Chinese commit message guard OK"
 }
 
+load_enforcement_baseline() {
+  local baseline
+  local line_count
+
+  if [ ! -f "$ENFORCEMENT_BASELINE_FILE" ]; then
+    fail_usage "enforcement baseline file does not exist: $ENFORCEMENT_BASELINE_FILE"
+  fi
+  line_count="$(awk 'END { print NR }' "$ENFORCEMENT_BASELINE_FILE")"
+  baseline="$(cat "$ENFORCEMENT_BASELINE_FILE")"
+  if [ "$line_count" -ne 1 ] || ! printf '%s\n' "$baseline" | LC_ALL=C grep -Eq '^[0-9a-f]{40}$'; then
+    fail_usage "enforcement baseline must contain exactly one full 40-character lowercase commit SHA"
+  fi
+  if ! git rev-parse --verify --quiet "${baseline}^{commit}" >/dev/null; then
+    fail_usage "enforcement baseline commit is not available: $baseline (use fetch-depth: 0)"
+  fi
+  printf '%s\n' "$baseline"
+}
+
+commit_is_grandfathered() {
+  local commit="$1"
+  local baseline="$2"
+  local status
+
+  if git merge-base --is-ancestor "$commit" "$baseline"; then
+    return 0
+  else
+    status=$?
+  fi
+  if [ "$status" -eq 1 ]; then
+    return 1
+  fi
+  fail_usage "cannot compare commit $commit with enforcement baseline $baseline"
+}
+
 check_range() {
   local range="$1"
+  local baseline
   local commit
   local title
   local body
@@ -113,9 +149,13 @@ check_range() {
   if ! git rev-list --reverse "$range" >/dev/null; then
     fail_usage "invalid commit range: $range"
   fi
+  baseline="$(load_enforcement_baseline)"
 
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
+    if commit_is_grandfathered "$commit" "$baseline"; then
+      continue
+    fi
     title="$(first_commit_title "$commit")"
     body="$(commit_body "$commit")"
     if ! check_message_parts "commit ${commit:0:7}" "$title" "$body"; then
