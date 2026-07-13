@@ -68,6 +68,8 @@
 - `internal/store/cron/store.go`
 - `sql/queries/cron_job.sql`
 - `internal/store/sqlc/*`，仅由 `make sqlc-generate` 生成
+- `pkg/cronmetrics/*`，保存不反向依赖 platform 的恢复收尾计数源
+- `internal/platform/metrics/cron.go`、`internal/platform/metrics/metrics_test.go`，将计数注册到 Prometheus `/metrics`
 - 对应 Cron module、adapter、store 测试
 
 ### 最优修复
@@ -87,7 +89,7 @@
 - [ ] RED：store 事务 fixture 让第二个 UPDATE 失败，断言 run UPDATE 回滚。
 - [ ] RED：并发 fixture 让旧 turn 状态改变，断言恢复端不会释放 job 或创建重试。
 - [ ] GREEN：实现事务端口及 adapter 映射；删除“warn 后继续”的分支。
-- [ ] 上层防御：增加 `cron_recovery_finalize_conflict_total`、`cron_recovery_finalize_error_total`，日志必须带 `job_id/run_id/turn_id/expected_status`。
+- [ ] 上层防御：通过 `pkg/cronmetrics` 增加 `cron_recovery_finalize_conflict_total`、`cron_recovery_finalize_error_total`，由 `internal/platform/metrics` 注册到 Prometheus `/metrics`；日志必须带 `job_id/run_id/turn_id/expected_status`。
 - [ ] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/module/cron ./internal/app/storeadapter/cron ./internal/store/cron -count=1`。
 
 ### 完成门禁
