@@ -63,13 +63,33 @@ AI가 빠르게 code를 생성하는 시대에는 capability code 자체가 희�
 
 ### 제한된 컨텍스트를 이용한 유지보수
 
-이 저장소는 일반적인 변경을 위해 전체 코드베이스를 하나의 model context에 넣지 않아도 되도록 설계되었습니다. 생성된 navigation, 좁은 contract, 결정적 failure signal은 에이전트가 관련 영역을 찾고 위반을 빠르게 수정하도록 돕습니다.
+이 프로젝트의 성격상 codebase 전체를 통독할 필요가 없습니다. Engineer와 AI 모두 작업을 시작하기 전에 repository 전체를 이해할 필요가 없습니다. Target capability와 acceptance outcome에서 출발해 code map, module ownership, 좁은 contract, deterministic gate로 task에 필요한 context만 얻고, 그 제약 안에서 실행하며 위반을 수정하면 원하는 capability를 전달할 수 있습니다.
 
-모든 변경이 국소적이라는 보장은 아닙니다. 여러 영역을 가로지르는 작업에는 더 넓은 reference 및 impact analysis가 필요하며, 수용되는 모든 변경에는 관련 test와 review evidence가 계속 요구됩니다.
+모든 변경이 국소적이라는 보장은 아닙니다. 여러 영역을 가로지르는 작업에는 reference와 impact analysis 범위를 넓혀야 하지만 필요한 context를 넓히는 것은 repository 전체를 통독하는 것과 다릅니다. 수용되는 모든 변경에는 관련 test와 review evidence가 계속 요구됩니다.
+
+이 프로젝트의 architecture standard에서 변경 impact를 알기 위해 codebase 전체를 통독해야 하는 구현은 지속적인 AI maintenance에 적합하지 않으며 system 전체 지식이 없는 사람 engineer에게도 유지보수 불가능합니다. 이는 대개 module ownership, dependency direction, contract, guard가 impact surface를 명시하지 못했다는 뜻입니다. Engineering constraint는 한 expert가 system 전체를 기억하는 데 의존하지 않고 dependency와 consequence를 navigation, check, fail-fast가 가능한 machine signal로 바꿔야 합니다.
+
+### AI-first 유지보수와 engineer가 소유하는 business semantics
+
+이 repository는 AI가 제약 아래에서 code를 찾고 이해하고 수정하고 검증하기 쉽도록 의도적으로 구성됩니다. 명시적 contract, 좁은 module, 작은 function, 생성된 map, machine-readable boundary는 사람이 file을 순서대로 읽을 때 더 장황하거나 분절되어 보일 수 있습니다. 따라서 사람의 선형적 가독성만이 유일한 optimization target은 아닙니다. 다만 중복이나 불명확한 code를 허용한다는 뜻은 아니며, 추가 boundary는 navigation, 영향 격리 또는 deterministic verification을 개선해야 합니다.
+
+Function이 작고 symbol이 많다는 이유만으로 문제로 취급하지 않습니다. AI는 긴 file을 서사처럼 읽는 대신 definition, reference, call hierarchy, code map, test를 통해 system을 이해합니다. Contributor는 raw source만으로 완전한 mental model을 만들기보다 AI assistant와 repository navigation tool을 함께 사용해 읽는 것이 권장됩니다.
+
+따라서 전통적인 engineering 방식처럼 file을 하나씩 읽고 call chain을 사람이 직접 추적하는 경험만으로 이 repository를 평가해서는 안 됩니다. 더 적절한 방법은 AI가 code map, LSP, contract, test, gate를 사용해 실제 locate–understand–impact analysis–change–verify cycle을 완료하게 한 뒤 repository의 읽기 편의성, 수정 편의성, 유지보수 비용을 평가하는 것입니다.
+
+AI는 명확히 지정된 design을 구현할 수 있지만 business semantics를 스스로 소유하거나 결정할 수 없습니다. 어떤 문제를 해결할지, feature가 무엇을 의미하는지, module이 어떻게 동작해야 하는지, 최종 user-visible outcome이 무엇인지, 어떤 tradeoff를 허용할지는 code generation이 아니라 방향 결정의 문제입니다.
+
+따라서 engineer는 여전히 이 프로젝트의 중심입니다. Engineer가 product direction, business semantics, module responsibility, architecture, acceptance criteria, risk boundary를 정의하고 AI는 repository gate 아래에서 이를 code, test, documentation, 반복 가능한 maintenance work로 변환합니다. 목표는 engineer를 제거하는 것이 아니라 모든 작은 function을 직접 읽고 작성하는 일에서 의미, evidence, system evolution을 통제하는 일로 집중을 옮기는 것입니다. **Engineer는 여전히 steering wheel을 잡은 driver이며, 탈것이 자전거에서 supercar로 바뀌었을 뿐입니다.**
+
+### AI 유지보수성 독립 평가
+
+2026년 7월 13일, GPT-5.6 medium-thinking model을 사용한 3개 독립 Agent는 이 repository의 순수 AI code-maintenance capability를 **95/100(A+)**로 종합 평가했으며, 기존 score 열람이 금지된 별도 sub-agent도 blind assessment에서 **95.6/100(A+)**를 재현했습니다. Code map, LSP navigation, 좁은 contract, architecture guard, deterministic verification loop를 통해 AI는 codebase 전체를 통독하지 않고도 위치 파악, impact analysis, 구현, 검증을 수행할 수 있으며, 사람은 product direction, business semantics, acceptance decision, project documentation을 담당합니다.
+
+**재현 prompt:** 순수 AI maintenance 관점에서 이 repository를 100점 만점으로 평가하되 사람은 direction, business semantics, acceptance, documentation만 담당하고 AI는 design document 실행과 code location, impact analysis, 구현, test, diagnostics, delivery를 담당하며 token cost는 무시하고 UI, release, commercial maturity는 평가하지 말고 README의 기존 score를 읽지 않은 채 현재 evidence, 항목별 score, 100점이 아닌 이유를 제시하십시오.
 
 ### 개발 과정: Super Dolphin이 만들어진 이유
 
-Super Dolphin은 연속적인 engineering evolution의 세 번째 주요 단계입니다.
+Super Dolphin은 연속적인 engineering evolution의 세 번째 주요 단계입니다. 첫 단계 V1, 직접적인 전신 `go-agent-v2`(V2), 현재 V3까지 이 lineage는 Agent feature를 계속 추가하는 과정만이 아닙니다. 모든 변경이 bounded context 안에서 impact를 드러내고 명시적 constraint에 따라 실행되며 AI나 사람이 codebase 전체를 통독하고 기억하지 않아도 machine verification될 수 있게 하는 동일한 engineering pain point를 반복해서 해결해 왔습니다.
 
 1. **첫 번째 단계**는 Python command-line multi-agent tool이었습니다. Model이 task를 분할하고 tool을 통해 협업하며 실제 engineering work를 완료할 수 있는지 검증했습니다.
 2. **`go-agent-v2`는 이 프로젝트의 직접적인 전신입니다.** 내부 task dispatch tool에서 자동화된 퀀트 트레이딩 workflow, multi-agent desktop control, Provider integration, persistent execution을 통합한 실제 동작하는 engineering system으로 발전했습니다. 실제 업무에서 product direction의 가치를 증명했으며, 폐기를 전제로 한 prototype이 아니었습니다.

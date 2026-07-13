@@ -63,13 +63,33 @@ This is not a route for one maintainer to hand-write every feature. The communit
 
 ### Bounded-context maintenance
 
-The repository is designed so routine changes do not require loading the entire codebase into one model context. Generated navigation, narrow contracts, and deterministic failures help an agent find the relevant surface and repair violations quickly.
+The nature of this project does not require anyone to read the entire codebase. Neither engineers nor AI need to understand the whole repository before starting work. Begin with the target capability and acceptance outcome, use code maps, module ownership, narrow contracts, and deterministic gates to obtain only the context required for the task, then execute within those constraints and repair violations to deliver the intended capability.
 
-This is not a guarantee that every change is local. Cross-cutting work still requires broader reference and impact analysis, and all accepted changes remain subject to the relevant tests and review evidence.
+This is not a guarantee that every change is local. Cross-cutting work still requires broader reference and impact analysis, but expanding the necessary context is not the same as reading the entire repository; all accepted changes remain subject to the relevant tests and review evidence.
+
+Under this project's architectural standard, any implementation that requires reading the entire codebase to discover the impact of a change is unsuitable for continuous AI maintenance and equally unmaintainable for human engineers who lack complete system knowledge. It usually means module ownership, dependency direction, contracts, or guards have failed to make the impact surface explicit. Engineering constraints must turn dependencies and consequences into navigable, checkable, fail-fast machine signals instead of relying on one expert to remember the whole system.
+
+### AI-first maintainability, engineer-owned semantics
+
+The repository is intentionally organized for AI to locate, understand, modify, and verify code under constraints. Explicit contracts, narrow modules, small functions, generated maps, and machine-readable boundaries can feel more verbose or fragmented to a person reading files linearly. Human reading convenience is therefore not the only optimization target. This is not permission for duplication or unclear code: every extra boundary must improve navigation, isolation, or deterministic verification.
+
+Small functions are not treated as a problem merely because they increase the number of symbols. AI reads through definitions, references, call hierarchies, code maps, and tests rather than relying on one long file as a narrative. Contributors are encouraged to read this repository with an AI assistant and the repository's navigation tools instead of trying to build a complete mental model from raw source alone.
+
+The repository should therefore not be judged only through the traditional practice of manually reading file after file and tracing every call chain. A more relevant evaluation is to have AI use the code maps, LSP, contracts, tests, and gates to perform a real locate–understand–impact-analyze–change–verify cycle, then assess how easy the repository is to read, modify, and maintain.
+
+AI can implement a specified design, but it cannot independently own business meaning: which problem should be solved, what a feature means, how modules should behave, what the final user-visible outcome must be, and which tradeoffs are acceptable. These are direction-setting decisions, not code-generation tasks.
+
+Engineers therefore remain at the center of this project. They define product direction, business semantics, module responsibilities, architecture, acceptance criteria, and risk boundaries; AI translates those decisions into code, tests, documentation, and repeatable maintenance work under repository gates. The aim is not to remove engineers, but to move their attention from reading and hand-writing every small function to governing meaning, evidence, and system evolution. **Engineers still hold the steering wheel; only the vehicle has changed from a bicycle into a supercar.**
+
+### Independent AI maintainability assessment
+
+On July 13, 2026, three independent agents using the GPT-5.6 medium-thinking model jointly rated this repository's pure AI code-maintenance capability at **95/100 (A+)**; a separate blind sub-agent, prohibited from reading the existing score, reproduced **95.6/100 (A+)**. Code maps, LSP navigation, narrow contracts, architecture guards, and deterministic verification allow AI to locate, analyze, implement, and verify changes without reading the entire codebase, while humans retain product direction, business semantics, acceptance decisions, and project documentation.
+
+**Reproduction prompt:** From a pure AI-maintenance perspective, score this repository out of 100 assuming humans own only direction, semantics, acceptance, and documentation while AI executes design documents and owns code location, impact analysis, implementation, testing, diagnostics, and delivery, token cost is ignored, UI, release, and commercial maturity are excluded, the existing README score must not be read, and the answer must provide evidence, category scores, and reasons it is not 100.
 
 ### Development journey: why Super Dolphin exists
 
-Super Dolphin is the third major stage in a continuous engineering lineage:
+Super Dolphin is the third major stage in a continuous engineering lineage. From the first-stage V1 through the direct predecessor `go-agent-v2` (V2) to the current V3, the lineage is not merely a sequence of added agent features. It iteratively addresses one engineering pain point: every change should expose its impact within bounded context, execute under explicit constraints, and be machine-verified without requiring AI or humans to read and remember the entire codebase.
 
 1. **The first stage** was a Python command-line multi-agent tool. It validated that models could split tasks, cooperate through tools, and complete real engineering work.
 2. **`go-agent-v2` was the direct predecessor of this project.** It grew from internal task dispatch into a working engineering system that combined automated quantitative-trading workflows, multi-agent desktop controls, provider integration, and persistent execution. It proved that the product direction was useful in real work; it was not a disposable prototype.

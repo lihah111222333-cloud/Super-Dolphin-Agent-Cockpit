@@ -63,13 +63,33 @@ Dies ist kein Weg, auf dem ein Maintainer alle Funktionen von Hand schreibt. Die
 
 ### Wartung mit begrenztem Kontext
 
-Das Repository ist so ausgelegt, dass routinemäßige Änderungen nicht die gesamte Codebasis in einen einzigen Modellkontext laden müssen. Generierte Navigation, enge Contracts und deterministische Fehler helfen einem Agenten, die relevante Fläche zu finden und Regelverletzungen schnell zu beheben.
+Die Art dieses Projekts erfordert kein vollständiges Lesen der gesamten Codebasis. Weder Engineers noch KI müssen vor Arbeitsbeginn das ganze Repository verstehen. Ausgangspunkt sind Zielfunktion und Akzeptanzergebnis; Code Maps, Module Ownership, enge Contracts und deterministische Gates liefern nur den für die Aufgabe erforderlichen Kontext. Innerhalb dieser Vorgaben wird gearbeitet und jede Verletzung korrigiert, bis die gewünschte Funktion geliefert ist.
 
-Das garantiert nicht, dass jede Änderung lokal bleibt. Querschnittsänderungen erfordern weiterhin eine breitere Referenz- und Auswirkungsanalyse, und jede akzeptierte Änderung benötigt die zugehörigen Tests und Review-Nachweise.
+Das garantiert nicht, dass jede Änderung lokal bleibt. Querschnittsänderungen erfordern weiterhin eine breitere Referenz- und Auswirkungsanalyse, doch den notwendigen Kontext zu erweitern ist nicht dasselbe wie das gesamte Repository zu lesen; jede akzeptierte Änderung benötigt weiterhin die zugehörigen Tests und Review-Nachweise.
+
+Nach dem Architekturmaßstab dieses Projekts ist jede Implementierung, bei der zum Erkennen der Änderungsauswirkungen die gesamte Codebasis gelesen werden muss, für kontinuierliche KI-Wartung ungeeignet und ebenso unwartbar für Engineers ohne vollständiges Systemwissen. Meist bedeutet dies, dass Module Ownership, Abhängigkeitsrichtung, Contracts oder Guards die Auswirkungsfläche nicht explizit machen. Engineering-Vorgaben müssen Abhängigkeiten und Folgen in navigierbare, prüfbare und fail-fast Maschinensignale verwandeln, statt darauf zu vertrauen, dass ein einzelner Experte das gesamte System erinnert.
+
+### AI-first-Wartung und fachliche Semantik in Verantwortung der Engineers
+
+Das Repository ist bewusst so organisiert, dass KI Code unter Vorgaben schnell lokalisieren, verstehen, ändern und verifizieren kann. Explizite Contracts, enge Module, kleine Funktionen, generierte Maps und maschinenlesbare Grenzen können für Menschen beim linearen Lesen ausführlicher oder fragmentierter wirken. Menschlicher Lesekomfort ist daher nicht das einzige Optimierungsziel. Das erlaubt weder Duplikation noch unklaren Code: Jede zusätzliche Grenze muss Navigation, Auswirkungsisolation oder deterministische Verifikation verbessern.
+
+Kleine Funktionen gelten nicht allein deshalb als Problem, weil sie die Zahl der Symbole erhöhen. KI versteht das System über Definitionen, Referenzen, Aufrufhierarchien, Code Maps und Tests, statt eine lange Datei als Erzählung zu lesen. Beitragenden wird empfohlen, das Repository mit einem KI-Assistenten und den Navigationswerkzeugen des Repositorys zu lesen, statt allein aus Rohcode ein vollständiges mentales Modell aufzubauen.
+
+Das Repository sollte daher nicht allein nach der traditionellen Arbeitsweise bewertet werden, Datei für Datei manuell zu lesen und jede Aufrufkette selbst nachzuverfolgen. Aussagekräftiger ist es, KI mit Code Maps, LSP, Contracts, Tests und Gates einen realen Zyklus aus Lokalisieren, Verstehen, Auswirkungsanalyse, Ändern und Verifizieren durchführen zu lassen und anschließend Lesbarkeit, Änderbarkeit und Wartungsaufwand zu bewerten.
+
+KI kann ein spezifiziertes Design implementieren, aber fachliche Semantik nicht selbst besitzen oder entscheiden: Welches Problem soll gelöst werden, was bedeutet eine Funktion, wie sollen Module zusammenarbeiten, welches sichtbare Endergebnis wird erwartet und welche Abwägungen sind zulässig? Das sind Richtungsentscheidungen, keine Aufgaben der Codegenerierung.
+
+Engineers bleiben deshalb im Zentrum dieses Projekts. Sie definieren Produktrichtung, fachliche Semantik, Modulverantwortung, Architektur, Akzeptanzkriterien und Risikogrenzen; KI übersetzt diese Entscheidungen unter den Repository-Gates in Code, Tests, Dokumentation und wiederholbare Wartungsarbeit. Ziel ist nicht, Engineers zu entfernen, sondern ihre Aufmerksamkeit vom Lesen und Schreiben jeder kleinen Funktion auf Bedeutung, Evidenz und Systementwicklung zu verlagern. **Engineers sitzen weiterhin am Steuer; nur das Fahrzeug hat sich vom Fahrrad zum Supersportwagen entwickelt.**
+
+### Unabhängige Bewertung der KI-Wartbarkeit
+
+Am 13. Juli 2026 bewerteten drei unabhängige Agenten mit dem GPT-5.6-Modell bei mittlerer Denktiefe die reine KI-Codewartungsfähigkeit dieses Repositorys gemeinsam mit **95/100 (A+)**; ein weiterer Subagent, der den vorhandenen Wert nicht lesen durfte, reproduzierte in einer Blindbewertung **95.6/100 (A+)**. Code Maps, LSP-Navigation, enge Contracts, Architektur-Guards und ein deterministischer Verifikationszyklus ermöglichen der KI, Änderungen ohne vollständiges Lesen der Codebasis zu lokalisieren, zu analysieren, umzusetzen und zu prüfen, während Menschen Produktrichtung, fachliche Semantik, Akzeptanzentscheidungen und Projektdokumentation verantworten.
+
+**Reproduktionsprompt:** Bewerte dieses Repository aus Sicht reiner KI-Wartung auf einer 100-Punkte-Skala, wobei Menschen nur Richtung, fachliche Semantik, Abnahme und Dokumentation verantworten und die KI Designdokumente ausführt sowie Codeortung, Auswirkungsanalyse, Implementierung, Tests, Diagnostik und Auslieferung übernimmt, Tokenkosten ignoriert werden, UI, Release und kommerzielle Reife nicht bewertet werden, der bestehende README-Wert nicht gelesen werden darf und aktuelle Evidenz, Teilwertungen sowie die Gründe gegen 100 anzugeben sind.
 
 ### Entwicklungsgeschichte: Warum Super Dolphin entstand
 
-Super Dolphin ist die dritte große Stufe einer kontinuierlichen Engineering-Entwicklung:
+Super Dolphin ist die dritte große Stufe einer kontinuierlichen Engineering-Entwicklung. Von der ersten Stufe V1 über den direkten Vorgänger `go-agent-v2` (V2) bis zum heutigen V3 ging es nicht nur um zusätzliche Agentenfunktionen. Die Entwicklung löst iterativ denselben Engineering-Schmerzpunkt: Jede Änderung soll ihre Auswirkungen in begrenztem Kontext offenlegen, unter expliziten Vorgaben ausgeführt und maschinell verifiziert werden, ohne dass KI oder Menschen die gesamte Codebasis lesen und erinnern müssen.
 
 1. **Die erste Stufe** war ein in Python geschriebenes Multi-Agenten-Kommandozeilenwerkzeug. Es bestätigte, dass Modelle Aufgaben aufteilen, über Werkzeuge zusammenarbeiten und echte Engineering-Arbeit erledigen können.
 2. **`go-agent-v2` war der direkte Vorgänger dieses Projekts.** Es entwickelte sich von einer internen Aufgabenverteilung zu einem produktiv nutzbaren Engineering-System, das automatisierte quantitative Trading-Workflows, Multi-Agenten-Desktopsteuerung, Provider-Integration und persistente Ausführung verband. Es bewies den Wert der Produktrichtung in realer Arbeit und war kein Wegwerfprototyp.

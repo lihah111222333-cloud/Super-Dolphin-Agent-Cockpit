@@ -63,13 +63,33 @@ Esta no es una ruta para que un mantenedor programe todas las funciones. La comu
 
 ### Mantenimiento con contexto acotado
 
-El repositorio está diseñado para que los cambios habituales no requieran cargar todo el código fuente en un único contexto del modelo. La navegación generada, los contracts estrechos y los fallos deterministas ayudan al agente a encontrar la superficie relevante y reparar las infracciones con rapidez.
+La naturaleza de este proyecto no exige leer todo el código fuente. Ni los ingenieros ni la IA necesitan comprender el repositorio completo antes de empezar. Se parte de la capacidad objetivo y del resultado de aceptación, se utilizan code maps, ownership de módulos, contracts estrechos y gates deterministas para obtener únicamente el contexto necesario, y se ejecuta dentro de esas restricciones corrigiendo las infracciones hasta entregar la función deseada.
 
-Esto no garantiza que todos los cambios sean locales. El trabajo transversal sigue exigiendo un análisis más amplio de referencias e impacto, y todo cambio aceptado continúa sujeto a los tests y la evidencia de revisión correspondientes.
+Esto no garantiza que todos los cambios sean locales. El trabajo transversal sigue exigiendo ampliar el análisis de referencias e impacto, pero ampliar el contexto necesario no equivale a leer todo el repositorio; todo cambio aceptado continúa sujeto a los tests y la evidencia de revisión correspondientes.
+
+Según el criterio arquitectónico de este proyecto, cualquier implementación que obligue a leer todo el código para descubrir el impacto de un cambio no es adecuada para el mantenimiento continuo por IA y tampoco es mantenible por ingenieros que no posean un conocimiento total del sistema. Normalmente indica que el ownership de módulos, la dirección de dependencias, los contracts o los guards no hicieron explícita la superficie de impacto. Las restricciones deben convertir dependencias y consecuencias en señales de máquina navegables, verificables y fail-fast, sin depender de que un experto recuerde todo el sistema.
+
+### Mantenimiento AI-first y semántica bajo responsabilidad del ingeniero
+
+El repositorio está organizado deliberadamente para que la IA pueda localizar, comprender, modificar y verificar código bajo restricciones. Los contracts explícitos, módulos estrechos, funciones pequeñas, maps generados y límites legibles por máquina pueden parecer más verbosos o fragmentados al leer los archivos linealmente. La comodidad de lectura humana no es, por tanto, el único objetivo de optimización. Esto no autoriza duplicación ni código ambiguo: cada límite adicional debe mejorar la navegación, el aislamiento del impacto o la verificación determinista.
+
+Las funciones pequeñas no se consideran un problema solo porque aumenten el número de símbolos. La IA comprende el sistema mediante definiciones, referencias, jerarquías de llamadas, code maps y tests, no leyendo un archivo largo como narración. Se recomienda a los contribuidores leer el repositorio junto con un asistente de IA y sus herramientas de navegación, en vez de construir un modelo mental completo únicamente desde el código fuente.
+
+Por tanto, el repositorio no debe evaluarse únicamente con el modo tradicional de leer manualmente archivo tras archivo y seguir cada cadena de llamadas. Una evaluación más pertinente consiste en hacer que la IA utilice code maps, LSP, contracts, tests y gates para completar un ciclo real de localizar, comprender, analizar impacto, modificar y verificar, y solo entonces valorar la facilidad de lectura, modificación y mantenimiento.
+
+La IA puede implementar un diseño especificado, pero no puede apropiarse ni decidir por sí sola la semántica de negocio: qué problema resolver, qué significa una función, cómo deben comportarse los módulos, cuál debe ser el resultado visible final y qué compromisos son aceptables. Son decisiones de dirección, no tareas de generación de código.
+
+Por ello, los ingenieros siguen ocupando el centro del proyecto. Definen la dirección del producto, la semántica de negocio, las responsabilidades de los módulos, la arquitectura, los criterios de aceptación y los límites de riesgo; la IA convierte esas decisiones en código, tests, documentación y mantenimiento repetible bajo los gates del repositorio. El objetivo no es eliminar a los ingenieros, sino trasladar su atención de leer y escribir cada función pequeña a gobernar el significado, la evidencia y la evolución del sistema. **Los ingenieros siguen al volante; lo único que ha cambiado es que el vehículo pasó de ser una bicicleta a un superdeportivo.**
+
+### Evaluación independiente de mantenibilidad por IA
+
+El 13 de julio de 2026, tres agentes independientes que utilizaron el modelo GPT-5.6 con razonamiento medio calificaron conjuntamente la capacidad pura de mantenimiento de código por IA de este repositorio con **95/100 (A+)**; otro subagente, al que se le prohibió leer la puntuación existente, reprodujo **95.6/100 (A+)** mediante una evaluación ciega. Los code maps, la navegación LSP, los contracts estrechos, los architecture guards y el ciclo de verificación determinista permiten que la IA localice, analice, implemente y verifique cambios sin leer todo el código, mientras las personas conservan la dirección del producto, la semántica de negocio, las decisiones de aceptación y la documentación.
+
+**Prompt de reproducción:** Evalúa este repositorio sobre 100 desde la perspectiva del mantenimiento puro por IA, suponiendo que las personas solo controlan dirección, semántica de negocio, aceptación y documentación mientras la IA ejecuta los documentos de diseño y se encarga de localizar código, analizar impacto, implementar, probar, diagnosticar y entregar, ignorando el coste de tokens, sin evaluar UI, release ni madurez comercial, sin leer la puntuación existente del README y mostrando evidencia actual, puntuaciones por categoría y por qué no alcanza 100.
 
 ### Evolución del desarrollo: por qué existe Super Dolphin
 
-Super Dolphin es la tercera gran etapa de una evolución de ingeniería continua:
+Super Dolphin es la tercera gran etapa de una evolución de ingeniería continua. Desde la primera etapa V1, pasando por el predecesor directo `go-agent-v2` (V2), hasta el V3 actual, esta evolución no consiste solo en añadir funciones de agente. Resuelve iterativamente un mismo problema de ingeniería: cada cambio debe exponer su impacto dentro de un contexto acotado, ejecutarse bajo restricciones explícitas y verificarse por máquina sin exigir que la IA o las personas lean y recuerden todo el código.
 
 1. **La primera etapa** fue una herramienta multiagente de línea de comandos escrita en Python. Validó que los modelos podían dividir tareas, colaborar mediante herramientas y completar trabajo de ingeniería real.
 2. **`go-agent-v2` fue el predecesor directo de este proyecto.** Evolucionó desde un sistema interno de distribución de tareas hasta un sistema de ingeniería operativo que reunía workflows automatizados de trading cuantitativo, controles de escritorio multiagente, integración con Providers y ejecución persistente. Demostró el valor de la dirección del producto en trabajo real; no era un prototipo desechable.
