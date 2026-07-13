@@ -302,15 +302,16 @@ func requireLSPEvidence(file string, evidence map[string]bool) {
 	}
 }
 
-// executeGatePlan 严格按计划执行命令；未知 gate 会被忽略，以便只由 buildGatePlan 产生可执行项。
+// executeGatePlan 严格按计划执行命令；必需 gate 缺少 runner 时立即失败。
 func executeGatePlan(plan gatePlan) error {
 	runners := gateRunners(plan)
 	for _, gate := range plan.RequiredGates {
 		run, ok := runners[gate]
-		if ok {
-			if err := run(); err != nil {
-				return err
-			}
+		if !ok {
+			return fmt.Errorf("required gate %q has no runner", gate)
+		}
+		if err := run(); err != nil {
+			return err
 		}
 	}
 	return nil

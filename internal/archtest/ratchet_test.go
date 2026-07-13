@@ -25,6 +25,8 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",
+		"make codemap-check",
+		"make project-map-check",
 	)
 }
 

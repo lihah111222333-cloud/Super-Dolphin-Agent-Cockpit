@@ -66,6 +66,8 @@ jobs:
         run: make sqlc-verify
       - name: Codemap check
         run: make codemap-check
+      - name: Project map check
+        run: make project-map-check
       - name: Capability contract check
         run: make capcontract-check
       - name: Validate skills
