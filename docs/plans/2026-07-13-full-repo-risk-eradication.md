@@ -298,6 +298,8 @@ Go sharedFilePreviewResult
 - `internal/store/cron/store.go`
 - `internal/store/cron/store_test.go`
 - `internal/store/cron/list_page.go`、`internal/store/cron/list_page_test.go`，隔离分页实现与 fixture 以满足生产/测试文件尺寸门禁
+- `internal/module/cron/rpc_list_page_test.go`，验证 `cursor` wire 必填与分页响应映射
+- `internal/archtest/cron_list_field_guard_test.go`，动态锁定 Go/sqlc DTO 与 mapper 字段链
 - `internal/module/cron/contract.go`
 - `internal/module/cron/service.go`
 - `internal/module/cron/rpc.go`
@@ -312,6 +314,7 @@ Go sharedFilePreviewResult
 - `frontend-app/src/shared/api/backendApi.contractMatrix.js`
 - `frontend-app/src/shared/api/backendApi.test.js`
 - 新增或扩展的 Cron page DTO 字段 registry/guard 测试
+- `frontend-app/src/shared/api/backendCronListContract.test.js`，逐字段验证前端请求/响应契约
 
 ### 最优修复
 
@@ -395,6 +398,8 @@ frontend listCronJobs API request
 - `scripts/capcontract/main.go`、`scripts/capcontract/main_test.go`
 - `docs/doc/codemap/capability-contract/capability_manifest.json`，只允许由 `make capcontract-refresh` 生成
 - `internal/module/workflowtemplate/rpc.go` 及同包 RPC/序列化测试
+- `sql/queries/db_query.sql`、`internal/store/sqlc/db_query.sql.go`、`internal/store/sqlc/querier.go`，仅消除 `PlaceholderDBQuery` 无类型 `NULL` 生成的 `interface{}` hint，保持零行语义
+- `internal/store/dbquery/store.go`、`internal/store/dbquery/store_test.go`，同步收紧 Placeholder 消费类型并锁定零行契约
 - `.github/workflows/ci.yml`、`internal/archtest/ratchet_test.go`，Linux 主 job 与 macOS/Windows smoke 共同执行同一 manifest 字节检查
 
 不允许修改 `run-new-ui-desktop.ps1`：Windows 已有不执行脚本表达式的 `Import-DotEnvFile`，本风险只针对 Bash `source`。不修改任何 dirty README；开发入口行为通过 Bash `--help`/错误信息和 `internal/app/new_ui_scripts_test.go` 固定。
