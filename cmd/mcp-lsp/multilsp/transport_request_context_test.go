@@ -3,11 +3,37 @@ package multilsp
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+type gatedWriteCloser struct {
+	entered     chan struct{}
+	release     chan struct{}
+	enteredOnce sync.Once
+	closeOnce   sync.Once
+}
+
+func newGatedWriteCloser() *gatedWriteCloser {
+	return &gatedWriteCloser{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (w *gatedWriteCloser) Write(_ []byte) (int, error) {
+	w.enteredOnce.Do(func() { close(w.entered) })
+	<-w.release
+	return 0, io.ErrClosedPipe
+}
+
+func (w *gatedWriteCloser) Close() error {
+	w.closeOnce.Do(func() { close(w.release) })
+	return nil
+}
 
 func TestTransportRequestWriteHonorsContext(t *testing.T) {
 	if os.Getenv("MCP_LSP_BLOCK_STDIN_HELPER") == "1" {
@@ -25,17 +51,53 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 	}
 	cleanupLeakedTransportAfterFailure(t, tr)
 
+	gate := newGatedWriteCloser()
+	tr.stdinMu.Lock()
+	originalStdin := tr.stdin
+	tr.stdin = gate
+	tr.stdinMu.Unlock()
+	var closeOriginalOnce sync.Once
+	closeOriginalStdin := func() {
+		closeOriginalOnce.Do(func() {
+			if err := originalStdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				t.Errorf("close original transport stdin: %v", err)
+			}
+		})
+	}
+	t.Cleanup(closeOriginalStdin)
+
 	errCh := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
+	t.Cleanup(func() {
+		if err := gate.Close(); err != nil {
+			t.Errorf("close gated transport stdin: %v", err)
+		}
+	})
 	goroutines.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{
-			"payload": strings.Repeat("x", 32<<20),
-		})
+		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{"command": "test"})
 		errCh <- err
 	})
 
+	waitForGatedWrite(t, tr, gate)
+	waitForRequestDeadline(t, tr, gate, errCh)
+	assertRequestContextTerminatedTransport(t, tr)
+	closeOriginalStdin()
+}
+
+func waitForGatedWrite(t *testing.T, tr *transport, gate *gatedWriteCloser) {
+	t.Helper()
+	select {
+	case <-gate.entered:
+	case <-time.After(2 * time.Second):
+		_ = tr.Close()
+		t.Fatalf("request() did not enter the gated stdin Write within watchdog")
+	}
+}
+
+func waitForRequestDeadline(t *testing.T, tr *transport, gate *gatedWriteCloser, errCh <-chan error) {
+	t.Helper()
 	select {
 	case err := <-errCh:
 		if !errors.Is(err, context.DeadlineExceeded) {
@@ -43,15 +105,16 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		_ = tr.killProcess()
+		if err := gate.Close(); err != nil {
+			t.Errorf("close gated transport stdin after forced process kill: %v", err)
+		}
 		select {
 		case err := <-errCh:
 			t.Fatalf("request() returned only after forced process kill with error %v; want ctx deadline to cancel the blocked write", err)
 		case <-time.After(2 * time.Second):
-			t.Fatalf("request() stayed blocked after context deadline and forced transport close")
+			t.Fatalf("request() stayed blocked after context deadline and forced process kill")
 		}
 	}
-
-	assertRequestContextTerminatedTransport(t, tr)
 }
 
 func assertRequestContextTerminatedTransport(t *testing.T, tr *transport) {
