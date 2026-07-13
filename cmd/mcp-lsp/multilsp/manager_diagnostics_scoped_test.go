@@ -542,10 +542,10 @@ func TestWaitDiagnosticsStableTreatsProjectMissingDiagnosticsAsEmptyAfterGrace(t
 		ClientFactory:                    ClientFactoryFunc(newNoPublishDiagnosticsClient),
 		DiagnosticsInitialDelay:          time.Millisecond,
 		DiagnosticsPollInterval:          time.Millisecond,
-		DiagnosticsMaxWait:               200 * time.Millisecond,
+		DiagnosticsMaxWait:               2 * time.Second,
 		DisableInitialWorkspaceBootstrap: true,
 	})
-	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), time.Second)
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), 5*time.Second)
 	defer cancel()
 	uri := fileURIFromPath(target)
 

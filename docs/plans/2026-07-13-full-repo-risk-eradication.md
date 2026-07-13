@@ -262,6 +262,7 @@ Go sharedFilePreviewResult
 - `internal/provider/codexapp/session.go`
 - `internal/provider/codexapp/session_approval.go`
 - start/resume/factory/Fx 相关测试
+- `internal/provider/e2e/codex_mcp_test.go`，主审批准补齐 E2E fixture 的显式 ApprovalManager；只适配新的 fail-fast 构造契约，不弱化生产校验
 
 ### 最优修复
 
@@ -406,6 +407,9 @@ frontend listCronJobs API request
 - `sql/queries/cron_job.sql`、`internal/store/sqlc/cron_job.sql.go`、`internal/store/cron/store_test.go`，仅为既有 cursor/thread/agent 参数补显式 SQL 类型，消除 sqlc 生成的 `interface{}` hint
 - `internal/store/cron/sqlc_type_contract_test.go`，仅承接上述 SQLC 参数类型契约测试；这是主审批准的联集态扩写，用于避免 L07+L08 合并后 `store_test.go` 超过 800 行硬门禁，不改变测试语义
 - `.github/workflows/ci.yml`、`internal/archtest/ratchet_test.go`，Linux 主 job 与 macOS/Windows smoke 共同执行同一 manifest 字节检查
+- `cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go`，主审批准修正全仓 race 高负载下的 diagnostics grace 测试同步/时间预算；不得改变生产稳定判定语义
+- `cmd/mcp-lsp/multilsp/transport_request_context_test.go`，主审批准把阻塞写取消测试改为“底层 Write 已真实进入阻塞后显式 cancel”的同步协议，既消除 goroutine 尚未启动时 100ms deadline 已过期的假失败，也禁止只观测 pending 导致未覆盖阻塞写的假绿；不得修改生产 transport 取消/关闭顺序
+- `cmd/mcp-lsp/multilsp/manager_cold_start_test.go`，主审批准把冷启动 Definition 测试改为“观测 DidOpen 后显式释放 diagnostics”的同步协议，消除 race 高负载下 30ms timer goroutine 被饿死超过生产等待上限的假失败；不得放宽生产 diagnostics 等待上限或改变先诊断后请求语义
 
 不允许修改 `run-new-ui-desktop.ps1`：Windows 已有不执行脚本表达式的 `Import-DotEnvFile`，本风险只针对 Bash `source`。不修改任何 dirty README；开发入口行为通过 Bash `--help`/错误信息和 `internal/app/new_ui_scripts_test.go` 固定。
 
@@ -420,12 +424,12 @@ frontend listCronJobs API request
 
 ### RED/GREEN
 
-- [ ] RED：启动脚本 fixture 中 `.env` 含命令替换时不得执行副作用。
-- [ ] RED：capcontract build-tag fixture 对四个 canonical targets 分别选择正确文件，合并后无重复；在 macOS/Linux/Windows runner 生成的 JSON 必须字节一致。
-- [ ] RED：workflowtemplate 字段缺失/零值语义测试先固定产品行为。
-- [ ] GREEN：删除 dead code，修复全部稳定 diagnostics。
-- [ ] 运行所有目标文件 diagnostics；Error、Warning、Information、Hint 数量必须为 0。
-- [ ] 验证：`go test ./internal/app -run 'Test.*NewUI.*Script' -count=1`；所有 L08 目标包定向测试；`make capcontract-refresh && make capcontract-check`；三平台 manifest 字节一致性 job；`python3 scripts/validate_super_agent_skills.py`；`git diff --check`。
+- [x] RED：启动脚本 fixture 中 `.env` 含命令替换时不得执行副作用。
+- [x] RED：capcontract build-tag fixture 对四个 canonical targets 分别选择正确文件，合并后无重复；在 macOS/Linux/Windows runner 生成的 JSON 必须字节一致。
+- [x] RED：workflowtemplate 字段缺失/零值语义测试先固定产品行为。
+- [x] GREEN：删除 dead code，修复全部稳定 diagnostics。
+- [x] 运行所有目标文件 diagnostics；Error、Warning、Information、Hint 数量必须为 0。
+- [x] 验证：`go test ./internal/app -run 'Test.*NewUI.*Script' -count=1`；所有 L08 目标包定向测试；`make capcontract-refresh && make capcontract-check`；三平台 manifest 字节一致性 job；`python3 scripts/validate_super_agent_skills.py`；`git diff --check`。
 
 ---
 
@@ -433,11 +437,11 @@ frontend listCronJobs API request
 
 ### 每个 lane 合并前
 
-- [ ] 主 agent 按源码、测试和 LSP 重新裁决 finding，不按 worker 自报状态合并。
-- [ ] 检查写集未越界，用户 README 改动未混入。
-- [ ] RED 证据确实因目标缺陷失败，GREEN 使用同一命令通过。
-- [ ] `file(diagnostics)` 对所有修改文件无任何 severity。
-- [ ] `git diff --check` 通过，生成文件来自规范生成器。
+- [x] 主 agent 按源码、测试和 LSP 重新裁决 finding，不按 worker 自报状态合并。
+- [x] 检查写集未越界，用户 README 改动未混入。
+- [x] RED 证据确实因目标缺陷失败，GREEN 使用同一命令通过。
+- [x] `file(diagnostics)` 对所有修改文件无任何 severity。
+- [x] `git diff --check` 通过，生成文件来自规范生成器。
 
 ### 串行集成顺序
 
@@ -471,20 +475,26 @@ npm test
 npm run build
 ```
 
+执行证据（2026-07-13，`codex/risk-zero-final-20260713`）：
+
+- 上述本地最终验证全部退出 0；`make test` 完整日志无 `FAIL`、data race 或 panic，并包含顺序 provider E2E。
+- `multilsp` 两处高负载时序测试已改为事件同步，目标用例 `-race -count=50`、整包 `-race -count=10` 通过；复核 agent 对测试语义与泄漏边界复核后无遗留 finding。
+- 远端 push、远端 SHA 和主分支 required-check 实际状态不在本地执行授权范围内，保持未勾选并作为发布阻断项。
+
 ### 清零验收表
 
-- [ ] Cron run/job 恢复终态为原子事务，无半成功路径。
-- [ ] Cron 原子端口保留 failure count、retry/next-run、claim 清理和全部 run/turn fence 语义。
-- [ ] Stop 返回后任何 worker 都不能再次入队、增加 accepted/enqueued 计数或发布 wake；push 已接受项按 drain-before-cancel 语义收口。
-- [ ] MCP header/body/JSON 均有独立、可测试的资源上限，reader size 与 header 上限显式一致。
-- [ ] CI 硬阻断 codemap/project-map 漂移，required gate 无 runner 必失败。
-- [ ] 架构扫描输入不受其他 worktree、缓存或生成目录影响。
-- [ ] 非法日期和非法 preview URL 在第一消费边界 fail-fast。
-- [ ] ApprovalManager 缺失在任何 pool acquire/transport dial 前阻断启动或恢复，运行中异常能终止 turn。
-- [ ] Cron list 按 API-only 边界完成 keyset 分页，无未授权 UI 扩面；字段守卫 missing/stale/roundtrip/fail-first 完整。
-- [ ] 开发脚本不隐式执行 `.env`。
-- [ ] capability manifest 在 canonical target matrix 下确定性生成，macOS/Linux/Windows 输出字节一致，生成 owner/派生物单向明确。
-- [ ] 所有已报告 dead code、29 条 diagnostics、build-tag 和 omitempty blocker 均清零；新鲜 diagnostics 若数量变化，以实际全量结果为准且最终必须为 0。
+- [x] Cron run/job 恢复终态为原子事务，无半成功路径。
+- [x] Cron 原子端口保留 failure count、retry/next-run、claim 清理和全部 run/turn fence 语义。
+- [x] Stop 返回后任何 worker 都不能再次入队、增加 accepted/enqueued 计数或发布 wake；push 已接受项按 drain-before-cancel 语义收口。
+- [x] MCP header/body/JSON 均有独立、可测试的资源上限，reader size 与 header 上限显式一致。
+- [x] CI 硬阻断 codemap/project-map 漂移，required gate 无 runner 必失败。
+- [x] 架构扫描输入不受其他 worktree、缓存或生成目录影响。
+- [x] 非法日期和非法 preview URL 在第一消费边界 fail-fast。
+- [x] ApprovalManager 缺失在任何 pool acquire/transport dial 前阻断启动或恢复，运行中异常能终止 turn。
+- [x] Cron list 按 API-only 边界完成 keyset 分页，无未授权 UI 扩面；字段守卫 missing/stale/roundtrip/fail-first 完整。
+- [x] 开发脚本不隐式执行 `.env`。
+- [x] capability manifest 在 canonical target matrix 下确定性生成，macOS/Linux/Windows 输出字节一致，生成 owner/派生物单向明确。
+- [x] 所有已报告 dead code、29 条 diagnostics、build-tag 和 omitempty blocker 均清零；新鲜 diagnostics 若数量变化，以实际全量结果为准且最终必须为 0。
 - [ ] 主分支保护已将远端 map-check job 设为 required；未配置则发布状态为 BLOCKED。
 - [ ] 工作区、提交、远端 SHA 和生成物状态均有可复查证据。
 

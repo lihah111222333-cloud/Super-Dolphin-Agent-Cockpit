@@ -20,6 +20,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
@@ -363,7 +364,7 @@ func newCodexE2EDriverFactoryWithMirror(t *testing.T, serverURL string, mirror c
 		return newCodexE2EFakeServer(serverURL), nil
 	}, codexapp.PoolConfig{})
 	t.Cleanup(func() { _ = pool.Close(context.Background()) })
-	return codexapp.NewDriverFactory(nil, nil, nil, nil, nil, pool, mirror, nil)
+	return codexapp.NewDriverFactory(nil, nil, rpc.NewApprovalManager(nil, nil), nil, nil, pool, mirror, nil)
 }
 
 type noopCodexE2ESkillMirrorReconciler struct{}
