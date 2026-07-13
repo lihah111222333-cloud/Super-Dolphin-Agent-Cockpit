@@ -5,6 +5,29 @@ import { writeBridgeLog } from './wailsBridgeLogRuntime.js';
 import { currentMonotonicMS, elapsedMS } from './wailsBridgeTraceEvents.js';
 import { callAPI, callByID } from './wailsBridgeRpc.js';
 
+const SHARED_FILE_PREVIEW_FIELD_CONSUMERS = Object.freeze({
+  url: Object.freeze({
+    direction: 'bridge-to-workflow-ui',
+    reason: 'WorkflowFinalOutputPanel renders the tokenized media URL.',
+    owner: 'frontend-app/src/pages/workflows/components/WorkflowFinalOutputPanel.jsx',
+  }),
+  path: Object.freeze({
+    direction: 'bridge-terminal-validation',
+    reason: 'The bridge validates the producer path; the workflow already owns the requested path.',
+    owner: 'frontend-app/src/shared/api/wails/wailsBridgeNativeFiles.js',
+  }),
+  contentType: Object.freeze({
+    direction: 'bridge-to-workflow-ui',
+    reason: 'WorkflowFinalOutputPanel consumes the producer media type.',
+    owner: 'frontend-app/src/pages/workflows/components/WorkflowFinalOutputPanel.jsx',
+  }),
+  sizeBytes: Object.freeze({
+    direction: 'bridge-terminal-validation',
+    reason: 'The bridge validates the producer size before terminating this field.',
+    owner: 'frontend-app/src/shared/api/wails/wailsBridgeNativeFiles.js',
+  }),
+});
+
 function logProjectDirSelection(path, via) {
   writeBridgeLog('info', 'ui.selectProjectDir.done', {
     selected: Boolean(path),
@@ -104,6 +127,38 @@ function hasOwnBridgeProperty(value, key) {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function assertSharedFilePreviewURL(method, value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new TypeError(`${method} response url must be a safe loopback preview URL`);
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (error) {
+    throw new TypeError(`${method} response url must be a safe loopback preview URL`, { cause: error });
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const loopback = hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+  const ids = parsed.searchParams.getAll('id');
+  const queryKeys = [...parsed.searchParams.keys()];
+  if (
+    parsed.protocol !== 'http:'
+    || !loopback
+    || !parsed.port
+    || parsed.pathname !== '/shared-file-preview'
+    || parsed.username
+    || parsed.password
+    || parsed.hash
+    || ids.length !== 1
+    || !ids[0].trim()
+    || queryKeys.length !== 1
+    || queryKeys[0] !== 'id'
+  ) {
+    throw new TypeError(`${method} response url must be a safe loopback preview URL`);
+  }
+  return value;
+}
+
 function nativeSelectFilesResponse(method, raw, { allowArray = false } = {}) {
   if (allowArray && Array.isArray(raw)) {
     return assertNativeStringArray(method, 'paths', raw);
@@ -174,19 +229,32 @@ function nativeSharedFileOpenResponse(method, raw) {
 
 function nativeSharedFilePreviewResponse(method, raw) {
   const value = assertNativeResponseObject(method, raw);
-  if (typeof value.url !== 'string' || !value.url.trim()) {
-    throw new TypeError(`${method} response url must be a non-empty string`);
+  const expectedFields = Object.keys(SHARED_FILE_PREVIEW_FIELD_CONSUMERS);
+  for (const field of Object.keys(value)) {
+    if (!hasOwnBridgeProperty(SHARED_FILE_PREVIEW_FIELD_CONSUMERS, field)) {
+      throw new TypeError(`${method} response contains unknown field ${field}`);
+    }
   }
+  const url = assertSharedFilePreviewURL(method, value.url);
   if (typeof value.path !== 'string' || !value.path.trim()) {
     throw new TypeError(`${method} response path must be a non-empty string`);
   }
-  if (hasOwnBridgeProperty(value, 'contentType') && typeof value.contentType !== 'string') {
-    throw new TypeError(`${method} response contentType must be a string`);
+  if (typeof value.contentType !== 'string' || !value.contentType.trim()) {
+    throw new TypeError(`${method} response contentType must be a non-empty string`);
   }
-  if (hasOwnBridgeProperty(value, 'sizeBytes') && (!Number.isFinite(value.sizeBytes) || value.sizeBytes < 0)) {
-    throw new TypeError(`${method} response sizeBytes must be a non-negative number`);
+  if (!Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 0) {
+    throw new TypeError(`${method} response sizeBytes must be a non-negative safe integer`);
   }
-  return value;
+  if (Object.keys(value).length !== expectedFields.length) {
+    const missing = expectedFields.find((field) => !hasOwnBridgeProperty(value, field));
+    throw new TypeError(`${method} response ${missing} is required`);
+  }
+  return {
+    url,
+    path: value.path,
+    contentType: value.contentType,
+    sizeBytes: value.sizeBytes,
+  };
 }
 
 async function selectFiles(options = {}) {
@@ -301,8 +369,9 @@ async function previewSharedFile({ path } = {}) {
 }
 
 export {
+  SHARED_FILE_PREVIEW_FIELD_CONSUMERS,
   selectProjectDir, selectProjectDirs, normalizeSelectFilesOptions, assertNativeResponseObject, assertNativeStringArray, nativePathListResponse,
   firstDiagnosticPath, normalizeBridgeInputString, nativeSelectFilesResponse, nativeDatasourceImportFileResponse, nativeDroppedTextFilesResponse, nativeTextFileSaveResponse,
-  nativeSharedFileOpenResponse, nativeSharedFilePreviewResponse, selectFiles, selectDatasourceImportFile, readDroppedTextFiles, saveClipboardImage,
+  nativeSharedFileOpenResponse, nativeSharedFilePreviewResponse, assertSharedFilePreviewURL, selectFiles, selectDatasourceImportFile, readDroppedTextFiles, saveClipboardImage,
   saveTextFile, openSharedFile, previewSharedFile,
 };

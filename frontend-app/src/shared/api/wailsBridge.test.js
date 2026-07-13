@@ -4,9 +4,20 @@ import { cwd } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { beginTextClipboardWrite, copyTextToClipboard, normalizeRuntimeEventEnvelope } from './wailsBridge.js';
+import {
+  SHARED_FILE_PREVIEW_FIELD_CONSUMERS,
+  nativeSharedFilePreviewResponse,
+} from './wails/wailsBridgeNativeFiles.js';
 
 const runtimeModule = '/wails/runtime.js';
 const devRuntimeShimModule = '../../../public/wails/runtime.js?test-runtime-shim';
+
+function sharedFilePreviewProducerFields() {
+  const source = readFileSync(join(cwd(), '..', 'internal', 'ui', 'wails', 'sharedfile_open.go'), 'utf8');
+  const match = source.match(/type sharedFilePreviewResult struct \{([\s\S]*?)\n\}/);
+  if (!match) throw new Error('sharedFilePreviewResult producer struct is required');
+  return [...match[1].matchAll(/json:"([^"]+)"/g)].map((entry) => entry[1]).sort();
+}
 
 function captureBridgeLogs(registerBridgeLogStore) {
   const logs = [];
@@ -273,6 +284,62 @@ describe('wails bridge shared file helpers', () => {
     await expect(previewSharedFile({ path: '' })).rejects.toThrow('previewSharedFile path is required');
   });
 
+  it('keeps the native preview consumer registry aligned with the Go producer', () => {
+    expect(Object.keys(SHARED_FILE_PREVIEW_FIELD_CONSUMERS).sort()).toEqual(sharedFilePreviewProducerFields());
+    expect(SHARED_FILE_PREVIEW_FIELD_CONSUMERS).toMatchObject({
+      contentType: { direction: 'bridge-to-workflow-ui' },
+      path: { direction: 'bridge-terminal-validation' },
+      sizeBytes: { direction: 'bridge-terminal-validation' },
+      url: { direction: 'bridge-to-workflow-ui' },
+    });
+  });
+
+  it('requires every exact native preview field one at a time', () => {
+    const valid = {
+      url: 'http://127.0.0.1:4511/shared-file-preview?id=sf_123',
+      path: 'dag/video/final.mp4',
+      contentType: 'video/mp4',
+      sizeBytes: 24,
+    };
+    for (const field of Object.keys(valid)) {
+      const candidate = { ...valid };
+      delete candidate[field];
+      expect(() => nativeSharedFilePreviewResponse('ui/sharedFile/open', candidate), field).toThrow(field);
+    }
+    expect(() => nativeSharedFilePreviewResponse('ui/sharedFile/open', { ...valid, stale: true }))
+      .toThrow('unknown field stale');
+  });
+
+  it.each([
+    'https://127.0.0.1:4511/shared-file-preview?id=sf_123',
+    'http://example.com:4511/shared-file-preview?id=sf_123',
+    'http://127.0.0.1:4511/not-preview?id=sf_123',
+    'http://127.0.0.1:4511/shared-file-preview?id=',
+    'http://127.0.0.1:4511/shared-file-preview?id=one&id=two',
+    'http://user@127.0.0.1:4511/shared-file-preview?id=sf_123',
+  ])('rejects unsafe native preview URL %s', (url) => {
+    expect(() => nativeSharedFilePreviewResponse('ui/sharedFile/open', {
+      url,
+      path: 'dag/video/final.mp4',
+      contentType: 'video/mp4',
+      sizeBytes: 24,
+    })).toThrow('response url');
+  });
+
+  it('accepts IPv4 and IPv6 loopback preview URLs with explicit runtime ports', () => {
+    for (const url of [
+      'http://127.0.0.1:4511/shared-file-preview?id=sf_ipv4',
+      'http://[::1]:4512/shared-file-preview?id=sf_ipv6',
+    ]) {
+      expect(nativeSharedFilePreviewResponse('ui/sharedFile/open', {
+        url,
+        path: 'dag/video/final.mp4',
+        contentType: 'video/mp4',
+        sizeBytes: 24,
+      }).url).toBe(url);
+    }
+  });
+
   it('rejects malformed native shared file responses', async () => {
     const byID = vi.fn((_methodID, method, payload) => {
       if (method !== 'ui/sharedFile/open') {
@@ -289,7 +356,7 @@ describe('wails bridge shared file helpers', () => {
     await expect(openSharedFile({ path: 'dag/video/final.mp4' }))
       .rejects.toThrow('ui/sharedFile/open response opened must be true');
     await expect(previewSharedFile({ path: 'dag/video/final.mp4' }))
-      .rejects.toThrow('ui/sharedFile/open response url must be a non-empty string');
+      .rejects.toThrow('ui/sharedFile/open response url must be a safe loopback preview URL');
   });
 });
 

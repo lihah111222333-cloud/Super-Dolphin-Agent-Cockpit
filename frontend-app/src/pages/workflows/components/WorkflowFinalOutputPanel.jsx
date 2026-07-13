@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAdapter.js';
 import { Panel } from '../../shared/pageComponents.jsx';
 import { parseStrictJsonValue } from '../../shared/pageShared.js';
+import { previewUrlFromResponse } from './workflowPreviewUrl.js';
 
 function normalizedText(value) {
   return value == null ? '' : String(value);
@@ -47,16 +48,6 @@ function formatInlinePreviewText(text) {
     }
   }
   return { formatted: text, isJson: false };
-}
-
-function previewUrlFromResponse(response) {
-  const url = normalizedText(response?.url).trim();
-  if (!url) throw new Error('preview URL is empty');
-  if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
-  return {
-    contentType: normalizedText(response?.contentType),
-    url,
-  };
 }
 
 async function loadWorkflowMediaPreview(outputPath, previewFile) {

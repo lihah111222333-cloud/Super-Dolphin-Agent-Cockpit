@@ -12,6 +12,20 @@ const helpers = createRuntimeResultHelpers({
   randomHex: () => 'abc123',
 });
 
+describe('required timestamp contract', () => {
+  it.each([
+    '2026-02-30T00:00:00Z',
+    '2025-02-29T00:00:00Z',
+    '2026-04-31T00:00:00Z',
+  ])('rejects impossible UTC calendar date %s', (value) => {
+    expect(() => parseRequiredTimestamp(value, 'timestamp')).toThrow('timestamp');
+  });
+
+  it('accepts a real leap day', () => {
+    expect(parseRequiredTimestamp('2024-02-29T00:00:00Z', 'timestamp')).toBe(1709164800000);
+  });
+});
+
 describe('runtime result helpers', () => {
   it('turns terminal tool timeline items into runtime result entries', () => {
     const entries = helpers.runtimeResultEntriesFromTimelineItems([
