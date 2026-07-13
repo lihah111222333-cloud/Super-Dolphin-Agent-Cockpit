@@ -123,14 +123,16 @@ flowchart LR
 ```bash
 ath init
 ath doctor
-ath session stream --target <profile> --mode <read|write> --jsonl
+ath session stream --target <profile> --mode read --jsonl
 ath replay <candidate-id> --json
 ath report <session-id>
 ```
 
+Foundation 只接受 `--mode read`。`write` 保留给后续具备 container/VM hard isolation 的阶段，不能在 light isolation 下通过参数开启。
+
 `ath session stream` 是一个前台长连接进程。它拥有 session、Playwright browser、页面、Electron 进程和 adapter handle；进程生命周期与 session 生命周期完全一致。它不监听端口，不创建后台 daemon，也不要求后续 CLI 进程恢复不可序列化的 runtime handle。
 
-进程完成 target provisioning 后，先输出一个 `session.ready` envelope。此后 Agent 通过 stdin 逐行发送 `observe`、`act`、`status` 和 `finish` 请求，每个请求恰好产生一个 stdout JSON envelope。Harness 不在 stdout 发送无请求对应的异步事件；运行时事件进入有界缓冲区，并由后续 observation 或 status 返回。
+进程完成 target provisioning 后，先以保留 request ID `ath:bootstrap` 输出一个 `session.ready` envelope。此后 Agent 通过 stdin 逐行发送 `observe`、`act`、`status` 和 `finish` 请求，每个有效请求恰好产生一个 stdout JSON envelope。无法归属于有效 client request 的格式错误或异步 runtime failure 在 stdout 仍可用时使用保留 ID `ath:terminal`；EOF、signal 或输出失效不会伪造一个 client response。运行时事件进入有界缓冲区，并由后续 observation 或 status 返回。
 
 ```json
 {"schemaVersion":"1","requestId":"r1","type":"observe"}
@@ -140,13 +142,15 @@ ath report <session-id>
 
 `act` 消息是授权和执行的原子操作。Agent 不能先取得独立授权凭据，再绕开 Core 直接执行动作。Action payload 只通过 stdin JSONL 传入，避免敏感输入进入进程参数、shell history 或诊断日志；首版不提供内联 action 参数。
 
-stdin EOF、`SIGINT`、`SIGTERM`、格式错误的 JSONL 或未捕获的 runtime 错误都触发同一 fail-fast shutdown：停止 target、关闭 browser、验证 cleanup、写入失败结果，然后退出。格式错误的协议行不会被跳过或猜测修复。
+stdin EOF、premature close、`SIGINT`、`SIGTERM`、格式错误的 JSONL、stdout ownership violation、输出失效或未捕获的 runtime 错误都触发同一 fail-fast shutdown：停止 target、关闭 browser、验证 cleanup、写入失败结果，然后退出。格式错误的协议行不会被跳过或猜测修复。已被接受的 `finish` 拥有 first-terminal 权威；后到的 EOF、signal 或 runtime event 不能把已经完成的 durable success 改写成失败，但真正无法交付 finish response 的 stdout failure 仍以 infrastructure exit 结束且不发送矛盾 envelope。
 
 每个动作必须携带 observation revision。页面或 target 状态变化导致 revision 失效时，CLI 返回明确错误，要求重新观察。
 
 ### 6.2 JSON envelope
 
-`--jsonl` 模式的 stdout 每行只能包含一个版本化 JSON envelope；诊断日志只能写入 stderr。初始 `session.ready` 和每个请求响应都使用相同 envelope。
+`--jsonl` 模式的 stdout 每行只能包含一个版本化 JSON envelope；诊断日志只能写入 stderr。入口在加载用户配置前保留一个私有 stdout write capability，并阻断公开 `process.stdout.write`，包括 process exit handlers；SDK、配置或依赖不能用普通 stdout API 污染协议。初始 `session.ready` 和每个请求响应都使用相同 envelope。
+
+stdin 使用 fatal UTF-8、LF/CRLF JSONL framing，并在换行前执行 1 MiB 原始字节上限；超限、无效 UTF-8、unterminated final record、未知字段或未知请求类型都作为 `CONTRACT_ERROR` fail-fast。请求串行执行，响应 writer 必须等待 callback 和 backpressure drain，并能被 shutdown 取消。
 
 ```json
 {
@@ -411,6 +415,8 @@ Skill 不复制 contracts，不直接导入 SDK，不读取 harness 内部状态
 - `INFRASTRUCTURE_ERROR`
 
 错误必须在 SDK、CLI JSON 和进程退出码之间保持一致。禁止吞错、补默认值或从 hard isolation 降级到 light isolation。
+
+CLI 退出码固定为：success `0`、`CONFIG_ERROR=2`、`CONTRACT_ERROR=3`、`POLICY_BLOCKED=4`、`TARGET_ERROR=5`、`ACTION_ERROR=6`、`ORACLE_FAILED=7`、`ISOLATION_ERROR=8`、`INFRASTRUCTURE_ERROR=9`。错误对象只信任 SDK 模块私有品牌确认的精确冻结实例；对外消息使用固定安全文本，不转发任意 caught error message、stack 或 accessor/proxy 值。
 
 ## 13. 测试和 CI
 

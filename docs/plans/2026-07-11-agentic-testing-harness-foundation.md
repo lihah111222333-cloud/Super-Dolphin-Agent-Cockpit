@@ -710,6 +710,11 @@ git commit -m "feat: 装配长生命周期 harness 会话"
 ### Task 9: Implement the long-lived CLI JSONL stream
 
 **Files:**
+- Modify: `package.json`
+- Modify: `package-lock.json`
+- Modify: `tsconfig.json`
+- Modify: `scripts/build.mjs`
+- Modify: `scripts/assert-build-output.mjs`
 - Create: `packages/cli/package.json`
 - Create: `packages/cli/tsconfig.json`
 - Create: `packages/cli/src/main.ts`
@@ -717,9 +722,11 @@ git commit -m "feat: 装配长生命周期 harness 会话"
 - Create: `packages/cli/src/session-stream.ts`
 - Create: `packages/cli/src/shutdown.ts`
 - Create: `packages/cli/src/exit-codes.ts`
+- Create: `packages/cli/src/stdout-guard.ts`
 - Test: `packages/cli/src/session-stream.test.ts`
+- Supporting SDK hardening: `packages/sdk/src/error-brand.ts`, `packages/sdk/src/error-brand.test.ts`, and the config/session/load-config trust points
 
-- [ ] **Step 1: Write failing subprocess tests**
+- [x] **Step 1: Write failing subprocess tests**
 
 ```ts
 it('emits ready, one response per request, and no stdout logs', async () => {
@@ -741,35 +748,43 @@ it('fails fast and cleans up on malformed JSONL', async () => {
 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npm test -- packages/cli/src/session-stream.test.ts`
 
 Expected: FAIL because `ath` is not implemented.
 
-- [ ] **Step 3: Implement stream dispatch and shutdown**
+- [x] **Step 3: Implement stream dispatch and shutdown**
 
-The CLI package exposes bin `{ "ath": "./dist/main.js" }`. Use `readline` over stdin; after provisioning write one `session.ready` envelope. Validate every line against `SessionRequestSchema`; unknown fields or malformed JSON terminate the session after a failure envelope. Process exactly one request at a time. `observe`, `act`, `status`, and `finish` call the live SDK object. `stdout.write` is centralized in `writeEnvelope`; all other logging uses stderr. EOF, `SIGINT`, `SIGTERM`, and uncaught errors call one idempotent shutdown function.
+The CLI package exposes only bin `{ "ath": "./dist/main.js" }` and seals JavaScript imports with `"exports": {}`. A fatal UTF-8 JSONL framer enforces the 1 MiB pre-newline byte limit without `readline`, accepts only strict `SessionRequestSchema` messages, and processes requests sequentially. Provisioning emits the reserved `ath:bootstrap` `session.ready` envelope; malformed input or an asynchronous runtime failure uses the reserved `ath:terminal` failure envelope when stdout is still viable. Valid `observe`, `act`, `status`, and `finish` requests call the one live SDK session and return schema-validated, revision/session/evidence-consistent envelopes.
 
-Exit codes are fixed: success `0`, `CONFIG_ERROR=2`, `CONTRACT_ERROR=3`, `POLICY_BLOCKED=4`, `ISOLATION_ERROR=5`, `TARGET_ERROR=6`, `ACTION_ERROR=7`, `ORACLE_FAILED=8`, and `INFRASTRUCTURE_ERROR=9`.
+`stdout` is an owned protocol resource. The entrypoint captures one private write capability, makes public `process.stdout.write` non-configurable and non-writable, converts attempted writes into an infrastructure shutdown, and keeps stdout sealed while process exit handlers run. Diagnostics use bounded fixed messages on stderr and never publish an arbitrary caught error message. EOF, premature stdin close, `SIGINT`, `SIGTERM`, output failure, and uncaught runtime failure share one idempotent shutdown controller. Backpressured writes are cancellable; buffered complete requests are drained in order; an accepted `finish` remains authoritative over later EOF, signal, runtime, or stdout-ownership events, while a real response transport failure exits as infrastructure failure without emitting a contradictory envelope.
 
-- [ ] **Step 4: Verify GREEN including signals**
+SDK error identity is backed by module-private `WeakMap` brands for exact, frozen config/session error instances. Proxy, subclass, native-error prototype forgery, and forged abort reasons fail closed; CLI error publication trusts the branded code only and always substitutes a fixed public message.
+
+Exit codes are fixed: success `0`, `CONFIG_ERROR=2`, `CONTRACT_ERROR=3`, `POLICY_BLOCKED=4`, `TARGET_ERROR=5`, `ACTION_ERROR=6`, `ORACLE_FAILED=7`, `ISOLATION_ERROR=8`, and `INFRASTRUCTURE_ERROR=9`.
+
+- [x] **Step 4: Verify GREEN including signals**
 
 ```bash
-npm run build
 npm test -- packages/cli/src/session-stream.test.ts
-npm run typecheck
+npm run verify
+npm pack --dry-run --json --workspace agentic-testing-harness
 ```
 
-Expected: ready/request/finish, malformed JSONL, EOF, and signal cases PASS with no leaked process.
+Actual: CLI subprocess coverage passed `80/80`; workspace verification passed `22` files with `734` tests and one explicit Windows-only platform skip; lint, typecheck, final build, and production-output guards passed. The dry-run pack contained 13 production entries, no tests, a shebang, and executable mode `0755` for `dist/main.js`. Invalid arguments produced exactly one schema-valid bootstrap failure and exit `2`. No child process, target PID, or protocol stdout line leaked.
 
-- [ ] **Step 5: Commit CLI stream**
+MCP LSP evidence is not marked PASS: every required navigation/diagnostic action against `/Users/l4place/Documents/agentic-testing-harness` returned `path_outside_workspace` because the configured trusted root is `/Users/l4place/Documents/Super-Dolphin`.
+
+- [x] **Step 5: Commit CLI stream**
 
 ```bash
-git add packages/cli package.json package-lock.json
+git add packages/cli package.json package-lock.json tsconfig.json scripts/build.mjs scripts/assert-build-output.mjs
 git diff --cached --check
 git commit -m "feat: 提供 ath 长连接 JSONL 会话"
 ```
+
+Actual independent-repository commits: `6b66e99` (CLI protocol/session termination contracts), `9837ccd` (SDK genuine-error identity), and `6dbc1c4` (bin-only long-lived CLI stream).
 
 ### Task 10: Add init, doctor, report, and replay commands
 
