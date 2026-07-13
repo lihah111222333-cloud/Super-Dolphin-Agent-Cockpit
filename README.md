@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer declaration: 100% AI-written original code and project-authored documentation, human-directed, repository-guarded.** Product code, test code, and project-owned documentation are written or refactored by AI agents. Humans retain ownership of product intent, architecture decisions, credentials, and releases. Authorship does not imply infallibility: every accepted change remains subject to repository-owned evidence and gates. Upstream legal and community texts retain their original attribution.
 
-Super Dolphin Agent is an **AI-native software governance and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
+Super Dolphin Agent is a **production-grade, AI-native vibe-coding engineering system and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
 
 The English README is the canonical overview. Translations preserve the same product scope, commands, paths, environment variables, repository identity, and license. Detailed facts live in [Architecture](docs/open-source/ARCHITECTURE.md), [Governance in Action](docs/open-source/GOVERNANCE.md), and the generated [Code Map](docs/doc/codemap/README.md).
 
@@ -35,6 +35,18 @@ Super Dolphin periodically consolidates evidence from bugs proven by tests or re
 Skills and prompts can guide generation; guards constrain what may be accepted. A candidate guard still requires reproducible evidence, a generalizable invariant, and deterministic acceptance checks—this is evidence-driven ratcheting, not blind self-modification. The repository currently implements automatic memory consolidation and extensive guard infrastructure; fully automatic end-to-end promotion of every fix into a new executable guard remains an engineering direction rather than a claim of complete coverage.
 
 This is the direction of AI-native vibe coding: humans specify intent, architecture, and acceptance boundaries; AI generates within those specifications; the repository learns from defects and becomes progressively more robust and legible instead of depending on people to rediscover the same class of bug.
+
+### Production-grade vibe coding, not only agent autonomy
+
+Well-known projects such as [Hermes Agent](https://github.com/NousResearch/hermes-agent) and [OpenClaw](https://github.com/openclaw/openclaw) demonstrate the value of autonomous execution, broad tool use, persistent memory, and reusable skills. Hermes emphasizes a learning loop that creates and improves skills from experience; OpenClaw emphasizes a personal assistant that acts across operating systems, messaging platforms, and services.
+
+Agent capabilities are extensible rather than fixed. A community can add skills, MCP servers, providers, tools, plugins, and workflows until a system matches or exceeds the functional capabilities of Hermes Agent, OpenClaw, or today's other leading agents. Super Dolphin therefore does not define its durable advantage by having the most features or the strongest point-in-time capability.
+
+These projects also illustrate an inherent limitation of agent-first vibe coding: stronger autonomy, more tools, persistent memory, and self-improving skills do not make repository evolution controllable by themselves. When AI agents continuously modify a large codebase, the unresolved questions remain: who preserves architecture, tests the right properties, prevents a proven bad pattern from returning, and decides what code is allowed to survive?
+
+When code is produced tens or hundreds of times faster, human review capacity cannot scale at the same rate. Without repository-enforced specifications, contracts, regression tests, and executable gates, even an expert engineering team can gradually lose control of its code. Local features may keep working while duplicated paths, lifecycle ambiguity, hidden coupling, and untested assumptions accumulate until the system becomes progressively harder to understand, test, deliver, and maintain.
+
+Super Dolphin's advantage is **sustainable iteration**. It treats the repository itself as the control system so new community capabilities can be absorbed without rapidly turning the codebase into unmaintainable architecture. Specifications define intent; typed contracts and dependency boundaries restrict implementation; tests and regression fixtures preserve demonstrated behavior; AST/SSA guards and change-aware gates reject known bad smells. Features can keep growing, but only code that satisfies the repository's executable specification is accepted.
 
 ### Bounded-context maintenance
 

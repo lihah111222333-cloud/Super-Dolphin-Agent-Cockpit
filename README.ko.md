@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer 선언: 독창적 코드와 프로젝트 자체 문서는 100% AI가 작성하며, 인간이 방향을 정하고 저장소가 보호합니다.** Product code, test code, 프로젝트 자체 문서는 모두 AI 에이전트가 작성하거나 리팩토링합니다. Product intent, architecture decision, credential, release의 책임은 인간에게 있습니다. AI가 작성했다는 사실이 무결성을 뜻하지는 않습니다. 수용되는 모든 변경은 저장소가 소유한 evidence와 gate를 통과해야 합니다. 외부에서 가져온 법률 및 커뮤니티 표준 문서는 원래의 저작자 표시를 유지합니다.
 
-Super Dolphin Agent는 **AI 네이티브 소프트웨어 거버넌스 및 멀티 에이전트 개발 제어 평면**입니다. 로컬 데스크톱 runtime, MCP orchestration, 다국어 LSP navigation, Provider integration, 영속 workflow, 기계적으로 강제되는 engineering boundary를 하나의 동작하는 참조 구현에 통합합니다.
+Super Dolphin Agent는 **production-grade AI-native vibe-coding engineering system 및 multi-agent development control plane**입니다. 로컬 데스크톱 runtime, MCP orchestration, 다국어 LSP navigation, Provider integration, 영속 workflow, 기계적으로 강제되는 engineering boundary를 하나의 동작하는 참조 구현에 통합합니다.
 
 영문 [README.md](README.md)가 규범적 개요입니다. 번역본은 동일한 product scope, command, path, environment variable, repository identity, license를 유지합니다. 자세한 사실은 [Architecture](docs/open-source/ARCHITECTURE.md), [Governance in Action](docs/open-source/GOVERNANCE.md), 생성된 [Code Map](docs/doc/codemap/README.md)을 참조하세요.
 
@@ -35,6 +35,18 @@ Super Dolphin은 test 또는 실제 사용에서 잘못된 것으로 입증된 b
 Skill과 prompt는 생성을 안내하지만 guard는 무엇을 수용할 수 있는지 강제합니다. 후보 guard에는 재현 가능한 evidence, 일반화 가능한 invariant, 결정적인 acceptance check가 필요합니다. 이는 통제되지 않은 자기 수정이 아니라 evidence-driven ratchet입니다. 현재 저장소는 자동 memory consolidation과 광범위한 guard infrastructure를 구현하고 있지만, 모든 수정을 새로운 실행 가능한 guard로 완전 자동 end-to-end 승격하는 것은 완전한 적용을 주장하는 기능이 아니라 계속 발전시키는 engineering direction입니다.
 
 이것이 AI-native vibe coding이 나아갈 방향입니다. 인간은 intent, architecture, acceptance boundary를 정의하고 AI는 그 specification 안에서만 코드를 생성합니다. 저장소는 결함에서 학습하고 engineering baseline을 계속 강화하여, 같은 종류의 bug를 사람이 반복해서 찾아 처리하지 않아도 더 견고하고 명확해집니다.
+
+### Agent 자율성을 넘어선 production-grade vibe coding
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent)와 [OpenClaw](https://github.com/openclaw/openclaw) 같은 유명 프로젝트는 자율 실행, 폭넓은 tool 사용, persistent memory, 재사용 가능한 Skill의 가치를 보여 줍니다. Hermes는 경험에서 Skill을 만들고 개선하는 learning loop를 강조하며, OpenClaw는 OS, messaging platform, service 전반에서 작업하는 personal AI assistant를 강조합니다.
+
+Agent system의 capability는 고정되어 있지 않습니다. Community는 Skill, MCP Server, Provider, tool, plugin, workflow를 계속 추가하여 Hermes Agent, OpenClaw 또는 현재의 다른 선도 Agent와 동등하거나 더 강한 기능을 만들 수 있습니다. 따라서 Super Dolphin은 기능 수가 가장 많거나 특정 시점의 단일 capability가 가장 강한 것을 장기적 우위로 정의하지 않습니다.
+
+이 유명 프로젝트들은 Agent-first vibe coding의 고유한 한계도 보여 줍니다. 더 강한 autonomy, 더 많은 tool, persistent memory, 자기 개선 Skill만으로는 repository evolution이 통제 가능해지지 않습니다. AI Agent가 대규모 codebase를 계속 수정할 때 누가 architecture를 지키고, 중요한 property를 test하며, 이미 잘못된 것으로 입증된 pattern의 재발을 막고, 어떤 code를 남길 수 있는지 결정할 것인지라는 문제가 그대로 남습니다.
+
+Code가 사람보다 수십 배에서 수백 배 빠르게 생성되어도 사람의 review capacity는 같은 비율로 확장될 수 없습니다. Repository가 강제하는 specification, contract, regression test, 실행 가능한 gate가 없다면 전문 engineering team조차 점차 code에 대한 control을 잃습니다. 국소 기능은 계속 동작할 수 있지만 중복 path, lifecycle 모호성, hidden coupling, 검증되지 않은 assumption이 누적되어 system을 이해하고 test하고 delivery하고 유지하는 일이 계속 어려워집니다.
+
+Super Dolphin의 우위는 **sustainable iteration**입니다. Repository 자체를 control system으로 취급하여 community가 추가하는 새로운 capability를 흡수하면서도 codebase가 빠르게 유지 불가능한 architecture로 변하는 것을 막습니다. Specification이 intent를 정의하고, typed contract와 dependency boundary가 구현을 제한하며, test와 regression fixture가 입증된 behavior를 보존하고, AST/SSA guard와 change-aware gate가 알려진 bad smell을 거부합니다. 기능은 계속 성장할 수 있지만 repository의 executable specification을 만족하는 code만 수용됩니다.
 
 ### 제한된 컨텍스트를 이용한 유지보수
 

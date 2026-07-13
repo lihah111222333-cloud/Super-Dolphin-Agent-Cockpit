@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **メンテナー宣言：オリジナルコードとプロジェクト固有ドキュメントは 100% AI が記述し、人間が方向を定め、リポジトリが守ります。** Product code、test code、プロジェクト固有ドキュメントは、すべて AI エージェントが記述またはリファクタリングしています。Product intent、architecture decision、credential、release の責任は人間が負います。AI が作者であることは無謬性を意味しません。受け入れられるすべての変更には、リポジトリが所有する evidence と gate が引き続き必要です。上流由来の法的文書およびコミュニティ文書は、元の帰属表示を維持します。
 
-Super Dolphin Agent は、**AI ネイティブなソフトウェアガバナンスとマルチエージェント開発のコントロールプレーン**です。ローカルデスクトップ runtime、MCP orchestration、多言語 LSP navigation、Provider integration、永続 workflow、機械的に強制される engineering boundary を、一つの動作する参照実装に統合します。
+Super Dolphin Agent は、**production-grade で AI-native な vibe-coding engineering system と multi-agent development control plane**です。ローカルデスクトップ runtime、MCP orchestration、多言語 LSP navigation、Provider integration、永続 workflow、機械的に強制される engineering boundary を、一つの動作する参照実装に統合します。
 
 英語版 [README.md](README.md) が正規の概要です。翻訳版は、同じ product scope、command、path、environment variable、repository identity、license を維持します。詳細な事実は [Architecture](docs/open-source/ARCHITECTURE.md)、[Governance in Action](docs/open-source/GOVERNANCE.md)、生成された [Code Map](docs/doc/codemap/README.md) を参照してください。
 
@@ -35,6 +35,18 @@ Super Dolphin は、test または実利用で問題だと証明された bug fi
 Skill と prompt は生成を導けますが、guard は何を受け入れられるかを強制します。候補となる guard には、再現可能な evidence、一般化可能な invariant、決定的な acceptance check が必要です。これは無制限な自己変更ではなく、evidence-driven な ratchet です。現在のリポジトリは自動 memory consolidation と広範な guard infrastructure を実装していますが、すべての修正を新しい実行可能な guard へ完全自動で end-to-end 昇格させることは、継続中の engineering direction であり、完全な網羅を主張するものではありません。
 
 これは AI-native vibe coding が進む方向です。人間が intent、architecture、acceptance boundary を定義し、AI はその specification 内でのみコードを生成します。リポジトリは欠陥から学び、同種の bug を人手で何度も発見・処理することに頼らず、より堅牢で明快になっていきます。
+
+### Agent の自律性だけではない production-grade vibe coding
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) や [OpenClaw](https://github.com/openclaw/openclaw) のような著名なプロジェクトは、自律実行、幅広い tool 利用、persistent memory、再利用可能な Skill の価値を示しています。Hermes は経験から Skill を作成・改善する learning loop を重視し、OpenClaw は OS、messaging platform、service を横断して動作する personal AI assistant を重視します。
+
+Agent system の capability は固定ではありません。Community は Skill、MCP Server、Provider、tool、plugin、workflow を継続的に追加し、Hermes Agent、OpenClaw、その他の先進的な Agent と同等以上の機能へ発展させられます。そのため Super Dolphin は、機能数の多さや特定時点の単独 capability を長期的な優位性とは定義しません。
+
+これらの著名なプロジェクトは、Agent-first vibe coding に固有の限界も示しています。より強い autonomy、多数の tool、persistent memory、自己改善する Skill だけでは、repository evolution は制御可能になりません。AI Agent が大規模な codebase を継続的に変更するとき、誰が architecture を守り、重要な property を test し、既知の bad pattern の再発を防ぎ、どの code を残せるかを決めるのかという問題が残ります。
+
+Code が人間の数十倍から数百倍の速度で生成されても、人間の review capacity は同じ比率では増やせません。Repository が強制する specification、contract、regression test、実行可能な gate がなければ、専門的な engineering team でさえ徐々に code の control を失います。局所機能は動き続けても、重複 path、lifecycle の曖昧さ、hidden coupling、未検証の assumption が蓄積し、system は理解、test、delivery、保守のすべてで難しくなります。
+
+Super Dolphin の優位性は **sustainable iteration** です。Repository 自体を control system として扱うことで、community が追加する新しい capability を吸収しながら、codebase が急速に保守不能な architecture へ変わることを防ぎます。Specification が intent を定義し、typed contract と dependency boundary が実装を制限し、test と regression fixture が実証済みの behavior を保持し、AST/SSA guard と change-aware gate が既知の bad smell を拒否します。機能は増え続けられますが、repository の executable specification を満たす code だけが受け入れられます。
 
 ### 境界づけられたコンテキストでの保守
 
