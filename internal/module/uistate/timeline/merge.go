@@ -1,5 +1,6 @@
 package timeline
 
+// mergeItem 将同一时间线条目的增量字段合并到已有条目。
 func mergeItem(dst *Item, src Item) {
 	if dst == nil {
 		return
@@ -7,6 +8,7 @@ func mergeItem(dst *Item, src Item) {
 	mergeStringIfEmpty(&dst.ID, src.ID)
 	mergeString(&dst.Kind, src.Kind)
 	mergeStatusField(dst, src.Status)
+	mergeString(&dst.SessionScope, src.SessionScope)
 	mergeString(&dst.CallID, src.CallID)
 	mergeInt64(&dst.RequestID, src.RequestID)
 	mergeString(&dst.Command, src.Command)

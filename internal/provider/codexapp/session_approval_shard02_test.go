@@ -198,7 +198,7 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	defer cancelSub()
 
 	payload := commandApprovalPayload(1, "call-1", "echo hi")
-	duplicate := commandApprovalPayload(1, "call-1-replayed", "echo hi")
+	duplicate := commandApprovalPayload(1, "call-1", "echo hi")
 	if err := s.requestToolApproval("item/commandExecution/requestApproval", payload); err != nil {
 		t.Fatalf("first requestToolApproval() error = %v", err)
 	}
@@ -209,6 +209,95 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	assertRequestedOnce(t, requested, 1)
 	assertProcessedApprovalCachedDecline(t, s, payload)
 	assertApprovalRespondDeclinesSanitized(t, waitForApprovalRespondParams(t, recorder, 2))
+}
+
+func TestRequestToolApprovalSeparatesSameRequestIDAcrossCallIDs(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, nil)
+	var calls []rpc.ApprovalRequest
+	s.approvalDecisionHook = func(_ context.Context, req rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		calls = append(calls, req)
+		return rpcDecision(false, "decline"), nil
+	}
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+
+	for _, payload := range [][]byte{
+		commandApprovalPayload(1, "call-1", "echo hi"),
+		commandApprovalPayload(1, "call-2", "echo hi"),
+	} {
+		if err := s.requestToolApproval("item/commandExecution/requestApproval", payload); err != nil {
+			t.Fatalf("requestToolApproval() error = %v", err)
+		}
+	}
+	if len(calls) != 2 || calls[0].CallID != "call-1" || calls[1].CallID != "call-2" {
+		t.Fatalf("approval calls = %+v, want independent call-1 and call-2", calls)
+	}
+	waitForApprovalRespondParams(t, recorder, 2)
+}
+
+func TestRequestToolApprovalRejectsPayloadChangeForSameIdentity(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, nil)
+	calls := 0
+	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		calls++
+		return rpcDecision(false, "decline"), nil
+	}
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+
+	if err := s.requestToolApproval("item/commandExecution/requestApproval", commandApprovalPayload(7, "call-7", "echo first")); err != nil {
+		t.Fatalf("first requestToolApproval() error = %v", err)
+	}
+	err := s.requestToolApproval("item/commandExecution/requestApproval", commandApprovalPayload(7, "call-7", "echo changed"))
+	if err == nil || !strings.Contains(err.Error(), "approval payload conflicts with an existing identity") {
+		t.Fatalf("conflicting requestToolApproval() error = %v, want payload conflict", err)
+	}
+	if calls != 1 {
+		t.Fatalf("approval hook calls = %d, want 1", calls)
+	}
+	waitForApprovalRespondParams(t, recorder, 1)
+}
+
+func TestRequestToolApprovalRejectsNumericCallIDWithoutAuthorizationEvent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload map[string]any
+	}{
+		{name: "top-level numeric", payload: map[string]any{"requestId": int64(91), "callId": int64(91), "toolName": "shell"}},
+		{name: "nested item numeric", payload: map[string]any{"requestId": int64(91), "item": map[string]any{"callId": int64(91), "toolName": "shell"}}},
+		{name: "numeric and string aliases", payload: map[string]any{"requestId": int64(91), "callId": int64(91), "call_id": "91", "toolName": "shell"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := &approvalRespondRecorder{}
+			server := startApprovalRespondRecorderServer(t, recorder)
+			defer server.Close()
+			dispatcher := event.NewDispatcher()
+			requested := make(chan tooldto.ToolApprovalRequested, 1)
+			cancelSub := event.Subscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) { requested <- ev })
+			defer cancelSub()
+			s := newApprovalRecorderSession(t, server.URL, rpc.NewApprovalManager(nil, dispatcher))
+			s.runtime.Start()
+			defer closeCodexTestSession(t, s)
+
+			err := s.requestToolApproval("item/commandExecution/requestApproval", mustJSON(tc.payload))
+			if err == nil || !strings.Contains(err.Error(), "approval request identity is required") {
+				t.Fatalf("requestToolApproval() error = %v, want identity failure", err)
+			}
+			select {
+			case ev := <-requested:
+				t.Fatalf("numeric call ID published authorizable event: %+v", ev)
+			case <-time.After(50 * time.Millisecond):
+			}
+		})
+	}
 }
 
 func assertRequestedOnce(t *testing.T, requested <-chan tooldto.ToolApprovalRequested, requestID int64) {

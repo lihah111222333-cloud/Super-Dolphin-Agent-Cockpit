@@ -9,7 +9,7 @@ import (
 
 const defaultApprovalCleanupInterval = time.Minute
 
-// Cleanup 把超过 timeout 的 pending 审批标记为超时失败。
+// Cleanup 把超过 timeout 的 pending 审批标记为超时失败，并淘汰过期完成记录。
 // lifecycleMu 防止定时清理、启动恢复和停止清理同时操作同一批 pending。
 func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	if m == nil || timeout <= 0 {
@@ -23,6 +23,13 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 			continue
 		}
 		m.failPending(pending, ErrApprovalTimeout("approval timed out"))
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, completed := range m.completed {
+		if !completed.completedAt.After(cutoff) {
+			delete(m.completed, key)
+		}
 	}
 }
 

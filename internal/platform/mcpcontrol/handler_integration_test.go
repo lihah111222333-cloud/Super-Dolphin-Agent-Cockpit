@@ -343,3 +343,79 @@ func TestNewHandlers_HookMethods_InvalidParams(t *testing.T) {
 		})
 	}
 }
+
+func TestNewHandlers_ApprovalSignsTrustedInternalIdentity(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	approvals := platformrpc.NewApprovalManager(nil, nil)
+	bridge := platformrpc.NewPushBridge(nil, nil)
+	captured := make(chan map[string]any, 1)
+	methods := NewHandlers(HandlerDeps{
+		Registry:  registry,
+		Approvals: approvals,
+		Bridge:    bridge,
+	}).Handlers
+	callback := platformrpc.StrictHandler(func(_ context.Context, params map[string]any) (map[string]any, error) {
+		captured <- params
+		return map[string]any{"approved": true, "reason": "approved"}, nil
+	})
+	local := jrpcserver.NewLocal(methods, &jrpcserver.LocalOptions{
+		Client: &jrpc2.ClientOptions{OnCallback: callback},
+		Server: &jrpc2.ServerOptions{AllowPush: true},
+	})
+	t.Cleanup(func() {
+		_ = local.Close()
+	})
+
+	var registered dto.RegisterResponse
+	if err := local.Client.CallResult(context.Background(), dto.MethodRegister, dto.RegisterRequest{
+		InstanceID: "instance-approval",
+		BinaryName: "mcp-orch",
+		AgentID:    "agent-approval",
+		ThreadID:   "thread-approval",
+		ClientKind: dto.ClientKindOrch,
+		PeerKind:   dto.PeerKindTool,
+		PID:        1234,
+	}, &registered); err != nil {
+		t.Fatalf("CallResult(register) error = %v", err)
+	}
+
+	var response dto.ApprovalResponse
+	if err := local.Client.CallResult(context.Background(), dto.MethodApproval, dto.ApprovalRequest{
+		InstanceID: registered.InstanceID,
+		Generation: registered.Generation,
+		CallID:     "call-approval",
+		ToolName:   "shell",
+		Reason:     "requires review",
+		Kind:       "tool",
+	}, &response); err != nil {
+		t.Fatalf("CallResult(approval) error = %v", err)
+	}
+	if response.Approved == nil || !*response.Approved {
+		t.Fatalf("ApprovalResponse.Approved = %v, want true", response.Approved)
+	}
+
+	params := <-captured
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("json.Marshal(callback params) error = %v", err)
+	}
+	var identity struct {
+		SessionScope string `json:"sessionScope"`
+		CallID       string `json:"callId"`
+		RequestID    int64  `json:"requestId"`
+	}
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		t.Fatalf("json.Unmarshal(callback identity) error = %v", err)
+	}
+	if identity.SessionScope == "" {
+		t.Fatal("callback sessionScope is empty, want manager-signed scope")
+	}
+	if identity.CallID != "call-approval" {
+		t.Fatalf("callback callId = %q, want %q", identity.CallID, "call-approval")
+	}
+	if identity.RequestID <= 0 {
+		t.Fatalf("callback requestId = %d, want positive manager-signed id", identity.RequestID)
+	}
+}

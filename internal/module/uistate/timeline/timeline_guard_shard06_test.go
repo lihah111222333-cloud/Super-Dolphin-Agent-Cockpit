@@ -45,6 +45,63 @@ func TestRegisterSubscriptions_ApprovalRequestAndResolve(t *testing.T) {
 	assertApprovalDoneItem(t, svc.GetByThread("t1")[0])
 }
 
+func TestRegisterSubscriptions_ApprovalIdentitySeparatesSameRequestID(t *testing.T) {
+	svc, dispatcher, _ := newTimelineSubscriptionFixture(t, 0)
+
+	first := approvalRequestedEvent("call-a", "file_edit", "", "tool")
+	first.SessionScope = "session-a"
+	first.RequestID = 7
+	second := approvalRequestedEvent("call-b", "file_edit", "", "tool")
+	second.SessionScope = "session-b"
+	second.RequestID = 7
+	event.Publish(dispatcher, first)
+	event.Publish(dispatcher, second)
+	waitForCondition(t, func() bool {
+		return timelineHasItemCount(svc, "t1", 2)
+	}, "expected approvals with the same request ID to remain distinct")
+
+	resolved := approvalResolvedEvent("call-b", "file_edit", "", true)
+	resolved.SessionScope = "session-b"
+	resolved.RequestID = 7
+	event.Publish(dispatcher, resolved)
+	waitForCondition(t, func() bool {
+		return timelineHasApprovalState(svc.GetByThread("t1"), "session-b", "call-b", 7, "approved", true)
+	}, "expected resolution to update only its exact approval identity")
+
+	items := svc.GetByThread("t1")
+	if !timelineHasApprovalState(items, "session-a", "call-a", 7, "pending", false) {
+		t.Fatalf("unrelated approval = %+v, want exact identity to remain pending", items)
+	}
+}
+
+func TestRegisterSubscriptions_IncompleteResolutionDoesNotMutatePending(t *testing.T) {
+	svc, dispatcher, _ := newTimelineSubscriptionFixture(t, 0)
+
+	pending := approvalRequestedEvent("call-ambiguous", "file_edit", "", "tool")
+	pending.SessionScope = "session-a"
+	pending.RequestID = 9
+	event.Publish(dispatcher, pending)
+	waitForCondition(t, func() bool {
+		return timelineHasItemCount(svc, "t1", 1)
+	}, "expected canonical pending approval")
+
+	resolved := approvalResolvedEvent("call-ambiguous", "file_edit", "", true)
+	resolved.SessionScope = ""
+	resolved.RequestID = 9
+	event.Publish(dispatcher, resolved)
+	waitForCondition(t, func() bool {
+		return timelineHasItemCount(svc, "t1", 2)
+	}, "expected incomplete resolution to append a display-only terminal item")
+
+	items := svc.GetByThread("t1")
+	if items[0].Status != "pending" || items[0].Done {
+		t.Fatalf("canonical pending item = %+v, want untouched pending", items[0])
+	}
+	if items[1].Status != "approved" || !items[1].Done || items[1].SessionScope != "" {
+		t.Fatalf("display-only terminal item = %+v, want approved with incomplete identity", items[1])
+	}
+}
+
 func TestRegisterSubscriptions_ApprovalResolveFallbackPreservesRequestID(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -62,6 +119,9 @@ func TestRegisterSubscriptions_ApprovalResolveFallbackPreservesRequestID(t *test
 				if err := json.Unmarshal([]byte(`{"request_id":41}`), &ev); err != nil {
 					t.Fatalf("unmarshal resolved approval request identity: %v", err)
 				}
+			} else {
+				ev.SessionScope = ""
+				ev.RequestID = 0
 			}
 
 			event.Publish(dispatcher, ev)
@@ -189,9 +249,11 @@ func approvalRequestedEvent(callID, toolName, approvalID, kind string) tooldto.T
 	return tooldto.ToolApprovalRequested{
 		ToolApprovalHeader: shared.ToolApprovalHeader{
 			ToolCallHeader: toolCallHeader(callID, toolName),
+			SessionScope:   "test-session-scope",
 			ApprovalID:     approvalID,
 		},
-		Kind: kind,
+		RequestID: 1,
+		Kind:      kind,
 	}
 }
 
@@ -199,9 +261,11 @@ func approvalResolvedEvent(callID, toolName, approvalID string, approved bool) t
 	return tooldto.ToolApprovalResolved{
 		ToolApprovalHeader: shared.ToolApprovalHeader{
 			ToolCallHeader: toolCallHeader(callID, toolName),
+			SessionScope:   "test-session-scope",
 			ApprovalID:     approvalID,
 		},
-		Approved: approved,
+		RequestID: 1,
+		Approved:  approved,
 	}
 }
 
@@ -229,6 +293,22 @@ func timelineHasItemKind(svc timeline.Service, threadID string, index int, kind 
 
 func timelineHasItemCount(svc timeline.Service, threadID string, want int) bool {
 	return len(svc.GetByThread(threadID)) == want
+}
+
+func timelineHasApprovalState(items []timeline.Item, sessionScope, callID string, requestID int64, status string, done bool) bool {
+	for _, item := range items {
+		if item.SessionScope != sessionScope {
+			continue
+		}
+		if item.CallID != callID {
+			continue
+		}
+		if item.RequestID != requestID {
+			continue
+		}
+		return item.Status == status && item.Done == done
+	}
+	return false
 }
 
 func timelineItemAt(svc timeline.Service, threadID string, index int) (timeline.Item, bool) {

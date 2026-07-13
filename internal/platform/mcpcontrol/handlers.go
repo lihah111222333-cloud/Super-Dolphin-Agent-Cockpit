@@ -178,7 +178,7 @@ func requestApproval(
 			defer cancel()
 		}
 		payload := trustedApprovalPayload(req.Payload)
-		decision, err := approvals.RequestApproval(callCtx, bridge, server, rpc.ApprovalRequest{
+		decision, err := approvals.RequestInternalApproval(callCtx, bridge, server, rpc.ApprovalRequest{
 			CallID:       req.CallID,
 			ApprovalID:   req.CallID,
 			ToolName:     req.ToolName,

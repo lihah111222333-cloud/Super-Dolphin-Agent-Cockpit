@@ -202,9 +202,11 @@ func TestApprovalRequested_ApprovalKind(t *testing.T) {
 				CallID:     "call-approval",
 				ToolName:   "shell",
 			},
-			ApprovalID: "approval-1",
+			SessionScope: "test-session-scope",
+			ApprovalID:   "approval-1",
 		},
-		Kind: "request_user_input",
+		RequestID: 1,
+		Kind:      "request_user_input",
 	})
 
 	waitForCondition(t, func() bool { return len(svc.GetByThread("t1")) == 1 }, "expected approval timeline item")

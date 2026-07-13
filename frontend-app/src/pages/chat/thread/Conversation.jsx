@@ -4,6 +4,7 @@ import { approvalRequestFromMessage, isApprovalMessage } from '../../../features
 import { workStatusForThread } from '../adapters/threadStateAdapter.js';
 import { ComposerDock } from '../composer/ComposerDock.jsx';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
+import { approvalIdentityKey } from '../../../shared/api/approvalRequestId.js';
 import { runUIAction } from '../model/chatUiActions.js';
 import { firstText, firstTrimmedText, textValue, timeLabelFromTimestamp, trimmedText } from '../markdown/markdownMessageModel.js';
 import { TimelineLoadingPlaceholder, TimelineMessage } from './TimelineMessage.jsx';
@@ -96,20 +97,20 @@ function conversationIsBusy({ activeThread, activeThreadId, sending, statusEntry
 }
 
 function approvalSnapshotFromMessages(messages = []) {
-  const knownIds = new Set();
+  const knownIdentityKeys = new Set();
   let pendingRequest = null;
   for (const message of messages) {
     if (!isApprovalMessage(message)) continue;
     const request = approvalRequestFromMessage(message);
-    if (!request.displayOnly) knownIds.add(request.requestId);
+    if (!request.displayOnly) knownIdentityKeys.add(approvalIdentityKey(request));
     if (request.status === 'pending') pendingRequest = request;
   }
-  return { knownIds, pendingRequest };
+  return { knownIdentityKeys, pendingRequest };
 }
 
-function hasNewApprovalIdentity(previousIds, currentIds) {
-  for (const requestId of currentIds) {
-    if (!previousIds.has(requestId)) return true;
+function hasNewApprovalIdentity(previousKeys, currentKeys) {
+  for (const identityKey of currentKeys) {
+    if (!previousKeys.has(identityKey)) return true;
   }
   return false;
 }
@@ -119,6 +120,7 @@ function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }
   useLayoutEffect(() => {
     const previous = previousPendingRef.current;
     const currentPending = snapshot.pendingRequest;
+    const currentIdentityKey = currentPending ? approvalIdentityKey(currentPending) : '';
     const node = composerInputRef.current;
     if (
       previous &&
@@ -126,7 +128,7 @@ function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }
       previous.threadId === activeThreadId &&
       node &&
       previous.node === node &&
-      !hasNewApprovalIdentity(previous.knownIds, snapshot.knownIds)
+      !hasNewApprovalIdentity(previous.knownIdentityKeys, snapshot.knownIdentityKeys)
     ) {
       composerInputRef.current.focus();
     }
@@ -137,13 +139,13 @@ function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }
     if (
       !previous ||
       previous.threadId !== activeThreadId ||
-      previous.requestId !== currentPending.requestId
+      previous.identityKey !== currentIdentityKey
     ) {
       previousPendingRef.current = {
         threadId: activeThreadId,
-        requestId: currentPending.requestId,
+        identityKey: currentIdentityKey,
         node,
-        knownIds: snapshot.knownIds,
+        knownIdentityKeys: snapshot.knownIdentityKeys,
       };
     }
   }, [activeThreadId, composerInputRef, snapshot]);

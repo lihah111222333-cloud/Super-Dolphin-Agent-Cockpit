@@ -142,7 +142,14 @@ describe('bridgePatchState', () => {
     const patch = bridgePatchData('ui/thread/patch', {
       status: 'running',
       thread: { name: 'Worker' },
-      timelineItems: [{ id: 'approval-missing-id', kind: 'approval', status: 'pending', text: '' }],
+      timelineItems: [{
+        id: 'approval-missing-call-id',
+        kind: 'approval',
+        sessionScope: 'session-scope-a',
+        requestId: 7,
+        status: 'pending',
+        text: '',
+      }],
     }, 'thread-1', { normalizeThread });
     const next = bridgePatchState({
       ...baseState,
@@ -159,12 +166,42 @@ describe('bridgePatchState', () => {
         event: 'timeline.approval.render_missing',
         threadId: 'thread-1',
         fields: expect.objectContaining({
-          itemId: 'approval-missing-id',
-          requestId: 0,
+          itemId: 'approval-missing-call-id',
+          requestId: 7,
           status: 'pending',
         }),
       }),
     ]);
+  });
+
+  it('preserves an incomplete terminal approval as a display-only timeline item', () => {
+    const patch = bridgePatchData('ui/thread/patch', {
+      status: 'completed',
+      thread: { name: 'Worker' },
+      timelineItems: [{
+        id: 'approval-display-only',
+        kind: 'approval',
+        callId: 'call-display-only',
+        requestId: 7,
+        status: 'rejected',
+        text: '',
+      }],
+    }, 'thread-1', { normalizeThread });
+    const next = bridgePatchState({
+      ...baseState,
+      warningEntries: [],
+    }, patch, { threadMatchesIdentifier });
+
+    expect(next.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({
+        id: 'approval-display-only',
+        sessionScope: '',
+        callId: 'call-display-only',
+        requestId: 7,
+        status: 'rejected',
+      }),
+    ]);
+    expect(next.warningEntries).toEqual([]);
   });
 
   it('records backend patch alerts as warning entries', () => {

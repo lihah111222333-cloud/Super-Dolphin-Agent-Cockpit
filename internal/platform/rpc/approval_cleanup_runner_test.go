@@ -46,9 +46,11 @@ func TestApprovalCleanupRunnerStartsAfterStartupRestore(t *testing.T) {
 	// Short intervals so the ticker is observable within the test budget.
 	dispatcher := event.NewDispatcher()
 	manager := NewApprovalManager(nil, dispatcher)
-	pending, owner := manager.registerPending(ApprovalRequest{
-		CallID: "call-restore", AgentID: "a", TurnID: "t", Kind: "request_user_input",
-	}, nil)
+	req := testApprovalRequest("call-restore")
+	req.AgentID = "a"
+	req.TurnID = "t"
+	req.Kind = "request_user_input"
+	pending, owner := manager.registerPending(req, nil)
 	if !owner {
 		t.Fatal("registerPending owner = false, want true")
 	}
@@ -145,9 +147,11 @@ func TestApprovalCleanupRunnerRespectsZeroTimeout(t *testing.T) {
 	defer cancelSub()
 
 	manager := NewApprovalManager(nil, dispatcher)
-	if _, owner := manager.registerPending(ApprovalRequest{
-		CallID: "call-zero", AgentID: "a", TurnID: "t", Kind: "request_user_input",
-	}, nil); !owner {
+	req := testApprovalRequest("call-zero")
+	req.AgentID = "a"
+	req.TurnID = "t"
+	req.Kind = "request_user_input"
+	if _, owner := manager.registerPending(req, nil); !owner {
 		t.Fatal("registerPending owner = false, want true")
 	}
 

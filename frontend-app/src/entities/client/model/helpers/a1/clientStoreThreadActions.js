@@ -13,7 +13,10 @@ import {
   setPreference,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../../../shared/api/backendApi.js';
-import { positiveApprovalRequestIdFromFields } from '../../../../../shared/api/approvalRequestId.js';
+import {
+  approvalIdentityKey,
+  requireApprovalIdentity,
+} from '../../../../../shared/api/approvalRequestId.js';
 import { sessionApi } from '../../../../../shared/api/sessionApi.js';
 import { firstOptionalPresent } from '../../contractStoreModel.js';
 import { buildThreadCopyPayload } from '../threadCopyPayload.js';
@@ -89,11 +92,12 @@ function rollbackDashboardCommandState(state, request, error, createdThreadId) {
   };
 }
 
-function approvalSubmitPatch(state, requestId, decision) {
+function approvalSubmitPatch(state, identityKey, identity, decision) {
   return {
-    approvalSubmitByRequestId: {
-      ...state.approvalSubmitByRequestId,
-      [requestId]: {
+    approvalSubmitByIdentity: {
+      ...state.approvalSubmitByIdentity,
+      [identityKey]: {
+        ...identity,
         approved: decision,
         inFlight: true,
         startedAt: clockNowMillis(),
@@ -102,12 +106,12 @@ function approvalSubmitPatch(state, requestId, decision) {
   };
 }
 
-function clearApprovalSubmitPatch(state, requestId) {
-  const current = state.approvalSubmitByRequestId || optionalUiObject();
-  if (!current[requestId]) return {};
+function clearApprovalSubmitPatch(state, identityKey) {
+  const current = state.approvalSubmitByIdentity || optionalUiObject();
+  if (!current[identityKey]) return {};
   const next = { ...current };
-  delete next[requestId];
-  return { approvalSubmitByRequestId: next };
+  delete next[identityKey];
+  return { approvalSubmitByIdentity: next };
 }
 
 async function runDashboardCommandAction(runtime, card) {
@@ -171,8 +175,8 @@ async function refreshActiveThreadStatusAction(runtime) {
 }
 
 function warnMissingApprovalRequest(runtime, item) {
-  runtime.notifyAction('当前审批缺少请求编号，无法提交', 'error');
-  runtime.addWarning('error', 'timeline.approval.request_id_missing', {
+  runtime.notifyAction('当前审批缺少完整身份，无法提交', 'error');
+  runtime.addWarning('error', 'timeline.approval.identity_missing', {
     command: normalizeString(firstOptionalPresent(item?.command, item?.title)),
   });
 }
@@ -182,8 +186,8 @@ function warnDuplicateApprovalSubmit(runtime, requestId, decision) {
   runtime.addWarning('warn', 'timeline.approval.respond_duplicate', { requestId, approved: decision });
 }
 
-function approvalSubmitIsInFlight(runtime, requestId) {
-  return runtime.get().approvalSubmitByRequestId?.[requestId]?.inFlight === true;
+function approvalSubmitIsInFlight(runtime, identityKey) {
+  return runtime.get().approvalSubmitByIdentity?.[identityKey]?.inFlight === true;
 }
 
 function warnApprovalNotPending(runtime, requestId, decision) {
@@ -198,20 +202,29 @@ function warnApprovalFailed(runtime, requestId, decision, error) {
 }
 
 async function respondApprovalAction(runtime, deps, item, approved) {
-  const requestId = positiveApprovalRequestIdFromFields(item);
-  const decision = Boolean(approved);
-  if (requestId <= 0) {
+  if (typeof approved !== 'boolean') {
+    warnApprovalFailed(runtime, item?.requestId, undefined, new TypeError('approval decision must be boolean'));
+    return false;
+  }
+  const decision = approved;
+  let identity;
+  try {
+    identity = requireApprovalIdentity(item, 'timeline approval');
+  }
+  catch {
     warnMissingApprovalRequest(runtime, item);
     return false;
   }
-  if (approvalSubmitIsInFlight(runtime, requestId)) {
+  const requestId = identity.requestId;
+  const identityKey = approvalIdentityKey(identity);
+  if (approvalSubmitIsInFlight(runtime, identityKey)) {
     warnDuplicateApprovalSubmit(runtime, requestId, decision);
     return false;
   }
   deps.recordApproval('start');
-  runtime.set((state) => approvalSubmitPatch(state, requestId, decision));
+  runtime.set((state) => approvalSubmitPatch(state, identityKey, identity, decision));
   try {
-    const result = await respondApprovalWithinTimeout({ requestId, approved: decision });
+    const result = await respondApprovalWithinTimeout({ ...identity, approved: decision });
     if (result?.ok === false) {
       deps.recordApproval('failure');
       warnApprovalNotPending(runtime, requestId, decision);
@@ -228,7 +241,7 @@ async function respondApprovalAction(runtime, deps, item, approved) {
     return false;
   }
   finally {
-    runtime.set((state) => clearApprovalSubmitPatch(state, requestId));
+    runtime.set((state) => clearApprovalSubmitPatch(state, identityKey));
   }
 }
 

@@ -35,16 +35,19 @@ function scrollIntentMessages(text = '初始回复') {
   ];
 }
 
-function approvalMessage(requestId, status = 'pending') {
+function approvalMessage(requestId, status = 'pending', overrides = {}) {
   return {
     id: `approval-${requestId}`,
     kind: 'approval',
     role: 'assistant',
+    sessionScope: 'session-scope-a',
+    callId: `call-${requestId}`,
     requestId,
     status,
     text: `Approval ${requestId}`,
     time: '2026-06-02T08:00:00Z',
     done: status !== 'pending',
+    ...overrides,
   };
 }
 
@@ -149,6 +152,8 @@ function approvalMessage(requestId, status = 'pending') {
         id: 'approval-1',
         kind: 'approval',
         role: 'assistant',
+        sessionScope: 'session-scope-a',
+        callId: 'call-5',
         requestId: 5,
         status: 'pending',
         title: 'Run command',
@@ -259,6 +264,40 @@ function approvalMessage(requestId, status = 'pending') {
         store={createActiveThreadStore([
           approvalMessage(5, 'approved'),
           approvalMessage(6, 'rejected'),
+        ])}
+        projectPath="/repo/app"
+      />,
+    );
+    await Promise.resolve();
+
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+    expect(textarea).toBe(originalTextarea);
+    expect(textarea).not.toHaveFocus();
+    expect(document.activeElement).toBe(nonComposerControl);
+  });
+
+  it('does not focus when a pending approval settles alongside another identity with the same request id', async () => {
+    const firstIdentity = {
+      id: 'approval-first',
+      sessionScope: 'session-scope-a',
+      callId: 'call-a',
+    };
+    const secondIdentity = {
+      id: 'approval-second',
+      sessionScope: 'session-scope-b',
+      callId: 'call-b',
+    };
+    const pendingStore = createActiveThreadStore([approvalMessage(5, 'pending', firstIdentity)]);
+    const { rerender } = render(<TestChatPageWrapper store={pendingStore} projectPath="/repo/app" />);
+    const originalTextarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+    const nonComposerControl = screen.getByRole('button', { name: '测试切换侧边栏' });
+    nonComposerControl.focus();
+
+    rerender(
+      <TestChatPageWrapper
+        store={createActiveThreadStore([
+          approvalMessage(5, 'approved', firstIdentity),
+          approvalMessage(5, 'rejected', secondIdentity),
         ])}
         projectPath="/repo/app"
       />,

@@ -1,27 +1,28 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { approvalIdentityKey } from '../../../shared/api/approvalRequestId.js';
 import { approvalSubmissionFor } from '../model/approvalDecision.js';
 
 const APPROVE_CHOICE = 'approve';
 const REJECT_CHOICE = 'reject';
 
 function ApprovalDecisionShelf({ request, onConfirm }) {
-  const requestId = request?.requestId;
+  const requestKey = !request || request.displayOnly === true ? '' : approvalIdentityKey(request);
   const [choice, setChoice] = useState('');
-  const [busyRequestId, setBusyRequestId] = useState(0);
-  const [resolvedRequestId, setResolvedRequestId] = useState(0);
+  const [busyRequestKey, setBusyRequestKey] = useState('');
+  const [resolvedRequestKey, setResolvedRequestKey] = useState('');
   const [errorText, setErrorText] = useState('');
-  const currentRequestRef = useRef({ requestId, token: {} });
+  const currentRequestRef = useRef({ requestKey, token: {} });
 
   useLayoutEffect(() => {
-    currentRequestRef.current = { requestId, token: {} };
+    currentRequestRef.current = { requestKey, token: {} };
     setChoice('');
-    setBusyRequestId(0);
-    setResolvedRequestId(0);
+    setBusyRequestKey('');
+    setResolvedRequestKey('');
     setErrorText('');
-  }, [requestId]);
+  }, [requestKey]);
 
-  const busy = busyRequestId === requestId;
-  const resolved = resolvedRequestId === requestId;
+  const busy = Boolean(requestKey) && busyRequestKey === requestKey;
+  const resolved = Boolean(requestKey) && resolvedRequestKey === requestKey;
   const terminal = request?.terminal === true;
   const unavailable = terminal || busy || resolved || typeof onConfirm !== 'function';
 
@@ -30,11 +31,11 @@ function ApprovalDecisionShelf({ request, onConfirm }) {
     approvalSubmissionFor(request, choice);
     const requestToken = currentRequestRef.current.token;
     setErrorText('');
-    setBusyRequestId(requestId);
+    setBusyRequestKey(requestKey);
     try {
       const confirmed = await onConfirm(choice);
       if (confirmed === true && currentRequestRef.current.token === requestToken) {
-        setResolvedRequestId(requestId);
+        setResolvedRequestKey(requestKey);
       }
     }
     catch (error) {
@@ -44,7 +45,7 @@ function ApprovalDecisionShelf({ request, onConfirm }) {
     }
     finally {
       if (currentRequestRef.current.token === requestToken) {
-        setBusyRequestId((current) => (current === requestId ? 0 : current));
+        setBusyRequestKey((current) => (current === requestKey ? '' : current));
       }
     }
   };

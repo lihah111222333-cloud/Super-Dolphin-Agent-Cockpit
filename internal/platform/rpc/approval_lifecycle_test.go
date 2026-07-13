@@ -25,7 +25,7 @@ func (r *lifecycleRecorder) Append(h fx.Hook) {
 func TestRequestApprovalAutoDeclinesWithoutFrontendWhenNoCallbackPath(t *testing.T) {
 	manager := NewApprovalManager(nil, nil)
 
-	decision, err := manager.RequestApproval(context.Background(), nil, nil, ApprovalRequest{CallID: "call-1"})
+	decision, err := manager.RequestApproval(context.Background(), nil, nil, testApprovalRequest("call-1"))
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
 	}
@@ -77,12 +77,11 @@ func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
 	})
 	defer cancelSub()
 
-	pending, owner := manager.registerPending(ApprovalRequest{
-		CallID:  "call-1",
-		AgentID: "agent-1",
-		TurnID:  "turn-1",
-		Kind:    "request_user_input",
-	}, nil)
+	req := testApprovalRequest("call-1")
+	req.AgentID = "agent-1"
+	req.TurnID = "turn-1"
+	req.Kind = "request_user_input"
+	pending, owner := manager.registerPending(req, nil)
 	if !owner {
 		t.Fatal("registerPending owner = false, want true")
 	}
@@ -98,6 +97,54 @@ func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
 	}
 	if len(manager.PendingSnapshot()) != 0 {
 		t.Fatal("cleanup runner left pending approvals behind")
+	}
+}
+
+func TestApprovalCleanupRunnerExpiresOnlyCompletedIdentityPastTTL(t *testing.T) {
+	manager := NewApprovalManager(nil, nil)
+	decision := contract.ApprovalDecision{Approved: boolPtr(true), Reason: "approved"}
+	expired := contract.ApprovalIdentity{SessionScope: "scope-a", CallID: "call-a", RequestID: 41}
+	registerAndResolveApproval(t, manager, expired, decision)
+	if err := manager.Respond(expired, decision); err != nil {
+		t.Fatalf("Respond(expired within TTL) error = %v, want idempotent success", err)
+	}
+
+	timeout := 100 * time.Millisecond
+	time.Sleep(timeout + 50*time.Millisecond)
+	retained := []contract.ApprovalIdentity{
+		{SessionScope: "scope-b", CallID: "call-a", RequestID: 41},
+		{SessionScope: "scope-a", CallID: "call-b", RequestID: 41},
+		{SessionScope: "scope-a", CallID: "call-a", RequestID: 42},
+	}
+	for _, identity := range retained {
+		registerAndResolveApproval(t, manager, identity, decision)
+	}
+
+	newApprovalCleanupRunnerWithConfig(manager, nil, time.Hour, timeout).tick()
+
+	wantNotFound := ErrNotFound("approval is not pending").Error()
+	if err := manager.Respond(expired, decision); err == nil || err.Error() != wantNotFound {
+		t.Fatalf("Respond(expired after TTL) error = %v, want %q", err, wantNotFound)
+	}
+	for _, identity := range retained {
+		if err := manager.Respond(identity, decision); err != nil {
+			t.Fatalf("Respond(retained %+v) error = %v, want idempotent success", identity, err)
+		}
+	}
+}
+
+func registerAndResolveApproval(t *testing.T, manager *ApprovalManager, identity contract.ApprovalIdentity, decision contract.ApprovalDecision) {
+	t.Helper()
+	requestID := identity.RequestID
+	if _, owner := manager.registerPending(ApprovalRequest{
+		SessionScope: identity.SessionScope,
+		CallID:       identity.CallID,
+		RequestID:    &requestID,
+	}, nil); !owner {
+		t.Fatalf("registerPending(%+v) owner = false, want true", identity)
+	}
+	if err := manager.Respond(identity, decision); err != nil {
+		t.Fatalf("Respond(%+v) error = %v", identity, err)
 	}
 }
 
@@ -128,7 +175,7 @@ func TestBindApprovalLifecycleRestoresPendingOnlyForUIConnections(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			lc := &lifecycleRecorder{}
 			approvals := NewApprovalManager(nil, nil)
-			pending, owner := approvals.registerPending(ApprovalRequest{CallID: "call-1"}, nil)
+			pending, owner := approvals.registerPending(testApprovalRequest("call-1"), nil)
 			if !owner {
 				t.Fatal("registerPending owner = false, want true")
 			}
@@ -157,7 +204,7 @@ func TestBindApprovalLifecycleRestoresPendingOnlyForUIConnections(t *testing.T) 
 
 func TestRestorePendingRefreshesTTLAfterReplayDispatch(t *testing.T) {
 	approvals := NewApprovalManager(nil, nil)
-	pending, owner := approvals.registerPending(ApprovalRequest{CallID: "call-1"}, nil)
+	pending, owner := approvals.registerPending(testApprovalRequest("call-1"), nil)
 	if !owner {
 		t.Fatal("registerPending owner = false, want true")
 	}

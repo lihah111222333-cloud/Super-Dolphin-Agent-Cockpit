@@ -217,3 +217,54 @@ func TestTurnThreadScopedParamsRejectUnknownFields(t *testing.T) {
 		})
 	}
 }
+
+func TestApprovalRespondParamsPreservesCompositeIdentityAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, payload := range []string{
+		`{"session_scope":"session-a","call_id":"call-a","request_id":7,"approved":true}`,
+		`{"sessionScope":"session-a","callId":"call-a","requestId":7,"approved":true}`,
+		`{"session_scope":"session-a","sessionScope":"session-a","call_id":"call-a","callId":"call-a","request_id":7,"requestId":7,"approved":true}`,
+	} {
+		var params approvalRespondParams
+		if err := json.Unmarshal([]byte(payload), &params); err != nil {
+			t.Fatalf("json.Unmarshal(approvalRespondParams) error = %v", err)
+		}
+		if params.SessionScope != "session-a" || params.CallID != "call-a" || params.RequestID == nil || *params.RequestID != 7 {
+			t.Fatalf("approval identity = (%q, %q, %v), want (%q, %q, %d)", params.SessionScope, params.CallID, params.RequestID, "session-a", "call-a", 7)
+		}
+	}
+}
+
+func TestApprovalRespondParamsRejectsConflictingIdentityAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		payload string
+		want    string
+	}{
+		{
+			payload: `{"session_scope":"session-a","sessionScope":"session-b","call_id":"call-a","request_id":7,"approved":true}`,
+			want:    "conflicting sessionScope values",
+		},
+		{
+			payload: `{"session_scope":"session-a","call_id":"call-a","callId":"call-b","request_id":7,"approved":true}`,
+			want:    "conflicting callId values",
+		},
+		{
+			payload: `{"session_scope":"session-a","call_id":"call-a","request_id":7,"requestId":8,"approved":true}`,
+			want:    "conflicting requestId values",
+		},
+		{
+			payload: `{"session_scope":"","sessionScope":"session-a","call_id":"call-a","request_id":7,"approved":true}`,
+			want:    "conflicting sessionScope values",
+		},
+	}
+	for _, tt := range tests {
+		var params approvalRespondParams
+		err := json.Unmarshal([]byte(tt.payload), &params)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Fatalf("json.Unmarshal(approvalRespondParams) error = %v, want %q", err, tt.want)
+		}
+	}
+}

@@ -439,6 +439,7 @@ func toolCallHeaderPayload(header shareddto.ToolCallHeader) map[string]any {
 
 func toolApprovalHeaderPayload(header shareddto.ToolApprovalHeader) map[string]any {
 	payload := toolCallHeaderPayload(header.ToolCallHeader)
+	setString(payload, "sessionScope", header.SessionScope)
 	setString(payload, "approvalId", header.ApprovalID)
 	payload["item"] = map[string]any{
 		"kind":     "approval",

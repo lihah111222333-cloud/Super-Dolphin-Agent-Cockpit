@@ -1,18 +1,18 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
-  "generated_at": "2026-07-12",
+  "generated_at": "2026-07-13",
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4524,
+  "files": 4525,
   "domains": {
     "docs-agent": 919,
     "other": 628,
     "app-ui": 511,
     "platform-provider": 1014,
     "orchestration": 419,
-    "modules": 723,
+    "modules": 724,
     "store-sql": 310
   },
   "index_files": {
@@ -36,8 +36,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 723,
-        "size_kb": 140.8,
+        "file_count": 724,
+        "size_kb": 141,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -75,7 +75,7 @@
     "cmd": 668,
     "docs": 911,
     "frontend-app": 509,
-    "internal": 2121,
+    "internal": 2122,
     "migrations": 112,
     "pkg": 27,
     "scripts": 115,

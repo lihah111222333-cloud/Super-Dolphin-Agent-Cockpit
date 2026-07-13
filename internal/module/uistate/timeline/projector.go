@@ -2,11 +2,13 @@ package timeline
 
 import (
 	"context"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"log/slog"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/terminalstatus"
@@ -287,23 +289,25 @@ func recoverToolEndByCallID(svc Service, threadID string, ev tooldto.ToolCallEnd
 func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalRequested) {
 	return func(ev tooldto.ToolApprovalRequested) {
 		threadID := strings.TrimSpace(ev.ThreadID)
-		if threadID == "" {
+		updateKey := approvalUpdateKey(ev.SessionScope, ev.CallID, ev.RequestID)
+		if threadID == "" || updateKey == "" {
 			return
 		}
 		tool := strings.TrimSpace(ev.ToolName)
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
-			lookupKey: approvalUpdateKey(ev.ApprovalID, ev.CallID),
-			ID:        timelineID("approval", ev.ApprovalID, ev.CallID, ev.ToolName, ev.Kind),
-			Kind:      "approval",
-			Status:    "pending",
-			CallID:    strings.TrimSpace(ev.CallID),
-			RequestID: ev.RequestID,
-			Tool:      tool,
-			ToolName:  tool,
-			ItemType:  strings.TrimSpace(ev.Kind),
-			AgentID:   strings.TrimSpace(ev.AgentID),
-			TurnID:    strings.TrimSpace(ev.TurnID),
-			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			lookupKey:    updateKey,
+			ID:           updateKey,
+			Kind:         "approval",
+			Status:       "pending",
+			SessionScope: strings.TrimSpace(ev.SessionScope),
+			CallID:       strings.TrimSpace(ev.CallID),
+			RequestID:    ev.RequestID,
+			Tool:         tool,
+			ToolName:     tool,
+			ItemType:     strings.TrimSpace(ev.Kind),
+			AgentID:      strings.TrimSpace(ev.AgentID),
+			TurnID:       strings.TrimSpace(ev.TurnID),
+			Ts:           ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 		})
 		emitTimelineUpdated(onUpdated, threadID)
 	}
@@ -313,47 +317,55 @@ func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.
 func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalResolved) {
 	return func(ev tooldto.ToolApprovalResolved) {
 		threadID := strings.TrimSpace(ev.ThreadID)
-		updateKey := approvalUpdateKey(ev.ApprovalID, ev.CallID)
-		if threadID == "" || updateKey == "" {
+		if threadID == "" {
 			return
 		}
+		updateKey := approvalUpdateKey(ev.SessionScope, ev.CallID, ev.RequestID)
 		status := "rejected"
 		if ev.Approved {
 			status = "approved"
 		}
-		updated := svc.UpdateByCallID(threadID, strings.TrimSpace(ev.AgentID), updateKey, func(it *Item) {
-			it.Kind = "approval"
-			it.Status = status
-			it.Done = true
-			if ev.RequestID > 0 {
+		updated := false
+		if updateKey != "" {
+			updated = svc.UpdateByCallID(threadID, strings.TrimSpace(ev.AgentID), updateKey, func(it *Item) {
+				it.Kind = "approval"
+				it.Status = status
+				it.Done = true
+				it.SessionScope = strings.TrimSpace(ev.SessionScope)
+				it.CallID = strings.TrimSpace(ev.CallID)
 				it.RequestID = ev.RequestID
-			}
-			if strings.TrimSpace(it.Ts) == "" {
-				it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
-			}
-			it.Tool = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
-			it.ToolName = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
-		})
+				if strings.TrimSpace(it.Ts) == "" {
+					it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
+				}
+				it.Tool = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
+				it.ToolName = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
+			})
+		}
 		if updated {
 			if onUpdated != nil {
 				onUpdated(threadID)
 			}
 			return
 		}
+		terminalID := updateKey
+		if terminalID == "" {
+			terminalID = approvalTimelineID("approval-terminal", ev.SessionScope, ev.CallID, strconv.FormatInt(ev.RequestID, 10), ev.ToolName, ev.Kind, ev.Timestamp.Format(time.RFC3339Nano))
+		}
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
-			lookupKey: updateKey,
-			ID:        timelineID("approval", ev.ApprovalID, ev.CallID, ev.ToolName, ev.Kind),
-			Kind:      "approval",
-			Status:    status,
-			CallID:    strings.TrimSpace(ev.CallID),
-			RequestID: ev.RequestID,
-			Tool:      strings.TrimSpace(ev.ToolName),
-			ToolName:  strings.TrimSpace(ev.ToolName),
-			ItemType:  strings.TrimSpace(ev.Kind),
-			Done:      true,
-			AgentID:   strings.TrimSpace(ev.AgentID),
-			TurnID:    strings.TrimSpace(ev.TurnID),
-			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			lookupKey:    terminalID,
+			ID:           terminalID,
+			Kind:         "approval",
+			Status:       status,
+			SessionScope: strings.TrimSpace(ev.SessionScope),
+			CallID:       strings.TrimSpace(ev.CallID),
+			RequestID:    ev.RequestID,
+			Tool:         strings.TrimSpace(ev.ToolName),
+			ToolName:     strings.TrimSpace(ev.ToolName),
+			ItemType:     strings.TrimSpace(ev.Kind),
+			Done:         true,
+			AgentID:      strings.TrimSpace(ev.AgentID),
+			TurnID:       strings.TrimSpace(ev.TurnID),
+			Ts:           ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 		})
 		emitTimelineUpdated(onUpdated, threadID)
 	}
@@ -378,6 +390,23 @@ func toolUpdateKey(callID, tool string) string {
 	return timelineID("tool", tool, callID)
 }
 
-func approvalUpdateKey(approvalID, callID string) string {
-	return timelineID("approval", util.FirstNonEmpty(approvalID, callID))
+func approvalUpdateKey(sessionScope, callID string, requestID int64) string {
+	sessionScope = strings.TrimSpace(sessionScope)
+	callID = strings.TrimSpace(callID)
+	if sessionScope == "" || callID == "" || requestID <= 0 {
+		return ""
+	}
+	return approvalTimelineID("approval", sessionScope, callID, strconv.FormatInt(requestID, 10))
+}
+
+// approvalTimelineID 对每个身份分量做长度前缀编码，避免分隔符进入值时发生 tuple 碰撞。
+func approvalTimelineID(parts ...string) string {
+	var builder strings.Builder
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		builder.WriteString(strconv.Itoa(len(part)))
+		builder.WriteByte(':')
+		builder.WriteString(part)
+	}
+	return builder.String()
 }

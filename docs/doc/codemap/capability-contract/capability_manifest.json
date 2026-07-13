@@ -9,13 +9,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2246,
-    "total_methods": 1138,
+    "total_functions": 2260,
+    "total_methods": 1140,
     "total_interfaces": 184,
     "total_interface_methods": 364,
-    "total_exported": 1257,
-    "total_unexported": 2907,
-    "total_structs": 596
+    "total_exported": 1258,
+    "total_unexported": 2924,
+    "total_structs": 598
   },
   "packages": [
     {
@@ -34242,12 +34242,8 @@
               "name": "Respond",
               "params": [
                 {
-                  "name": "callID",
-                  "type": "string"
-                },
-                {
-                  "name": "requestID",
-                  "type": "*int64"
+                  "name": "identity",
+                  "type": "ApprovalIdentity"
                 },
                 {
                   "name": "decision",
@@ -37574,6 +37570,10 @@
           "exported": true
         },
         {
+          "name": "ApprovalIdentity",
+          "exported": true
+        },
+        {
           "name": "ApprovalRequest",
           "exported": true
         },
@@ -38695,6 +38695,19 @@
           ]
         },
         {
+          "name": "claudeMessagePage",
+          "exported": false,
+          "params": [
+            {
+              "name": "page",
+              "type": "historyjsonl.JSONLPageResult[Message]"
+            }
+          ],
+          "returns": [
+            "dto.MessagePageResult"
+          ]
+        },
+        {
           "name": "claudeModelContextWindow",
           "exported": false,
           "params": [
@@ -38734,6 +38747,20 @@
           ],
           "returns": [
             "dto.RawProviderEvent"
+          ]
+        },
+        {
+          "name": "claudeResolvedMessagePage",
+          "exported": false,
+          "params": [
+            {
+              "name": "page",
+              "type": "historyjsonl.JSONLPageResult[Message]"
+            }
+          ],
+          "returns": [
+            "dto.MessagePageResult",
+            "error"
           ]
         },
         {
@@ -39108,6 +39135,35 @@
           ]
         },
         {
+          "name": "decodeClaudeResolvedCursorPayload",
+          "exported": false,
+          "params": [
+            {
+              "name": "wire",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]byte",
+            "error"
+          ]
+        },
+        {
+          "name": "decodeClaudeResolvedCursor",
+          "exported": false,
+          "params": [
+            {
+              "name": "wire",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool",
+            "error"
+          ]
+        },
+        {
           "name": "decodeMessageBlock",
           "exported": false,
           "params": [
@@ -39322,6 +39378,20 @@
           ]
         },
         {
+          "name": "encodeClaudeResolvedCursor",
+          "exported": false,
+          "params": [
+            {
+              "name": "before",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
           "name": "ensureLoopbackNoProxy",
           "exported": false,
           "params": [
@@ -39506,6 +39576,19 @@
           ]
         },
         {
+          "name": "hasClaudeHistoryPage",
+          "exported": false,
+          "params": [
+            {
+              "name": "page",
+              "type": "historyjsonl.JSONLPageResult[Message]"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "hasFlag",
           "exported": false,
           "params": [
@@ -39587,6 +39670,13 @@
           ],
           "returns": [
             "map[string]any",
+            "error"
+          ]
+        },
+        {
+          "name": "invalidClaudeResolvedCursorError",
+          "exported": false,
+          "returns": [
             "error"
           ]
         },
@@ -40286,6 +40376,20 @@
           ]
         },
         {
+          "name": "parseClaudeResolvedCursor",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "claudeResolvedCursor",
+            "error"
+          ]
+        },
+        {
           "name": "parseDataURLImage",
           "exported": false,
           "params": [
@@ -40964,6 +41068,31 @@
           ]
         },
         {
+          "name": "shouldReadResolvedFallback",
+          "exported": false,
+          "params": [
+            {
+              "name": "req",
+              "type": "dto.MessagePageRequest"
+            },
+            {
+              "name": "page",
+              "type": "historyjsonl.JSONLPageResult[Message]"
+            },
+            {
+              "name": "target",
+              "type": "string"
+            },
+            {
+              "name": "resolved",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "signalClaudeProcess",
           "exported": false,
           "params": [
@@ -41463,6 +41592,19 @@
             {
               "name": "data",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateClaudeResolvedCursor",
+          "exported": false,
+          "params": [
+            {
+              "name": "cursor",
+              "type": "claudeResolvedCursor"
             }
           ],
           "returns": [
@@ -43312,6 +43454,64 @@
         },
         {
           "receiver": "*session",
+          "name": "readResolvedMessagePage",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "target",
+              "type": "string"
+            },
+            {
+              "name": "resolved",
+              "type": "string"
+            },
+            {
+              "name": "innerBefore",
+              "type": "string"
+            },
+            {
+              "name": "req",
+              "type": "dto.MessagePageRequest"
+            }
+          ],
+          "returns": [
+            "dto.MessagePageResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "readTargetMessagePage",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "target",
+              "type": "string"
+            },
+            {
+              "name": "resolved",
+              "type": "string"
+            },
+            {
+              "name": "req",
+              "type": "dto.MessagePageRequest"
+            }
+          ],
+          "returns": [
+            "dto.MessagePageResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "recordProviderSessionUUID",
           "exported": false,
           "params": [
@@ -43960,6 +44160,10 @@
         },
         {
           "name": "claudeAuthStatus",
+          "exported": false
+        },
+        {
+          "name": "claudeResolvedCursor",
           "exported": false
         },
         {
@@ -46574,6 +46778,20 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "generateApprovalSessionScope",
+          "exported": false,
+          "params": [
+            {
+              "name": "reader",
+              "type": "io.Reader"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
           ]
         },
         {
@@ -49941,6 +50159,34 @@
           ]
         },
         {
+          "name": "strictApprovalCallIDValue",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
+          "name": "strictApprovalCallID",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
           "name": "strictApprovalRequestIDValue",
           "exported": false,
           "params": [
@@ -51065,6 +51311,19 @@
               "name": "sigtermed",
               "type": "[]appServerProcessInfo"
             }
+          ]
+        },
+        {
+          "name": "withApprovalScopeReader",
+          "exported": false,
+          "params": [
+            {
+              "name": "reader",
+              "type": "io.Reader"
+            }
+          ],
+          "returns": [
+            "sessionOption"
           ]
         },
         {
@@ -53820,11 +54079,16 @@
             {
               "name": "key",
               "type": "string"
+            },
+            {
+              "name": "fingerprint",
+              "type": "string"
             }
           ],
           "returns": [
             "*processedApprovalEntry",
-            "bool"
+            "bool",
+            "error"
           ]
         },
         {

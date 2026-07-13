@@ -83,6 +83,8 @@ describe('timelineRuntime', () => {
       id: 'approval-42',
       kind: 'approval',
       status: 'pending',
+      session_scope: 'session-scope-a',
+      call_id: 'call-42',
       requestId: 42,
       text: '',
     });
@@ -90,11 +92,85 @@ describe('timelineRuntime', () => {
     expect(approval).toEqual(expect.objectContaining({
       id: 'approval-42',
       kind: 'approval',
+      sessionScope: 'session-scope-a',
+      callId: 'call-42',
       requestId: 42,
       status: 'pending',
       text: '',
     }));
     expect(isVisibleTimelineItem(approval)).toBe(true);
+  });
+
+  it('fails closed on malformed or ambiguous approval identity fields', () => {
+    expect(() => normalizeTimelineItem({
+      kind: 'approval',
+      sessionScope: 'session-scope-a',
+      callId: 'call-42',
+      requestId: '42',
+      status: 'pending',
+    })).toThrow('timeline approval: requestId must be a positive integer');
+    expect(() => normalizeTimelineItem({
+      kind: 'approval',
+      sessionScope: 'session-scope-a',
+      session_scope: 'session-scope-b',
+      callId: 'call-42',
+      requestId: 42,
+      status: 'pending',
+    })).toThrow('timeline approval: conflicting sessionScope values');
+  });
+
+  it('keeps incomplete terminal approvals visible but hides incomplete pending approvals', () => {
+    const terminal = normalizeTimelineItem({
+      id: 'approval-display-only',
+      kind: 'approval',
+      status: 'approved',
+      callId: 'call-display-only',
+      requestId: 42,
+      text: '',
+    });
+    const pending = normalizeTimelineItem({
+      id: 'approval-incomplete-pending',
+      kind: 'approval',
+      status: 'pending',
+      callId: 'call-incomplete',
+      requestId: 42,
+      text: '',
+    });
+
+    expect(isVisibleTimelineItem(terminal)).toBe(true);
+    expect(isVisibleTimelineItem(pending)).toBe(false);
+  });
+
+  it('never coalesces approvals that only share request id or text', () => {
+    const first = normalizeTimelineItem({
+      id: 'approval-a',
+      kind: 'approval',
+      sessionScope: 'session-a',
+      callId: 'call-a',
+      requestId: 7,
+      status: 'pending',
+      text: 'Allow deployment?',
+      time: '2026-06-15T01:00:00Z',
+    });
+    const second = normalizeTimelineItem({
+      id: 'approval-b',
+      kind: 'approval',
+      sessionScope: 'session-b',
+      callId: 'call-b',
+      requestId: 7,
+      status: 'pending',
+      text: 'Allow deployment?',
+      time: '2026-06-15T01:00:01Z',
+    });
+    const initial = mergeTimelineItems([], [first, second]);
+
+    expect(initial).toHaveLength(2);
+
+    const resolvedSecond = { ...second, status: 'approved', done: true };
+    const updated = mergeTimelineItems(initial, [resolvedSecond], { preserveExistingVisible: true });
+    expect(updated).toHaveLength(2);
+    expect(updated.find((item) => item.sessionScope === 'session-a')).toMatchObject({ status: 'pending', done: false });
+    expect(updated.find((item) => item.sessionScope === 'session-b')).toMatchObject({ status: 'approved', done: true });
   });
 
   it('deduplicates repeated assistant content within one user turn', () => {

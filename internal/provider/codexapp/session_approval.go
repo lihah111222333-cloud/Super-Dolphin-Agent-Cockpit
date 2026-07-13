@@ -20,10 +20,11 @@ import (
 )
 
 type processedApprovalEntry struct {
-	decision contract.ApprovalDecision
-	err      error
-	ready    chan struct{}
-	done     bool
+	fingerprint string
+	decision    contract.ApprovalDecision
+	err         error
+	ready       chan struct{}
+	done        bool
 }
 
 const processedApprovalLimit = 1000
@@ -63,7 +64,11 @@ func (s *session) requestToolApprovalWithContext(ctx context.Context, method str
 		return err
 	}
 	key := processedApprovalRequestKey(req, requestID)
-	entry, owner := s.beginProcessedApproval(key)
+	fingerprint := approvalRequestFingerprint(req, requestID)
+	entry, owner, err := s.beginProcessedApproval(key, fingerprint)
+	if err != nil {
+		return err
+	}
 	if !owner {
 		decision, err := s.waitProcessedApproval(ctx, entry)
 		if err != nil {
@@ -162,11 +167,14 @@ func (s *session) approvalPolicyValue() string {
 	return strings.TrimSpace(value)
 }
 
-// beginProcessedApproval 为 approval 请求建立去重槽。
+// beginProcessedApproval 为完整审批身份建立去重槽，并拒绝同身份不同 payload。
 // 返回 owner=false 表示已有 goroutine 正在处理同一请求，当前调用方只需要等待结果。
-func (s *session) beginProcessedApproval(key string) (*processedApprovalEntry, bool) {
-	if s == nil || key == "" {
-		return nil, true
+func (s *session) beginProcessedApproval(key, fingerprint string) (*processedApprovalEntry, bool, error) {
+	if s == nil {
+		return nil, false, errors.New("codexapp: approval session is nil")
+	}
+	if key == "" || fingerprint == "" {
+		return nil, false, errors.New("codexapp: approval identity fingerprint is required")
 	}
 	s.approvalMu.Lock()
 	defer s.approvalMu.Unlock()
@@ -174,14 +182,17 @@ func (s *session) beginProcessedApproval(key string) (*processedApprovalEntry, b
 		s.processedApprovals = map[string]*processedApprovalEntry{}
 	}
 	if entry := s.processedApprovals[key]; entry != nil {
-		return entry, false
+		if entry.fingerprint != fingerprint {
+			return nil, false, errors.New("codexapp: approval payload conflicts with an existing identity")
+		}
+		return entry, false, nil
 	}
 	if len(s.processedApprovals) >= processedApprovalLimit {
 		s.purgeCompletedProcessedApprovalsLocked()
 	}
-	entry := &processedApprovalEntry{ready: make(chan struct{})}
+	entry := &processedApprovalEntry{fingerprint: fingerprint, ready: make(chan struct{})}
 	s.processedApprovals[key] = entry
-	return entry, true
+	return entry, true, nil
 }
 
 func (s *session) purgeCompletedProcessedApprovalsLocked() {
@@ -231,9 +242,14 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	if !ok {
 		return rpc.ApprovalRequest{}, 0, false
 	}
-	callID := payloadCallID(payload, stringValue(payload, "approvalId", "approval_id"), strconv.FormatInt(requestID, 10))
+	callID, hasCallID := strictApprovalCallID(payload)
+	sessionScope := strings.TrimSpace(s.approvalSessionScope)
+	if !hasCallID || sessionScope == "" {
+		return rpc.ApprovalRequest{}, 0, false
+	}
 	requestRef := requestID
 	return rpc.ApprovalRequest{
+		SessionScope:   sessionScope,
 		CallID:         callID,
 		ApprovalID:     stringValue(payload, "approvalId", "approval_id"),
 		ToolName:       payloadToolName(payload),
@@ -245,20 +261,65 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 		RequestID:      &requestRef,
 		ApprovalPolicy: s.approvalPolicyValue(),
 		Payload:        payload,
-	}, requestID, callID != ""
+	}, requestID, true
 }
 
 // strictApprovalRequestID 只接受 approval 协议中的正整数 requestId。
 // 审批决策会回写到 provider，不能把字符串或浮点数截断成另一个合法请求。
 func strictApprovalRequestID(payload map[string]any, keys ...string) (int64, bool) {
+	var requestID int64
+	present := false
 	for _, key := range keys {
 		value, exists := payload[key]
-		if !exists || value == nil {
+		if !exists {
 			continue
 		}
-		return strictApprovalRequestIDValue(value)
+		candidate, ok := strictApprovalRequestIDValue(value)
+		if !ok || present && candidate != requestID {
+			return 0, false
+		}
+		requestID = candidate
+		present = true
 	}
-	return 0, false
+	return requestID, present
+}
+
+// strictApprovalCallID 要求顶层及 item 中所有兼容 call ID 字段非空且完全一致。
+func strictApprovalCallID(payload map[string]any) (string, bool) {
+	sources := []map[string]any{payload}
+	if rawItem, exists := payload["item"]; exists && rawItem != nil {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		sources = append(sources, item)
+	}
+	var callID string
+	present := false
+	for _, source := range sources {
+		for _, key := range []string{"callId", "call_id"} {
+			value, exists := source[key]
+			if !exists {
+				continue
+			}
+			candidate, ok := strictApprovalCallIDValue(value)
+			if !ok || present && candidate != callID {
+				return "", false
+			}
+			callID = candidate
+			present = true
+		}
+	}
+	return callID, present
+}
+
+func strictApprovalCallIDValue(value any) (string, bool) {
+	typed, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	normalized := strings.TrimSpace(typed)
+	return normalized, normalized != ""
 }
 
 func strictApprovalRequestIDValue(value any) (int64, bool) {
@@ -321,14 +382,7 @@ func processedApprovalKey(callID string, requestID int64) string {
 }
 
 func processedApprovalRequestKey(req rpc.ApprovalRequest, requestID int64) string {
-	if requestID <= 0 {
-		return ""
-	}
-	fingerprint := approvalRequestFingerprint(req, requestID)
-	if fingerprint == "" {
-		return processedApprovalKey(req.CallID, requestID)
-	}
-	return strconv.FormatInt(requestID, 10) + ":" + fingerprint
+	return processedApprovalKey(req.CallID, requestID)
 }
 
 func approvalRequestFingerprint(req rpc.ApprovalRequest, requestID int64) string {

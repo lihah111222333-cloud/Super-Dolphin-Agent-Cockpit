@@ -288,7 +288,7 @@ internal/archtest/wire_dto_field_registry_test.go	internal	other	go-test	7564	�
 internal/contract/agent_state_test.go	internal	other	go-test	916	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_state.go	internal	other	go-source	14354	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_workflow_test.go	internal	other	go-test	5083	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,workflow,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/approval.go	internal	other	go-source	2002	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
+internal/contract/approval.go	internal	other	go-source	2323	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
 internal/contract/bootstrap_hook.go	internal	other	go-source	441	跨模块稳定接口、事件和 DTO 边界	internal,contract,bootstrap,hook,跨模块稳定接口,事件和,DTO,边界
 internal/contract/bus.go	internal	other	go-source	2166	跨模块稳定接口、事件和 DTO 边界	internal,contract,bus,跨模块稳定接口,事件和,DTO,边界
 internal/contract/change_request_test.go	internal	other	go-test	1381	跨模块稳定接口、事件和 DTO 边界	internal,contract,change,request,test,跨模块稳定接口,事件和,DTO,边界
@@ -378,7 +378,7 @@ internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
 internal/dto/provider/turn.go	internal	other	go-source	6436	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
 internal/dto/shared/errors.go	internal	other	go-source	439	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
-internal/dto/shared/event.go	internal	other	go-source	4569	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
+internal/dto/shared/event.go	internal	other	go-source	4625	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
 internal/dto/shared/input.go	internal	other	go-source	1210	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
 internal/dto/task/event.go	internal	other	go-source	724	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
 internal/dto/thread/event.go	internal	other	go-source	4374	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议

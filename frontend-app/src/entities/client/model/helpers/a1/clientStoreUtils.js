@@ -386,7 +386,7 @@ const baseState = {
   logEntries: [],
   actionNotice: null,
   threadRecoveryPendingByThread: {},
-  approvalSubmitByRequestId: {},
+  approvalSubmitByIdentity: {},
   smoothStreaming: false,
 };
 

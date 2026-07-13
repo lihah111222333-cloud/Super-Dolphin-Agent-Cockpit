@@ -131,7 +131,8 @@ type ToolCallHeader struct {
 // ToolApprovalHeader 标识某次工具调用的审批决策事件。
 type ToolApprovalHeader struct {
 	ToolCallHeader
-	ApprovalID string `json:"approval_id,omitempty"`
+	SessionScope string `json:"session_scope,omitempty"`
+	ApprovalID   string `json:"approval_id,omitempty"`
 }
 
 // DAGHeader 标识 DAG 作用域的事件。

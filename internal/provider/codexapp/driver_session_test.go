@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
@@ -356,6 +358,42 @@ func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 
 	assertNewCodexSessionState(t, s)
 	assertCodexSessionCapabilities(t, s)
+}
+
+func TestGenerateApprovalSessionScopeFormatsRFC4122Version4(t *testing.T) {
+	entropy := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	scope, err := generateApprovalSessionScope(bytes.NewReader(entropy))
+	if err != nil {
+		t.Fatalf("generateApprovalSessionScope() error = %v", err)
+	}
+	if scope != "00010203-0405-4607-8809-0a0b0c0d0e0f" {
+		t.Fatalf("approval session scope = %q, want RFC 4122 version 4 UUID", scope)
+	}
+}
+
+func TestNewSessionFailsFastWhenApprovalScopeEntropyFails(t *testing.T) {
+	entropyErr := errors.New("entropy unavailable")
+	releaseCalls := 0
+	s, err := newSessionWithOptions(
+		context.Background(),
+		nil,
+		"",
+		"agent-1",
+		nil,
+		nil,
+		nil,
+		withPoolServer("ws://127.0.0.1:1", func() { releaseCalls++ }),
+		withApprovalScopeReader(iotest.ErrReader(entropyErr)),
+	)
+	if s != nil {
+		t.Fatalf("newSessionWithOptions() session = %#v, want nil", s)
+	}
+	if !errors.Is(err, entropyErr) {
+		t.Fatalf("newSessionWithOptions() error = %v, want wrapped entropy failure", err)
+	}
+	if releaseCalls != 1 {
+		t.Fatalf("pool release calls = %d, want 1", releaseCalls)
+	}
 }
 
 func assertNewCodexSessionState(t *testing.T, s *session) {

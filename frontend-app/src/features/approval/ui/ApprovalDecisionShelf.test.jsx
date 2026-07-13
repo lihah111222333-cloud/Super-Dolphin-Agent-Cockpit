@@ -5,6 +5,8 @@ import { ApprovalDecisionShelf } from './ApprovalDecisionShelf.jsx';
 import approvalShelfSource from './ApprovalDecisionShelf.jsx?raw';
 
 const pendingRequest = {
+  sessionScope: 'session-scope-a',
+  callId: 'call-a',
   requestId: 17,
   status: 'pending',
   terminal: false,
@@ -90,7 +92,7 @@ describe('ApprovalDecisionShelf', () => {
     const onConfirm = vi.fn();
     render(
       <ApprovalDecisionShelf
-        request={{ requestId: 17, status, terminal: true }}
+        request={{ ...pendingRequest, status, terminal: true }}
         onConfirm={onConfirm}
       />,
     );

@@ -2,9 +2,11 @@ package codexapp
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -28,6 +30,7 @@ type session struct {
 	agentID              string
 	threadID             atomic.Value
 	approvalPolicy       atomic.Value
+	approvalSessionScope string
 	transport            *transport
 	manager              *ServerManager
 	caps                 dto.CapabilitySet
@@ -135,9 +138,14 @@ func newSessionWithOptions(
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	cfg := sessionOptions{}
+	cfg := sessionOptions{approvalScopeReader: rand.Reader}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	approvalSessionScope, err := generateApprovalSessionScope(cfg.approvalScopeReader)
+	if err != nil {
+		releaseSessionPoolSlot(cfg)
+		return nil, fmt.Errorf("codexapp: generate approval session scope: %w", err)
 	}
 	url, err := resolveSessionTransportURL(transportCtx, serverURL, manager, cfg)
 	if err != nil {
@@ -154,6 +162,7 @@ func newSessionWithOptions(
 	agentLog := pkglogger.NewAgentLogger(agentID)
 	s := &session{
 		agentID:               strings.TrimSpace(agentID),
+		approvalSessionScope:  approvalSessionScope,
 		transport:             t,
 		manager:               manager,
 		caps:                  cloneCaps(codexCapabilities),
@@ -209,8 +218,9 @@ func releaseSessionPoolSlot(cfg sessionOptions) {
 type sessionOption func(*sessionOptions)
 
 type sessionOptions struct {
-	poolURL     string
-	poolRelease func()
+	poolURL             string
+	poolRelease         func()
+	approvalScopeReader io.Reader
 }
 
 func withPoolServer(url string, release func()) sessionOption {
@@ -218,6 +228,27 @@ func withPoolServer(url string, release func()) sessionOption {
 		o.poolURL = url
 		o.poolRelease = release
 	}
+}
+
+// withApprovalScopeReader 注入审批会话 scope 的随机源，供构造失败路径做确定性验证。
+func withApprovalScopeReader(reader io.Reader) sessionOption {
+	return func(o *sessionOptions) {
+		o.approvalScopeReader = reader
+	}
+}
+
+// generateApprovalSessionScope 从不可预测随机源生成 RFC 4122 version 4 会话 scope。
+func generateApprovalSessionScope(reader io.Reader) (string, error) {
+	if reader == nil {
+		return "", errors.New("approval session scope entropy reader is nil")
+	}
+	var value [16]byte
+	if _, err := io.ReadFull(reader, value[:]); err != nil {
+		return "", fmt.Errorf("read approval session scope entropy: %w", err)
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
 }
 
 // onInboundMessage 分发 Codex app 主动发来的请求或通知。

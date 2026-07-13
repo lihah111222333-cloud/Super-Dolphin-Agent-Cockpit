@@ -3,6 +3,7 @@ package eventsurface
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,58 @@ func TestToolApprovalResolvedPayloadIncludesRequestID(t *testing.T) {
 	}
 }
 
+func TestApprovalPayloadSerializersCoverDTOFields(t *testing.T) {
+	now := time.Unix(1710000000, 0).UTC()
+	header := bindTestToolApprovalHeader(bindTestTurnHeader(now))
+	requested := tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: header,
+		RequestID:          101,
+		Reason:             "needs review",
+		Kind:               "tool",
+	}
+	resolved := tooldto.ToolApprovalResolved{
+		ToolApprovalHeader: header,
+		RequestID:          101,
+		Approved:           true,
+		Decision:           "accept",
+		ReviewedBy:         "user-1",
+		Kind:               "tool",
+	}
+	assertDTOJSONFieldsReachPayload(t, requested, toolApprovalRequestedPayload(requested))
+	assertDTOJSONFieldsReachPayload(t, resolved, toolApprovalResolvedPayload(resolved))
+}
+
+func assertDTOJSONFieldsReachPayload(t *testing.T, dtoValue any, payload map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(dtoValue)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	var dtoFields map[string]any
+	if err := json.Unmarshal(raw, &dtoFields); err != nil {
+		t.Fatalf("unmarshal DTO fields: %v", err)
+	}
+	for dtoKey := range dtoFields {
+		if dtoKey == "timestamp" {
+			continue
+		}
+		wireKey := snakeJSONKeyToLowerCamel(dtoKey)
+		if _, ok := payload[wireKey]; !ok {
+			t.Errorf("DTO field %q missing from event payload key %q: %#v", dtoKey, wireKey, payload)
+		}
+	}
+}
+
+func snakeJSONKeyToLowerCamel(key string) string {
+	parts := strings.Split(key, "_")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] != "" {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
 func publishRecoveryAndToolSurfaceEvents(dispatcher *event.Dispatcher) {
 	now := time.Unix(1710000000, 0).UTC()
 	sessionHeader := bindTestAgentSessionHeader(now)
@@ -250,6 +303,7 @@ func bindTestToolCallHeader(turnHeader shared.TurnHeader, callID, toolName strin
 func bindTestToolApprovalHeader(turnHeader shared.TurnHeader) shared.ToolApprovalHeader {
 	return shared.ToolApprovalHeader{
 		ToolCallHeader: bindTestToolCallHeader(turnHeader, "call-2", "shell"),
+		SessionScope:   "approval-session-scope",
 		ApprovalID:     "approval-1",
 	}
 }
@@ -274,11 +328,22 @@ func assertRecoveryAndToolSurfacePayloads(t *testing.T, seen map[string]map[stri
 	if seen[MethodItemCompleted]["persistFailed"] != true || seen[MethodItemCompleted]["persistError"] != "write cache: permission denied" {
 		t.Fatalf("tool completion payload = %#v, want persist failure", seen[MethodItemCompleted])
 	}
+	assertApprovalSurfacePayloads(t, seen)
+}
+
+func assertApprovalSurfacePayloads(t *testing.T, seen map[string]map[string]any) {
+	t.Helper()
 	if seen[MethodCommandApprovalRequested]["requestId"] != int64(99) {
 		t.Fatalf("approval requested payload = %#v", seen[MethodCommandApprovalRequested])
 	}
+	if seen[MethodCommandApprovalRequested]["sessionScope"] != "approval-session-scope" {
+		t.Fatalf("approval requested payload = %#v, want sessionScope", seen[MethodCommandApprovalRequested])
+	}
 	if seen[MethodApprovalResolved]["decision"] != "accept" {
 		t.Fatalf("approval resolved payload = %#v", seen[MethodApprovalResolved])
+	}
+	if seen[MethodApprovalResolved]["sessionScope"] != "approval-session-scope" {
+		t.Fatalf("approval resolved payload = %#v, want sessionScope", seen[MethodApprovalResolved])
 	}
 }
 

@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { positiveApprovalRequestIdFromFields } from '../approvalRequestId.js';
+import { requireApprovalIdentity } from '../approvalRequestId.js';
 import { callAPI as callWailsAPI } from '../wailsBridge.js';
 import { RPC_METHODS } from './backendRpcMethods.js';
 import {
@@ -321,25 +321,19 @@ function forceCompleteTurnPayload(params) {
 
 function approvalRespondPayload(params) {
   const payload = assertPlainObject(RPC_METHODS.APPROVAL_RESPOND, params);
-  const {
-    approved,
-    requestId,
-    request_id: requestIdAlias,
-    ...unused
-  } = payload;
+  const unused = { ...payload };
+  const approved = takePayloadField(unused, 'approved');
+  takePayloadField(unused, 'sessionScope');
+  takePayloadField(unused, 'session_scope');
+  takePayloadField(unused, 'callId');
+  takePayloadField(unused, 'call_id');
+  takePayloadField(unused, 'requestId');
+  takePayloadField(unused, 'request_id');
   assertNoExtraPayloadFields(RPC_METHODS.APPROVAL_RESPOND, unused);
-  const normalizedRequestId = positiveApprovalRequestIdFromFields(payload);
-  if (normalizedRequestId <= 0) {
-    const hasRequestId = hasOwn(payload, 'requestId') || hasOwn(payload, 'request_id');
-    const rawRequestId = hasOwn(payload, 'requestId') ? requestId : requestIdAlias;
-    if (!hasRequestId || rawRequestId === undefined || rawRequestId === null || rawRequestId === '' || rawRequestId === 0) {
-      throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
-    }
-    throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId must be a positive integer`);
-  }
+  const identity = requireApprovalIdentity(payload, RPC_METHODS.APPROVAL_RESPOND);
   if (!hasOwn(payload, 'approved')) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved is required`);
   if (typeof approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
-  return { requestId: normalizedRequestId, approved };
+  return { ...identity, approved };
 }
 
 function compactThreadPayload(params) {

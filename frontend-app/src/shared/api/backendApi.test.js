@@ -1141,31 +1141,47 @@ function guardedBackendResponse(method) {
     }), 'turn/forceComplete: unsupported payload field surprise');
   });
 
-  it('wraps approval/respond with strict request id and decision payloads', async () => {
+  it('wraps approval/respond with strict composite identity and decision payloads', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
+    const identity = { sessionScope: 'session-scope-a', callId: 'call-a', requestId: 11 };
 
-    await api.respondApproval({ requestId: 11, approved: false });
+    await api.respondApproval({ ...identity, approved: false });
 
     expect(RPC_METHODS.APPROVAL_RESPOND).toBe('approval/respond');
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.APPROVAL_RESPOND, {
+      sessionScope: 'session-scope-a',
+      callId: 'call-a',
       requestId: 11,
       approved: false,
     });
-    expect(() => api.respondApproval({ requestId: 0, approved: true }))
+    expect(() => api.respondApproval({ ...identity, requestId: 0, approved: true }))
       .toThrow('approval/respond: requestId is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: '11', approved: true }),
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ ...identity, requestId: '11', approved: true }),
       'approval/respond: requestId must be a positive integer');
-    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: '11.9', approved: true }),
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ ...identity, requestId: '11.9', approved: true }),
       'approval/respond: requestId must be a positive integer');
-    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: 11.9, approved: true }),
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ ...identity, requestId: 11.9, approved: true }),
       'approval/respond: requestId must be a positive integer');
     expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      ...identity,
       requestId: Number.MAX_SAFE_INTEGER + 1,
       approved: true,
     }), 'approval/respond: requestId must be a positive integer');
-    expect(() => api.respondApproval({ requestId: 11 }))
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ callId: 'call-a', requestId: 11, approved: true }),
+      'approval/respond: sessionScope is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ sessionScope: 'session-scope-a', requestId: 11, approved: true }),
+      'approval/respond: callId is required');
+    expect(() => api.respondApproval(identity))
       .toThrow('approval/respond: approved is required');
+
+    await api.respondApproval({ session_scope: 'session-scope-b', call_id: 'call-b', request_id: 12, approved: true });
+    expect(callAPI).toHaveBeenLastCalledWith(RPC_METHODS.APPROVAL_RESPOND, {
+      sessionScope: 'session-scope-b',
+      callId: 'call-b',
+      requestId: 12,
+      approved: true,
+    });
   });
 
   it('rejects unknown approval/respond facade fields before calling the backend', () => {
@@ -1173,15 +1189,26 @@ function guardedBackendResponse(method) {
     const api = createBackendApi({ callAPI });
 
     expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      sessionScope: 'session-scope-a',
+      callId: 'call-a',
       requestId: 11,
       approved: true,
       surprise: true,
     }), 'approval/respond: unsupported payload field surprise');
     expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      sessionScope: 'session-scope-a',
+      session_scope: 'session-scope-b',
+      callId: 'call-a',
       requestId: 11,
       approved: true,
-      callId: 'call-1',
-    }), 'approval/respond: unsupported payload field callId');
+    }), 'approval/respond: conflicting sessionScope values');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      sessionScope: '',
+      session_scope: 'session-scope-a',
+      callId: 'call-a',
+      requestId: 11,
+      approved: true,
+    }), 'approval/respond: conflicting sessionScope values');
   });
 
   it('maps turn/interrupt to the backend request and response contract', async () => {

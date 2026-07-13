@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,13 +22,16 @@ type approvalContextKey string
 
 const approvalAutoDeclineOnCancelKey approvalContextKey = "approval_auto_decline_on_cancel"
 
-// normalizeApprovalRequest 校验并标准化审批请求，保证后续索引拥有稳定 callID。
+// normalizeApprovalRequest 校验并标准化审批请求，保证后续索引拥有完整后端身份。
 func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
-	callID := approvalCallID(shared.FirstNonEmpty(req.CallID, req.ApprovalID), req.RequestID)
-	if callID == "" {
-		return ApprovalRequest{}, ErrInvalidState("approval call id is required")
+	identity, err := approvalIdentityFromRequest(req)
+	if err != nil {
+		return ApprovalRequest{}, err
 	}
-	req.CallID = callID
+	req.SessionScope = identity.SessionScope
+	req.CallID = identity.CallID
+	requestID := identity.RequestID
+	req.RequestID = &requestID
 	req.ToolName = strings.TrimSpace(req.ToolName)
 	req.ApprovalID = strings.TrimSpace(req.ApprovalID)
 	req.Kind = shared.FirstNonEmpty(strings.TrimSpace(req.Kind), "tool")
@@ -38,6 +41,31 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
 	req.Payload = shared.CloneJSONMap(req.Payload)
 	return req, nil
+}
+
+// approvalIdentityFromRequest 读取并验证 RPC 审批 DTO 的三元身份。
+func approvalIdentityFromRequest(req ApprovalRequest) (contract.ApprovalIdentity, error) {
+	return normalizeApprovalIdentity(contract.ApprovalIdentity{
+		SessionScope: req.SessionScope,
+		CallID:       req.CallID,
+		RequestID:    int64Value(req.RequestID),
+	})
+}
+
+// normalizeApprovalIdentity 拒绝任何缺失或非正 requestID，禁止按部分身份猜测 pending。
+func normalizeApprovalIdentity(identity contract.ApprovalIdentity) (contract.ApprovalIdentity, error) {
+	identity.SessionScope = strings.TrimSpace(identity.SessionScope)
+	identity.CallID = strings.TrimSpace(identity.CallID)
+	if identity.SessionScope == "" {
+		return contract.ApprovalIdentity{}, ErrInvalidState("approval session scope is required")
+	}
+	if identity.CallID == "" {
+		return contract.ApprovalIdentity{}, ErrInvalidState("approval call id is required")
+	}
+	if identity.RequestID <= 0 {
+		return contract.ApprovalIdentity{}, ErrInvalidState("approval request id must be a positive integer")
+	}
+	return identity, nil
 }
 
 // WithApprovalDeadline 在调用方没有显式 deadline 时附加默认审批超时。
@@ -182,28 +210,13 @@ func decisionReason(decision contract.ApprovalDecision, err error) string {
 	}
 }
 
-// approvalCallID 统一从 callID 或 requestID 生成审批主键文本。
-func approvalCallID(callID string, requestID *int64) string {
-	callID = strings.TrimSpace(callID)
-	if callID != "" {
-		return callID
-	}
-	if requestID != nil && *requestID > 0 {
-		return strconv.FormatInt(*requestID, 10)
-	}
-	return ""
-}
-
-// pendingStorageKey 生成 pending 主索引键，requestID 可区分同 callID 的并发请求。
-func pendingStorageKey(callID string, requestID *int64) string {
-	callID = strings.TrimSpace(callID)
-	if callID == "" {
+// pendingStorageKey 用带长度前缀的完整身份生成无歧义主索引键。
+func pendingStorageKey(identity contract.ApprovalIdentity) string {
+	identity, err := normalizeApprovalIdentity(identity)
+	if err != nil {
 		return ""
 	}
-	if requestID == nil || *requestID <= 0 {
-		return callID
-	}
-	return callID + ":" + strconv.FormatInt(*requestID, 10)
+	return fmt.Sprintf("%d:%s%d:%s%d", len(identity.SessionScope), identity.SessionScope, len(identity.CallID), identity.CallID, identity.RequestID)
 }
 
 // cloneApprovalRequest 复制请求和 payload，避免调用方后续修改影响 pending 状态。

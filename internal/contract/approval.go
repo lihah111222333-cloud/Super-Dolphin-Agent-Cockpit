@@ -8,7 +8,15 @@ import (
 // ApprovalResponder 是 tool call 审批结果回写边界。
 // turn 模块只依赖该接口，具体请求状态和 RPC 通知由 platform/rpc 实现。
 type ApprovalResponder interface {
-	Respond(callID string, requestID *int64, decision ApprovalDecision) error
+	Respond(identity ApprovalIdentity, decision ApprovalDecision) error
+}
+
+// ApprovalIdentity 是一次可操作审批的完整身份。
+// SessionScope 由后端会话签发，CallID/RequestID 来自对应 provider 调用；三者缺一不可。
+type ApprovalIdentity struct {
+	SessionScope string `json:"sessionScope"`
+	CallID       string `json:"callId"`
+	RequestID    int64  `json:"requestId"`
 }
 
 // ApprovalRequester 发起需要用户裁决的审批请求。
