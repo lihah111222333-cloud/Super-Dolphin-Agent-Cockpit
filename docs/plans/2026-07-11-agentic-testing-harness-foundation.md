@@ -845,7 +845,7 @@ Actual independent-repository commit: `c8898a1` (versioned init/doctor/report/re
 - Create: `tests/e2e/helpers/cli-session.ts`
 - Create: `tests/e2e/web-session.test.ts`
 
-- [ ] **Step 1: Write the failing E2E**
+- [x] **Step 1: Write the failing E2E**
 
 ```ts
 it('explores a visible Web path and blocks a write in read mode', async () => {
@@ -860,17 +860,17 @@ it('explores a visible Web path and blocks a write in read mode', async () => {
 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npm run test:e2e:web`
 
 Expected: FAIL because fixture and test helper do not exist.
 
-- [ ] **Step 3: Implement the fixture and identity contract**
+- [x] **Step 3: Implement the fixture and identity contract**
 
 The Node HTTP fixture serves `/health` and `/`, returns the exact nonce header, renders visible Details navigation plus a Save button, and exposes a hidden duplicate button to prove visibility filtering. Its adapter classifies Details navigation as `read` and Save as `write`. The E2E helper keeps one child process open and communicates only by JSONL.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 ```bash
 npm run build
@@ -880,6 +880,16 @@ git add examples/web-fixture tests/e2e package.json package-lock.json
 git diff --cached --check
 git commit -m "test: 验证 Web Agent 探索纵切"
 ```
+
+**Implementation record (2026-07-13):**
+
+- Independent repository commit: `23da408 test: 验证 Web Agent 探索纵切`.
+- The real `ath session stream --jsonl` vertical slice observes Home, follows the visible Details link, durably records the blocked Save action, proves the hidden duplicate is excluded from visible strict matching, seals cleanup evidence, and renders the report through the public CLI.
+- The same fixture seeds a candidate only through public Core capabilities and executes a real `ath replay <candidate-id> --json`; the test verifies the fresh replay session, exact seven-event replay chain, `replay_passed` result, and released target PID/port.
+- Blocked write evidence force-redacts context-sensitive values, remains non-terminal when persistence succeeds, and becomes an infrastructure failure when the durable ledger fails. Abort and finish races are covered with exact evidence-before-cleanup ordering.
+- Every E2E invocation receives an exclusive private runs root. Fixture cleanup uses the harness nonce through an authenticated self-close endpoint, keeps PPID and hard-TTL containment, and pins directories with a no-follow handle before permission changes.
+- Final verification: `npm run verify` passed 37 files with 917 tests passed and one explicit Windows-only skip; `npm run test:e2e:web` passed 4/4; `git diff --check` passed.
+- LSP evidence remains unavailable because `/Users/l4place/Documents/agentic-testing-harness` is outside the active trusted workspace root; `grep`, `structure`, `inspect`, `xref`, `file(read_file)`, and `file(diagnostics)` all returned `path_outside_workspace`, so LSP diagnostics are not recorded as PASS. Windows runtime proof remains assigned to the Task 12 CI matrix.
 
 ### Task 12: Add the Codex Skill, CI, and fresh-package smoke
 
