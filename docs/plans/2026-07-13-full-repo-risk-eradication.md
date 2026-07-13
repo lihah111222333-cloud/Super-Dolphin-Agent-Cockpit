@@ -65,11 +65,13 @@
 - `internal/module/cron/contract.go`
 - `internal/app/storeadapter/cron/adapter.go`
 - `internal/store/cron/contract.go`
-- `internal/store/cron/store.go`
+- `internal/store/cron/store.go`、`internal/store/cron/recovery_finalize.go`，恢复终态事务单独分文件以满足生产文件尺寸门禁
 - `sql/queries/cron_job.sql`
 - `internal/store/sqlc/*`，仅由 `make sqlc-generate` 生成
 - `pkg/cronmetrics/*`，保存不反向依赖 platform 的恢复收尾计数源
 - `internal/platform/metrics/cron.go`、`internal/platform/metrics/metrics_test.go`，将计数注册到 Prometheus `/metrics`
+- `internal/module/cron/scheduler_recovery_finalize_test.go`，隔离恢复事务 fixture 并满足测试文件尺寸与方法数门禁
+- `internal/archtest/backend_boundary_registry.go` 及对应治理测试，将 `pkg/cronmetrics` 注册为禁止反向依赖 `internal` 的公共 leaf 包
 - 对应 Cron module、adapter、store 测试
 
 ### 最优修复
