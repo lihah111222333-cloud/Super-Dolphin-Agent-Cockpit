@@ -86,13 +86,13 @@
 
 ### RED/GREEN
 
-- [ ] RED：`TestFinalizeRecoveredFailureCASFailureDoesNotMarkJobFailed`，CAS 返回错误时 `MarkFailed` 调用次数必须为 0。
-- [ ] RED：`TestFinalizeRecoveredObserveLostCASFailureDoesNotMarkJobFailed`，覆盖 observe-lost 路径。
-- [ ] RED：store 事务 fixture 让第二个 UPDATE 失败，断言 run UPDATE 回滚。
-- [ ] RED：并发 fixture 让旧 turn 状态改变，断言恢复端不会释放 job 或创建重试。
-- [ ] GREEN：实现事务端口及 adapter 映射；删除“warn 后继续”的分支。
-- [ ] 上层防御：通过 `pkg/cronmetrics` 增加 `cron_recovery_finalize_conflict_total`、`cron_recovery_finalize_error_total`，由 `internal/platform/metrics` 注册到 Prometheus `/metrics`；日志必须带 `job_id/run_id/turn_id/expected_status`。
-- [ ] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/module/cron ./internal/app/storeadapter/cron ./internal/store/cron -count=1`。
+- [x] RED：`TestFinalizeRecoveredFailureCASFailureDoesNotMarkJobFailed`，CAS 返回错误时 `MarkFailed` 调用次数必须为 0。
+- [x] RED：`TestFinalizeRecoveredObserveLostCASFailureDoesNotMarkJobFailed`，覆盖 observe-lost 路径。
+- [x] RED：store 事务 fixture 让第二个 UPDATE 失败，断言 run UPDATE 回滚。
+- [x] RED：并发 fixture 让旧 turn 状态改变，断言恢复端不会释放 job 或创建重试。
+- [x] GREEN：实现事务端口及 adapter 映射；删除“warn 后继续”的分支。
+- [x] 上层防御：通过 `pkg/cronmetrics` 增加 `cron_recovery_finalize_conflict_total`、`cron_recovery_finalize_error_total`，由 `internal/platform/metrics` 注册到 Prometheus `/metrics`；日志必须带 `job_id/run_id/turn_id/expected_status`。
+- [x] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/module/cron ./internal/app/storeadapter/cron ./internal/store/cron -count=1`。
 
 ### 完成门禁
 
@@ -126,13 +126,13 @@ hooks dispatch 与 RPC push worker 在获取 mutex 前检查 `stopCh`。`Enqueue
 
 ### RED/GREEN
 
-- [ ] RED：使用 barrier 精确构造“Enqueue 已通过旧检查但未拿锁，Stop 已完成”的交错，断言当前实现丢事件。
-- [ ] RED：构造“已 append 但尚未计数/wake，Stop 抢锁并返回”的交错，断言当前计数仍会在 Stop 后变化。
-- [ ] RED：Stop 返回后连续 Enqueue，断言队列长度、accepted/enqueued 计数和 wake 均不再增加。
-- [ ] RED：RPC push 在 Stop 前已接受的通知必须在 grace 内完成发送；超时路径必须产生 dropped-on-shutdown 而不是成功计数。
-- [ ] GREEN：实现完整线性化区间，以及 push 的 drain-before-cancel 关闭协议。
-- [ ] 上层防御：为 rejected-after-stop、drain-timeout、dropped/coalesced 分别计数，不能混成成功入队。
-- [ ] 验证：`./scripts/test_with_guard.sh ./internal/platform/hooks ./internal/platform/rpc -count=1`；`go test -race ./internal/platform/hooks ./internal/platform/rpc -count=10`。
+- [x] RED：使用 barrier 精确构造“Enqueue 已通过旧检查但未拿锁，Stop 已完成”的交错，断言当前实现丢事件。
+- [x] RED：构造“已 append 但尚未计数/wake，Stop 抢锁并返回”的交错，断言当前计数仍会在 Stop 后变化。
+- [x] RED：Stop 返回后连续 Enqueue，断言队列长度、accepted/enqueued 计数和 wake 均不再增加。
+- [x] RED：RPC push 在 Stop 前已接受的通知必须在 grace 内完成发送；超时路径必须产生 dropped-on-shutdown 而不是成功计数。
+- [x] GREEN：实现完整线性化区间，以及 push 的 drain-before-cancel 关闭协议。
+- [x] 上层防御：为 rejected-after-stop、drain-timeout、dropped/coalesced 分别计数，不能混成成功入队。
+- [x] 验证：`./scripts/test_with_guard.sh ./internal/platform/hooks ./internal/platform/rpc -count=1`；`go test -race ./internal/platform/hooks ./internal/platform/rpc -count=10`。
 
 ---
 
@@ -157,12 +157,12 @@ framed stdio body 有 1 MiB 上限，但 header 使用 `ReadString('\n')`，超�
 
 ### RED/GREEN
 
-- [ ] RED：超长且无换行 header 必须在固定上限内返回错误。
-- [ ] RED：多行累计超限和 header 行数超限必须失败。
-- [ ] RED：在明确“是否包含换行符”的规则下，边界值恰好允许，下一字节拒绝；错误类型稳定可断言。
-- [ ] GREEN：有界 reader helper，不在调用点复制限制逻辑。
-- [ ] 上层防御：加入 framed 输入 fuzz corpus，断言无 panic、错误可分类；使用 counting reader 证明超限输入在预算内停止读取，使用 benchmark/`AllocsPerRun` 约束分配，不在 fuzz 中声称精确内存上限。
-- [ ] 验证：`./scripts/test_with_guard.sh ./internal/mcpserver/common -count=1`；相关 `cmd/mcp-lsp`、`cmd/mcp-orch` transport 测试。
+- [x] RED：超长且无换行 header 必须在固定上限内返回错误。
+- [x] RED：多行累计超限和 header 行数超限必须失败。
+- [x] RED：在明确“是否包含换行符”的规则下，边界值恰好允许，下一字节拒绝；错误类型稳定可断言。
+- [x] GREEN：有界 reader helper，不在调用点复制限制逻辑。
+- [x] 上层防御：加入 framed 输入 fuzz corpus，断言无 panic、错误可分类；使用 counting reader 证明超限输入在预算内停止读取，使用 benchmark/`AllocsPerRun` 约束分配，不在 fuzz 中声称精确内存上限。
+- [x] 验证：`./scripts/test_with_guard.sh ./internal/mcpserver/common -count=1`；相关 `cmd/mcp-lsp`、`cmd/mcp-orch` transport 测试。
 
 ---
 
@@ -194,12 +194,12 @@ framed stdio body 有 1 MiB 上限，但 header 使用 `ReadString('\n')`，超�
 
 ### RED/GREEN
 
-- [ ] RED：CI 契约测试证明缺少任一 map check 时失败。
-- [ ] RED：required gate 无 runner 时 `executeGatePlan` 必须失败。
-- [ ] RED：fixture 根内放置 `.worktrees/foreign/internal/bad.go`，断言 collector 不读取该文件。
-- [ ] GREEN：更新 CI、runner fail-fast 和统一 skip/allowlist。
+- [x] RED：CI 契约测试证明缺少任一 map check 时失败。
+- [x] RED：required gate 无 runner 时 `executeGatePlan` 必须失败。
+- [x] RED：fixture 根内放置 `.worktrees/foreign/internal/bad.go`，断言 collector 不读取该文件。
+- [x] GREEN：更新 CI、runner fail-fast 和统一 skip/allowlist。
 - [ ] 上层防御：主分支保护必须把 CI map-check job 设为 required；未配置前发布状态保持 BLOCKED。
-- [ ] 验证：`go test ./scripts/ai_maintenance ./internal/archtest -count=1`；`make codemap-check`；`make project-map-check`；`make guard`。
+- [x] 验证：`go test ./scripts/ai_maintenance ./internal/archtest -count=1`；`make codemap-check`；`make project-map-check`；`make guard`。
 
 ---
 
@@ -236,17 +236,17 @@ Go sharedFilePreviewResult
   -> WorkflowFinalOutputPanel 只消费 url/contentType
 ```
 
-- [ ] 动态枚举 Go 响应字段或通过生成/类型契约得到 producer set；消费 registry 必须校验 missing 和 stale。
-- [ ] one-field-at-a-time/roundtrip 测试证明 `url/path/contentType/sizeBytes` 都在 bridge 被 required/exact 校验。
-- [ ] 消费 registry 明确 `url/contentType` 由最终 UI 使用；`path/sizeBytes` 以 `Field | Direction | Reason | Evidence/Owner` 登记为 bridge 终止校验，除非产品明确让 UI 使用它们。禁止制造无意义 UI 消费以凑覆盖。
-- [ ] 临时删除 URL 校验分支，记录 frontend contract guard 的 fail-first 结果，再恢复。
+- [x] 动态枚举 Go 响应字段或通过生成/类型契约得到 producer set；消费 registry 必须校验 missing 和 stale。
+- [x] one-field-at-a-time/roundtrip 测试证明 `url/path/contentType/sizeBytes` 都在 bridge 被 required/exact 校验。
+- [x] 消费 registry 明确 `url/contentType` 由最终 UI 使用；`path/sizeBytes` 以 `Field | Direction | Reason | Evidence/Owner` 登记为 bridge 终止校验，除非产品明确让 UI 使用它们。禁止制造无意义 UI 消费以凑覆盖。
+- [x] 临时删除 URL 校验分支，记录 frontend contract guard 的 fail-first 结果，再恢复。
 
 ### RED/GREEN
 
-- [ ] RED：`2026-02-30`、`2025-02-29`、`2026-04-31` 均失败，`2024-02-29` 成功。
-- [ ] RED：远端 HTTPS、非 loopback HTTP、错误路径、空/重复 id、userinfo 欺骗 URL 均失败。
-- [ ] GREEN：实现严格日期与 preview URL validator。
-- [ ] 验证：`cd frontend-app && npm run lint && npm test && npm run build`；Go bridge diagnostics/测试。
+- [x] RED：`2026-02-30`、`2025-02-29`、`2026-04-31` 均失败，`2024-02-29` 成功。
+- [x] RED：远端 HTTPS、非 loopback HTTP、错误路径、空/重复 id、userinfo 欺骗 URL 均失败。
+- [x] GREEN：实现严格日期与 preview URL validator。
+- [x] 验证：`cd frontend-app && npm run lint && npm test && npm run build`；Go bridge diagnostics/测试。
 
 ---
 
@@ -274,11 +274,11 @@ Go sharedFilePreviewResult
 
 ### RED/GREEN
 
-- [ ] RED：Fx、start、resume 缺 manager 均返回确定错误，且断言不 acquire pool、不 dial transport、不启动 runtime reader/turn。
-- [ ] RED：运行中 manager 异常时审批请求导致 turn 终态失败，不得挂起。
-- [ ] GREEN：Fx 与 start/resume 前置 fail-fast，constructor 纵深校验并释放预占 slot，删除 silent return。
-- [ ] 上层防御：记录 approval-request received/responded/failed，使用 request id 对账；未响应请求必须在 deadline 内告警并收口。
-- [ ] 验证：`./scripts/test_with_guard.sh ./internal/provider/codexapp -count=1`；provider contract tests。
+- [x] RED：Fx、start、resume 缺 manager 均返回确定错误，且断言不 acquire pool、不 dial transport、不启动 runtime reader/turn。
+- [x] RED：运行中 manager 异常时审批请求导致 turn 终态失败，不得挂起。
+- [x] GREEN：Fx 与 start/resume 前置 fail-fast，constructor 纵深校验并释放预占 slot，删除 silent return。
+- [x] 上层防御：记录 approval-request received/responded/failed，使用 request id 对账；未响应请求必须在 deadline 内告警并收口。
+- [x] 验证：`./scripts/test_with_guard.sh ./internal/provider/codexapp -count=1`；provider contract tests。
 
 ---
 
@@ -349,19 +349,19 @@ frontend listCronJobs API request
   -> frontend response validator/API caller
 ```
 
-- [ ] 每个边界分别定义 producer：前端请求 contract、Go `cronListParams`、module page DTO、adapter page DTO、store page DTO、sqlc params/rows、Go `cronListResponse`、前端响应 contract。禁止把所有层笼统称为一个 producer。
-- [ ] Go producer 字段通过反射/AST 动态枚举；前端请求/响应字段通过类型/schema/AST 动态枚举。消费 registry 检查 missing/stale，并用 mapper AST 或 one-field-at-a-time roundtrip 证明实现覆盖。
-- [ ] 为 `limit/cursor/jobs/next_cursor/has_more` 与 Go 内部字段建立逐方向 mapper coverage；任何一层临时删除映射都必须令 guard 精确报出字段与方向。
-- [ ] guard 文件和准确 fail-first 命令必须在 RED 证据中记录；通用 `frontend-contract-store-guard.mjs` 不能自动证明 Cron 字段链，必须新增专用 contract/mapper guard 或等价动态测试。
+- [x] 每个边界分别定义 producer：前端请求 contract、Go `cronListParams`、module page DTO、adapter page DTO、store page DTO、sqlc params/rows、Go `cronListResponse`、前端响应 contract。禁止把所有层笼统称为一个 producer。
+- [x] Go producer 字段通过反射/AST 动态枚举；前端请求/响应字段通过类型/schema/AST 动态枚举。消费 registry 检查 missing/stale，并用 mapper AST 或 one-field-at-a-time roundtrip 证明实现覆盖。
+- [x] 为 `limit/cursor/jobs/next_cursor/has_more` 与 Go 内部字段建立逐方向 mapper coverage；任何一层临时删除映射都必须令 guard 精确报出字段与方向。
+- [x] guard 文件和准确 fail-first 命令必须在 RED 证据中记录；通用 `frontend-contract-store-guard.mjs` 不能自动证明 Cron 字段链，必须新增专用 contract/mapper guard 或等价动态测试。
 
 ### RED/GREEN
 
-- [ ] RED：超过一页的数据不能一次返回全部；相同 created_at 的记录以 id 稳定分界，多页遍历无重复无遗漏。
-- [ ] RED：页间插入更“新”的记录时，该记录不进入旧 cursor 的后续页、重新从首页加载后可见；页间删除只允许删除项缺失，不得导致其他项重复。`created_at` 必须保持不可变排序键。
-- [ ] RED：验证 `limit+1`、`HasMore/NextCursor` 来源和末页 `has_more=false,next_cursor=""`；不得只测行数。
-- [ ] RED：limit=0、负数、超上限和非法 cursor 全部 fail-fast。
-- [ ] GREEN：SQL/store/adapter/service/RPC/前端 API contract 全链分页，不新增 UI。
-- [ ] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/store/cron ./internal/app/storeadapter/cron ./internal/module/cron -count=1`；`cd frontend-app && npm run lint && npm test && npm run build`。
+- [x] RED：超过一页的数据不能一次返回全部；相同 created_at 的记录以 id 稳定分界，多页遍历无重复无遗漏。
+- [x] RED：页间插入更“新”的记录时，该记录不进入旧 cursor 的后续页、重新从首页加载后可见；页间删除只允许删除项缺失，不得导致其他项重复。`created_at` 必须保持不可变排序键。
+- [x] RED：验证 `limit+1`、`HasMore/NextCursor` 来源和末页 `has_more=false,next_cursor=""`；不得只测行数。
+- [x] RED：limit=0、负数、超上限和非法 cursor 全部 fail-fast。
+- [x] GREEN：SQL/store/adapter/service/RPC/前端 API contract 全链分页，不新增 UI。
+- [x] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/store/cron ./internal/app/storeadapter/cron ./internal/module/cron -count=1`；`cd frontend-app && npm run lint && npm test && npm run build`。
 
 ---
 
