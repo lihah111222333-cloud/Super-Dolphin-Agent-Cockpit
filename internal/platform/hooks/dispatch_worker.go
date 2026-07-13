@@ -42,8 +42,9 @@ type hookDispatchWorker struct {
 	fanout hookDispatchFanout
 	logger *pkglogger.Logger
 
-	mu    sync.Mutex
-	queue []hookDispatchRequest
+	mu      sync.Mutex
+	stopped bool
+	queue   []hookDispatchRequest
 
 	wake chan struct{}
 
@@ -52,8 +53,9 @@ type hookDispatchWorker struct {
 	stopCh    chan struct{}
 	doneCh    chan struct{}
 
-	enqueuedTotal  atomic.Int64
-	processedTotal atomic.Int64
+	enqueuedTotal          atomic.Int64
+	processedTotal         atomic.Int64
+	rejectedAfterStopTotal atomic.Int64
 }
 
 // newHookDispatchWorker 创建 hooks dispatch worker 并补齐默认 logger。
@@ -99,18 +101,17 @@ func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload 
 	if w == nil {
 		return
 	}
-	select {
-	case <-w.stopCh:
-		return
-	default:
-	}
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped {
+		w.rejectedAfterStopTotal.Add(1)
+		return
+	}
 	w.enqueueLocked(hookDispatchRequest{
 		topic:     topic,
 		payload:   payload,
 		eventTime: eventTime,
 	})
-	w.mu.Unlock()
 	w.enqueuedTotal.Add(1)
 	select {
 	case w.wake <- struct{}{}:
@@ -155,7 +156,10 @@ func (w *hookDispatchWorker) Stop(ctx context.Context) error {
 	}
 	var firstErr error
 	w.stopOnce.Do(func() {
+		w.mu.Lock()
+		w.stopped = true
 		close(w.stopCh)
+		w.mu.Unlock()
 		waitCtx := ctx
 		if waitCtx == nil {
 			waitCtx = context.Background()
@@ -177,6 +181,9 @@ func (w *hookDispatchWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal 返回已接收的 relay 请求数量，供测试和指标采集读取。
 func (w *hookDispatchWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// RejectedAfterStopTotal 返回 stop gate 拒绝的请求数量。
+func (w *hookDispatchWorker) RejectedAfterStopTotal() int64 { return w.rejectedAfterStopTotal.Load() }
 
 // ProcessedTotal 返回已完成 dispatch 的请求数量。
 func (w *hookDispatchWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }

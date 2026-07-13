@@ -171,6 +171,22 @@ function cronListRunsPayload(params) {
   });
 }
 
+function cronListPayload(params) {
+  const method = RPC_METHODS.CRONJOB_LIST;
+  const payload = assertPlainObject(method, params);
+  if (!hasOwn(payload, 'limit') || !hasOwn(payload, 'cursor')) {
+    throw new Error(`${method}: limit and cursor are required`);
+  }
+  if (Object.keys(payload).some((key) => key !== 'limit' && key !== 'cursor')) {
+    throw new Error(`${method}: unexpected payload field`);
+  }
+  if (!Number.isInteger(payload.limit) || payload.limit < 1 || payload.limit > 100) {
+    throw new Error(`${method}: limit must be an integer within range`);
+  }
+  if (typeof payload.cursor !== 'string') throw new Error(`${method}: cursor must be a string`);
+  return { limit: payload.limit, cursor: payload.cursor };
+}
+
 function cronJobMutationPayload(method, params, options = {}) {
   const payload = requireCwd(method, params);
   const name = normalizeString(payload.name);
@@ -457,10 +473,9 @@ function hasOwn(value, key) {
 export {
   dashboardDagStartPayload, dashboardDagCreateAndStartPayload, dashboardWorkflowMaterialWritePayload, dashboardDagDispatchNodePayload, optionalInteger, requireNumber,
   dashboardDagsPayload, dashboardDagRunsPayload, dashboardDagTerminatePayload, dashboardDagApplyOpsPayload, cronIdPayload, cronSetEnabledPayload,
-  cronListRunsPayload, cronJobMutationPayload, cronJobConfigPayload, cronJobSkillsPayload, cronJobEnabledPayload, cronJobMaxAttemptsPayload,
+  cronListRunsPayload, cronListPayload, cronJobMutationPayload, cronJobConfigPayload, cronJobSkillsPayload, cronJobEnabledPayload, cronJobMaxAttemptsPayload,
   codeProjectsPayload, optionalCodeInteger, codeFilePayload, promptWritePayload, promptMatchWhen, promptDeletePayload,
   promptIntentDraftPayload, promptIntentRawInput, promptIntentEnableGlobal, promptIntentSourceFields, promptProviderFields, memoryConsolidationPayload,
   promptDraftKeyPayload, promptIntentCommitPayload, promptIntentDiscardPayload, promptIntentDryRunPayload, personalizationProfilePayload, promptSectionPayload,
   lspPromptHintWritePayload, videoApiKeyPayload, builtinToolWritePayload, dashboardLogsPayload, hasOwn,
 };
-

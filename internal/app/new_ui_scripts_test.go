@@ -2,10 +2,41 @@ package app
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestNewUIDesktopScriptRejectsDotEnvWithoutExecutingIt(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "run-new-ui-desktop.sh")
+	script, err := os.ReadFile("../../run-new-ui-desktop.sh")
+	if err != nil {
+		t.Fatalf("read run-new-ui-desktop.sh: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, script, 0o755); err != nil {
+		t.Fatalf("write test script: %v", err)
+	}
+	markerPath := filepath.Join(tempDir, "dot-env-executed")
+	dotEnv := []byte("touch " + markerPath + "\n")
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), dotEnv, 0o600); err != nil {
+		t.Fatalf("write malicious .env: %v", err)
+	}
+
+	cmd := exec.Command("bash", scriptPath, "--help")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("script accepted .env; output=%s", output)
+	}
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Fatalf("script executed .env payload: %v", err)
+	}
+	if !strings.Contains(string(output), ".env is not supported") || !strings.Contains(string(output), "export") {
+		t.Fatalf("script did not provide explicit environment migration guidance: %s", output)
+	}
+}
 
 func TestNewUIDesktopScriptContract(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")

@@ -51,6 +51,12 @@ FROM cron_jobs
 WHERE enabled = 1
 ORDER BY COALESCE(next_retry_at, next_run_at)
 LIMIT 25`)
+	assertQueryPlanUsesIndex(t, db, "idx_cron_jobs_created_id", `
+SELECT id, created_at
+FROM cron_jobs
+WHERE (created_at, id) < (CAST(? AS INTEGER), CAST(? AS TEXT))
+ORDER BY created_at DESC, id DESC
+LIMIT ?`, int64(1<<62), "\U0010FFFF", 26)
 	assertQueryPlanUsesIndex(t, db, "idx_cron_job_runs_turn_status", `
 SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        agent_id, turn_id, submitted_at, status, error, created_at,

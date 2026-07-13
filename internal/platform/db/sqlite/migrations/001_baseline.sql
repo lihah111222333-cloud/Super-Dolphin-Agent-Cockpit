@@ -814,6 +814,7 @@ CREATE INDEX IF NOT EXISTS idx_turn_dedupe_registry_live ON turn_dedupe_registry
 
 CREATE INDEX IF NOT EXISTS idx_cron_jobs_due ON cron_jobs(COALESCE(next_retry_at, next_run_at)) WHERE enabled = 1;
 CREATE INDEX IF NOT EXISTS idx_cron_jobs_claim ON cron_jobs(claimed_by, lease_expires_at) WHERE claim_token <> '';
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_created_id ON cron_jobs(created_at DESC, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_idempotency ON cron_job_runs(job_id, idempotency_key) WHERE job_id <> '' AND idempotency_key <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key ON cron_job_runs(dedupe_key) WHERE dedupe_key <> '';
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_job_created ON cron_job_runs(job_id, created_at DESC, id DESC);

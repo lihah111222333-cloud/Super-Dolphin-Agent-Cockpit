@@ -22,9 +22,10 @@ func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
 	serverURL := startStartupPermanentErrorServer(t)
 	var released atomic.Int32
 	d := &driver{
-		pool:    newSingleURLPoolForTest(t, serverURL),
-		mirror:  &recordingSkillMirrorReconciler{},
-		manager: &ServerManager{},
+		approvals: testApprovalManager(),
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
+		manager:   &ServerManager{},
 		prepareTools: func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 			return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
 		},

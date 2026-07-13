@@ -3,14 +3,17 @@ package capcontract
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
+
+	"golang.org/x/tools/go/packages"
 )
+
+var canonicalTargets = []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "windows/amd64"}
 
 // ScanOptions 是能力契约扫描入口参数。
 // RepoRoot 与 Roots 分离，确保报告中保留相对路径而不是本机绝对路径。
@@ -34,16 +37,164 @@ func Scan(opts ScanOptions) (*Manifest, error) {
 		Version:     "1.0",
 		GeneratedAt: opts.GeneratedAt,
 		Roots:       normalizeRoots(opts.Roots),
+		Targets:     append([]string(nil), canonicalTargets...),
 	}
-	for _, root := range manifest.Roots {
-		packages, err := scanRoot(repoRoot, root)
+	merged := map[string]PackageManifest{}
+	for _, target := range manifest.Targets {
+		targetPackages, provenance, err := scanTarget(repoRoot, manifest.Roots, target)
 		if err != nil {
 			return nil, err
 		}
-		manifest.Packages = append(manifest.Packages, packages...)
+		manifest.Provenance = append(manifest.Provenance, provenance)
+		for _, pkg := range targetPackages {
+			if existing, ok := merged[pkg.Path]; ok {
+				merged[pkg.Path] = mergePackageManifests(existing, pkg)
+				continue
+			}
+			merged[pkg.Path] = pkg
+		}
+	}
+	for _, pkg := range merged {
+		manifest.Packages = append(manifest.Packages, pkg)
 	}
 	sort.Slice(manifest.Packages, func(i, j int) bool { return manifest.Packages[i].Path < manifest.Packages[j].Path })
 	manifest.Summary = computeSummary(manifest.Packages)
+	return manifest, nil
+}
+
+// mergePackageManifests 按符号签名合并不同平台包清单，并保持全部符号列表稳定排序。
+func mergePackageManifests(dst, src PackageManifest) PackageManifest {
+	for _, item := range src.Functions {
+		if !containsFunction(dst.Functions, functionKey(item)) {
+			dst.Functions = append(dst.Functions, item)
+		}
+	}
+	for _, item := range src.Methods {
+		if !containsMethod(dst.Methods, methodKey(item)) {
+			dst.Methods = append(dst.Methods, item)
+		}
+	}
+	for _, item := range src.Interfaces {
+		if !containsInterface(dst.Interfaces, interfaceKey(item)) {
+			dst.Interfaces = append(dst.Interfaces, item)
+		}
+	}
+	for _, item := range src.Structs {
+		if !containsStruct(dst.Structs, item.Name) {
+			dst.Structs = append(dst.Structs, item)
+		}
+	}
+	sortFunctions(dst.Functions)
+	sortMethods(dst.Methods)
+	sortInterfaces(dst.Interfaces)
+	sortStructs(dst.Structs)
+	return dst
+}
+
+func containsFunction(items []FunctionManifest, key string) bool {
+	for _, item := range items {
+		if functionKey(item) == key {
+			return true
+		}
+	}
+	return false
+}
+func containsMethod(items []MethodManifest, key string) bool {
+	for _, item := range items {
+		if methodKey(item) == key {
+			return true
+		}
+	}
+	return false
+}
+func containsInterface(items []InterfaceManifest, key string) bool {
+	for _, item := range items {
+		if interfaceKey(item) == key {
+			return true
+		}
+	}
+	return false
+}
+func containsStruct(items []StructManifest, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// scanTarget 通过 go/packages 在单个固定 GOOS/GOARCH 下加载类型与语法树，失败即阻断生成。
+func scanTarget(repoRoot string, roots []string, target string) ([]PackageManifest, TargetProvenance, error) {
+	parts := strings.Split(target, "/")
+	if len(parts) != 2 {
+		return nil, TargetProvenance{}, fmt.Errorf("invalid capability target %q", target)
+	}
+	patterns := make([]string, 0, len(roots))
+	for _, root := range roots {
+		patterns = append(patterns, "./"+root+"/...")
+	}
+	cfg := &packages.Config{
+		Dir:  repoRoot,
+		Env:  append(os.Environ(), "GOOS="+parts[0], "GOARCH="+parts[1], "CGO_ENABLED=0"),
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes,
+	}
+	loaded, err := packages.Load(cfg, patterns...)
+	if err != nil {
+		return nil, TargetProvenance{}, fmt.Errorf("load capability target %s: %w", target, err)
+	}
+	var result []PackageManifest
+	provenance := TargetProvenance{Target: target}
+	for _, loadedPkg := range loaded {
+		if len(loadedPkg.Errors) > 0 {
+			return nil, TargetProvenance{}, fmt.Errorf("load capability target %s package %s: %s", target, loadedPkg.PkgPath, loadedPkg.Errors[0])
+		}
+		pkg, err := scanLoadedPackage(repoRoot, loadedPkg)
+		if err != nil {
+			return nil, TargetProvenance{}, err
+		}
+		if pkg == nil {
+			continue
+		}
+		result = append(result, *pkg)
+		provenance.Packages = append(provenance.Packages, pkg.Path)
+		for symbol := range manifestSymbols(&Manifest{Packages: []PackageManifest{*pkg}}) {
+			provenance.Symbols = append(provenance.Symbols, symbol)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	sort.Strings(provenance.Packages)
+	sort.Strings(provenance.Symbols)
+	return result, provenance, nil
+}
+
+// scanLoadedPackage 从 go/packages 已按构建约束筛选的文件中提取单个平台包能力面。
+func scanLoadedPackage(repoRoot string, loaded *packages.Package) (*PackageManifest, error) {
+	if len(loaded.Syntax) == 0 || len(loaded.CompiledGoFiles) == 0 {
+		return nil, nil
+	}
+	dir := filepath.Dir(loaded.CompiledGoFiles[0])
+	relPath, err := filepath.Rel(repoRoot, dir)
+	if err != nil {
+		return nil, err
+	}
+	manifest := &PackageManifest{Path: filepath.ToSlash(relPath), Name: loaded.Name}
+	files := append([]*ast.File(nil), loaded.Syntax...)
+	sort.Slice(files, func(i, j int) bool {
+		return loaded.Fset.Position(files[i].Package).Filename < loaded.Fset.Position(files[j].Package).Filename
+	})
+	for _, file := range files {
+		if manifest.Description == "" && file.Doc != nil {
+			line, _, _ := strings.Cut(file.Doc.Text(), "\n")
+			line = strings.TrimPrefix(line, "Package "+loaded.Name+" ")
+			manifest.Description = strings.TrimSpace(strings.TrimPrefix(line, "Package "+loaded.Name))
+		}
+		extractFile(file, manifest)
+	}
+	sortFunctions(manifest.Functions)
+	sortMethods(manifest.Methods)
+	sortInterfaces(manifest.Interfaces)
+	sortStructs(manifest.Structs)
 	return manifest, nil
 }
 
@@ -65,108 +216,6 @@ func normalizeRoots(roots []string) []string {
 	}
 	sort.Strings(normalized)
 	return normalized
-}
-
-// scanRoot 扫描单个根路径下所有 Go 包并返回各包的清单列表。
-func scanRoot(repoRoot, root string) ([]PackageManifest, error) {
-	absRoot := filepath.Join(repoRoot, filepath.FromSlash(root))
-	packageDirs, err := findGoPackages(absRoot)
-	if err != nil {
-		return nil, fmt.Errorf("scan capability root %s: %w", root, err)
-	}
-	packages := make([]PackageManifest, 0, len(packageDirs))
-	for _, dir := range packageDirs {
-		pkg, err := scanPackage(repoRoot, dir)
-		if err != nil {
-			return nil, fmt.Errorf("scan capability package %s: %w", dir, err)
-		}
-		if pkg != nil {
-			packages = append(packages, *pkg)
-		}
-	}
-	return packages, nil
-}
-
-// findGoPackages 查找包含非测试 Go 文件的包目录。
-// 目录会去重并排序，保证不同文件系统遍历顺序下生成物一致。
-func findGoPackages(root string) ([]string, error) {
-	var dirs []string
-	seen := map[string]bool{}
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			if shouldSkipDir(info.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(info.Name(), ".go") && !strings.HasSuffix(info.Name(), "_test.go") {
-			dir := filepath.Dir(path)
-			if !seen[dir] {
-				seen[dir] = true
-				dirs = append(dirs, dir)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(dirs)
-	return dirs, nil
-}
-
-// shouldSkipDir 判断目录名是否应跳过扫描（.git / testdata 等）。
-func shouldSkipDir(name string) bool {
-	return map[string]bool{
-		".git":         true,
-		".build-cache": true,
-		"node_modules": true,
-		"testdata":     true,
-		"vendor":       true,
-	}[name]
-}
-
-// scanPackage 扫描单个 Go 包并生成包级符号清单。
-// 测试包和 _test.go 会被过滤，避免测试 helper 污染生产能力面。
-func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
-	if err != nil {
-		return nil, err
-	}
-	pkgNames := make([]string, 0, len(pkgs))
-	for name := range pkgs {
-		if !strings.HasSuffix(name, "_test") {
-			pkgNames = append(pkgNames, name)
-		}
-	}
-	sort.Strings(pkgNames)
-	if len(pkgNames) == 0 {
-		return nil, nil
-	}
-	pkg := pkgs[pkgNames[0]]
-	relPath, err := filepath.Rel(repoRoot, dir)
-	if err != nil {
-		return nil, err
-	}
-	manifest := &PackageManifest{
-		Path: filepath.ToSlash(relPath),
-		Name: pkgNames[0],
-	}
-	manifest.Description = extractPackageDoc(pkg, fset)
-	for _, file := range sortedPackageFiles(pkg, fset) {
-		extractFile(file, manifest)
-	}
-	sortFunctions(manifest.Functions)
-	sortMethods(manifest.Methods)
-	sortInterfaces(manifest.Interfaces)
-	sortStructs(manifest.Structs)
-	return manifest, nil
 }
 
 // extractFile 把一个 AST 文件中的函数、方法、接口和结构体追加到包清单。
@@ -403,32 +452,6 @@ func fieldListToString(fields *ast.FieldList, separator string) string {
 // returnFieldListToString 把返回值 FieldList 转为逗号分隔的类型字符串。
 func returnFieldListToString(fields *ast.FieldList) string {
 	return fieldListToString(fields, ", ")
-}
-
-// sortedPackageFiles 按文件名排序返回包内所有 AST 文件，确保清单生成顺序稳定。
-func sortedPackageFiles(pkg *ast.Package, fset *token.FileSet) []*ast.File {
-	files := make([]*ast.File, 0, len(pkg.Files))
-	for _, file := range pkg.Files {
-		files = append(files, file)
-	}
-	sort.Slice(files, func(i, j int) bool {
-		return fset.Position(files[i].Package).Filename < fset.Position(files[j].Package).Filename
-	})
-	return files
-}
-
-// extractPackageDoc 从包的第一个有注释的源文件中提取 package 文档行（去除 "Package name " 前缀）。
-func extractPackageDoc(pkg *ast.Package, fset *token.FileSet) string {
-	for _, file := range sortedPackageFiles(pkg, fset) {
-		if file.Doc == nil {
-			continue
-		}
-		line := strings.SplitN(file.Doc.Text(), "\n", 2)[0]
-		line = strings.TrimPrefix(line, "Package "+pkg.Name+" ")
-		line = strings.TrimPrefix(line, "Package "+pkg.Name)
-		return strings.TrimSpace(line)
-	}
-	return ""
 }
 
 // isExported 判断标识符是否为导出名称（首字母大写）。

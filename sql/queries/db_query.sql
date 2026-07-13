@@ -4,5 +4,5 @@
 -- file keeps a typed placeholder until sqlc generation is introduced.
 
 -- name: PlaceholderDBQuery :many
-SELECT NULL AS placeholder
+SELECT CAST(NULL AS TEXT) AS placeholder
 WHERE FALSE;

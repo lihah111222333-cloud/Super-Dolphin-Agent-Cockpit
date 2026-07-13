@@ -23,6 +23,7 @@ type recordingCronStore struct {
 	recordingCronRunWriteStore
 	recordingCronTerminalStore
 	recordingCronCompatibilityStore
+	recordingCronRecoveryStore
 
 	mu                      sync.Mutex
 	claimFn                 func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error)
@@ -116,12 +117,6 @@ func (s *recordingCronTerminalStore) GetJobByID(ctx context.Context, id string) 
 		return s.getJobFn(ctx, id)
 	}
 	return JobRecord{}, nil
-}
-func (s *recordingCronStore) ListJobs(ctx context.Context) ([]JobRecord, error) {
-	if s.listJobsFn != nil {
-		return s.listJobsFn(ctx)
-	}
-	return nil, nil
 }
 
 // Unused store methods keep the programmable double compatible with older scheduler tests.

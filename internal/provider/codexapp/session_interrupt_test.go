@@ -73,7 +73,7 @@ func newInterruptTestSession(t *testing.T, paramsCh chan<- map[string]any) *sess
 		}
 		return mustJSON(map[string]any{"ok": true})
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

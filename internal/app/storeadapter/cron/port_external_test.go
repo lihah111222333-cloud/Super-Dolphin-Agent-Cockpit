@@ -17,8 +17,10 @@ func (externalCronStore) GetJobByID(context.Context, string) (cron.JobRecord, er
 	return cron.JobRecord{}, nil
 }
 
-func (externalCronStore) ListJobs(context.Context) ([]cron.JobRecord, error) { return nil, nil }
-func (externalCronStore) DeleteJob(context.Context, string) error            { return nil }
+func (externalCronStore) ListJobsPage(context.Context, cron.ListJobsPageParams) (cron.JobRecordPage, error) {
+	return cron.JobRecordPage{}, nil
+}
+func (externalCronStore) DeleteJob(context.Context, string) error { return nil }
 func (externalCronStore) UpdateJobSchedule(context.Context, cron.UpdateJobScheduleParams) error {
 	return nil
 }
@@ -53,6 +55,9 @@ func (externalCronSchedulerClaimStore) MarkFinished(context.Context, cron.MarkFi
 func (externalCronSchedulerClaimStore) MarkFailed(context.Context, cron.MarkFailedParams) error {
 	return nil
 }
+func (externalCronSchedulerClaimStore) FinalizeRecoveredRun(context.Context, cron.FinalizeRecoveredRunParams) error {
+	return nil
+}
 func (externalCronSchedulerClaimStore) SetActiveTurn(context.Context, cron.SetActiveTurnParams) error {
 	return nil
 }
@@ -67,6 +72,9 @@ func (externalCronSchedulerRunStore) CASRunStatus(context.Context, cron.CASRunSt
 }
 func (externalCronSchedulerRunStore) SetRunTurn(context.Context, cron.SetRunTurnParams) error {
 	return nil
+}
+func (externalCronSchedulerRunStore) GetRunByID(context.Context, string) (cron.RunRecord, error) {
+	return cron.RunRecord{}, nil
 }
 func (externalCronSchedulerRunStore) GetRunningRunByTurnID(context.Context, string) (cron.RunRecord, error) {
 	return cron.RunRecord{}, nil

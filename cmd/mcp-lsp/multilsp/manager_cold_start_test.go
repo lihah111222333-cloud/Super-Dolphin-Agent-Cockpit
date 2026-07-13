@@ -12,6 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 // coldStartDiagnosticsMaxWait 只给 race 模式下的 goroutine 调度留余量；精确 deadline 另有专门测试覆盖。
@@ -66,7 +67,12 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 		t.Run(tc.languageID, func(t *testing.T) {
 			root := t.TempDir()
 			target := tc.write(t, root)
-			factory := &coldStartDefinitionFactory{readyDelay: 30 * time.Millisecond}
+			didOpen := make(chan struct{})
+			releaseDiagnostics := make(chan struct{})
+			factory := &coldStartDefinitionFactory{
+				didOpen:            didOpen,
+				releaseDiagnostics: releaseDiagnostics,
+			}
 			mgr := NewManager(Config{
 				WorkspaceRoot:                    root,
 				ClientFactory:                    factory,
@@ -83,7 +89,28 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 			}), 5*time.Second)
 			defer cancel()
 
-			defs, err := mgr.Definition(ctx, target, protocol.Position{Line: 0, Character: 0})
+			type definitionResult struct {
+				definitions []protocol.LocationResult
+				err         error
+			}
+			resultCh := make(chan definitionResult, 1)
+			safego.Go(ctx, nil, "multilsp.cold-start-definition", func(context.Context) {
+				defs, err := mgr.Definition(ctx, target, protocol.Position{Line: 0, Character: 0})
+				resultCh <- definitionResult{definitions: defs, err: err}
+			})
+			select {
+			case <-didOpen:
+				close(releaseDiagnostics)
+			case <-ctx.Done():
+				t.Fatalf("Definition() did not open the document before diagnostics release: %v", ctx.Err())
+			}
+			var result definitionResult
+			select {
+			case result = <-resultCh:
+			case <-ctx.Done():
+				t.Fatalf("Definition() did not finish after diagnostics release: %v", ctx.Err())
+			}
+			defs, err := result.definitions, result.err
 			if err != nil {
 				t.Fatalf("Definition() error = %v, want delayed cold-start diagnostics to make definition ready", err)
 			}
@@ -428,8 +455,10 @@ func writeColdStartFile(t *testing.T, root, name, body string) string {
 }
 
 type coldStartDefinitionFactory struct {
-	readyDelay time.Duration
-	client     *coldStartDefinitionClient
+	readyDelay         time.Duration
+	didOpen            chan<- struct{}
+	releaseDiagnostics <-chan struct{}
+	client             *coldStartDefinitionClient
 }
 
 func (f *coldStartDefinitionFactory) NewClient(_ string, handler protocol.NotificationHandler) (Client, error) {
@@ -438,8 +467,10 @@ func (f *coldStartDefinitionFactory) NewClient(_ string, handler protocol.Notifi
 
 func (f *coldStartDefinitionFactory) NewClientWithEnv(_ string, _ []string, handler protocol.NotificationHandler) (Client, error) {
 	f.client = &coldStartDefinitionClient{
-		handler:    handler,
-		readyDelay: f.readyDelay,
+		handler:            handler,
+		readyDelay:         f.readyDelay,
+		didOpen:            f.didOpen,
+		releaseDiagnostics: f.releaseDiagnostics,
 	}
 	return f.client, nil
 }
@@ -457,6 +488,8 @@ type coldStartDefinitionClient struct {
 	goroutines          sync.WaitGroup
 	handler             protocol.NotificationHandler
 	readyDelay          time.Duration
+	didOpen             chan<- struct{}
+	releaseDiagnostics  <-chan struct{}
 	openedURI           string
 	openedLanguage      string
 	ready               bool
@@ -480,21 +513,32 @@ func (c *coldStartDefinitionClient) DidOpen(ctx context.Context, uri, languageID
 	c.openedURI = uri
 	c.openedLanguage = languageID
 	c.mu.Unlock()
+	if c.didOpen != nil {
+		close(c.didOpen)
+	}
 	c.goroutines.Go(func() { c.publishReadyDiagnostics(ctx, uri) })
 	return nil
 }
 
 func (c *coldStartDefinitionClient) publishReadyDiagnostics(ctx context.Context, uri string) {
-	delay := c.readyDelay
-	if delay <= 0 {
-		delay = 30 * time.Millisecond
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-		return
+	if c.releaseDiagnostics != nil {
+		select {
+		case <-c.releaseDiagnostics:
+		case <-ctx.Done():
+			return
+		}
+	} else {
+		delay := c.readyDelay
+		if delay <= 0 {
+			delay = 30 * time.Millisecond
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return
+		}
 	}
 	c.mu.Lock()
 	c.ready = true

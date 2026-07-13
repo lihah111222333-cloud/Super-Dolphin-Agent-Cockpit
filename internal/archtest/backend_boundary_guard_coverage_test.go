@@ -50,6 +50,27 @@ func TestBackendBoundaryGuardsFailClosed(t *testing.T) {
 	}
 }
 
+func TestBackendBoundaryCollectorSkipsForeignWorktreesAndCaches(t *testing.T) {
+	root := t.TempDir()
+	expected := writeBackendBoundaryFixture(t, root, "internal/contract/ok.go", "package contract\n")
+	for _, dir := range []string{".worktrees", ".workspace", ".build-cache"} {
+		writeBackendBoundaryFixture(
+			t,
+			root,
+			filepath.ToSlash(filepath.Join(dir, "foreign", "internal", "bad.go")),
+			"package bad\n",
+		)
+	}
+
+	paths, err := collectBackendBoundaryGoFiles(root)
+	if err != nil {
+		t.Fatalf("collect backend boundary Go files: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != expected {
+		t.Fatalf("collector should ignore foreign worktrees and caches, got %v", paths)
+	}
+}
+
 func TestProviderBoundaryDescriptorsCoverProductionTree(t *testing.T) {
 	t.Parallel()
 

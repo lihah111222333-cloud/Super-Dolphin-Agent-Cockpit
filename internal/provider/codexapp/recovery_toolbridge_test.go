@@ -205,7 +205,7 @@ func startCancelInflightToolBridgeServer(t *testing.T) *httptest.Server {
 
 func newStartedRecoverySession(t *testing.T, serverURL string, manager *ServerManager) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, nil, manager)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, testApprovalManager(), manager)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

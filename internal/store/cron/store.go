@@ -16,7 +16,7 @@ import (
 type querier interface {
 	CreateCronJob(ctx context.Context, arg sqlc.CreateCronJobParams) (sqlc.CronJob, error)
 	GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error)
-	ListCronJobs(ctx context.Context) ([]sqlc.CronJob, error)
+	ListCronJobsPage(ctx context.Context, arg sqlc.ListCronJobsPageParams) ([]sqlc.CronJob, error)
 	DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error
 	UpdateCronJobSchedule(ctx context.Context, arg sqlc.UpdateCronJobScheduleParams) error
 	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) error
@@ -211,19 +211,6 @@ func (s *cronJobQueryStore) GetJobByID(ctx context.Context, id string) (Job, err
 		return Job{}, wrap(err, "get_job_by_id")
 	}
 	return fromCronJob(row), nil
-}
-
-// ListJobs 列出全部 cron job，并统一转换为领域 Job。
-func (s *cronJobQueryStore) ListJobs(ctx context.Context) ([]Job, error) {
-	rows, err := s.q.ListCronJobs(ctx)
-	if err != nil {
-		return nil, wrap(err, "list_jobs")
-	}
-	out := make([]Job, len(rows))
-	for i, r := range rows {
-		out[i] = fromCronJob(r)
-	}
-	return out, nil
 }
 
 // DeleteJob 删除指定 cron job，空 ID 会在进入 sqlc 前被拒绝。

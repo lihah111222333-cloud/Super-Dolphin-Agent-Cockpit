@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -11,11 +12,20 @@ import (
 // Manifest 是能力契约清单的根结构。
 // 它作为生成物的 wire 格式，记录扫描范围、摘要和包级符号快照。
 type Manifest struct {
-	Version     string            `json:"version"`
-	GeneratedAt string            `json:"generated_at"`
-	Roots       []string          `json:"roots"`
-	Summary     ManifestSummary   `json:"summary"`
-	Packages    []PackageManifest `json:"packages"`
+	Version     string             `json:"version"`
+	GeneratedAt string             `json:"generated_at"`
+	Roots       []string           `json:"roots"`
+	Targets     []string           `json:"targets"`
+	Provenance  []TargetProvenance `json:"target_provenance"`
+	Summary     ManifestSummary    `json:"summary"`
+	Packages    []PackageManifest  `json:"packages"`
+}
+
+// TargetProvenance 记录每个规范目标实际贡献的包和符号签名。
+type TargetProvenance struct {
+	Target   string   `json:"target"`
+	Packages []string `json:"packages"`
+	Symbols  []string `json:"symbols"`
 }
 
 // ManifestSummary 是清单的统计摘要，记录包数、函数数、接口数等总量。
@@ -156,6 +166,9 @@ func ValidateManifest(manifest *Manifest) error {
 	if len(manifest.Roots) == 0 {
 		return fmt.Errorf("capability manifest roots are required")
 	}
+	if err := validateTargetProvenance(manifest); err != nil {
+		return err
+	}
 	seen := map[string]struct{}{}
 	for _, pkg := range manifest.Packages {
 		if strings.TrimSpace(pkg.Path) == "" || strings.TrimSpace(pkg.Name) == "" {
@@ -166,6 +179,25 @@ func ValidateManifest(manifest *Manifest) error {
 			return fmt.Errorf("capability manifest duplicate package path %q", key)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// validateTargetProvenance 校验固定平台矩阵以及逐目标来源字段的完整性和稳定顺序。
+func validateTargetProvenance(manifest *Manifest) error {
+	if !slices.Equal(manifest.Targets, canonicalTargets) {
+		return fmt.Errorf("capability manifest targets must equal canonical matrix %v", canonicalTargets)
+	}
+	if len(manifest.Provenance) != len(manifest.Targets) {
+		return fmt.Errorf("capability manifest target provenance is missing or stale")
+	}
+	for i, target := range manifest.Targets {
+		if manifest.Provenance[i].Target != target {
+			return fmt.Errorf("capability manifest target provenance is missing or stale for %q", target)
+		}
+		if !sort.StringsAreSorted(manifest.Provenance[i].Packages) || !sort.StringsAreSorted(manifest.Provenance[i].Symbols) {
+			return fmt.Errorf("capability manifest target provenance is stale for %q", target)
+		}
 	}
 	return nil
 }

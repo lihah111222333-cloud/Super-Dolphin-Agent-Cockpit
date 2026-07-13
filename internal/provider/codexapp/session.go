@@ -139,6 +139,10 @@ func newSessionWithOptions(
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	if err := requireApprovalManager(approvals); err != nil {
+		releaseSessionPoolSlot(cfg)
+		return nil, err
+	}
 	url, err := resolveSessionTransportURL(transportCtx, serverURL, manager, cfg)
 	if err != nil {
 		return nil, err

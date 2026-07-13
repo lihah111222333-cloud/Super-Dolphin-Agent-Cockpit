@@ -21,6 +21,9 @@ const (
 	DefaultLeaseHeartbeat = 5 * time.Minute
 	DefaultTickInterval   = 10 * time.Second
 	DefaultMaxClaim       = 16
+
+	cronRecoveryFinalizeConflictMetric = "cron_recovery_finalize_conflict_total"
+	cronRecoveryFinalizeErrorMetric    = "cron_recovery_finalize_error_total"
 )
 
 // StartTurnRequest 是 scheduler 传给 turn 层的最小输入集。

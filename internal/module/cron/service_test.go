@@ -42,7 +42,7 @@ func newIdentityConfig(t *testing.T) json.RawMessage {
 type fakeStore struct {
 	createFn         func(context.Context, CreateJobParams) (JobRecord, error)
 	getByIDFn        func(context.Context, string) (JobRecord, error)
-	listFn           func(context.Context) ([]JobRecord, error)
+	listPageFn       func(context.Context, ListJobsPageParams) (JobRecordPage, error)
 	deleteFn         func(context.Context, string) error
 	updateFn         func(context.Context, UpdateJobScheduleParams) error
 	setEnabledFn     func(context.Context, string, bool, time.Time) error
@@ -69,11 +69,11 @@ func (f *fakeStore) GetJobByID(ctx context.Context, id string) (JobRecord, error
 	}
 	return JobRecord{ID: id}, nil
 }
-func (f *fakeStore) ListJobs(ctx context.Context) ([]JobRecord, error) {
-	if f.listFn != nil {
-		return f.listFn(ctx)
+func (f *fakeStore) ListJobsPage(ctx context.Context, p ListJobsPageParams) (JobRecordPage, error) {
+	if f.listPageFn != nil {
+		return f.listPageFn(ctx, p)
 	}
-	return nil, nil
+	return JobRecordPage{}, nil
 }
 func (f *fakeStore) DeleteJob(ctx context.Context, id string) error {
 	if f.deleteFn != nil {
@@ -381,20 +381,20 @@ func TestGetJobMapsNotFound(t *testing.T) {
 	}
 }
 
-func TestListJobsPassesThrough(t *testing.T) {
+func TestListJobsPagePassesThrough(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		listFn: func(context.Context) ([]JobRecord, error) {
-			return []JobRecord{{ID: "a"}, {ID: "b"}}, nil
+		listPageFn: func(context.Context, ListJobsPageParams) (JobRecordPage, error) {
+			return JobRecordPage{Jobs: []JobRecord{{ID: "a"}, {ID: "b"}}}, nil
 		},
 	}
 	svc := newTestService(t, store)
-	jobs, err := svc.ListJobs(context.Background())
+	page, err := svc.ListJobsPage(context.Background(), ListJobsPageParams{Limit: 2})
 	if err != nil {
 		t.Fatalf("ListJobs error = %v", err)
 	}
-	if len(jobs) != 2 || jobs[0].ID != "a" || jobs[1].ID != "b" {
-		t.Fatalf("ListJobs = %+v", jobs)
+	if len(page.Jobs) != 2 || page.Jobs[0].ID != "a" || page.Jobs[1].ID != "b" {
+		t.Fatalf("ListJobsPage = %+v", page)
 	}
 }
 
@@ -501,7 +501,7 @@ func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
 			field: "config",
 			row:   JobRecord{ID: "job-list", Config: []byte(`{"unterminated"`), Skills: []byte(`[]`), Name: "daily"},
 			call: func(svc *service) error {
-				_, err := svc.ListJobs(context.Background())
+				_, err := svc.ListJobsPage(context.Background(), ListJobsPageParams{Limit: 1})
 				return err
 			},
 		},
@@ -516,8 +516,8 @@ func TestCreateGetAndListJobsFailOnCorruptStoredPayload(t *testing.T) {
 				getByIDFn: func(context.Context, string) (JobRecord, error) {
 					return tc.row, nil
 				},
-				listFn: func(context.Context) ([]JobRecord, error) {
-					return []JobRecord{tc.row}, nil
+				listPageFn: func(context.Context, ListJobsPageParams) (JobRecordPage, error) {
+					return JobRecordPage{Jobs: []JobRecord{tc.row}}, nil
 				},
 			}
 			svc := newTestService(t, store)

@@ -36,7 +36,7 @@ type pushRequest struct {
 }
 
 // pushNotificationWorker 是 bus event 到 Server.NotifyAll 慢路径的唯一拥有者。
-// callback 只负责 Enqueue；worker 用可取消的 pushCtx 按 FIFO drain 队列，Stop 会取消 in-flight push。
+// callback 只负责 Enqueue；worker 用可取消的 pushCtx 按 FIFO drain 队列，Stop 会先排空已接收请求再取消。
 type pushNotificationWorker struct {
 	server pushBroadcaster
 	bridge *PushBridge
@@ -45,8 +45,9 @@ type pushNotificationWorker struct {
 	pushCtx    context.Context
 	pushCancel context.CancelFunc
 
-	mu    sync.Mutex
-	queue []pushRequest
+	mu      sync.Mutex
+	stopped bool
+	queue   []pushRequest
 
 	wake chan struct{}
 
@@ -55,9 +56,11 @@ type pushNotificationWorker struct {
 	stopCh    chan struct{}
 	doneCh    chan struct{}
 
-	enqueuedTotal   atomic.Int64
-	processedTotal  atomic.Int64
-	notifySentTotal atomic.Int64
+	enqueuedTotal          atomic.Int64
+	processedTotal         atomic.Int64
+	notifySentTotal        atomic.Int64
+	rejectedAfterStopTotal atomic.Int64
+	droppedOnShutdownTotal atomic.Int64
 }
 
 // newPushNotificationWorker 构造带独立 pushCtx 和唤醒通道的 push worker。
@@ -118,14 +121,13 @@ func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notificati
 	if len(filtered) == 0 {
 		return
 	}
-	select {
-	case <-w.stopCh:
-		return
-	default:
-	}
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped {
+		w.rejectedAfterStopTotal.Add(1)
+		return
+	}
 	w.enqueueLocked(pushRequest{notifications: filtered})
-	w.mu.Unlock()
 	w.enqueuedTotal.Add(1)
 	select {
 	case w.wake <- struct{}{}:
@@ -172,15 +174,17 @@ func (w *pushNotificationWorker) PushCtx() context.Context {
 	return w.pushCtx
 }
 
-// Stop 关闭入队门、取消 pushCtx，并在 ctx 或默认 grace 内等待 worker 退出。
+// Stop 关闭入队门、排空已接收请求，并在 ctx 或默认 grace 内等待 worker 退出后取消 pushCtx。
 func (w *pushNotificationWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
 	}
 	var firstErr error
 	w.stopOnce.Do(func() {
+		w.mu.Lock()
+		w.stopped = true
 		close(w.stopCh)
-		w.pushCancel()
+		w.mu.Unlock()
 		waitCtx := ctx
 		if waitCtx == nil {
 			waitCtx = context.Background()
@@ -193,7 +197,13 @@ func (w *pushNotificationWorker) Stop(ctx context.Context) error {
 		}
 		select {
 		case <-w.doneCh:
+			w.pushCancel()
 		case <-waitCtx.Done():
+			w.mu.Lock()
+			w.droppedOnShutdownTotal.Add(int64(notificationCount(w.queue)))
+			w.queue = nil
+			w.mu.Unlock()
+			w.pushCancel()
 			firstErr = waitCtx.Err()
 		}
 	})
@@ -202,6 +212,16 @@ func (w *pushNotificationWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal 返回累计入队 batch 数。
 func (w *pushNotificationWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// RejectedAfterStopTotal 返回 stop gate 拒绝的通知 batch 数。
+func (w *pushNotificationWorker) RejectedAfterStopTotal() int64 {
+	return w.rejectedAfterStopTotal.Load()
+}
+
+// DroppedOnShutdownTotal 返回 drain 超时后取消发送的通知数。
+func (w *pushNotificationWorker) DroppedOnShutdownTotal() int64 {
+	return w.droppedOnShutdownTotal.Load()
+}
 
 // ProcessedTotal 返回累计处理 batch 数。
 func (w *pushNotificationWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
@@ -247,8 +267,20 @@ func (w *pushNotificationWorker) drainPending() {
 
 // dispatch 将单个 batch 中的通知逐条广播给所有活跃客户端。
 func (w *pushNotificationWorker) dispatch(req pushRequest) {
-	for _, n := range req.notifications {
+	for index, n := range req.notifications {
+		if w.pushCtx.Err() != nil {
+			w.droppedOnShutdownTotal.Add(int64(len(req.notifications) - index))
+			return
+		}
 		w.server.NotifyAll(w.pushCtx, w.bridge, n.Method, n.Payload)
 		w.notifySentTotal.Add(1)
 	}
+}
+
+func notificationCount(requests []pushRequest) int {
+	total := 0
+	for _, request := range requests {
+		total += len(request.notifications)
+	}
+	return total
 }

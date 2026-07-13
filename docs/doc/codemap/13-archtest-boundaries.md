@@ -5,7 +5,7 @@
 - Owners: 14
 - Canonical rules: 21
 - Specialized guards: 9
-- Governed backend surfaces: 28
+- Governed backend surfaces: 29
 
 ## Rule owners
 
@@ -61,7 +61,7 @@
 | `code_size_budget` | `internal/guards/code_size_guard_test.go` | — | `TestCodeSizeBudgetBaselineIsActionable` | `internal/guards` | the repository guard keeps code size baselines non-empty and enforcing |
 | `dependency_direction` | `internal/archtest/dependency_direction_test.go` | — | `TestDependencyDirection` | `internal/mcpserver` | dependency direction tests protect typed backend layer relationships |
 | `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | `internal/app` | the desktop composition root must retain a valid Fx graph |
-| `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | `pkg/dagmetrics`<br>`pkg/dreammetrics`<br>`pkg/logger`<br>`pkg/skillblocks`<br>`pkg/skillmetrics` | public pkg libraries must reject both repository internals and command entrypoints |
+| `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | `pkg/cronmetrics`<br>`pkg/dagmetrics`<br>`pkg/dreammetrics`<br>`pkg/logger`<br>`pkg/skillblocks`<br>`pkg/skillmetrics` | public pkg libraries must reject both repository internals and command entrypoints |
 | `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | `internal/guards` | the repository guard rejects hidden rollback skip markers in Go tests |
 | `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | `internal/e2e` | the tagged RPC runtime suite validates the backend process boundary end to end |
 | `ui_wails_boundary` | `internal/archtest/ui_wails_guard_test.go` | — | `TestUIWailsActiveAgentPredicateFromContract`<br>`TestUIWailsNoDirectUIStateImport` | `internal/ui` | Wails UI bindings consume contract-facing state instead of module implementations |
@@ -93,6 +93,7 @@
 | `internal/testutil` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | shared backend test support |
 | `internal/ui` | `fx_assembly_scope` | `ui_wails_boundary` | Wails backend binding layer |
 | `internal/util` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | shared backend utilities |
+| `pkg/cronmetrics` | `pkg_no_internal_imports` | `pkg_public_boundary` | public cron recovery metrics library |
 | `pkg/dagmetrics` | `pkg_no_internal_imports` | `pkg_public_boundary` | public DAG metrics library |
 | `pkg/dreammetrics` | `pkg_no_internal_imports` | `pkg_public_boundary` | public dream metrics library |
 | `pkg/logger` | `pkg_no_internal_imports` | `pkg_public_boundary` | public logging library |

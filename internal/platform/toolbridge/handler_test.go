@@ -277,7 +277,7 @@ func startCodexBridgeTestServer(t *testing.T) string {
 
 func newInboundSession(t *testing.T) unsafe.Pointer {
 	t.Helper()
-	sessionPtr, err := codexNewSession(context.Background(), nil, startCodexBridgeTestServer(t), "agent-1", nil, nil, nil)
+	sessionPtr, err := codexNewSession(context.Background(), nil, startCodexBridgeTestServer(t), "agent-1", nil, rpc.NewApprovalManager(nil, nil), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

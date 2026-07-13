@@ -142,7 +142,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   WORKFLOW_TEMPLATES_SAVE: contract('WORKFLOW_TEMPLATES_SAVE', 'saveWorkflowTemplate', 'P0', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template version mutation']),
   WORKFLOW_TEMPLATES_ROLLBACK: contract('WORKFLOW_TEMPLATES_ROLLBACK', 'rollbackWorkflowTemplate', 'P0', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template active version mutation']),
 
-  CRONJOB_LIST: contract('CRONJOB_LIST', 'listCronJobs', 'P1', 'cronjob', [TESTS.API], ['schedule read']),
+  CRONJOB_LIST: contract('CRONJOB_LIST', 'listCronJobs', 'P1', 'cronjob', [TESTS.API], ['schedule read', 'strict limit-cursor page'], false, { responseValidator: 'cronListResponse' }),
   CRONJOB_GET: contract('CRONJOB_GET', 'getCronJob', 'P1', 'cronjob', [TESTS.API], ['schedule read']),
   CRONJOB_CREATE: contract('CRONJOB_CREATE', 'createCronJob', 'P0', 'cronjob', [TESTS.API], ['schedule mutation']),
   CRONJOB_UPDATE: contract('CRONJOB_UPDATE', 'updateCronJob', 'P0', 'cronjob', [TESTS.API], ['schedule mutation']),

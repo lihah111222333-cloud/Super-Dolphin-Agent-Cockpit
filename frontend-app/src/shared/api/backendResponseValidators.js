@@ -612,6 +612,24 @@ function validateSchemaResponse(method, response, parser) {
   }
 }
 
+/**
+ * @param {string} method
+ * @param {unknown} response
+ */
+function validateCronListResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const keys = ['jobs', 'next_cursor', 'has_more'];
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !hasOwn(value, key))) {
+    throw new Error(`${method} response must contain exactly jobs, next_cursor, has_more`);
+  }
+  if (!Array.isArray(value.jobs)) throw new TypeError(`${method} response jobs must be an array`);
+  if (typeof value.next_cursor !== 'string') throw new TypeError(`${method} response next_cursor must be a string`);
+  if (typeof value.has_more !== 'boolean') throw new TypeError(`${method} response has_more must be a boolean`);
+  if (!value.has_more && value.next_cursor !== '') throw new Error(`${method} response final page next_cursor must be empty`);
+  if (value.has_more && !value.next_cursor) throw new Error(`${method} response next_cursor is required when has_more`);
+  return value;
+}
+
 /** @type {(method: string, response: unknown) => unknown} */
 const validateObservabilityResultResponse = (method, response) => validateSchemaResponse(method, response, parseObservabilityResultResponse);
 /** @type {(method: string, response: unknown) => unknown} */
@@ -640,6 +658,7 @@ export function createBackendResponseValidators(methods) {
     [methods.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
     [methods.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
     [methods.DASHBOARD_SHARED_FILES]: validateSharedFilesDashboardResponse,
+    [methods.CRONJOB_LIST]: validateCronListResponse,
     [methods.MCP_SERVER_LIST]: validateMCPServerListResponse,
     [methods.MCP_SERVER_SQLITE_START]: validateControlResponse,
     [methods.MCP_SERVER_SQLITE_STOP]: validateControlResponse,

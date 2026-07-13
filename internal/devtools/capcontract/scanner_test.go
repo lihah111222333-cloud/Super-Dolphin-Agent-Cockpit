@@ -9,6 +9,9 @@ import (
 
 func TestScanExtractsCapabilitySurface(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module fixture\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	pkgDir := filepath.Join(root, "internal", "contract")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatalf("mkdir fixture: %v", err)
@@ -86,6 +89,9 @@ func (s *service) Start(items map[string]struct{}) error { return nil }
 
 func TestScanNormalizesRootsAndOrdersPackages(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module fixture\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	for _, dir := range []string{"b", "a"} {
 		abs := filepath.Join(root, dir)
 		if err := os.MkdirAll(abs, 0o755); err != nil {
@@ -104,6 +110,51 @@ func TestScanNormalizesRootsAndOrdersPackages(t *testing.T) {
 	}
 	if got, want := []string{manifest.Packages[0].Path, manifest.Packages[1].Path}, []string{"a", "b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("package order = %#v, want %#v", got, want)
+	}
+}
+
+func TestScanUsesCanonicalTargetsAndBuildTagsDeterministically(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "internal", "contract")
+	writeScanFixture(t, pkgDir, filepath.Join(root, "go.mod"), "module fixture\n\ngo 1.25\n")
+	writeScanFixture(t, pkgDir, filepath.Join(pkgDir, "contract.go"), "package contract\nfunc Common() {}\n")
+	writeScanFixture(t, pkgDir, filepath.Join(pkgDir, "darwin.go"), "//go:build darwin\n\npackage contract\nfunc DarwinOnly() {}\n")
+	writeScanFixture(t, pkgDir, filepath.Join(pkgDir, "windows.go"), "//go:build windows\n\npackage contract\nfunc WindowsOnly() {}\n")
+
+	first, err := Scan(ScanOptions{RepoRoot: root, Roots: []string{"internal/contract"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Scan(ScanOptions{RepoRoot: root, Roots: []string{"internal/contract"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatal("canonical target scan is not deterministic")
+	}
+	firstBytes, err := MarshalManifest(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBytes, err := MarshalManifest(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(firstBytes, secondBytes) {
+		t.Fatal("canonical target manifest bytes are not deterministic")
+	}
+	if !reflect.DeepEqual(first.Targets, canonicalTargets) || len(first.Provenance) != len(canonicalTargets) {
+		t.Fatalf("targets/provenance = %#v/%#v", first.Targets, first.Provenance)
+	}
+}
+
+func writeScanFixture(t *testing.T, dir, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

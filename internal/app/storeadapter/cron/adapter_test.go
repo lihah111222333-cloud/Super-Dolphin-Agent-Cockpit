@@ -54,8 +54,10 @@ func (s *cronStoreJobTestDouble) GetJobByID(ctx context.Context, id string) (cro
 	return cronstore.Job{ID: id}, nil
 }
 
-func (*cronStoreJobTestDouble) ListJobs(context.Context) ([]cronstore.Job, error) { return nil, nil }
-func (*cronStoreJobTestDouble) DeleteJob(context.Context, string) error           { return nil }
+func (*cronStoreJobTestDouble) ListJobsPage(context.Context, cronstore.ListJobsPageParams) (cronstore.JobPage, error) {
+	return cronstore.JobPage{}, nil
+}
+func (*cronStoreJobTestDouble) DeleteJob(context.Context, string) error { return nil }
 func (*cronStoreJobTestDouble) UpdateJobSchedule(context.Context, cronstore.UpdateJobScheduleParams) error {
 	return nil
 }
@@ -94,6 +96,9 @@ func (*cronStoreClaimTestDouble) MarkFinished(context.Context, cronstore.MarkFin
 	return nil
 }
 func (*cronStoreClaimTestDouble) MarkFailed(context.Context, cronstore.MarkFailedParams) error {
+	return nil
+}
+func (*cronStoreClaimTestDouble) FinalizeRecoveredRun(context.Context, cronstore.FinalizeRecoveredRunParams) error {
 	return nil
 }
 func (*cronStoreClaimTestDouble) SetActiveTurn(context.Context, cronstore.SetActiveTurnParams) error {

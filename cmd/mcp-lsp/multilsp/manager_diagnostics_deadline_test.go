@@ -51,10 +51,17 @@ func TestWaitDiagnosticsStableStartsDeadlineAfterBootstrapSucceeds(t *testing.T)
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"diagnostics-bootstrap-budget"}`)
 	target := writeDiagnosticsTestFile(t, root, "app.js", "export const value = 1\n")
+	openStarted := make(chan struct{})
+	releaseOpen := make(chan struct{})
+	bootstrapComplete := make(chan struct{})
+	releaseDiagnostics := make(chan struct{})
+	goroutines := newTestGoroutineGroup(t)
 	factory := &delayedBootstrapDiagnosticsFactory{
-		goroutines: newTestGoroutineGroup(t),
-		openDelay:  80 * time.Millisecond,
-		readyDelay: 10 * time.Millisecond,
+		goroutines:         goroutines,
+		openStarted:        openStarted,
+		releaseOpen:        releaseOpen,
+		bootstrapComplete:  bootstrapComplete,
+		releaseDiagnostics: releaseDiagnostics,
 	}
 	mgr := newDiagnosticsTestManager(t, Config{
 		WorkspaceRoot:                    root,
@@ -68,7 +75,30 @@ func TestWaitDiagnosticsStableStartsDeadlineAfterBootstrapSucceeds(t *testing.T)
 	defer cancel()
 	uri := fileURIFromPath(target)
 
-	if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+	resultCh := make(chan error, 1)
+	goroutines.Go(func() {
+		resultCh <- mgr.WaitDiagnosticsStable(ctx, []string{uri})
+	})
+	select {
+	case <-openStarted:
+	case <-ctx.Done():
+		t.Fatalf("DidOpen did not start before caller context finished: %v", ctx.Err())
+	}
+	bootstrapHold := time.NewTimer(80 * time.Millisecond)
+	select {
+	case <-bootstrapHold.C:
+	case <-ctx.Done():
+		bootstrapHold.Stop()
+		t.Fatalf("caller context finished while holding bootstrap past diagnostics budget: %v", ctx.Err())
+	}
+	close(releaseOpen)
+	select {
+	case <-bootstrapComplete:
+	case <-ctx.Done():
+		t.Fatalf("DidOpen did not complete after release: %v", ctx.Err())
+	}
+	close(releaseDiagnostics)
+	if err := <-resultCh; err != nil {
 		t.Fatalf("WaitDiagnosticsStable() error = %v, want diagnostics wait budget to start after bootstrap succeeds", err)
 	}
 	client := factory.currentClient(t)
@@ -110,18 +140,22 @@ func diagnosticsDeadlineContext(root string, timeout time.Duration) (context.Con
 }
 
 type delayedBootstrapDiagnosticsFactory struct {
-	goroutines *testGoroutineGroup
-	openDelay  time.Duration
-	readyDelay time.Duration
-	client     *delayedBootstrapDiagnosticsClient
+	goroutines         *testGoroutineGroup
+	openStarted        chan<- struct{}
+	releaseOpen        <-chan struct{}
+	bootstrapComplete  chan<- struct{}
+	releaseDiagnostics <-chan struct{}
+	client             *delayedBootstrapDiagnosticsClient
 }
 
 func (f *delayedBootstrapDiagnosticsFactory) NewClient(_ string, handler protocol.NotificationHandler) (Client, error) {
 	f.client = &delayedBootstrapDiagnosticsClient{
-		goroutines: f.goroutines,
-		openDelay:  f.openDelay,
-		readyDelay: f.readyDelay,
-		handler:    handler,
+		goroutines:         f.goroutines,
+		openStarted:        f.openStarted,
+		releaseOpen:        f.releaseOpen,
+		bootstrapComplete:  f.bootstrapComplete,
+		releaseDiagnostics: f.releaseDiagnostics,
+		handler:            handler,
 	}
 	return f.client, nil
 }
@@ -135,12 +169,14 @@ func (f *delayedBootstrapDiagnosticsFactory) currentClient(t *testing.T) *delaye
 }
 
 type delayedBootstrapDiagnosticsClient struct {
-	goroutines *testGoroutineGroup
-	mu         sync.Mutex
-	openDelay  time.Duration
-	readyDelay time.Duration
-	handler    protocol.NotificationHandler
-	opens      int
+	goroutines         *testGoroutineGroup
+	mu                 sync.Mutex
+	openStarted        chan<- struct{}
+	releaseOpen        <-chan struct{}
+	bootstrapComplete  chan<- struct{}
+	releaseDiagnostics <-chan struct{}
+	handler            protocol.NotificationHandler
+	opens              int
 }
 
 func (c *delayedBootstrapDiagnosticsClient) Initialize(context.Context, string) error { return nil }
@@ -154,13 +190,23 @@ func (c *delayedBootstrapDiagnosticsClient) Request(context.Context, string, any
 func (c *delayedBootstrapDiagnosticsClient) Notify(context.Context, string, any) error { return nil }
 
 func (c *delayedBootstrapDiagnosticsClient) DidOpen(ctx context.Context, uri, _ string, _ int, _ string) error {
-	if err := sleepContext(ctx, c.openDelay); err != nil {
-		return err
+	if c.openStarted != nil {
+		close(c.openStarted)
+	}
+	if c.releaseOpen != nil {
+		select {
+		case <-c.releaseOpen:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	c.mu.Lock()
 	c.opens++
 	c.mu.Unlock()
-	c.goroutines.Go(func() { c.publishDiagnosticsAfterDelay(ctx, uri) })
+	c.goroutines.Go(func() { c.publishDiagnosticsAfterRelease(ctx, uri) })
+	if c.bootstrapComplete != nil {
+		close(c.bootstrapComplete)
+	}
 	return nil
 }
 
@@ -172,9 +218,13 @@ func (c *delayedBootstrapDiagnosticsClient) DidClose(context.Context, string) er
 
 func (c *delayedBootstrapDiagnosticsClient) Close() error { return nil }
 
-func (c *delayedBootstrapDiagnosticsClient) publishDiagnosticsAfterDelay(ctx context.Context, uri string) {
-	if err := sleepContext(ctx, c.readyDelay); err != nil {
-		return
+func (c *delayedBootstrapDiagnosticsClient) publishDiagnosticsAfterRelease(ctx context.Context, uri string) {
+	if c.releaseDiagnostics != nil {
+		select {
+		case <-c.releaseDiagnostics:
+		case <-ctx.Done():
+			return
+		}
 	}
 	if c.handler != nil {
 		_ = c.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri})

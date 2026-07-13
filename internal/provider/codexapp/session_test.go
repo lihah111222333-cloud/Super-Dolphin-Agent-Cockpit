@@ -27,6 +27,30 @@ type recordedResponse struct {
 	err    error
 }
 
+func TestNewSessionWithOptionsRejectsNilApprovalManagerAndReleasesPoolSlot(t *testing.T) {
+	releases := 0
+
+	s, err := newSessionWithOptions(
+		context.Background(),
+		slog.Default(),
+		"ws://127.0.0.1:1",
+		"agent-1",
+		nil,
+		nil,
+		nil,
+		withPoolServer("ws://127.0.0.1:1", func() { releases++ }),
+	)
+	if s != nil {
+		t.Fatalf("newSessionWithOptions() session = %#v, want nil", s)
+	}
+	if err != errApprovalManagerRequired {
+		t.Fatalf("newSessionWithOptions() error = %v, want %v", err, errApprovalManagerRequired)
+	}
+	if releases != 1 {
+		t.Fatalf("pool releases = %d, want 1", releases)
+	}
+}
+
 type recordingResponder struct {
 	mu    sync.Mutex
 	calls []recordedResponse

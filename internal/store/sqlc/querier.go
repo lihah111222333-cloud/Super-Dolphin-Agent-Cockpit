@@ -128,10 +128,10 @@ type Querier interface {
 	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]ListCommandCardVersionsRow, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsByJobParams) ([]CronJobRun, error)
-	ListCronJobs(ctx context.Context) ([]CronJob, error)
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
+	ListCronJobsPage(ctx context.Context, arg ListCronJobsPageParams) ([]CronJob, error)
 	ListDatasourceDocumentPromptMetadata(ctx context.Context, arg ListDatasourceDocumentPromptMetadataParams) ([]ListDatasourceDocumentPromptMetadataRow, error)
 	ListDatasourceDocuments(ctx context.Context, arg ListDatasourceDocumentsParams) ([]ListDatasourceDocumentsRow, error)
 	ListDatasourcePromptDocuments(ctx context.Context, arg ListDatasourcePromptDocumentsParams) ([]ListDatasourcePromptDocumentsRow, error)
@@ -202,7 +202,7 @@ type Querier interface {
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT ?;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 	// file keeps a typed placeholder until sqlc generation is introduced.
-	PlaceholderDBQuery(ctx context.Context) ([]interface{}, error)
+	PlaceholderDBQuery(ctx context.Context) ([]string, error)
 	// SQLite does not support DML inside CTEs; Task rewrite: DELETE then INSERT.
 	// The Go layer wraps these in a transaction. This placeholder keeps the
 	// same query name so generated code compiles; real atomicity is in the Go tx.

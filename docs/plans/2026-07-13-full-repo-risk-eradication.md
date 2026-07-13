@@ -65,9 +65,13 @@
 - `internal/module/cron/contract.go`
 - `internal/app/storeadapter/cron/adapter.go`
 - `internal/store/cron/contract.go`
-- `internal/store/cron/store.go`
+- `internal/store/cron/store.go`、`internal/store/cron/recovery_finalize.go`，恢复终态事务单独分文件以满足生产文件尺寸门禁
 - `sql/queries/cron_job.sql`
 - `internal/store/sqlc/*`，仅由 `make sqlc-generate` 生成
+- `pkg/cronmetrics/*`，保存不反向依赖 platform 的恢复收尾计数源
+- `internal/platform/metrics/cron.go`、`internal/platform/metrics/metrics_test.go`，将计数注册到 Prometheus `/metrics`
+- `internal/module/cron/scheduler_recovery_finalize_test.go`，隔离恢复事务 fixture 并满足测试文件尺寸与方法数门禁
+- `internal/archtest/backend_boundary_registry.go` 及对应治理测试，将 `pkg/cronmetrics` 注册为禁止反向依赖 `internal` 的公共 leaf 包
 - 对应 Cron module、adapter、store 测试
 
 ### 最优修复
@@ -82,13 +86,13 @@
 
 ### RED/GREEN
 
-- [ ] RED：`TestFinalizeRecoveredFailureCASFailureDoesNotMarkJobFailed`，CAS 返回错误时 `MarkFailed` 调用次数必须为 0。
-- [ ] RED：`TestFinalizeRecoveredObserveLostCASFailureDoesNotMarkJobFailed`，覆盖 observe-lost 路径。
-- [ ] RED：store 事务 fixture 让第二个 UPDATE 失败，断言 run UPDATE 回滚。
-- [ ] RED：并发 fixture 让旧 turn 状态改变，断言恢复端不会释放 job 或创建重试。
-- [ ] GREEN：实现事务端口及 adapter 映射；删除“warn 后继续”的分支。
-- [ ] 上层防御：增加 `cron_recovery_finalize_conflict_total`、`cron_recovery_finalize_error_total`，日志必须带 `job_id/run_id/turn_id/expected_status`。
-- [ ] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/module/cron ./internal/app/storeadapter/cron ./internal/store/cron -count=1`。
+- [x] RED：`TestFinalizeRecoveredFailureCASFailureDoesNotMarkJobFailed`，CAS 返回错误时 `MarkFailed` 调用次数必须为 0。
+- [x] RED：`TestFinalizeRecoveredObserveLostCASFailureDoesNotMarkJobFailed`，覆盖 observe-lost 路径。
+- [x] RED：store 事务 fixture 让第二个 UPDATE 失败，断言 run UPDATE 回滚。
+- [x] RED：并发 fixture 让旧 turn 状态改变，断言恢复端不会释放 job 或创建重试。
+- [x] GREEN：实现事务端口及 adapter 映射；删除“warn 后继续”的分支。
+- [x] 上层防御：通过 `pkg/cronmetrics` 增加 `cron_recovery_finalize_conflict_total`、`cron_recovery_finalize_error_total`，由 `internal/platform/metrics` 注册到 Prometheus `/metrics`；日志必须带 `job_id/run_id/turn_id/expected_status`。
+- [x] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/module/cron ./internal/app/storeadapter/cron ./internal/store/cron -count=1`。
 
 ### 完成门禁
 
@@ -122,13 +126,13 @@ hooks dispatch 与 RPC push worker 在获取 mutex 前检查 `stopCh`。`Enqueue
 
 ### RED/GREEN
 
-- [ ] RED：使用 barrier 精确构造“Enqueue 已通过旧检查但未拿锁，Stop 已完成”的交错，断言当前实现丢事件。
-- [ ] RED：构造“已 append 但尚未计数/wake，Stop 抢锁并返回”的交错，断言当前计数仍会在 Stop 后变化。
-- [ ] RED：Stop 返回后连续 Enqueue，断言队列长度、accepted/enqueued 计数和 wake 均不再增加。
-- [ ] RED：RPC push 在 Stop 前已接受的通知必须在 grace 内完成发送；超时路径必须产生 dropped-on-shutdown 而不是成功计数。
-- [ ] GREEN：实现完整线性化区间，以及 push 的 drain-before-cancel 关闭协议。
-- [ ] 上层防御：为 rejected-after-stop、drain-timeout、dropped/coalesced 分别计数，不能混成成功入队。
-- [ ] 验证：`./scripts/test_with_guard.sh ./internal/platform/hooks ./internal/platform/rpc -count=1`；`go test -race ./internal/platform/hooks ./internal/platform/rpc -count=10`。
+- [x] RED：使用 barrier 精确构造“Enqueue 已通过旧检查但未拿锁，Stop 已完成”的交错，断言当前实现丢事件。
+- [x] RED：构造“已 append 但尚未计数/wake，Stop 抢锁并返回”的交错，断言当前计数仍会在 Stop 后变化。
+- [x] RED：Stop 返回后连续 Enqueue，断言队列长度、accepted/enqueued 计数和 wake 均不再增加。
+- [x] RED：RPC push 在 Stop 前已接受的通知必须在 grace 内完成发送；超时路径必须产生 dropped-on-shutdown 而不是成功计数。
+- [x] GREEN：实现完整线性化区间，以及 push 的 drain-before-cancel 关闭协议。
+- [x] 上层防御：为 rejected-after-stop、drain-timeout、dropped/coalesced 分别计数，不能混成成功入队。
+- [x] 验证：`./scripts/test_with_guard.sh ./internal/platform/hooks ./internal/platform/rpc -count=1`；`go test -race ./internal/platform/hooks ./internal/platform/rpc -count=10`。
 
 ---
 
@@ -153,12 +157,12 @@ framed stdio body 有 1 MiB 上限，但 header 使用 `ReadString('\n')`，超�
 
 ### RED/GREEN
 
-- [ ] RED：超长且无换行 header 必须在固定上限内返回错误。
-- [ ] RED：多行累计超限和 header 行数超限必须失败。
-- [ ] RED：在明确“是否包含换行符”的规则下，边界值恰好允许，下一字节拒绝；错误类型稳定可断言。
-- [ ] GREEN：有界 reader helper，不在调用点复制限制逻辑。
-- [ ] 上层防御：加入 framed 输入 fuzz corpus，断言无 panic、错误可分类；使用 counting reader 证明超限输入在预算内停止读取，使用 benchmark/`AllocsPerRun` 约束分配，不在 fuzz 中声称精确内存上限。
-- [ ] 验证：`./scripts/test_with_guard.sh ./internal/mcpserver/common -count=1`；相关 `cmd/mcp-lsp`、`cmd/mcp-orch` transport 测试。
+- [x] RED：超长且无换行 header 必须在固定上限内返回错误。
+- [x] RED：多行累计超限和 header 行数超限必须失败。
+- [x] RED：在明确“是否包含换行符”的规则下，边界值恰好允许，下一字节拒绝；错误类型稳定可断言。
+- [x] GREEN：有界 reader helper，不在调用点复制限制逻辑。
+- [x] 上层防御：加入 framed 输入 fuzz corpus，断言无 panic、错误可分类；使用 counting reader 证明超限输入在预算内停止读取，使用 benchmark/`AllocsPerRun` 约束分配，不在 fuzz 中声称精确内存上限。
+- [x] 验证：`./scripts/test_with_guard.sh ./internal/mcpserver/common -count=1`；相关 `cmd/mcp-lsp`、`cmd/mcp-orch` transport 测试。
 
 ---
 
@@ -190,12 +194,12 @@ framed stdio body 有 1 MiB 上限，但 header 使用 `ReadString('\n')`，超�
 
 ### RED/GREEN
 
-- [ ] RED：CI 契约测试证明缺少任一 map check 时失败。
-- [ ] RED：required gate 无 runner 时 `executeGatePlan` 必须失败。
-- [ ] RED：fixture 根内放置 `.worktrees/foreign/internal/bad.go`，断言 collector 不读取该文件。
-- [ ] GREEN：更新 CI、runner fail-fast 和统一 skip/allowlist。
+- [x] RED：CI 契约测试证明缺少任一 map check 时失败。
+- [x] RED：required gate 无 runner 时 `executeGatePlan` 必须失败。
+- [x] RED：fixture 根内放置 `.worktrees/foreign/internal/bad.go`，断言 collector 不读取该文件。
+- [x] GREEN：更新 CI、runner fail-fast 和统一 skip/allowlist。
 - [ ] 上层防御：主分支保护必须把 CI map-check job 设为 required；未配置前发布状态保持 BLOCKED。
-- [ ] 验证：`go test ./scripts/ai_maintenance ./internal/archtest -count=1`；`make codemap-check`；`make project-map-check`；`make guard`。
+- [x] 验证：`go test ./scripts/ai_maintenance ./internal/archtest -count=1`；`make codemap-check`；`make project-map-check`；`make guard`。
 
 ---
 
@@ -232,17 +236,17 @@ Go sharedFilePreviewResult
   -> WorkflowFinalOutputPanel 只消费 url/contentType
 ```
 
-- [ ] 动态枚举 Go 响应字段或通过生成/类型契约得到 producer set；消费 registry 必须校验 missing 和 stale。
-- [ ] one-field-at-a-time/roundtrip 测试证明 `url/path/contentType/sizeBytes` 都在 bridge 被 required/exact 校验。
-- [ ] 消费 registry 明确 `url/contentType` 由最终 UI 使用；`path/sizeBytes` 以 `Field | Direction | Reason | Evidence/Owner` 登记为 bridge 终止校验，除非产品明确让 UI 使用它们。禁止制造无意义 UI 消费以凑覆盖。
-- [ ] 临时删除 URL 校验分支，记录 frontend contract guard 的 fail-first 结果，再恢复。
+- [x] 动态枚举 Go 响应字段或通过生成/类型契约得到 producer set；消费 registry 必须校验 missing 和 stale。
+- [x] one-field-at-a-time/roundtrip 测试证明 `url/path/contentType/sizeBytes` 都在 bridge 被 required/exact 校验。
+- [x] 消费 registry 明确 `url/contentType` 由最终 UI 使用；`path/sizeBytes` 以 `Field | Direction | Reason | Evidence/Owner` 登记为 bridge 终止校验，除非产品明确让 UI 使用它们。禁止制造无意义 UI 消费以凑覆盖。
+- [x] 临时删除 URL 校验分支，记录 frontend contract guard 的 fail-first 结果，再恢复。
 
 ### RED/GREEN
 
-- [ ] RED：`2026-02-30`、`2025-02-29`、`2026-04-31` 均失败，`2024-02-29` 成功。
-- [ ] RED：远端 HTTPS、非 loopback HTTP、错误路径、空/重复 id、userinfo 欺骗 URL 均失败。
-- [ ] GREEN：实现严格日期与 preview URL validator。
-- [ ] 验证：`cd frontend-app && npm run lint && npm test && npm run build`；Go bridge diagnostics/测试。
+- [x] RED：`2026-02-30`、`2025-02-29`、`2026-04-31` 均失败，`2024-02-29` 成功。
+- [x] RED：远端 HTTPS、非 loopback HTTP、错误路径、空/重复 id、userinfo 欺骗 URL 均失败。
+- [x] GREEN：实现严格日期与 preview URL validator。
+- [x] 验证：`cd frontend-app && npm run lint && npm test && npm run build`；Go bridge diagnostics/测试。
 
 ---
 
@@ -258,6 +262,7 @@ Go sharedFilePreviewResult
 - `internal/provider/codexapp/session.go`
 - `internal/provider/codexapp/session_approval.go`
 - start/resume/factory/Fx 相关测试
+- `internal/provider/e2e/codex_mcp_test.go`，主审批准补齐 E2E fixture 的显式 ApprovalManager；只适配新的 fail-fast 构造契约，不弱化生产校验
 
 ### 最优修复
 
@@ -269,11 +274,11 @@ Go sharedFilePreviewResult
 
 ### RED/GREEN
 
-- [ ] RED：Fx、start、resume 缺 manager 均返回确定错误，且断言不 acquire pool、不 dial transport、不启动 runtime reader/turn。
-- [ ] RED：运行中 manager 异常时审批请求导致 turn 终态失败，不得挂起。
-- [ ] GREEN：Fx 与 start/resume 前置 fail-fast，constructor 纵深校验并释放预占 slot，删除 silent return。
-- [ ] 上层防御：记录 approval-request received/responded/failed，使用 request id 对账；未响应请求必须在 deadline 内告警并收口。
-- [ ] 验证：`./scripts/test_with_guard.sh ./internal/provider/codexapp -count=1`；provider contract tests。
+- [x] RED：Fx、start、resume 缺 manager 均返回确定错误，且断言不 acquire pool、不 dial transport、不启动 runtime reader/turn。
+- [x] RED：运行中 manager 异常时审批请求导致 turn 终态失败，不得挂起。
+- [x] GREEN：Fx 与 start/resume 前置 fail-fast，constructor 纵深校验并释放预占 slot，删除 silent return。
+- [x] 上层防御：记录 approval-request received/responded/failed，使用 request id 对账；未响应请求必须在 deadline 内告警并收口。
+- [x] 验证：`./scripts/test_with_guard.sh ./internal/provider/codexapp -count=1`；provider contract tests。
 
 ---
 
@@ -293,6 +298,10 @@ Go sharedFilePreviewResult
 - `internal/store/cron/contract.go`
 - `internal/store/cron/store.go`
 - `internal/store/cron/store_test.go`
+- `internal/store/cron/list_page.go`、`internal/store/cron/list_page_test.go`，隔离分页实现与 fixture 以满足生产/测试文件尺寸门禁
+- `internal/platform/db/sqlite/migrations/001_baseline.sql`、`117_cron_jobs_list_paging_index.sql`、`internal/platform/db/sqlite/query_plan_test.go`，为 keyset 查询提供正式索引并用 EXPLAIN 锁定
+- `internal/module/cron/rpc_list_page_test.go`，验证 `cursor` wire 必填与分页响应映射
+- `internal/archtest/cron_list_field_guard_test.go`，动态锁定 Go/sqlc DTO 与 mapper 字段链
 - `internal/module/cron/contract.go`
 - `internal/module/cron/service.go`
 - `internal/module/cron/rpc.go`
@@ -307,19 +316,21 @@ Go sharedFilePreviewResult
 - `frontend-app/src/shared/api/backendApi.contractMatrix.js`
 - `frontend-app/src/shared/api/backendApi.test.js`
 - 新增或扩展的 Cron page DTO 字段 registry/guard 测试
+- `frontend-app/src/shared/api/backendCronListContract.test.js`，逐字段验证前端请求/响应契约
+- `scripts/uat-p21.sh`，同步必填分页请求并断言分页响应字段
 
 ### 最优修复
 
 - 使用 keyset cursor，不用 offset。SQL 固定为：
 
 ```sql
-WHERE created_at < :cursor_created_at
-   OR (created_at = :cursor_created_at AND id < :cursor_id)
+WHERE (created_at, id) < (:cursor_created_at, :cursor_id)
 ORDER BY created_at DESC, id DESC
 LIMIT :limit_plus_one
 ```
 
-- 首页使用空 cursor 并跳过 predicate；查询 `limit+1` 条，只返回前 `limit` 条。
+- 建立 `(created_at DESC, id DESC)` 正式复合索引，并用 `EXPLAIN QUERY PLAN` 锁定 tuple keyset 范围扫描，禁止全表扫描或临时排序。
+- wire 首页仍使用空 cursor；store 将其显式映射为 `(MaxInt64, 最大 ID 哨兵)`，使首页与后续页复用同一个可索引 tuple predicate。查询 `limit+1` 条，只返回前 `limit` 条。
 - `HasMore` 由第 `limit+1` 条是否存在决定；`NextCursor` 从最后一条**已返回**记录编码。末页必须返回 `has_more=false` 和必填空字符串 `next_cursor`，不得省略字段或生成指向自身的 cursor。
 - wire 请求字段固定为 `limit`、`cursor`；wire 响应字段固定为 `jobs`、`next_cursor`、`has_more`，前端不得接受 camelCase/旧字段别名。Go 内部字段使用 `Limit/Cursor/Jobs/NextCursor/HasMore` 并显式 mapper。
 - `limit` 在 RPC 与前端 `listCronJobs(params)` 都必填，合法范围 `1..MaxCronListLimit`；不得使用隐式默认值。超限直接 invalid argument，store 不再接受无界调用。
@@ -338,19 +349,19 @@ frontend listCronJobs API request
   -> frontend response validator/API caller
 ```
 
-- [ ] 每个边界分别定义 producer：前端请求 contract、Go `cronListParams`、module page DTO、adapter page DTO、store page DTO、sqlc params/rows、Go `cronListResponse`、前端响应 contract。禁止把所有层笼统称为一个 producer。
-- [ ] Go producer 字段通过反射/AST 动态枚举；前端请求/响应字段通过类型/schema/AST 动态枚举。消费 registry 检查 missing/stale，并用 mapper AST 或 one-field-at-a-time roundtrip 证明实现覆盖。
-- [ ] 为 `limit/cursor/jobs/next_cursor/has_more` 与 Go 内部字段建立逐方向 mapper coverage；任何一层临时删除映射都必须令 guard 精确报出字段与方向。
-- [ ] guard 文件和准确 fail-first 命令必须在 RED 证据中记录；通用 `frontend-contract-store-guard.mjs` 不能自动证明 Cron 字段链，必须新增专用 contract/mapper guard 或等价动态测试。
+- [x] 每个边界分别定义 producer：前端请求 contract、Go `cronListParams`、module page DTO、adapter page DTO、store page DTO、sqlc params/rows、Go `cronListResponse`、前端响应 contract。禁止把所有层笼统称为一个 producer。
+- [x] Go producer 字段通过反射/AST 动态枚举；前端请求/响应字段通过类型/schema/AST 动态枚举。消费 registry 检查 missing/stale，并用 mapper AST 或 one-field-at-a-time roundtrip 证明实现覆盖。
+- [x] 为 `limit/cursor/jobs/next_cursor/has_more` 与 Go 内部字段建立逐方向 mapper coverage；任何一层临时删除映射都必须令 guard 精确报出字段与方向。
+- [x] guard 文件和准确 fail-first 命令必须在 RED 证据中记录；通用 `frontend-contract-store-guard.mjs` 不能自动证明 Cron 字段链，必须新增专用 contract/mapper guard 或等价动态测试。
 
 ### RED/GREEN
 
-- [ ] RED：超过一页的数据不能一次返回全部；相同 created_at 的记录以 id 稳定分界，多页遍历无重复无遗漏。
-- [ ] RED：页间插入更“新”的记录时，该记录不进入旧 cursor 的后续页、重新从首页加载后可见；页间删除只允许删除项缺失，不得导致其他项重复。`created_at` 必须保持不可变排序键。
-- [ ] RED：验证 `limit+1`、`HasMore/NextCursor` 来源和末页 `has_more=false,next_cursor=""`；不得只测行数。
-- [ ] RED：limit=0、负数、超上限和非法 cursor 全部 fail-fast。
-- [ ] GREEN：SQL/store/adapter/service/RPC/前端 API contract 全链分页，不新增 UI。
-- [ ] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/store/cron ./internal/app/storeadapter/cron ./internal/module/cron -count=1`；`cd frontend-app && npm run lint && npm test && npm run build`。
+- [x] RED：超过一页的数据不能一次返回全部；相同 created_at 的记录以 id 稳定分界，多页遍历无重复无遗漏。
+- [x] RED：页间插入更“新”的记录时，该记录不进入旧 cursor 的后续页、重新从首页加载后可见；页间删除只允许删除项缺失，不得导致其他项重复。`created_at` 必须保持不可变排序键。
+- [x] RED：验证 `limit+1`、`HasMore/NextCursor` 来源和末页 `has_more=false,next_cursor=""`；不得只测行数。
+- [x] RED：limit=0、负数、超上限和非法 cursor 全部 fail-fast。
+- [x] GREEN：SQL/store/adapter/service/RPC/前端 API contract 全链分页，不新增 UI。
+- [x] 验证：`make sqlc-verify`；`./scripts/test_with_guard.sh ./internal/store/cron ./internal/app/storeadapter/cron ./internal/module/cron -count=1`；`cd frontend-app && npm run lint && npm test && npm run build`。
 
 ---
 
@@ -390,6 +401,16 @@ frontend listCronJobs API request
 - `scripts/capcontract/main.go`、`scripts/capcontract/main_test.go`
 - `docs/doc/codemap/capability-contract/capability_manifest.json`，只允许由 `make capcontract-refresh` 生成
 - `internal/module/workflowtemplate/rpc.go` 及同包 RPC/序列化测试
+- `sql/queries/db_query.sql`、`internal/store/sqlc/db_query.sql.go`、`internal/store/sqlc/querier.go`，仅消除 `PlaceholderDBQuery` 无类型 `NULL` 生成的 `interface{}` hint，保持零行语义
+- `internal/store/dbquery/store.go`、`internal/store/dbquery/store_test.go`，同步收紧 Placeholder 消费类型并锁定零行契约
+- `scripts/ai_maintenance/main.go`、`scripts/sqlc_verify_worktree_guard_test.go`，pre-commit/worker 使用稳定重生成门禁，pre-push/CI 保持 clean-tree SQLC 门禁
+- `sql/queries/cron_job.sql`、`internal/store/sqlc/cron_job.sql.go`、`internal/store/cron/store_test.go`，仅为既有 cursor/thread/agent 参数补显式 SQL 类型，消除 sqlc 生成的 `interface{}` hint
+- `internal/store/cron/sqlc_type_contract_test.go`，仅承接上述 SQLC 参数类型契约测试；这是主审批准的联集态扩写，用于避免 L07+L08 合并后 `store_test.go` 超过 800 行硬门禁，不改变测试语义
+- `.github/workflows/ci.yml`、`internal/archtest/ratchet_test.go`，Linux 主 job 与 macOS/Windows smoke 共同执行同一 manifest 字节检查
+- `cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go`，主审批准修正全仓 race 高负载下的 diagnostics grace 测试同步/时间预算；不得改变生产稳定判定语义
+- `cmd/mcp-lsp/multilsp/transport_request_context_test.go`，主审批准把阻塞写取消测试改为“底层 Write 已真实进入阻塞后显式 cancel”的同步协议，既消除 goroutine 尚未启动时 100ms deadline 已过期的假失败，也禁止只观测 pending 导致未覆盖阻塞写的假绿；不得修改生产 transport 取消/关闭顺序
+- `cmd/mcp-lsp/multilsp/manager_cold_start_test.go`，主审批准把冷启动 Definition 测试改为“观测 DidOpen 后显式释放 diagnostics”的同步协议，消除 race 高负载下 30ms timer goroutine 被饿死超过生产等待上限的假失败；不得放宽生产 diagnostics 等待上限或改变先诊断后请求语义
+- `cmd/mcp-lsp/multilsp/manager_diagnostics_deadline_test.go`，主审批准把 bootstrap deadline 测试改为“进入 DidOpen 后保持阻塞超过 diagnostics budget，再显式释放 bootstrap 与 diagnostics”的事件同步协议；不得修改生产 deadline 起点、默认等待上限或用放大墙钟预算掩盖调度抖动
 
 不允许修改 `run-new-ui-desktop.ps1`：Windows 已有不执行脚本表达式的 `Import-DotEnvFile`，本风险只针对 Bash `source`。不修改任何 dirty README；开发入口行为通过 Bash `--help`/错误信息和 `internal/app/new_ui_scripts_test.go` 固定。
 
@@ -404,12 +425,12 @@ frontend listCronJobs API request
 
 ### RED/GREEN
 
-- [ ] RED：启动脚本 fixture 中 `.env` 含命令替换时不得执行副作用。
-- [ ] RED：capcontract build-tag fixture 对四个 canonical targets 分别选择正确文件，合并后无重复；在 macOS/Linux/Windows runner 生成的 JSON 必须字节一致。
-- [ ] RED：workflowtemplate 字段缺失/零值语义测试先固定产品行为。
-- [ ] GREEN：删除 dead code，修复全部稳定 diagnostics。
-- [ ] 运行所有目标文件 diagnostics；Error、Warning、Information、Hint 数量必须为 0。
-- [ ] 验证：`go test ./internal/app -run 'Test.*NewUI.*Script' -count=1`；所有 L08 目标包定向测试；`make capcontract-refresh && make capcontract-check`；三平台 manifest 字节一致性 job；`python3 scripts/validate_super_agent_skills.py`；`git diff --check`。
+- [x] RED：启动脚本 fixture 中 `.env` 含命令替换时不得执行副作用。
+- [x] RED：capcontract build-tag fixture 对四个 canonical targets 分别选择正确文件，合并后无重复；在 macOS/Linux/Windows runner 生成的 JSON 必须字节一致。
+- [x] RED：workflowtemplate 字段缺失/零值语义测试先固定产品行为。
+- [x] GREEN：删除 dead code，修复全部稳定 diagnostics。
+- [x] 运行所有目标文件 diagnostics；Error、Warning、Information、Hint 数量必须为 0。
+- [x] 验证：`go test ./internal/app -run 'Test.*NewUI.*Script' -count=1`；所有 L08 目标包定向测试；`make capcontract-refresh && make capcontract-check`；三平台 manifest 字节一致性 job；`python3 scripts/validate_super_agent_skills.py`；`git diff --check`。
 
 ---
 
@@ -417,11 +438,11 @@ frontend listCronJobs API request
 
 ### 每个 lane 合并前
 
-- [ ] 主 agent 按源码、测试和 LSP 重新裁决 finding，不按 worker 自报状态合并。
-- [ ] 检查写集未越界，用户 README 改动未混入。
-- [ ] RED 证据确实因目标缺陷失败，GREEN 使用同一命令通过。
-- [ ] `file(diagnostics)` 对所有修改文件无任何 severity。
-- [ ] `git diff --check` 通过，生成文件来自规范生成器。
+- [x] 主 agent 按源码、测试和 LSP 重新裁决 finding，不按 worker 自报状态合并。
+- [x] 检查写集未越界，用户 README 改动未混入。
+- [x] RED 证据确实因目标缺陷失败，GREEN 使用同一命令通过。
+- [x] `file(diagnostics)` 对所有修改文件无任何 severity。
+- [x] `git diff --check` 通过，生成文件来自规范生成器。
 
 ### 串行集成顺序
 
@@ -431,8 +452,9 @@ frontend listCronJobs API request
 4. L04 远端/本地门禁。
 5. L05 前端契约。
 6. L06 provider approval。
-7. L07 Cron 分页字段链。
-8. L08 清理与 diagnostics。
+7. G0 SQLC worktree 门禁修复；这是所有包含正确 staged SQLC 生成物提交的前置治理依赖，独立提交后再继续业务 lane。
+8. L07 Cron 分页字段链。
+9. L08 清理与 diagnostics。
 
 ### 最终验证
 
@@ -454,20 +476,26 @@ npm test
 npm run build
 ```
 
+执行证据（2026-07-13，`codex/risk-zero-final-20260713`）：
+
+- 上述本地最终验证全部退出 0；`make test` 完整日志无 `FAIL`、data race 或 panic，并包含顺序 provider E2E。
+- `multilsp` 两处高负载时序测试已改为事件同步，目标用例 `-race -count=50`、整包 `-race -count=10` 通过；复核 agent 对测试语义与泄漏边界复核后无遗留 finding。
+- 远端 push、远端 SHA 和主分支 required-check 实际状态不在本地执行授权范围内，保持未勾选并作为发布阻断项。
+
 ### 清零验收表
 
-- [ ] Cron run/job 恢复终态为原子事务，无半成功路径。
-- [ ] Cron 原子端口保留 failure count、retry/next-run、claim 清理和全部 run/turn fence 语义。
-- [ ] Stop 返回后任何 worker 都不能再次入队、增加 accepted/enqueued 计数或发布 wake；push 已接受项按 drain-before-cancel 语义收口。
-- [ ] MCP header/body/JSON 均有独立、可测试的资源上限，reader size 与 header 上限显式一致。
-- [ ] CI 硬阻断 codemap/project-map 漂移，required gate 无 runner 必失败。
-- [ ] 架构扫描输入不受其他 worktree、缓存或生成目录影响。
-- [ ] 非法日期和非法 preview URL 在第一消费边界 fail-fast。
-- [ ] ApprovalManager 缺失在任何 pool acquire/transport dial 前阻断启动或恢复，运行中异常能终止 turn。
-- [ ] Cron list 按 API-only 边界完成 keyset 分页，无未授权 UI 扩面；字段守卫 missing/stale/roundtrip/fail-first 完整。
-- [ ] 开发脚本不隐式执行 `.env`。
-- [ ] capability manifest 在 canonical target matrix 下确定性生成，macOS/Linux/Windows 输出字节一致，生成 owner/派生物单向明确。
-- [ ] 所有已报告 dead code、29 条 diagnostics、build-tag 和 omitempty blocker 均清零；新鲜 diagnostics 若数量变化，以实际全量结果为准且最终必须为 0。
+- [x] Cron run/job 恢复终态为原子事务，无半成功路径。
+- [x] Cron 原子端口保留 failure count、retry/next-run、claim 清理和全部 run/turn fence 语义。
+- [x] Stop 返回后任何 worker 都不能再次入队、增加 accepted/enqueued 计数或发布 wake；push 已接受项按 drain-before-cancel 语义收口。
+- [x] MCP header/body/JSON 均有独立、可测试的资源上限，reader size 与 header 上限显式一致。
+- [x] CI 硬阻断 codemap/project-map 漂移，required gate 无 runner 必失败。
+- [x] 架构扫描输入不受其他 worktree、缓存或生成目录影响。
+- [x] 非法日期和非法 preview URL 在第一消费边界 fail-fast。
+- [x] ApprovalManager 缺失在任何 pool acquire/transport dial 前阻断启动或恢复，运行中异常能终止 turn。
+- [x] Cron list 按 API-only 边界完成 keyset 分页，无未授权 UI 扩面；字段守卫 missing/stale/roundtrip/fail-first 完整。
+- [x] 开发脚本不隐式执行 `.env`。
+- [x] capability manifest 在 canonical target matrix 下确定性生成，macOS/Linux/Windows 输出字节一致，生成 owner/派生物单向明确。
+- [x] 所有已报告 dead code、29 条 diagnostics、build-tag 和 omitempty blocker 均清零；新鲜 diagnostics 若数量变化，以实际全量结果为准且最终必须为 0。
 - [ ] 主分支保护已将远端 map-check job 设为 required；未配置则发布状态为 BLOCKED。
 - [ ] 工作区、提交、远端 SHA 和生成物状态均有可复查证据。
 

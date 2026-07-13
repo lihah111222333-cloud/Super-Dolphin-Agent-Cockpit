@@ -25,7 +25,37 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",
+		"make codemap-check",
+		"make project-map-check",
 	)
+}
+
+func TestCapabilityContractCIChecksLinuxMacOSAndWindows(t *testing.T) {
+	root := findRepoRootForGuardModeTest(t)
+	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read CI workflow: %v", err)
+	}
+	workflow := string(data)
+	buildJob := strings.Index(workflow, "  build-and-test:")
+	crossJob := strings.Index(workflow, "  cross-platform-smoke:")
+	if buildJob < 0 || crossJob <= buildJob {
+		t.Fatalf("CI workflow job order is invalid: build=%d cross=%d", buildJob, crossJob)
+	}
+	if !strings.Contains(workflow[buildJob:crossJob], "run: make capcontract-check") {
+		t.Fatal("Linux build-and-test job must run make capcontract-check")
+	}
+	crossPlatform := workflow[crossJob:]
+	for _, want := range []string{
+		"os: [windows-latest, macos-latest]",
+		"shell: pwsh",
+		"run: go run ./scripts/capcontract --check",
+	} {
+		if !strings.Contains(crossPlatform, want) {
+			t.Fatalf("cross-platform-smoke missing %q", want)
+		}
+	}
 }
 
 func TestRatchetCheck_NoChange(t *testing.T) {

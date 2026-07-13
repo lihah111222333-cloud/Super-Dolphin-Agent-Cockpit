@@ -234,7 +234,7 @@ func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
 		{ID: "rollback_skip_markers", File: "internal/guards/rollback_skip_guard_test.go", TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"}, AppliesTo: []BoundarySurfaceID{"internal/guards"}, Reason: "the repository guard rejects hidden rollback skip markers in Go tests"},
 		{ID: "dependency_direction", File: "internal/archtest/dependency_direction_test.go", TestNames: []string{"TestDependencyDirection"}, AppliesTo: []BoundarySurfaceID{"internal/mcpserver"}, Reason: "dependency direction tests protect typed backend layer relationships"},
 		{ID: "fx_graph", File: "internal/archtest/fx_graph_test.go", TestNames: []string{"TestFxValidateApp"}, AppliesTo: []BoundarySurfaceID{"internal/app"}, Reason: "the desktop composition root must retain a valid Fx graph"},
-		{ID: "pkg_public_boundary", File: "internal/archtest/backend_boundary_guard_coverage_test.go", TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"}, AppliesTo: []BoundarySurfaceID{"pkg/dagmetrics", "pkg/dreammetrics", "pkg/logger", "pkg/skillblocks", "pkg/skillmetrics"}, Reason: "public pkg libraries must reject both repository internals and command entrypoints"},
+		{ID: "pkg_public_boundary", File: "internal/archtest/backend_boundary_guard_coverage_test.go", TestNames: []string{"TestPkgNoInternalImportsRuleRejectsRepositoryInternals"}, AppliesTo: []BoundarySurfaceID{"pkg/cronmetrics", "pkg/dagmetrics", "pkg/dreammetrics", "pkg/logger", "pkg/skillblocks", "pkg/skillmetrics"}, Reason: "public pkg libraries must reject both repository internals and command entrypoints"},
 		{ID: "ui_wails_boundary", File: "internal/archtest/ui_wails_guard_test.go", TestNames: []string{"TestUIWailsNoDirectUIStateImport", "TestUIWailsActiveAgentPredicateFromContract"}, AppliesTo: []BoundarySurfaceID{"internal/ui"}, Reason: "Wails UI bindings consume contract-facing state instead of module implementations"},
 	}
 }
@@ -265,6 +265,7 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("internal/testutil", "shared backend test support", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/ui", "Wails backend binding layer", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"ui_wails_boundary"}),
 		backendBoundarySurface("internal/util", "shared backend utilities", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("pkg/cronmetrics", "public cron recovery metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
 		backendBoundarySurface("pkg/dagmetrics", "public DAG metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
 		backendBoundarySurface("pkg/dreammetrics", "public dream metrics library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),
 		backendBoundarySurface("pkg/logger", "public logging library", []BoundaryRuleID{"pkg_no_internal_imports"}, []BoundaryGuardID{"pkg_public_boundary"}),

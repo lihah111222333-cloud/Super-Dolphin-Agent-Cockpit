@@ -91,7 +91,10 @@ func DefaultScanRoots() []string {
 // DefaultSkipDirs 返回扫描时固定跳过的目录。
 func DefaultSkipDirs() map[string]bool {
 	return map[string]bool{
+		".build-cache": true,
 		".git":         true,
+		".workspace":   true,
+		".worktrees":   true,
 		"node_modules": true,
 		"vendor":       true,
 	}

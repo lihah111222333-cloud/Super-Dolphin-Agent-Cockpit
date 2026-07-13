@@ -66,6 +66,8 @@ jobs:
         run: make sqlc-verify
       - name: Codemap check
         run: make codemap-check
+      - name: Project map check
+        run: make project-map-check
       - name: Capability contract check
         run: make capcontract-check
       - name: Validate skills
@@ -144,6 +146,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Capability contract check
+        shell: pwsh
+        run: go run ./scripts/capcontract --check
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

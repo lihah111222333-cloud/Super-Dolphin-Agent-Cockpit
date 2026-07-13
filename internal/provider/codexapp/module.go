@@ -83,6 +83,9 @@ type DriverFactoryParams struct {
 }
 
 func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
+	if err := requireApprovalManager(p.Approvals); err != nil {
+		return nil, err
+	}
 	reporter, err := newModeAwareRuntimeReporter(p.Reporter, p.Dependency, p.Config, p.Logger, "codex")
 	if err != nil {
 		return nil, err

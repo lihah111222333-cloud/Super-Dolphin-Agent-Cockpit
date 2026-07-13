@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -548,44 +547,6 @@ func normalizeStdioServerConfig(name string, config ServerConfig, sqliteProductD
 
 func allowedStdioServerCommand(command string, args []string, sqliteProductDBPath string) bool {
 	return contract.DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand(command, args, sqliteProductDBPath) == nil
-}
-
-// allowedNPXServerArgs 只接受项目内置 MCP server 的完整 argv，避免在包名后追加任意参数绕过 stdio 边界。
-func allowedNPXServerArgs(args []string, sqliteProductDBPath string) bool {
-	switch {
-	case slices.Equal(args, []string{defaultPlaywrightPackage}):
-		return true
-	case slices.Equal(args, []string{"-y", defaultPostgresPackage, defaultPostgresDatabaseURL}):
-		return true
-	case isDefaultSQLiteNPXArgs(args, sqliteProductDBPath):
-		return true
-	case isLegacySQLiteNPXArgs(args, sqliteProductDBPath):
-		return true
-	default:
-		return false
-	}
-}
-
-// isDefaultSQLiteNPXArgs 只识别当前 dbhub 默认启动形态，dsn 内容由 SQLite 启动入口负责固定来源。
-func isDefaultSQLiteNPXArgs(args []string, sqliteProductDBPath string) bool {
-	return len(args) == 3 &&
-		args[0] == "-y" &&
-		args[1] == defaultSQLitePackage &&
-		sqliteProductDBPath != "" &&
-		args[2] == "--dsn="+sqliteDBHubDSN(sqliteProductDBPath)
-}
-
-// isLegacySQLiteNPXArgs 只放行可迁移的旧 sqlite 默认形态，防止读取历史配置时被任意 npx 参数污染。
-func isLegacySQLiteNPXArgs(args []string, sqliteProductDBPath string) bool {
-	databasePath := legacySQLiteDatabasePath(args)
-	if databasePath == "" || sqliteProductDBPath == "" {
-		return false
-	}
-	normalized, err := normalizeSQLiteDatabasePath(databasePath)
-	if err != nil {
-		return false
-	}
-	return normalized == sqliteProductDBPath
 }
 
 // mcpServersContainSQLiteNPXPackage 检查新增配置里是否包含 sqlite npx 包，用于决定是否需要解析产品 DB 路径。

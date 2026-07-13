@@ -1,10 +1,14 @@
 package codexapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -119,7 +123,9 @@ func TestApprovalPayloadMalformedReturnsErrorDecision(t *testing.T) {
 	server := startApprovalRespondRecorderServer(t, recorder)
 	defer server.Close()
 
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
+	var logs bytes.Buffer
+	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
 	hookCalled := false
 	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
 		hookCalled = true
@@ -152,6 +158,8 @@ func TestApprovalPayloadMalformedReturnsErrorDecision(t *testing.T) {
 	if !ok || !strings.Contains(decision, "approval_parse_failed") {
 		t.Fatalf("approval/respond decision = %#v, want approval_parse_failed string", params[0]["decision"])
 	}
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request failed", 91)
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request responded", 91)
 }
 
 // TestRequestToolApprovalRejectsStringRequestIDWithoutTruncating 锁定审批 id 的权限边界：
@@ -161,7 +169,7 @@ func TestRequestToolApprovalRejectsStringRequestIDWithoutTruncating(t *testing.T
 	server := startApprovalRespondRecorderServer(t, recorder)
 	defer server.Close()
 
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	hookCalled := false
 	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
 		hookCalled = true
@@ -278,7 +286,7 @@ func TestRequestToolApprovalDoesNotReuseDecisionWhenRequestIDIsReusedForDifferen
 	server := startApprovalRespondRecorderServer(t, recorder)
 	defer server.Close()
 
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	hookCalls := installSequentialApprovalHook(t, s, []contract.ApprovalDecision{
 		rpcDecision(false, "safe declined"),
 		rpcDecision(true, "danger reviewed"),
@@ -336,7 +344,7 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 		release:  make(chan struct{}),
 		decision: rpcDecision(false, "decline"),
 	}
-	s := newApprovalRecorderSession(t, server.URL, nil)
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
 	s.approvalDecisionHook = requester.RequestApproval
 	s.runtime.Start()
 	defer closeCodexTestSession(t, s)
@@ -356,6 +364,99 @@ func TestRequestToolApprovalDedupesInFlightRequestID(t *testing.T) {
 	}
 	assertInFlightProcessedApprovalDone(t, s, payload)
 	assertApprovalRespondRequestIDs(t, waitForApprovalRespondParams(t, recorder, 2), 42)
+}
+
+func TestApprovalLifecycleLogsReceivedAndRespondedWithRequestID(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
+	s.runtime.Start()
+	var logs bytes.Buffer
+	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		return rpcDecision(true, "approved"), nil
+	}
+	defer closeCodexTestSession(t, s)
+
+	if err := s.requestToolApprovalWithContext(context.Background(), "item/commandExecution/requestApproval", commandApprovalPayload(51, "call-51", "echo ok")); err != nil {
+		t.Fatalf("requestToolApprovalWithContext() error = %v", err)
+	}
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request received", 51)
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request responded", 51)
+}
+
+func TestApprovalDeadlineWarnsAndRespondsWithDecline(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
+	s.runtime.Start()
+	var logs bytes.Buffer
+	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	deadlineSeen := false
+	s.approvalDecisionHook = func(ctx context.Context, _ rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		_, deadlineSeen = ctx.Deadline()
+		return contract.ApprovalDecision{}, context.DeadlineExceeded
+	}
+	defer closeCodexTestSession(t, s)
+
+	if err := s.requestToolApprovalWithContext(context.Background(), "item/commandExecution/requestApproval", commandApprovalPayload(52, "call-52", "echo wait")); err != nil {
+		t.Fatalf("requestToolApprovalWithContext() error = %v, want timeout closed by decline response", err)
+	}
+	if !deadlineSeen {
+		t.Fatal("approval decision context did not carry the existing approval deadline")
+	}
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request received", 52)
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request failed", 52)
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request responded", 52)
+	params := waitForApprovalRespondParams(t, recorder, 1)
+	if approved, _ := params[0]["approved"].(bool); approved {
+		t.Fatalf("approval/respond approved = %#v, want false", params[0]["approved"])
+	}
+	if decision, _ := params[0]["decision"].(string); !strings.Contains(decision, "approval deadline exceeded") {
+		t.Fatalf("approval/respond decision = %#v, want deadline context", params[0]["decision"])
+	}
+}
+
+func TestApprovalDecisionErrorWarnsAndRespondsWithDecline(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, testApprovalManager())
+	s.runtime.Start()
+	var logs bytes.Buffer
+	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	decisionErr := errors.New("approval backend unavailable")
+	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		return contract.ApprovalDecision{}, decisionErr
+	}
+	defer closeCodexTestSession(t, s)
+
+	if err := s.requestToolApprovalWithContext(context.Background(), "item/commandExecution/requestApproval", commandApprovalPayload(53, "call-53", "echo wait")); err != nil {
+		t.Fatalf("requestToolApprovalWithContext() error = %v, want decision error closed by decline response", err)
+	}
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request received", 53)
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request failed", 53)
+	assertApprovalLifecycleLog(t, logs.String(), "codexapp: approval request responded", 53)
+	params := waitForApprovalRespondParams(t, recorder, 1)
+	if approved, _ := params[0]["approved"].(bool); approved {
+		t.Fatalf("approval/respond approved = %#v, want false", params[0]["approved"])
+	}
+	decision, _ := params[0]["decision"].(string)
+	if !strings.Contains(decision, "approval decision failed") || !strings.Contains(decision, decisionErr.Error()) {
+		t.Fatalf("approval/respond decision = %#v, want fail-closed decision context", params[0]["decision"])
+	}
+}
+
+func assertApprovalLifecycleLog(t *testing.T, logs, message string, requestID int64) {
+	t.Helper()
+	if !strings.Contains(logs, `msg="`+message+`"`) || !strings.Contains(logs, "request_id="+strconv.FormatInt(requestID, 10)) {
+		t.Fatalf("logs missing lifecycle message %q for request_id=%d:\n%s", message, requestID, logs)
+	}
 }
 
 func requestToolApprovalAsync(t testing.TB, s *session, payload []byte) <-chan error {

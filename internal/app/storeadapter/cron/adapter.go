@@ -90,13 +90,16 @@ func (a *cronJobStoreAdapter) GetJobByID(ctx context.Context, id string) (cron.J
 	return fromStoreJob(row), mapCronStoreError(err)
 }
 
-// ListJobs 列出任务并逐条转换为 cron 模块内部记录。
-func (a *cronJobStoreAdapter) ListJobs(ctx context.Context) ([]cron.JobRecord, error) {
-	rows, err := a.store.ListJobs(ctx)
+// ListJobsPage 显式转换分页 DTO，避免把 store 类型泄漏到 cron 模块。
+func (a *cronJobStoreAdapter) ListJobsPage(ctx context.Context, p cron.ListJobsPageParams) (cron.JobRecordPage, error) {
+	page, err := a.store.ListJobsPage(ctx, cronstore.ListJobsPageParams{Limit: p.Limit, Cursor: p.Cursor})
 	if err != nil {
-		return nil, mapCronStoreError(err)
+		if errors.Is(err, cronstore.ErrInvalidListCursor) {
+			return cron.JobRecordPage{}, fmt.Errorf("%w: %v", cron.ErrStoreInvalidListCursor, err)
+		}
+		return cron.JobRecordPage{}, mapCronStoreError(err)
 	}
-	return fromStoreJobs(rows), nil
+	return cron.JobRecordPage{Jobs: fromStoreJobs(page.Jobs), NextCursor: page.NextCursor, HasMore: page.HasMore}, nil
 }
 
 // DeleteJob 删除任务，并把 not found 等 store 错误映射到本包错误。
@@ -157,6 +160,11 @@ func (a *cronSchedulerClaimAdapter) MarkFailed(ctx context.Context, p cron.MarkF
 	return mapCronStoreError(a.store.MarkFailed(ctx, toStoreCronMarkFailedParams(p)))
 }
 
+// FinalizeRecoveredRun 将恢复期 run/job 终态请求映射到同一 store 事务。
+func (a *cronSchedulerClaimAdapter) FinalizeRecoveredRun(ctx context.Context, p cron.FinalizeRecoveredRunParams) error {
+	return mapCronStoreError(a.store.FinalizeRecoveredRun(ctx, toStoreCronFinalizeRecoveredRunParams(p)))
+}
+
 // SetActiveTurn 绑定 job 当前活跃 turn，并保留 thread/agent 身份信息。
 func (a *cronSchedulerClaimAdapter) SetActiveTurn(ctx context.Context, p cron.SetActiveTurnParams) error {
 	return mapCronStoreError(a.store.SetActiveTurn(ctx, toStoreCronSetActiveTurnParams(p)))
@@ -181,6 +189,12 @@ func (a *cronSchedulerRunAdapter) CASRunStatus(ctx context.Context, p cron.CASRu
 // SetRunTurn 记录 run 对应的实际 turn 信息。
 func (a *cronSchedulerRunAdapter) SetRunTurn(ctx context.Context, p cron.SetRunTurnParams) error {
 	return mapCronStoreError(a.store.SetRunTurn(ctx, toStoreCronSetRunTurnParams(p)))
+}
+
+// GetRunByID 读取恢复冲突复核所需的精确 run 状态。
+func (a *cronSchedulerRunAdapter) GetRunByID(ctx context.Context, id string) (cron.RunRecord, error) {
+	row, err := a.store.GetRunByID(ctx, id)
+	return fromStoreRun(row), mapCronStoreError(err)
 }
 
 // GetRunningRunByTurnID 查找当前 running run，用于终态事件收尾。
@@ -263,6 +277,13 @@ func toStoreCronMarkFailedParams(p cron.MarkFailedParams) cronstore.MarkFailedPa
 		LastRunAt: p.LastRunAt, LastTurnID: p.LastTurnID, LastStatus: p.LastStatus,
 		LastErrorAt: p.LastErrorAt, LastError: p.LastError, NextRunAt: p.NextRunAt,
 		NextRetryAt: p.NextRetryAt, Now: p.Now,
+	}
+}
+
+func toStoreCronFinalizeRecoveredRunParams(p cron.FinalizeRecoveredRunParams) cronstore.FinalizeRecoveredRunParams {
+	return cronstore.FinalizeRecoveredRunParams{
+		MarkFailedParams:  toStoreCronMarkFailedParams(p.MarkFailedParams),
+		ExpectedRunStatus: p.ExpectedRunStatus,
 	}
 }
 

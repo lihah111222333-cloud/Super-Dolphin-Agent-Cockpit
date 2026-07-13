@@ -71,6 +71,18 @@ func TestExecuteGatePlanSoftensGeneratedDriftOnlyForPrePush(t *testing.T) {
 	}
 }
 
+func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
+	plan := gatePlan{RequiredGates: []string{"missing:runner"}}
+
+	err := executeGatePlan(plan)
+	if err == nil {
+		t.Fatal("executeGatePlan should reject a required gate without a runner")
+	}
+	if !strings.Contains(err.Error(), "missing:runner") {
+		t.Fatalf("error should name the missing runner, got %v", err)
+	}
+}
+
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 	plan := buildGatePlan([]string{"scripts/ai_maintenance/main.go"})
 

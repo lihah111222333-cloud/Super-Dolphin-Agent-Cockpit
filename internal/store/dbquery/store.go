@@ -61,8 +61,8 @@ func (s *store) Placeholder(ctx context.Context) ([]PlaceholderRow, error) {
 	}
 	out := make([]PlaceholderRow, 0, len(rows))
 	for _, row := range rows {
-		s, _ := row.(*string)
-		out = append(out, PlaceholderRow{Placeholder: s})
+		placeholder := row
+		out = append(out, PlaceholderRow{Placeholder: &placeholder})
 	}
 	return out, nil
 }

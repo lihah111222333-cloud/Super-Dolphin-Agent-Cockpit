@@ -94,6 +94,63 @@ func embeddedThreadPatch(t *testing.T, payload map[string]any) map[string]any {
 	return embedded
 }
 
+func TestRPCPushWorkerStopWaitsForEnqueueLinearizationGate(t *testing.T) {
+	worker := newPushNotificationWorker(nil, nil, pkglogger.Get())
+	worker.Start()
+
+	worker.mu.Lock()
+	stopDone := make(chan error, 1)
+	var stopWG sync.WaitGroup
+	defer stopWG.Wait()
+	stopWG.Go(func() {
+		stopDone <- worker.Stop(context.Background())
+	})
+
+	select {
+	case err := <-stopDone:
+		worker.mu.Unlock()
+		t.Fatalf("Stop returned before acquiring enqueue gate: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	worker.mu.Unlock()
+
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not complete after enqueue gate released")
+	}
+}
+
+func TestRPCPushWorkerEnqueueAfterStopRejectsWithoutMutation(t *testing.T) {
+	worker := newPushNotificationWorker(nil, nil, pkglogger.Get())
+	worker.Start()
+
+	if err := worker.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	beforeEnqueued := worker.EnqueuedTotal()
+	beforeWake := len(worker.wake)
+	worker.Enqueue([]eventsurface.Notification{{Method: "thread/started", Payload: map[string]any{"thread_id": "T"}}})
+	if got := worker.EnqueuedTotal(); got != beforeEnqueued {
+		t.Errorf("EnqueuedTotal after post-Stop enqueue = %d, want %d", got, beforeEnqueued)
+	}
+	if got := worker.RejectedAfterStopTotal(); got != 1 {
+		t.Errorf("RejectedAfterStopTotal = %d, want 1", got)
+	}
+	if got := len(worker.wake); got != beforeWake {
+		t.Errorf("wake length after post-Stop enqueue = %d, want %d", got, beforeWake)
+	}
+	worker.mu.Lock()
+	queueLen := len(worker.queue)
+	worker.mu.Unlock()
+	if queueLen != 0 {
+		t.Errorf("queue length after post-Stop enqueue = %d, want 0", queueLen)
+	}
+}
+
 func assertNoEmbeddedThreadPatch(t *testing.T, call fakePushCall) {
 	t.Helper()
 	payload := callPayloadMap(t, call)
@@ -261,9 +318,9 @@ func TestRPCPushQueuePreservesLegacyExpansion(t *testing.T) {
 	}
 }
 
-// TestRPCPushWorkerUsesCancelablePushCtx 锁定 worker 自有 context 的取消路径。
-// Stop 必须取消 pushCtx，并让正在执行的 NotifyAll 及时观察到 context.Canceled。
-func TestRPCPushWorkerUsesCancelablePushCtx(t *testing.T) {
+// TestRPCPushWorkerDrainsAcceptedNotificationBeforeCancel 锁定 shutdown 的先排空后取消顺序。
+// Stop 关闭新入队后，已经接受的 NotifyAll 必须在 live pushCtx 下完成，再取消 worker context。
+func TestRPCPushWorkerDrainsAcceptedNotificationBeforeCancel(t *testing.T) {
 	t.Parallel()
 
 	broadcaster := &fakePushBroadcaster{
@@ -301,16 +358,19 @@ func TestRPCPushWorkerUsesCancelablePushCtx(t *testing.T) {
 		t.Fatalf("Stop() err = %v, want nil (drain must finish within ctx budget)", err)
 	}
 	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
-		t.Errorf("Stop took %s, want <250ms — pushCtx cancel should propagate immediately", elapsed)
+		t.Errorf("Stop took %s, want <250ms — accepted notification must drain within ctx budget", elapsed)
 	}
 
 	select {
 	case ctxErr := <-broadcaster.exited:
-		if !errors.Is(ctxErr, context.Canceled) {
-			t.Errorf("broadcaster observed ctx.Err() = %v, want context.Canceled", ctxErr)
+		if ctxErr != nil {
+			t.Errorf("broadcaster observed ctx.Err() = %v, want nil while accepted notification drains", ctxErr)
 		}
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("broadcaster did not publish its ctx.Err() after Stop")
+		t.Fatal("broadcaster did not finish its accepted notification during Stop")
+	}
+	if !errors.Is(worker.PushCtx().Err(), context.Canceled) {
+		t.Errorf("worker.PushCtx().Err() = %v, want context.Canceled after drain", worker.PushCtx().Err())
 	}
 }
 

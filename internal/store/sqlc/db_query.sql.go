@@ -11,7 +11,7 @@ import (
 
 const placeholderDBQuery = `-- name: PlaceholderDBQuery :many
 
-SELECT NULL AS placeholder
+SELECT CAST(NULL AS TEXT) AS placeholder
 WHERE FALSE
 `
 
@@ -19,15 +19,15 @@ WHERE FALSE
 // WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT ?;
 // A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 // file keeps a typed placeholder until sqlc generation is introduced.
-func (q *Queries) PlaceholderDBQuery(ctx context.Context) ([]interface{}, error) {
+func (q *Queries) PlaceholderDBQuery(ctx context.Context) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, placeholderDBQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []interface{}{}
+	items := []string{}
 	for rows.Next() {
-		var placeholder interface{}
+		var placeholder string
 		if err := rows.Scan(&placeholder); err != nil {
 			return nil, err
 		}

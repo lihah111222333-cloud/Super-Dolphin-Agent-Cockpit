@@ -59,16 +59,8 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 	return newStdioMCPClientForValidatedBinary(ctx, binary)
 }
 
-// newStdioMCPClient 启动 stdio MCP 子进程并完成 initialize 握手。
-func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
-	if err := contract.DefaultRuntimeMCPPolicy().ValidateManifestBinary(binary); err != nil {
-		return nil, err
-	}
-	return newStdioMCPClientForValidatedBinary(ctx, binary)
-}
-
 // newStdioMCPClientForValidatedBinary 启动已经过 RuntimeMCPPolicy 校验的 stdio MCP 子进程。
-// 生产调用必须先走 newStdioMCPClient/defaultStdioClientFactory；该入口保留给同包进程生命周期测试。
+// 生产调用必须先走 defaultStdioClientFactory；该入口保留给同包进程生命周期测试。
 func newStdioMCPClientForValidatedBinary(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
 	if len(binary.Command) == 0 || strings.TrimSpace(binary.Command[0]) == "" {
 		return nil, fmt.Errorf("toolbridge: missing stdio command for %q", binary.Name)

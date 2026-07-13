@@ -65,6 +65,16 @@ func TestSQLCVerifyWorktreeScriptRejectsRegenerationDrift(t *testing.T) {
 	)
 }
 
+func TestSQLCVerificationModesStaySeparatedByWorkflow(t *testing.T) {
+	aiMaintenance := readRepoFile(t, "ai_maintenance/main.go")
+	assertScriptContains(t, aiMaintenance, `"sqlc:verify":           func() error { return runCommand("", "make", "sqlc-verify-worktree") }`)
+	assertScriptContains(t, aiMaintenance, `"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"}`)
+
+	prePush := readRepoFile(t, "../.githooks/pre-push")
+	assertScriptContains(t, prePush, "run_without_git_env make sqlc-verify")
+	assertScriptDoesNotContain(t, prePush, "make sqlc-verify-worktree")
+}
+
 func newSQLCWorktreeVerifyFixture(t *testing.T, mode string) string {
 	t.Helper()
 

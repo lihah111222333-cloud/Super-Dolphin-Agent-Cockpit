@@ -600,7 +600,7 @@ func (q *Queries) ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsB
 	return items, nil
 }
 
-const listCronJobs = `-- name: ListCronJobs :many
+const listCronJobsClaimedBy = `-- name: ListCronJobsClaimedBy :many
 SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        model, cwd, config, skills, notify_channel, enabled, next_run_at,
        last_scheduled_at, last_run_at, claimed_at, claimed_by,
@@ -608,11 +608,18 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-ORDER BY created_at DESC, id DESC
+WHERE claimed_by = ? AND claim_token <> ''
+ORDER BY id ASC
 `
 
-func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
-	rows, err := q.db.QueryContext(ctx, listCronJobs)
+type ListCronJobsClaimedByParams struct {
+	ClaimedBy string `db:"claimed_by" json:"claimed_by"`
+}
+
+// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
+// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
+func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listCronJobsClaimedBy, arg.ClaimedBy)
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +674,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
 	return items, nil
 }
 
-const listCronJobsClaimedBy = `-- name: ListCronJobsClaimedBy :many
+const listCronJobsPage = `-- name: ListCronJobsPage :many
 SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        model, cwd, config, skills, notify_channel, enabled, next_run_at,
        last_scheduled_at, last_run_at, claimed_at, claimed_by,
@@ -675,18 +682,19 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-WHERE claimed_by = ? AND claim_token <> ''
-ORDER BY id ASC
+WHERE (created_at, id) < (CAST(?1 AS INTEGER), CAST(?2 AS TEXT))
+ORDER BY created_at DESC, id DESC
+LIMIT ?3
 `
 
-type ListCronJobsClaimedByParams struct {
-	ClaimedBy string `db:"claimed_by" json:"claimed_by"`
+type ListCronJobsPageParams struct {
+	CursorCreatedAt int64  `db:"cursor_created_at" json:"cursor_created_at"`
+	CursorID        string `db:"cursor_id" json:"cursor_id"`
+	LimitPlusOne    int64  `db:"limit_plus_one" json:"limit_plus_one"`
 }
 
-// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
-// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
-func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error) {
-	rows, err := q.db.QueryContext(ctx, listCronJobsClaimedBy, arg.ClaimedBy)
+func (q *Queries) ListCronJobsPage(ctx context.Context, arg ListCronJobsPageParams) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listCronJobsPage, arg.CursorCreatedAt, arg.CursorID, arg.LimitPlusOne)
 	if err != nil {
 		return nil, err
 	}
@@ -796,14 +804,14 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        updated_at
 FROM cron_job_runs
 WHERE status IN ('submitting', 'submitted', 'running')
-  AND (?1 = '' OR id > ?1)
+  AND (CAST(?1 AS TEXT) = '' OR id > CAST(?1 AS TEXT))
 ORDER BY id ASC
 LIMIT ?2
 `
 
 type ListUnresolvedCronJobRunsPageParams struct {
-	Cursor interface{} `db:"cursor" json:"cursor"`
-	Limit  int64       `db:"limit" json:"limit"`
+	Cursor string `db:"cursor" json:"cursor"`
+	Limit  int64  `db:"limit" json:"limit"`
 }
 
 // Bounded scheduler boot recovery page. The caller advances cursor with the
@@ -1045,19 +1053,19 @@ func (q *Queries) RenewLease(ctx context.Context, arg RenewLeaseParams) (int64, 
 const setCronJobActiveTurn = `-- name: SetCronJobActiveTurn :execrows
 UPDATE cron_jobs
 SET active_turn_id = ?1,
-    thread_id      = COALESCE(NULLIF(?2, ''), thread_id),
-    agent_id       = COALESCE(NULLIF(?3, ''), agent_id),
+    thread_id      = COALESCE(NULLIF(CAST(?2 AS TEXT), ''), thread_id),
+    agent_id       = COALESCE(NULLIF(CAST(?3 AS TEXT), ''), agent_id),
     updated_at     = ?4
 WHERE id = ?5 AND claim_token = ?6
 `
 
 type SetCronJobActiveTurnParams struct {
-	ActiveTurnID string      `db:"active_turn_id" json:"active_turn_id"`
-	ThreadID     interface{} `db:"thread_id" json:"thread_id"`
-	AgentID      interface{} `db:"agent_id" json:"agent_id"`
-	Now          int64       `db:"now" json:"now"`
-	ID           string      `db:"id" json:"id"`
-	ClaimToken   string      `db:"claim_token" json:"claim_token"`
+	ActiveTurnID string `db:"active_turn_id" json:"active_turn_id"`
+	ThreadID     string `db:"thread_id" json:"thread_id"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	Now          int64  `db:"now" json:"now"`
+	ID           string `db:"id" json:"id"`
+	ClaimToken   string `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error) {
@@ -1096,20 +1104,20 @@ func (q *Queries) SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledPa
 const setCronJobRunTurn = `-- name: SetCronJobRunTurn :execrows
 UPDATE cron_job_runs
 SET turn_id       = ?1,
-    thread_id     = COALESCE(NULLIF(?2, ''), thread_id),
-    agent_id      = COALESCE(NULLIF(?3, ''), agent_id),
+    thread_id     = COALESCE(NULLIF(CAST(?2 AS TEXT), ''), thread_id),
+    agent_id      = COALESCE(NULLIF(CAST(?3 AS TEXT), ''), agent_id),
     submitted_at  = ?4,
     updated_at    = ?5
 WHERE id = ?6
 `
 
 type SetCronJobRunTurnParams struct {
-	TurnID      string      `db:"turn_id" json:"turn_id"`
-	ThreadID    interface{} `db:"thread_id" json:"thread_id"`
-	AgentID     interface{} `db:"agent_id" json:"agent_id"`
-	SubmittedAt *int64      `db:"submitted_at" json:"submitted_at"`
-	UpdatedAt   int64       `db:"updated_at" json:"updated_at"`
-	ID          string      `db:"id" json:"id"`
+	TurnID      string `db:"turn_id" json:"turn_id"`
+	ThreadID    string `db:"thread_id" json:"thread_id"`
+	AgentID     string `db:"agent_id" json:"agent_id"`
+	SubmittedAt *int64 `db:"submitted_at" json:"submitted_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	ID          string `db:"id" json:"id"`
 }
 
 func (q *Queries) SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error) {

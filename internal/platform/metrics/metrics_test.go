@@ -1,8 +1,12 @@
 package metrics
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -39,6 +43,36 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 	for _, check := range checks {
 		if check.got != check.want {
 			t.Fatalf("%s = %v, want %v", check.name, check.got, check.want)
+		}
+	}
+}
+
+func TestCronRecoveryMetricsExportSourceSnapshotAndHandler(t *testing.T) {
+	cronmetrics.ResetForTesting()
+	t.Cleanup(cronmetrics.ResetForTesting)
+	cronmetrics.IncRecoveryFinalizeConflict()
+	cronmetrics.IncRecoveryFinalizeError()
+	cronmetrics.IncRecoveryFinalizeError()
+
+	if got := testutil.ToFloat64(CronRecoveryFinalizeConflictTotal); got != 1 {
+		t.Fatalf("cron_recovery_finalize_conflict_total = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(CronRecoveryFinalizeErrorTotal); got != 2 {
+		t.Fatalf("cron_recovery_finalize_error_total = %v, want 2", got)
+	}
+
+	rec := httptest.NewRecorder()
+	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, sample := range []string{
+		"cron_recovery_finalize_conflict_total 1",
+		"cron_recovery_finalize_error_total 2",
+	} {
+		if !strings.Contains(body, sample) {
+			t.Fatalf("metrics body missing %q:\n%s", sample, body)
 		}
 	}
 }
