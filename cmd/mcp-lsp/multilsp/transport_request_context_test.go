@@ -3,8 +3,9 @@ package multilsp
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -24,17 +25,20 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 		t.Fatalf("newTransport() error = %v", err)
 	}
 	cleanupLeakedTransportAfterFailure(t, tr)
+	blockedStdin := installBlockingTestStdin(t, tr)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 
 	errCh := make(chan error, 1)
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
 		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{
-			"payload": strings.Repeat("x", 32<<20),
+			"payload": "x",
 		})
 		errCh <- err
 	})
+
+	assertBlockedWriteStartedBeforeDeadline(t, ctx, tr, blockedStdin)
 
 	select {
 	case err := <-errCh:
@@ -42,6 +46,7 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 			t.Fatalf("request() error = %v, want context deadline exceeded", err)
 		}
 	case <-time.After(2 * time.Second):
+		tr.closeInput()
 		_ = tr.killProcess()
 		select {
 		case err := <-errCh:
@@ -52,6 +57,78 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 	}
 
 	assertRequestContextTerminatedTransport(t, tr)
+}
+
+// assertBlockedWriteStartedBeforeDeadline 等待阻塞写入启动，并证明它发生在请求上下文截止时间之前。
+func assertBlockedWriteStartedBeforeDeadline(
+	t *testing.T,
+	ctx context.Context,
+	tr *transport,
+	blockedStdin *testBlockingWriteCloser,
+) {
+	t.Helper()
+	select {
+	case <-blockedStdin.writeStarted:
+	case <-ctx.Done():
+		t.Fatalf("test fixture deadline expired before blocked stdin Write started: %v", ctx.Err())
+	case <-time.After(2 * time.Second):
+		tr.closeInput()
+		_ = tr.killProcess()
+		t.Fatalf("request() did not start writing before the deadlock guard expired")
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("test fixture context has no deadline")
+	}
+	if blockedStdin.startedAt.IsZero() {
+		t.Fatal("test fixture observed writeStarted without recording the Write start time")
+	}
+	if !blockedStdin.startedAt.Before(deadline) {
+		t.Fatalf("test fixture blocked stdin Write started at %v; want before context deadline %v", blockedStdin.startedAt, deadline)
+	}
+}
+
+type testBlockingWriteCloser struct {
+	io.WriteCloser
+	writeStarted chan struct{}
+	startedAt    time.Time
+	closed       chan struct{}
+	writeOnce    sync.Once
+	closeOnce    sync.Once
+	closeErr     error
+}
+
+func installBlockingTestStdin(t *testing.T, tr *transport) *testBlockingWriteCloser {
+	t.Helper()
+	tr.stdinMu.Lock()
+	defer tr.stdinMu.Unlock()
+	if tr.stdin == nil {
+		t.Fatal("transport stdin is nil before installing blocked-write test barrier")
+	}
+	stdin := &testBlockingWriteCloser{
+		WriteCloser:  tr.stdin,
+		writeStarted: make(chan struct{}),
+		closed:       make(chan struct{}),
+	}
+	tr.stdin = stdin
+	return stdin
+}
+
+func (w *testBlockingWriteCloser) Write(_ []byte) (int, error) {
+	w.writeOnce.Do(func() {
+		w.startedAt = time.Now()
+		close(w.writeStarted)
+	})
+	<-w.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (w *testBlockingWriteCloser) Close() error {
+	w.closeOnce.Do(func() {
+		close(w.closed)
+		w.closeErr = w.WriteCloser.Close()
+	})
+	return w.closeErr
 }
 
 func assertRequestContextTerminatedTransport(t *testing.T, tr *transport) {
