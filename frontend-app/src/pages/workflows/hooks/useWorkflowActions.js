@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { errorMessage, firstText, objectValue, textValue } from '../../shared/pageShared.js';
 import {
   applyDagOps,
@@ -25,6 +25,8 @@ import {
   uniqueWorkflowActionKey,
   workflowMonotonicTimestamp,
 } from '../services/workflowEnterpriseTemplateModel.js';
+
+const workflowActionFacade = Object.freeze({ applyDagOps, dispatchDagNode, terminateDagRun });
 
 function workflowRefreshNotice(message, refreshError) {
   if (!refreshError) return message;
@@ -53,6 +55,12 @@ function firstWorkflowRefreshError(...errors) {
   return errors.find(Boolean) || null;
 }
 
+function isIdempotencyKeyExhaustedError(error) {
+  return firstText(error?.message, error?.data?.message, error?.data)
+    .toLowerCase()
+    .includes('idempotency key exhausted:');
+}
+
 async function refreshWorkflowAfterAction({ fallbackItems, list, refresh, runKey = '', targetDagKey }) {
   const listResult = list ? await refreshWorkflowListResult(list, fallbackItems) : { error: null, items: fallbackItems };
   const detailError = refresh ? await refreshWorkflowDetailResult(refresh, targetDagKey, runKey) : null;
@@ -78,20 +86,34 @@ function useWorkflowActions(options) {
 }
 
 function useRunSelectedDagAction({ actionState, derived, list, notices, refresh }) {
+  const runIntentsRef = useRef(new Map());
   return useCallback(async () => {
     if (derived.startDisabledReason) return;
     const targetDagKey = derived.dagKey;
+    let intent = runIntentsRef.current.get(targetDagKey);
+    if (!intent) {
+      intent = { idempotencyKey: uniqueWorkflowActionKey('ui'), pending: false };
+      runIntentsRef.current.set(targetDagKey, intent);
+    }
+    if (intent.pending) return;
+    intent.pending = true;
     actionState.setActioning('start');
     actionState.setError('');
     notices.clearNotice();
     try {
-      const result = await withWorkflowActionTimeout(startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: uniqueWorkflowActionKey('ui') }));
+      const result = await startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: intent.idempotencyKey });
+      runIntentsRef.current.delete(targetDagKey);
       const runKey = runKeyOf(result);
       const refreshResult = await refreshWorkflowAfterAction({ list, refresh, runKey, targetDagKey });
       const warning = textValue(result?.warning);
       const message = warning ? '已启动，后端提示：' + warning : '已启动自动化';
       notices.showTaskNotice(workflowRefreshNotice(message, refreshResult.error), targetDagKey);
     } catch (err) {
+      if (isIdempotencyKeyExhaustedError(err)) {
+        runIntentsRef.current.delete(targetDagKey);
+      } else {
+        intent.pending = false;
+      }
       actionState.setError('启动自动化失败：' + errorMessage(err));
     } finally {
       actionState.setActioning('');
@@ -100,22 +122,33 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
 }
 
 function useStopSelectedDagAction({ actionState, derived, list, notices, refresh }) {
-  return useCallback(async () => {
-    if (!derived.dagKey || !derived.activeRunKey) return;
-    const targetDagKey = derived.dagKey;
-    actionState.setActioning('stop');
-    actionState.setError('');
-    notices.clearNotice();
-    try {
-      await withWorkflowActionTimeout(terminateDagRun({ dagKey: targetDagKey, runKey: derived.activeRunKey, reason: 'user_requested' }));
-      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
-      notices.showTaskNotice(workflowRefreshNotice('已停止运行', refreshResult.error), targetDagKey);
-    } catch (err) {
-      actionState.setError('停止运行失败：' + errorMessage(err));
-    } finally {
-      actionState.setActioning('');
-    }
-  }, [actionState, derived, list, notices, refresh]);
+  return useCallback(
+    () => stopSelectedDagAction({
+      actionState,
+      derived,
+      facade: workflowActionFacade,
+      notices,
+      refreshContext: { list, refresh },
+    }),
+    [actionState, derived, list, notices, refresh],
+  );
+}
+
+export async function stopSelectedDagAction({ actionState, derived, facade, notices, refreshContext }) {
+  if (!derived.dagKey || !derived.activeRunKey) return;
+  const targetDagKey = derived.dagKey;
+  actionState.setActioning('stop');
+  actionState.setError('');
+  notices.clearNotice();
+  try {
+    await withWorkflowActionTimeout(facade.terminateDagRun({ dagKey: targetDagKey, runKey: derived.activeRunKey, reason: 'user_requested' }));
+    const refreshResult = await refreshWorkflowAfterAction({ ...refreshContext, targetDagKey });
+    notices.showTaskNotice(workflowRefreshNotice('已停止运行', refreshResult.error), targetDagKey);
+  } catch (err) {
+    actionState.setError('停止运行失败：' + errorMessage(err));
+  } finally {
+    actionState.setActioning('');
+  }
 }
 
 function useDeleteDagAction({ actionState, derived, list, notices, selection }) {
@@ -152,33 +185,50 @@ function nextWorkflowSelectionKey(items, activeCategory) {
 }
 
 function useSaveScheduleAction({ actionState, derived, list, notices, refresh }) {
-  return useCallback(async (nextCronExpr = '') => {
-    const cronExpr = textValue(nextCronExpr) || textValue(actionState.scheduleCron);
-    if (!derived.dagKey || !cronExpr) return;
-    if (derived.baseVersion === null) { actionState.setError('自动化详情不完整，无法保存定时任务'); return; }
-    if (derived.missingRootAssigneeWarning) { actionState.setError('保存定时任务失败：' + derived.missingRootAssigneeWarning); return; }
-    const targetDagKey = derived.dagKey;
-    actionState.setActioning('schedule');
-    actionState.setError('');
-    notices.clearNotice();
-    try {
-      const activeDetailDag = derived.activeDetailDag;
-      const schedulePatch = { trigger: 'scheduled', cron_expr: cronExpr };
-      const preservingExistingSchedule = isScheduledTrigger(activeDetailDag?.trigger) || Boolean(activeDetailDag?.cronExpr);
-      if (preservingExistingSchedule && activeDetailDag?.scheduleEnabled === false) {
-        schedulePatch.schedule_enabled = false;
-      }
-      const ops = [{ op: 'update_dag', patch: schedulePatch }];
-      await withWorkflowActionTimeout(applyDagOps({ baseVersion: derived.baseVersion, dagKey: targetDagKey, ops }));
-      actionState.setScheduleOpen(false);
-      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
-      notices.showTaskNotice(workflowRefreshNotice('已保存定时任务', refreshResult.error), targetDagKey);
-    } catch (err) {
-      actionState.setError('保存定时任务失败：' + errorMessage(err));
-    } finally {
-      actionState.setActioning('');
+  return useCallback(
+    (nextCronExpr = '') => saveScheduleAction(
+      {
+        actionState,
+        derived,
+        facade: workflowActionFacade,
+        notices,
+        refreshContext: { list, refresh },
+      },
+      nextCronExpr,
+    ),
+    [actionState, derived, list, notices, refresh],
+  );
+}
+
+export async function saveScheduleAction(
+  { actionState, derived, facade, notices, refreshContext },
+  nextCronExpr = '',
+) {
+  const cronExpr = textValue(nextCronExpr) || textValue(actionState.scheduleCron);
+  if (!derived.dagKey || !cronExpr) return;
+  if (derived.baseVersion === null) { actionState.setError('自动化详情不完整，无法保存定时任务'); return; }
+  if (derived.missingRootAssigneeWarning) { actionState.setError('保存定时任务失败：' + derived.missingRootAssigneeWarning); return; }
+  const targetDagKey = derived.dagKey;
+  actionState.setActioning('schedule');
+  actionState.setError('');
+  notices.clearNotice();
+  try {
+    const activeDetailDag = derived.activeDetailDag;
+    const schedulePatch = { trigger: 'scheduled', cron_expr: cronExpr };
+    const preservingExistingSchedule = isScheduledTrigger(activeDetailDag?.trigger) || Boolean(activeDetailDag?.cronExpr);
+    if (preservingExistingSchedule && activeDetailDag?.scheduleEnabled === false) {
+      schedulePatch.schedule_enabled = false;
     }
-  }, [actionState, derived, list, notices, refresh]);
+    const ops = [{ op: 'update_dag', patch: schedulePatch }];
+    await withWorkflowActionTimeout(facade.applyDagOps({ baseVersion: derived.baseVersion, dagKey: targetDagKey, ops }));
+    actionState.setScheduleOpen(false);
+    const refreshResult = await refreshWorkflowAfterAction({ ...refreshContext, targetDagKey });
+    notices.showTaskNotice(workflowRefreshNotice('已保存定时任务', refreshResult.error), targetDagKey);
+  } catch (err) {
+    actionState.setError('保存定时任务失败：' + errorMessage(err));
+  } finally {
+    actionState.setActioning('');
+  }
 }
 
 function useToggleScheduleAction({ actionState, derived, list, notices, refresh }) {
@@ -227,30 +277,49 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
 }
 
 function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh }) {
-  return useCallback(async (node, assignedTo) => {
-    const assignee = textValue(assignedTo);
-    if (!derived.dagKey || !node?.nodeKey) return;
-    if (!derived.runId) { actionState.setError('派发节点失败：当前运行缺少 runId，无法定位 runtime node'); return; }
-    if (!assignee) { actionState.setError('派发节点失败：请填写执行者 assigned_to'); return; }
-    const targetDagKey = derived.dagKey;
-    actionState.setDispatchingNodeKey(node.nodeKey);
-    actionState.setError('');
-    notices.clearNotice();
-    try {
-      await withWorkflowActionTimeout(dispatchDagNode({
-        dagKey: targetDagKey,
-        runId: derived.runId,
-        nodeKey: node.nodeKey,
-        assignedTo: assignee,
-      }));
-      const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
-      notices.showTaskNotice(workflowRefreshNotice(`已派发步骤 ${node.title || node.nodeKey}`, refreshResult.error), targetDagKey);
-    } catch (err) {
-      actionState.setError('派发节点失败：' + errorMessage(err));
-    } finally {
-      actionState.setDispatchingNodeKey('');
-    }
-  }, [actionState, derived, list, notices, refresh]);
+  return useCallback(
+    (node, assignedTo) => dispatchDagNodeAction(
+      {
+        actionState,
+        derived,
+        facade: workflowActionFacade,
+        notices,
+        refreshContext: { list, refresh },
+      },
+      node,
+      assignedTo,
+    ),
+    [actionState, derived, list, notices, refresh],
+  );
+}
+
+export async function dispatchDagNodeAction(
+  { actionState, derived, facade, notices, refreshContext },
+  node,
+  assignedTo,
+) {
+  const assignee = textValue(assignedTo);
+  if (!derived.dagKey || !node?.nodeKey) return;
+  if (!derived.runId) { actionState.setError('派发节点失败：当前运行缺少 runId，无法定位 runtime node'); return; }
+  if (!assignee) { actionState.setError('派发节点失败：请填写执行者 assigned_to'); return; }
+  const targetDagKey = derived.dagKey;
+  actionState.setDispatchingNodeKey(node.nodeKey);
+  actionState.setError('');
+  notices.clearNotice();
+  try {
+    await withWorkflowActionTimeout(facade.dispatchDagNode({
+      dagKey: targetDagKey,
+      runId: derived.runId,
+      nodeKey: node.nodeKey,
+      assignedTo: assignee,
+    }));
+    const refreshResult = await refreshWorkflowAfterAction({ ...refreshContext, targetDagKey });
+    notices.showTaskNotice(workflowRefreshNotice(`已派发步骤 ${node.title || node.nodeKey}`, refreshResult.error), targetDagKey);
+  } catch (err) {
+    actionState.setError('派发节点失败：' + errorMessage(err));
+  } finally {
+    actionState.setDispatchingNodeKey('');
+  }
 }
 
 function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, workflowCwd }) {

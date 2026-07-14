@@ -302,12 +302,29 @@ function mockPromptDefaults() {
   backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, reasons: ['matched'] });
 }
 
+function canonicalPromptRPCItem(overrides = {}) {
+  return {
+    id: 'main/canonical',
+    name: '规范提示词',
+    content: '',
+    description: '',
+    agentType: 'main',
+    when_to_use: '',
+    createdAt: '2026-07-11T00:00:00Z',
+    updatedAt: '2026-07-11T00:00:00Z',
+    enabled: true,
+    scope: 'project',
+    tags: ['intent:expert'],
+    ...overrides,
+  };
+}
+
 function mockPromptWizardEntryPrompt(overrides = {}) {
   const name = overrides.name || '待确认入口';
   const content = overrides.content || '待确认内容';
   const scope = overrides.scope || 'project';
   backend.listPromptAssets.mockResolvedValue({
-    prompts: [{
+    prompts: [canonicalPromptRPCItem({
       id: overrides.id || 'intent/expert/entry',
       draft_key: overrides.draftKey || 'intent/expert/entry',
       draft_status: overrides.status || 'ready_to_save',
@@ -327,7 +344,7 @@ function mockPromptWizardEntryPrompt(overrides = {}) {
         miss_examples: [],
       },
       issues: overrides.issues || [],
-    }],
+    })],
   });
 }
 
@@ -3814,7 +3831,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('submits timeline approval decisions from the React chat timeline', async () => {
-    backend.respondApproval.mockResolvedValue({ ok: true });
+    backend.respondApproval.mockResolvedValue(null);
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',
       timelinesByThread: {
@@ -4736,7 +4753,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
           description: '审查代码质量',
           when_to_use: 'Use for code review.',
           agentType: 'coder',
-          tags: '["intent:expert","review"]',
+          createdAt: '2026-07-11T00:00:00Z',
+          updatedAt: '2026-07-11T00:00:00Z',
+          tags: ['intent:expert', 'review'],
           scope: 'project',
           enabled: true,
         },
@@ -4745,7 +4764,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
           name: 'SQLC 资料',
           content: '',
           description: 'SQLC migration 资料',
-          tags: '["intent:recall","scope.global","sqlc"]',
+          agentType: 'main',
+          when_to_use: '',
+          createdAt: '2026-07-11T00:00:00Z',
+          updatedAt: '2026-07-11T00:00:00Z',
+          tags: ['intent:recall', 'scope.global', 'sqlc'],
           scope: 'global',
           enabled: true,
         },
@@ -4753,8 +4776,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
           id: 'intent/recall/ready',
           draft_key: 'intent/recall/ready',
           name: '价格表资料',
+          content: '价格资料内容',
           description: '从 Excel 价格表整理出的资料',
-          tags: '["intent:recall","pricing"]',
+          agentType: 'main',
+          when_to_use: '',
+          createdAt: '2026-07-11T00:00:00Z',
+          updatedAt: '2026-07-11T00:00:00Z',
+          tags: ['intent:recall', 'pricing'],
+          scope: 'project',
+          enabled: false,
           state: 'pending_confirm',
           draft_status: 'ready_to_save',
         },
@@ -4793,6 +4823,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('traps focus in the prompt editor and restores focus after Escape', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [{
+        ...canonicalPromptRPCItem(),
         id: 'main/reviewer',
         name: '代码审查专家',
         content: '先检查阻塞问题',
@@ -4861,6 +4892,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('auto-updates prompt assets without a manual refresh button', async () => {
     let prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/reviewer',
       name: '代码审查专家',
       content: '先检查阻塞问题',
@@ -4880,6 +4912,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
     prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/deploy',
       name: '部署助手',
       content: '先检查环境',
@@ -4896,6 +4929,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
 
     prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/release-note',
       name: '发布说明',
       content: '整理发布变更',
@@ -4917,12 +4951,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
     try {
       backend.listPromptAssets.mockResolvedValue({
         prompts: [{
+          ...canonicalPromptRPCItem(),
           id: 'main/code-review',
           name: '代码审查助手',
           description: '检查改动风险',
           content: '先列风险',
           tags: ['intent:expert'],
           scope: 'project',
+          enabled: true,
         }],
       });
       mockPromptPreferences();
@@ -4941,6 +4977,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps cached prompt assets visible and exposes retry when a background sync fails', async () => {
     let prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/reviewer',
       name: '代码审查专家',
       content: '先检查阻塞问题',
@@ -4967,6 +5004,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：prompt backend offline');
 
     prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/deploy',
       name: '部署助手',
       content: '先检查环境',
@@ -4984,6 +5022,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('keeps prompt assets visible and exposes retry when active prompt preference sync fails', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [{
+        ...canonicalPromptRPCItem(),
         id: 'main/reviewer',
         name: '代码审查专家',
         content: '先检查阻塞问题',
@@ -5046,6 +5085,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     backend.listPromptAssets.mockResolvedValueOnce({
       prompts: [{
+        ...canonicalPromptRPCItem(),
         id: 'main/reviewer',
         name: '代码审查专家',
         content: '先检查阻塞问题',
@@ -5068,10 +5108,23 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.listPromptAssets.mockRejectedValueOnce(missingMethodError);
     backend.getDashboardPrompts.mockResolvedValueOnce({
       prompts: [{
-        id: 'legacy/prompt',
-        name: '旧提示词',
-        content: 'legacy readonly data',
-        tags: ['intent:expert'],
+        id: 17,
+        prompt_key: 'legacy/prompt',
+        title: '旧提示词',
+        agent_key: 'main',
+        tool_name: '',
+        prompt_text: 'legacy readonly data',
+        when_to_use: '',
+        variables: {},
+        tags: ['intent:expert', 'scope.cwd:/repo/app'],
+        enabled: true,
+        manually_edited: false,
+        priority: 0,
+        created_by: '',
+        updated_by: '',
+        created_at: '2026-07-11T00:00:00Z',
+        updated_at: '2026-07-11T00:00:00Z',
+        description: '',
       }],
     });
     mockPromptPreferences();
@@ -5088,6 +5141,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps cached prompt assets visible when navigating back and refreshes silently', async () => {
     let prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/reviewer',
       name: '代码审查专家',
       content: '先检查阻塞问题',
@@ -5106,6 +5160,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     fireEvent.click(screen.getByLabelText('新对话'));
     prompts = [{
+      ...canonicalPromptRPCItem(),
       id: 'main/deploy',
       name: '部署助手',
       content: '先检查环境',
@@ -5131,7 +5186,7 @@ function mockPromptAssetWorkflow() {
     'settings.provider.codex.codexInstanceKey': 'default',
     'settings.provider.codex.codexModelProvider': 'openrouter',
   }[key] ?? null));
-  let prompts = [{
+  let prompts = [canonicalPromptRPCItem({
     id: 'main/reviewer',
     name: '代码审查专家',
     content: '先检查阻塞问题',
@@ -5141,16 +5196,19 @@ function mockPromptAssetWorkflow() {
     tags: ['intent:expert', 'review'],
     scope: 'project',
     enabled: true,
-  }, {
+  }), canonicalPromptRPCItem({
     id: 'intent/recall/ready',
     draft_key: 'intent/recall/ready',
     name: '价格表资料',
+    content: '价格资料内容',
     description: '待确认的资料',
     tags: ['intent:recall', 'pricing'],
+    scope: 'project',
+    enabled: false,
     state: 'pending_confirm',
     draft_status: 'ready_to_save',
     card: { kind: 'recall', title: '价格表资料', summary: '待确认的资料', output: '价格资料内容' },
-  }];
+  })];
   backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
   backend.writePrompt.mockImplementation(({ id, name, content }) => {
     prompts = prompts.map((item) => (item.id === id ? { ...item, name, content } : item));

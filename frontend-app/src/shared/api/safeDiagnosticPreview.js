@@ -77,7 +77,7 @@ function assertDiagnosticPreviewJSONShape(value) {
   throw error;
 }
 
-function parseStrictDiagnosticPreviewJSON(value, label) {
+export function parseStrictDiagnosticPreviewJSON(value, label) {
   try {
     return assertDiagnosticPreviewJSONShape(JSON.parse(value));
   } catch (error) {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createBackendApi, RPC_METHODS } from '../../../shared/api/backendApi.js';
 import { createMemoryPageService } from './memoryPageService.js';
 
 function createApi(overrides = {}) {
@@ -233,5 +234,25 @@ describe('memoryPageService', () => {
     expect(() => service.startConsolidateMemorySimilarities({ cwd: '' })).toThrow('cwd is required');
     expect(() => service.getMemoryConsolidationStatus({ cwd: '/repo', jobId: '' })).toThrow('jobId is required');
     expectNoApiCalls(api);
+  });
+
+  it('rejects malformed memory RPC responses before the page service publishes them', async () => {
+    const cases = [
+      [RPC_METHODS.UI_MEMORY_ENTRY_GET, { name: 7 }, (service) => service.getMemoryEntry({ cwd: '/repo', target: 'private', path: 'memory.md' })],
+      [RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, { name: 7 }, (service) => service.upsertMemoryEntry({ cwd: '/repo', target: 'private', existingPath: '', name: 'rule', description: 'desc', type: 'feedback', content: 'body' })],
+      [RPC_METHODS.UI_MEMORY_ENTRY_DELETE, { deleted: 'yes' }, (service) => service.deleteMemoryEntry({ cwd: '/repo', target: 'private', path: 'memory.md' })],
+      [RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, { ok: true, enabled: 'yes' }, (service) => service.setMemoryAutoDreamIntent({ cwd: '/repo', enabled: true })],
+      [RPC_METHODS.UI_MEMORY_ENTRY_MERGE, { name: 7 }, (service) => service.mergeMemoryEntries({ cwd: '/repo', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' })],
+      [RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, { ignored: true, key: 7 }, (service) => service.ignoreMemorySimilarity({ cwd: '/repo', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' })],
+      [RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START, { jobId: 'job-1', status: 'succeeded', result: { merged: '1', ignored: 0, failed: 0, skipped: 0 } }, (service) => service.startConsolidateMemorySimilarities({ cwd: '/repo' })],
+      [RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, { jobId: 'job-1', status: 'unknown' }, (service) => service.getMemoryConsolidationStatus({ cwd: '/repo', jobId: 'job-1' })],
+    ];
+
+    for (const [method, response, invoke] of cases) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const service = createMemoryPageService(createBackendApi({ callAPI }));
+      await expect(invoke(service)).rejects.toThrow(method);
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
   });
 });

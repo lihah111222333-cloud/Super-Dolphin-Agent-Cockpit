@@ -328,6 +328,31 @@ describe('SkillsPage backend migration', () => {
     });
   });
 
+  it('ignores RPC response body for datasource import', async () => {
+    backend.importDatasourceLocalFile.mockResolvedValueOnce({ unexpectedImportBody: ['ignored'] });
+    renderSkillsPage();
+    fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+    expect(await screen.findByText('source.txt')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('datasource-import-button'));
+    await waitFor(() => expect(backend.importDatasourceLocalFile).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('已导入数据源。')).toBeInTheDocument();
+  });
+
+  it('ignores RPC response body for datasource delete', async () => {
+    backend.deleteDatasourceDocument.mockResolvedValueOnce({ unexpectedDeleteBody: 99 });
+    renderSkillsPage();
+    fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+    expect(await screen.findByText('source.txt')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('datasource-delete-101'));
+    const dialog = await screen.findByRole('dialog', { name: '删除数据源' });
+    fireEvent.click(within(dialog).getByTestId('datasource-delete-confirm'));
+    await waitFor(() => expect(backend.deleteDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 }));
+    expect(await screen.findByText('已删除数据源。')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '删除数据源' })).not.toBeInTheDocument();
+  });
+
   it('renders the first datasource chunk before later chunk pages finish and appends the next page', async () => {
     const nextPage = deferred();
     backend.listDatasourceChunks.mockImplementationOnce(() => nextPage.promise);
@@ -619,6 +644,64 @@ describe('SkillsPage backend migration', () => {
     expect(screen.queryByText('已处理技能冲突')).not.toBeInTheDocument();
   });
 
+  it('reports a malformed resolution apply response without showing success', async () => {
+    backend.listSkillResolutions.mockResolvedValue({
+      items: [{
+        conflict_id: 'conflict-1',
+        kind: 'mirror_drift',
+        name: 'backend',
+        scope: 'project',
+        available_actions: ['canonical_overwrite_mirror'],
+        provider_entries: [{ provider: 'codex', source_path_id: 'codex:backend', display_label: 'Codex' }],
+      }],
+    });
+    backend.previewSkillResolution.mockResolvedValue({
+      items: [{
+        provider: 'codex',
+        source_provider: 'codex',
+        source_path_id: 'codex:backend',
+        preview_id: 'preview-1',
+        preview_hash: 'hash-1',
+        source_path: '/repo/app/.agents/skills/backend/SKILL.md',
+        target_path: '/home/user/.codex/skills/backend/SKILL.md',
+      }],
+    });
+    backend.applySkillResolution.mockRejectedValue(
+      new TypeError('SKILLS_LOCAL_RESOLUTION_APPLY response.partialFailure must be a boolean'),
+    );
+
+    renderSkillsPage();
+    openSkillTools();
+    expect(await screen.findByText('发现 1 个技能冲突，需要处理后再使用。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
+    expect(await screen.findByText('请先确认将要写入的位置，确认应用后才会修改文件。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认应用' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'SKILLS_LOCAL_RESOLUTION_APPLY response.partialFailure must be a boolean',
+    );
+    expect(screen.queryByText('已处理技能冲突')).not.toBeInTheDocument();
+  });
+
+  it('reports a malformed summary suggestion without partially applying it', async () => {
+    backend.suggestSkillSummary.mockRejectedValueOnce(
+      new TypeError('SKILLS_LOCAL_SUMMARY response.description must be a string'),
+    );
+    renderSkillsPage();
+    openSkillTools();
+    expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
+    const card = screen.getByRole('heading', { name: '后端' }).closest('article');
+    fireEvent.click(within(card).getByRole('button', { name: '编辑详情' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '编辑技能' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '帮我生成' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '生成简介失败：SKILLS_LOCAL_SUMMARY response.description must be a string',
+    );
+    expect(within(dialog).queryByRole('button', { name: '使用此简介' })).not.toBeInTheDocument();
+  });
+
   it('opens skill citation links from the editor preview through skills/local RPCs', async () => {
     backend.getDashboardPage.mockResolvedValue({
       skills: [
@@ -700,6 +783,39 @@ describe('SkillsPage backend migration', () => {
     });
     expect(screen.getByLabelText('技能名称')).toHaveValue('Docs Skill');
     expect(screen.getByText('Docs Body')).toBeInTheDocument();
+  });
+
+  it('ignores RPC response body for skill mutations', async () => {
+    backend.writeSkill.mockResolvedValueOnce({ unexpectedWriteBody: 'ignored' });
+    backend.createSkill.mockResolvedValueOnce({ unexpectedCreateBody: ['ignored'] });
+    backend.deleteSkill.mockResolvedValueOnce({ unexpectedDeleteBody: { ignored: true } });
+    renderSkillsPage();
+    openSkillTools();
+    const heading = await screen.findByRole('heading', { name: '后端' });
+    const card = heading.closest('article');
+
+    fireEvent.click(within(card).getByRole('button', { name: '编辑详情' }));
+    let dialog = await screen.findByRole('dialog', { name: '编辑技能' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存技能' }));
+    await waitFor(() => expect(backend.writeSkill).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('dialog', { name: '编辑技能' })).not.toBeInTheDocument();
+    expect(screen.getByText('已保存')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
+    dialog = await screen.findByRole('dialog', { name: '新建技能' });
+    fireEvent.change(within(dialog).getByLabelText('技能名称'), { target: { value: 'Ignored Result' } });
+    fireEvent.change(within(dialog).getByLabelText('技能内容'), { target: { value: '## Body' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存技能' }));
+    await waitFor(() => expect(backend.createSkill).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('已保存')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '新建技能' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: '删除' }));
+    dialog = await screen.findByRole('dialog', { name: '删除技能' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }));
+    await waitFor(() => expect(backend.deleteSkill).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('已删除 后端')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '删除技能' })).not.toBeInTheDocument();
   });
 
   it('creates project skills through the internal skills/create RPC', async () => {

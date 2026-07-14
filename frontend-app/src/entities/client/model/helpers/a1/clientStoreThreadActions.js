@@ -95,7 +95,7 @@ async function runDashboardCommandAction(runtime, card) {
   let threadId = request.previousThreadId;
   try {
     if (!threadId) {
-      const started = await startNewDraftThread(request, (launchCwd) => resolveLaunchPreferences(launchCwd, runtime.addWarning));
+      const started = await startNewDraftThread(request, (launchCwd) => resolveLaunchPreferences(launchCwd, runtime.addWarning, runtime.getPreference));
       threadId = started.threadId;
       runtime.set((state) => promotedDashboardCommandState(state, request, started));
     }
@@ -158,11 +158,6 @@ function approvalSubmitIsInFlight(runtime, requestId) {
   return runtime.get().approvalSubmitByRequestId?.[requestId]?.inFlight === true;
 }
 
-function warnApprovalNotPending(runtime, requestId, decision) {
-  runtime.notifyAction('审批请求已不再等待处理', 'warning', { requestId });
-  runtime.addWarning('warn', 'timeline.approval.respond_not_pending', { requestId, approved: decision });
-}
-
 function warnApprovalFailed(runtime, requestId, decision, error) {
   const message = error?.message || String(error);
   runtime.notifyAction(`审批提交失败：${message}`, 'error', { requestId });
@@ -183,9 +178,8 @@ async function respondApprovalAction(runtime, item, approved) {
   runtime.set((state) => approvalSubmitPatch(state, requestId, decision));
   try {
     const result = await respondApprovalRPC({ requestId, approved: decision });
-    if (result?.ok === false) {
-      warnApprovalNotPending(runtime, requestId, decision);
-      return false;
+    if (result !== null) {
+      throw new TypeError('approval/respond response must be null');
     }
     runtime.notifyAction('审批结果已提交', 'success', { requestId });
     return true;

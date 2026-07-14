@@ -270,7 +270,7 @@ describe('SettingsPage provider settings', () => {
 
     await renderSettingsPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('settings.provider.active: unsupported provider preference "claude"; current desktop UI supports codex only');
+    expect(await screen.findByRole('alert')).toHaveTextContent('invalid UI preference response for settings.provider.active: value is outside the accepted enum');
     expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
     expect(backend.setPreference).not.toHaveBeenCalled();
   });

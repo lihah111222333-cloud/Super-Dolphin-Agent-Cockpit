@@ -7,13 +7,13 @@ import {
   dryRunPromptIntent as dryRunPromptIntentBackend,
   getDashboardPrompts as getDashboardPromptsBackend,
   getPersonalizationProfile as getPersonalizationProfileBackend,
-  getPreference as getPreferenceBackend,
   getPrompt as getPromptBackend,
   listPromptAssets as listPromptAssetsBackend,
   savePersonalizationProfile as savePersonalizationProfileBackend,
   setPreference as setPreferenceBackend,
   writePrompt as writePromptBackend,
 } from '../../../shared/api/backendApi.js';
+import { getValidatedPreference } from '../../../shared/api/preferenceResponseGuards.js';
 
 const defaultPromptPageApi = Object.freeze({
   commitPromptIntent: commitPromptIntentBackend,
@@ -24,7 +24,7 @@ const defaultPromptPageApi = Object.freeze({
   dryRunPromptIntent: dryRunPromptIntentBackend,
   getDashboardPrompts: getDashboardPromptsBackend,
   getPersonalizationProfile: getPersonalizationProfileBackend,
-  getPreference: getPreferenceBackend,
+  getPreference: getValidatedPreference,
   getPrompt: getPromptBackend,
   listPromptAssets: listPromptAssetsBackend,
   savePersonalizationProfile: savePersonalizationProfileBackend,

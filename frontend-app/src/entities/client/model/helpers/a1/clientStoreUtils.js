@@ -2,7 +2,6 @@
 import { normalizeOptionalTextField, currentIsoTimestamp, parseRequiredTimestamp } from '../../contractStoreModel.js';
 import {
   emitFrontendTraceEvent,
-  getPreference,
 } from '../../../../../shared/api/backendApi.js';
 import {
   ACTIVE_PROMPT_PREF_KEY,
@@ -188,14 +187,20 @@ function normalizeProviderName(value) {
   return normalizeKnownProviderName(value);
 }
 
-async function getScopedPreference(cwd, key) {
+async function getScopedPreference(getPreference, cwd, key) {
   const scope = normalizeString(cwd);
   if (scope) {
-    const scoped = await getPreference({ cwd: scope, key });
+    const scoped = await getPreference(
+      { cwd: scope, key },
+      { allowTombstone: true },
+    );
     if (isPreferenceTombstone(scoped)) return '';
     if (!isPreferenceAbsent(scoped)) return scoped;
   }
-  const globalValue = await getPreference({ key });
+  const globalValue = await getPreference(
+    { key },
+    { allowTombstone: true },
+  );
   if (isPreferenceTombstone(globalValue)) return '';
   return isPreferenceAbsent(globalValue) ? null : globalValue;
 }
@@ -247,8 +252,11 @@ function normalizeBootstrapPage(value) {
   return APP_PAGE_IDS.has(page) ? page : '';
 }
 
-async function resolveLaunchPreferences(cwd, addWarning = null) {
-  const activeProviderValue = await getPreference({ cwd, key: PROVIDER_ACTIVE_PREF_KEY });
+async function resolveLaunchPreferences(cwd, addWarning = null, getPreference) {
+  const activeProviderValue = await getPreference({
+    cwd,
+    key: PROVIDER_ACTIVE_PREF_KEY,
+  });
   let provider;
   try {
     provider = normalizeActiveProviderName(activeProviderValue, 'startThread');
@@ -278,13 +286,13 @@ async function resolveLaunchPreferences(cwd, addWarning = null) {
     getPreference({ cwd, key: providerPreferenceKey(provider, 'model') }),
     getPreference({ cwd, key: providerPreferenceKey(provider, 'effort') }),
     getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }),
-    getScopedPreference(cwd, providerPreferenceKey('codex', 'codexHome')),
-    getScopedPreference(cwd, providerPreferenceKey('codex', 'codexInstanceKey')),
-    getScopedPreference(cwd, providerPreferenceKey('codex', 'codexModelProvider')),
-    getScopedPreference(cwd, providerPreferenceKey(provider, 'sandbox')),
-    getScopedPreference(cwd, providerPreferenceKey(provider, 'approvalPolicy')),
-    getScopedPreference(cwd, providerPreferenceKey(provider, 'personality')),
-    getScopedPreference(cwd, providerPreferenceKey(provider, 'summary')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey('codex', 'codexHome')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey('codex', 'codexInstanceKey')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey('codex', 'codexModelProvider')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey(provider, 'sandbox')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey(provider, 'approvalPolicy')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey(provider, 'personality')),
+    getScopedPreference(getPreference, cwd, providerPreferenceKey(provider, 'summary')),
   ]);
   const launch = cleanObject({
     modelProvider: provider,

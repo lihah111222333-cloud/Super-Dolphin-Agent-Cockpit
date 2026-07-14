@@ -36,11 +36,397 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
   expect(callAPI).toHaveBeenCalledTimes(callCount);
 }
 
+function runtimeConfigResponse(overrides = {}) {
+  return {
+    model: 'gpt-5.5',
+    modelProvider: null,
+    cwd: '/repo/app',
+    approvalPolicy: 'on-failure',
+    sandbox: 'workspace-write',
+    config: null,
+    baseInstructions: null,
+    developerInstructions: null,
+    personality: null,
+    toolRouting: {
+      mode: 'legacy',
+      routerModel: '',
+      routerProvider: 'openai_compatible',
+      routerBaseURL: '',
+      routerHasAPIKey: false,
+      confidenceThreshold: 0.65,
+      timeoutSec: 8,
+    },
+    ...overrides,
+  };
+}
+
+function builtinToolsResponse() {
+  return { tools: [{ id: 'Shell', label: 'Shell', enabled: true }] };
+}
+
+function windowBootstrapResponse() {
+  return { snapshot: {} };
+}
+
+function sidebarStateResponse(overrides = {}) {
+  return {
+    threads: [{
+      id: 'thread-1',
+      name: 'Main',
+      agent_id: 'agent-1',
+      createdAt: '2026-07-13T00:00:00Z',
+      updatedAt: '2026-07-13T00:00:01Z',
+      lifecycleStatus: 'active',
+      state: 'running',
+      threadStatus: 'running',
+      agentState: 'working',
+      lastMessage: 'Working',
+      overlayText: 'Running',
+      overlayType: 'status',
+      overlayPriority: 1,
+    }],
+    agents: [{
+      id: 'agent-1',
+      name: 'Main agent',
+      thread_id: 'thread-1',
+      provider_thread_id: 'provider-thread-1',
+      parent_id: '',
+      state: 'running',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      cwd: '/repo/app',
+      port: 8090,
+      logPath: '/tmp/agent.log',
+      createdAt: '2026-07-13T00:00:00Z',
+      updatedAt: '2026-07-13T00:00:01Z',
+      last_report: 'Working',
+      agentState: 'working',
+      threadStatus: 'running',
+      lastMessage: 'Working',
+    }],
+    active_turn: {
+      id: 'turn-1',
+      agent_id: 'agent-1',
+      thread_id: 'thread-1',
+      status: 'running',
+      success: true,
+      error: '',
+      reason: '',
+      started_at: '2026-07-13T00:00:00Z',
+      completed_at: '2026-07-13T00:00:01Z',
+    },
+    recent_turns: [],
+    workspace: {
+      runs: [{
+        run_key: 'run-1',
+        dag_key: 'dag-1',
+        status: 'running',
+        source_root: '/repo/app',
+        workspace_path: '/repo/worktree',
+        created_by: 'agent-1',
+        updated_by: 'agent-1',
+        merged_file_count: 1,
+        conflicts: 0,
+        errors: 0,
+        message: 'Working',
+        updated_at: '2026-07-13T00:00:01Z',
+      }],
+    },
+    token_usage: {
+      inputTokens: 1,
+      outputTokens: 2,
+      totalTokens: 3,
+      usedTokens: 3,
+      contextWindowTokens: 128000,
+      usedPercent: 0.01,
+    },
+    statuses: { 'thread-1': 'running' },
+    interruptibleByThread: { 'thread-1': true },
+    statusHeadersByThread: { 'thread-1': 'Running' },
+    statusDetailsByThread: { 'thread-1': 'Working' },
+    agentRuntimeById: { 'agent-1': { pid: 42 } },
+    activeThreadId: 'thread-1',
+    activeCmdThreadId: 'thread-1',
+    mainAgentId: 'agent-1',
+    'viewPrefs.chat': { density: 'compact' },
+    'viewPrefs.cmd': { wrap: true },
+    'threadPins.chat': { 'thread-1': 1 },
+    'threadArchives.chat': { 'thread-2': 2 },
+    groups: [{ key: 'active', title: 'Active', threads: [{ id: 'thread-1' }] }],
+    ...overrides,
+  };
+}
+
+function frontendIngestResponse() {
+  return { enabled: true, recorded: 1, dropped: 0 };
+}
+
+function openWindowResponse() {
+  return { ok: true, windowId: 'window-2', cwd: '/repo/app' };
+}
+
+function codeSaveResponse() {
+  return { ok: true, filePath: '/repo/app/src/App.jsx', relative: 'src/App.jsx', totalLines: 1 };
+}
+
+function projectsStateResponse() {
+  return { projects: ['/repo/app'], active: '/repo/app' };
+}
+
+function okResponse() {
+  return { ok: true };
+}
+
+function modelProviderRegistryResponse() {
+  return { activeVendorId: '', vendors: [] };
+}
+
+function dashboardPageResponse() {
+  return {
+    agents: [],
+    dags: [],
+    skills: [],
+    commandCards: [],
+    prompts: [],
+    memory: [],
+    finalOutputRefs: [],
+    sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+  };
+}
+
+function videoApiKeyStatusResponse() {
+  return { configured: false, masked: '' };
+}
+
+function dashboardLogsResponse() {
+  return { logs: [] };
+}
+
+function threadConfigResponse(overrides = {}) {
+  return {
+    threadId: 'thread-1',
+    provider: 'codex',
+    supportsThreadOverride: true,
+    override: { model: 'gpt-5.5', effort: 'high', approvals: 'on-request' },
+    effective: { model: 'gpt-5.5', effort: 'high', approvals: 'on-request' },
+    ...overrides,
+  };
+}
+
+function threadCompactResponse(overrides = {}) {
+  return {
+    threadId: 'thread-1',
+    command: '/compact',
+    beforeTokens: 1200,
+    afterTokens: 640,
+    compacted: true,
+    ...overrides,
+  };
+}
+
+function threadRecoverResponse(overrides = {}) {
+  return {
+    thread: { id: 'thread-1', status: 'recovering' },
+    recovered: true,
+    mode: 'relaunch_resume',
+    ...overrides,
+  };
+}
+
+function dashboardDagNode(overrides = {}) {
+  return {
+    id: 11,
+    dag_key: 'dag-1',
+    node_key: 'draft',
+    title: 'Draft',
+    status: 'ready',
+    created_at: '2026-07-13T00:00:00Z',
+    updated_at: '2026-07-13T00:00:01Z',
+    ...overrides,
+  };
+}
+
+function dashboardDagSummary(overrides = {}) {
+  return {
+    id: 7,
+    dag_key: 'dag-1',
+    version: 3,
+    title: 'Release workflow',
+    status: 'active',
+    schedule_enabled: false,
+    created_at: '2026-07-13T00:00:00Z',
+    updated_at: '2026-07-13T00:00:01Z',
+    ...overrides,
+  };
+}
+
+function dashboardDagRun(overrides = {}) {
+  return {
+    id: 31,
+    run_key: 'run-1',
+    dag_key: 'dag-1',
+    dag_version_snapshot: 3,
+    status: 'running',
+    started_at: '2026-07-13T00:00:00Z',
+    budget_used: 2,
+    created_at: '2026-07-13T00:00:00Z',
+    updated_at: '2026-07-13T00:00:01Z',
+    ...overrides,
+  };
+}
+
+function workflowTemplateSummary(overrides = {}) {
+  return {
+    id: 'government-enterprise/meeting-minutes',
+    version: 2,
+    title: { zh: '会议纪要', en: 'Meeting minutes' },
+    description: { zh: '生成会议纪要' },
+    category: 'government-enterprise',
+    business_flow: 'meeting-review',
+    output_types: ['docx'],
+    tags: ['meeting'],
+    estimated_nodes: 2,
+    requires_review: true,
+    supports_schedule: false,
+    final_node_key: 'final',
+    trust: { level: 'builtin', source: 'repository' },
+    compatibility: { runtime: 'dag-v2', node_types: ['agent'], required_capabilities: [] },
+    available_versions: [1, 2],
+    ...overrides,
+  };
+}
+
+function workflowTemplateDraft(overrides = {}) {
+  return {
+    template_id: 'government-enterprise/meeting-minutes',
+    template_version: 2,
+    dag_key: 'meeting-minutes',
+    title: '会议纪要',
+    description: '生成会议纪要',
+    trigger: 'manual',
+    final_node_key: 'final',
+    review_node_key: 'review',
+    nodes: [{
+      node_key: 'draft',
+      title: '起草',
+      node_type: 'agent',
+      assigned_to: 'codex',
+      depends_on: [],
+      config: {},
+    }],
+    final_output: { node_key: 'final', kind: 'file', path_template: 'reports/final.docx' },
+    metadata: {},
+    ...overrides,
+  };
+}
+
+function workflowTemplateDetail(overrides = {}) {
+  return {
+    id: 'government-enterprise/meeting-minutes',
+    version: 2,
+    title: { zh: '会议纪要', en: 'Meeting minutes' },
+    description: { zh: '生成会议纪要' },
+    category: 'government-enterprise',
+    business_flow: 'meeting-review',
+    output_types: ['docx'],
+    tags: ['meeting'],
+    estimated_nodes: 2,
+    requires_review: true,
+    supports_schedule: false,
+    trust: { level: 'builtin', source: 'repository' },
+    compatibility: { runtime: 'dag-v2', node_types: ['agent'], required_capabilities: [] },
+    ui_schema: [],
+    dag_template: {
+      dag_key_template: 'meeting-minutes',
+      title_template: '会议纪要',
+      description_template: '生成会议纪要',
+      trigger: 'manual',
+      final_node_key: 'final',
+      nodes: [],
+    },
+    validation: { require_review_before_final: true, require_final_node_key: true },
+    final_output: { node_key: 'final', kind: 'file', path_template: 'reports/final.docx' },
+    ...overrides,
+  };
+}
+
+function promptWireItem(overrides = {}) {
+  return {
+    id: 'main/reviewer',
+    name: 'Reviewer',
+    content: 'Review carefully.',
+    description: 'Review prompt',
+    agentType: 'coder',
+    when_to_use: 'When reviewing code.',
+    createdAt: '2026-07-13T00:00:00Z',
+    updatedAt: '2026-07-13T00:00:01Z',
+    enabled: true,
+    scope: 'project',
+    tags: ['review'],
+    ...overrides,
+  };
+}
+
+function promptIntentDraftResponse() {
+  return {
+    draft_key: 'intent/expert/review',
+    requested_kind: 'expert',
+    inferred_kind: 'expert',
+    status: 'ready_to_save',
+    confidence: 0.9,
+    scope: 'project',
+    issues: [],
+    card: {
+      kind: 'expert',
+      title: 'Review expert',
+      summary: 'Review code carefully.',
+      hit_examples: ['Review this code.'],
+      miss_examples: [],
+    },
+  };
+}
+
+function dashboardPromptResponse() {
+  return {
+    prompts: [{
+      id: 17,
+      prompt_key: 'main/reviewer',
+      title: 'Reviewer',
+      agent_key: 'main',
+      tool_name: '',
+      prompt_text: 'Review carefully.',
+      when_to_use: 'When reviewing code.',
+      variables: {},
+      tags: ['review'],
+      enabled: true,
+      manually_edited: false,
+      priority: 0,
+      created_by: '',
+      updated_by: '',
+      created_at: '2026-07-13T00:00:00Z',
+      updated_at: '2026-07-13T00:00:01Z',
+      description: 'Review prompt',
+    }],
+  };
+}
+
 function guardedBackendResponse(method) {
+  if (method === RPC_METHODS.CONFIG_READ) return runtimeConfigResponse();
+  if (method === RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ || method === RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE) return builtinToolsResponse();
+  if (method === RPC_METHODS.UI_WINDOW_BOOTSTRAP_GET) return windowBootstrapResponse();
+  if (method === RPC_METHODS.UI_SIDEBAR_GET) return sidebarStateResponse();
+  if (method === RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST) return frontendIngestResponse();
+  if (method === RPC_METHODS.UI_OPEN_NEW_WINDOW) return openWindowResponse();
+  if (method === RPC_METHODS.UI_CODE_SAVE) return codeSaveResponse();
+  if ([RPC_METHODS.UI_PROJECTS_GET, RPC_METHODS.UI_PROJECTS_SET_ACTIVE, RPC_METHODS.UI_PROJECTS_ADD, RPC_METHODS.UI_PROJECTS_REMOVE].includes(method)) return projectsStateResponse();
+  if (method === RPC_METHODS.UI_PREFERENCES_SET || method === RPC_METHODS.UI_VIDEO_SET_API_KEY) return okResponse();
+  if (method === RPC_METHODS.UI_DASHBOARD_GET) return dashboardPageResponse();
+  if (method === RPC_METHODS.UI_VIDEO_GET_API_KEY) return videoApiKeyStatusResponse();
+  if (method === RPC_METHODS.DASHBOARD_LOGS) return dashboardLogsResponse();
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ) return { hint: 'effective prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return { files: [], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } };
-  if (method === RPC_METHODS.MODEL_PROVIDERS_APPLY || method === RPC_METHODS.MODEL_PROVIDERS_LIST) return { activeVendorId: '', vendors: [] };
+  if (method === RPC_METHODS.MODEL_PROVIDERS_APPLY || method === RPC_METHODS.MODEL_PROVIDERS_LIST || method === RPC_METHODS.MODEL_PROVIDERS_SAVE) return modelProviderRegistryResponse();
   if (
     method === RPC_METHODS.OBSERVABILITY_ERROR_LIST
     || method === RPC_METHODS.OBSERVABILITY_RECENT_LIST
@@ -53,11 +439,38 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.UI_SHARED_FILE_GET) return { path: 'reports/final.md', content: '' };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
   if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
+  if ([RPC_METHODS.THREAD_ARCHIVE, RPC_METHODS.THREAD_UNARCHIVE, RPC_METHODS.THREAD_DELETE, RPC_METHODS.THREAD_NAME_SET, RPC_METHODS.APPROVAL_RESPOND].includes(method)) return null;
+  if (method === RPC_METHODS.THREAD_CONFIG_GET || method === RPC_METHODS.THREAD_CONFIG_SET) return threadConfigResponse();
+  if (method === RPC_METHODS.THREAD_COMPACT_START) return threadCompactResponse();
+  if (method === RPC_METHODS.THREAD_RECOVER) return threadRecoverResponse();
   if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
   if (method === RPC_METHODS.TURN_START) return { turn_id: 'turn-1' };
   if (method === RPC_METHODS.TURN_FORCE_COMPLETE) return { ok: true, forceCompleted: true };
   if (method === RPC_METHODS.DASHBOARD_DAG_START) return { runKey: 'run-1' };
   if (method === RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START) return { dagKey: 'dag-created', runKey: 'run-created' };
+  if (method === RPC_METHODS.DASHBOARD_DAG_DETAIL) return { dag: dashboardDagSummary(), nodes: [dashboardDagNode()] };
+  if (method === RPC_METHODS.DASHBOARD_DAG_RUNS) return { runs: [dashboardDagRun()] };
+  if (method === RPC_METHODS.DASHBOARD_DAG_RUN) return { run: dashboardDagRun(), nodes: [dashboardDagNode()] };
+  if (method === RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE) return { path: 'reports/workflows/uploads/dag-1/material.md' };
+  if (method === RPC_METHODS.UI_MEMORY_ENTRY_GET || method === RPC_METHODS.UI_MEMORY_ENTRY_UPSERT || method === RPC_METHODS.UI_MEMORY_ENTRY_MERGE) {
+    return { target: 'private', path: 'feedback/tdd.md', name: 'tdd-rule', type: 'feedback', content: '规则' };
+  }
+  if (method === RPC_METHODS.UI_MEMORY_ENTRY_DELETE || method === RPC_METHODS.UI_SHARED_FILE_DELETE) return { deleted: true };
+  if (method === RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT) return { ok: true, enabled: true };
+  if (method === RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE) return { ignored: true, key: 'private:a.md|team:b.md' };
+  if (method === RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START) return { jobId: 'memory-job-1', status: 'running' };
+  if (method === RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS) return { jobId: 'memory-job-1', status: 'running' };
+  if (method === RPC_METHODS.PROMPT_ASSETS_LIST) return { prompts: [promptWireItem()] };
+  if (method === RPC_METHODS.DASHBOARD_PROMPTS) return dashboardPromptResponse();
+  if (method === RPC_METHODS.PROMPTS_GET || method === RPC_METHODS.PROMPTS_WRITE) return { prompt: promptWireItem() };
+  if (method === RPC_METHODS.PROMPTS_DELETE) return { ok: true };
+  if (method === RPC_METHODS.PROMPT_INTENTS_DRAFT) return promptIntentDraftResponse();
+  if (method === RPC_METHODS.PROMPT_INTENTS_COMMIT) return { draft_key: 'intent/expert/review', prompt_key: 'main/reviewer', kind: 'expert', status: 'enabled' };
+  if (method === RPC_METHODS.PROMPT_INTENTS_DISCARD) return { draft_key: 'intent/expert/review', status: 'rejected' };
+  if (method === RPC_METHODS.PROMPT_INTENTS_DRY_RUN) return { would_use: true, action: 'launch_agent', target: 'main/reviewer', reasons: ['matched'], disclaimer: '' };
+  if (method === RPC_METHODS.PERSONALIZATION_PROFILE_GET || method === RPC_METHODS.PERSONALIZATION_PROFILE_SAVE) {
+    return { profile: { displayName: '小海', role: '后端工程师', background: '熟悉 Go', customInstructions: '回答要直接' } };
+  }
   return { ok: true };
 }
 
@@ -120,7 +533,23 @@ function guardedBackendResponse(method) {
   });
 
   it('wraps datasource_v2 CRUD RPC methods with strict payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const document = {
+      documentId: 101, sourcePath: 'C:\\data\\alpha.txt', fileName: 'alpha.txt',
+      extension: '.txt', sizeBytes: 42, contentHash: 'hash', chunkCount: 1,
+      totalChars: 5, status: 'ready', errorMessage: '',
+      createdAt: '2026-07-13T00:00:00Z', updatedAt: '2026-07-13T00:00:00Z',
+    };
+    const chunk = {
+      id: 1, documentId: 101, chunkIndex: 0, content: 'alpha', charCount: 5,
+      byteCount: 5, embeddingModel: '', embeddingDim: 0, tokenCount: 1,
+      createdAt: '2026-07-13T00:00:00Z',
+    };
+    const callAPI = vi.fn((method) => Promise.resolve({
+      [RPC_METHODS.DATASOURCE_V2_LIST]: { documents: [document] },
+      [RPC_METHODS.DATASOURCE_V2_GET]: { document, chunks: [chunk], hasMore: false, nextCursor: 1 },
+      [RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS]: { chunks: [chunk], hasMore: false, nextCursor: 1 },
+      [RPC_METHODS.DATASOURCE_V2_UPDATE]: document,
+    }[method] ?? { ok: true }));
     const api = createBackendApi({ callAPI });
 
     await api.createDatasourceDocument({ source_path: ' C:\\data\\alpha.txt ' });
@@ -391,7 +820,13 @@ function guardedBackendResponse(method) {
   });
 
   it('wraps workflow template RPC methods with canonical payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => {
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_LIST) return Promise.resolve({ templates: [workflowTemplateSummary()] });
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_GET) return Promise.resolve({ template: workflowTemplateDetail() });
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG) return Promise.resolve({ draft: workflowTemplateDraft() });
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_SAVE) return Promise.resolve({ template: workflowTemplateSummary() });
+      return Promise.resolve({ ok: true });
+    });
     const api = createBackendApi({ callAPI });
 
     await api.listWorkflowTemplates({
@@ -501,6 +936,262 @@ function guardedBackendResponse(method) {
       templateId: 'government-enterprise/meeting-minutes',
       version: 0,
     }), 'version must be a positive integer');
+  });
+
+  it('rejects malformed DAG and workflow template responses', async () => {
+    const missingRunKey = dashboardDagRun();
+    delete missingRunKey.run_key;
+    const missingTemplateId = workflowTemplateSummary();
+    delete missingTemplateId.id;
+    const missingDraft = { template_id: 'government-enterprise/meeting-minutes' };
+    const missingPersistedVersion = workflowTemplateSummary();
+    delete missingPersistedVersion.version;
+    const cases = [
+      {
+        call: (api) => api.getDagDetail({ dagKey: 'dag-1' }),
+        response: { dag: null, nodes: [dashboardDagNode()] },
+      },
+      {
+        call: (api) => api.getDagRuns({ dagKey: 'dag-1', limit: 5 }),
+        response: { runs: null },
+      },
+      {
+        call: (api) => api.getDagRuns({ dagKey: 'dag-1', limit: 5 }),
+        response: { runs: [missingRunKey] },
+      },
+      {
+        call: (api) => api.getDagRun({ runKey: 'run-1' }),
+        response: { run: null, nodes: [dashboardDagNode()] },
+      },
+      {
+        call: (api) => api.listWorkflowTemplates({ category: 'government-enterprise' }),
+        response: { templates: null },
+      },
+      {
+        call: (api) => api.listWorkflowTemplates({ category: 'government-enterprise' }),
+        response: { templates: [missingTemplateId] },
+      },
+      {
+        call: (api) => api.getWorkflowTemplate({ templateId: 'government-enterprise/meeting-minutes' }),
+        response: { template: null },
+      },
+      {
+        call: (api) => api.renderWorkflowTemplateDraft({
+          templateId: 'government-enterprise/meeting-minutes',
+          version: 2,
+          values: {},
+        }),
+        response: { draft: missingDraft },
+      },
+      {
+        call: (api) => api.saveWorkflowTemplate({
+          templateId: 'government-enterprise/meeting-minutes',
+          version: 2,
+          category: 'government-enterprise',
+          trust: {},
+          compatibility: {},
+          draft: {},
+        }),
+        response: { template: missingPersistedVersion },
+      },
+    ];
+
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      const api = createBackendApi({ callAPI });
+      await expect(item.call(api)).rejects.toThrow();
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('rejects malformed skill and datasource responses', async () => {
+    const document = {
+      documentId: 7, sourcePath: '/data/a.txt', fileName: 'a.txt', extension: '.txt',
+      sizeBytes: 12, contentHash: 'hash', chunkCount: 1, totalChars: 4,
+      status: 'ready', errorMessage: '', createdAt: '2026-07-13T00:00:00Z',
+      updatedAt: '2026-07-13T00:00:00Z',
+    };
+    const chunk = {
+      id: 9, documentId: 7, chunkIndex: 0, content: 'body', charCount: 4,
+      byteCount: 4, embeddingModel: '', embeddingDim: 0, tokenCount: 1,
+      createdAt: '2026-07-13T00:00:00Z',
+    };
+    const cases = [
+      { call: (api) => api.listSkillFiles({ cwd: '/repo', dir: '/repo/.agents/skills/a' }), response: { dir: '/repo/.agents/skills/a', files: [{ name: 'SKILL.md', path: '/repo/.agents/skills/a/SKILL.md', size: 10, is_main: 'yes' }] } },
+      { call: (api) => api.importSkillDirectories({ cwd: '/repo', paths: ['/tmp/a'], scope: 'project' }), response: { requested: 1, imported: [{ name: 'a', dir: '/repo/.agents/skills/a', skill_file: '/repo/.agents/skills/a/SKILL.md', source: '/tmp/a', files: 1, bytes: '4' }] } },
+      { call: (api) => api.suggestSkillSummary({ cwd: '/repo', name: 'a', description: 'desc' }), response: { description: 1 } },
+      { call: (api) => api.listSkillResolutions({ cwd: '/repo' }), response: { items: [{ conflict_id: 'c1', kind: 'mirror_drift', name: 'a', available_actions: [1] }] } },
+      { call: (api) => api.previewSkillResolution({ cwd: '/repo', conflictId: 'c1', action: 'view_diff' }), response: { conflict_id: 'c1', kind: 'mirror_drift', items: [{ action: 'view_diff', preview_hash: 1 }] } },
+      { call: (api) => api.applySkillResolution({ cwd: '/repo', conflict_id: 'c1', action: 'canonical_overwrite_mirror', previewId: 'p1', previewHash: 'h1' }), response: { Action: 'canonical_overwrite_mirror', Name: 'a', ResultingHash: 'h1', PartialFailure: false, FollowUpAction: '' } },
+      { call: (api) => api.listSkillTools({ cwd: '/repo', limit: 20 }), response: { tools: [{ id: 1, cwd: '/repo', methodName: 'read', description: 'read', enabled: 'yes', createdAt: '2026-07-13T00:00:00Z', updatedAt: '2026-07-13T00:00:00Z' }] } },
+      { call: (api) => api.listDatasourceDocuments({ keyword: 'a', limit: 20 }), response: { documents: [{ ...document, status: false }] } },
+      { call: (api) => api.getDatasourceDocument({ documentId: 7 }), response: { document, chunks: [{ ...chunk, documentId: 8 }], hasMore: false, nextCursor: 0 } },
+      { call: (api) => api.listDatasourceChunks({ documentId: 7, limit: 20, cursor: 0 }), response: { chunks: [chunk], hasMore: false, nextCursor: '0' } },
+      { call: (api) => api.updateDatasourceDocument({ documentId: 7, sourcePath: '/data/a.txt', fileName: 'a.txt', extension: '.txt', sizeBytes: 12 }), response: { ...document, updatedAt: 5 } },
+    ];
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      await expect(item.call(createBackendApi({ callAPI }))).rejects.toThrow();
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('rejects malformed memory prompt dashboard and UI responses', async () => {
+    const memoryIdentity = { cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' };
+    const memoryPair = {
+      cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md',
+    };
+    const cases = [
+      { call: (api) => api.getMemoryEntry(memoryIdentity), response: { name: 7 } },
+      {
+        call: (api) => api.upsertMemoryEntry({
+          cwd: '/repo/app', target: 'private', existingPath: '', name: 'tdd-rule',
+          description: '先写红测', type: 'feedback', content: '规则',
+        }),
+        response: { name: 7 },
+      },
+      { call: (api) => api.mergeMemoryEntries(memoryPair), response: { name: 7 } },
+      { call: (api) => api.deleteMemoryEntry(memoryIdentity), response: { deleted: 'yes' } },
+      { call: (api) => api.setMemoryAutoDreamIntent({ cwd: '/repo/app', enabled: true }), response: { ok: true, enabled: 'yes' } },
+      { call: (api) => api.ignoreMemorySimilarity(memoryPair), response: { ignored: true, key: 7 } },
+      {
+        call: (api) => api.startConsolidateMemorySimilarities({ cwd: '/repo/app' }),
+        response: { jobId: 'job-1', status: 'succeeded', result: { merged: '1', ignored: 0, failed: 0, skipped: 0 } },
+      },
+      {
+        call: (api) => api.getMemoryConsolidationStatus({ cwd: '/repo/app', jobId: 'job-1' }),
+        response: { jobId: 'job-1', status: 'unknown' },
+      },
+      { call: (api) => api.deleteSharedFile({ path: 'scratch/work.json' }), response: { deleted: 'yes' } },
+      { call: (api) => api.writeWorkflowMaterial({ path: 'workflow/material.md', content: 'body' }), response: { path: 9 } },
+      { call: (api) => api.listPromptAssets({ cwd: '/repo/app' }), response: { prompts: [{ id: 'prompt-1', issues: 'broken' }] } },
+      { call: (api) => api.getDashboardPrompts({ cwd: '/repo/app' }), response: { prompts: [{ id: '7' }] } },
+      { call: (api) => api.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' }), response: { prompt: { id: 'main/reviewer', enabled: 'true' } } },
+      {
+        call: (api) => api.writePrompt({
+          cwd: '/repo/app', id: 'main/reviewer', name: 'Reviewer', content: 'Review',
+          agentType: 'main', tags: [], scope: 'project', enabled: true,
+        }),
+        response: { prompt: { id: 'main/reviewer', enabled: 'true' } },
+      },
+      { call: (api) => api.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer' }), response: { ok: false } },
+      {
+        call: (api) => api.draftPromptIntent({ cwd: '/repo/app', kind: 'expert', rawInput: 'Review code' }),
+        response: { requested_kind: 'expert', inferred_kind: 'expert', drafts: {} },
+      },
+      {
+        call: (api) => api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' }),
+        response: { draft_key: 'intent/expert/review', prompt_key: 7, kind: 'expert', status: 'saved' },
+      },
+      {
+        call: (api) => api.discardPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' }),
+        response: { draft_key: 'intent/expert/review', status: 7 },
+      },
+      {
+        call: (api) => api.dryRunPromptIntent({
+          cwd: '/repo/app', draftKey: 'intent/expert/review', kind: 'expert',
+          card: { title: 'Reviewer' }, question: 'Review this',
+        }),
+        response: { would_use: true, action: 'use', reasons: 'because', disclaimer: 'preview' },
+      },
+      { call: (api) => api.getPersonalizationProfile({ cwd: '/repo/app' }), response: { profile: { displayName: '', role: '', background: [], customInstructions: '' } } },
+      {
+        call: (api) => api.savePersonalizationProfile({
+          cwd: '/repo/app', profile: { displayName: '', role: '', background: '', customInstructions: '' },
+        }),
+        response: { profile: { displayName: '', role: '', background: [], customInstructions: '' } },
+      },
+    ];
+
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      await expect(item.call(createBackendApi({ callAPI }))).rejects.toThrow();
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('accepts nullable prompt intent slices without normalizing them and rejects scalar replacements', async () => {
+    const draftResponse = {
+      draft_key: 'intent/expert/review',
+      requested_kind: 'expert',
+      inferred_kind: 'expert',
+      status: 'ready_to_save',
+      confidence: 0.9,
+      scope: 'project',
+      issues: null,
+      card: {
+        kind: 'expert',
+        title: 'Review expert',
+        summary: 'Review code carefully.',
+        hit_examples: null,
+        miss_examples: null,
+      },
+    };
+    const dryRunResponse = {
+      would_use: false,
+      action: 'none',
+      reasons: null,
+      disclaimer: 'Preview only.',
+    };
+    const draftCall = (api) => api.draftPromptIntent({ cwd: '/repo/app', kind: 'expert', rawInput: 'Review code' });
+    const dryRunCall = (api) => api.dryRunPromptIntent({
+      cwd: '/repo/app', draftKey: 'intent/expert/review', kind: 'expert',
+      card: { title: 'Reviewer' }, question: 'Review this',
+    });
+
+    await expect(draftCall(createBackendApi({ callAPI: vi.fn().mockResolvedValue(draftResponse) })))
+      .resolves.toEqual(draftResponse);
+    await expect(dryRunCall(createBackendApi({ callAPI: vi.fn().mockResolvedValue(dryRunResponse) })))
+      .resolves.toEqual(dryRunResponse);
+
+    const invalidResponses = [
+      { call: draftCall, response: { ...draftResponse, issues: 'broken' } },
+      { call: draftCall, response: { ...draftResponse, issues: [], card: { ...draftResponse.card, hit_examples: 'broken' } } },
+      { call: draftCall, response: { ...draftResponse, issues: [], card: { ...draftResponse.card, miss_examples: 'broken' } } },
+      { call: dryRunCall, response: { ...dryRunResponse, reasons: 'broken' } },
+    ];
+    for (const item of invalidResponses) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      await expect(item.call(createBackendApi({ callAPI }))).rejects.toThrow();
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('accepts null workflow template tags from list get and save responses', async () => {
+    const callAPI = vi.fn((method) => {
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_LIST) {
+        return Promise.resolve({ templates: [workflowTemplateSummary({ tags: null })] });
+      }
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_GET) {
+        return Promise.resolve({ template: workflowTemplateDetail({ tags: null }) });
+      }
+      if (method === RPC_METHODS.WORKFLOW_TEMPLATES_SAVE) {
+        return Promise.resolve({ template: workflowTemplateSummary({ tags: null }) });
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.listWorkflowTemplates({ category: 'government-enterprise' })).resolves.toMatchObject({
+      templates: [{ tags: null }],
+    });
+    await expect(api.getWorkflowTemplate({ templateId: 'government-enterprise/meeting-minutes' })).resolves.toMatchObject({
+      template: { tags: null },
+    });
+    await expect(api.saveWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 2,
+      category: 'government-enterprise',
+      trust: {},
+      compatibility: {},
+      draft: {},
+    })).resolves.toMatchObject({ template: { tags: null } });
+    expect(callAPI).toHaveBeenCalledTimes(3);
+
+    const invalidAPI = createBackendApi({
+      callAPI: vi.fn().mockResolvedValue({ templates: [workflowTemplateSummary({ tags: {} })] }),
+    });
+    await expect(invalidAPI.listWorkflowTemplates({ category: 'government-enterprise' })).rejects.toThrow('tags must be an array of strings');
   });
 
   it('calls canonical thread/fork with only the source thread id', async () => {
@@ -742,8 +1433,266 @@ function guardedBackendResponse(method) {
     });
   });
 
+  it('rejects unknown fields across all newly guarded public response facades', async () => {
+    const codeSaveCall = (api) => api.saveCodeFile({
+      filePath: 'src/App.jsx',
+      content: 'export default App;',
+      project: '/repo/app',
+    });
+    const cases = [
+      { call: (api) => api.readConfig(), response: runtimeConfigResponse({ surprise: true }) },
+      { call: (api) => api.readBuiltinTools({ cwd: '/repo/app' }), response: { ...builtinToolsResponse(), surprise: true } },
+      { call: (api) => api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: false }), response: { ...builtinToolsResponse(), surprise: true } },
+      { call: (api) => api.getWindowBootstrap(), response: { ...windowBootstrapResponse(), surprise: true } },
+      { call: (api) => api.getSidebarState({ cwd: '/repo/app' }), response: sidebarStateResponse({ surprise: true }) },
+      { call: (api) => api.callBackend(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST, { events: [] }), response: { ...frontendIngestResponse(), surprise: true } },
+      { call: (api) => api.openNewWindow({ cwd: '/repo/app' }), response: { ...openWindowResponse(), surprise: true } },
+      { call: codeSaveCall, response: { ...codeSaveResponse(), surprise: true } },
+      { call: (api) => api.getProjects({ cwd: '/repo/app' }), response: { ...projectsStateResponse(), surprise: true } },
+      { call: (api) => api.setActiveProject({ cwd: '/repo/app', path: '/repo/next' }), response: { ...projectsStateResponse(), surprise: true } },
+      { call: (api) => api.addProject({ cwd: '/repo/app', path: '/repo/new' }), response: { ...projectsStateResponse(), surprise: true } },
+      { call: (api) => api.removeProject({ cwd: '/repo/app', path: '/repo/old' }), response: { ...projectsStateResponse(), surprise: true } },
+      { call: (api) => api.setPreference({ key: 'settings.provider.active', value: 'codex' }), response: { ...okResponse(), surprise: true } },
+      { call: (api) => api.setVideoApiKey({ apiKey: 'sk-test-key' }), response: { ...okResponse(), surprise: true } },
+      { call: (api) => api.saveModelProviders({ cwd: '/repo/app', registry: { vendors: [] } }), response: { ...modelProviderRegistryResponse(), surprise: true } },
+      { call: (api) => api.getDashboardPage({ cwd: '/repo/app', page: 'settings' }), response: { ...dashboardPageResponse(), surprise: true } },
+      { call: (api) => api.getVideoApiKey(), response: { ...videoApiKeyStatusResponse(), surprise: true } },
+      { call: (api) => api.listDashboardLogs({ limit: 10 }), response: { ...dashboardLogsResponse(), surprise: true } },
+    ];
+
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      const api = createBackendApi({ callAPI });
+      await expect(item.call(api)).rejects.toThrow('must not include surprise');
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('rejects unknown fields in nested guarded response DTOs', async () => {
+    const vendor = {
+      id: 'openrouter',
+      label: 'OpenRouter',
+      enabled: true,
+      baseURL: 'https://openrouter.ai/api/v1',
+      envKey: 'OPENROUTER_API_KEY',
+      codexModelProvider: 'openrouter',
+      defaultModel: 'openai/gpt-5.5',
+    };
+    const cases = [
+      {
+        call: (api) => api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: false }),
+        response: { tools: [{ ...builtinToolsResponse().tools[0], surprise: true }] },
+      },
+      {
+        call: (api) => api.saveModelProviders({ cwd: '/repo/app', registry: { vendors: [] } }),
+        response: { vendors: [{ ...vendor, surprise: true }] },
+      },
+      {
+        call: (api) => api.saveModelProviders({ cwd: '/repo/app', registry: { vendors: [] } }),
+        response: { vendors: [{ ...vendor, budget: { dailyUsd: 1, surprise: true } }] },
+      },
+      {
+        call: (api) => api.saveModelProviders({ cwd: '/repo/app', registry: { vendors: [] } }),
+        response: { vendors: [{ ...vendor, tokenPool: { priority: 1, surprise: true } }] },
+      },
+      {
+        call: (api) => api.getDashboardPage({ cwd: '/repo/app', page: 'settings' }),
+        response: {
+          ...dashboardPageResponse(),
+          sharedFileRetention: {
+            ...dashboardPageResponse().sharedFileRetention,
+            surprise: true,
+          },
+        },
+      },
+      {
+        call: (api) => api.listDashboardLogs({ limit: 10 }),
+        response: {
+          logs: [{
+            source: 'app',
+            id: 1,
+            timestamp: '2026-07-13T00:00:00Z',
+            surprise: true,
+          }],
+        },
+      },
+    ];
+
+    for (const item of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
+      await expect(item.call(api)).rejects.toThrow('must not include surprise');
+    }
+  });
+
+  it('rejects malformed runtime config fields and nested tool routing', async () => {
+    const { sandbox: _sandbox, ...missingSandbox } = runtimeConfigResponse();
+    const cases = [
+      { response: missingSandbox, message: 'config/read response sandbox is required' },
+      { response: runtimeConfigResponse({ toolRouting: [] }), message: 'config/read response toolRouting must be an object' },
+      {
+        response: runtimeConfigResponse({
+          toolRouting: { ...runtimeConfigResponse().toolRouting, routerHasAPIKey: 'false' },
+        }),
+        message: 'config/read response toolRouting.routerHasAPIKey must be a boolean',
+      },
+      {
+        response: runtimeConfigResponse({
+          toolRouting: { ...runtimeConfigResponse().toolRouting, confidenceThreshold: '0.65' },
+        }),
+        message: 'config/read response toolRouting.confidenceThreshold must be a finite number',
+      },
+      {
+        response: runtimeConfigResponse({
+          toolRouting: { ...runtimeConfigResponse().toolRouting, surprise: true },
+        }),
+        message: 'config/read response toolRouting must not include surprise',
+      },
+    ];
+
+    for (const item of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
+      await expect(api.readConfig()).rejects.toThrow(item.message);
+    }
+  });
+
+  it('rejects malformed sidebar required, optional, and nested DTO fields', async () => {
+    const call = (api) => api.getSidebarState({ cwd: '/repo/app' });
+    const base = sidebarStateResponse();
+    const cases = [
+      { response: sidebarStateResponse({ threads: {} }), message: 'threads must be an array' },
+      { response: sidebarStateResponse({ workspace: [] }), message: 'workspace must be an object' },
+      { response: sidebarStateResponse({ token_usage: { ...base.token_usage, totalTokens: '3' } }), message: 'token_usage.totalTokens must be an integer' },
+      { response: sidebarStateResponse({ token_usage: { ...base.token_usage, contextWindowTokens: '128000' } }), message: 'token_usage.contextWindowTokens must be an integer' },
+      { response: sidebarStateResponse({ token_usage: { ...base.token_usage, usedPercent: '0.01' } }), message: 'token_usage.usedPercent must be a finite number' },
+      { response: sidebarStateResponse({ statuses: { 'thread-1': false } }), message: 'statuses values must be strings' },
+      { response: sidebarStateResponse({ interruptibleByThread: { 'thread-1': 'true' } }), message: 'interruptibleByThread values must be booleans' },
+      { response: sidebarStateResponse({ statusHeadersByThread: [] }), message: 'statusHeadersByThread must be an object' },
+      { response: sidebarStateResponse({ statusDetailsByThread: { 'thread-1': 7 } }), message: 'statusDetailsByThread values must be strings' },
+      { response: sidebarStateResponse({ agentRuntimeById: { 'agent-1': [] } }), message: 'agentRuntimeById.agent-1 must be an object' },
+      { response: sidebarStateResponse({ activeThreadId: 1 }), message: 'activeThreadId must be a string' },
+      { response: sidebarStateResponse({ 'viewPrefs.chat': [] }), message: 'viewPrefs.chat must be an object' },
+      { response: sidebarStateResponse({ 'threadPins.chat': { 'thread-1': 1.5 } }), message: 'threadPins.chat values must be integers' },
+      { response: sidebarStateResponse({ groups: [{ key: 'active', title: 'Active', threads: [], surprise: true }] }), message: 'groups[0] must not include surprise' },
+      { response: sidebarStateResponse({ threads: [{ id: 'thread-1', surprise: true }] }), message: 'threads[0] must not include surprise' },
+      { response: sidebarStateResponse({ agents: [{ id: 1 }] }), message: 'agents[0].id must be a string' },
+      { response: sidebarStateResponse({ active_turn: { ...base.active_turn, success: 'true' } }), message: 'active_turn.success must be a boolean' },
+      { response: sidebarStateResponse({ recent_turns: [{ ...base.active_turn, surprise: true }] }), message: 'recent_turns[0] must not include surprise' },
+      { response: sidebarStateResponse({ workspace: { runs: [{ run_key: 'run-1', merged_file_count: '1' }] } }), message: 'workspace.runs[0].merged_file_count must be an integer' },
+    ];
+
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      const api = createBackendApi({ callAPI });
+      await expect(call(api)).rejects.toThrow(item.message);
+    }
+  });
+
+  it('rejects unsuccessful or malformed code save response fields', async () => {
+    const call = (api) => api.saveCodeFile({
+      filePath: 'src/App.jsx',
+      content: 'export default App;',
+      project: '/repo/app',
+    });
+    const cases = [
+      { response: { ...codeSaveResponse(), ok: false }, message: 'ui/code/save response ok must be true' },
+      { response: { ...codeSaveResponse(), ok: 'true' }, message: 'ui/code/save response ok must be a boolean' },
+      { response: { ...codeSaveResponse(), filePath: '' }, message: 'ui/code/save response filePath must be a non-empty string' },
+      { response: { ...codeSaveResponse(), filePath: 7 }, message: 'ui/code/save response filePath must be a non-empty string' },
+      { response: { ...codeSaveResponse(), relative: '  ' }, message: 'ui/code/save response relative must be a non-empty string' },
+    ];
+
+    for (const item of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
+      await expect(call(api)).rejects.toThrow(item.message);
+    }
+  });
+
   it('fails fast on malformed guarded backend responses before consumers normalize them', async () => {
     const cases = [
+      {
+        call: (api) => api.readConfig(),
+        response: runtimeConfigResponse({
+          toolRouting: { ...runtimeConfigResponse().toolRouting, timeoutSec: '8' },
+        }),
+        message: 'config/read response toolRouting.timeoutSec must be an integer',
+      },
+      {
+        call: (api) => api.readBuiltinTools({ cwd: '/repo/app' }),
+        response: { tools: [{ id: 'Shell', label: 'Shell', enabled: 'true' }] },
+        message: 'config/builtinTools/read response tools[0].enabled must be a boolean',
+      },
+      {
+        call: (api) => api.getWindowBootstrap(),
+        response: {},
+        message: 'ui/windowBootstrap/get response snapshot must be an object',
+      },
+      {
+        call: (api) => api.getWindowBootstrap(),
+        response: { snapshot: [] },
+        message: 'ui/windowBootstrap/get response snapshot must be an object',
+      },
+      {
+        call: (api) => api.getSidebarState({ cwd: '/repo/app' }),
+        response: sidebarStateResponse({
+          token_usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, usedTokens: '0' },
+        }),
+        message: 'ui/sidebar/get response token_usage.usedTokens must be an integer',
+      },
+      {
+        call: (api) => api.callBackend(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST, { events: [] }),
+        response: { enabled: true, recorded: '1', dropped: 0 },
+        message: 'observability/frontend/ingest response recorded must be an integer',
+      },
+      {
+        call: (api) => api.openNewWindow({ cwd: '/repo/app' }),
+        response: { ok: 'true', windowId: 'window-2', cwd: '/repo/app' },
+        message: 'ui/openNewWindow response ok must be a boolean',
+      },
+      {
+        call: (api) => api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app' }),
+        response: { ok: true, filePath: '/repo/app/src/App.jsx', relative: 'src/App.jsx', totalLines: '1' },
+        message: 'ui/code/save response totalLines must be an integer',
+      },
+      ...[
+        (api) => api.getProjects({ cwd: '/repo/app' }),
+        (api) => api.setActiveProject({ cwd: '/repo/app', path: '/repo/next' }),
+        (api) => api.addProject({ cwd: '/repo/app', path: '/repo/new' }),
+        (api) => api.removeProject({ cwd: '/repo/app', path: '/repo/old' }),
+      ].map((call) => ({
+        call,
+        response: { projects: [], active: 7 },
+        message: 'response active must be a string',
+      })),
+      {
+        call: (api) => api.setPreference({ key: 'settings.provider.active', value: 'codex' }),
+        response: { ok: false },
+        message: 'ui/preferences/set response ok must be true',
+      },
+      {
+        call: (api) => api.setVideoApiKey({ apiKey: 'sk-test-key' }),
+        response: { ok: false },
+        message: 'ui/video/setApiKey response ok must be true',
+      },
+      {
+        call: (api) => api.saveModelProviders({ cwd: '/repo/app', registry: { vendors: [] } }),
+        response: { vendors: null },
+        message: 'modelProviders/save response model provider registry',
+      },
+      {
+        call: (api) => api.getDashboardPage({ cwd: '/repo/app', page: 'settings' }),
+        response: { ...dashboardPageResponse(), commandCards: null },
+        message: 'ui/dashboard/get response commandCards must be an array',
+      },
+      {
+        call: (api) => api.getVideoApiKey(),
+        response: { configured: 'false', masked: '' },
+        message: 'ui/video/getApiKey response configured must be a boolean',
+      },
+      {
+        call: (api) => api.listDashboardLogs({ limit: 10 }),
+        response: { logs: null },
+        message: 'dashboard/logs response logs must be an array',
+      },
       {
         call: (api) => api.getThreadState({ cwd: '/repo/app', threadId: 'thread-1' }),
         response: {},
@@ -911,7 +1860,7 @@ function guardedBackendResponse(method) {
   });
 
   it('maps archive, unarchive, and delete thread actions to legacy thread RPCs', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockResolvedValue(null);
     const api = createBackendApi({ callAPI });
 
     await api.archiveThread({ cwd: '/repo/app', threadId: 'thread-1' });
@@ -921,6 +1870,26 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_ARCHIVE, { threadId: 'thread-1' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_UNARCHIVE, { threadId: 'thread-2' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_DELETE, { threadId: 'thread-3' });
+  });
+
+  it('rejects malformed null command responses', async () => {
+    const commands = [
+      { call: (api) => api.archiveThread({ threadId: 'thread-1' }) },
+      { call: (api) => api.unarchiveThread({ threadId: 'thread-1' }) },
+      { call: (api) => api.deleteThread({ threadId: 'thread-1' }) },
+      { call: (api) => api.renameThread({ threadId: 'thread-1', name: 'Renamed' }) },
+      { call: (api) => api.respondApproval({ requestId: 11, approved: true }) },
+    ];
+
+    for (const command of commands) {
+      for (const response of [{}, { ok: true }, false, undefined]) {
+        const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+        await expect(command.call(api)).rejects.toThrow('response must be null');
+      }
+
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(null) });
+      await expect(command.call(api)).resolves.toBeNull();
+    }
   });
 
   it('rejects unknown thread-scoped facade fields before calling the backend', () => {
@@ -992,7 +1961,7 @@ function guardedBackendResponse(method) {
   });
 
   it('maps thread rename to the legacy name RPC without cwd', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockResolvedValue(null);
     const api = createBackendApi({ callAPI });
 
     await api.renameThread({ cwd: '/repo/app', threadId: 'thread-1', name: 'Renamed' });
@@ -1004,7 +1973,7 @@ function guardedBackendResponse(method) {
   });
 
   it('maps thread config get and set to legacy thread config RPCs', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockResolvedValue(threadConfigResponse());
     const api = createBackendApi({ callAPI });
 
     await api.getThreadConfig({ thread_id: 'thread-1' });
@@ -1016,6 +1985,67 @@ function guardedBackendResponse(method) {
       model: 'gpt-5.4',
       effort: 'medium',
     });
+  });
+
+  it('rejects malformed thread lifecycle responses', async () => {
+    const configCalls = [
+      (api) => api.getThreadConfig({ threadId: 'thread-1' }),
+      (api) => api.setThreadConfig({ threadId: 'thread-1', model: 'gpt-5.5' }),
+    ];
+    const { threadId: _threadId, ...missingThreadId } = threadConfigResponse();
+    const { override: _override, ...missingOverride } = threadConfigResponse();
+    const { effective: _effective, ...missingEffective } = threadConfigResponse();
+    const configResponses = [
+      missingThreadId,
+      missingOverride,
+      missingEffective,
+      threadConfigResponse({ supportsThreadOverride: 'true' }),
+      threadConfigResponse({ override: { model: 7 } }),
+      threadConfigResponse({ effective: { surprise: true } }),
+      threadConfigResponse({ surprise: true }),
+    ];
+
+    for (const call of configCalls) {
+      for (const response of configResponses) {
+        const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+        await expect(call(api)).rejects.toThrow();
+      }
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(threadConfigResponse()) });
+      await expect(call(api)).resolves.toEqual(threadConfigResponse());
+    }
+
+    const compactCall = (api) => api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
+    const compactResponses = [
+      { ...threadCompactResponse(), threadId: undefined },
+      { ...threadCompactResponse(), command: undefined },
+      { ...threadCompactResponse(), beforeTokens: '1200' },
+      { ...threadCompactResponse(), afterTokens: 640.5 },
+      { ...threadCompactResponse(), compacted: 'true' },
+      { ...threadCompactResponse(), estimated: 'false' },
+      { ...threadCompactResponse(), surprise: true },
+    ];
+    for (const response of compactResponses) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+      await expect(compactCall(api)).rejects.toThrow();
+    }
+    await expect(compactCall(createBackendApi({ callAPI: vi.fn().mockResolvedValue(threadCompactResponse()) })))
+      .resolves.toEqual(threadCompactResponse());
+
+    const recoverCall = (api) => api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
+    const recoverResponses = [
+      threadRecoverResponse({ thread: { status: 'recovering' } }),
+      threadRecoverResponse({ thread: { id: 'thread-1', status: false } }),
+      threadRecoverResponse({ thread: { id: 'thread-1', surprise: true } }),
+      threadRecoverResponse({ recovered: 'true' }),
+      threadRecoverResponse({ mode: undefined }),
+      threadRecoverResponse({ surprise: true }),
+    ];
+    for (const response of recoverResponses) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+      await expect(recoverCall(api)).rejects.toThrow();
+    }
+    await expect(recoverCall(createBackendApi({ callAPI: vi.fn().mockResolvedValue(threadRecoverResponse()) })))
+      .resolves.toEqual(threadRecoverResponse());
   });
 
   it('strips cwd from strict thread-scoped runtime RPC payloads', async () => {
@@ -1072,7 +2102,7 @@ function guardedBackendResponse(method) {
   });
 
   it('wraps approval/respond with strict request id and decision payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockResolvedValue(null);
     const api = createBackendApi({ callAPI });
 
     await api.respondApproval({ requestId: 11, approved: false });
@@ -1191,12 +2221,21 @@ function guardedBackendResponse(method) {
   });
 
   it('wraps skill editor and import RPCs with legacy payload shapes', async () => {
+    const importedSkill = {
+      name: 'a', dir: '/repo/app/.agents/skills/a',
+      skill_file: '/repo/app/.agents/skills/a/SKILL.md',
+      source: '/imports/a', files: 1, bytes: 10,
+    };
     const callAPI = vi.fn((method) => Promise.resolve(
       method === RPC_METHODS.SKILLS_SUMMARY_SUGGEST
         ? { description: '当你需要编写文档时使用。' }
         : method === RPC_METHODS.SKILLS_LOCAL_READ
           ? { skill: { path: '/repo/app/.agent/skills/docs/SKILL.md', content: '# DocsSkill' } }
-          : { ok: true },
+          : method === RPC_METHODS.SKILLS_LOCAL_LIST_FILES
+            ? { dir: '/repo/app/.agent/skills/docs', files: [{ name: 'SKILL.md', path: '/repo/app/.agent/skills/docs/SKILL.md', size: 10, is_main: true }] }
+            : method === RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR
+              ? { requested: 1, imported: [importedSkill], skill: importedSkill, mirror_publish: {} }
+              : { ok: true },
     ));
     const selectProjectDirs = vi.fn().mockResolvedValue(['/imports/a']);
     const api = createBackendApi({ callAPI, selectProjectDirs });
@@ -1294,7 +2333,17 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps skill resolution preview and apply payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve({
+      [RPC_METHODS.SKILLS_RESOLUTION_LIST]: { items: [] },
+      [RPC_METHODS.SKILLS_RESOLUTION_PREVIEW]: {
+        conflict_id: 'c1', kind: 'mirror_drift',
+        items: [{ action: 'view_diff', preview_id: 'p1', preview_hash: 'h1' }],
+      },
+      [RPC_METHODS.SKILLS_RESOLUTION_APPLY]: {
+        action: 'canonical_overwrite_mirror', name: 'DocsSkill',
+        resultingHash: 'h1', partialFailure: false, followUpAction: '',
+      },
+    }[method]));
     const api = createBackendApi({ callAPI });
 
     await api.listSkillResolutions({ cwd: '/repo/app' });
@@ -1593,7 +2642,7 @@ function expectSkillEditorCalls(callAPI) {
 
   it('wraps video API key RPCs with named facade methods', async () => {
     const getResponse = { configured: true, masked: 'sk***ed' };
-    const setResponse = { ok: true, savedAt: '2026-06-08T12:00:00Z' };
+    const setResponse = { ok: true };
     const callAPI = vi.fn()
       .mockResolvedValueOnce(getResponse)
       .mockResolvedValueOnce(setResponse)
@@ -1886,7 +2935,7 @@ function expectPromptFacadeValidation(api) {
 }
 
   it('wraps prompt RPCs with legacy payload shapes', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await callPromptFacadeMethods(api);
@@ -1987,7 +3036,7 @@ function expectMemoryCenterValidation(api) {
 }
 
   it('wraps the independent new-window RPC with cwd validation', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockResolvedValue({ ok: true, windowId: 'window-2', cwd: '/repo/window' });
     const api = createBackendApi({ callAPI });
 
     await api.openNewWindow({ cwd: '/repo/window' });
@@ -2032,7 +3081,9 @@ function expectMemoryCenterValidation(api) {
   });
 
   it('wraps runtime code locate, open and save RPCs with scoped payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(
+      method === RPC_METHODS.UI_CODE_SAVE ? codeSaveResponse() : { ok: true },
+    ));
     const api = createBackendApi({ callAPI });
 
     await api.locateCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'] });

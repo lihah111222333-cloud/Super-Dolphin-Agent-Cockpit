@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import {
   addProject as addProjectRPC,
-  getPreference,
   getProjects,
   getSidebarState,
   getThreadState,
@@ -15,6 +14,7 @@ import {
   selectProjectDir,
   setActiveProject as setActiveProjectRPC,
 } from '../../../shared/api/backendApi.js';
+import { getValidatedPreference } from '../../../shared/api/preferenceResponseGuards.js';
 import { createComposerSlice } from './composerSlice.js';
 import { createForkSlice } from './forkSlice.js';
 import { createProjectSlice } from './projectSlice.js';
@@ -84,7 +84,7 @@ const projectActionDeps = {
 
 const runtimeActionDeps = {
   backendThreadIdForState,
-  getPreference: (payload) => getPreference(payload),
+  getPreference: (payload, options) => getValidatedPreference(payload, options),
   getProjects: (payload) => getProjects(payload),
   getSidebarState: (payload) => getSidebarState(payload),
   getThreadState: (payload) => getThreadState(payload),
@@ -103,12 +103,12 @@ const runtimeActionDeps = {
 };
 
 function createClientStore(set, get) {
-  const runtime = createClientStoreRuntime(set, get);
+  const runtime = createClientStoreRuntime(set, get, runtimeActionDeps);
   const composerDeps = {
     ...composerActionDeps,
     send: {
       ...composerActionDeps.send,
-      resolveLaunchPreferences: (cwd) => resolveLaunchPreferences(cwd, runtime.addWarning),
+      resolveLaunchPreferences: (cwd) => resolveLaunchPreferences(cwd, runtime.addWarning, runtime.getPreference),
     },
   };
   return {

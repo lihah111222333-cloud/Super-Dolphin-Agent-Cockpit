@@ -12,20 +12,58 @@ missing_source_fact_coverage: '原文里的关键要点没有覆盖完整，建�
 tool_protocol_pollution: '内容里包含外部工具协议，不能写入专家能力或默认规则。', overbroad_scope: '适用范围太宽，建议收窄到具体任务或问题。', default_rule_conflict: '和已有默认规则可能重复或冲突，保存前需要确认。', project_prompt_duplicate: '当前项目已有相似提示词，建议先确认是否更新已有内容。', builtin_prompt_duplicate: '系统已内置相似能力，不需要再保存一份。',
 duplicate_recall_topic: '当前项目已有同名资料主题，请更新已有资料或换一个更具体的主题。', });
 const promptListItemSchema = z.object({
-id: z.unknown().optional(), prompt_key: z.unknown().optional(), promptKey: z.unknown().optional(), draft_key: z.unknown().optional(), draftKey: z.unknown().optional(),
-name: z.unknown().optional(), title: z.unknown().optional(), content: z.unknown().optional(), prompt_text: z.unknown().optional(), promptText: z.unknown().optional(), hint: z.unknown().optional(),
-description: z.unknown().optional(), summary: z.unknown().optional(), when_to_use: z.unknown().optional(), whenToUse: z.unknown().optional(), tags: z.unknown().optional(), Tags: z.unknown().optional(),
-assetType: z.unknown().optional(), asset_type: z.unknown().optional(), kind: z.unknown().optional(), prompt_kind: z.unknown().optional(), agent_key: z.unknown().optional(), agentKey: z.unknown().optional(), agentType: z.unknown().optional(),
-scope: z.unknown().optional(), Scope: z.unknown().optional(), state: z.unknown().optional(), status: z.unknown().optional(), draft_status: z.unknown().optional(), draftStatus: z.unknown().optional(),
-priority: z.unknown().optional(), enabled: z.unknown().optional(), issues: z.unknown().optional(), card: z.unknown().optional(), isDefault: z.unknown().optional(), is_default: z.unknown().optional(), match_when: z.unknown().optional(), matchWhen: z.unknown().optional(),
-}).passthrough();
-const promptListResponseSchema = z.object({ prompts: z.array(promptListItemSchema) }).passthrough();
+ id: z.string().trim().min(1),
+ name: z.string().trim().min(1),
+ content: z.string(),
+ description: z.string(),
+ agentType: z.string().trim().min(1),
+ when_to_use: z.string(),
+ createdAt: z.string().trim().min(1),
+ updatedAt: z.string().trim().min(1),
+ match_when: z.unknown().optional(),
+ priority: z.number().finite().int().optional(),
+ enabled: z.boolean(),
+ scope: z.enum(['project', 'global']),
+ tags: z.array(z.string()).superRefine((tags, ctx) => {
+ const kinds = tags.filter((tag) => tag.startsWith('intent:')); if (kinds.length !== 1 || !['intent:expert', 'intent:recall', 'intent:default_rule'].includes(kinds[0])) {
+ ctx.addIssue({ code: 'custom', message: 'prompt tags must contain exactly one supported intent kind' }); }
+ }),
+ state: z.literal('pending_confirm').optional(),
+ draft_key: z.string().trim().min(1).optional(),
+ draft_status: z.literal('ready_to_save').optional(),
+ source_type: z.string().optional(),
+ card: z.unknown().optional(),
+ issues: z.array(z.unknown()).optional(),
+ }).strict();
+ const promptListResponseSchema = z.object({ prompts: z.array(promptListItemSchema) }).strict();
+const dashboardJsonValueSchema = z.lazy(() => z.union([
+ z.string(), z.number(), z.boolean(), z.null(), z.array(dashboardJsonValueSchema), z.record(z.string(), dashboardJsonValueSchema),
+]));
+const dashboardPromptItemSchema = z.object({
+ id: z.number().finite().int(),
+ prompt_key: z.string().trim().min(1),
+ title: z.string(),
+ agent_key: z.string(),
+ tool_name: z.string(),
+ prompt_text: z.string(),
+ when_to_use: z.string(),
+ variables: dashboardJsonValueSchema,
+ tags: z.array(z.string()),
+ enabled: z.boolean(),
+ manually_edited: z.boolean(),
+ match_when: dashboardJsonValueSchema.optional(),
+ priority: z.number().finite().int(),
+ created_by: z.string(),
+ updated_by: z.string(),
+ created_at: z.string().trim().min(1),
+ updated_at: z.string().trim().min(1),
+ description: z.string(),
+}).strict();
+const dashboardPromptListResponseSchema = z.object({ prompts: z.array(dashboardPromptItemSchema) }).strict();
 function textValue(value) { return value === null || value === undefined ? '' : value.toString().trim(); }
 function textValues(values) { if (!Array.isArray(values)) return []; const result = []; for (const value of values) { const text = textValue(value); if (text) result.push(text); } return result; }
 function optionalPromptCwd(value) { const cwd = textValue(value); return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : ''; }
 function firstText(...values) { for (const value of values) { const text = textValue(value); if (text) return text; } return ''; }
-function parseTags(value) { if (Array.isArray(value)) return textValues(value); if (typeof value !== 'string') return []; const text = value.trim(); if (!text) return []; try { const parsed = parseStrictJsonValue(text, 'prompt tags'); return textValues(parsed); } catch {
-return textValues(text.split(/[，,;；\n]/)); } }
 function cleanPromptTags(tags) { return tags.filter((tag) => ( !tag.startsWith('intent:') && tag !== 'scope.global' && !tag.startsWith('scope.cwd:') && !tag.startsWith('scope://') )); }
 function optionalPromptDebugStorageEnabled() { if (typeof window === 'undefined') return false; if (window.__SUPER_DOLPHIN_PROMPT_DEBUG__ === true) return true; try {
 const storage = window['localStorage']; return storage && typeof storage.getItem === 'function' && storage.getItem('super-dolphin.promptDebug') === '1'; } catch { return false; } }
@@ -34,23 +72,25 @@ function isReadonlyFallbackListError(error) { const message = firstPresentText(e
 function serializeJsonForEditor(value) { if (value === undefined || value === null || value === '') return ''; if (typeof value === 'string') return value; try { return JSON.stringify(value, null, 2); } catch { return ''; } }
 function parseJsonObjectForEditor(value, label) { const text = textValue(value); if (!text) return { value: null, error: '' }; try { const parsed = parseStrictJsonValue(text, label); if (parsed === null) return { value: null, error: '' };
 if (typeof parsed !== 'object' || Array.isArray(parsed)) { return { value: undefined, error: `${label}必须是 JSON 对象` }; } return { value: parsed, error: '' }; } catch (err) { return { value: undefined, error: `${label}不是合法 JSON：${errorMessage(err)}` }; } }
-function promptAssetType(raw, tags) { const explicit = firstText(raw?.assetType, raw?.asset_type, raw?.kind, raw?.prompt_kind); if (explicit === 'recall' || explicit === 'default_rule' || explicit === 'expert') return explicit; if (tags.includes('intent:recall')) return 'recall';
-if (tags.includes('intent:default_rule')) return 'default_rule'; if (firstText(raw?.agent_key, raw?.agentType) === 'default_rule') return 'default_rule'; return 'expert'; }
-function promptAssetScope(raw, tags) { const explicit = firstText(raw?.scope, raw?.Scope).toLowerCase(); if (explicit === 'global' || tags.includes('scope.global')) return 'global'; return 'project'; }
+ function promptAssetType(tags) { if (tags.includes('intent:recall')) return 'recall'; if (tags.includes('intent:default_rule')) return 'default_rule'; return 'expert'; }
 function promptPreviewText(item) { return item.content || item.whenToUse || item.description || '已保存，AI 会在相关场景中使用'; }
 function promptTextList(value) { return textValues(value); }
 function promptIssueMessage(issue) { const code = textValue(issue?.code); return PROMPT_ISSUE_COPY[code] || textValue(issue?.message) || code; }
 function normalizePromptIssues(raw) { if (!Array.isArray(raw)) return []; const issues = []; for (const issue of raw) { const normalizedIssue = { code: textValue(issue?.code), severity: textValue(issue?.severity).toLowerCase() === 'block' ? 'block' : 'review',
 message: promptIssueMessage(issue), }; if (normalizedIssue.message) issues.push(normalizedIssue); } return issues; }
-function normalizePromptItem(raw = {}, index = 0) {
-const tags = parseTags(raw.tags ?? raw.Tags); const id = firstText(raw.id, raw.prompt_key, raw.promptKey, raw.draft_key, raw.draftKey, `prompt-${index}`); const assetType = promptAssetType(raw, tags); const draftKey = firstText(raw.draft_key, raw.draftKey);
-const draftStatus = firstText(raw.draft_status, raw.draftStatus); const state = firstText(raw.state, raw.status); const item = { id, name: firstText(raw.name, raw.title, raw.prompt_key, raw.promptKey, draftKey, '未命名'),
-content: firstText(raw.content, raw.prompt_text, raw.promptText, raw.hint), description: firstText(raw.description, raw.summary), whenToUse: firstText(raw.when_to_use, raw.whenToUse), agentType: firstText(raw.agentType, raw.agent_key, raw.agentKey, 'main'),
-priority: Number.isFinite(Number(raw.priority)) ? Number(raw.priority) : 0, enabled: raw.enabled === undefined ? true : Boolean(raw.enabled), scope: promptAssetScope(raw, tags), tags: cleanPromptTags(tags), assetType, state, draftKey, draftStatus,
-card: raw.card && typeof raw.card === 'object' ? raw.card : null, issues: Array.isArray(raw.issues) ? raw.issues : [], isDefault: Boolean(raw.isDefault || raw.is_default), matchWhen: raw.match_when ?? raw.matchWhen,
-}; item.isPendingDraft = state === 'pending_confirm' || Boolean(draftKey && draftStatus === 'ready_to_save'); item.preview = promptPreviewText(item); return item; }
-function normalizePromptList(response) { const items = promptListResponseSchema.parse(response).prompts; const prompts = []; for (let index = 0; index < items.length; index += 1) {
-const item = normalizePromptItem(items[index], index); if (item.id || item.name) prompts.push(item); } return prompts; }
+ function normalizePromptItem(raw) {
+ const tags = raw.tags; const assetType = promptAssetType(tags); const item = { id: raw.id, name: raw.name,
+ content: raw.content, description: raw.description, whenToUse: raw.when_to_use, agentType: raw.agentType,
+ priority: raw.priority, enabled: raw.enabled, scope: raw.scope, tags: cleanPromptTags(tags), assetType, state: raw.state, draftKey: raw.draft_key, draftStatus: raw.draft_status,
+ card: raw.card, issues: raw.issues, matchWhen: raw.match_when,
+ }; item.isPendingDraft = item.state === 'pending_confirm' || Boolean(item.draftKey && item.draftStatus === 'ready_to_save'); item.preview = promptPreviewText(item); return item; }
+ function normalizePromptList(response) { return promptListResponseSchema.parse(response).prompts.map(normalizePromptItem); }
+function normalizeDashboardPromptItem(raw) { const tags = raw.tags; const item = { id: raw.prompt_key, name: raw.title,
+ content: raw.prompt_text, description: raw.description, whenToUse: raw.when_to_use, agentType: raw.agent_key,
+ priority: raw.priority, enabled: raw.enabled, scope: tags.includes('scope.global') ? 'global' : 'project', tags: cleanPromptTags(tags), assetType: promptAssetType(tags),
+ matchWhen: raw.match_when, isPendingDraft: false,
+ }; item.preview = promptPreviewText(item); return item; }
+function normalizeDashboardPromptList(response) { return dashboardPromptListResponseSchema.parse(response).prompts.map(normalizeDashboardPromptItem); }
 function promptBucket(item) { if (item.isPendingDraft) return 'pending'; return item.assetType === 'recall' || item.assetType === 'default_rule' ? item.assetType : 'expert'; }
 function canForceLaunchPrompt(item) { return promptBucket(item) === 'expert' && item.enabled !== false && !item.isPendingDraft; }
 function promptLifecycleStatus(item, active) { if (item.isPendingDraft) return 'pending'; if (item.enabled === false) return 'disabled'; if (active) return 'started'; return 'created'; }
@@ -60,9 +100,10 @@ function trunc(value, max = 120) { const text = textValue(value); if (!text) ret
 function wordListFromText(value) { const result = []; const seen = new Set(); for (const word of textValue(value).split(/[，,;；\n]/)) { const text = textValue(word); const key = text.toLowerCase(); if (!text || seen.has(key)) continue; seen.add(key); result.push(text);
 } return result; }
 function promptFormFromItem(item) { return { id: textValue(item.id), name: textValue(item.name), description: textValue(item.description), whenToUse: textValue(item.whenToUse), content: rawTextValue(item.content), originalContent: rawTextValue(item.content),
-agentType: item.agentType || 'main', tagsText: (Array.isArray(item.tags) ? item.tags : []).join(', '), scope: item.scope === 'global' ? 'global' : 'project', enabled: item.enabled !== false, priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0,
-matchWhenText: serializeJsonForEditor(item.matchWhen), hasMatchWhen: item.matchWhen !== undefined, }; }
-function emptyPromptForm() { return { id: '', name: '', description: '', whenToUse: '', content: '', originalContent: '', agentType: 'main', tagsText: '', scope: 'project', enabled: true, priority: 0, matchWhenText: '', hasMatchWhen: false, }; }
+ agentType: item.agentType, tagsText: (Array.isArray(item.tags) ? item.tags : []).join(', '), scope: item.scope === 'global' ? 'global' : 'project', enabled: item.enabled !== false,
+ priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0, hasPriority: item.priority !== undefined,
+ matchWhenText: serializeJsonForEditor(item.matchWhen), hasMatchWhen: item.matchWhen !== undefined, }; }
+ function emptyPromptForm() { return { id: '', name: '', description: '', whenToUse: '', content: '', originalContent: '', agentType: 'main', tagsText: '', scope: 'project', enabled: true, priority: 0, hasPriority: true, matchWhenText: '', hasMatchWhen: false, }; }
 const emptyPersonalizationProfile = Object.freeze({ displayName: '', role: '', background: '', customInstructions: '', });
 function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
 const card = raw.card && typeof raw.card === 'object' ? raw.card : {}; const workflow = promptTextList(card.workflow); const hitExamples = promptTextList(card.hit_examples || card.hitExamples); const missExamples = promptTextList(card.miss_examples || card.missExamples); return {
@@ -84,7 +125,7 @@ if (timeoutID) globalThis.clearTimeout(timeoutID); } }
 function promptAssetsQueryKey(cwd) { return ['dashboard', 'project', cwd, 'prompts']; }
 function activePromptQueryKey(cwd) { return ['dashboard', 'project', cwd, 'active-prompt']; }
 async function fetchPromptAssetsSurface(cwd) { try { const response = await withTimeout( listPromptAssets({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '提示词列表加载超时，请检查提示词目录或后端状态。', ); return { items: normalizePromptList(response), fallbackMode: false }; } catch (err) {
-if (!isReadonlyFallbackListError(err)) throw err; const response = await withTimeout( getDashboardPrompts({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '只读提示词列表加载超时，请检查 dashboard/prompts 后端状态。', ); return { items: normalizePromptList(response), fallbackMode: true,
+if (!isReadonlyFallbackListError(err)) throw err; const response = await withTimeout( getDashboardPrompts({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '只读提示词列表加载超时，请检查 dashboard/prompts 后端状态。', ); return { items: normalizeDashboardPromptList(response), fallbackMode: true,
 fallbackReason: errorMessage(err), }; } }
 async function fetchActivePromptId(cwd) { const value = await withTimeout( getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }), PROMPTS_REQUEST_TIMEOUT_MS, '强制提示词状态加载超时，请检查后端状态。', ); return typeof value === 'string' ? value.trim() : ''; }
 function promptQueryState(cwd, promptAssetsQuery, activePromptQuery) {
@@ -106,11 +147,12 @@ function usePromptRefreshEffects(promptRefreshKey, refreshPromptSurface) { useEf
 useEffect(() => { const runAutoRefresh = () => { if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return; void refreshPromptSurface(); }; const handleVisibilityChange = () => {
 if (typeof document === 'undefined' || document.visibilityState === 'visible') runAutoRefresh(); }; window.addEventListener('focus', runAutoRefresh); document.addEventListener('visibilitychange', handleVisibilityChange); return () => {
 window.removeEventListener('focus', runAutoRefresh); document.removeEventListener('visibilitychange', handleVisibilityChange); }; }, [refreshPromptSurface]); }
-function promptWritePayload(cwd, form, name, matchWhen) { return { cwd, id: form.id, name, description: form.description, agentType: form.agentType || 'main', priority: Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0, when_to_use: form.whenToUse,
-content: form.content, tags: wordListFromText(form.tagsText), enabled: form.enabled, scope: form.scope === 'global' ? 'global' : 'project', match_when: form.hasMatchWhen || textValue(form.matchWhenText) ? matchWhen : undefined, }; }
-async function savePromptForm(options) { const { cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving } = options; const name = textValue(form.name); if (!name) { setNotice('请填写提示词名称'); return;
-} const parsedMatchWhen = parseJsonObjectForEditor(form.matchWhenText, '自动匹配条件'); if (parsedMatchWhen.error) { setNotice(parsedMatchWhen.error); return; } setSaving(true); try {
-await writePrompt(promptWritePayload(cwd, form, name, parsedMatchWhen.value)); await refreshPromptSurface({ force: true }); setEditorOpen(false); setNotice(`提示词已保存：${name}`); } catch (err) { setNotice(noticeText(err, '保存失败')); } finally { setSaving(false); } }
+ function promptWritePayload(cwd, form, name, agentType, matchWhen) { const payload = { cwd, id: form.id, name, description: form.description, agentType, when_to_use: form.whenToUse,
+ content: form.content, tags: wordListFromText(form.tagsText), enabled: form.enabled, scope: form.scope === 'global' ? 'global' : 'project',
+ match_when: form.hasMatchWhen || textValue(form.matchWhenText) ? matchWhen : undefined, }; if (form.hasPriority) payload.priority = Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0; return payload; }
+ async function savePromptForm(options) { const { cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving } = options; const name = textValue(form.name); if (!name) { setNotice('请填写提示词名称'); return;
+ } const agentType = textValue(form.agentType); if (!agentType) { setNotice('请填写 Agent Key'); return; } const parsedMatchWhen = parseJsonObjectForEditor(form.matchWhenText, '自动匹配条件'); if (parsedMatchWhen.error) { setNotice(parsedMatchWhen.error); return; } setSaving(true); try {
+ await writePrompt(promptWritePayload(cwd, form, name, agentType, parsedMatchWhen.value)); await refreshPromptSurface({ force: true }); setEditorOpen(false); setNotice(`提示词已保存：${name}`); } catch (err) { setNotice(noticeText(err, '保存失败')); } finally { setSaving(false); } }
 async function removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) { setActioning(`delete:${item.id}`); try {
 await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' }); await refreshPromptSurface({ force: true }); setNotice(`已删除：${item.name}`); } catch (err) { setNotice(noticeText(err, '删除失败')); } finally { setActioning(''); } }
 async function copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice }) { if (item.isPendingDraft) { setNotice('这条草稿还在待确认，确认保存后才能复制内容'); return; } setActioning(`copy:${item.id}`); try { let content = rawTextValue(item.content); if (!fallbackMode && item.id) {
@@ -207,7 +249,8 @@ const activeElement = document.activeElement; return activeElement instanceof HT
 if (!isOpen && !closeDisabled && typeof onClose === 'function') onClose();
 }, [closeDisabled, onClose]); return (
 <ModalOverlay className={overlayClassName} isOpen isDismissable={closeOnOverlayClick && !closeDisabled} isKeyboardDismissDisabled={closeDisabled} onOpenChange={handleOpenChange}> <Modal className={className}> <Dialog aria-label={ariaLabel}>{children}</Dialog> </Modal> </ModalOverlay> ); }
-function PromptEditorModal(props) { const { form, notice, saving, onChange, onClose, onSave } = props; const update = (key) => (event) => { const { type, checked, value } = event.target; onChange({ ...form, [key]: type === 'checkbox' ? checked : value });
+ function PromptEditorModal(props) { const { form, notice, saving, onChange, onClose, onSave } = props; const update = (key) => (event) => { const { type, checked, value } = event.target;
+ onChange({ ...form, [key]: type === 'checkbox' ? checked : value, ...(key === 'priority' ? { hasPriority: true } : {}) });
 }; const scopeLabel = form.scope === 'global' ? '全局可用' : '这个项目'; const scopeHint = form.scope === 'global' ? '说明：其他项目也可以使用；当前项目同名内容优先。' : '说明：只在当前项目的对话中使用。'; const previewText = form.content || form.whenToUse || form.description || '已保存，AI 会在相关场景中使用';
 const advancedDebugAvailable = optionalPromptDebugStorageEnabled(); return (
 <PromptAriaModal ariaLabel="编辑提示词" className="modal-box prompt-editor-modal" overlayClassName="modal-overlay prompt-modal-overlay" closeDisabled={saving} closeOnOverlayClick onClose={onClose} > <header> <div> <h2>编辑提示词</h2> <p>{scopeLabel}</p> </div> </header>
