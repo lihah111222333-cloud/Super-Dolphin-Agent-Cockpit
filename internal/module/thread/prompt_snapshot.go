@@ -382,7 +382,7 @@ func (s *service) rebuildResumePromptSnapshot(
 	ctx context.Context,
 	state resumeState,
 	provider string,
-) (contract.PromptAssemblySnapshot, error) {
+) (snapshot contract.PromptAssemblySnapshot, err error) {
 	needsSnapshot, err := resumePromptSnapshotRequired(state)
 	if err != nil {
 		return contract.PromptAssemblySnapshot{}, err
@@ -405,7 +405,7 @@ func (s *service) rebuildResumePromptSnapshot(
 	}
 	input, cleanupScratchpad, err := s.buildStartAssemblyInput(ctx, req, state.PublicThreadID)
 	if cleanupScratchpad != nil {
-		defer cleanupScratchpad()
+		defer joinScratchpadCleanup(&err, nil, cleanupScratchpad)
 	}
 	if err != nil {
 		return contract.PromptAssemblySnapshot{}, err
@@ -415,7 +415,7 @@ func (s *service) rebuildResumePromptSnapshot(
 		return contract.PromptAssemblySnapshot{}, err
 	}
 	assembly = ensureStartAssemblySnapshot(assembly, provider)
-	snapshot := normalizeCallerPromptSnapshot(assembly.Snapshot, provider)
+	snapshot = normalizeCallerPromptSnapshot(assembly.Snapshot, provider)
 	if promptSnapshotBlank(snapshot) {
 		return contract.PromptAssemblySnapshot{}, errors.New("resume prompt snapshot rebuild produced an empty snapshot")
 	}

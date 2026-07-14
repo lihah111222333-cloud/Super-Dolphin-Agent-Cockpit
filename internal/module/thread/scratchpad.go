@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,19 +14,52 @@ import (
 
 const scratchpadEnabledFlag = "scratchpad_enabled"
 
-func (s *service) prepareScratchpadBuildCtx(req StartRequest, threadID string, buildCtx contract.BuildCtx) (contract.BuildCtx, func(), error) {
+type scratchpadPartialCleanupError struct {
+	operation string
+	cause     error
+}
+
+// Error 返回不包含本地路径的稳定部分清理失败描述。
+func (e *scratchpadPartialCleanupError) Error() string {
+	return "thread " + e.operation + " completed with scratchpad cleanup failure"
+}
+
+// Unwrap 保留底层清理原因，供内部错误分类和诊断使用。
+func (e *scratchpadPartialCleanupError) Unwrap() error {
+	return e.cause
+}
+
+func newScratchpadPartialCleanupError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &scratchpadPartialCleanupError{operation: operation, cause: err}
+}
+
+func joinScratchpadPartialCleanupError(operation string, mainErr, cleanupErr error) error {
+	partialErr := newScratchpadPartialCleanupError(operation, cleanupErr)
+	if mainErr == nil {
+		return partialErr
+	}
+	if partialErr == nil {
+		return mainErr
+	}
+	return errors.Join(mainErr, partialErr)
+}
+
+func (s *service) prepareScratchpadBuildCtx(req StartRequest, threadID string, buildCtx contract.BuildCtx) (contract.BuildCtx, func() error, error) {
 	if dir := strings.TrimSpace(buildCtx.ScratchpadDir); dir != "" {
-		return buildCtx, func() {}, nil
+		return buildCtx, func() error { return nil }, nil
 	}
 	if !scratchpadEnabled(req, buildCtx) {
-		return buildCtx, func() {}, nil
+		return buildCtx, func() error { return nil }, nil
 	}
 	dir, err := ensureManagedScratchpadDir(buildCtx, req, threadID, s.cfg)
 	if err != nil {
 		return contract.BuildCtx{}, nil, err
 	}
 	buildCtx.ScratchpadDir = dir
-	return buildCtx, func() { _ = cleanupManagedScratchpadDir(dir) }, nil
+	return buildCtx, func() error { return s.cleanupScratchpadDir(dir) }, nil
 }
 
 func scratchpadEnabled(req StartRequest, buildCtx contract.BuildCtx) bool {
@@ -92,17 +126,25 @@ func cleanupManagedScratchpadDir(dir string) error {
 	return os.RemoveAll(filepath.Dir(filepath.Clean(dir)))
 }
 
-func (s *service) cleanupThreadScratchpadRecord(ctx context.Context, threadID string, binding *threadBindingRecord) {
-	dir := s.threadScratchpadDirRecord(ctx, threadID, binding)
-	if err := cleanupManagedScratchpadDir(dir); err != nil && s.logger != nil {
-		s.logger.Warn("thread scratchpad cleanup failed", "thread_id", threadID, "scratchpad_dir", dir, "error", err)
+func (s *service) cleanupScratchpadDir(dir string) error {
+	if s != nil && s.scratchpadCleanup != nil {
+		return s.scratchpadCleanup(dir)
 	}
+	return cleanupManagedScratchpadDir(dir)
 }
 
-func (s *service) threadScratchpadDirRecord(ctx context.Context, threadID string, binding *threadBindingRecord) string {
+func (s *service) cleanupThreadScratchpadRecord(ctx context.Context, threadID string, binding *threadBindingRecord) error {
+	dir, err := s.threadScratchpadDirRecord(ctx, threadID, binding)
+	if err != nil {
+		return err
+	}
+	return s.cleanupScratchpadDir(dir)
+}
+
+func (s *service) threadScratchpadDirRecord(ctx context.Context, threadID string, binding *threadBindingRecord) (string, error) {
 	offline, err := s.buildOfflineConfigRecord(ctx, threadID, binding)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return configScratchpadDir(offline.Runtime, "scratchpadDir", "scratchpad_dir")
+	return configScratchpadDir(offline.Runtime, "scratchpadDir", "scratchpad_dir"), nil
 }

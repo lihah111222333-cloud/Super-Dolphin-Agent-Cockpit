@@ -242,13 +242,13 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusStopped); err != nil {
 		return err
 	}
-	s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
+	cleanupErr := s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	for _, id := range stopState.targets {
 		s.forgetThreadAgent(id)
 	}
 	s.cleanupThreadTurns(ctx, "thread_stopped", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusStopped, "stopped")
-	return nil
+	return newScratchpadPartialCleanupError("stop", cleanupErr)
 }
 
 // stopPendingLaunchThread 停止待处理启动线程。

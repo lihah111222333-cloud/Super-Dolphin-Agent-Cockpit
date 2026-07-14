@@ -50,7 +50,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 |---|---:|---|
 | `internal` | 2140 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 913 | 代码地图、ADR、计划、迁移和内部说明 |
-| `cmd` | 668 | 可执行入口与 MCP peer |
+| `cmd` | 670 | 可执行入口与 MCP peer |
 | `frontend-app` | 514 | 当前 React/Vite 新 UI |
 | `scripts` | 115 | 工程自动化脚本 |
 | `migrations` | 112 | 数据库 migration |
@@ -126,7 +126,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/module/thread` | 108 | thread start/resume/fork/stop 生命周期与绑定真相源 |
+| `internal/module/thread` | 109 | thread start/resume/fork/stop 生命周期与绑定真相源 |
 | `internal/module/turn` | 67 | turn 启动、执行、审批与 provider 调度 |
 | `internal/module/prompt` | 91 | prompt 模板、启用条件与 system prompt 组装 |
 | `internal/module/memory` | 150 | memory canonical 管理、检索与持久化接线 |
@@ -139,7 +139,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 |---|---:|---|
 | `internal/platform/rpc` | 43 | JSON-RPC transport、dispatch、push 与审批框架 |
 | `internal/platform/mcpcontrol` | 35 | MCP 控制平面与 peer 注册 |
-| `internal/platform/toolbridge` | 78 | provider 与 MCP tools 桥接 |
+| `internal/platform/toolbridge` | 79 | provider 与 MCP tools 桥接 |
 | `internal/platform/hooks` | 33 | hook 配置、执行与三阶段拦截 |
 | `internal/platform/config` | 8 | 运行配置、env、provider 与超时策略 |
 
@@ -159,7 +159,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `cmd/mcp-orch/tools` | 76 | mcp-orch MCP tool schema、registry 与 handler |
 | `cmd/mcp-orch/orchestration` | 175 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
 | `cmd/mcp-lsp/tools` | 61 | LSP MCP tools 实现 |
-| `cmd/mcp-lsp/multilsp` | 71 | 多语言 LSP manager、transport 与缓存 |
+| `cmd/mcp-lsp/multilsp` | 72 | 多语言 LSP manager、transport 与缓存 |
 
 ## 8. 文档与知识地图
 

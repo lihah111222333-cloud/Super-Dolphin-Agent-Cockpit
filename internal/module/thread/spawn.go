@@ -333,7 +333,7 @@ func (s *service) runPendingSpawn(
 	req *StartRequest,
 	row *threadConfigStoreRecord,
 	agentID, threadID string,
-) error {
+) (err error) {
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
@@ -342,7 +342,7 @@ func (s *service) runPendingSpawn(
 
 	g, gCtx := errgroup.WithContext(ctx)
 	var assemblyInput contract.StartInput
-	var cleanupScratchpad func()
+	var cleanupScratchpad func() error
 
 	g.Go(func() error { return s.resolveRoutedPrompt(gCtx, req) })
 	g.Go(func() error {
@@ -351,10 +351,13 @@ func (s *service) runPendingSpawn(
 		return aerr
 	})
 	if err := g.Wait(); err != nil {
+		prepErr := fmt.Errorf("thread: assembly input: %w", err)
 		if cleanupScratchpad != nil {
-			cleanupScratchpad()
+			if cleanupErr := cleanupScratchpad(); cleanupErr != nil {
+				prepErr = errors.Join(prepErr, cleanupErr)
+			}
 		}
-		return fmt.Errorf("thread: assembly input: %w", err)
+		return prepErr
 	}
 	foldRouterOutputIntoAssemblyInput(&assemblyInput, req)
 	pkglogger.Info("thread: pending spawn parallel prep done",
@@ -364,7 +367,11 @@ func (s *service) runPendingSpawn(
 
 	agentLaunched := false
 	cleanupOnFailure := true
-	defer cleanupPendingSpawn(ctx, s, &cleanupOnFailure, cleanupScratchpad, &agentLaunched, agentID)
+	defer func() {
+		if cleanupErr := cleanupPendingSpawn(ctx, s, &cleanupOnFailure, cleanupScratchpad, &agentLaunched, agentID); cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
+	}()
 	assembly, err := resolveStartPromptAssembly(ctx, *req, assemblyInput)
 	if err != nil {
 		return fmt.Errorf("thread: prompt assembly: %w", err)
@@ -424,19 +431,21 @@ func cleanupPendingSpawn(
 	ctx context.Context,
 	s *service,
 	active *bool,
-	cleanupScratchpad func(),
+	cleanupScratchpad func() error,
 	agentLaunched *bool,
 	agentID string,
-) {
+) error {
 	if active == nil || !*active {
-		return
+		return nil
 	}
+	var cleanupErr error
 	if cleanupScratchpad != nil {
-		cleanupScratchpad()
+		cleanupErr = cleanupScratchpad()
 	}
 	if agentLaunched != nil && *agentLaunched {
 		s.stopAgent(ctx, agentID)
 	}
+	return cleanupErr
 }
 
 // publishPendingSpawnLaunched 在 pending spawn 持久化完成后发布 thread.launched。

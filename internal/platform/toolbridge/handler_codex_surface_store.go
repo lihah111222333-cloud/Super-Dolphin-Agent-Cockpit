@@ -132,12 +132,13 @@ func disabledCodexSurfaceToolCallResult(surface *codexToolSurface, name string) 
 // 如果同一 key 已绑定旧 surface，旧 surface 会在替换后关闭，确保 stdio client 不泄漏。
 func (h *Handler) storeCodexToolSurface(surface *codexToolSurface) error {
 	replaced := h.replaceCodexToolSurface(surface)
+	var closeErrs []error
 	for _, old := range replaced {
 		if err := old.Close(); err != nil {
-			return fmt.Errorf("toolbridge: close replaced codex tool surface: %w", err)
+			closeErrs = append(closeErrs, fmt.Errorf("toolbridge: close replaced codex tool surface: %w", err))
 		}
 	}
-	return nil
+	return errors.Join(closeErrs...)
 }
 
 // replaceCodexToolSurface 在锁内替换所有 surface key，并返回需要关闭的旧 surface。

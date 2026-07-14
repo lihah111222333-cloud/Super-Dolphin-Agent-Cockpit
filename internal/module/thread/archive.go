@@ -40,11 +40,11 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 	if err := s.setBindingArchived(ctx, stopState.stoppedID, true); err != nil {
 		return err
 	}
-	s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
+	cleanupErr := s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusArchived, "archived")
 	pkglogger.Info("thread: Archive() COMPLETED", "thread_id", threadID, "stopped_id", stopState.stoppedID, "caller", caller)
-	return nil
+	return newScratchpadPartialCleanupError("archive", cleanupErr)
 }
 
 // archivePendingLaunchThread 归档待处理启动线程。
