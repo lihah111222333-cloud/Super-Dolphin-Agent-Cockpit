@@ -18,6 +18,7 @@ var Module = fx.Module("skill",
 	fx.Provide(
 		fx.Annotate(
 			newService,
+			fx.As(fx.Self()),
 			fx.As(new(Service)),
 			fx.As(new(contract.SkillMirrorReconciler)),
 			fx.As(new(contract.SkillToolProvider)),
@@ -28,6 +29,7 @@ var Module = fx.Module("skill",
 		ProvideSkillHydrationSource,
 	),
 	fx.Provide(NewSkillHandlers),
+	fx.Provide(fx.Annotate(skillServiceAsRunner, fx.ResultTags(`group:"runners"`))),
 	fx.Invoke(runBuiltinSkillSeed),
 )
 
@@ -58,6 +60,9 @@ func newService(deps serviceDeps) *service {
 	svc.skillTools = deps.ToolStore
 	return svc
 }
+
+// skillServiceAsRunner 将同一 service 实例注入根 runners 组，避免模块自建生命周期 goroutine。
+func skillServiceAsRunner(svc *service) contract.Runner { return svc }
 
 // ProvideSkillLister 暴露只读 skill 列表接口给 prompt 和 provider 装配层。
 func ProvideSkillLister(svc Service) SkillLister { return svc }
