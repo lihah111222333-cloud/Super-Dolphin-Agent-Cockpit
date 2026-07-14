@@ -599,7 +599,10 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 	if len(req.CodexDisabledNativeTools) > 0 {
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
-	d.restoreApprovalPolicy(ctx, s, threadID)
+	s.approvalPolicyVerified.Store(false)
+	if err := d.restoreApprovalPolicy(ctx, s, threadID); err != nil {
+		return nil, err
+	}
 	if err := applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools); err != nil {
 		return nil, err
 	}
@@ -726,35 +729,41 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 	pkglogger.Warn(msg, fields...)
 }
 
-// restoreApprovalPolicy 从远端线程配置恢复审批策略，失败时保留本地已有状态。
-func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
-	if d == nil || s == nil {
-		return
+// restoreApprovalPolicy 从远端线程配置恢复已验证的审批策略。
+func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) error {
+	if d == nil {
+		return errors.New("codexapp: approval policy restore requires driver")
+	}
+	if s == nil || s.transport == nil {
+		return errors.New("codexapp: approval policy restore requires session transport")
 	}
 	result, err := s.transport.Call(ctx, "thread/config/get", map[string]any{
 		"threadId": threadID,
 	})
 	if err != nil {
-		// RPC not available – fall back to local state.
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
+		return fmt.Errorf("codexapp: approval policy remote verification failed: %w", err)
 	}
 	var resp map[string]any
 	if err := json.Unmarshal(result, &resp); err != nil {
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
+		return fmt.Errorf("codexapp: approval policy response decode failed: %w", err)
 	}
-	effective, _ := resp["effective"].(map[string]any)
-	if effective == nil {
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
+	effective, ok := resp["effective"].(map[string]any)
+	if !ok || effective == nil {
+		return errors.New("codexapp: approval policy response effective object is required")
 	}
-	if approval, ok := effective["approvals"].(string); ok && strings.TrimSpace(approval) != "" {
-		s.setApprovalPolicy(strings.TrimSpace(approval))
-		s.setRuntimeConfigValue("approvalPolicy", strings.TrimSpace(approval))
-		return
+	approval, ok := effective["approvals"].(string)
+	if !ok {
+		return errors.New("codexapp: approval policy response approvals string is required")
 	}
-	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
+	approval = strings.TrimSpace(approval)
+	switch approval {
+	case "untrusted", "on-failure", "on-request", "never":
+	default:
+		return fmt.Errorf("codexapp: approval policy response contains unknown policy %q", approval)
+	}
+	s.setApprovalPolicy(approval)
+	s.setRuntimeConfigValue("approvalPolicy", approval)
+	return nil
 }
 
 func (d *driver) reportRuntime(agentID, serverURL string) error {

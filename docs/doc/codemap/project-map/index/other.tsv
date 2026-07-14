@@ -297,7 +297,7 @@ internal/contract/codex_identity_test.go	internal	other	go-test	352	跨模块稳
 internal/contract/codex_identity.go	internal	other	go-source	6561	跨模块稳定接口、事件和 DTO 边界	internal,contract,codex,identity,跨模块稳定接口,事件和,DTO,边界
 internal/contract/config.go	internal	other	go-source	14790	跨模块稳定接口、事件和 DTO 边界	internal,contract,config,跨模块稳定接口,事件和,DTO,边界
 internal/contract/contracttest/section_invalidator.go	internal	other	go-source	1622	跨模块稳定接口、事件和 DTO 边界	internal,contract,contracttest,section,invalidator,跨模块稳定接口,事件和,DTO,边界
-internal/contract/cron.go	internal	other	go-source	2177	跨模块稳定接口、事件和 DTO 边界	internal,contract,cron,跨模块稳定接口,事件和,DTO,边界
+internal/contract/cron.go	internal	other	go-source	2261	跨模块稳定接口、事件和 DTO 边界	internal,contract,cron,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_events_test.go	internal	other	go-test	3611	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,events,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_final_output_test.go	internal	other	go-test	2532	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,final,output,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_start_response_test.go	internal	other	go-test	1228	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界

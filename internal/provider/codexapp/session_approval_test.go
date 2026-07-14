@@ -101,6 +101,7 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 		suppressed: map[string]struct{}{},
 		turns:      map[string]*turnHandle{},
 	}
+	s.setApprovalPolicy("on-request")
 
 	requested := make(chan tooldto.ToolApprovalRequested, 4)
 	cancelSub := event.Subscribe(bus, func(ev tooldto.ToolApprovalRequested) {

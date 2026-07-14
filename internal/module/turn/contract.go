@@ -154,6 +154,14 @@ func (a *CronExecutorAdapter) CronStartTurn(ctx context.Context, session contrac
 	return a.svc.StartTurn(ctx, session, req)
 }
 
+// CronInterruptActiveTurn 只暴露 cron 失租收口需要的 active turn 中断能力。
+func (a *CronExecutorAdapter) CronInterruptActiveTurn(ctx context.Context, session contract.Session, source string) error {
+	if a == nil || a.svc == nil {
+		return errors.New("turn: cron interrupt adapter is not wired")
+	}
+	return a.svc.InterruptActiveTurn(ctx, session, source)
+}
+
 // CronTrackTurn 将 turn.Service 的状态投影成 cron 可持久化的窄 DTO。
 func (a *CronExecutorAdapter) CronTrackTurn(ctx context.Context, localID string) (contract.CronTurnStatus, error) {
 	st, err := a.svc.TrackTurn(ctx, localID)

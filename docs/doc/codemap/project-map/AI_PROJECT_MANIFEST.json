@@ -1,18 +1,18 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-14",
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4543,
+  "files": 4552,
   "domains": {
     "docs-agent": 921,
     "other": 631,
     "app-ui": 516,
-    "platform-provider": 1016,
+    "platform-provider": 1023,
     "orchestration": 419,
-    "modules": 725,
+    "modules": 727,
     "store-sql": 315
   },
   "index_files": {
@@ -36,15 +36,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 725,
-        "size_kb": 141.1,
+        "file_count": 727,
+        "size_kb": 141.5,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1016,
-        "size_kb": 187.1,
+        "file_count": 1023,
+        "size_kb": 188.3,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -75,7 +75,7 @@
     "cmd": 668,
     "docs": 913,
     "frontend-app": 514,
-    "internal": 2131,
+    "internal": 2140,
     "migrations": 112,
     "pkg": 29,
     "scripts": 115,

@@ -185,6 +185,25 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 	return nil
 }
 
+// CancelLeaseLostTurn 中断失租 job 对应线程的 active turn。
+func (a *TurnServiceAdapter) CancelLeaseLostTurn(ctx context.Context, job JobRecord) error {
+	if a == nil || a.svc == nil || a.resolver == nil {
+		return errors.New("cron: lease-loss turn canceler is not wired")
+	}
+	threadID := strings.TrimSpace(job.ThreadID)
+	if threadID == "" {
+		return fmt.Errorf("cron: lease-loss cancel job %s requires thread id", job.ID)
+	}
+	session, err := a.resolver.ResolveSession(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("cron: resolve lease-loss session for job %s: %w", job.ID, err)
+	}
+	if err := a.svc.CronInterruptActiveTurn(ctx, session, "cron_lease_lost"); err != nil {
+		return fmt.Errorf("cron: interrupt lease-loss turn for job %s: %w", job.ID, err)
+	}
+	return nil
+}
+
 // buildPrepareInput 将 cron 侧 StartTurnRequest 投影成 contract.CronPrepareInput。
 // cron row 没有的 Files/Images/CandidateSkills/MCPSnapshot 等字段保持零值，由 turn 准备层决定如何解释。
 // 这里只做字段投影，不添加 cron 专属默认值。坏配置应该在 Create/Update 时被挡住。

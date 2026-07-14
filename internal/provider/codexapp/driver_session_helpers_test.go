@@ -229,7 +229,11 @@ func serveCodexRPCConnectionWithHandler(t *testing.T, conn *websocket.Conn, hand
 		if !ok {
 			continue
 		}
-		result := codexTestRPCResultOrDefault(msg.Method, handle(msg))
+		result := handle(msg)
+		if result == nil {
+			return
+		}
+		result = codexTestRPCResultOrDefault(msg.Method, result)
 		if !writeCodexTestRPCResponse(t, conn, msg.ID, result) {
 			return
 		}
