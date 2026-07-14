@@ -92,6 +92,7 @@ func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, 
 	}
 	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
+	s.setApprovalPolicy("on-request")
 	return s
 }
 

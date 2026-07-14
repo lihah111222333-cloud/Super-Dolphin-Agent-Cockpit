@@ -459,6 +459,7 @@ func TestRequestToolApprovalDedupeWaitReturnsOnCallerContextCancel(t *testing.T)
 		ctx:                context.Background(),
 		processedApprovals: map[string]*processedApprovalEntry{},
 	}
+	s.setApprovalPolicy("on-request")
 	payload := mustJSON(map[string]any{
 		"requestId": int64(7),
 		"callId":    "call-ctx",
@@ -486,6 +487,7 @@ func TestRequestToolApprovalDedupeWaitReturnsOnSessionContextCancel(t *testing.T
 		ctx:                sessionCtx,
 		processedApprovals: map[string]*processedApprovalEntry{},
 	}
+	s.setApprovalPolicy("on-request")
 	payload := mustJSON(map[string]any{
 		"requestId": int64(8),
 		"callId":    "call-session",

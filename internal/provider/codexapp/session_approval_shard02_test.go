@@ -105,6 +105,7 @@ func newApprovalRecorderSession(t *testing.T, serverURL string, approvals *rpc.A
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	s.setApprovalPolicy("on-request")
 	return s
 }
 
