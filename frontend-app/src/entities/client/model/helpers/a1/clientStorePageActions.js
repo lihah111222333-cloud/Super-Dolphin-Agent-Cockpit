@@ -84,7 +84,7 @@ function createNavigationActions(runtime, deps) {
     },
     resolveLaunchPreferences: (cwdArg) => {
       const cwd = normalizePath(cwdArg) || runtime.requireCwd('thread.launchPreferences');
-      return resolveLaunchPreferences(cwd, runtime.addWarning);
+      return resolveLaunchPreferences(cwd, runtime.addWarning, runtime.getPreference);
     },
 
   };

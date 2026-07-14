@@ -468,6 +468,22 @@ it('saves schedule cron expressions with the backend timezone prefix', async () 
   });
 });
 
+it('ignores the malformed apply ops response body after saving a schedule', async () => {
+  mockWorkflowDag();
+  backend.applyDagOps.mockResolvedValue({ malformed: ['ignored-response-body'] });
+
+  renderWorkflowPage();
+
+  fireEvent.click(await screen.findByRole('button', { name: '创建定时任务' }));
+  const scheduleDialog = await screen.findByRole('dialog', { name: '创建定时任务' });
+  fireEvent.change(screen.getByLabelText('运行时间'), { target: { value: '05:00' } });
+  fireEvent.click(within(scheduleDialog).getByRole('button', { name: '创建定时任务' }));
+
+  await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+  expect(await screen.findByText('已保存定时任务')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
 it('preserves paused scheduled DAGs when editing the schedule cron expression', async () => {
   const dag = {
     dag_key: 'paused-flow',

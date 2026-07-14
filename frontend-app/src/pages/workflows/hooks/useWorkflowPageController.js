@@ -258,11 +258,17 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
   if (effectiveSelectedRunKey !== selectedRunKey) {
     setSelectedRunKey(effectiveSelectedRunKey);
   }
-  const { data: runDetailData } = useQuery({
+  const {
+    data: runDetailData,
+    error: runDetailError,
+    isPending: runDetailPending,
+  } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dag-run', effectiveSelectedRunKey),
     queryFn: () => fetchWorkflowRunDetail(effectiveSelectedRunKey),
     enabled: Boolean(workflowCwd && effectiveSelectedRunKey),
   });
+  const runDetailQuery = { data: runDetailData, error: runDetailError, isPending: runDetailPending };
+  const hasSnapshot = queryHasSnapshot(runDetailQuery);
   const loadRunDetail = useCallback((runKey) => {
     const key = textValue(runKey);
     if (!key) { setSelectedRunKey(''); return null; }
@@ -270,7 +276,13 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
     const queryKey = dashboardQueryKey(workflowCwd, 'dag-run', key);
     return fetchWorkflowQuery(queryClient, queryKey, () => fetchWorkflowRunDetail(key));
   }, [queryClient, workflowCwd]);
-  return { loadRunDetail, selectedRun: runDetailData || null, selectedRunKey: effectiveSelectedRunKey, setSelectedRunKey };
+  return {
+    errorState: workflowDashboardQueryErrorState(runDetailQuery, hasSnapshot),
+    loadRunDetail,
+    selectedRun: runDetailData || null,
+    selectedRunKey: effectiveSelectedRunKey,
+    setSelectedRunKey,
+  };
 }
 
 function useWorkflowNotice(selectedDagKey) {
@@ -371,7 +383,7 @@ function workflowStartDisabledReason(options) {
 
 function workflowDerivedSnapshot(options) {
   const { activeDetailDag, activeRunKey, dagKey, detail, list, missingRootAssigneeWarning, run, selection, startDisabledReason } = options;
-  const messages = workflowLoadMessages(list.errorState, list.syncFailure, detail.detailErrorState);
+  const messages = workflowLoadMessages(list.errorState, list.syncFailure, detail.detailErrorState, run.errorState);
   const baseVersion = dagVersionOf(activeDetailDag);
   const finalOutput = finalOutputDescriptor(run.selectedRun?.run) || finalOutputDescriptor(detail.activeRun) || finalOutputDescriptor(selection.selectedDag?.latestRun);
   const finalText = finalOutputPreviewText(finalOutput);
@@ -402,13 +414,14 @@ function workflowDerivedSnapshot(options) {
   };
 }
 
-function workflowLoadMessages(listErrorState, syncFailure, detailErrorState) {
+function workflowLoadMessages(listErrorState, syncFailure, detailErrorState, runErrorState) {
   let blockingLoadError = '';
   if (listErrorState.blockingError) blockingLoadError = '加载自动化失败：' + listErrorState.blockingError;
   else if (detailErrorState.blockingError) blockingLoadError = '加载自动化详情失败：' + detailErrorState.blockingError;
+  else if (runErrorState.blockingError) blockingLoadError = '加载自动化详情失败：' + runErrorState.blockingError;
   return {
     blockingLoadError,
-    syncError: syncFailure || listErrorState.cachedSyncError || detailErrorState.cachedSyncError,
+    syncError: syncFailure || listErrorState.cachedSyncError || detailErrorState.cachedSyncError || runErrorState.cachedSyncError,
   };
 }
 

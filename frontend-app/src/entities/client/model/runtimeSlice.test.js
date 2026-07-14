@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { getPreference } from '../../../shared/api/backendApi.js';
 import { createRuntimeSlice } from './runtimeSlice.js';
+
+vi.mock('../../../shared/api/backendApi.js', () => ({
+  getPreference: vi.fn(),
+}));
 
 function deferred() {
   let resolve;
@@ -200,5 +205,48 @@ describe('runtime slice event lifecycle', () => {
     expect(runtime.pendingRuntimeSubscriptions).toHaveLength(0);
     expect(bridgeUnsubscribe).toHaveBeenCalledTimes(1);
     expect(reconnectUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runtime slice preference validation', () => {
+  it('rejects malformed active provider before applying bootstrap state', async () => {
+    getPreference.mockReset();
+    getPreference.mockResolvedValue('codex');
+    const getValidatedPreference = vi.fn().mockRejectedValue(
+      new Error('invalid UI preference response for settings.provider.active'),
+    );
+    const runtime = createRuntime({
+      applyProjects: vi.fn(),
+      applySnapshot: vi.fn(),
+      cacheSidebarSnapshot: vi.fn(),
+      loadProviderConfig: vi.fn(),
+      set: vi.fn(),
+    });
+    const deps = createDeps({
+      getPreference: getValidatedPreference,
+      getProjects: vi.fn().mockResolvedValue([]),
+      getSidebarState: vi.fn().mockResolvedValue({}),
+      getWindowBootstrap: vi.fn().mockResolvedValue({ snapshot: { cwd: '/repo/app', page: 'chat' } }),
+      normalizeBootstrapPage: vi.fn((value) => value),
+      normalizeBootstrapSnapshot: vi.fn((value) => value.snapshot),
+      normalizePath: vi.fn((value) => value || ''),
+      onBridgeEvent: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+      onRuntimeReconnect: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+      providerActivePreferenceKey: 'settings.provider.active',
+      readConfig: vi.fn().mockResolvedValue({ cwd: '/repo/app' }),
+      requireActiveProviderPreference: vi.fn(() => 'codex'),
+    });
+    const actions = createRuntimeSlice(runtime, deps);
+    runtime.get.mockImplementation(() => ({ initializeEvents: actions.initializeEvents }));
+
+    await expect(actions.bootstrap()).rejects.toThrow(
+      'invalid UI preference response for settings.provider.active',
+    );
+
+    expect(getValidatedPreference).toHaveBeenCalledOnce();
+    expect(getValidatedPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.active' });
+    expect(getPreference).not.toHaveBeenCalled();
+    expect(runtime.loadProviderConfig).not.toHaveBeenCalled();
+    expect(runtime.set).not.toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
   });
 });

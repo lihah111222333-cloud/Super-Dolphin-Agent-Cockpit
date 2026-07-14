@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -98,6 +99,86 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	s := mustCodexSession(t, got, "ResumeSession")
 	defer closeCodexTestSession(t, s)
 	assertResumeApprovalSession(t, s, workDir)
+}
+
+func TestFinishResumedSessionRequiresEffectiveApprovalConfig(t *testing.T) {
+	tests := []struct {
+		name           string
+		configResult   json.RawMessage
+		wantErr        bool
+		wantApproval   string
+		forbiddenError string
+		wantTransport  bool
+	}{
+		{name: "rpc error", configResult: mustJSON(map[string]any{"$rpcError": "config unavailable"}), wantErr: true, forbiddenError: "config unavailable", wantTransport: true},
+		{name: "malformed JSON", configResult: json.RawMessage(`"sensitive malformed response"`), wantErr: true, forbiddenError: "sensitive malformed response"},
+		{name: "missing effective", configResult: mustJSON(map[string]any{"threadId": "provider-thread-1"}), wantErr: true},
+		{name: "missing approval policy", configResult: mustJSON(map[string]any{"effective": map[string]any{}}), wantErr: true},
+		{name: "blank approval policy", configResult: mustJSON(map[string]any{"effective": map[string]any{"approvals": "  "}}), wantErr: true},
+		{name: "valid effective config", configResult: mustJSON(map[string]any{"effective": map[string]any{"approvals": " on-request "}}), wantApproval: "on-request"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
+				return finishResumedSessionTestResult(method, tt.configResult)
+			})
+			d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
+			got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+				Provider:           "codex",
+				AgentID:            "agent-1",
+				ThreadID:           "thread-1",
+				ProviderThreadID:   "thread-1",
+				CWD:                t.TempDir(),
+				PromptSnapshot:     validResumePromptSnapshotForTest(),
+				CodexHome:          t.TempDir(),
+				CodexInstanceKey:   "default",
+				CodexModelProvider: "openai",
+			})
+			if tt.wantErr {
+				assertResumeApprovalConfigError(t, got, err, tt.forbiddenError, tt.wantTransport)
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResumeSession() error = %v", err)
+			}
+			s := mustCodexSession(t, got, "ResumeSession")
+			defer closeCodexTestSession(t, s)
+			if s.approvalPolicyValue() != tt.wantApproval {
+				t.Fatalf("approvalPolicy = %q, want %q", s.approvalPolicyValue(), tt.wantApproval)
+			}
+		})
+	}
+}
+
+func finishResumedSessionTestResult(method string, configResult json.RawMessage) json.RawMessage {
+	switch method {
+	case "initialize":
+		return mustJSON(map[string]any{"ok": true})
+	case "thread/resume":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
+	case "thread/config/get":
+		return configResult
+	default:
+		return mustJSON(map[string]any{"ok": true})
+	}
+}
+
+func assertResumeApprovalConfigError(t *testing.T, got contract.Session, err error, forbidden string, wantTransport bool) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), "thread/config/get") {
+		t.Fatalf("ResumeSession() error = %v, want contextual thread/config/get error", err)
+	}
+	if got != nil {
+		t.Fatalf("ResumeSession() session = %T, want nil", got)
+	}
+	if forbidden != "" && strings.Contains(err.Error(), forbidden) {
+		t.Fatalf("ResumeSession() error leaked raw response: %v", err)
+	}
+	var transportErr *transportCallError
+	if wantTransport && !errors.As(err, &transportErr) {
+		t.Fatalf("ResumeSession() error type = %T, want wrapped *transportCallError", err)
+	}
 }
 
 func TestDriverResumeSessionRejectsMissingProviderThreadID(t *testing.T) {
@@ -246,11 +327,19 @@ func decodeCodexTestRPCMessage(raw []byte) (jsonRPCMessage, bool) {
 
 func writeCodexTestRPCResponse(t *testing.T, conn *websocket.Conn, id json.RawMessage, result json.RawMessage) bool {
 	t.Helper()
-	resp, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      json.RawMessage(append([]byte(nil), id...)),
 		"result":  json.RawMessage(append([]byte(nil), result...)),
-	})
+	}
+	var rpcError struct {
+		Message string `json:"$rpcError"`
+	}
+	if json.Unmarshal(result, &rpcError) == nil && rpcError.Message != "" {
+		delete(payload, "result")
+		payload["error"] = map[string]any{"code": -32000, "message": rpcError.Message}
+	}
+	resp, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)
 	}

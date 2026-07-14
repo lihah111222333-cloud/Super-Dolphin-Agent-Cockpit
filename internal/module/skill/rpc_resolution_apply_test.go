@@ -28,6 +28,44 @@ func TestSkillResolutionApplyRPCSyncBackUsesPreviewProof(t *testing.T) {
 	assertFileContent(t, filepath.Join(canonicalDir, "references", "guide.md"), "project drift\n")
 }
 
+func TestSkillResolutionApplyRPCJSONUsesCamelCase(t *testing.T) {
+	project, server, _, _, svc := setupResolutionPreviewDriftFixtureWithService(t)
+	svc.auditStore = &capturingSkillAuditStore{}
+	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "mirror_drift", "drift", skillScopeProject)
+	preview := dispatchResolutionPreview(t, server, project, item.ConflictID, ResolutionSyncBackCanonical)
+	raw, err := dispatchResolutionApplyRaw(
+		t,
+		server,
+		project,
+		item.ConflictID,
+		"drift",
+		ResolutionSyncBackCanonical,
+		preview.Items[0],
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Dispatch resolution apply JSON: %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("Unmarshal resolution apply JSON: %v", err)
+	}
+	wantKeys := []string{"action", "name", "resultingHash", "partialFailure", "followUpAction"}
+	if len(payload) != len(wantKeys) {
+		t.Fatalf("resolution apply JSON keys = %v, want exactly %v", payload, wantKeys)
+	}
+	for _, key := range wantKeys {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("resolution apply JSON missing camelCase key %q: %s", key, raw)
+		}
+	}
+	for _, key := range []string{"Action", "Name", "ResultingHash", "PartialFailure", "FollowUpAction"} {
+		if _, ok := payload[key]; ok {
+			t.Errorf("resolution apply JSON contains accidental PascalCase key %q: %s", key, raw)
+		}
+	}
+}
+
 func TestSkillResolutionApplyRPCUsesRequestCWDForProjectTarget(t *testing.T) {
 	project, server, canonicalDir, _, svc := setupResolutionPreviewDriftFixtureWithService(t)
 	otherProject := t.TempDir()

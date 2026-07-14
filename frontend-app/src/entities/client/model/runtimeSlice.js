@@ -161,7 +161,10 @@ function createBootstrapActions(runtime, deps) {
       const scopedCwd = windowCwd || cwd;
       const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
       const activeProvider = requireActiveProviderPreference(
-        await getPreference({ cwd: scopedCwd, key: providerActivePreferenceKey }),
+        await getPreference({
+          cwd: scopedCwd,
+          key: providerActivePreferenceKey,
+        }),
         'frontend-app bootstrap',
       );
       runtime.set(buildBootstrapState({ cwd, scopedCwd, activeProvider, bootstrapPage }));

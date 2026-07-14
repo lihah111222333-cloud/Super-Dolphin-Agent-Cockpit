@@ -98,11 +98,11 @@ type SkillMirrorResolutionRequest struct {
 // SkillMirrorResolutionReport 会告诉前端是否还有后续重试动作。
 // 清理或审计失败不能吞掉，要让用户知道下一步。
 type SkillMirrorResolutionReport struct {
-	Action         string
-	Name           string
-	ResultingHash  string
-	PartialFailure bool
-	FollowUpAction string
+	Action         string `json:"action"`
+	Name           string `json:"name"`
+	ResultingHash  string `json:"resultingHash"`
+	PartialFailure bool   `json:"partialFailure"`
+	FollowUpAction string `json:"followUpAction"`
 }
 
 // skillMirrorMutationAuditRecord 记录 mirror 修复动作写入前后的来源和 hash。

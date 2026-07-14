@@ -125,11 +125,17 @@ function isPreferenceAbsent(value) {
 async function readScopedPreference(cwd, key) {
   const scope = textValue(cwd).trim();
   if (scope) {
-    const scoped = await getPreference({ cwd: scope, key });
+    const scoped = await getPreference(
+      { cwd: scope, key },
+      { allowTombstone: true },
+    );
     if (isPreferenceTombstone(scoped)) return '';
     if (!isPreferenceAbsent(scoped)) return scoped;
   }
-  const globalValue = await getPreference({ key });
+  const globalValue = await getPreference(
+    { key },
+    { allowTombstone: true },
+  );
   if (isPreferenceTombstone(globalValue)) return '';
   return isPreferenceAbsent(globalValue) ? null : globalValue;
 }

@@ -8,6 +8,9 @@ import {
   renderWorkflowPage,
   mockWorkflowDag,
   mockEnterpriseTemplates,
+  enterpriseTemplateDetails,
+  fillEnterpriseTemplateForm,
+  openTemplateCatalog,
   workflowRunMetadataWithFinalOutput,
   workflowRunMetadataWithFinalFile,
   workflowRunMetadataWithoutFinalOutput,
@@ -43,6 +46,89 @@ it('loads DAG dashboard data and fetches selected DAG detail', async () => {
     expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', limit: 30 });
     expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', status: 'running', limit: 1 });
   });
+});
+
+it.each(['detail', 'runs'])('keeps DAG detail unpublished when the %s response validator rejects malformed data', async (wire) => {
+  mockWorkflowDag();
+  const message = `dashboard/${wire} response is malformed`;
+  if (wire === 'detail') backend.getDagDetail.mockRejectedValue(new TypeError(message));
+  else backend.getDagRuns.mockRejectedValue(new TypeError(message));
+
+  renderWorkflowPage();
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(`加载自动化详情失败：${message}`);
+  expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+  expect(screen.queryByText('run-malformed')).not.toBeInTheDocument();
+});
+
+it('keeps DAG run state unpublished when the run response validator rejects malformed data', async () => {
+  mockWorkflowDag();
+  backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+    runs: params.status === 'running'
+      ? [{ id: 88, run_key: 'run-malformed', status: 'running' }]
+      : [{ id: 88, run_key: 'run-malformed', status: 'running' }],
+  }));
+  backend.getDagRun.mockRejectedValue(new TypeError('dashboard/dagRun response is malformed'));
+
+  renderWorkflowPage();
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('加载自动化详情失败：dashboard/dagRun response is malformed');
+  expect(screen.queryByText('Corrupted Runtime Node')).not.toBeInTheDocument();
+});
+
+it.each(['render', 'save'])('keeps template state unpublished when the %s response validator rejects malformed data', async (wire) => {
+  mockWorkflowDag();
+  const template = enterpriseTemplateDetails['government-enterprise/meeting-minutes'];
+  const message = `workflowTemplates/${wire} response is malformed`;
+  if (wire === 'render') {
+    backend.renderWorkflowTemplateDraft.mockRejectedValue(new TypeError(message));
+  } else {
+    backend.renderWorkflowTemplateDraft.mockResolvedValue({
+      draft: {
+        template_id: template.id,
+        template_version: template.version,
+        dag_key: 'government_enterprise_meeting_minutes_run',
+        title: '模板主题 - 会议纪要',
+        description: '提取会议要点。',
+        trigger: 'manual',
+        final_node_key: 'final_minutes',
+        nodes: template.dag_template.nodes,
+        final_output: template.final_output,
+      },
+    });
+    backend.saveWorkflowTemplate.mockRejectedValue(new TypeError(message));
+  }
+
+  renderWorkflowPage();
+  await openTemplateCatalog();
+  fireEvent.click(await screen.findByRole('button', { name: '选择会议纪要模板' }));
+  await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
+  fireEvent.click(screen.getByRole('button', { name: '保存为模板' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(`保存模板失败：${message}`);
+  expect(backend.saveWorkflowTemplate).toHaveBeenCalledTimes(wire === 'save' ? 1 : 0);
+  expect(screen.queryByText(/模板已保存为/)).not.toBeInTheDocument();
+});
+
+it('does not publish an uploaded material path when its response validator rejects', async () => {
+  mockWorkflowDag();
+  backend.writeWorkflowMaterial.mockRejectedValueOnce(new TypeError(
+    'dashboard/workflowMaterialWrite response workflow material write response.path Expected string, received number',
+  ));
+
+  renderWorkflowPage();
+  await openTemplateCatalog();
+  fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+  const input = await screen.findByLabelText('输入材料');
+  const dropTarget = input.closest('.enterprise-template-file-ref');
+  const file = new File(['审批说明正文'], '审批材料.txt', { type: 'text/plain' });
+  file.text = vi.fn().mockResolvedValue('审批说明正文');
+
+  fireEvent.drop(dropTarget, { dataTransfer: { files: [file] } });
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('dashboard/workflowMaterialWrite');
+  expect(input).toHaveValue('');
+  expect(screen.queryByText('已上传 1 个材料文件')).not.toBeInTheDocument();
 });
 
 it('shows automation overview metrics from the DAG dashboard data', async () => {
@@ -228,6 +314,7 @@ it('shows refresh failure after a successful DAG start', async () => {
 
 it('shows blocked ready-node diagnostics and dispatches the runtime node with an assignee', async () => {
   mockWorkflowDag();
+  backend.dispatchDagNode.mockResolvedValue({ malformed: ['ignored-response-body'] });
   backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
     runs: params.status === 'running'
       ? [{ id: 88, run_key: 'run-waiting', status: 'waiting_for_assignee' }]
@@ -264,11 +351,53 @@ it('shows blocked ready-node diagnostics and dispatches the runtime node with an
       assignedTo: 'codex-runner',
     });
   });
+  expect(await screen.findByText('已派发步骤 Draft')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-it('restores the run action and shows an error when startDag times out', async () => {
+it('ignores the malformed terminate response body after stopping the active DAG run', async () => {
   mockWorkflowDag();
-  backend.startDag.mockReturnValue(new Promise(() => {}));
+  backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+    runs: params.status === 'running'
+      ? [{ id: 91, run_key: 'run-active', status: 'running' }]
+      : [{ id: 91, run_key: 'run-active', status: 'running' }],
+  }));
+  backend.getDagRun.mockResolvedValue({ run: { id: 91, run_key: 'run-active', status: 'running' }, nodes: [] });
+  backend.terminateDagRun.mockResolvedValue({ malformed: ['ignored-response-body'] });
+
+  renderWorkflowPage();
+  fireEvent.click(await screen.findByRole('button', { name: '停止运行' }));
+
+  await waitFor(() => expect(backend.terminateDagRun).toHaveBeenCalledWith({
+    dagKey: 'daily-brief',
+    runKey: 'run-active',
+    reason: 'user_requested',
+  }));
+  expect(await screen.findByText('已停止运行')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('ignores the malformed delete response body after deleting a DAG', async () => {
+  mockWorkflowDag();
+  backend.getDashboardPage
+    .mockResolvedValueOnce({ dags: [{ dag_key: 'daily-brief', title: 'Daily Brief', status: 'ready', trigger: 'manual', version: 7 }] })
+    .mockResolvedValue({ dags: [] });
+  backend.deleteDag.mockResolvedValue({ malformed: ['ignored-response-body'] });
+
+  renderWorkflowPage();
+  fireEvent.click(await screen.findByRole('button', { name: '删除' }));
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+
+  await waitFor(() => expect(backend.deleteDag).toHaveBeenCalledWith({ dagKey: 'daily-brief' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除自动化' })).not.toBeInTheDocument());
+  expect(await screen.findByText('创建首个自动化')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps one run intent pending when startDag outlives the former timeout', async () => {
+  mockWorkflowDag();
+  const pendingStart = deferred();
+  backend.startDag.mockReturnValue(pendingStart.promise);
 
   renderWorkflowPage();
 
@@ -277,15 +406,77 @@ it('restores the run action and shows an error when startDag times out', async (
   fireEvent.click(runButton);
 
   expect(screen.getByRole('button', { name: '启动中...' })).toBeDisabled();
+  expect(backend.startDag).toHaveBeenCalledTimes(1);
+  const idempotencyKeys = backend.startDag.mock.calls.map(([payload]) => payload.idempotencyKey);
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(8000);
   });
 
+  const pendingRunButton = screen.getByRole('button', { name: '启动中...' });
+  expect(pendingRunButton).toBeDisabled();
+  fireEvent.click(pendingRunButton);
+  expect(backend.startDag).toHaveBeenCalledTimes(1);
+  expect(idempotencyKeys).toHaveLength(1);
+
+  vi.useRealTimers();
+  await act(async () => {
+    pendingStart.resolve({ run_key: 'run-deferred' });
+    await pendingStart.promise;
+  });
+
+  expect(await screen.findByText('已启动自动化')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '运行' })).not.toBeDisabled();
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    '启动自动化失败：自动化操作超时，请检查任务数据或后端状态。',
-  );
+});
+
+it('reuses the run intent key when an uncertain transport failure is retried explicitly', async () => {
+  mockWorkflowDag();
+  const deliveredRuns = new Map();
+  backend.startDag.mockImplementation(({ idempotencyKey }) => {
+    if (deliveredRuns.size === 0) {
+      deliveredRuns.set(idempotencyKey, { run_key: 'run-created-before-disconnect', execution_state: 'running' });
+      return Promise.reject(new Error('transport disconnected after request delivery'));
+    }
+    const existingRun = deliveredRuns.get(idempotencyKey);
+    return existingRun
+      ? Promise.resolve(existingRun)
+      : Promise.reject(new Error('duplicate run would be created with a different idempotency key'));
+  });
+
+  renderWorkflowPage();
+
+  fireEvent.click(await screen.findByRole('button', { name: '运行' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('transport disconnected after request delivery');
+
+  fireEvent.click(screen.getByRole('button', { name: '运行' }));
+
+  expect(await screen.findByText('已启动自动化')).toBeInTheDocument();
+  expect(backend.startDag).toHaveBeenCalledTimes(2);
+  const [firstPayload, retryPayload] = backend.startDag.mock.calls.map(([payload]) => payload);
+  expect(retryPayload.idempotencyKey).toBe(firstPayload.idempotencyKey);
+  expect(retryPayload.idempotencyKey).toMatch(/^ui-/);
+  expect(deliveredRuns.get(retryPayload.idempotencyKey)?.run_key).toBe('run-created-before-disconnect');
+});
+
+it('rotates the run intent key after the backend reports idempotency exhaustion', async () => {
+  mockWorkflowDag();
+  backend.startDag
+    .mockRejectedValueOnce(new Error(
+      'idempotency key exhausted: previous run is in terminal state, use a new key to retry (run_key=run-failed, status=failed)',
+    ))
+    .mockResolvedValueOnce({ run_key: 'run-after-exhaustion', execution_state: 'running' });
+
+  renderWorkflowPage();
+
+  fireEvent.click(await screen.findByRole('button', { name: '运行' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('idempotency key exhausted:');
+  const firstKey = backend.startDag.mock.calls[0][0].idempotencyKey;
+
+  fireEvent.click(screen.getByRole('button', { name: '运行' }));
+
+  expect(await screen.findByText('已启动自动化')).toBeInTheDocument();
+  expect(backend.startDag).toHaveBeenCalledTimes(2);
+  expect(backend.startDag.mock.calls[1][0].idempotencyKey).not.toBe(firstKey);
 });
 
 it('formats the active run row time as a readable date and time', async () => {

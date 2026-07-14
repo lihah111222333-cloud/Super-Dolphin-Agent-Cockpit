@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { assertPreferenceResponseShape } from '../../shared/api/preferenceResponseGuards.js';
 import { PromptPageView } from './PromptPageView.jsx';
 
 const backend = vi.hoisted(() => ({
@@ -24,7 +25,15 @@ const backend = vi.hoisted(() => ({
   deletePromptSection: vi.fn(),
 }));
 
-vi.mock('../../pages/prompts/services/promptPageService.js', () => backend);
+const validatedPreferenceReader = vi.hoisted(() => vi.fn());
+
+vi.mock('../../pages/prompts/services/promptPageService.js', () => ({
+  ...backend,
+  getPreference: validatedPreferenceReader,
+}));
+vi.mock('../../shared/api/backendApi.js', () => ({
+  getPreference: backend.getPreference,
+}));
 
 function renderPromptPage(props = {}) {
   const queryClient = new QueryClient({
@@ -52,8 +61,10 @@ function mockPromptList() {
         description: '审查代码质量',
         when_to_use: '用户要求代码审查时使用',
         content: '先检查阻塞问题',
-        agent_key: 'coder',
-        tags: ['review'],
+        agentType: 'coder',
+        createdAt: '2026-07-11T00:00:00Z',
+        updatedAt: '2026-07-11T00:00:00Z',
+        tags: ['intent:expert', 'review'],
         enabled: true,
         scope: 'project',
         priority: 5,
@@ -84,6 +95,10 @@ function mockPendingDraftPrompt(overrides = {}) {
         name,
         description: overrides.description || '',
         content,
+        agentType: 'main',
+        when_to_use: '',
+        createdAt: '2026-07-11T00:00:00Z',
+        updatedAt: '2026-07-11T00:00:00Z',
         draft_key: overrides.draftKey || 'intent/expert/review',
         draft_status: overrides.status || 'ready_to_save',
         state: 'pending_confirm',
@@ -104,6 +119,52 @@ function mockPendingDraftPrompt(overrides = {}) {
   });
 }
 
+function canonicalPromptWireItem(overrides = {}) {
+  return {
+    id: 'main/canonical-wire',
+    name: '规范提示词',
+    content: '严格解析',
+    description: '完整后端 wire shape',
+    agentType: 'coder',
+    when_to_use: '验证响应契约时',
+    createdAt: '2026-07-11T00:00:00Z',
+    updatedAt: '2026-07-11T00:00:00Z',
+    enabled: true,
+    scope: 'project',
+    tags: ['intent:expert'],
+    ...overrides,
+  };
+}
+
+function dashboardPromptWireItem(overrides = {}) {
+  return {
+    id: 17,
+    prompt_key: 'legacy/prompt',
+    title: '旧提示词',
+    agent_key: 'main',
+    tool_name: '',
+    prompt_text: 'legacy readonly data',
+    when_to_use: '',
+    variables: {},
+    tags: ['intent:expert', 'scope.cwd:/repo/app'],
+    enabled: true,
+    manually_edited: false,
+    priority: 0,
+    created_by: '',
+    updated_by: '',
+    created_at: '2026-07-11T00:00:00Z',
+    updated_at: '2026-07-11T00:00:00Z',
+    description: '',
+    ...overrides,
+  };
+}
+
+function promptItemWithout(field) {
+  const item = canonicalPromptWireItem();
+  delete item[field];
+  return item;
+}
+
 async function openPendingDraftWizard(overrides) {
   mockPendingDraftPrompt(overrides);
   renderPromptPage();
@@ -114,6 +175,11 @@ async function openPendingDraftWizard(overrides) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockPromptList();
+  validatedPreferenceReader.mockImplementation(async (payload) => {
+    const value = await backend.getPreference(payload);
+    assertPreferenceResponseShape(payload.key, value);
+    return value;
+  });
 });
 
 afterEach(() => {
@@ -154,10 +220,10 @@ describe('PromptPageView module', () => {
   it('loads and saves personalization profile', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
-        { id: 'main/role', name: '代码审查专家', tags: ['intent:expert'], content: 'review', scope: 'project' },
-        { id: 'recall/vue', name: 'Vue 规范', tags: ['intent:recall'], content: 'vue', scope: 'project' },
-        { id: 'rule/default', name: '默认规则', tags: ['intent:default_rule'], content: 'rule', scope: 'global' },
-        { id: 'draft/profile', name: '待确认角色', draft_key: 'draft-profile', draft_status: 'ready_to_save', tags: ['intent:expert'], content: 'draft', scope: 'project' },
+        canonicalPromptWireItem({ id: 'main/role', name: '代码审查专家', tags: ['intent:expert'], content: 'review' }),
+        canonicalPromptWireItem({ id: 'recall/vue', name: 'Vue 规范', tags: ['intent:recall'], content: 'vue' }),
+        canonicalPromptWireItem({ id: 'rule/default', name: '默认规则', agentType: 'default_rule', tags: ['intent:default_rule'], content: 'rule', scope: 'global' }),
+        canonicalPromptWireItem({ id: 'draft/profile', name: '待确认角色', draft_key: 'draft-profile', draft_status: 'ready_to_save', state: 'pending_confirm', tags: ['intent:expert'], content: 'draft', enabled: false }),
       ],
     });
     backend.getPersonalizationProfile.mockResolvedValue({
@@ -212,6 +278,21 @@ describe('PromptPageView module', () => {
     expect(await screen.findByText('个人资料已保存')).toBeInTheDocument();
   });
 
+  it('does not publish profile success after save response validation rejects', async () => {
+    backend.savePersonalizationProfile.mockRejectedValueOnce(new TypeError(
+      'ui/personalization/profile/save response personalization profile response.profile.background Expected string, received array',
+    ));
+
+    renderPromptPage();
+
+    const overview = await screen.findByLabelText('个性化概览');
+    fireEvent.change(within(overview).getByLabelText('职业'), { target: { value: '架构师' } });
+    fireEvent.click(within(overview).getByRole('button', { name: '保存个人资料' }));
+
+    expect(await screen.findByText(/ui\/personalization\/profile\/save/)).toBeInTheDocument();
+    expect(screen.queryByText('个人资料已保存')).not.toBeInTheDocument();
+  });
+
   it('opens the recall wizard from the import memory action', async () => {
     renderPromptPage();
 
@@ -237,6 +318,15 @@ describe('PromptPageView module', () => {
 });
 
 describe('PromptPageView backend wiring', () => {
+  it('surfaces a malformed active prompt preference instead of coercing it to empty', async () => {
+    backend.getPreference.mockResolvedValue(42);
+
+    renderPromptPage();
+
+    expect(await screen.findByText(/invalid UI preference response for settings.activePromptKey/)).toBeInTheDocument();
+    expect(screen.queryByText('main/reviewer')).not.toBeInTheDocument();
+  });
+
   it('loads prompt assets for the dashboard and saves edits with the backend payload shape', async () => {
     renderPromptPage();
 
@@ -273,6 +363,33 @@ describe('PromptPageView backend wiring', () => {
     expect(await screen.findByText('提示词已保存：审查提示词')).toBeInTheDocument();
   });
 
+  it('blocks saving an empty agent type instead of defaulting it to main', async () => {
+    window.__SUPER_DOLPHIN_PROMPT_DEBUG__ = true;
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    fireEvent.change(within(editor).getByRole('textbox', { name: 'Agent Key' }), {
+      target: { value: '' },
+    });
+    fireEvent.click(within(editor).getByRole('button', { name: '保存' }));
+
+    expect(await within(editor).findByText('请填写 Agent Key')).toBeInTheDocument();
+    expect(backend.writePrompt).not.toHaveBeenCalled();
+    delete window.__SUPER_DOLPHIN_PROMPT_DEBUG__;
+  });
+
+  it('does not write back priority zero when the canonical item omits priority', async () => {
+    backend.listPromptAssets.mockResolvedValue({
+      prompts: [promptItemWithout('priority')],
+    });
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(backend.writePrompt).toHaveBeenCalledTimes(1));
+    expect(backend.writePrompt.mock.calls[0][0]).not.toHaveProperty('priority');
+  });
+
   it('exposes editor scope as radios and saves the selected scope', async () => {
     renderPromptPage();
     fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
@@ -300,7 +417,7 @@ describe('PromptPageView backend wiring', () => {
   it('shows created, started, and disabled prompt lifecycle states', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
-        {
+        canonicalPromptWireItem({
           id: 'main/created',
           name: '已创建助手',
           description: '尚未强制使用',
@@ -308,8 +425,8 @@ describe('PromptPageView backend wiring', () => {
           tags: ['intent:expert'],
           enabled: true,
           scope: 'project',
-        },
-        {
+        }),
+        canonicalPromptWireItem({
           id: 'main/started',
           name: '已启动助手',
           description: '当前强制使用',
@@ -317,8 +434,8 @@ describe('PromptPageView backend wiring', () => {
           tags: ['intent:expert'],
           enabled: true,
           scope: 'project',
-        },
-        {
+        }),
+        canonicalPromptWireItem({
           id: 'main/stopped',
           name: '已停用助手',
           description: '已经停用',
@@ -326,7 +443,7 @@ describe('PromptPageView backend wiring', () => {
           tags: ['intent:expert'],
           enabled: false,
           scope: 'project',
-        },
+        }),
       ],
     });
     backend.getPreference.mockResolvedValue('main/started');
@@ -355,12 +472,7 @@ describe('PromptPageView backend wiring', () => {
     missingMethodError.code = -32601;
     backend.listPromptAssets.mockRejectedValueOnce(missingMethodError);
     backend.getDashboardPrompts.mockResolvedValueOnce({
-      prompts: [{
-        id: 'legacy/prompt',
-        name: '旧提示词',
-        content: 'legacy readonly data',
-        tags: ['intent:expert'],
-      }],
+      prompts: [dashboardPromptWireItem()],
     });
 
     renderPromptPage();
@@ -381,6 +493,125 @@ describe('PromptPageView backend wiring', () => {
     expect(screen.queryByText(/只读模式/)).not.toBeInTheDocument();
   });
 
+  it('does not publish prompt assets after the public RPC validator rejects a nested field', async () => {
+    backend.listPromptAssets.mockRejectedValueOnce(new TypeError(
+      'ui/prompt-assets/list response prompt assets response.prompts[0].enabled Expected boolean, received string',
+    ));
+
+    renderPromptPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('ui/prompt-assets/list');
+    expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
+    expect(backend.getDashboardPrompts).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['empty item', {}],
+    ...['content', 'description', 'agentType', 'when_to_use', 'createdAt', 'updatedAt']
+      .map((field) => [`missing stable ${field}`, promptItemWithout(field)]),
+    ['missing id', {
+      name: '缺少 ID',
+      content: '不能启动',
+      description: '',
+      agentType: 'coder',
+      when_to_use: '测试时',
+      createdAt: '2026-07-11T00:00:00Z',
+      updatedAt: '2026-07-11T00:00:00Z',
+      enabled: true,
+      scope: 'project',
+      tags: ['intent:expert'],
+      priority: 1,
+    }],
+    ['string boolean', {
+      id: 'main/string-boolean',
+      name: '错误布尔值',
+      content: '不能启动',
+      description: '',
+      agentType: 'coder',
+      when_to_use: '测试时',
+      createdAt: '2026-07-11T00:00:00Z',
+      updatedAt: '2026-07-11T00:00:00Z',
+      enabled: 'false',
+      scope: 'project',
+      tags: ['intent:expert'],
+      priority: 1,
+    }],
+    ['unknown scope', {
+      id: 'main/unknown-scope',
+      name: '错误范围',
+      content: '不能启动',
+      description: '',
+      agentType: 'coder',
+      when_to_use: '测试时',
+      createdAt: '2026-07-11T00:00:00Z',
+      updatedAt: '2026-07-11T00:00:00Z',
+      enabled: true,
+      scope: 'workspace',
+      tags: ['intent:expert'],
+      priority: 1,
+    }],
+    ['unknown prompt kind', {
+      id: 'main/unknown-kind',
+      name: '错误类别',
+      content: '不能启动',
+      description: '',
+      agentType: 'coder',
+      when_to_use: '测试时',
+      createdAt: '2026-07-11T00:00:00Z',
+      updatedAt: '2026-07-11T00:00:00Z',
+      enabled: true,
+      scope: 'project',
+      tags: ['intent:unknown'],
+      priority: 1,
+    }],
+    ['missing required name', {
+      id: 'main/missing-name',
+      content: '不能启动',
+      description: '',
+      agentType: 'coder',
+      when_to_use: '测试时',
+      createdAt: '2026-07-11T00:00:00Z',
+      updatedAt: '2026-07-11T00:00:00Z',
+      enabled: true,
+      scope: 'project',
+      tags: ['intent:expert'],
+      priority: 1,
+    }],
+  ])('rejects a malformed prompt item: %s', async (_label, item) => {
+    backend.listPromptAssets.mockResolvedValueOnce({ prompts: [item] });
+
+    renderPromptPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('加载提示词失败');
+    expect(screen.queryByText(item.name || '未命名')).not.toBeInTheDocument();
+    expect(screen.queryByRole('article')).not.toBeInTheDocument();
+    expect(backend.getDashboardPrompts).not.toHaveBeenCalled();
+  });
+
+  it('renders a canonical prompt-assets/list item', async () => {
+    backend.listPromptAssets.mockResolvedValueOnce({
+      prompts: [{
+        id: 'main/canonical',
+        name: '规范提示词',
+        content: '严格解析',
+        description: '完整后端 wire shape',
+        agentType: 'coder',
+        when_to_use: '验证响应契约时',
+        createdAt: '2026-07-11T00:00:00Z',
+        updatedAt: '2026-07-11T00:00:00Z',
+        enabled: true,
+        scope: 'project',
+        tags: ['intent:expert', 'contract'],
+        priority: 3,
+      }],
+    });
+
+    renderPromptPage();
+
+    expect(await screen.findByText('规范提示词')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('shows sync failure when readonly fallback dashboard prompts are malformed after fallback is selected', async () => {
     const missingMethodError = new Error('method not found');
     missingMethodError.code = -32601;
@@ -389,14 +620,9 @@ describe('PromptPageView backend wiring', () => {
       .mockRejectedValueOnce(missingMethodError);
     backend.getDashboardPrompts
       .mockResolvedValueOnce({
-        prompts: [{
-          id: 'legacy/prompt',
-          name: '旧提示词',
-          content: 'legacy readonly data',
-          tags: ['intent:expert'],
-        }],
+        prompts: [dashboardPromptWireItem()],
       })
-      .mockResolvedValueOnce({ prompts: {} });
+      .mockResolvedValueOnce({ prompts: [dashboardPromptWireItem({ id: '17' })] });
 
     renderPromptPage();
 
@@ -429,7 +655,14 @@ describe('PromptPageView backend wiring', () => {
         id: 'main/reviewer',
         name: '代码审查专家',
         content: '先检查阻塞问题',
-        tags: ['review'],
+        description: '',
+        agentType: 'main',
+        when_to_use: '',
+        createdAt: '2026-07-11T00:00:00Z',
+        updatedAt: '2026-07-11T00:00:00Z',
+        tags: ['intent:expert', 'review'],
+        enabled: true,
+        scope: 'project',
         match_when: { language: 'zh' },
       }],
     });
@@ -484,7 +717,6 @@ describe('PromptPageView backend wiring', () => {
 
     await openPendingDraftWizard({
       draftKey: 'intent/expert/review',
-      status: 'review',
       name: '代码审查专家',
       content: '先检查阻塞问题',
     });
@@ -574,6 +806,20 @@ describe('PromptPageView backend wiring', () => {
       expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
     });
     expect(await screen.findByText('已保存，可在新对话中被 AI 发现和使用')).toBeInTheDocument();
+  });
+
+  it('keeps a prompt intent draft open when commit response validation rejects', async () => {
+    backend.commitPromptIntent.mockRejectedValueOnce(new TypeError(
+      'ui/prompt-intents/commit response prompt intent commit response.prompt_key Expected string, received number',
+    ));
+
+    await openPendingDraftWizard({ draftKey: 'intent/expert/malformed-commit' });
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+
+    const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+    expect(await within(wizard).findByText(/ui\/prompt-intents\/commit/)).toBeInTheDocument();
+    expect(within(wizard).getByRole('button', { name: '确认保存' })).toBeEnabled();
+    expect(screen.queryByText('已保存，可在新对话中被 AI 发现和使用')).not.toBeInTheDocument();
   });
 
   it('requires explicit review confirmation before saving risky prompt intent drafts', async () => {

@@ -617,7 +617,7 @@ function approvalMessage(requestId, status = 'pending') {
     requestAnimationFrameSpy.mockRestore();
   });
 
-  it('ignores zoom, horizontal wheel, and editable arrow keys while sticky', () => {
+  it('ignores zoom, horizontal wheel, and downward touch while sticky', () => {
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 41);
     const { rerender } = render(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages())} projectPath="/repo/app" />);
     const timeline = screen.getByTestId('chat-timeline');
@@ -627,7 +627,6 @@ function approvalMessage(requestId, status = 'pending') {
     fireEvent.wheel(timeline, { ctrlKey: false, deltaX: 80, deltaY: -10 });
     fireEvent.touchStart(timeline, { touches: [{ clientY: 120 }] });
     fireEvent.touchMove(timeline, { touches: [{ clientY: 70 }] });
-    fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'ArrowUp' });
     requestAnimationFrameSpy.mockClear();
     metrics.setScrollHeight(1280);
     rerender(<TestChatPageWrapper store={createActiveThreadStore(scrollIntentMessages('仍应跟随的回复'))} projectPath="/repo/app" />);

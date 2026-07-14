@@ -455,8 +455,33 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('invalid provider preference: bad-provider');
+    expect(await screen.findByRole('alert')).toHaveTextContent('invalid UI preference response for settings.provider.active');
     expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
+  });
+
+  it.each([
+    ['stallThresholdSec', 29, '统一超时阈值', 30],
+    ['contextUsageAlerts.thresholds', [70, 70, 95], 'Warn 阈值', 70],
+    ['settings.provider.codex.effort', 'max', 'Provider Effort', 'xhigh'],
+    ['settings.provider.codex.sandbox', { type: 'workspaceWrite', writableRoots: 'bad', networkAccess: 'yes' }, 'Sandbox Policy', 'workspaceWrite'],
+  ])('rejects malformed %s without applying a fallback value', async (key, value, controlName, defaultValue) => {
+    const preferences = preferenceFixture({ [key]: value });
+    backend.getPreference.mockImplementation(({ key: requestedKey }) => Promise.resolve(preferences[requestedKey] ?? null));
+
+    renderSettingsPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(`invalid UI preference response for ${key}`);
+    expect(screen.getByLabelText(controlName)).toHaveValue(defaultValue);
+  });
+
+  it('rejects a string boolean preference without toggling prompt visibility', async () => {
+    const preferences = preferenceFixture({ 'settings.showInjectedPromptInChat': 'true' });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    renderSettingsPage();
+
+    expect(await screen.findByText(/invalid UI preference response for settings.showInjectedPromptInChat/)).toBeInTheDocument();
+    expect(screen.getByTestId('settings-show-injected-toggle-input')).not.toBeChecked();
   });
 
   it('keeps active provider selection codex-only', async () => {
@@ -621,7 +646,7 @@ describe('SettingsPage provider migration', () => {
     renderSettingsPage();
 
     const activeProvider = await screen.findByRole('combobox', { name: 'Active Provider' });
-    expect(await screen.findByRole('alert')).toHaveTextContent('settings.provider.active: unsupported provider preference "claude"; current desktop UI supports codex only');
+    expect(await screen.findByRole('alert')).toHaveTextContent('invalid UI preference response for settings.provider.active');
     expect(activeProvider).toHaveValue('codex');
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.active',

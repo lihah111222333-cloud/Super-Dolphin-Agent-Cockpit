@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { createPromptPageService } from './promptPageService.js';
+import { createBackendApi, RPC_METHODS } from '../../../shared/api/backendApi.js';
+import { createPromptPageService, promptPageService } from './promptPageService.js';
+
+const validatedPreferenceReader = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../shared/api/preferenceResponseGuards.js', () => ({
+  getValidatedPreference: validatedPreferenceReader,
+}));
 
 function createApi() {
   return {
@@ -24,6 +31,24 @@ function createApi() {
 }
 
 describe('promptPageService', () => {
+  it('delegates default preference reads to the validated reader', async () => {
+    validatedPreferenceReader.mockReset();
+    validatedPreferenceReader.mockRejectedValueOnce(
+      new Error('invalid UI preference response for settings.activePromptKey'),
+    );
+
+    await expect(promptPageService.getPreference({
+      cwd: '/repo/app',
+      key: 'settings.activePromptKey',
+    })).rejects.toThrow('invalid UI preference response for settings.activePromptKey');
+
+    expect(validatedPreferenceReader).toHaveBeenCalledOnce();
+    expect(validatedPreferenceReader).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      key: 'settings.activePromptKey',
+    });
+  });
+
   it('forwards prompt list, detail, update, and preference request shapes', async () => {
     const api = createApi();
     const service = createPromptPageService(api);
@@ -173,5 +198,28 @@ describe('promptPageService', () => {
 
     expect(source).toContain("from '../../pages/prompts/services/promptPageService.js'");
     expect(source).not.toContain('shared/api/backendApi.js');
+  });
+
+  it('rejects malformed prompt and profile RPC responses at the public boundary', async () => {
+    const cases = [
+      [RPC_METHODS.PROMPT_ASSETS_LIST, { prompts: [{ id: 'main/reviewer', name: 'Reviewer' }] }, (service) => service.listPromptAssets({ cwd: '/repo/app' })],
+      [RPC_METHODS.DASHBOARD_PROMPTS, { prompts: [{ id: '17' }] }, (service) => service.getDashboardPrompts({ cwd: '/repo/app' })],
+      [RPC_METHODS.PROMPTS_GET, { prompt: { id: 'main/reviewer', enabled: 'yes' } }, (service) => service.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' })],
+      [RPC_METHODS.PROMPTS_WRITE, { prompt: { id: 'main/reviewer', enabled: 'yes' } }, (service) => service.writePrompt({ cwd: '/repo/app', id: 'main/reviewer', name: 'Reviewer', content: 'Review' })],
+      [RPC_METHODS.PROMPTS_DELETE, { ok: false }, (service) => service.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer', scope: 'project' })],
+      [RPC_METHODS.PROMPT_INTENTS_DRAFT, { requested_kind: 'expert', inferred_kind: 'expert', drafts: {} }, (service) => service.draftPromptIntent({ cwd: '/repo/app', kind: 'expert', rawInput: 'review' })],
+      [RPC_METHODS.PROMPT_INTENTS_COMMIT, { draft_key: 'draft-1', prompt_key: 7, kind: 'expert', status: 'enabled' }, (service) => service.commitPromptIntent({ cwd: '/repo/app', draftKey: 'draft-1' })],
+      [RPC_METHODS.PROMPT_INTENTS_DISCARD, { draft_key: 'draft-1', status: 7 }, (service) => service.discardPromptIntent({ cwd: '/repo/app', draftKey: 'draft-1' })],
+      [RPC_METHODS.PROMPT_INTENTS_DRY_RUN, { would_use: true, action: 'prompt_recall', reasons: 'matched', disclaimer: '' }, (service) => service.dryRunPromptIntent({ cwd: '/repo/app', draftKey: 'draft-1', question: 'review?' })],
+      [RPC_METHODS.PERSONALIZATION_PROFILE_GET, { profile: { displayName: '', role: '', background: [], customInstructions: '' } }, (service) => service.getPersonalizationProfile({ cwd: '/repo/app' })],
+      [RPC_METHODS.PERSONALIZATION_PROFILE_SAVE, { profile: { displayName: '', role: '', background: [], customInstructions: '' } }, (service) => service.savePersonalizationProfile({ cwd: '/repo/app', profile: { displayName: '', role: '', background: '', customInstructions: '' } })],
+    ];
+
+    for (const [method, response, invoke] of cases) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const service = createPromptPageService(createBackendApi({ callAPI }));
+      await expect(invoke(service)).rejects.toThrow(method);
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
   });
 });

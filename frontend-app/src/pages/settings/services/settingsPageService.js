@@ -3,7 +3,6 @@ import {
   checkAppUpdate as checkAppUpdateBackend,
   copyTextToClipboard as copyTextToClipboardBackend,
   getBuildInfo as getBuildInfoBackend,
-  getPreference as getPreferenceBackend,
   getVideoApiKey as getVideoApiKeyBackend,
   installLatestAppUpdate as installLatestAppUpdateBackend,
   listDashboardLogs as listDashboardLogsBackend,
@@ -17,13 +16,14 @@ import {
   writeBuiltinTool as writeBuiltinToolBackend,
   writeLspPromptHint as writeLspPromptHintRpc,
 } from '../../../shared/api/backendApi.js';
+import { getValidatedPreference } from '../../../shared/api/preferenceResponseGuards.js';
 
 const settingsPageService = Object.freeze({
   applyModelProvider: (payload) => applyModelProviderBackend(payload),
   checkAppUpdate: (payload) => checkAppUpdateBackend(payload),
   copyTextToClipboard: (text) => copyTextToClipboardBackend(text),
   getBuildInfo: (payload) => getBuildInfoBackend(payload),
-  getPreference: (payload) => getPreferenceBackend(payload),
+  getPreference: (payload, options) => getValidatedPreference(payload, options),
   getVideoApiKey: (payload) => getVideoApiKeyBackend(payload),
   installLatestAppUpdate: (payload) => installLatestAppUpdateBackend(payload),
   listDashboardLogs: (payload) => listDashboardLogsBackend(payload),

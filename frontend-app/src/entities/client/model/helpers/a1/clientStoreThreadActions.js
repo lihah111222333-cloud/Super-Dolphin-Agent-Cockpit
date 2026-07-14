@@ -123,7 +123,7 @@ async function runDashboardCommandAction(runtime, card) {
   let threadId = request.previousThreadId;
   try {
     if (!threadId) {
-      const started = await startNewDraftThread(request, (launchCwd) => resolveLaunchPreferences(launchCwd, runtime.addWarning));
+      const started = await startNewDraftThread(request, (launchCwd) => resolveLaunchPreferences(launchCwd, runtime.addWarning, runtime.getPreference));
       threadId = started.threadId;
       runtime.set((state) => promotedDashboardCommandState(state, request, started));
     }
@@ -186,11 +186,6 @@ function approvalSubmitIsInFlight(runtime, requestId) {
   return runtime.get().approvalSubmitByRequestId?.[requestId]?.inFlight === true;
 }
 
-function warnApprovalNotPending(runtime, requestId, decision) {
-  runtime.notifyAction('审批请求已不再等待处理', 'warning', { requestId });
-  runtime.addWarning('warn', 'timeline.approval.respond_not_pending', { requestId, approved: decision });
-}
-
 function warnApprovalFailed(runtime, requestId, decision, error) {
   const message = error?.message || String(error);
   runtime.notifyAction(`审批提交失败：${message}`, 'error', { requestId });
@@ -199,11 +194,20 @@ function warnApprovalFailed(runtime, requestId, decision, error) {
 
 async function respondApprovalAction(runtime, deps, item, approved) {
   const requestId = positiveApprovalRequestIdFromFields(item);
-  const decision = Boolean(approved);
   if (requestId <= 0) {
     warnMissingApprovalRequest(runtime, item);
     return false;
   }
+  if (typeof approved !== 'boolean') {
+    warnApprovalFailed(
+      runtime,
+      requestId,
+      undefined,
+      new TypeError('approval decision must be a boolean'),
+    );
+    return false;
+  }
+  const decision = approved;
   if (approvalSubmitIsInFlight(runtime, requestId)) {
     warnDuplicateApprovalSubmit(runtime, requestId, decision);
     return false;
@@ -212,10 +216,8 @@ async function respondApprovalAction(runtime, deps, item, approved) {
   runtime.set((state) => approvalSubmitPatch(state, requestId, decision));
   try {
     const result = await respondApprovalWithinTimeout({ requestId, approved: decision });
-    if (result?.ok === false) {
-      deps.recordApproval('failure');
-      warnApprovalNotPending(runtime, requestId, decision);
-      return false;
+    if (result !== null) {
+      throw new TypeError('approval/respond response must be null');
     }
     deps.recordApproval('success');
     runtime.notifyAction('审批结果已提交', 'success', { requestId });

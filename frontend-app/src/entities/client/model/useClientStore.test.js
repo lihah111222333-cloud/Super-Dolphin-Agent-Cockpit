@@ -167,7 +167,7 @@ function registerBridgeEventHandlersForTest() {
     backend.archiveThread.mockResolvedValue({ ok: true });
     backend.unarchiveThread.mockResolvedValue({ ok: true });
     backend.forceCompleteTurn.mockResolvedValue({ confirmed: true });
-    backend.respondApproval.mockResolvedValue({ ok: true });
+    backend.respondApproval.mockResolvedValue(null);
     backend.deleteThread.mockResolvedValue({ ok: true });
     backend.getThreadConfig.mockResolvedValue({
       threadId: 'thread-1',
@@ -365,10 +365,10 @@ function registerBridgeEventHandlersForTest() {
     expect(runtimeReconnectCallback).toEqual(expect.any(Function));
 
     runtimeReconnectCallback();
-    await flushPromises();
-
-    expect(backend.readConfig).toHaveBeenCalledTimes(2);
-    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    await vi.waitFor(() => {
+      expect(backend.readConfig).toHaveBeenCalledTimes(2);
+      expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    });
     expect(useClientStore.getState().activeProject).toBe('/repo/app');
   });
 
@@ -2644,18 +2644,12 @@ function registerBridgeEventHandlersForTest() {
     backend.startThread.mockResolvedValue({ threadId: 'thread-should-not-start' });
 
     await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
-      'startThread: unsupported provider preference "claude"; current desktop UI supports codex only',
+      'invalid UI preference response for settings.provider.active',
     );
 
     expect(backend.startThread).not.toHaveBeenCalled();
     expect(backend.startTurn).not.toHaveBeenCalled();
-    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        level: 'error',
-        event: 'provider.unsupported',
-        fields: { provider: 'claude', reason: 'startThread' },
-      }),
-    ]));
+    expect(useClientStore.getState().draft).toBe('Do not silently remap provider');
   });
 
   it('includes default Codex identity preferences in thread/start launch payload', async () => {
@@ -2872,7 +2866,7 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
-  it('canonicalizes object-shaped provider preferences before thread/start', async () => {
+  it('rejects object-shaped provider preferences before thread/start', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -2896,24 +2890,36 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.personality': 'pragmatic',
       'settings.provider.codex.summary': 'concise',
     }[key] ?? null));
-    backend.startThread.mockResolvedValue({ threadId: 'thread-object-prefs' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'invalid UI preference response for settings.provider.active',
+    );
 
-    await useClientStore.getState().sendDraft();
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().draft).toBe('Use object prefs');
+  });
 
-    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      modelProvider: 'codex',
-      model: 'gpt-5.5',
-      effort: 'medium',
-      sandbox: {
-        type: 'workspaceWrite',
-        writableRoots: ['/repo/app'],
-        networkAccess: false,
-      },
-      approvalPolicy: 'never',
-      personality: 'pragmatic',
-      summary: 'concise',
-    }));
+  it('rejects object-shaped provider preferences before thread/start without partial launch', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Reject object prefs',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': { value: 'gpt-5.5', label: 'GPT' },
+      'settings.provider.codex.effort': 'medium',
+    }[key] ?? null));
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'invalid UI preference response for settings.provider.codex.model',
+    );
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().draft).toBe('Reject object prefs');
   });
 
   it('starts a selected Codex provider thread instead of sending into a failed active session', async () => {
@@ -6584,6 +6590,31 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('rejects malformed approval responses without publishing success', async () => {
+    for (const response of [{ ok: false }, { ok: true }, undefined]) {
+      backend.respondApproval.mockResolvedValueOnce(response);
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+      });
+
+      await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true))
+        .resolves.toBe(false);
+
+      expect(useClientStore.getState().actionNotice).not.toEqual(expect.objectContaining({
+        message: '审批结果已提交',
+        tone: 'success',
+      }));
+      expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
+        level: 'error',
+        event: 'timeline.approval.respond.failed',
+      }));
+      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+    }
+  });
+
   it('rejects malformed timeline approval request ids before calling the approval RPC', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -6601,6 +6632,41 @@ function registerBridgeEventHandlersForTest() {
       tone: 'error',
     }));
     expect(diagnosticBreadcrumbs()).toEqual([]);
+  });
+
+  it.each([
+    { label: 'false string', approved: 'false' },
+    { label: 'true string', approved: 'true' },
+    { label: 'number', approved: 1 },
+    { label: 'null', approved: null },
+    { label: 'undefined', approved: undefined },
+    { label: 'object', approved: { value: true } },
+  ])('rejects a non-boolean approval decision: $label', async ({ approved }) => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+
+    await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, approved))
+      .resolves.toBe(false);
+
+    expect(backend.respondApproval).not.toHaveBeenCalled();
+    expect(diagnosticBreadcrumbs()).toEqual([]);
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '审批提交失败：approval decision must be a boolean',
+      tone: 'error',
+    }));
+    expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
+      level: 'error',
+      event: 'timeline.approval.respond.failed',
+      fields: expect.objectContaining({
+        requestId: 11,
+        error: '[redacted]',
+      }),
+    }));
+    expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
   });
 
   it('keeps approval RPC submission idempotent per request id while in flight', async () => {
@@ -6626,7 +6692,7 @@ function registerBridgeEventHandlersForTest() {
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
     ]);
 
-    pendingApproval.resolve({ ok: true });
+    pendingApproval.resolve(null);
     await expect(first).resolves.toBe(true);
     expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
     expect(diagnosticBreadcrumbs()).toEqual([
@@ -6635,7 +6701,7 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
-  it('records not-pending and ordinary approval failures as one failed terminal without private fields', async () => {
+  it('records malformed and ordinary approval failures as one failed terminal without private fields', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -6703,14 +6769,14 @@ function registerBridgeEventHandlersForTest() {
         inFlight: true,
       }));
 
-      firstApproval.resolve({ ok: true });
+      firstApproval.resolve(null);
       await flushPromises();
       expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
         approved: true,
         inFlight: true,
       }));
 
-      secondApproval.resolve({ ok: true });
+      secondApproval.resolve(null);
       await expect(second).resolves.toBe(true);
       await firstHandled;
       expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();

@@ -4,6 +4,171 @@ const memorySectionSchema = z.object({
   entries: z.array(z.unknown()),
 }).passthrough();
 const modelProviderVendorSchema = z.object({}).passthrough();
+const wireTimestampSchema = z.string().datetime({ offset: true });
+const jsonValueSchema = z.lazy(() => z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+  z.array(jsonValueSchema),
+  z.record(z.string(), jsonValueSchema),
+]));
+const promptIntentKindSchema = z.enum(['expert', 'recall', 'default_rule']);
+
+const memoryEntryDetailResponseSchema = z.object({
+  target: z.enum(['private', 'team']).optional(),
+  path: z.string().optional(),
+  name: z.string(),
+  description: z.string().optional(),
+  type: z.string().optional(),
+  content: z.string().optional(),
+  title: z.string().optional(),
+  updatedAt: wireTimestampSchema.optional(),
+}).strict();
+const memoryEntryDeleteResponseSchema = z.object({ deleted: z.boolean() }).strict();
+const memoryAutoDreamIntentResponseSchema = z.object({ ok: z.literal(true), enabled: z.boolean() }).strict();
+const memorySimilarityIgnoreResponseSchema = z.object({ ignored: z.literal(true), key: z.string() }).strict();
+const memoryConsolidationResultSchema = z.object({
+  merged: z.number().int(),
+  ignored: z.number().int(),
+  failed: z.number().int(),
+  skipped: z.number().int(),
+  errors: z.array(z.string()).optional(),
+}).strict();
+const memoryConsolidationJobResponseSchema = z.object({
+  jobId: z.string(),
+  status: z.enum(['running', 'succeeded', 'failed']),
+  result: memoryConsolidationResultSchema.optional(),
+  error: z.string().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.status === 'succeeded' && value.result === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['result'], message: 'is required when status is succeeded' });
+  }
+  if (value.status === 'failed' && !value.error) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['error'], message: 'is required when status is failed' });
+  }
+  if (value.status === 'running' && (value.result !== undefined || value.error !== undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'running job must not contain result or error' });
+  }
+});
+const sharedFileDeleteResponseSchema = z.object({ deleted: z.boolean() }).strict();
+const workflowMaterialWriteResponseSchema = z.object({ path: z.string() }).strict();
+
+const promptItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  content: z.string(),
+  description: z.string(),
+  agentType: z.string(),
+  when_to_use: z.string(),
+  createdAt: wireTimestampSchema,
+  updatedAt: wireTimestampSchema,
+  match_when: jsonValueSchema.optional(),
+  priority: z.number().int().optional(),
+  enabled: z.boolean(),
+  scope: z.string().optional(),
+  tags: jsonValueSchema.optional(),
+}).strict();
+const promptIntentIssueSchema = z.object({
+  code: z.string(), severity: z.enum(['block', 'review']), message: z.string(),
+}).strict();
+const promptIntentSourceFactSchema = z.object({
+  category: z.string(), summary: z.string(), disposition: z.string(),
+}).strict();
+const promptIntentRuleConflictSchema = z.object({ title: z.string(), summary: z.string() }).strict();
+const promptIntentAlternativeSchema = z.object({ kind: promptIntentKindSchema, reason: z.string() }).strict();
+const promptIntentCardSchema = z.object({
+  kind: promptIntentKindSchema,
+  title: z.string(),
+  summary: z.string(),
+  when_to_use: z.string().optional(),
+  when_not_to_use: z.string().optional(),
+  workflow: z.array(z.string()).optional(),
+  constraints: z.array(z.string()).optional(),
+  output: z.string().optional(),
+  save_boundary: z.string().optional(),
+  recall_topic: z.string().optional(),
+  recall_body: z.string().optional(),
+  default_rule_body: z.string().optional(),
+  source_profile: z.string().optional(),
+  source_facts: z.array(promptIntentSourceFactSchema).optional(),
+  hit_examples: z.array(z.string()).nullable(),
+  miss_examples: z.array(z.string()).nullable(),
+  conflicting_rules: z.array(promptIntentRuleConflictSchema).optional(),
+  suggested_alternative: promptIntentAlternativeSchema.optional(),
+}).strict();
+const promptAssetItemSchema = promptItemSchema.extend({
+  state: z.literal('pending_confirm').optional(),
+  draft_key: z.string().optional(),
+  draft_status: z.enum(['draft', 'ready_to_save']).optional(),
+  source_type: z.string().optional(),
+  card: promptIntentCardSchema.optional(),
+  issues: z.array(promptIntentIssueSchema).optional(),
+}).strict();
+const promptAssetsResponseSchema = z.object({ prompts: z.array(promptAssetItemSchema) }).strict();
+const dashboardPromptItemSchema = z.object({
+  id: z.number().int(),
+  prompt_key: z.string(),
+  title: z.string(),
+  agent_key: z.string(),
+  tool_name: z.string(),
+  prompt_text: z.string(),
+  when_to_use: z.string(),
+  variables: jsonValueSchema,
+  tags: jsonValueSchema,
+  enabled: z.boolean(),
+  manually_edited: z.boolean(),
+  match_when: jsonValueSchema.optional(),
+  priority: z.number().int(),
+  created_by: z.string(),
+  updated_by: z.string(),
+  created_at: wireTimestampSchema,
+  updated_at: wireTimestampSchema,
+  description: z.string(),
+}).strict();
+const dashboardPromptsResponseSchema = z.object({ prompts: z.array(dashboardPromptItemSchema) }).strict();
+const promptDetailResponseSchema = z.object({ prompt: promptItemSchema }).strict();
+
+const promptIntentDraftItemSchema = z.object({
+  draft_key: z.string(),
+  requested_kind: promptIntentKindSchema,
+  inferred_kind: promptIntentKindSchema,
+  status: z.enum(['draft', 'ready_to_save']),
+  confidence: z.number().finite(),
+  scope: z.enum(['project', 'global']),
+  issues: z.array(promptIntentIssueSchema).nullable(),
+  card: promptIntentCardSchema,
+}).strict();
+const promptIntentDraftResponseSchema = z.union([
+  promptIntentDraftItemSchema,
+  z.object({
+    requested_kind: promptIntentKindSchema,
+    inferred_kind: promptIntentKindSchema,
+    drafts: z.array(promptIntentDraftItemSchema),
+  }).strict(),
+]);
+const promptIntentCommitResponseSchema = z.object({
+  draft_key: z.string(), prompt_key: z.string(), kind: promptIntentKindSchema, status: z.literal('enabled'),
+}).strict();
+const promptIntentDiscardResponseSchema = z.object({
+  draft_key: z.string(), status: z.literal('rejected'),
+}).strict();
+const promptIntentDryRunResponseSchema = z.object({
+  would_use: z.boolean(),
+  action: z.enum(['prompt_recall', 'launch_agent', 'default_rule', 'none']),
+  target: z.string().optional(),
+  reasons: z.array(z.string()).nullable(),
+  candidates: z.array(z.string()).optional(),
+  disclaimer: z.string(),
+}).strict();
+const personalizationProfileResponseSchema = z.object({
+  profile: z.object({
+    displayName: z.string(),
+    role: z.string(),
+    background: z.string(),
+    customInstructions: z.string(),
+  }).strict(),
+}).strict();
 
 const MEMORY_TYPE_INFO = Object.freeze({
   user: { category: 'preference', label: '偏好' },
@@ -460,6 +625,30 @@ function parseModelProviderRegistryResponse(response) {
   return parseSchema('model provider registry', modelProviderRegistrySchema, response);
 }
 
+function parseExactSchema(label, schema, response) {
+  const result = schema.safeParse(response);
+  if (result.success) return result.data;
+  const issue = result.error.issues[0];
+  const path = issuePath(issue);
+  throw new TypeError(`${label}${path ? ` ${path}` : ''} ${issue.message}`);
+}
+
+const parseMemoryEntryDetailResponse = (response) => parseExactSchema('memory entry detail', memoryEntryDetailResponseSchema, response);
+const parseMemoryEntryDeleteResponse = (response) => parseExactSchema('memory entry delete', memoryEntryDeleteResponseSchema, response);
+const parseMemoryAutoDreamIntentResponse = (response) => parseExactSchema('memory auto dream intent', memoryAutoDreamIntentResponseSchema, response);
+const parseMemorySimilarityIgnoreResponse = (response) => parseExactSchema('memory similarity ignore', memorySimilarityIgnoreResponseSchema, response);
+const parseMemoryConsolidationJobResponse = (response) => parseExactSchema('memory consolidation job', memoryConsolidationJobResponseSchema, response);
+const parseSharedFileDeleteResponse = (response) => parseExactSchema('shared file delete', sharedFileDeleteResponseSchema, response);
+const parseWorkflowMaterialWriteResponse = (response) => parseExactSchema('workflow material write', workflowMaterialWriteResponseSchema, response);
+const parsePromptAssetsResponse = (response) => parseExactSchema('prompt assets', promptAssetsResponseSchema, response);
+const parseDashboardPromptsResponse = (response) => parseExactSchema('dashboard prompts', dashboardPromptsResponseSchema, response);
+const parsePromptDetailResponse = (response) => parseExactSchema('prompt detail', promptDetailResponseSchema, response);
+const parsePromptIntentDraftResponse = (response) => parseExactSchema('prompt intent draft', promptIntentDraftResponseSchema, response);
+const parsePromptIntentCommitResponse = (response) => parseExactSchema('prompt intent commit', promptIntentCommitResponseSchema, response);
+const parsePromptIntentDiscardResponse = (response) => parseExactSchema('prompt intent discard', promptIntentDiscardResponseSchema, response);
+const parsePromptIntentDryRunResponse = (response) => parseExactSchema('prompt intent dry run', promptIntentDryRunResponseSchema, response);
+const parsePersonalizationProfileResponse = (response) => parseExactSchema('personalization profile', personalizationProfileResponseSchema, response);
+
 export {
   MEMORY_TYPE_INFO,
   memorySnapshotSchema,
@@ -468,10 +657,25 @@ export {
   normalizeMemorySection,
   observabilityResultSchema,
   parseMemorySnapshotResponse,
+  parseMemoryAutoDreamIntentResponse,
+  parseMemoryConsolidationJobResponse,
+  parseMemoryEntryDeleteResponse,
+  parseMemoryEntryDetailResponse,
+  parseMemorySimilarityIgnoreResponse,
   parseModelProviderRegistryResponse,
   parseObservabilityResultResponse,
+  parseDashboardPromptsResponse,
+  parsePersonalizationProfileResponse,
+  parsePromptAssetsResponse,
+  parsePromptDetailResponse,
+  parsePromptIntentCommitResponse,
+  parsePromptIntentDiscardResponse,
+  parsePromptIntentDraftResponse,
+  parsePromptIntentDryRunResponse,
   parseSharedFileDetailResponse,
+  parseSharedFileDeleteResponse,
   parseSharedFilesDashboardResponse,
+  parseWorkflowMaterialWriteResponse,
   sharedFileDetailResponseSchema,
   sharedFilesDashboardSchema,
 };

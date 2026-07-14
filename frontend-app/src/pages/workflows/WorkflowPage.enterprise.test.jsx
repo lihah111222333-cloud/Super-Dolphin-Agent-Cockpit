@@ -26,9 +26,7 @@ afterEach(() => {
 
 it('filters templates by search and shows version trust compatibility and rollback', async () => {
   mockWorkflowDag();
-  backend.rollbackWorkflowTemplate.mockResolvedValue({
-    template: { ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'], version: 1 },
-  });
+  backend.rollbackWorkflowTemplate.mockResolvedValue({ malformed: ['ignored-response-body'] });
   backend.listWorkflowTemplates.mockResolvedValue({
     templates: [{
       ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'],
@@ -59,6 +57,10 @@ it('filters templates by search and shows version trust compatibility and rollba
       version: 1,
     });
   });
+  await waitFor(() => expect(screen.queryByRole('button', { name: '回滚中...' })).not.toBeInTheDocument());
+  expect(screen.getByRole('button', { name: '回滚到 v1' })).toBeEnabled();
+  await waitFor(() => expect(backend.listWorkflowTemplates.mock.calls.length).toBeGreaterThan(1));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
 it('renders the template catalog in the empty state', async () => {

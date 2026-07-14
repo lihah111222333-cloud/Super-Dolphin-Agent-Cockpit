@@ -141,7 +141,10 @@ async function loadPromptScope(setCurrentScopeCwd) {
 async function loadInjectedPromptVisibility({ copy, cwd, isCurrent, setNotice, setShowInjected }) {
   if (!cwd) return;
   try {
-    const value = await getPreference({ cwd, key: 'settings.showInjectedPromptInChat' });
+    const value = await getPreference({
+      cwd,
+      key: 'settings.showInjectedPromptInChat',
+    });
     if (isCurrentPreferenceRequest(isCurrent)) setShowInjected(parseBoolPreference(value));
   } catch (error) {
     if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.promptCard.loadToggleFailed + (error?.message || error) });

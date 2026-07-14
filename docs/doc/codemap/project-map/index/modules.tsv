@@ -429,7 +429,7 @@ internal/module/skill/mirror_reconciler_publish_test.go	internal	modules	go-test
 internal/module/skill/mirror_reconciler_resolution.go	internal	modules	go-source	25622	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,resolution,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler_root_actions.go	internal	modules	go-source	4485	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,root,actions,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler_test.go	internal	modules	go-test	34028	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,test,canonical,管理与,provider-native
-internal/module/skill/mirror_reconciler.go	internal	modules	go-source	25689	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,canonical,管理与,provider-native
+internal/module/skill/mirror_reconciler.go	internal	modules	go-source	25792	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,canonical,管理与,provider-native
 internal/module/skill/mirrorpath/path.go	internal	modules	go-source	4725	skill canonical 管理与 provider-native mirror	internal,module,skill,mirrorpath,path,canonical,管理与,provider-native,mirror
 internal/module/skill/module.go	internal	modules	go-source	3212	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions_unix.go	internal	modules	go-source	1303	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,unix,canonical,管理与,provider-native,mirror
@@ -437,7 +437,7 @@ internal/module/skill/ownerperms/permissions_windows.go	internal	modules	go-sour
 internal/module/skill/ownerperms/permissions.go	internal	modules	go-source	562	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,canonical,管理与,provider-native,mirror
 internal/module/skill/personal_audit.go	internal	modules	go-source	13394	skill canonical 管理与 provider-native mirror	internal,module,skill,personal,audit,canonical,管理与,provider-native,mirror
 internal/module/skill/personal_mutation_test.go	internal	modules	go-test	27476	skill canonical 管理与 provider-native mirror	internal,module,skill,personal,mutation,test,canonical,管理与,provider-native,mirror
-internal/module/skill/rpc_resolution_apply_test.go	internal	modules	go-test	22910	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,apply,test,canonical,管理与,provider-native,mirror
+internal/module/skill/rpc_resolution_apply_test.go	internal	modules	go-test	24313	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,apply,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_drift_test.go	internal	modules	go-test	3083	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,drift,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_external_personal_apply_test.go	internal	modules	go-test	10030	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,external,personal,apply,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_external_personal_test.go	internal	modules	go-test	1974	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,external,personal,test,canonical,管理与,provider-native,mirror

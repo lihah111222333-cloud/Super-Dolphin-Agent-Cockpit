@@ -97,6 +97,27 @@ describe('backend response validators', () => {
     expect(validate(RPC_METHODS.UI_STATE_GET, response)).toBe(response);
   });
 
+  it('rejects unknown ActivityStats fields for full UI state responses', () => {
+    expect(() => validate(RPC_METHODS.UI_STATE_GET, {
+      threads: [],
+      activityStatsByThread: {
+        'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, surprise: true },
+      },
+    })).toThrow('activityStatsByThread.thread-1 must not include surprise');
+  });
+
+  it('rejects unknown ActivityStats fields for sidebar UI state responses', () => {
+    expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
+      threads: [],
+      agents: [],
+      workspace: { runs: [] },
+      token_usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, usedTokens: 0 },
+      activityStatsByThread: {
+        'thread-1': { lspCalls: 1, commands: 2, fileEdits: 3, surprise: true },
+      },
+    })).toThrow('activityStatsByThread.thread-1 must not include surprise');
+  });
+
   it.each([
     ['statuses', ['running'], 'statuses must be an object'],
     ['statuses', { 'thread-1': { status: 'running' } }, 'statuses.thread-1 must be a string'],

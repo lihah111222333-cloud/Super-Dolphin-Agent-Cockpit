@@ -43,6 +43,7 @@ describe('thread lifecycle runtime', () => {
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
 
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
   });
@@ -55,6 +56,7 @@ describe('thread lifecycle runtime', () => {
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
 
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
     expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' });
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
@@ -107,6 +109,8 @@ describe('thread lifecycle runtime', () => {
     await expect(runtime.activeThreadRPC('thread.compact', genericRpc)).resolves.toBe(true);
     await expect(runtime.recoverActiveThreadRPC(recoverRpc)).resolves.toBe(true);
 
+    expect(genericRpc).toHaveBeenCalledTimes(1);
+    expect(recoverRpc).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('恢复请求已接受，正在恢复', 'success', { threadId: 'thread-1' });
     expect(state().threadRecoveryPendingByThread).toEqual({});
   });
@@ -122,6 +126,7 @@ describe('thread lifecycle runtime', () => {
 
     await expect(runtime.recoverActiveThreadRPC(rpc)).resolves.toBe(false);
 
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('恢复请求失败', 'warning', { threadId: 'thread-1' });
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('恢复请求已接受，正在恢复', 'success', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.recover.failed', { threadId: 'thread-1' });
@@ -145,6 +150,7 @@ describe('thread lifecycle runtime', () => {
     resolveRecover({ recovered: true });
 
     await expect(pending).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(state().threadRecoveryPendingByThread).toEqual({});
     expect(runtime.notifyAction).not.toHaveBeenCalled();
     expect(runtime.addWarning).not.toHaveBeenCalled();
@@ -159,6 +165,7 @@ describe('thread lifecycle runtime', () => {
     attachActiveThreadRpcRuntime(runtime, createDeps());
 
     await expect(runtime.recoverActiveThreadRPC(rpc)).rejects.toBeInstanceOf(TypeError);
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(state().threadRecoveryPendingByThread).toEqual({});
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('恢复请求失败', 'warning', { threadId: 'thread-1' });
   });
@@ -184,6 +191,7 @@ describe('thread lifecycle runtime', () => {
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.recoverActiveThreadRPC(rpc)).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('恢复请求已接受，正在恢复', 'success', { threadId: 'thread-1' });
   });
 });

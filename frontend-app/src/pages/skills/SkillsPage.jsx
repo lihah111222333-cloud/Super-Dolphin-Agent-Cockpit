@@ -7,9 +7,9 @@ import { SkillMarkdownPreview } from './SkillMarkdownPreview.jsx';
 import { resolveSkillPreviewFile, skillCitationFromLink, skillPreviewDir, stripLinkHash } from './SkillMarkdownPreviewModel.js';
 import { SkillToolsState } from './SkillToolsTable.jsx';
 import { MCPToolCard } from './MCPToolCard.jsx';
-const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250); const { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceChunks,
+const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250); const { applySkillResolution, deleteDatasourceDocument, getDashboardPage, getDatasourceDocument, importSkillDirectories, listDatasourceChunks,
 listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectDatasourceImportFile, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer,
-suggestSkillSummary, updateDatasourceDocument, writeSkill, } = skillsPageService; function normalizeSettingsCwd(value) { const cwd = trimmedText(value); if (!cwd || cwd === '.' || cwd === '未选择项目') { throw new Error('settings: cwd is required'); } return cwd; }
+suggestSkillSummary, updateDatasourceDocument, } = skillsPageService; function normalizeSettingsCwd(value) { const cwd = trimmedText(value); if (!cwd || cwd === '.' || cwd === '未选择项目') { throw new Error('settings: cwd is required'); } return cwd; }
 function textFromValue(value) { if (value === null || value === undefined) return ''; return value.toString(); } function trimmedText(value) { return textFromValue(value).trim(); } function lowerTrimmedText(value) { return trimmedText(value).toLowerCase(); }
 function requiredText(value, field, source) { const text = trimmedText(value); if (!text) throw new Error(`${source} is missing ${field}`); return text; } function optionalArray(value) { return Array.isArray(value) ? value : []; }
 function optionalObject(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : null; }
@@ -228,7 +228,9 @@ const units = ['KB', 'MB', 'GB', 'TB']; let size = bytes / 1024; let unitIndex =
 function datasourceDetailPagesWithDocument(current, normalized) { if (!current || !Array.isArray(current.pages)) return current; return { ...current, pages: current.pages.map((page, index) => (index === 0 ? datasourceFirstDetailPage(page, normalized) : page)), }; }
 function datasourceFirstDetailPage(page, normalized) { return { ...page, document: normalized }; } function datasourceStatusTone(status) { const value = status.toLowerCase(); if (value === 'ready') return 'ready'; if (value === 'failed') return 'failed'; return 'pending'; }
 function datasourceEditForm(doc) { return { sourcePath: doc.sourcePath, fileName: doc.fileName, extension: doc.extension, sizeBytes: String(Number.isFinite(doc.sizeBytes) ? doc.sizeBytes : 0), }; }
-async function importDatasourceSelection(sourcePath, pickerToken, setSourcePath) { await importDatasourceLocalFile({ sourcePath, pickerToken }); setSourcePath(''); }
+// eslint-disable-next-line react-refresh/only-export-components
+export async function importDatasourceSelection(ctx) {
+await ctx.facade.importDatasourceLocalFile({ sourcePath: ctx.sourcePath, pickerToken: ctx.pickerToken }); ctx.setSourcePath(''); ctx.setNotice(ctx.successText); await ctx.invalidateDocuments(); }
 function DataSourceView({ copy }) {
 const queryClient = useQueryClient(); const [search, setSearch] = useState(''); const [sourcePath, setSourcePath] = useState(''); const [busyAction, setBusyAction] = useState(''); const [notice, setNotice] = useState(''); const [actionError, setActionError] = useState('');
 const [detailID, setDetailID] = useState(0); const [editingDoc, setEditingDoc] = useState(null); const [deletingDoc, setDeletingDoc] = useState(null);
@@ -240,8 +242,10 @@ useEffect(() => { if (detailID <= 0 || detailIsError || !detailHasNextPage || de
 const invalidateDocuments = useCallback(async () => { await queryClient.invalidateQueries({ queryKey: datasourceDocumentsQueryKey() }); }, [queryClient]);
 const runAction = useCallback(async (action, successText) => { setNotice(''); setActionError(''); try { await action(); setNotice(successText); await invalidateDocuments(); } catch (error) { setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`); } }, [invalidateDocuments]);
 const handleImport = useCallback(async () => { setBusyAction('import'); setNotice(''); setActionError(''); try { const selected = await selectDatasourceImportFile({ filters: DATASOURCE_IMPORT_FILTERS }); const selectedPath = cleanScalar(selected?.sourcePath); if (!selectedPath) return;
-const pickerToken = cleanScalar(selected?.pickerToken); if (!pickerToken) throw new Error('pickerToken is required'); setSourcePath(selectedPath); await runAction(() => importDatasourceSelection(selectedPath, pickerToken, setSourcePath), DATASOURCE_UI.importSuccess);
-} catch (error) { setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`); } finally { setBusyAction(''); } }, [runAction]);
+const pickerToken = cleanScalar(selected?.pickerToken); if (!pickerToken) throw new Error('pickerToken is required'); setSourcePath(selectedPath); await importDatasourceSelection({
+facade: skillsPageService, invalidateDocuments, pickerToken, setNotice, setSourcePath, sourcePath: selectedPath, successText: DATASOURCE_UI.importSuccess,
+});
+} catch (error) { setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`); } finally { setBusyAction(''); } }, [invalidateDocuments]);
 const handleUpdate = useCallback(async (form) => { if (!editingDoc) return; setBusyAction('update'); await runAction(async () => { const updated = await updateDatasourceDocument({ documentId: editingDoc.documentId, sourcePath: form.sourcePath, fileName: form.fileName,
 extension: form.extension, sizeBytes: form.sizeBytes, }); setEditingDoc(null); const normalized = normalizeDatasourceDocument(updated, 0); if (detailID === normalized.documentId) { queryClient.setQueryData( datasourceDocumentQueryKey(detailID),
 (current) => datasourceDetailPagesWithDocument(current, normalized), ); } }, DATASOURCE_UI.updateSuccess); setBusyAction(''); }, [detailID, editingDoc, queryClient, runAction]);
@@ -343,7 +347,12 @@ function skillMatchesFilter(item, keyword, scopeFilter) { if (scopeFilter !== 'a
 function useSkillEditor(options) {
 const { projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setNotice, skills } = options; const [state, setState] = useState(defaultSkillEditorState); const setPatch = useCallback((patch) => setState((current) => ({ ...current, ...patch })), []);
 const setForm = useCallback((updater) => setState((current) => ({ ...current, editorForm: typeof updater === 'function' ? updater(current.editorForm) : updater })), []);
-const actions = useMemo(() => skillEditorActions({ projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state }), [projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state]);
+const actions = useMemo(
+() => skillEditorActions({
+facade: skillsPageService, projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state,
+}),
+[projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state],
+);
 return { ...state, ...actions, setForm }; } function defaultSkillEditorState() {
 return { activeSkillPath: '', deleteTarget: null, deleting: false, editorForm: emptySkillForm(), editorOpen: false, importScopeOpen: false, importSummaryDrafts: [], importing: false, saving: false, skillFiles: [], summarySuggestion: '', summarySuggesting: false }; }
 function skillEditorActions(ctx) { return { applySummary: () => { ctx.setForm((form) => ({ ...form, description: ctx.state.summarySuggestion })); ctx.setPatch({ summarySuggestion: '' }); }, closeDelete: () => ctx.setPatch({ deleteTarget: null }),
@@ -369,15 +378,17 @@ const cwd = normalizeSettingsCwd(ctx.projectPath); const launchPreferences = typ
 const description = await suggestSkillSummary(skillSummaryRequest(cwd, ctx.state.editorForm, launchPreferences)); ctx.setPatch({ summarySuggestion: normalizeSummarySuggestion(description) }); } catch (err) { ctx.setError('生成简介失败：' + (err.message || String(err))); } finally {
 ctx.setPatch({ summarySuggesting: false }); } } function skillSummaryRequest(cwd, form, launchPreferences) { return { cwd, name: form.displayName || form.name, description: form.description, content: form.body, scenario_words: wordListFromText(form.keywords), scope: form.scope,
 provider: firstTextField(launchPreferences, ['modelProvider', 'provider'], 'launch preferences'), model: textValue(launchPreferences?.model), codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider), }; }
-async function saveSkillEditor(ctx) { ctx.setPatch({ saving: true }); ctx.setError(''); ctx.setNotice(''); try { const payload = skillSavePayload(normalizeSettingsCwd(ctx.projectPath), ctx.state); if (shouldCreateProjectSkill(ctx.state)) {
-await createSkill({ cwd: payload.cwd, name: payload.path, content: payload.content }); } else { await writeSkill(payload); } ctx.setPatch({ editorOpen: false }); await ctx.refreshSkillSurface(); ctx.setNotice(skillSaveNotice(ctx.state, payload)); } catch (err) {
+// eslint-disable-next-line react-refresh/only-export-components
+export async function saveSkillEditor(ctx) { ctx.setPatch({ saving: true }); ctx.setError(''); ctx.setNotice(''); try { const payload = skillSavePayload(normalizeSettingsCwd(ctx.projectPath), ctx.state); if (shouldCreateProjectSkill(ctx.state)) {
+await ctx.facade.createSkill({ cwd: payload.cwd, name: payload.path, content: payload.content }); } else { await ctx.facade.writeSkill(payload); } ctx.setPatch({ editorOpen: false }); await ctx.refreshSkillSurface(); ctx.setNotice(skillSaveNotice(ctx.state, payload)); } catch (err) {
 ctx.setError('保存失败：' + (err.message || String(err))); } finally { ctx.setPatch({ saving: false }); } } function shouldCreateProjectSkill(state) { return !state.activeSkillPath && state.editorForm.scope === 'project'; }
 function skillSaveNotice(state, payload) { if (state.activeSkillPath && !isMainSkillFile(state.activeSkillPath)) { return '文件已保存：' + (fileNameFromPath(payload.path) || payload.path); } return '已保存'; } function skillSavePayload(cwd, state) {
 const isMain = !state.activeSkillPath || isMainSkillFile(state.activeSkillPath); const displayName = state.editorForm.displayName.trim(); const name = state.editorForm.name.trim() || skillNameFromDisplayName(displayName); if (isMain && !displayName) throw new Error('请先填写技能名称');
 if (isMain && !name) throw new Error('技能名称必须包含中文、英文或数字'); const normalizedForm = isMain ? { ...state.editorForm, name, displayName } : state.editorForm; return { cwd, path: isMain ? (state.activeSkillPath || name) : state.activeSkillPath,
 content: isMain ? buildSkillMarkdown(normalizedForm) : state.editorForm.body, scope: state.editorForm.scope, personal_type: state.editorForm.scope === 'personal' ? (state.editorForm.personalType || 'user') : '', }; }
-async function confirmDeleteSkill(ctx) { const skill = ctx.state.deleteTarget; const skillName = trimmedText(skill?.name); if (!skillName) { ctx.setError('skills/local/delete: name is required'); return; } ctx.setPatch({ deleting: true }); ctx.setError(''); ctx.setNotice(''); try {
-await deleteSkill({ cwd: normalizeSettingsCwd(ctx.projectPath), name: skillName, scope: skill.scope, personal_type: skill.personalType }); ctx.setPatch({ deleteTarget: null }); await ctx.refreshSkillSurface(); ctx.setNotice('已删除 ' + skill.title); } catch (err) {
+// eslint-disable-next-line react-refresh/only-export-components
+export async function confirmDeleteSkill(ctx) { const skill = ctx.state.deleteTarget; const skillName = trimmedText(skill?.name); if (!skillName) { ctx.setError('skills/local/delete: name is required'); return; } ctx.setPatch({ deleting: true }); ctx.setError(''); ctx.setNotice(''); try {
+await ctx.facade.deleteSkill({ cwd: normalizeSettingsCwd(ctx.projectPath), name: skillName, scope: skill.scope, personal_type: skill.personalType }); ctx.setPatch({ deleteTarget: null }); await ctx.refreshSkillSurface(); ctx.setNotice('已删除 ' + skill.title); } catch (err) {
 ctx.setError(err.message || String(err)); } finally { ctx.setPatch({ deleting: false }); } } async function confirmImportScope(ctx, scope) { ctx.setPatch({ importing: true }); ctx.setError(''); ctx.setNotice(''); try {
 const paths = await selectProjectDirs(); ctx.setPatch({ importScopeOpen: false }); if (!Array.isArray(paths) || paths.length === 0) { ctx.setNotice('未选择目录'); return; }
 const cwd = normalizeSettingsCwd(ctx.projectPath); const personalType = scope === 'personal' ? 'imported' : ''; const result = await importSkillDirectories({ cwd, paths, scope, personal_type: personalType });

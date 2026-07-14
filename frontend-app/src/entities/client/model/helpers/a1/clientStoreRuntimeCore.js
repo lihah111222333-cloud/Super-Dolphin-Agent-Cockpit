@@ -1,6 +1,6 @@
 
 import { firstOptionalPresent, optionalTextField } from '../../contractStoreModel.js';
-import { getPreference, getThreadMessages, emitFrontendTraceEvent } from '../../../../../shared/api/backendApi.js';
+import { getThreadMessages, emitFrontendTraceEvent } from '../../../../../shared/api/backendApi.js';
 import { attachActiveThreadRpcRuntime } from '../../threadLifecycleRuntime.js';
 import { attachThreadMessagesRuntime } from '../../threadMessagesRuntime.js';
 import { attachAssistantEventRuntime } from '../assistantEventRuntime.js';
@@ -64,7 +64,7 @@ function clearedChatSurfaceState(state, activeThreadId, cwd) {
   };
 }
 
-function createClientStoreRuntime(set, get) {
+function createClientStoreRuntime(set, get, { getPreference }) {
   /*
    * runtime 放前端临时工具：sequence、分页 generation、delta buffer、sidebar cache。
    * 这些不是可持久化状态，destroy/reset 时要一起清掉。
@@ -72,6 +72,7 @@ function createClientStoreRuntime(set, get) {
   const runtime = {
     set,
     get,
+    getPreference,
     bridgeUnsubscribe: null,
     reconnectUnsubscribe: null,
     eventInitializationPromise: null,
@@ -292,7 +293,7 @@ function attachScopeRuntime(runtime) {
 }
 
 function attachProviderRuntime(runtime) {
-  const { set, get, requireCwd } = runtime;
+  const { set, get, getPreference, requireCwd } = runtime;
 
   const loadProviderConfig = async (cwdValue, providerValue) => {
     const cwd = normalizePath(cwdValue) || requireCwd('provider.config');
