@@ -11,6 +11,9 @@ export GOFLAGS=
 # Commit hooks must not run gosec; keep security scans out of the local commit path.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
 
+source scripts/configure_hook_node_runtime.sh
+configure_hook_node_runtime
+
 # Git hook 运行时会注入 GIT_DIR/GIT_INDEX_FILE 以及 `git -c` 传播的 GIT_CONFIG_*。
 # go test 中若再创建临时 git repo，这些环境会污染子 git 命令并误触发本 hook。
 run_go_without_git_env() (

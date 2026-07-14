@@ -201,8 +201,9 @@ func TestFixCommitAllowsRepositoryToolingRegressionTest(t *testing.T) {
 func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push fixture")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
@@ -250,11 +251,12 @@ func TestFixTestGuardSkipsMergeCommitSubjects(t *testing.T) {
 func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFakeCodeGuardScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -271,11 +273,12 @@ func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFakeCodeGuardScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -371,8 +374,9 @@ func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
 func TestPrePushRunsChineseTitleGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push fixture")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
