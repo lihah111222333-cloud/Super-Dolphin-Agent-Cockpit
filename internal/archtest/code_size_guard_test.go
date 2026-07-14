@@ -76,7 +76,7 @@ func runUnifiedFreezeRatchetAndShrink(
 		// 新测试文件（不在基线中）的违规：不允许
 		newTestViolations := collectNewTestViolations(violations, freeze.Metrics.Tests)
 		failIfGuardViolations(t, "new test file violations not in baseline", newTestViolations,
-			"\nFix the test or run: go run scripts/code_size_guard.go --freeze")
+			"\nFix the test or follow the reviewed freeze command in docs/架构/skeleton-code-guard.md")
 
 		// 已冻结测试文件：棘轮检查 + 自动收缩
 		freeze.Metrics.Tests, changed = runBaselineRatchetAndShrink(t, "test", freeze.Metrics.Tests, opts, root, true, changed)
@@ -149,7 +149,7 @@ func loadRequiredTestBaseline(t *testing.T, baseline archtest.Baseline, violatio
 		return
 	}
 	lines := violationStrings(collectTestViolations(violations))
-	t.Fatalf("test file violations without baseline (%d):\n%s\nRun: go run scripts/code_size_guard.go --freeze",
+	t.Fatalf("test file violations without baseline (%d):\n%s\nSee: docs/架构/skeleton-code-guard.md",
 		len(lines), strings.Join(lines, "\n"))
 }
 
@@ -221,7 +221,7 @@ func runPrioritySSABaselineRatchetAndShrink(t *testing.T, freeze *archtest.Guard
 		t.Fatalf("check priority SSA baseline failed: %v", err)
 	}
 	if len(result.New) > 0 {
-		t.Fatalf("priority SSA new violations not in baseline (%d):\n%s\nRun: go run scripts/code_size_guard.go --freeze",
+		t.Fatalf("priority SSA new violations not in baseline (%d):\n%s\nSee: docs/架构/skeleton-code-guard.md",
 			len(result.New), strings.Join(archtest.PrioritySSAViolationStrings(result.New), "\n"))
 	}
 	if len(result.Stale) == 0 {

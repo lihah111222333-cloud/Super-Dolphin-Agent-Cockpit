@@ -47,6 +47,57 @@ func bad_identifier_with_too_many_underscores() {}
 	}
 }
 
+func TestCodeSizeGuardFreezeRequiresCompleteApproval(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "missing approval", args: []string{"--freeze"}, wantErr: "invalid freeze approval"},
+		{name: "approval without freeze", args: []string{"--freeze-owner", "owner"}, wantErr: "require --freeze"},
+		{name: "missing flag value", args: []string{"--freeze", "--freeze-owner"}, wantErr: "acceptance.owner"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runCodeSizeGuardArgs(t, test.args...)
+			if result.exitCode != 1 || !strings.Contains(result.stderr, test.wantErr) {
+				t.Fatalf("code_size_guard %v exit=%d stderr=%q, want failure containing %q",
+					test.args, result.exitCode, result.stderr, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestCodeSizeGuardRejectsConflictingModesAndHonorsTerminator(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "conflicting modes", args: []string{"--freeze", "--strict"}, wantErr: "conflicting mode"},
+		{name: "duplicate mode", args: []string{"--strict", "--strict"}, wantErr: "duplicate mode"},
+		{name: "flag after terminator is file", args: []string{"--", "--strict"}, wantErr: "expected Go file path"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runCodeSizeGuardArgs(t, test.args...)
+			if result.exitCode != 1 || !strings.Contains(result.stderr, test.wantErr) {
+				t.Fatalf("code_size_guard %v exit=%d stderr=%q, want failure containing %q",
+					test.args, result.exitCode, result.stderr, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestCodeSizeGuardFreezeExposesAllApprovalFlags(t *testing.T) {
+	guard := readScript(t, "code_size_guard.go")
+	for _, flag := range []string{
+		"--freeze-owner", "--freeze-reason", "--freeze-reviewed-at", "--freeze-review-by", "--freeze-fail-first",
+	} {
+		assertScriptContains(t, guard, flag)
+	}
+}
+
 func TestTestWithGuardSingleGoFileWrapperFiltersGoRunExitStatus(t *testing.T) {
 	path := writeGuardFixture(t, `package sample
 
@@ -118,7 +169,13 @@ type codeSizeGuardCLIResult struct {
 
 func runCodeSizeGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
 	t.Helper()
-	cmd := exec.Command("go", "run", "./code_size_guard.go", "--", goFile)
+	return runCodeSizeGuardArgs(t, "--", goFile)
+}
+
+func runCodeSizeGuardArgs(t *testing.T, args ...string) codeSizeGuardCLIResult {
+	t.Helper()
+	cmdArgs := append([]string{"run", "./code_size_guard.go"}, args...)
+	cmd := exec.Command("go", cmdArgs...)
 	cmd.Dir = "."
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

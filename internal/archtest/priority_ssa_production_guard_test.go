@@ -29,7 +29,7 @@ func TestPrioritySSAGuardsUseUnifiedFreezeBaseline(t *testing.T) {
 		t.Fatalf("check priority SSA freeze: %v", err)
 	}
 	if len(result.New) > 0 {
-		t.Fatalf("priority SSA new violations not in unified freeze (%d):\n%s\nRun: go run ./scripts/code_size_guard.go --freeze",
+		t.Fatalf("priority SSA new violations not in unified freeze (%d):\n%s\nSee: docs/架构/skeleton-code-guard.md",
 			len(result.New), strings.Join(archtest.PrioritySSAViolationStrings(result.New), "\n"))
 	}
 }

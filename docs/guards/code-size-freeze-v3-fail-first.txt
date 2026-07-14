@@ -1,0 +1,7 @@
+source_head: 96b82a7f8819d2b24c9c23673258e4f3021f7c1c
+reviewed_at: 2026-07-14T00:00:00Z
+snapshot_sha256: ce64205defe2c2a6b2a5a1cdc5a5637e05b6d5932555cb9ce6c46f3332caa15b
+working_directory: .
+command: go test ./internal/archtest ./scripts -run TestGuardFreeze -count=1
+expected_exit: 1
+observed_failure: unapproved baseline expansion, ambiguous evidence fields, repository escape through a parent symlink, and conflicting CLI modes were accepted before the v3 fixes.

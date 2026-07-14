@@ -338,6 +338,7 @@ docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	js
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
+docs/guards/code-size-freeze-v3-fail-first.txt	docs	docs-agent	txt	466	项目文档体系	docs,guards,code,size,freeze,v3,fail,first,项目文档体系
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2283	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2922	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/internal-notes/RPC能力E2E覆盖矩阵.md	docs	docs-agent	doc	10761	内部提示词与工程方法记录	docs,internal,notes,RPC能力E2E覆盖矩阵,内部提示词与工程方法记录
@@ -905,7 +906,7 @@ docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
 docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
-docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	9478	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	10700	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14159	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系
