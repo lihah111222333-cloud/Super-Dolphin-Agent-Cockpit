@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"go/build/constraint"
+	"go/parser"
+	"go/token"
 	"maps"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 )
 
 const goBuildTagsLanguageSpecificKey = "goBuildTags"
+const goDefaultStandaloneTag = "ignore"
 
 // LanguageAdapter 封装每种语言接入 LSP manager/pool/cache 所需的差异策略。
 // manager 只消费解析后的 scope、启动命令、环境、引导缓存和能力开关，避免调用层感知具体语言。
@@ -220,7 +223,11 @@ func goBuildTagsForTarget(cwd, target string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("read Go build tags: %w", err)
 	}
-	return goBuildTagsFromSource(string(data))
+	source := string(data)
+	if isDefaultGoStandaloneMainSource(source) {
+		return nil, nil
+	}
+	return goBuildTagsFromSource(source)
 }
 
 func normalizeGoBuildTagTarget(cwd, target string) (string, error) {
@@ -256,6 +263,44 @@ func goBuildTagsFromSource(source string) ([]string, error) {
 		break
 	}
 	return sortedGoBuildTags(tags), nil
+}
+
+// isDefaultGoStandaloneMainSource 识别由 gopls 默认 standaloneTags 管理的独立 main 文件。
+func isDefaultGoStandaloneMainSource(source string) bool {
+	if !isGoMainPackageSource(source) {
+		return false
+	}
+	return hasExactGoStandaloneConstraint(source, goDefaultStandaloneTag)
+}
+
+func isGoMainPackageSource(source string) bool {
+	parsed, err := parser.ParseFile(token.NewFileSet(), "standalone.go", source, parser.PackageClauseOnly)
+	return err == nil && parsed.Name != nil && parsed.Name.Name == "main"
+}
+
+// hasExactGoStandaloneConstraint 确认文件头约束全部是同一个简单 standalone tag。
+func hasExactGoStandaloneConstraint(source, standaloneTag string) bool {
+	found := false
+	for rawLine := range strings.SplitSeq(source, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if goBuildConstraintLine(line) {
+			expr, err := constraint.Parse(line)
+			if err != nil {
+				return false
+			}
+			tag, ok := expr.(*constraint.TagExpr)
+			if !ok || tag.Tag != standaloneTag {
+				return false
+			}
+			found = true
+			continue
+		}
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		break
+	}
+	return found
 }
 
 func goBuildConstraintLine(line string) bool {

@@ -173,6 +173,66 @@ func TestGoAdapterUsesTargetBuildTagsInEnvAndInitOptions(t *testing.T) {
 	}
 }
 
+func TestGoAdapterLeavesStandaloneIgnoreTagToGopls(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/standalone\n\ngo 1.25.0\n")
+	target := filepath.Join(root, "standalone.go")
+	writeGenericTestFile(t, target, strings.Join([]string{
+		"//go:build ignore",
+		"",
+		"package main",
+		"",
+		"func main() {}",
+		"",
+	}, "\n"))
+
+	registry := NewDefaultLanguageAdapterRegistry()
+	goAdapter, ok := registry.AdapterForLanguage("go")
+	if !ok {
+		t.Fatal("missing go adapter")
+	}
+	scope, err := goAdapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "go",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("go ResolveRoot: %v", err)
+	}
+	if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "" {
+		t.Fatalf("standalone go build tags = %q, want empty", got)
+	}
+	if got, want := goAdapter.EnvPolicy(scope), []string(nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("standalone go EnvPolicy = %#v, want %#v", got, want)
+	}
+	if _, ok := goAdapter.InitOptions(scope)["buildFlags"]; ok {
+		t.Fatal("standalone go InitOptions unexpectedly contains buildFlags")
+	}
+}
+
+func TestDefaultGoStandaloneMainSource(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{name: "go build ignore main", source: "//go:build ignore\n\npackage main\n", want: true},
+		{name: "plus build ignore main", source: "// +build ignore\n\npackage main\n", want: true},
+		{name: "compound constraint", source: "//go:build ignore && linux\n\npackage main\n", want: false},
+		{name: "non main package", source: "//go:build ignore\n\npackage helper\n", want: false},
+		{name: "ordinary tag", source: "//go:build e2e\n\npackage main\n", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDefaultGoStandaloneMainSource(tt.source); got != tt.want {
+				t.Fatalf("isDefaultGoStandaloneMainSource() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func assertTypeScriptAdapterPolicies(t *testing.T, ctx context.Context, registry *LanguageAdapterRegistry, root, jsRoot string) {
 	t.Helper()
 	tsAdapter, ok := registry.AdapterForLanguage("typescript")

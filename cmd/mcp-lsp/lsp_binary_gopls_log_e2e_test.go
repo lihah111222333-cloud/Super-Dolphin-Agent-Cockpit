@@ -19,6 +19,7 @@ const fakeGoplsOrphanedFilesWarning = "warning: while diagnosing orphaned files:
 const fakeGoplsPullDiagnosticsOnlyEnv = "MCP_LSP_FAKE_GOPLS_PULL_DIAGNOSTICS_ONLY"
 const fakeGoplsSuppressDiagnosticProviderEnv = "MCP_LSP_FAKE_GOPLS_SUPPRESS_DIAGNOSTIC_PROVIDER"
 const fakeGoplsRequireE2EBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_E2E_BUILDFLAG"
+const fakeGoplsRejectIgnoreBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REJECT_IGNORE_BUILDFLAG"
 const fakeGoplsRequireTxtTemplateGoLanguageEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_TXT_TEMPLATE_GO_LANGUAGE"
 
 func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testing.T) {
@@ -159,6 +160,33 @@ func TestMcpLSPBinaryGoplsDiagnosticsUsesBuildTagsForE2EFile_E2E(t *testing.T) {
 	requireMCPToolSuccess(t, client, diagnostics, "go e2e build-tag diagnostics")
 }
 
+func TestMcpLSPBinaryGoplsDiagnosticsLeavesStandaloneIgnoreTagToGopls_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsStandaloneIgnoreFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsPullDiagnosticsOnlyEnv + "=1",
+		fakeGoplsRejectIgnoreBuildFlagEnv + "=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   target,
+		"language_id": "go",
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "go standalone ignore diagnostics")
+}
+
 func TestMcpLSPBinaryGoplsDiagnosticsUsesLanguageOverrideForTxtTemplate_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
@@ -255,6 +283,26 @@ func writeFakeGoplsE2EBuildTagFixture(t *testing.T, root string) string {
 	return target
 }
 
+func writeFakeGoplsStandaloneIgnoreFixture(t *testing.T, root string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/gopls-standalone\n\ngo 1.25.0\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod fixture: %v", err)
+	}
+	target := filepath.Join(root, "standalone.go")
+	content := strings.Join([]string{
+		"//go:build ignore",
+		"",
+		"package main",
+		"",
+		"func main() {}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write standalone Go fixture: %v", err)
+	}
+	return target
+}
+
 func writeFakeGoplsShutdownWarningLangserver(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -289,16 +337,27 @@ func runFakeGoplsShutdownWarningLangserver() {
 		if len(bytes.TrimSpace(req.ID)) == 0 {
 			continue
 		}
-		if fakeGoplsRequiresE2EBuildFlag(req) && !fakeGoplsInitializeHasBuildTag(req.Params, "e2e") {
-			_ = writer.writeError(req.ID, -32002, "missing gopls buildFlags -tags=e2e")
+		if message := fakeGoplsInitializePolicyError(req); message != "" {
+			_ = writer.writeError(req.ID, -32002, message)
 			continue
 		}
 		_ = writer.writeResponse(req.ID, fakeGoplsResult(req))
 	}
 }
 
-func fakeGoplsRequiresE2EBuildFlag(req fakeLSPRequest) bool {
-	return req.Method == "initialize" && os.Getenv(fakeGoplsRequireE2EBuildFlagEnv) == "1"
+func fakeGoplsInitializePolicyError(req fakeLSPRequest) string {
+	if req.Method != "initialize" {
+		return ""
+	}
+	if os.Getenv(fakeGoplsRequireE2EBuildFlagEnv) == "1" &&
+		!fakeGoplsInitializeHasBuildTag(req.Params, "e2e") {
+		return "missing gopls buildFlags -tags=e2e"
+	}
+	if os.Getenv(fakeGoplsRejectIgnoreBuildFlagEnv) == "1" &&
+		fakeGoplsInitializeHasBuildTag(req.Params, "ignore") {
+		return "unexpected gopls buildFlags -tags=ignore"
+	}
+	return ""
 }
 
 func fakeGoplsInitializeHasBuildTag(raw json.RawMessage, tag string) bool {
