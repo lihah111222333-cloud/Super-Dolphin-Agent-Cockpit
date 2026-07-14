@@ -5,14 +5,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4552,
+  "files": 4562,
   "domains": {
-    "docs-agent": 921,
+    "docs-agent": 922,
     "other": 631,
-    "app-ui": 516,
-    "platform-provider": 1023,
-    "orchestration": 419,
-    "modules": 727,
+    "app-ui": 517,
+    "platform-provider": 1030,
+    "orchestration": 418,
+    "modules": 729,
     "store-sql": 315
   },
   "index_files": {
@@ -36,15 +36,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 727,
-        "size_kb": 141.5,
+        "file_count": 729,
+        "size_kb": 142,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1023,
-        "size_kb": 188.3,
+        "file_count": 1030,
+        "size_kb": 189.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,8 +57,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 921,
-        "size_kb": 164.5,
+        "file_count": 922,
+        "size_kb": 164.7,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
@@ -72,10 +72,10 @@
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 670,
-    "docs": 913,
-    "frontend-app": 514,
-    "internal": 2140,
+    "cmd": 669,
+    "docs": 914,
+    "frontend-app": 515,
+    "internal": 2147,
     "migrations": 112,
     "pkg": 29,
     "scripts": 115,

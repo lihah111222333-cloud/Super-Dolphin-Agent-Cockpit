@@ -754,11 +754,11 @@ func TestPopulateUIMemoryHealthSimilarGroupsAllowsMissingIgnoredSet(t *testing.T
 }
 
 func TestUIMemoryHealthSimilarityDegradedJSONRoundTripUsesStructTag(t *testing.T) {
-	field, ok := reflect.TypeOf(UIMemoryHealth{}).FieldByName("SimilarityDegraded")
+	field, ok := reflect.TypeFor[UIMemoryHealth]().FieldByName("SimilarityDegraded")
 	if !ok {
 		t.Fatal("UIMemoryHealth.SimilarityDegraded field is missing")
 	}
-	jsonField := strings.Split(field.Tag.Get("json"), ",")[0]
+	jsonField, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 	if jsonField != "similarityDegraded" {
 		t.Fatalf("SimilarityDegraded json field = %q, want similarityDegraded", jsonField)
 	}
