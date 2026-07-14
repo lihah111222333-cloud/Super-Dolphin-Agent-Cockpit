@@ -435,6 +435,34 @@ type uiMemoryEntryMergeParams struct {
 	MergedContent     string `json:"mergedContent,omitempty"`
 }
 
+// ErrDurableMemoryMergePartialFailure 表示合并已写入 A，但删除 B 与回滚 A 均失败。
+// 调用方必须刷新持久化记忆视图，不能把该错误当作未发生变更的普通失败。
+var ErrDurableMemoryMergePartialFailure = errors.New("durable memory merge partially failed")
+
+type durableMemoryMergePartialFailure struct {
+	deleteErr   error
+	rollbackErr error
+}
+
+// Error 返回不含底层路径的稳定错误文本。
+func (e *durableMemoryMergePartialFailure) Error() string {
+	return ErrDurableMemoryMergePartialFailure.Error()
+}
+
+// Unwrap 保留公开操作哨兵及删除、回滚两个底层失败，供包内调用方精确判定。
+func (e *durableMemoryMergePartialFailure) Unwrap() []error {
+	return []error{
+		ErrDurableMemoryMergePartialFailure,
+		errDurableMemoryDeleteFailed,
+		e.deleteErr,
+		e.rollbackErr,
+	}
+}
+
+func newDurableMemoryMergePartialFailure(deleteErr, rollbackErr error) error {
+	return &durableMemoryMergePartialFailure{deleteErr: deleteErr, rollbackErr: rollbackErr}
+}
+
 // uiMemoryMergeResolved 保存合并前解析出的根目录和条目快照，后续回滚依赖 entryA 原值。
 type uiMemoryMergeResolved struct {
 	rootA   string
@@ -491,22 +519,32 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_write_a",
 			errDurableMemorySaveFailed, err, "target", resolved.targetA, "path", req.PathA)
 	}
+	defer finalizeUIMemoryMergeMutation(deps)
 
-	if err := deleteAbsorbedEntry(deps.Service, resolved.rootB, resolved.targetB, req.PathB); err != nil {
-		_ = rollbackMergedEntry(deps.Service, resolved.rootA, resolved.targetA, req.PathA, resolved.entryA)
+	if deleteErr := deleteAbsorbedEntry(deps.Service, resolved.rootB, resolved.targetB, req.PathB); deleteErr != nil {
+		rollbackErr := rollbackMergedEntry(deps.Service, resolved.rootA, resolved.targetA, req.PathA, resolved.entryA)
+		if rollbackErr != nil {
+			redactRPCError(deps.Logger, "merge_delete_and_rollback",
+				errDurableMemoryDeleteFailed, errors.Join(deleteErr, rollbackErr),
+				"target_a", resolved.targetA, "path_a", req.PathA,
+				"target_b", resolved.targetB, "path_b", req.PathB)
+			return UIMemoryEntryDetail{}, newDurableMemoryMergePartialFailure(deleteErr, rollbackErr)
+		}
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_delete_b",
-			errDurableMemoryDeleteFailed, err, "target", resolved.targetB, "path", req.PathB)
+			errDurableMemoryDeleteFailed, deleteErr, "target", resolved.targetB, "path", req.PathB)
 	}
-
-	invalidateDurableMemorySections(deps.Sections)
 
 	merged, mergedPath, err := readUIMemoryEntryByPath(resolved.rootA, resolved.targetA, req.PathA)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_back",
 			errDurableMemoryReadFailed, err, "target", resolved.targetA, "path", req.PathA)
 	}
-	publishUIMemoryChanged(deps, "merge")
 	return toUIMemoryEntryDetail(resolved.targetA, resolved.rootA, mergedPath, merged), nil
+}
+
+func finalizeUIMemoryMergeMutation(deps memoryHandlerDeps) {
+	invalidateDurableMemorySections(deps.Sections)
+	publishUIMemoryChanged(deps, "merge")
 }
 
 // uiSimilarityIgnoreParams 是相似记忆忽略 RPC 的入参，两侧 target/path 会组成稳定 ignored key。
