@@ -231,6 +231,7 @@ func (s *session) setApprovalPolicy(policy string) {
 		return
 	}
 	s.approvalPolicy.Store(strings.TrimSpace(policy))
+	s.approvalPolicyVerified.Store(true)
 }
 
 func (s *session) approvalPolicyValue() string {
@@ -303,6 +304,9 @@ func (s *session) clearProcessedApprovals() {
 }
 
 func (s *session) buildApprovalRequest(method string, payload map[string]any) (rpc.ApprovalRequest, int64, bool) {
+	if s == nil || !s.approvalPolicyVerified.Load() {
+		return rpc.ApprovalRequest{}, 0, false
+	}
 	if len(payload) == 0 {
 		return rpc.ApprovalRequest{}, 0, false
 	}

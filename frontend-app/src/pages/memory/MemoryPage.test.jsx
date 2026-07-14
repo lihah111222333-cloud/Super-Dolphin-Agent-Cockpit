@@ -20,7 +20,7 @@ const backend = vi.hoisted(() => ({
 
 vi.mock('./services/memoryPageService.js', () => backend);
 
-function memorySnapshot({ privateEntries = [], similarGroups = [], teamEntries = [] } = {}) {
+function memorySnapshot({ privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [] } = {}) {
   return {
     overview: {
       autoDreamEnabled: false,
@@ -30,6 +30,7 @@ function memorySnapshot({ privateEntries = [], similarGroups = [], teamEntries =
         projectCount: teamEntries.length,
         maxPerCategory: 15,
         similarGroups,
+        ...(similarityDegraded === undefined ? {} : { similarityDegraded }),
       },
     },
     private: { entries: privateEntries },
@@ -356,6 +357,73 @@ describe('MemoryPage editor', () => {
 });
 
 describe('MemoryPage consolidation polling', () => {
+	it('shows degraded similarity status and blocks every similarity mutation', async () => {
+		fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+			similarityDegraded: true,
+			similarGroups: [{
+				targetA: 'team', pathA: 'project/a.md', nameA: 'A',
+				targetB: 'team', pathB: 'project/b.md', nameB: 'B', score: 0.91,
+			}],
+		})));
+
+		renderMemoryPage();
+
+		const warning = await screen.findByRole('status');
+		expect(warning).toHaveTextContent('相似记忆状态暂不可用');
+		expect(within(warning).getByRole('button', { name: '一键整合全部' })).toBeDisabled();
+		fireEvent.click(within(warning).getByRole('button', { name: '展开' }));
+		expect(screen.getByRole('button', { name: '整合' })).toBeDisabled();
+		expect(screen.getByRole('button', { name: '忽略' })).toBeDisabled();
+		expect(backend.startConsolidateMemorySimilarities).not.toHaveBeenCalled();
+		expect(backend.mergeMemoryEntries).not.toHaveBeenCalled();
+		expect(backend.ignoreMemorySimilarity).not.toHaveBeenCalled();
+	});
+
+	it('keeps similarity actions enabled when the degraded field is absent', async () => {
+		fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+			similarGroups: [{
+				targetA: 'team', pathA: 'project/a.md', nameA: 'A',
+				targetB: 'team', pathB: 'project/b.md', nameB: 'B', score: 0.91,
+			}],
+		})));
+
+		renderMemoryPage();
+
+		expect(await screen.findByRole('button', { name: '一键整合全部' })).toBeEnabled();
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+	});
+
+	it('keeps similarity actions enabled when degraded is explicitly false', async () => {
+		fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+			similarityDegraded: false,
+			similarGroups: [{
+				targetA: 'team', pathA: 'project/a.md', nameA: 'A',
+				targetB: 'team', pathB: 'project/b.md', nameB: 'B', score: 0.91,
+			}],
+		})));
+
+		renderMemoryPage();
+
+		expect(await screen.findByRole('button', { name: '一键整合全部' })).toBeEnabled();
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+	});
+
+	it('fails fast when degraded has a non-boolean value', async () => {
+		fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+			similarityDegraded: 'true',
+			similarGroups: [{
+				targetA: 'team', pathA: 'project/a.md', nameA: 'A',
+				targetB: 'team', pathB: 'project/b.md', nameB: 'B', score: 0.91,
+			}],
+		})));
+
+		renderMemoryPage();
+
+		expect(await screen.findByText(/memory health similarityDegraded must be a boolean/)).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: '一键整合全部' })).not.toBeInTheDocument();
+		expect(backend.startConsolidateMemorySimilarities).not.toHaveBeenCalled();
+	});
+
   function mockDashboardWithSimilarGroup() {
     fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
       similarGroups: [{

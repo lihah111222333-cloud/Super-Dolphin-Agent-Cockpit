@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
 // Message 表示 Codex rollout 历史中的单条 provider 消息。
@@ -53,15 +54,15 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	codexHome := s.runtimeConfigString("codexHome")
 	messages, primaryErr := s.history.ReadHistory(ctx, target, codexHome, limit)
 	if primaryErr == nil && len(messages) > 0 {
-		return toProviderHistory(messages), nil
+		return toProviderHistory(messages)
 	}
 	if fallback := s.readHistoryFallback(ctx, target, codexHome, limit); fallback != nil {
-		return toProviderHistory(fallback), nil
+		return toProviderHistory(fallback)
 	}
 	if primaryErr != nil {
 		return nil, primaryErr
 	}
-	return toProviderHistory(messages), nil
+	return toProviderHistory(messages)
 }
 
 // readHistoryFallback 用 session 当前 Codex thread UUID 再查一次本地 rollout。
@@ -82,17 +83,21 @@ func (s *session) readHistoryFallback(ctx context.Context, primaryTarget, codexH
 	return messages
 }
 
-func toProviderHistory(messages []Message) []dto.Message {
+func toProviderHistory(messages []Message) ([]dto.Message, error) {
 	out := make([]dto.Message, 0, len(messages))
-	for _, msg := range messages {
+	for i, msg := range messages {
+		timestamp, metadata, err := providershared.DecodeHistoryFields(msg.Timestamp, msg.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("codexapp history message %d: %w", i, err)
+		}
 		out = append(out, dto.Message{
 			Role:      msg.Role,
 			Content:   msg.Content,
-			Timestamp: platformshared.ParseRFC3339Loose(msg.Timestamp),
-			Metadata:  platformshared.DecodeHistoryMetadata(msg.Metadata),
+			Timestamp: timestamp,
+			Metadata:  metadata,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // CompactThread 请求 Codex app-server 对指定线程启动 compact。

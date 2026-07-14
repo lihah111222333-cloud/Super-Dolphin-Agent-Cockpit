@@ -26,22 +26,26 @@ const (
 )
 
 type service struct {
-	root               string
-	projectRoot        string
-	projectSkillsRoot  string
-	superDolphinHome   string
-	http               *http.Client
-	readConfigState    func(context.Context, string) (any, error)
-	emitSkillsChanged  skillsChangedEmitter
-	skillsChangedMu    sync.Mutex
-	skillsChangedNext  uidto.SkillsChanged
-	skillsChangedQueue []uidto.SkillsChanged
-	skillsChangedSeq   uint64
-	skillsChangedDelay func()
-	approval           *ApprovalCache
-	auditStore         skillMutationAuditStore
-	mirrorTargets      []SkillMirrorTarget
-	skillTools         toolstore.Persistence
+	root                        string
+	projectRoot                 string
+	projectSkillsRoot           string
+	superDolphinHome            string
+	http                        *http.Client
+	readConfigState             func(context.Context, string) (any, error)
+	emitSkillsChanged           skillsChangedEmitter
+	skillsChangedMu             sync.Mutex
+	skillsChangedNext           uidto.SkillsChanged
+	skillsChangedQueue          []uidto.SkillsChanged
+	skillsChangedSeq            atomic.Uint64
+	skillsChangedWake           chan struct{}
+	skillsChangedDebounceWindow time.Duration
+	skillsChangedStopped        bool
+	skillsChangedDropped        uint64
+	skillsChangedLastError      string
+	approval                    *ApprovalCache
+	auditStore                  skillMutationAuditStore
+	mirrorTargets               []SkillMirrorTarget
+	skillTools                  toolstore.Persistence
 
 	resolutionPreviewMu sync.Mutex
 	resolutionPreviews  map[string]skillResolutionStoredPreview
@@ -131,7 +135,7 @@ func (s *service) ApprovalRevision() uint64 {
 // SkillRevision 返回技能变更事件序号。
 // 所有本地写入和导入都会递增该值，供动态工具面判断缓存是否过期。
 func (s *service) SkillRevision() uint64 {
-	return atomic.LoadUint64(&s.skillsChangedSeq)
+	return s.skillsChangedSeq.Load()
 }
 
 // TrustRevision 返回信任相关视图的 revision。
@@ -148,11 +152,13 @@ func NewService(projectRoot string) Service {
 	// 审批缓存只用于只读 trust probe；构造期加载失败不能阻断整个模块启动。
 	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath())
 	return &service{
-		projectRoot:       pr,
-		projectSkillsRoot: defaultProjectSkillsRoot(pr),
-		superDolphinHome:  defaultSuperDolphinHome(),
-		http:              &http.Client{Timeout: 15 * time.Second},
-		approval:          approvalCache,
+		projectRoot:                 pr,
+		projectSkillsRoot:           defaultProjectSkillsRoot(pr),
+		superDolphinHome:            defaultSuperDolphinHome(),
+		http:                        &http.Client{Timeout: 15 * time.Second},
+		skillsChangedWake:           make(chan struct{}, 1),
+		skillsChangedDebounceWindow: skillsChangedDebounceWindow,
+		approval:                    approvalCache,
 	}
 }
 

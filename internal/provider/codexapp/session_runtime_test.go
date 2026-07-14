@@ -108,6 +108,7 @@ func newTestRuntimeSession(t *testing.T, wsURL string) *session {
 		t.Fatalf("newSession(): %v", err)
 	}
 	s.setRuntimeConfigValue("cwd", t.TempDir())
+	s.setApprovalPolicy("on-request")
 	t.Cleanup(func() {
 		if s.ctx.Err() == nil {
 			_ = s.Close(context.Background())

@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -32,7 +33,7 @@ func NewLeaseActor(logger *slog.Logger, scheduler *Scheduler) *LeaseActor {
 	return &LeaseActor{logger: logger, scheduler: scheduler, interval: interval}
 }
 
-// Run 启动 lease heartbeat 循环；单次续租失败只记录，后续 claim/recovery 会继续接管。
+// Run 启动 lease heartbeat 循环；续租失败只在当前 lease 安全预算内重试。
 func (a *LeaseActor) Run(ctx context.Context) error {
 	t := time.NewTimer(timerDelayWithJitter(a.interval))
 	defer t.Stop()
@@ -41,11 +42,71 @@ func (a *LeaseActor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
-			// 续租失败不阻断 heartbeat；下一轮 claim/recovery 仍会重新接管租约。
 			if err := a.scheduler.RenewLeases(ctx); err != nil {
-				a.logger.Debug("cron: renew leases failed", slog.String("error", err.Error()))
+				if err := a.retryRenewLeases(ctx, err); err != nil {
+					return err
+				}
 			}
 			t.Reset(timerDelayWithJitter(a.interval))
 		}
 	}
+}
+
+// retryRenewLeases 在最早 lease 安全期限前有界重试，耗尽后中断失租 active turn。
+func (a *LeaseActor) retryRenewLeases(ctx context.Context, initial error) error {
+	var initialRenewalErr *leaseRenewalError
+	if !errors.As(initial, &initialRenewalErr) {
+		return initial
+	}
+	err := initial
+	deadline := leaseRenewRetryDeadline(err, time.Now(), a.scheduler.cfg)
+	for err != nil {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			var renewalErr *leaseRenewalError
+			if errors.As(err, &renewalErr) {
+				return errors.Join(err, a.scheduler.cancelLeaseFailures(ctx, renewalErr.failures))
+			}
+			return err
+		}
+		delay := min(a.interval/2, remaining)
+		if delay <= 0 {
+			delay = remaining
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		err = a.scheduler.RenewLeases(ctx)
+		if err != nil {
+			a.logger.Debug("cron: renew leases retry failed", slog.String("error", err.Error()))
+		}
+	}
+	return nil
+}
+
+// leaseRenewRetryDeadline 取配置预算与失败 job lease 截止时间中的最早安全点。
+func leaseRenewRetryDeadline(err error, now time.Time, cfg SchedulerConfig) time.Time {
+	budget := cfg.LeaseTTL - cfg.LeaseHeartbeat
+	if budget <= 0 {
+		budget = cfg.LeaseHeartbeat
+	}
+	deadline := now.Add(budget)
+	var renewalErr *leaseRenewalError
+	if !errors.As(err, &renewalErr) {
+		return deadline
+	}
+	for _, failure := range renewalErr.failures {
+		if failure.job.LeaseExpiresAt.IsZero() {
+			continue
+		}
+		candidate := failure.job.LeaseExpiresAt.Add(-cfg.LeaseHeartbeat)
+		if candidate.Before(deadline) {
+			deadline = candidate
+		}
+	}
+	return deadline
 }

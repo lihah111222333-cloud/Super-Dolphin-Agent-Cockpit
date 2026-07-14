@@ -2,8 +2,10 @@ package team
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os/exec"
 	"path/filepath"
@@ -62,14 +64,18 @@ type TeamSyncService struct {
 	logger          *slog.Logger
 	remote          teamSyncRemote
 	resolveRepoSlug func(context.Context, string) (string, error)
+	newWatcher      func(*TeamSyncService, string, *slog.Logger) (*teamSyncWatcher, error)
+	closeWatcher    func(context.Context, *teamSyncWatcher, bool) error
+	refreshChecksum func(*TeamSyncService) error
 
-	mu         sync.Mutex
-	sessions   map[string]contract.BuildCtx
-	root       string
-	repoSlug   string
-	state      SyncState
-	stateStore *teamSyncStateStore
-	watcher    *teamSyncWatcher
+	transitionMu sync.Mutex
+	mu           sync.Mutex
+	sessions     map[string]contract.BuildCtx
+	root         string
+	repoSlug     string
+	state        SyncState
+	stateStore   *teamSyncStateStore
+	watcher      *teamSyncWatcher
 }
 
 // teamSyncRuntime 是 StartSession 解析出的可运行配置快照。
@@ -102,7 +108,14 @@ func NewTeamSyncService(
 		logger:          logger,
 		remote:          newTeamSyncRemoteFromEnv(),
 		resolveRepoSlug: resolveTeamRepoSlug,
-		sessions:        map[string]contract.BuildCtx{},
+		newWatcher:      newTeamSyncWatcher,
+		closeWatcher: func(ctx context.Context, watcher *teamSyncWatcher, flush bool) error {
+			return watcher.Close(ctx, flush)
+		},
+		refreshChecksum: func(runtime *TeamSyncService) error {
+			return runtime.refreshLocalChecksumLocked()
+		},
+		sessions: map[string]contract.BuildCtx{},
 	}
 }
 
@@ -118,7 +131,7 @@ func (s *TeamSyncService) canReuseWatcherLocked(runtime teamSyncRuntime) bool {
 }
 
 // StartSession 为线程启动团队记忆同步。
-// runtime 切换时先关闭旧 watcher，再在锁内完成初始拉取、校验本地 checksum 并安装新 watcher。
+// runtime 切换由 transitionMu 串行化；新状态在候选快照中准备完成后一次性提交。
 func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, buildCtx contract.BuildCtx) error {
 	threadID = strings.TrimSpace(threadID)
 	if s.startSessionDisabled(threadID) {
@@ -128,6 +141,9 @@ func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, bui
 	if err != nil || !ok {
 		return err
 	}
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
+
 	var oldWatcher *teamSyncWatcher
 	s.mu.Lock()
 	if s.canReuseWatcherLocked(runtime) {
@@ -136,38 +152,100 @@ func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, bui
 		return nil
 	}
 	oldWatcher = s.watcher
+	oldRuntime := s.snapshotRuntimeLocked()
 	s.watcher = nil
 	s.mu.Unlock()
 	if oldWatcher != nil {
-		_ = oldWatcher.Close(ctx, true)
+		if closeErr := s.closeWatcher(ctx, oldWatcher, true); closeErr != nil {
+			return s.rollbackRuntime(oldRuntime, closeErr)
+		}
 	}
 
-	s.mu.Lock()
-	s.root = runtime.root
-	s.repoSlug = runtime.repoSlug
-	s.stateStore = runtime.store
-	s.state = runtime.state
-	s.sessions[threadID] = cloneBuildCtx(buildCtx)
-	if _, err := s.pullLocked(ctx, TeamSyncTriggerInitial); err != nil {
-		delete(s.sessions, threadID)
-		s.mu.Unlock()
-		return err
+	candidate := s.newRuntimeCandidate(runtime, oldRuntime.sessions)
+	candidate.sessions[threadID] = cloneBuildCtx(buildCtx)
+	if _, err := candidate.pullLocked(ctx, TeamSyncTriggerInitial); err != nil {
+		return s.rollbackRuntime(oldRuntime, err)
 	}
-	if err := s.refreshLocalChecksumLocked(); err != nil {
-		delete(s.sessions, threadID)
-		s.mu.Unlock()
-		return err
+	if err := s.refreshRuntimeChecksum(candidate); err != nil {
+		return s.rollbackRuntime(oldRuntime, err)
 	}
-	watcher, err := newTeamSyncWatcher(s, runtime.root, s.logger)
+	watcher, err := s.newWatcher(s, runtime.root, s.logger)
 	if err != nil {
-		delete(s.sessions, threadID)
-		s.mu.Unlock()
-		return err
+		return s.rollbackRuntime(oldRuntime, err)
 	}
+	s.mu.Lock()
+	s.root = candidate.root
+	s.repoSlug = candidate.repoSlug
+	s.stateStore = candidate.stateStore
+	s.state = candidate.state
+	s.sessions = candidate.sessions
 	s.watcher = watcher
 	s.mu.Unlock()
 	watcher.Start()
 	return nil
+}
+
+// refreshRuntimeChecksum 通过服务实例绑定的准备函数刷新候选 runtime checksum。
+func (s *TeamSyncService) refreshRuntimeChecksum(candidate *TeamSyncService) error {
+	if s.refreshChecksum == nil {
+		return errors.New("team sync: checksum refresher is not wired")
+	}
+	return s.refreshChecksum(candidate)
+}
+
+type teamSyncRuntimeSnapshot struct {
+	root       string
+	repoSlug   string
+	state      SyncState
+	stateStore *teamSyncStateStore
+	sessions   map[string]contract.BuildCtx
+	watcher    *teamSyncWatcher
+}
+
+func (s *TeamSyncService) snapshotRuntimeLocked() teamSyncRuntimeSnapshot {
+	return teamSyncRuntimeSnapshot{
+		root: s.root, repoSlug: s.repoSlug, state: cloneSyncState(s.state), stateStore: s.stateStore,
+		sessions: cloneTeamSyncSessions(s.sessions), watcher: s.watcher,
+	}
+}
+
+func cloneTeamSyncSessions(source map[string]contract.BuildCtx) map[string]contract.BuildCtx {
+	result := make(map[string]contract.BuildCtx, len(source))
+	for threadID, buildCtx := range source {
+		result[threadID] = cloneBuildCtx(buildCtx)
+	}
+	return result
+}
+
+func (s *TeamSyncService) newRuntimeCandidate(runtime teamSyncRuntime, sessions map[string]contract.BuildCtx) *TeamSyncService {
+	return &TeamSyncService{
+		cfg: s.cfg, manager: s.manager, guard: s.guard, invalidator: s.invalidator, logger: s.logger,
+		remote: s.remote, resolveRepoSlug: s.resolveRepoSlug, sessions: cloneTeamSyncSessions(sessions),
+		root: runtime.root, repoSlug: runtime.repoSlug, state: runtime.state, stateStore: runtime.store,
+	}
+}
+
+func (s *TeamSyncService) rollbackRuntime(old teamSyncRuntimeSnapshot, cause error) error {
+	var rollbackErr error
+	var restoredWatcher *teamSyncWatcher
+	if old.watcher != nil {
+		restoredWatcher, rollbackErr = s.newWatcher(s, old.root, s.logger)
+	}
+	s.mu.Lock()
+	s.root = old.root
+	s.repoSlug = old.repoSlug
+	s.state = cloneSyncState(old.state)
+	s.stateStore = old.stateStore
+	s.sessions = cloneTeamSyncSessions(old.sessions)
+	s.watcher = restoredWatcher
+	s.mu.Unlock()
+	if restoredWatcher != nil {
+		restoredWatcher.Start()
+	}
+	if rollbackErr != nil {
+		return errors.Join(cause, fmt.Errorf("rollback team sync runtime: %w", rollbackErr))
+	}
+	return cause
 }
 
 // StopSession 移除线程绑定；最后一个 session 退出时关闭 watcher 并执行最终推送。
@@ -176,6 +254,8 @@ func (s *TeamSyncService) StopSession(ctx context.Context, threadID string) erro
 	if s == nil || threadID == "" {
 		return nil
 	}
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
 	var watcher *teamSyncWatcher
 	s.mu.Lock()
 	delete(s.sessions, threadID)
@@ -185,7 +265,7 @@ func (s *TeamSyncService) StopSession(ctx context.Context, threadID string) erro
 	}
 	s.mu.Unlock()
 	if watcher != nil {
-		return watcher.Close(ctx, true)
+		return s.closeWatcher(ctx, watcher, true)
 	}
 	return nil
 }
@@ -196,6 +276,8 @@ func (s *TeamSyncService) Shutdown(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
 	var watcher *teamSyncWatcher
 	s.mu.Lock()
 	watcher = s.watcher
@@ -203,7 +285,7 @@ func (s *TeamSyncService) Shutdown(ctx context.Context) error {
 	s.sessions = map[string]contract.BuildCtx{}
 	s.mu.Unlock()
 	if watcher != nil {
-		return watcher.Close(ctx, true)
+		return s.closeWatcher(ctx, watcher, true)
 	}
 	return nil
 }
@@ -306,9 +388,7 @@ func cloneBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
 	cloned.ClaudeMdExcludes = append([]string(nil), buildCtx.ClaudeMdExcludes...)
 	if len(buildCtx.SessionFlags) > 0 {
 		cloned.SessionFlags = make(map[string]bool, len(buildCtx.SessionFlags))
-		for key, value := range buildCtx.SessionFlags {
-			cloned.SessionFlags[key] = value
-		}
+		maps.Copy(cloned.SessionFlags, buildCtx.SessionFlags)
 	}
 	return cloned
 }

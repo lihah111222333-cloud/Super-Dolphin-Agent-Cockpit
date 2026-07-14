@@ -174,6 +174,12 @@ The key dependency rule is inward ownership: modules define the ports they need;
 
 See [Architecture](docs/open-source/ARCHITECTURE.md) for component responsibilities, data flow, truth sources, and known scope. Use the generated [Code Map](docs/doc/codemap/README.md) for file-level navigation.
 
+### Data integrity across transport and computation
+
+Data is not trusted merely because it crossed a typed boundary. Each boundary validates the invariant it owns: RPC binders reject malformed wire values; typed DTOs and narrow ports constrain shape and ownership; services validate business rules and normalize input before calculation; mapper field guards detect dropped or stale fields; and sqlc plus SQLite constraints protect persistence. Long-running workflows add idempotency keys, leases, claim tokens, and compare-and-swap state transitions so stale workers cannot overwrite the current execution.
+
+Calculations remain fallible even after earlier validation. Schedule, identity, configuration, retry, and state-transition logic return explicit errors instead of silently substituting data. The cron path is a concrete example: JSON-RPC parameters become a typed request, service validation precedes schedule calculation, sqlc persists constrained records, the scheduler claims due work atomically, and turn results are committed only when the run, claim token, and expected state still agree. Tests and guards cover these declared boundaries, but they are bounded evidence rather than a claim that every future business field is automatically proven end to end; new cross-layer fields must extend the corresponding mapper, contract, schema, and regression evidence.
+
 ### Current scope
 
 - The desktop application and its repository-specific governance loop are implemented here.
@@ -252,7 +258,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 333 runnable `Test*` functions across 128 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 336 runnable `Test*` functions across 128 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | [GitHub Actions](.github/workflows/ci.yml) |

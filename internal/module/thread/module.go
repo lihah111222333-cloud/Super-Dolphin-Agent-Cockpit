@@ -302,8 +302,8 @@ func (s *service) offlineRuntimeConfigForMissingSession(ctx context.Context, thr
 	return s.offlineRuntimeConfigForMissingSessionRecord(ctx, threadID, threadBindingRecordFromStore(binding), resolveErr)
 }
 
-func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *BindingRecord) {
-	s.cleanupThreadScratchpadRecord(ctx, threadID, threadBindingRecordFromStore(binding))
+func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *BindingRecord) error {
+	return s.cleanupThreadScratchpadRecord(ctx, threadID, threadBindingRecordFromStore(binding))
 }
 
 func newThreadUpsertParams(thread ThreadRecord) ThreadUpsert {

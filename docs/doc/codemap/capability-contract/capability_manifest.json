@@ -2289,6 +2289,7 @@
         "internal/contract.CronThreadStarter",
         "internal/contract.CronThreadStarter.CronStartThread",
         "internal/contract.CronTurnExecutor",
+        "internal/contract.CronTurnExecutor.CronInterruptActiveTurn",
         "internal/contract.CronTurnExecutor.CronLookupByDedupeKey",
         "internal/contract.CronTurnExecutor.CronPrepareTurn",
         "internal/contract.CronTurnExecutor.CronStartTurn",
@@ -4333,6 +4334,7 @@
         "internal/provider/shared.ConfigString",
         "internal/provider/shared.ConfigStringSlice",
         "internal/provider/shared.ConfigureRuntimeHooks",
+        "internal/provider/shared.DecodeHistoryFields",
         "internal/provider/shared.EnsureAppManagedProviderHome",
         "internal/provider/shared.EnsureLoopbackNoProxy",
         "internal/provider/shared.EnsureNoSkillMirrorConflicts",
@@ -6857,6 +6859,7 @@
         "internal/contract.CronThreadStarter",
         "internal/contract.CronThreadStarter.CronStartThread",
         "internal/contract.CronTurnExecutor",
+        "internal/contract.CronTurnExecutor.CronInterruptActiveTurn",
         "internal/contract.CronTurnExecutor.CronLookupByDedupeKey",
         "internal/contract.CronTurnExecutor.CronPrepareTurn",
         "internal/contract.CronTurnExecutor.CronStartTurn",
@@ -8901,6 +8904,7 @@
         "internal/provider/shared.ConfigString",
         "internal/provider/shared.ConfigStringSlice",
         "internal/provider/shared.ConfigureRuntimeHooks",
+        "internal/provider/shared.DecodeHistoryFields",
         "internal/provider/shared.EnsureAppManagedProviderHome",
         "internal/provider/shared.EnsureLoopbackNoProxy",
         "internal/provider/shared.EnsureNoSkillMirrorConflicts",
@@ -11425,6 +11429,7 @@
         "internal/contract.CronThreadStarter",
         "internal/contract.CronThreadStarter.CronStartThread",
         "internal/contract.CronTurnExecutor",
+        "internal/contract.CronTurnExecutor.CronInterruptActiveTurn",
         "internal/contract.CronTurnExecutor.CronLookupByDedupeKey",
         "internal/contract.CronTurnExecutor.CronPrepareTurn",
         "internal/contract.CronTurnExecutor.CronStartTurn",
@@ -13469,6 +13474,7 @@
         "internal/provider/shared.ConfigString",
         "internal/provider/shared.ConfigStringSlice",
         "internal/provider/shared.ConfigureRuntimeHooks",
+        "internal/provider/shared.DecodeHistoryFields",
         "internal/provider/shared.EnsureAppManagedProviderHome",
         "internal/provider/shared.EnsureLoopbackNoProxy",
         "internal/provider/shared.EnsureNoSkillMirrorConflicts",
@@ -15996,6 +16002,7 @@
         "internal/contract.CronThreadStarter",
         "internal/contract.CronThreadStarter.CronStartThread",
         "internal/contract.CronTurnExecutor",
+        "internal/contract.CronTurnExecutor.CronInterruptActiveTurn",
         "internal/contract.CronTurnExecutor.CronLookupByDedupeKey",
         "internal/contract.CronTurnExecutor.CronPrepareTurn",
         "internal/contract.CronTurnExecutor.CronStartTurn",
@@ -18045,6 +18052,7 @@
         "internal/provider/shared.ConfigString",
         "internal/provider/shared.ConfigStringSlice",
         "internal/provider/shared.ConfigureRuntimeHooks",
+        "internal/provider/shared.DecodeHistoryFields",
         "internal/provider/shared.EnsureAppManagedProviderHome",
         "internal/provider/shared.EnsureLoopbackNoProxy",
         "internal/provider/shared.EnsureNoSkillMirrorConflicts",
@@ -18297,11 +18305,11 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2239,
+    "total_functions": 2240,
     "total_methods": 1142,
     "total_interfaces": 184,
-    "total_interface_methods": 364,
-    "total_exported": 1251,
+    "total_interface_methods": 365,
+    "total_exported": 1252,
     "total_unexported": 2908,
     "total_structs": 594
   },
@@ -52693,6 +52701,26 @@
           "exported": true,
           "methods": [
             {
+              "name": "CronInterruptActiveTurn",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "session",
+                  "type": "Session"
+                },
+                {
+                  "name": "source",
+                  "type": "string"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
               "name": "CronLookupByDedupeKey",
               "params": [
                 {
@@ -56905,7 +56933,8 @@
             }
           ],
           "returns": [
-            "dto.MessagePageResult"
+            "dto.MessagePageResult",
+            "error"
           ]
         },
         {
@@ -59503,7 +59532,8 @@
             }
           ],
           "returns": [
-            "[]dto.Message"
+            "[]dto.Message",
+            "error"
           ]
         },
         {
@@ -59516,7 +59546,8 @@
             }
           ],
           "returns": [
-            "[]dto.Message"
+            "[]dto.Message",
+            "error"
           ]
         },
         {
@@ -68374,7 +68405,8 @@
             }
           ],
           "returns": [
-            "[]dto.Message"
+            "[]dto.Message",
+            "error"
           ]
         },
         {
@@ -71080,6 +71112,9 @@
               "name": "threadID",
               "type": "string"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -78168,6 +78203,25 @@
           ],
           "returns": [
             "RuntimeHooksReady",
+            "error"
+          ]
+        },
+        {
+          "name": "DecodeHistoryFields",
+          "exported": true,
+          "params": [
+            {
+              "name": "timestamp",
+              "type": "string"
+            },
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "time.Time",
+            "map[string]any",
             "error"
           ]
         },

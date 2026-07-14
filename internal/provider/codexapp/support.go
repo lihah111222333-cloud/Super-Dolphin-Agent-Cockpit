@@ -599,6 +599,7 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 	if len(req.CodexDisabledNativeTools) > 0 {
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
+	s.approvalPolicyVerified.Store(false)
 	if err := d.restoreApprovalPolicy(ctx, s, threadID); err != nil {
 		return nil, fmt.Errorf("restore approval policy from thread/config/get: %w", err)
 	}
@@ -740,7 +741,7 @@ type sanitizedThreadConfigGetError struct {
 
 // Error 返回固定脱敏文案，避免暴露远端 RPC 错误内容。
 func (e *sanitizedThreadConfigGetError) Error() string {
-	return "config get request failed"
+	return "codexapp: approval policy remote verification failed"
 }
 
 // Unwrap 保留底层错误链，供 errors.Is 和 errors.As 分类。
@@ -751,10 +752,13 @@ func (e *sanitizedThreadConfigGetError) Unwrap() error {
 	return e.cause
 }
 
-// restoreApprovalPolicy 从远端线程配置恢复审批策略。
+// restoreApprovalPolicy 从远端线程配置恢复已验证的审批策略。
 func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) error {
-	if d == nil || s == nil {
-		return errors.New("driver and session are required")
+	if d == nil {
+		return errors.New("codexapp: approval policy restore requires driver")
+	}
+	if s == nil || s.transport == nil {
+		return errors.New("codexapp: approval policy restore requires session transport")
 	}
 	result, err := s.transport.Call(ctx, "thread/config/get", map[string]any{
 		"threadId": threadID,
@@ -764,14 +768,19 @@ func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID
 	}
 	var resp threadConfigGetResponse
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return errors.New("decode response")
+		return errors.New("codexapp: approval policy response decode failed")
 	}
 	if resp.Effective == nil {
-		return errors.New("effective config is required")
+		return errors.New("codexapp: approval policy response effective object is required")
 	}
 	approval := strings.TrimSpace(resp.Effective.Approvals)
 	if approval == "" {
-		return errors.New("effective approval policy is required")
+		return errors.New("codexapp: approval policy response approvals string is required")
+	}
+	switch approval {
+	case "untrusted", "on-failure", "on-request", "never":
+	default:
+		return fmt.Errorf("codexapp: approval policy response contains unknown policy %q", approval)
 	}
 	s.setApprovalPolicy(approval)
 	s.setRuntimeConfigValue("approvalPolicy", approval)

@@ -25,35 +25,36 @@ import (
 )
 
 type session struct {
-	agentID              string
-	threadID             atomic.Value
-	approvalPolicy       atomic.Value
-	transport            *transport
-	manager              *ServerManager
-	caps                 dto.CapabilitySet
-	recovery             *recoveryManager
-	history              *rolloutReader
-	logger               *slog.Logger
-	dispatcher           *unified.EventDispatcher
-	approvals            *rpc.ApprovalManager
-	approvalDecisionHook func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error)
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	mu                   sync.Mutex
-	approvalMu           sync.Mutex
-	recoveryMu           sync.Mutex
-	lastReadAt           atomic.Int64
-	recoveryCount        atomic.Int32
-	turns                map[string]*turnHandle
-	activeTurnID         string
-	pendingTurn          *turnReplayState
-	suppressed           map[string]struct{}
-	suppressedToolEnds   map[string]struct{}
-	suppressedToolOrder  []string
-	rolloutToolNames     map[string]string
-	rolloutToolOrder     []string
-	processedApprovals   map[string]*processedApprovalEntry
-	runtimeConfig        map[string]any
+	agentID                string
+	threadID               atomic.Value
+	approvalPolicy         atomic.Value
+	approvalPolicyVerified atomic.Bool
+	transport              *transport
+	manager                *ServerManager
+	caps                   dto.CapabilitySet
+	recovery               *recoveryManager
+	history                *rolloutReader
+	logger                 *slog.Logger
+	dispatcher             *unified.EventDispatcher
+	approvals              *rpc.ApprovalManager
+	approvalDecisionHook   func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error)
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	mu                     sync.Mutex
+	approvalMu             sync.Mutex
+	recoveryMu             sync.Mutex
+	lastReadAt             atomic.Int64
+	recoveryCount          atomic.Int32
+	turns                  map[string]*turnHandle
+	activeTurnID           string
+	pendingTurn            *turnReplayState
+	suppressed             map[string]struct{}
+	suppressedToolEnds     map[string]struct{}
+	suppressedToolOrder    []string
+	rolloutToolNames       map[string]string
+	rolloutToolOrder       []string
+	processedApprovals     map[string]*processedApprovalEntry
+	runtimeConfig          map[string]any
 	// turnOutputAccumulator 按 provider turn UUID 暂存流式输出，供完成事件合并后再分发。
 	turnOutputAccumulator map[string]*turnOutputBuffer
 	accumulatorMu         sync.Mutex

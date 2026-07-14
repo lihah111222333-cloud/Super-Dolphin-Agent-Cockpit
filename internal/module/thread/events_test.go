@@ -65,7 +65,9 @@ func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testin
 	}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 
-	svc.processAgentLaunched(newAgentLaunchedEvent("agent-1", "thread-1", realUUID))
+	if err := svc.processAgentLaunched(newAgentLaunchedEvent("agent-1", "thread-1", realUUID)); err != nil {
+		t.Fatalf("processAgentLaunched: %v", err)
+	}
 
 	if len(bindings.SessionUpdates()) != 1 {
 		t.Fatalf("session updates = %d, want 1", len(bindings.SessionUpdates()))
@@ -75,6 +77,17 @@ func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testin
 	}
 	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.ProviderThreadID != "agent-1" {
 		t.Fatalf("binding.ProviderThreadID = %q, want placeholder retained", bindingProviderThreadID(gotBinding))
+	}
+}
+
+func TestProcessAgentLaunchedReturnsBindingStoreError(t *testing.T) {
+	wantErr := errors.New("binding store unavailable")
+	bindings := &eventBindingStore{getByAgentErr: wantErr}
+	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
+
+	err := svc.processAgentLaunched(newAgentLaunchedEvent("agent-1", "", ""))
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("processAgentLaunched error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -271,6 +284,7 @@ type eventBindingStore struct {
 	providerUpdates []BindingProviderThreadIDUpdate
 	cwdUpdates      []BindingCWDUpdate
 	updateCh        chan struct{}
+	getByAgentErr   error
 }
 
 type eventBindingLookupNoopStore struct{}
@@ -313,11 +327,14 @@ func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params Bin
 func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.getByAgentErr != nil {
+		return nil, s.getByAgentErr
+	}
 	if s.binding != nil && s.binding.AgentID == agentID {
 		binding := *s.binding
 		return &binding, nil
 	}
-	return nil, errors.New("not found")
+	return nil, contract.ErrNotFound
 }
 func (eventBindingLookupNoopStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil

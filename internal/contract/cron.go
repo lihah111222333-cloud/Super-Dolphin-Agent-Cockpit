@@ -33,6 +33,7 @@ type CronStartThreadResult struct {
 type CronTurnExecutor interface {
 	CronPrepareTurn(ctx context.Context, session Session, input CronPrepareInput) (dto.TurnRequest, error)
 	CronStartTurn(ctx context.Context, session Session, req dto.TurnRequest) (TurnHandle, error)
+	CronInterruptActiveTurn(ctx context.Context, session Session, source string) error
 	CronTrackTurn(ctx context.Context, localID string) (CronTurnStatus, error)
 	CronLookupByDedupeKey(ctx context.Context, dedupeKey string) (CronTurnStatus, bool, error)
 }

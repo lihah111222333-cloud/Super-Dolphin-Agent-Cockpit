@@ -254,6 +254,7 @@ func TestImportLocalDir_BatchPublishesSkillsChangedEvent(t *testing.T) {
 
 	svc, projectRoot := newImportDirTestService(t)
 	svc.bindDispatcher(dispatcher)
+	startSkillsChangedRunnerCleanup(t, svc)
 	source := filepath.Join(t.TempDir(), "skills")
 	writeImportTestSkill(t, source, "alpha")
 	writeImportTestSkill(t, source, "beta")

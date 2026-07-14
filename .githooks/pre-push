@@ -6,6 +6,8 @@ set -e
 # Push hooks must not run gosec; keep security scans out of the local push path.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
 
+source scripts/configure_hook_node_runtime.sh
+
 run_without_git_env() (
   local git_var
   while IFS= read -r git_var; do
@@ -406,6 +408,12 @@ run_ai_maintenance_push_gate() {
   SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT=1 run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
 }
 
+configure_pre_push_node_runtime() {
+  if [ "$HAS_FRONTEND_APP_CODE_CHANGES" -eq 1 ] || [ "$HAS_CODEMAP_CHANGES" -eq 1 ]; then
+    configure_hook_node_runtime
+  fi
+}
+
 ensure_pushed_refs_match_head() {
   # 手工直接运行脚本时 stdin 是终端；不要阻塞等待输入。
   if [ -t 0 ]; then
@@ -453,6 +461,7 @@ if [ -s "$PUSH_RANGES" ]; then
 fi
 
 collect_changed_test_scopes
+configure_pre_push_node_runtime
 run_ai_maintenance_push_gate
 run_go_package_tests
 run_frontend_app_package_tests

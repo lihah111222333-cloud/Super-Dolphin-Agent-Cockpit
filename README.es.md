@@ -174,6 +174,12 @@ La regla de dependencias principal es el ownership hacia dentro: los módulos de
 
 Consulta [Architecture](docs/open-source/ARCHITECTURE.md) para conocer las responsabilidades de los componentes, el flujo de datos, las fuentes de verdad y el alcance conocido. Utiliza el [Code Map](docs/doc/codemap/README.md) generado para la navegación por archivos.
 
+### Integridad de los datos durante el transporte y el cálculo
+
+Los datos no se consideran confiables solo por haber atravesado un límite tipado. Cada límite valida el invariante que le pertenece: los binders RPC rechazan valores de transporte mal formados; los DTO tipados y los ports estrechos restringen la forma y el ownership; los services validan reglas de negocio y normalizan la entrada antes del cálculo; los guards de campos de los mappers detectan campos omitidos u obsoletos; y sqlc junto con las restricciones de SQLite protegen la persistencia. Los workflows de larga duración añaden claves de idempotencia, leases, claim tokens y transiciones de estado CAS para impedir que workers obsoletos sobrescriban la ejecución actual.
+
+Los cálculos pueden fallar explícitamente incluso después de una validación previa. La lógica de scheduling, identidad, configuración, reintentos y transición de estados devuelve errores en lugar de sustituir datos silenciosamente. El flujo de Cron es un ejemplo concreto: los parámetros JSON-RPC se convierten en una request tipada, la validación del service precede al cálculo del schedule, sqlc persiste registros restringidos, el scheduler reclama atómicamente el trabajo vencido y los resultados del turn solo se confirman cuando el run, el claim token y el estado esperado siguen coincidiendo. Los tests y guards cubren estos límites declarados, pero son evidencia acotada, no una afirmación de que todo futuro campo de negocio quede demostrado automáticamente de extremo a extremo; cada nuevo campo entre capas debe ampliar el mapper, contract, schema y la evidencia de regresión correspondientes.
+
 ### Alcance actual
 
 - La aplicación de escritorio y su ciclo de gobernanza específico para este repositorio están implementados aquí.

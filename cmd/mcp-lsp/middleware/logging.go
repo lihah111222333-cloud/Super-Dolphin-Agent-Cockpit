@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -43,45 +44,40 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			logger.DebugContext(ctx, "mcp-lsp request",
 				pkglogger.String("tool", name),
 				pkglogger.Int("request_bytes", len(params)),
-				pkglogger.String("request", compactValue(params)),
+				pkglogger.String("status", "started"),
 			)
 			result, err := next(ctx, params)
 			if err != nil {
 				logger.WarnContext(ctx, "mcp-lsp request failed",
 					pkglogger.String("tool", name),
 					pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
-					pkglogger.String("error", err.Error()),
+					pkglogger.String("status", "failed"),
+					pkglogger.String("error_kind", loggingErrorKind(err)),
 				)
 				return result, err
+			}
+			responseBytes := 0
+			if raw, marshalErr := json.Marshal(result); marshalErr == nil {
+				responseBytes = len(raw)
 			}
 			logger.DebugContext(ctx, "mcp-lsp response",
 				pkglogger.String("tool", name),
 				pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
-				pkglogger.String("response", compactAny(result)),
+				pkglogger.Int("response_bytes", responseBytes),
+				pkglogger.String("status", "succeeded"),
 			)
 			return result, nil
 		}
 	}
 }
 
-// compactAny 将任意值序列化后截断，用于日志输出。
-func compactAny(value any) string {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return "<unmarshalable>"
+func loggingErrorKind(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "handler_error"
 	}
-	return compactValue(raw)
-}
-
-// compactValue 截断原始字节到 2048 字符，用于日志输出。
-func compactValue(raw []byte) string {
-	const limit = 2048
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
-		return ""
-	}
-	if len(trimmed) <= limit {
-		return trimmed
-	}
-	return trimmed[:limit] + "...(truncated)"
 }

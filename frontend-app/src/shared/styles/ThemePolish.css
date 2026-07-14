@@ -274,7 +274,7 @@ textarea:disabled {
 .thread-clean-cancel,
 .composer button,
 .composer-model,
-.runtime-toolbar button,
+.runtime-toolbar .runtime-stat,
 .score,
 .thread-card b,
 .thread-stale-badge,
@@ -623,20 +623,12 @@ textarea:disabled {
   background: var(--surface-2);
 }
 
-.sa-window[data-theme="light"] .runtime-toolbar button,
+.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat,
 .sa-window[data-theme="light"] .score {
   border-color: var(--line);
   background: var(--surface);
   color: var(--text-sec);
 }
-
-.sa-window[data-theme="light"] .runtime-toolbar button:hover,
-.sa-window[data-theme="light"] .runtime-toolbar button:focus-visible {
-  border-color: var(--border-strong);
-  background: var(--surface-3);
-  color: var(--text-pri);
-}
-
 .sa-window[data-theme="light"] .score.good {
   border-color: color-mix(in srgb, var(--success) 34%, var(--border));
   background: color-mix(in srgb, var(--success) 9%, var(--surface));

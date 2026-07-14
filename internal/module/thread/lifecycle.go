@@ -105,7 +105,7 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 
 // completeStart 串起 thread/start 的主流程：先选 prompt，再组 start 提示。
 // provider 启动后再保存 thread 和 prompt snapshot，这个顺序不要调换。
-func (s *service) completeStart(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
+func (s *service) completeStart(ctx context.Context, req StartRequest, agentID string) (result StartResult, err error) {
 	// 路由必须早于 prompt assembly，路由产出的 BaseInstructions 才能进入组装；
 	// AgentKey/PromptVersionID 等副产物也会通过 threadState 写入持久化记录。
 	if err := s.resolveRoutedPrompt(ctx, &req); err != nil {
@@ -119,7 +119,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 		return StartResult{}, err
 	}
 	cleanupOnFailure := true
-	defer runScratchpadCleanup(&cleanupOnFailure, cleanupScratchpad)
+	defer joinScratchpadCleanup(&err, &cleanupOnFailure, cleanupScratchpad)
 	assembly, err := resolveStartPromptAssembly(ctx, req, assemblyInput)
 	if err != nil {
 		return StartResult{}, err
@@ -133,7 +133,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	if err != nil {
 		return StartResult{}, err
 	}
-	result, err := s.persistStartedSession(ctx, req, assemblyInput, assembly, agentID, displayName, session)
+	result, err = s.persistStartedSession(ctx, req, assemblyInput, assembly, agentID, displayName, session)
 	if err != nil {
 		return StartResult{}, err
 	}

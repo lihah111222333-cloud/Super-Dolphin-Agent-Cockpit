@@ -35,10 +35,12 @@ func registryDir() string {
 
 // ChildInfo 描述一个由当前应用登记的子进程。
 type ChildInfo struct {
-	PID       int               `json:"pid"`
-	Kind      string            `json:"kind"`
-	StartedAt string            `json:"started_at"`
-	Meta      map[string]string `json:"meta,omitempty"`
+	PID                int               `json:"pid"`
+	Kind               string            `json:"kind"`
+	StartedAt          string            `json:"started_at"`
+	ProcessStartToken  string            `json:"process_start_token"`
+	ExecutableIdentity string            `json:"executable_identity"`
+	Meta               map[string]string `json:"meta,omitempty"`
 }
 
 // registryFile 是 PID registry 的磁盘 JSON 结构。
@@ -60,15 +62,17 @@ type Registry struct {
 	createdAt                   string
 	parentExecutableFingerprint string
 	children                    map[int]ChildInfo
+	readIdentity                func(int) (processIdentity, error)
 }
 
 // New 为当前进程创建 PID registry。
 func New() *Registry {
 	pid := os.Getpid()
 	return &Registry{
-		appPID:   pid,
-		path:     registryPath(pid),
-		children: make(map[int]ChildInfo),
+		appPID:       pid,
+		path:         registryPath(pid),
+		children:     make(map[int]ChildInfo),
+		readIdentity: readProcessIdentity,
 	}
 }
 
@@ -84,13 +88,23 @@ func (r *Registry) RegisterChecked(pid int, kind string, meta map[string]string)
 	if r == nil || pid <= 1 {
 		return nil
 	}
+	reader := r.readIdentity
+	if reader == nil {
+		reader = readProcessIdentity
+	}
+	identity, err := reader(pid)
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.children[pid] = ChildInfo{
-		PID:       pid,
-		Kind:      kind,
-		StartedAt: time.Now().Format(time.RFC3339),
-		Meta:      meta,
+		PID:                pid,
+		Kind:               kind,
+		StartedAt:          time.Now().Format(time.RFC3339),
+		ProcessStartToken:  identity.startToken,
+		ExecutableIdentity: identity.executable,
+		Meta:               meta,
 	}
 	if err := r.persist(); err != nil {
 		delete(r.children, pid)
@@ -123,8 +137,42 @@ func (r *Registry) Close() {
 
 // staleOrphan 是从过期 registry 文件中发现的仍存活子进程。
 type staleOrphan struct {
-	pid  int
-	kind string
+	child ChildInfo
+}
+
+// CleanupResult 记录 stale cleanup 的安全裁决结果。
+type CleanupResult struct {
+	Killed              int
+	IdentityMismatch    int
+	IdentityReadFailure int
+	MissingIdentity     int
+	unresolved          int
+}
+
+func (r *CleanupResult) markUnresolved() {
+	if r != nil {
+		r.unresolved++
+	}
+}
+
+func (r CleanupResult) hasUnresolved() bool {
+	return r.unresolved > 0
+}
+
+type cleanupProcessOps struct {
+	readIdentity func(int) (processIdentity, error)
+	sendTerm     func(int) error
+	forceKill    func(int) error
+	isAlive      func(int) bool
+}
+
+func defaultCleanupProcessOps() cleanupProcessOps {
+	return cleanupProcessOps{
+		readIdentity: readProcessIdentity,
+		sendTerm:     sendSIGTERM,
+		forceKill:    forceKill,
+		isAlive:      isProcessAlive,
+	}
 }
 
 // CleanupStale 清理死亡应用遗留的子进程，并返回最终确认退出的数量。
@@ -136,31 +184,46 @@ func CleanupStale() int {
 // CleanupStaleWithProtectedPIDs 清理过期 registry，同时跳过受保护 PID。
 // 调用方应传入当前 runtime 进程树和祖先进程，避免误杀正在执行清理的活跃 runtime。
 func CleanupStaleWithProtectedPIDs(protectedPIDs map[int]struct{}) int {
+	return CleanupStaleDetailedWithProtectedPIDs(protectedPIDs).Killed
+}
+
+// CleanupStaleDetailedWithProtectedPIDs 清理过期 registry，并保留身份拒绝原因。
+func CleanupStaleDetailedWithProtectedPIDs(protectedPIDs map[int]struct{}) CleanupResult {
 	staleFiles := findStaleRegistryFiles()
 	if len(staleFiles) == 0 {
-		return 0
+		return CleanupResult{}
 	}
 
-	orphans := collectStaleOrphans(staleFiles, protectedPIDs)
+	orphans, result := collectStaleOrphans(staleFiles, protectedPIDs)
 	if len(orphans) == 0 {
-		cleanupStaleFiles(staleFiles)
-		return 0
+		finalizeStaleRegistryFiles(staleFiles, result)
+		return result
 	}
 
-	sigtermed := sigtermOrphans(orphans)
+	sigtermed := sigtermOrphans(orphans, &result)
 	waitForOrphanExit(sigtermed)
-	killed := sigkillSurvivors(sigtermed)
+	result.Killed += sigkillSurvivors(sigtermed, &result)
 
-	cleanupStaleFiles(staleFiles)
-	if killed > 0 {
-		pkglogger.Info("pidregistry: stale cleanup summary", "total_killed", killed)
+	finalizeStaleRegistryFiles(staleFiles, result)
+	if result.Killed > 0 {
+		pkglogger.Info("pidregistry: stale cleanup summary", "total_killed", result.Killed)
 	}
-	return killed
+	return result
+}
+
+func finalizeStaleRegistryFiles(staleFiles []staleFile, result CleanupResult) {
+	if result.hasUnresolved() {
+		pkglogger.Warn("pidregistry: retained stale registry for cleanup retry",
+			"files", len(staleFiles), "unresolved", result.unresolved)
+		return
+	}
+	cleanupStaleFiles(staleFiles)
 }
 
 // collectStaleOrphans 从过期 registry 文件中收集仍存活且未受保护的子进程。
-func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{}) []staleOrphan {
+func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{}) ([]staleOrphan, CleanupResult) {
 	var orphans []staleOrphan
+	var result CleanupResult
 	for _, sf := range staleFiles {
 		for _, child := range sf.Children {
 			if child.PID <= 1 || !isProcessAlive(child.PID) {
@@ -169,20 +232,40 @@ func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{})
 			if _, protected := protectedPIDs[child.PID]; protected {
 				continue
 			}
-			orphans = append(orphans, staleOrphan{pid: child.PID, kind: child.Kind})
+			if strings.TrimSpace(child.ProcessStartToken) == "" || strings.TrimSpace(child.ExecutableIdentity) == "" {
+				result.MissingIdentity++
+				continue
+			}
+			orphans = append(orphans, staleOrphan{child: child})
 		}
 	}
-	return orphans
+	return orphans, result
 }
 
 // sigtermOrphans 向孤儿进程发送 SIGTERM 或平台等价信号，并返回成功发信号的进程。
-func sigtermOrphans(orphans []staleOrphan) []staleOrphan {
+func sigtermOrphans(orphans []staleOrphan, result *CleanupResult) []staleOrphan {
+	return sigtermOrphansWithOps(orphans, result, defaultCleanupProcessOps())
+}
+
+// sigtermOrphansWithOps 在可注入的进程操作边界内完成 TERM 前身份复核。
+func sigtermOrphansWithOps(orphans []staleOrphan, result *CleanupResult, ops cleanupProcessOps) []staleOrphan {
 	sigtermed := make([]staleOrphan, 0, len(orphans))
 	for _, o := range orphans {
-		if err := sendSIGTERM(o.pid); err != nil {
+		identity, err := ops.readIdentity(o.child.PID)
+		if err != nil {
+			result.IdentityReadFailure++
+			result.markUnresolved()
+			continue
+		}
+		if !childIdentityMatches(o.child, identity) {
+			result.IdentityMismatch++
+			continue
+		}
+		if err := ops.sendTerm(o.child.PID); err != nil {
 			if !isNoSuchProcessErr(err) {
+				result.markUnresolved()
 				pkglogger.Warn("pidregistry: SIGTERM failed",
-					"pid", o.pid, "kind", o.kind, "error", err)
+					"pid", o.child.PID, "kind", o.child.Kind, "error", err)
 			}
 			continue
 		}
@@ -205,7 +288,7 @@ func waitForOrphanExit(sigtermed []staleOrphan) {
 // allProcessesGone 判断所有候选进程是否都已经退出。
 func allProcessesGone(orphans []staleOrphan) bool {
 	for _, o := range orphans {
-		if isProcessAlive(o.pid) {
+		if isProcessAlive(o.child.PID) {
 			return false
 		}
 	}
@@ -213,22 +296,40 @@ func allProcessesGone(orphans []staleOrphan) bool {
 }
 
 // sigkillSurvivors 强制结束 grace 后仍存活的进程，并返回确认退出数量。
-func sigkillSurvivors(sigtermed []staleOrphan) int {
+func sigkillSurvivors(sigtermed []staleOrphan, result *CleanupResult) int {
+	return sigkillSurvivorsWithOps(sigtermed, result, defaultCleanupProcessOps())
+}
+
+// sigkillSurvivorsWithOps 在可注入的进程操作边界内完成 KILL 前二次身份复核。
+func sigkillSurvivorsWithOps(sigtermed []staleOrphan, result *CleanupResult, ops cleanupProcessOps) int {
 	killed := 0
 	for _, o := range sigtermed {
-		if !isProcessAlive(o.pid) {
+		if !ops.isAlive(o.child.PID) {
 			pkglogger.Info("pidregistry: killed orphaned process",
-				"pid", o.pid, "kind", o.kind)
+				"pid", o.child.PID, "kind", o.child.Kind)
 			killed++
 			continue
 		}
-		if err := forceKill(o.pid); err != nil {
-			pkglogger.Warn("pidregistry: force kill failed",
-				"pid", o.pid, "kind", o.kind, "error", err)
+		identity, err := ops.readIdentity(o.child.PID)
+		if err != nil {
+			result.IdentityReadFailure++
+			result.markUnresolved()
+			continue
+		}
+		if !childIdentityMatches(o.child, identity) {
+			result.IdentityMismatch++
+			continue
+		}
+		if err := ops.forceKill(o.child.PID); err != nil {
+			if !isNoSuchProcessErr(err) {
+				result.markUnresolved()
+				pkglogger.Warn("pidregistry: force kill failed",
+					"pid", o.child.PID, "kind", o.child.Kind, "error", err)
+			}
 			continue
 		}
 		pkglogger.Info("pidregistry: force-killed orphaned process",
-			"pid", o.pid, "kind", o.kind)
+			"pid", o.child.PID, "kind", o.child.Kind)
 		killed++
 	}
 	return killed

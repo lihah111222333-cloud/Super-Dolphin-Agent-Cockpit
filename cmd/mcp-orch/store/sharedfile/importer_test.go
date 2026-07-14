@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -246,6 +248,264 @@ func TestImportLocalFile_RejectsAllowedRootParentSymlinkEscape(t *testing.T) {
 		t.Fatalf("error = %v, want allowed_source_roots rejection", err)
 	}
 }
+
+func TestImportLocalFile_DurableFailureMatrixRestoresEmptyState(t *testing.T) {
+	t.Parallel()
+	faultErr := errors.New("injected filesystem failure")
+	for _, tc := range []struct {
+		name             string
+		configure        func(importFileOps, string) importFileOps
+		wantRollbackFail bool
+	}{
+		{name: "temp_fsync", configure: func(ops importFileOps, _ string) importFileOps { return failTempSync(ops, faultErr) }},
+		{name: "temp_close", configure: func(ops importFileOps, _ string) importFileOps { return failTempClose(ops, faultErr) }},
+		{name: "rename", configure: func(ops importFileOps, _ string) importFileOps { return failRename(ops, faultErr) }},
+		{name: "directory_fsync", configure: func(ops importFileOps, _ string) importFileOps { return failDirectorySync(ops, faultErr) }},
+		{name: "directory_close", configure: func(ops importFileOps, _ string) importFileOps { return failDirectoryClose(ops, faultErr) }},
+		{
+			name: "rollback_remove",
+			configure: func(ops importFileOps, target string) importFileOps {
+				return failRemove(failDirectorySync(ops, faultErr), target, errors.New("rollback remove failed"))
+			},
+			wantRollbackFail: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sfStore, db, sourceRoot, sourcePath := newDurableImportFixture(t)
+			targetRel := "dag/run-1/final.mp4"
+			targetAbs, err := sfStore.cfg.ResolveWriteAbs(targetRel)
+			if err != nil {
+				t.Fatalf("ResolveWriteAbs() error = %v", err)
+			}
+			params := durableImportParams(sourceRoot, sourcePath, targetRel)
+			_, err = sfStore.importLocalFileToTargetWithOps(context.Background(), params, targetRel, targetAbs, tc.configure(defaultImportFileOps(), targetAbs))
+			if !errors.Is(err, faultErr) {
+				t.Fatalf("import error = %v, want injected failure", err)
+			}
+			assertImportIndexCount(t, db, targetRel, 0)
+			assertDurableImportFailureState(t, targetAbs, err, tc.wantRollbackFail)
+		})
+	}
+}
+
+func assertDurableImportFailureState(t *testing.T, targetAbs string, importErr error, wantRollbackFail bool) {
+	t.Helper()
+	_, statErr := os.Stat(targetAbs)
+	if wantRollbackFail {
+		if importErr == nil || !strings.Contains(importErr.Error(), "rollback remove failed") {
+			t.Fatalf("import error = %v, want rollback remove failure", importErr)
+		}
+		if statErr != nil {
+			t.Fatalf("target stat error = %v, want retained file after rollback failure", statErr)
+		}
+		return
+	}
+	if !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("target stat error = %v, want no published file", statErr)
+	}
+	leftovers, globErr := filepath.Glob(targetAbs + ".tmp-*")
+	if globErr != nil || len(leftovers) != 0 {
+		t.Fatalf("temporary leftovers = %v, error = %v", leftovers, globErr)
+	}
+}
+
+func TestImportLocalFile_SQLiteUpsertAndRollbackDeleteFailuresAreJoined(t *testing.T) {
+	t.Parallel()
+	sfStore, db, sourceRoot, sourcePath := newDurableImportFixture(t)
+	targetRel := "dag/run-1/final.mp4"
+	if _, err := sqlc.New(db).UpsertSharedFile(context.Background(), sqlc.UpsertSharedFileParams{Path: targetRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "old-writer"}); err != nil {
+		t.Fatalf("seed previous index: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_import_upsert BEFORE UPDATE ON shared_files WHEN NEW.updated_by = 'new-writer' BEGIN SELECT RAISE(FAIL, 'upsert failed'); END;`); err != nil {
+		t.Fatalf("create upsert trigger: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_import_rollback BEFORE UPDATE ON shared_files WHEN NEW.updated_by = 'old-writer' BEGIN SELECT RAISE(FAIL, 'rollback restore failed'); END;`); err != nil {
+		t.Fatalf("create rollback trigger: %v", err)
+	}
+	_, err := sfStore.ImportLocalFile(context.Background(), durableImportParams(sourceRoot, sourcePath, targetRel))
+	if err == nil || !strings.Contains(err.Error(), "upsert failed") || !strings.Contains(err.Error(), "rollback restore failed") {
+		t.Fatalf("ImportLocalFile() error = %v, want joined upsert and rollback failures", err)
+	}
+}
+
+func TestImportLocalFile_RestoresPreviousFileAndIndexAfterDirectoryFailure(t *testing.T) {
+	t.Parallel()
+	sfStore, db, sourceRoot, sourcePath := newDurableImportFixture(t)
+	targetRel := "dag/run-1/final.mp4"
+	targetAbs, err := sfStore.cfg.ResolveWriteAbs(targetRel)
+	if err != nil {
+		t.Fatalf("ResolveWriteAbs() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(targetAbs), 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.WriteFile(targetAbs, []byte("old-body"), 0o640); err != nil {
+		t.Fatalf("write old target: %v", err)
+	}
+	q := sqlc.New(db)
+	if _, err := q.UpsertSharedFile(context.Background(), sqlc.UpsertSharedFileParams{Path: targetRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "old-writer"}); err != nil {
+		t.Fatalf("seed shared file: %v", err)
+	}
+	faultErr := errors.New("directory fsync failed")
+	params := durableImportParams(sourceRoot, sourcePath, targetRel)
+	_, err = sfStore.importLocalFileToTargetWithOps(context.Background(), params, targetRel, targetAbs, failDirectorySync(defaultImportFileOps(), faultErr))
+	if !errors.Is(err, faultErr) {
+		t.Fatalf("import error = %v, want directory failure", err)
+	}
+	body, readErr := os.ReadFile(targetAbs)
+	if readErr != nil || string(body) != "old-body" {
+		t.Fatalf("restored body = %q, error = %v", body, readErr)
+	}
+	assertSharedFileMetadata(t, db, targetRel, "", "old-writer")
+}
+
+func TestDetectImportDriftFindsTempsMissingAndUnindexedFiles(t *testing.T) {
+	t.Parallel()
+	sfStore, db, _, _ := newDurableImportFixture(t)
+	root := sfStore.cfg.SandboxRoot()
+	missingRel := "dag/missing.mp4"
+	if _, err := sqlc.New(db).UpsertSharedFile(context.Background(), sqlc.UpsertSharedFileParams{Path: missingRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "seed"}); err != nil {
+		t.Fatalf("seed missing index: %v", err)
+	}
+	for rel, body := range map[string]string{
+		"dag/orphan.mp4":               "orphan",
+		"dag/final.mp4.tmp-incomplete": "temp",
+	} {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(abs, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	drift, err := sfStore.detectImportDrift(context.Background())
+	if err != nil {
+		t.Fatalf("detectImportDrift() error = %v", err)
+	}
+	if fmt.Sprint(drift.TempPaths) != "[dag/final.mp4.tmp-incomplete]" || fmt.Sprint(drift.MissingIndexedPaths) != "[dag/missing.mp4]" || fmt.Sprint(drift.UnindexedPaths) != "[dag/orphan.mp4]" {
+		t.Fatalf("drift = %#v", drift)
+	}
+}
+
+func newDurableImportFixture(t *testing.T) (*store, *fakeImportDB, string, string) {
+	t.Helper()
+	sourceRoot := t.TempDir()
+	sourcePath := filepath.Join(sourceRoot, "final.mp4")
+	if err := os.WriteFile(sourcePath, []byte("new-body"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	db := newFakeImportDB(t)
+	return newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1}), db, sourceRoot, sourcePath
+}
+
+func durableImportParams(sourceRoot, sourcePath, targetRel string) ImportLocalFileParams {
+	return ImportLocalFileParams{
+		SourcePath: sourcePath, TargetPath: targetRel, AllowedExtensions: []string{".mp4"},
+		AllowedSourceRoots: []string{sourceRoot}, MaxBytes: 1024, Overwrite: "replace", UpdatedBy: "new-writer",
+	}
+}
+
+type faultingImportFile struct {
+	importTempFile
+	syncErr  error
+	closeErr error
+}
+
+func (f faultingImportFile) Sync() error {
+	if f.syncErr != nil {
+		return f.syncErr
+	}
+	return f.importTempFile.Sync()
+}
+
+func (f faultingImportFile) Close() error {
+	closeErr := f.importTempFile.Close()
+	return errors.Join(closeErr, f.closeErr)
+}
+
+type faultingImportDir struct {
+	importSyncCloser
+	syncErr  error
+	closeErr error
+}
+
+func (d faultingImportDir) Sync() error {
+	if d.syncErr != nil {
+		return d.syncErr
+	}
+	return d.importSyncCloser.Sync()
+}
+
+func (d faultingImportDir) Close() error {
+	closeErr := d.importSyncCloser.Close()
+	return errors.Join(closeErr, d.closeErr)
+}
+
+func failTempSync(ops importFileOps, fault error) importFileOps {
+	createTemp := ops.createTemp
+	ops.createTemp = func(dir, pattern string) (importTempFile, error) {
+		file, err := createTemp(dir, pattern)
+		return faultingImportFile{importTempFile: file, syncErr: fault}, err
+	}
+	return ops
+}
+
+func failTempClose(ops importFileOps, fault error) importFileOps {
+	createTemp := ops.createTemp
+	ops.createTemp = func(dir, pattern string) (importTempFile, error) {
+		file, err := createTemp(dir, pattern)
+		return faultingImportFile{importTempFile: file, closeErr: fault}, err
+	}
+	return ops
+}
+
+func failRename(ops importFileOps, fault error) importFileOps {
+	ops.rename = func(string, string) error { return fault }
+	return ops
+}
+
+func failDirectorySync(ops importFileOps, fault error) importFileOps {
+	openDir := ops.openDir
+	ops.openDir = func(path string) (importSyncCloser, error) {
+		dir, err := openDir(path)
+		return faultingImportDir{importSyncCloser: dir, syncErr: fault}, err
+	}
+	return ops
+}
+
+func failDirectoryClose(ops importFileOps, fault error) importFileOps {
+	openDir := ops.openDir
+	ops.openDir = func(path string) (importSyncCloser, error) {
+		dir, err := openDir(path)
+		return faultingImportDir{importSyncCloser: dir, closeErr: fault}, err
+	}
+	return ops
+}
+
+func failRemove(ops importFileOps, target string, fault error) importFileOps {
+	remove := ops.remove
+	ops.remove = func(path string) error {
+		if filepath.Clean(path) == filepath.Clean(target) {
+			return fault
+		}
+		return remove(path)
+	}
+	return ops
+}
+
+func assertImportIndexCount(t *testing.T, db *fakeImportDB, path string, want int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM shared_files WHERE path = ?`, path).Scan(&count); err != nil {
+		t.Fatalf("query shared_files: %v", err)
+	}
+	if count != want {
+		t.Fatalf("shared_files count = %d, want %d", count, want)
+	}
+}
+
+var _ io.Writer = faultingImportFile{}
 
 type fakeImportDB struct {
 	*sql.DB

@@ -1,12 +1,15 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -700,6 +703,82 @@ func TestUIMemorySimilarityHealthRespectsScanBudget(t *testing.T) {
 	assertUIMemoryScanReason(t, snapshot, "memory_scan_truncated")
 	if health := snapshot.Overview.Health; health == nil || len(health.SimilarGroups) != 0 {
 		t.Fatalf("health = %#v, want similarity groups omitted after scan budget truncates", health)
+	}
+}
+
+// TestPopulateUIMemoryHealthSimilarGroupsDegradesOnCorruptIgnoredSet verifies corrupt ignore state is never treated as an empty set.
+func TestPopulateUIMemoryHealthSimilarGroupsDegradesOnCorruptIgnoredSet(t *testing.T) {
+	privateRoot := filepath.Join(t.TempDir(), "private-secret-root")
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(privateRoot, ".similarity-ignored.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatalf("WriteFile(ignored set) error = %v", err)
+	}
+	entries := []UIMemoryEntry{
+		{Name: "first", Type: "project", Path: "project/first.md", scanContent: "shared durable memory body with enough matching words for similarity detection"},
+		{Name: "second", Type: "project", Path: "project/second.md", scanContent: "shared durable memory body with enough matching words for similarity detection"},
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	health := &UIMemoryHealth{}
+
+	populateUIMemoryHealthSimilarGroups(health, logger, privateRoot, entries, "", nil, nil)
+
+	if !health.SimilarityDegraded {
+		t.Fatal("SimilarityDegraded = false, want true for corrupt ignored set")
+	}
+	if health.SimilarGroups != nil {
+		t.Fatalf("SimilarGroups = %#v, want nil when ignored filtering is unavailable", health.SimilarGroups)
+	}
+	if got := logs.String(); !strings.Contains(got, "memory similarity ignored set unavailable") {
+		t.Fatalf("logs = %q, want stable degraded warning", got)
+	} else if strings.Contains(got, privateRoot) || strings.Contains(got, "{broken") {
+		t.Fatalf("logs leaked ignored-set path or content: %q", got)
+	}
+}
+
+func TestPopulateUIMemoryHealthSimilarGroupsAllowsMissingIgnoredSet(t *testing.T) {
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	entries := []UIMemoryEntry{
+		{Name: "first", Type: "project", Path: "project/first.md", scanContent: "shared durable memory body with enough matching words for similarity detection"},
+		{Name: "second", Type: "project", Path: "project/second.md", scanContent: "shared durable memory body with enough matching words for similarity detection"},
+	}
+	health := &UIMemoryHealth{}
+
+	populateUIMemoryHealthSimilarGroups(health, nil, privateRoot, entries, "", nil, nil)
+
+	if health.SimilarityDegraded {
+		t.Fatal("SimilarityDegraded = true, want false when ignored set has not been created")
+	}
+}
+
+func TestUIMemoryHealthSimilarityDegradedJSONRoundTripUsesStructTag(t *testing.T) {
+	field, ok := reflect.TypeFor[UIMemoryHealth]().FieldByName("SimilarityDegraded")
+	if !ok {
+		t.Fatal("UIMemoryHealth.SimilarityDegraded field is missing")
+	}
+	jsonField, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+	if jsonField != "similarityDegraded" {
+		t.Fatalf("SimilarityDegraded json field = %q, want similarityDegraded", jsonField)
+	}
+	raw, err := json.Marshal(UIMemoryHealth{SimilarityDegraded: true})
+	if err != nil {
+		t.Fatalf("Marshal(UIMemoryHealth) error = %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("Unmarshal(wire) error = %v", err)
+	}
+	if wire[jsonField] != true {
+		t.Fatalf("wire[%q] = %#v, want true", jsonField, wire[jsonField])
+	}
+	var roundTrip UIMemoryHealth
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatalf("Unmarshal(UIMemoryHealth) error = %v", err)
+	}
+	if !roundTrip.SimilarityDegraded {
+		t.Fatal("roundTrip.SimilarityDegraded = false, want true")
 	}
 }
 

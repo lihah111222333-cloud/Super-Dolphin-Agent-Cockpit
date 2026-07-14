@@ -3,7 +3,6 @@ package skill
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,12 +18,9 @@ func newCreateSkillService(t *testing.T) (*service, string, string) {
 	t.Helper()
 	systemRoot := t.TempDir()
 	projectRoot := filepath.Join(t.TempDir(), "repo-a")
-	return &service{
-		root:              systemRoot,
-		projectRoot:       projectRoot,
-		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
-		http:              &http.Client{},
-	}, projectRoot, systemRoot
+	svc := NewService(projectRoot).(*service)
+	svc.root = systemRoot
+	return svc, projectRoot, systemRoot
 }
 
 func TestCreateSkillWritesToProjectScopeByDefault(t *testing.T) {
@@ -90,7 +86,6 @@ func TestCreateSkillRejectsInvalidName(t *testing.T) {
 
 	cases := []string{"", "   ", "_bad", "../escape", "bad/slash", "bad:name"}
 	for _, name := range cases {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			_, err := svc.CreateSkill(
@@ -132,6 +127,7 @@ func TestCreateSkillPublishesSkillsChanged(t *testing.T) {
 
 	svc, projectRoot, _ := newCreateSkillService(t)
 	svc.bindDispatcher(dispatcher)
+	startSkillsChangedRunnerCleanup(t, svc)
 
 	if _, err := svc.CreateSkill(
 		skillTestContext(projectRoot),

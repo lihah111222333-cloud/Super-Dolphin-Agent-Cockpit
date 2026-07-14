@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ type codexToolSurface struct {
 	disabledTools  map[string]string
 	hiddenMCPTools map[string]codexToolEntry
 	clients        []mcpClient
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 // codexToolEntry 描述动态工具名到真实执行端的映射。
@@ -69,17 +72,13 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		return nil, err
 	}
 	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
-		_ = surface.Close()
-		return nil, err
+		return nil, joinMCPSurfaceErrors(err, surface.Close())
 	}
 	surface.cwd = normalizeToolCallCWD(scope.CWD)
 	surface.keys = codexSurfaceKeys(scope)
 	if err := h.storeCodexToolSurface(surface); err != nil {
 		h.removeCodexToolSurface(surface)
-		if closeErr := surface.Close(); closeErr != nil {
-			return nil, fmt.Errorf("%w; additionally close new codex tool surface: %v", err, closeErr)
-		}
-		return nil, err
+		return nil, joinMCPSurfaceErrors(err, surface.Close())
 	}
 	return out, nil
 }
@@ -127,8 +126,12 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 	if err != nil {
 		return err
 	}
+	clients := make([]mcpClient, len(results))
+	for i, result := range results {
+		clients[i] = result.client
+	}
+	surface.clients = append(surface.clients, clients...)
 	for _, result := range results {
-		surface.clients = append(surface.clients, result.client)
 		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools); err != nil {
 			return err
 		}
@@ -207,6 +210,8 @@ func prepareMCPSurfaceBinaries(
 			defer wg.Done()
 			result := mcpSurfaceBinaryResult{binary: binary}
 			client, err := factory(workerCtx, binary)
+			result.client = client
+			results[i] = result
 			if err != nil {
 				recordErr(wrapMCPSurfaceBinaryError(binary, err))
 				return
@@ -215,8 +220,6 @@ func prepareMCPSurfaceBinaries(
 				recordErr(wrapMCPSurfaceBinaryError(binary, errMCPSurfaceClientNotConfigured))
 				return
 			}
-			result.client = client
-			results[i] = result
 			tools, err := client.ListTools(workerCtx)
 			if err != nil {
 				recordErr(wrapMCPSurfaceBinaryError(binary, err))
@@ -228,19 +231,20 @@ func prepareMCPSurfaceBinaries(
 	}
 	wg.Wait()
 	if firstErr != nil {
-		closeMCPClients(results)
-		return nil, firstErr
+		return nil, joinMCPSurfaceErrors(firstErr, closeMCPClients(results))
 	}
 	return results, nil
 }
 
-// closeMCPClients 关闭已创建的 MCP client，供批量初始化失败时回滚。
-func closeMCPClients(results []mcpSurfaceBinaryResult) {
+// closeMCPClients 关闭已创建的全部 MCP client，并聚合每个关闭错误。
+func closeMCPClients(results []mcpSurfaceBinaryResult) error {
+	var closeErrs []error
 	for _, result := range results {
 		if result.client != nil {
-			_ = result.client.Close()
+			closeErrs = append(closeErrs, result.client.Close())
 		}
 	}
+	return errors.Join(closeErrs...)
 }
 
 // addMCPToolsToSurface 把 MCP 工具添加到 Codex surface，并补齐 canonical 名和安全别名。
@@ -507,18 +511,28 @@ func codexSurfaceLifecycleThreadID(req ToolCallRequest) string {
 	return strings.TrimSpace(req.ThreadID)
 }
 
-// Close 关闭 surface 持有的全部 MCP client，返回第一个关闭错误。
+// Close 只关闭一次 surface 持有的全部 MCP client，并聚合每个关闭错误。
 func (s *codexToolSurface) Close() error {
 	if s == nil {
 		return nil
 	}
-	var err error
-	for _, client := range s.clients {
-		if closeErr := client.Close(); closeErr != nil && err == nil {
-			err = closeErr
+	s.closeOnce.Do(func() {
+		var closeErrs []error
+		for _, client := range s.clients {
+			if client != nil {
+				closeErrs = append(closeErrs, client.Close())
+			}
 		}
+		s.closeErr = errors.Join(closeErrs...)
+	})
+	return s.closeErr
+}
+
+func joinMCPSurfaceErrors(primaryErr, closeErr error) error {
+	if closeErr == nil {
+		return primaryErr
 	}
-	return err
+	return errors.Join(primaryErr, closeErr)
 }
 
 // listPeerTools 等待指定 peer 可用并调用 tools/list。

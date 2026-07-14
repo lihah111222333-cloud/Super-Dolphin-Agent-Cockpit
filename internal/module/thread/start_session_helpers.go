@@ -29,7 +29,7 @@ func normalizeStartDisplayName(value string) string {
 	return string(runes[:startDisplayNameMaxRunes])
 }
 
-func (s *service) buildStartAssemblyInput(ctx context.Context, req StartRequest, threadID string) (contract.StartInput, func(), error) {
+func (s *service) buildStartAssemblyInput(ctx context.Context, req StartRequest, threadID string) (contract.StartInput, func() error, error) {
 	buildCtx := buildStartCtx(req, s.cfg, s.toolRegistry)
 	var err error
 	buildCtx.MCPSnapshot, err = mergeConfiguredMCPServers(ctx, buildCtx.MCPSnapshot, s.mcpServers, mcpServerConfigLookupRoot(buildCtx))

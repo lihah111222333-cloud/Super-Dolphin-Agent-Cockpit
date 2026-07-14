@@ -75,7 +75,7 @@
   padding: 7px 10px;
 }
 
-.runtime-toolbar button,
+.runtime-toolbar .runtime-stat,
 .score {
   min-width: 0;
   display: inline-flex;
@@ -437,7 +437,6 @@
   font-size: 12px;
   line-height: 1.2;
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .runtime-stat strong {
@@ -447,11 +446,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-.runtime-stat:hover {
+button.runtime-stat {
+  cursor: pointer;
+}
+
+button.runtime-stat:hover {
   color: var(--ink);
 }
 
-.runtime-stat:focus-visible {
+button.runtime-stat:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--success) 55%, var(--border));
   outline-offset: 3px;
 }
@@ -691,7 +694,7 @@
     padding: 6px 8px;
   }
 
-  .runtime-panel .runtime-toolbar button,
+  .runtime-panel .runtime-toolbar .runtime-stat,
   .runtime-panel .score {
     min-height: 24px;
     gap: 5px;
@@ -739,7 +742,7 @@
     overflow: auto;
   }
 
-  .runtime-panel .runtime-toolbar button,
+  .runtime-panel .runtime-toolbar .runtime-stat,
   .runtime-panel .score {
     justify-content: flex-start;
   }

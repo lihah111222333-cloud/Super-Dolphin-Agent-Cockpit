@@ -174,6 +174,12 @@ cmd/mcp-orch/             orchestration, DAG, cron, and agent tools
 
 Component 책임, data flow, 진실 공급원, 알려진 범위는 [Architecture](docs/open-source/ARCHITECTURE.md)를 참조하세요. File 수준 navigation에는 생성된 [Code Map](docs/doc/codemap/README.md)을 사용하세요.
 
+### 데이터 전달과 계산의 무결성
+
+데이터는 typed boundary를 통과했다는 이유만으로 신뢰되지 않습니다. 각 boundary는 자신이 소유한 invariant를 검증합니다. RPC binder는 잘못된 wire value를 거부하고, typed DTO와 narrow port는 데이터 형태와 ownership을 제한하며, service는 계산 전에 business rule을 검증하고 입력을 정규화합니다. Mapper field guard는 누락되거나 오래된 field를 탐지하고, sqlc와 SQLite constraint는 persistence를 보호합니다. 장시간 실행되는 workflow는 idempotency key, lease, claim token, CAS state transition도 사용해 오래된 worker가 현재 실행을 덮어쓰지 못하게 합니다.
+
+앞 단계에서 검증했더라도 계산은 명시적으로 실패할 수 있습니다. Schedule, identity, configuration, retry, state transition 로직은 데이터를 조용히 대체하지 않고 error를 반환합니다. Cron path가 구체적인 예입니다. JSON-RPC parameter를 typed request로 변환하고, service validation 후에 schedule을 계산하며, sqlc가 제약된 record를 저장하고, scheduler가 만기 work를 원자적으로 claim한 뒤, run·claim token·expected state가 여전히 일치할 때만 turn result를 commit합니다. Test와 guard는 선언된 boundary를 검증하지만 이는 범위가 정해진 evidence이며, 미래의 모든 business field가 자동으로 end-to-end 증명된다는 뜻은 아닙니다. 새로운 cross-layer field에는 해당 mapper, contract, schema, regression evidence의 갱신이 필요합니다.
+
 ### 현재 범위
 
 - Desktop application과 이 저장소에 특화된 governance loop는 여기에 구현되어 있습니다.

@@ -6,11 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	historyjsonl "github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
 )
 
@@ -49,7 +50,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 		}
 	}
 	messages = trimClaudeHistory(messages, limit)
-	return toProviderHistory(messages), nil
+	return toProviderHistory(messages)
 }
 
 // ReadMessagesPage 分页读取 Claude JSONL 历史并转换为 provider DTO。
@@ -104,7 +105,7 @@ func (s *session) readTargetMessagePage(
 		return dto.MessagePageResult{}, err
 	}
 	if !shouldReadResolvedFallback(req, page, target, resolved) {
-		return claudeMessagePage(page), nil
+		return claudeMessagePage(page)
 	}
 	fallback, err := s.history.ReadMessagesPage(ctx, resolved, req)
 	if err != nil {
@@ -113,7 +114,7 @@ func (s *session) readTargetMessagePage(
 	if hasClaudeHistoryPage(fallback) {
 		return claudeResolvedMessagePage(fallback)
 	}
-	return claudeMessagePage(page), nil
+	return claudeMessagePage(page)
 }
 
 // shouldReadResolvedFallback 将 fallback 条件集中为纯判断，续页请求绝不切换 source。
@@ -134,17 +135,24 @@ func hasClaudeHistoryPage(page historyjsonl.JSONLPageResult[Message]) bool {
 	return len(page.Items) > 0 || page.HasMore
 }
 
-func claudeMessagePage(page historyjsonl.JSONLPageResult[Message]) dto.MessagePageResult {
+func claudeMessagePage(page historyjsonl.JSONLPageResult[Message]) (dto.MessagePageResult, error) {
+	messages, err := toProviderHistoryWithOffsets(page.Items, page.Offsets)
+	if err != nil {
+		return dto.MessagePageResult{}, err
+	}
 	return dto.MessagePageResult{
-		Messages:       toProviderHistoryWithOffsets(page.Items, page.Offsets),
+		Messages:       messages,
 		HasMore:        page.HasMore,
 		NextBefore:     page.NextBefore,
 		SourceRevision: page.SourceRevision,
-	}
+	}, nil
 }
 
 func claudeResolvedMessagePage(page historyjsonl.JSONLPageResult[Message]) (dto.MessagePageResult, error) {
-	result := claudeMessagePage(page)
+	result, err := claudeMessagePage(page)
+	if err != nil {
+		return dto.MessagePageResult{}, err
+	}
 	if !page.HasMore {
 		return result, nil
 	}
@@ -246,31 +254,39 @@ func trimClaudeHistory(messages []Message, limit int) []Message {
 	return append([]Message(nil), messages[len(messages)-limit:]...)
 }
 
-func toProviderHistory(messages []Message) []dto.Message {
+func toProviderHistory(messages []Message) ([]dto.Message, error) {
 	out := make([]dto.Message, 0, len(messages))
-	for _, msg := range messages {
+	for i, msg := range messages {
+		timestamp, metadata, err := providershared.DecodeHistoryFields(msg.Timestamp, msg.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("claudecli history message %d: %w", i, err)
+		}
 		out = append(out, dto.Message{
 			Role:      msg.Role,
 			Content:   msg.Content,
-			Metadata:  platformshared.DecodeHistoryMetadata(msg.Metadata),
-			Timestamp: platformshared.ParseRFC3339Loose(msg.Timestamp),
+			Metadata:  metadata,
+			Timestamp: timestamp,
 		})
 	}
-	return out
+	return out, nil
 }
 
-func toProviderHistoryWithOffsets(messages []Message, offsets []int64) []dto.Message {
+func toProviderHistoryWithOffsets(messages []Message, offsets []int64) ([]dto.Message, error) {
 	out := make([]dto.Message, 0, len(messages))
 	for i, msg := range messages {
 		normalized, ok := normalizeClaudeHistoryMessage(msg)
 		if !ok {
 			continue
 		}
-		next := toProviderHistory([]Message{normalized})[0]
+		mapped, err := toProviderHistory([]Message{normalized})
+		if err != nil {
+			return nil, fmt.Errorf("claudecli history message %d: %w", i, err)
+		}
+		next := mapped[0]
 		if i < len(offsets) {
 			next.ID = offsets[i] + 1
 		}
 		out = append(out, next)
 	}
-	return out
+	return out, nil
 }

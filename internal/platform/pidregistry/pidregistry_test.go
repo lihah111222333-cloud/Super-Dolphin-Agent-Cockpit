@@ -3,6 +3,7 @@ package pidregistry
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,8 +18,10 @@ func TestRegistryRegisterAndPersist(t *testing.T) {
 	}
 	defer r.Close()
 
-	r.Register(12345, "codex-app-server", nil)
-	r.Register(23456, "claude-cli", map[string]string{"agent_id": "a1"})
+	firstPID := startIdentityTestProcess(t)
+	secondPID := startIdentityTestProcess(t)
+	r.Register(firstPID, "codex-app-server", nil)
+	r.Register(secondPID, "claude-cli", map[string]string{"agent_id": "a1"})
 
 	// Verify file was written.
 	data, err := os.ReadFile(r.path)
@@ -45,7 +48,7 @@ func TestRegistryPersistWritesPrivateProvenance(t *testing.T) {
 	}
 	defer r.Close()
 
-	if err := r.RegisterChecked(12345, "codex-app-server", nil); err != nil {
+	if err := r.RegisterChecked(os.Getpid(), "codex-app-server", nil); err != nil {
 		t.Fatalf("RegisterChecked() error = %v", err)
 	}
 
@@ -84,7 +87,7 @@ func TestRegistryRegisterCheckedReturnsPersistError(t *testing.T) {
 		children: make(map[int]ChildInfo),
 	}
 
-	err := r.RegisterChecked(12345, "codex-app-server", nil)
+	err := r.RegisterChecked(os.Getpid(), "codex-app-server", nil)
 	if err == nil {
 		t.Fatal("RegisterChecked() error = nil, want persist failure")
 	}
@@ -104,9 +107,11 @@ func TestRegistryUnregister(t *testing.T) {
 	}
 	defer r.Close()
 
-	r.Register(12345, "codex-app-server", nil)
-	r.Register(23456, "claude-cli", nil)
-	r.Unregister(12345)
+	firstPID := startIdentityTestProcess(t)
+	secondPID := startIdentityTestProcess(t)
+	r.Register(firstPID, "codex-app-server", nil)
+	r.Register(secondPID, "claude-cli", nil)
+	r.Unregister(firstPID)
 
 	data, err := os.ReadFile(r.path)
 	if err != nil {
@@ -119,8 +124,8 @@ func TestRegistryUnregister(t *testing.T) {
 	if len(rf.Children) != 1 {
 		t.Errorf("children count = %d, want 1", len(rf.Children))
 	}
-	if rf.Children[0].PID != 23456 {
-		t.Errorf("remaining pid = %d, want 23456", rf.Children[0].PID)
+	if rf.Children[0].PID != secondPID {
+		t.Errorf("remaining pid = %d, want %d", rf.Children[0].PID, secondPID)
 	}
 }
 
@@ -131,7 +136,7 @@ func TestRegistryClose(t *testing.T) {
 		path:     path,
 		children: make(map[int]ChildInfo),
 	}
-	r.Register(12345, "test", nil)
+	r.Register(os.Getpid(), "test", nil)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file should exist before close: %v", err)
 	}
@@ -139,6 +144,19 @@ func TestRegistryClose(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("file should be removed after close")
 	}
+}
+
+func startIdentityTestProcess(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start identity test process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	return cmd.Process.Pid
 }
 
 func TestRegistryNilSafe(t *testing.T) {
@@ -266,9 +284,9 @@ func TestCollectStaleOrphansSkipsProtectedPIDs(t *testing.T) {
 			},
 		},
 	}}
-	got := collectStaleOrphans(staleFiles, map[int]struct{}{myPID: {}})
+	got, _ := collectStaleOrphans(staleFiles, map[int]struct{}{myPID: {}})
 	for _, orphan := range got {
-		if orphan.pid == myPID {
+		if orphan.child.PID == myPID {
 			t.Fatalf("collectStaleOrphans() included protected current PID: %#v", got)
 		}
 	}

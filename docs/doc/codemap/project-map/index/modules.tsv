@@ -11,7 +11,7 @@ internal/module/appupdate/service.go	internal	modules	go-source	26045	业务模�
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	3923	业务模块层	internal,module,appupdate,windows,signature,业务模块层
 internal/module/cron/actors_test.go	internal	modules	go-test	2751	业务模块层	internal,module,cron,actors,test,业务模块层
 internal/module/cron/contract.go	internal	modules	go-source	14501	业务模块层	internal,module,cron,contract,业务模块层
-internal/module/cron/lease_actor.go	internal	modules	go-source	1682	业务模块层	internal,module,cron,lease,actor,业务模块层
+internal/module/cron/lease_actor.go	internal	modules	go-source	3250	业务模块层	internal,module,cron,lease,actor,业务模块层
 internal/module/cron/module.go	internal	modules	go-source	4179	业务模块层	internal,module,cron,业务模块层
 internal/module/cron/progress_subscriber_test.go	internal	modules	go-test	3967	业务模块层	internal,module,cron,progress,subscriber,test,业务模块层
 internal/module/cron/progress_subscriber.go	internal	modules	go-source	12393	业务模块层	internal,module,cron,progress,subscriber,业务模块层
@@ -19,10 +19,11 @@ internal/module/cron/rpc_list_page_test.go	internal	modules	go-test	1316	业务�
 internal/module/cron/rpc.go	internal	modules	go-source	10009	业务模块层	internal,module,cron,rpc,业务模块层
 internal/module/cron/schedule_test.go	internal	modules	go-test	3396	业务模块层	internal,module,cron,schedule,test,业务模块层
 internal/module/cron/schedule.go	internal	modules	go-source	4262	业务模块层	internal,module,cron,schedule,业务模块层
+internal/module/cron/scheduler_lease_safety_test.go	internal	modules	go-test	4316	业务模块层	internal,module,cron,scheduler,lease,safety,test,业务模块层
 internal/module/cron/scheduler_publish_test.go	internal	modules	go-test	4500	业务模块层	internal,module,cron,scheduler,publish,test,业务模块层
 internal/module/cron/scheduler_publish.go	internal	modules	go-source	1864	业务模块层	internal,module,cron,scheduler,publish,业务模块层
 internal/module/cron/scheduler_recovery_finalize_test.go	internal	modules	go-test	7562	业务模块层	internal,module,cron,scheduler,recovery,finalize,test,业务模块层
-internal/module/cron/scheduler_recovery.go	internal	modules	go-source	17352	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
+internal/module/cron/scheduler_recovery.go	internal	modules	go-source	18864	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
 internal/module/cron/scheduler_test.go	internal	modules	go-test	31410	业务模块层	internal,module,cron,scheduler,test,业务模块层
 internal/module/cron/scheduler.go	internal	modules	go-source	16936	业务模块层	internal,module,cron,scheduler,业务模块层
 internal/module/cron/service_test.go	internal	modules	go-test	18584	业务模块层	internal,module,cron,service,test,业务模块层
@@ -33,8 +34,8 @@ internal/module/cron/thread_bootstrapper.go	internal	modules	go-source	2831	业�
 internal/module/cron/tick_actor.go	internal	modules	go-source	1873	业务模块层	internal,module,cron,tick,actor,业务模块层
 internal/module/cron/timer_jitter.go	internal	modules	go-source	594	业务模块层	internal,module,cron,timer,jitter,业务模块层
 internal/module/cron/turn_adapter_shard11_helpers_test.go	internal	modules	go-test	4906	业务模块层	internal,module,cron,turn,adapter,shard11,helpers,test,业务模块层
-internal/module/cron/turn_adapter_test.go	internal	modules	go-test	22495	业务模块层	internal,module,cron,turn,adapter,test,业务模块层
-internal/module/cron/turn_adapter.go	internal	modules	go-source	9057	业务模块层	internal,module,cron,turn,adapter,业务模块层
+internal/module/cron/turn_adapter_test.go	internal	modules	go-test	23559	业务模块层	internal,module,cron,turn,adapter,test,业务模块层
+internal/module/cron/turn_adapter.go	internal	modules	go-source	9844	业务模块层	internal,module,cron,turn,adapter,业务模块层
 internal/module/dashboard/agent_status_test.go	internal	modules	go-test	2709	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,test,读模型与,UI,RPC,服务
 internal/module/dashboard/agent_status.go	internal	modules	go-source	428	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,读模型与,UI,RPC,服务
 internal/module/dashboard/ai_logs.go	internal	modules	go-source	1561	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,ai,logs,读模型与,UI,RPC,服务
@@ -102,8 +103,8 @@ internal/module/insight/flusher_test.go	internal	modules	go-test	9176	业务模�
 internal/module/insight/flusher.go	internal	modules	go-source	7104	业务模块层	internal,module,insight,flusher,业务模块层
 internal/module/insight/module.go	internal	modules	go-source	1122	业务模块层	internal,module,insight,业务模块层
 internal/module/insight/rpc.go	internal	modules	go-source	222	业务模块层	internal,module,insight,rpc,业务模块层
-internal/module/insight/service_test.go	internal	modules	go-test	2871	业务模块层	internal,module,insight,service,test,业务模块层
-internal/module/insight/service.go	internal	modules	go-source	4180	业务模块层	internal,module,insight,service,业务模块层
+internal/module/insight/service_test.go	internal	modules	go-test	3392	业务模块层	internal,module,insight,service,test,业务模块层
+internal/module/insight/service.go	internal	modules	go-source	4397	业务模块层	internal,module,insight,service,业务模块层
 internal/module/insight/subscribers_test.go	internal	modules	go-test	2603	业务模块层	internal,module,insight,subscribers,test,业务模块层
 internal/module/insight/subscribers.go	internal	modules	go-source	1054	业务模块层	internal,module,insight,subscribers,业务模块层
 internal/module/mcp_server_npx/module.go	internal	modules	go-source	482	业务模块层	internal,module,mcp,server,npx,业务模块层
@@ -260,9 +261,10 @@ internal/module/memory/team/team_sync_push.go	internal	modules	go-source	9992	me
 internal/module/memory/team/team_sync_remote.go	internal	modules	go-source	10147	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,remote,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_state.go	internal	modules	go-source	4377	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,state,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_test.go	internal	modules	go-test	11514	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,test,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/team/team_sync_transition_test.go	internal	modules	go-test	8702	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,transition,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_watcher_test.go	internal	modules	go-test	4139	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,watcher,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_watcher.go	internal	modules	go-source	14898	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,watcher,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/team/team_sync.go	internal	modules	go-source	12343	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/team/team_sync.go	internal	modules	go-source	15404	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_test.go	internal	modules	go-test	1385	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/test_helpers_test.go	internal	modules	go-test	1391	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,test,helpers,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/test_symlink_unix_test.go	internal	modules	go-test	133	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,test,symlink,unix,canonical,管理,UI,RPC,与持久化接线
@@ -273,10 +275,11 @@ internal/module/memory/testdata/golden/integration/memory_prompt_rules.golden.js
 internal/module/memory/truncate.go	internal	modules	go-source	8174	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,truncate,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_delete_failure_unix_test.go	internal	modules	go-test	382	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,delete,failure,unix,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_delete_failure_windows_test.go	internal	modules	go-test	641	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,delete,failure,windows,test,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_merge_partial_failure_test.go	internal	modules	go-test	5632	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,partial,failure,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_shared_shard19_test.go	internal	modules	go-test	23514	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,shared,shard19,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	29017	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc_test.go	internal	modules	go-test	31135	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc.go	internal	modules	go-source	30690	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	30547	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_test.go	internal	modules	go-test	34626	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,test,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc.go	internal	modules	go-source	30883	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
 internal/module/notify/module.go	internal	modules	go-source	3219	业务模块层	internal,module,notify,业务模块层
 internal/module/observability/module.go	internal	modules	go-source	261	业务模块层	internal,module,observability,业务模块层
 internal/module/observability/rpc_test.go	internal	modules	go-test	23561	业务模块层	internal,module,observability,rpc,test,业务模块层
@@ -388,7 +391,7 @@ internal/module/skill/builtin_seed_test.go	internal	modules	go-test	3307	skill c
 internal/module/skill/canonical_store_test.go	internal	modules	go-test	28032	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,test,管理与,provider-native,mirror
 internal/module/skill/canonical_store.go	internal	modules	go-source	23905	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,管理与,provider-native,mirror
 internal/module/skill/contract.go	internal	modules	go-source	16233	skill canonical 管理与 provider-native mirror	internal,module,skill,contract,canonical,管理与,provider-native,mirror
-internal/module/skill/create_skill_test.go	internal	modules	go-test	4584	skill canonical 管理与 provider-native mirror	internal,module,skill,create,test,canonical,管理与,provider-native,mirror
+internal/module/skill/create_skill_test.go	internal	modules	go-test	4491	skill canonical 管理与 provider-native mirror	internal,module,skill,create,test,canonical,管理与,provider-native,mirror
 internal/module/skill/cwd_scope_test.go	internal	modules	go-test	9863	skill canonical 管理与 provider-native mirror	internal,module,skill,cwd,scope,test,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/使用git工作区/SKILL.md	internal	modules	doc	5803	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,使用git工作区,SKILL,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/使用超能力/SKILL.md	internal	modules	doc	5353	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,使用超能力,SKILL,canonical,管理与,provider-native,mirror
@@ -404,8 +407,8 @@ internal/module/skill/embedded_skills/编写技能/SKILL.md	internal	modules	doc
 internal/module/skill/embedded_skills/编写计划/SKILL.md	internal	modules	doc	5823	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,编写计划,SKILL,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/请求代码审查/SKILL.md	internal	modules	doc	2828	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,请求代码审查,SKILL,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/调度并行代理/SKILL.md	internal	modules	doc	6178	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,调度并行代理,SKILL,canonical,管理与,provider-native,mirror
-internal/module/skill/events_test.go	internal	modules	go-test	11972	skill canonical 管理与 provider-native mirror	internal,module,skill,events,test,canonical,管理与,provider-native,mirror
-internal/module/skill/events.go	internal	modules	go-source	8692	skill canonical 管理与 provider-native mirror	internal,module,skill,events,canonical,管理与,provider-native,mirror
+internal/module/skill/events_test.go	internal	modules	go-test	15880	skill canonical 管理与 provider-native mirror	internal,module,skill,events,test,canonical,管理与,provider-native,mirror
+internal/module/skill/events.go	internal	modules	go-source	9901	skill canonical 管理与 provider-native mirror	internal,module,skill,events,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_test.go	internal	modules	go-test	9049	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,test,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_tokenizer_safety.go	internal	modules	go-source	5340	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,safety,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_tokenizer.go	internal	modules	go-source	7819	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,canonical,管理与,provider-native,mirror
@@ -431,7 +434,7 @@ internal/module/skill/mirror_reconciler_root_actions.go	internal	modules	go-sour
 internal/module/skill/mirror_reconciler_test.go	internal	modules	go-test	34028	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,test,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler.go	internal	modules	go-source	25792	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,canonical,管理与,provider-native
 internal/module/skill/mirrorpath/path.go	internal	modules	go-source	4725	skill canonical 管理与 provider-native mirror	internal,module,skill,mirrorpath,path,canonical,管理与,provider-native,mirror
-internal/module/skill/module.go	internal	modules	go-source	3212	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,管理与,provider-native,mirror
+internal/module/skill/module.go	internal	modules	go-source	3503	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions_unix.go	internal	modules	go-source	1303	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,unix,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions_windows.go	internal	modules	go-source	7170	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,windows,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions.go	internal	modules	go-source	562	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,canonical,管理与,provider-native,mirror
@@ -454,12 +457,12 @@ internal/module/skill/scope_model_permissions_windows_test.go	internal	modules	g
 internal/module/skill/scope_model_test.go	internal	modules	go-test	6287	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,test,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_model.go	internal	modules	go-source	15400	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_test.go	internal	modules	go-test	9617	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,test,canonical,管理与,provider-native,mirror
-internal/module/skill/service.go	internal	modules	go-source	13250	skill canonical 管理与 provider-native mirror	internal,module,skill,service,canonical,管理与,provider-native,mirror
+internal/module/skill/service.go	internal	modules	go-source	13709	skill canonical 管理与 provider-native mirror	internal,module,skill,service,canonical,管理与,provider-native,mirror
 internal/module/skill/skill_name_test.go	internal	modules	go-test	3951	skill canonical 管理与 provider-native mirror	internal,module,skill,name,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skillhash/hash.go	internal	modules	go-source	14191	skill canonical 管理与 provider-native mirror	internal,module,skill,skillhash,hash,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_fs_test.go	internal	modules	go-test	28618	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_fs.go	internal	modules	go-source	17441	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,canonical,管理与,provider-native,mirror
-internal/module/skill/skills_import_test.go	internal	modules	go-test	23935	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,test,canonical,管理与,provider-native,mirror
+internal/module/skill/skills_import_test.go	internal	modules	go-test	23976	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_import.go	internal	modules	go-source	16629	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_inventory_test.go	internal	modules	go-test	4256	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,inventory,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_match_test.go	internal	modules	go-test	6362	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,test,canonical,管理与,provider-native,mirror
@@ -479,10 +482,10 @@ internal/module/skill/trust_test.go	internal	modules	go-test	7574	skill canonica
 internal/module/skill/trust.go	internal	modules	go-source	5868	skill canonical 管理与 provider-native mirror	internal,module,skill,trust,canonical,管理与,provider-native,mirror
 internal/module/thread/agent_dispatch_test.go	internal	modules	go-test	4247	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,dispatch,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/agent_id_dedupe_test.go	internal	modules	go-test	4030	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,id,dedupe,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/agent_launched_worker_test.go	internal	modules	go-test	7999	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/agent_launched_worker.go	internal	modules	go-source	4832	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/agent_launched_worker_test.go	internal	modules	go-test	11829	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/agent_launched_worker.go	internal	modules	go-source	6781	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/archive_alias_test.go	internal	modules	go-test	1202	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,archive,alias,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/archive.go	internal	modules	go-source	5099	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,archive,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/archive.go	internal	modules	go-source	5165	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,archive,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/available_experts_provider_test.go	internal	modules	go-test	835	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,available,experts,provider,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/binding_conflict_test.go	internal	modules	go-test	1276	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,binding,conflict,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/binding_registration_test.go	internal	modules	go-test	23037	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,binding,registration,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -502,8 +505,8 @@ internal/module/thread/config_set_test.go	internal	modules	go-test	17030	thread 
 internal/module/thread/contract_adapter.go	internal	modules	go-source	16681	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/contract.go	internal	modules	go-source	11664	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/event_publish.go	internal	modules	go-source	5314	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,event,publish,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/events_test.go	internal	modules	go-test	12990	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/events.go	internal	modules	go-source	11862	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/events_test.go	internal	modules	go-test	13589	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/events.go	internal	modules	go-source	11344	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/factory_config_failfast_test.go	internal	modules	go-test	16256	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,factory,config,failfast,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/factory_config.go	internal	modules	go-source	19304	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,factory,config,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/factory.go	internal	modules	go-source	20533	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,factory,start,resume,fork,stop,生命周期与绑定真相源
@@ -521,12 +524,12 @@ internal/module/thread/launch_intent_idempotency_test.go	internal	modules	go-tes
 internal/module/thread/launch_intent_terminal_test.go	internal	modules	go-test	1976	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,launch,intent,terminal,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/lifecycle_bind_session_generation_test.go	internal	modules	go-test	11260	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,bind,session,generation,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/lifecycle_fork.go	internal	modules	go-source	15868	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,fork,start,resume,stop,生命周期与绑定真相源
-internal/module/thread/lifecycle_helpers.go	internal	modules	go-source	23721	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,helpers,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/lifecycle.go	internal	modules	go-source	28077	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/lifecycle_helpers.go	internal	modules	go-source	24110	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,helpers,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/lifecycle.go	internal	modules	go-source	28094	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/mcp_live_context_test.go	internal	modules	go-test	6103	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,live,context,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/mcp_server_config.go	internal	modules	go-source	9477	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,server,config,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/mcp_server_npx_config_test.go	internal	modules	go-test	1564	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,server,npx,config,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/module.go	internal	modules	go-source	17470	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/module.go	internal	modules	go-source	17483	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/name_policy_guard_test.go	internal	modules	go-test	8433	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,name,policy,guard,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/name_sync_test.go	internal	modules	go-test	3141	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,name,sync,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/persistence_port.go	internal	modules	go-source	6265	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,persistence,port,start,resume,fork,stop,生命周期与绑定真相源
@@ -538,7 +541,7 @@ internal/module/thread/prompt_history_test.go	internal	modules	go-test	7095	thre
 internal/module/thread/prompt_integration_test.go	internal	modules	go-test	20081	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompt,integration,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/prompt_key_chain_test.go	internal	modules	go-test	9851	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompt,key,chain,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/prompt_lifecycle_cache_test.go	internal	modules	go-test	4068	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompt,lifecycle,cache,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/prompt_snapshot.go	internal	modules	go-source	17857	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompt,snapshot,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/prompt_snapshot.go	internal	modules	go-source	17901	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompt,snapshot,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/prompthistory/scanner_test.go	internal	modules	go-test	20637	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompthistory,scanner,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/prompthistory/scanner.go	internal	modules	go-source	14681	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,prompthistory,scanner,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/read_view_test.go	internal	modules	go-test	14150	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,read,view,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -561,26 +564,27 @@ internal/module/thread/rpc_types.go	internal	modules	go-source	25677	thread star
 internal/module/thread/rpc.go	internal	modules	go-source	25050	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/runtime_chain_test.go	internal	modules	go-test	7529	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,runtime,chain,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/runtime_prompt_catalog_test.go	internal	modules	go-test	3296	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,runtime,prompt,catalog,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/scratchpad.go	internal	modules	go-source	3588	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,scratchpad,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/scratchpad_partial_cleanup_test.go	internal	modules	go-test	4378	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,scratchpad,partial,cleanup,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/scratchpad.go	internal	modules	go-source	4662	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,scratchpad,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/service_handlers_test.go	internal	modules	go-test	33838	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,handlers,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/service_test.go	internal	modules	go-test	15965	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/service.go	internal	modules	go-source	23718	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/service.go	internal	modules	go-source	23941	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/session_ports_test.go	internal	modules	go-test	8627	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,ports,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/session_recovery_worker_test.go	internal	modules	go-test	8927	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,recovery,worker,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/session_recovery_worker.go	internal	modules	go-source	6059	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,recovery,worker,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/spawn_test.go	internal	modules	go-test	24905	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,spawn,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/spawn.go	internal	modules	go-source	19691	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,spawn,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/spawn.go	internal	modules	go-source	19980	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,spawn,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_prompt_context_test.go	internal	modules	go-test	11933	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,prompt,context,test,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_prompt_context.go	internal	modules	go-source	16409	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,prompt,context,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_session_guard_test.go	internal	modules	go-test	27488	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,guard,test,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_session_helpers_test.go	internal	modules	go-test	12217	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,test,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/start_session_helpers.go	internal	modules	go-source	26544	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/start_session_helpers.go	internal	modules	go-source	26550	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_session.go	internal	modules	go-source	26196	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/startconfig/sandbox.go	internal	modules	go-source	2659	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,startconfig,sandbox,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/stop_shard16_support_test.go	internal	modules	go-test	7750	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,shard16,support,test,start,resume,fork,生命周期与绑定真相源
 internal/module/thread/stop_stale_runtime_test.go	internal	modules	go-test	1439	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,stale,runtime,test,start,resume,fork,生命周期与绑定真相源
 internal/module/thread/stop_test.go	internal	modules	go-test	24199	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,test,start,resume,fork,生命周期与绑定真相源
-internal/module/thread/stop.go	internal	modules	go-source	14475	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,start,resume,fork,生命周期与绑定真相源
+internal/module/thread/stop.go	internal	modules	go-source	14538	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,start,resume,fork,生命周期与绑定真相源
 internal/module/thread/thread_agents_test.go	internal	modules	go-test	991	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agents,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/title_extract_test.go	internal	modules	go-test	3542	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,title,extract,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/titleextract/title.go	internal	modules	go-source	5346	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,titleextract,title,start,resume,fork,stop,生命周期与绑定真相源
@@ -604,7 +608,7 @@ internal/module/threadprompt/runtime_provider_test.go	internal	modules	go-test	2
 internal/module/threadprompt/types.go	internal	modules	go-source	4301	业务模块层	internal,module,threadprompt,types,业务模块层
 internal/module/turn/argument_preview_sanitizer_test.go	internal	modules	go-test	1515	turn 启动、执行、审批与 provider 调度	internal,module,turn,argument,preview,sanitizer,test,启动,执行,审批与,provider,调度
 internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、执行、审批与 provider 调度	internal,module,turn,assembler,启动,执行,审批与,provider,调度
-internal/module/turn/contract.go	internal	modules	go-source	7579	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
+internal/module/turn/contract.go	internal	modules	go-source	7953	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state_test.go	internal	modules	go-test	10133	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,test,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state.go	internal	modules	go-source	9667	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,启动,执行,审批与,provider,调度
 internal/module/turn/factory.go	internal	modules	go-source	23580	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度

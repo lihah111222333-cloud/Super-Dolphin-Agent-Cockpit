@@ -5,14 +5,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4554,
+  "files": 4575,
   "domains": {
-    "docs-agent": 925,
-    "other": 631,
-    "app-ui": 523,
-    "platform-provider": 1016,
-    "orchestration": 419,
-    "modules": 725,
+    "docs-agent": 926,
+    "other": 633,
+    "app-ui": 524,
+    "platform-provider": 1030,
+    "orchestration": 418,
+    "modules": 729,
     "store-sql": 315
   },
   "index_files": {
@@ -22,29 +22,29 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 523,
-        "size_kb": 107.1,
+        "file_count": 524,
+        "size_kb": 107.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 419,
-        "size_kb": 94,
+        "file_count": 418,
+        "size_kb": 93.8,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 725,
-        "size_kb": 141.1,
+        "file_count": 729,
+        "size_kb": 142,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1016,
-        "size_kb": 187.1,
+        "file_count": 1030,
+        "size_kb": 189.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,28 +57,28 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 925,
-        "size_kb": 165.2,
+        "file_count": 926,
+        "size_kb": 165.4,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 631,
-        "size_kb": 123,
+        "file_count": 633,
+        "size_kb": 123.5,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 668,
-    "docs": 917,
-    "frontend-app": 521,
-    "internal": 2131,
+    "cmd": 669,
+    "docs": 918,
+    "frontend-app": 522,
+    "internal": 2147,
     "migrations": 112,
     "pkg": 29,
-    "scripts": 115,
+    "scripts": 117,
     "sql": 30,
     "test": 9,
     "tests": 1,

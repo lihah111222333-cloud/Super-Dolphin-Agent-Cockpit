@@ -2,22 +2,50 @@ package skill
 
 import (
 	"context"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // skillsChangedEmitter 是 UI skill 变更事件派发函数，测试可替换为捕获器。
 type skillsChangedEmitter func(uidto.SkillsChanged)
 
-const skillsChangedDebounceWindow = 100 * time.Millisecond
+const (
+	skillsChangedDebounceWindow = 100 * time.Millisecond
+	skillsChangedStoppedError   = "skill debounce runner stopped"
+)
+
+type skillsChangedHealthSnapshot struct {
+	Stopped          bool
+	DroppedAfterStop uint64
+	LastError        string
+	Pending          int
+}
+
+func (s *service) skillsChangedHealthSnapshot() skillsChangedHealthSnapshot {
+	if s == nil {
+		return skillsChangedHealthSnapshot{}
+	}
+	s.skillsChangedMu.Lock()
+	defer s.skillsChangedMu.Unlock()
+	pending := len(s.skillsChangedQueue)
+	if s.skillsChangedNext.Count > 0 {
+		pending++
+	}
+	return skillsChangedHealthSnapshot{
+		Stopped:          s.skillsChangedStopped,
+		DroppedAfterStop: s.skillsChangedDropped,
+		LastError:        s.skillsChangedLastError,
+		Pending:          pending,
+	}
+}
 
 // bindDispatcher 绑定 UI 事件派发器，service 为空时保持无操作以便测试装配复用。
 func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
@@ -58,6 +86,12 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	next = normalizeSkillsChanged(next)
 
 	s.skillsChangedMu.Lock()
+	if s.skillsChangedStopped {
+		s.skillsChangedDropped++
+		s.skillsChangedLastError = skillsChangedStoppedError
+		s.skillsChangedMu.Unlock()
+		return
+	}
 	if s.skillsChangedNext.Count == 0 {
 		s.skillsChangedNext = next
 	} else if skillsChangedMergeable(s.skillsChangedNext, next) {
@@ -68,33 +102,66 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 		s.skillsChangedQueue = append(s.skillsChangedQueue, s.skillsChangedNext)
 		s.skillsChangedNext = next
 	}
-	s.skillsChangedSeq++
-	seq := s.skillsChangedSeq
+	s.skillsChangedSeq.Add(1)
 	s.skillsChangedMu.Unlock()
 
-	// 这个 goroutine 生命周期固定为一个 debounce 窗口，随后非阻塞 flush，不需要额外生命周期 ctx。
-	safego.Go(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
-		s.waitSkillsChangedDebounce()
-		s.flushSkillsChanged(seq)
-	})
-}
-
-// waitSkillsChangedDebounce 等待 debounce 窗口；测试可注入 delay 函数避免真实 sleep。
-func (s *service) waitSkillsChangedDebounce() {
-	if s != nil && s.skillsChangedDelay != nil {
-		s.skillsChangedDelay()
-		return
+	select {
+	case s.skillsChangedWake <- struct{}{}:
+	default:
 	}
-	time.Sleep(skillsChangedDebounceWindow)
 }
 
-// flushSkillsChanged 只让最新 seq 负责发送，过期 goroutine 直接退出。
-func (s *service) flushSkillsChanged(seq uint64) {
+var _ contract.Runner = (*service)(nil)
+
+// Run 由根 RunGroup 托管一个固定 worker，并由该 worker 独占唯一 debounce timer。
+func (s *service) Run(ctx context.Context) error {
+	if s == nil || s.skillsChangedWake == nil || s.skillsChangedDebounceWindow <= 0 {
+		return fmt.Errorf("skill debounce runner is not configured")
+	}
+	timer := time.NewTimer(s.skillsChangedDebounceWindow)
+	stopSkillsChangedTimer(timer)
+	defer stopSkillsChangedTimer(timer)
+	var timerC <-chan time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			s.stopSkillsChangedRunner()
+			return nil
+		case <-s.skillsChangedWake:
+			resetSkillsChangedTimer(timer, s.skillsChangedDebounceWindow)
+			timerC = timer.C
+		case <-timerC:
+			timerC = nil
+			s.flushSkillsChanged()
+		}
+	}
+}
+
+func (s *service) stopSkillsChangedRunner() {
 	s.skillsChangedMu.Lock()
-	if seq != s.skillsChangedSeq {
-		s.skillsChangedMu.Unlock()
+	s.skillsChangedStopped = true
+	s.skillsChangedMu.Unlock()
+	s.flushSkillsChanged()
+}
+
+func resetSkillsChangedTimer(timer *time.Timer, window time.Duration) {
+	stopSkillsChangedTimer(timer)
+	timer.Reset(window)
+}
+
+func stopSkillsChangedTimer(timer *time.Timer) {
+	if timer.Stop() {
 		return
 	}
+	select {
+	case <-timer.C:
+	default:
+	}
+}
+
+// flushSkillsChanged 取出当前窗口内的全部事件并按位置顺序发送。
+func (s *service) flushSkillsChanged() {
+	s.skillsChangedMu.Lock()
 	queue := s.skillsChangedQueue
 	s.skillsChangedQueue = nil
 	next := s.skillsChangedNext
@@ -243,10 +310,5 @@ func appendUniqueSkillsChangedActions(dst []string, actions ...string) []string 
 
 // containsSkillsChangedAction 判断动作列表中是否已有目标动作。
 func containsSkillsChangedAction(actions []string, target string) bool {
-	for _, action := range actions {
-		if action == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(actions, target)
 }

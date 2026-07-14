@@ -24,11 +24,21 @@ const (
 	defaultCodexModelProvider = "super-dolphin-relay"
 )
 
-func runScratchpadCleanup(active *bool, cleanup func()) {
+func runScratchpadCleanup(active *bool, cleanup func() error) error {
 	if active == nil || !*active || cleanup == nil {
+		return nil
+	}
+	return cleanup()
+}
+
+// joinScratchpadCleanup 把延迟清理失败合并进主返回值，避免成功或失败路径静默吞错。
+func joinScratchpadCleanup(errp *error, active *bool, cleanup func() error) {
+	if errp == nil || cleanup == nil || (active != nil && !*active) {
 		return
 	}
-	cleanup()
+	if cleanupErr := cleanup(); cleanupErr != nil {
+		*errp = errors.Join(*errp, cleanupErr)
+	}
 }
 
 type slogBindSessionGenerationStatusRecorder struct {
