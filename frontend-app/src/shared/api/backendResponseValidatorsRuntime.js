@@ -25,6 +25,7 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'active_turn',
   'recent_turns',
   'token_usage',
+  'tokenUsage',
   'statuses',
   'interruptibleByThread',
   'statusHeadersByThread',
@@ -136,8 +137,19 @@ function validateStateMaps(method, value) {
 export function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, UI_STATE_RESPONSE_KEYS, 'body');
+  const requiredSnapshotFields = [
+    ['threads'],
+    ['agents'],
+    ['token_usage', 'tokenUsage'],
+  ];
+  const missingFields = requiredSnapshotFields
+    .filter((aliases) => !aliases.some((key) => hasOwn(value, key)))
+    .map((aliases) => aliases.join(' or '));
   validateCoreUIStateResponse(method, value);
   validateStateMaps(method, value);
+  if (missingFields.length > 0) {
+    throw new Error(`${method} response missing UI state snapshot fields; required: ${missingFields.join(', ')}`);
+  }
   return value;
 }
 

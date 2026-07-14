@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 
 import { positiveApprovalRequestIdFromFields } from '../approvalRequestId.js';
 import { callAPI as callWailsAPI } from '../wailsBridge.js';
@@ -40,6 +40,9 @@ import {
   createMCPServerApi,
 } from './backendApiFactoryOps.js';
 
+/**
+ * @param {(method: string, payload: Record<string, unknown>) => Promise<unknown>} callBackend
+ */
 function createThreadApi(callBackend) {
   return {
     listThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LIST_PAGE, params)),
@@ -96,18 +99,26 @@ function strictThreadIdOnlyPayload(method, params) {
   return { threadId };
 }
 
+/**
+ * @param {string} method
+ * @param {unknown} response
+ * @param {string} sourceThreadId
+ * @returns {Record<string, unknown> & { thread: Record<string, unknown> & { forkedFrom: string }, kickoffState: string }}
+ */
 function normalizeForkResponseSource(method, response, sourceThreadId) {
-  const forkedFrom = normalizeString(response.thread.forkedFrom || response.thread.forked_from);
+  const payload = assertPlainObject(`${method} response`, response);
+  const thread = assertPlainObject(`${method} response.thread`, payload.thread);
+  const forkedFrom = normalizeString(thread.forkedFrom || thread.forked_from);
   if (forkedFrom !== sourceThreadId) {
     throw new Error(`${method} response thread.forkedFrom must equal ${sourceThreadId}`);
   }
-  if (normalizeString(response.thread.id) === sourceThreadId) {
+  if (normalizeString(thread.id) === sourceThreadId) {
     throw new Error(`${method} response thread.id must differ from ${sourceThreadId}`);
   }
   return {
-    ...response,
-    thread: { ...response.thread, forkedFrom },
-    kickoffState: normalizeString(response.kickoffState || response.kickoff_state),
+    ...payload,
+    thread: { ...thread, forkedFrom },
+    kickoffState: normalizeString(payload.kickoffState || payload.kickoff_state),
   };
 }
 

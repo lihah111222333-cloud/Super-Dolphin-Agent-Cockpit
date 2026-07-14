@@ -62,6 +62,10 @@ function shadowStructuredMatrix(source) {
   )
 }
 
+async function createRuntimeDriftFixture() {
+  return createShadowRepo({})
+}
+
 function shadowMatrix(options = '', {
   key = 'CONFIG_READ',
   facade = 'readConfig',
@@ -430,13 +434,27 @@ describe('rpc contract audit', () => {
       missingResponsePolicies: [],
       missingFrontendResponseValidators: [],
       invalidResponsePolicyEvidence: [],
+      responseContractStrategies: expect.arrayContaining([
+        expect.objectContaining({
+          key: 'UI_SIDEBAR_GET',
+          method: 'ui/sidebar/get',
+          frontendValidator: true,
+        }),
+        expect.objectContaining({
+          key: 'THREAD_FORK',
+          method: 'thread/fork',
+          frontendValidator: true,
+        }),
+      ]),
     }))
   }, 15000)
 
   it('detects frontend and Go hardcoded payload guard sources', () => {
     const findings = collectHardcodedPayloadGuardFindingsFromSources({
       frontendSource: `
-        export const RPC_ALLOWED_PAYLOAD_KEYS = Object.freeze({})
+        export const RPC_ALLOWED_PAYLOAD_KEYS = new Set([
+          'threadId',
+        ])
         const THREAD_START_ALLOWED_KEYS = new Set([
           'threadId',
         ])
@@ -465,6 +483,100 @@ describe('rpc contract audit', () => {
     await expect(auditRpcContracts({ repoRoot })).rejects.toThrow(
       'backendApi.js must named re-export RPC_METHODS from ./backend/backendRpcMethods.js exactly once',
     )
+  })
+
+  it('ignores payload guard names outside top-level Set declarations', () => {
+    const findings = collectHardcodedPayloadGuardFindingsFromSources({
+      frontendSource: `
+        // const RPC_ALLOWED_PAYLOAD_KEYS = new Set(['comment'])
+        const example = "const THREAD_START_ALLOWED_KEYS = new Set(['string'])"
+        function nested() {
+          const TURN_START_ALLOWED_KEYS = new Set(['nested'])
+        }
+        const NOT_ALLOWED_KEYS = Object.freeze(['wrong initializer'])
+      `,
+    })
+
+    expect(findings).toEqual([])
+  })
+
+  it('reports only top-level payload guard Set declarations', () => {
+    const findings = collectHardcodedPayloadGuardFindingsFromSources({
+      frontendSource: `
+        const RPC_ALLOWED_PAYLOAD_KEYS = new Set(['rpc'])
+        const THREAD_START_ALLOWED_KEYS = new Set(['thread'])
+      `,
+    })
+
+    expect(findings).toEqual([
+      'frontend-app/src/shared/api/backendApi.js:RPC_ALLOWED_PAYLOAD_KEYS',
+      'frontend-app/src/shared/api/backendApi.js:THREAD_START_ALLOWED_KEYS',
+    ])
+  })
+
+  it('scans the runtime payload builder source for hardcoded payload guards', async () => {
+    const repoRoot = await createRuntimeDriftFixture()
+    try {
+      const builderPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+      await writeFile(join(repoRoot, builderPath), [
+        "const THREAD_START_ALLOWED_KEYS = new Set(['cwd'])",
+        'function threadStartPayload(params) {',
+        '  const unused = { ...params }',
+        "  return takePayloadFields(unused, ['cwd'])",
+        '}',
+        'function turnStartPayload(params) {',
+        '  const unused = { ...params }',
+        "  return takePayloadFields(unused, ['cwd', 'input', 'threadId'])",
+        '}',
+      ].join('\n'), 'utf8')
+
+      const report = await auditRpcContracts({ repoRoot })
+
+      expect(report.hardcodedPayloadGuardFindings).toEqual([
+        `${builderPath}:THREAD_START_ALLOWED_KEYS`,
+      ])
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('does not duplicate missing registry keys as missing response policies', async () => {
+    const repoRoot = await createRuntimeDriftFixture()
+    try {
+      await writeFile(
+        join(repoRoot, 'frontend-app/src/shared/api/backend/backendRpcMethods.js'),
+        [
+          'export const RPC_METHODS = Object.freeze({',
+          "  THREAD_START: 'thread/start',",
+          "  RESPONSELESS_RPC: 'responseless/rpc',",
+          '})',
+        ].join('\n'),
+        'utf8',
+      )
+      await writeFile(
+        join(repoRoot, 'frontend-app/src/shared/api/backendApi.contractMatrix.js'),
+        [
+          'function contract() {}',
+          'export const RPC_CONTRACT_REGISTRY = Object.freeze({',
+          "  THREAD_START: contract('THREAD_START', 'startThread', 'P1', 'thread', [], [], false, { responseValidator: 'threadStartResponse' }),",
+          '})',
+        ].join('\n'),
+        'utf8',
+      )
+
+      const report = await auditRpcContracts({ repoRoot })
+
+      expect(report.responseContractStrategies).toContainEqual({
+        key: 'RESPONSELESS_RPC',
+        method: 'responseless/rpc',
+        matrixPolicy: '',
+        frontendValidator: false,
+      })
+      expect(report.missingRegistryKeys).toContain('RESPONSELESS_RPC')
+      expect(report.missingResponsePolicies).toEqual([])
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true })
+    }
   })
 
   it('parses RPC methods and contract registry entries from AST fixtures', () => {

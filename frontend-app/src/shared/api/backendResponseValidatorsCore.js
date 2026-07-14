@@ -268,14 +268,6 @@ function validateTypedMap(method, value, label, valueType) {
 }
 
 /** @param {string} method @param {any} value @param {string} label */
-function validateAgentRuntimeMap(method, value, label) {
-  const map = assertResponseRecord(method, value, label);
-  for (const [agentID, runtime] of Object.entries(map)) {
-    assertResponseRecord(method, runtime, `${label}.${agentID}`);
-  }
-}
-
-/** @param {string} method @param {any} value @param {string} label */
 function validateThreadGroup(method, value, label) {
   const group = assertResponseRecord(method, value, label);
   assertOnlyResponseKeys(method, group, THREAD_GROUP_KEYS, label);
@@ -293,17 +285,21 @@ function validateSidebarStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, SIDEBAR_RESPONSE_KEYS, 'body');
 
-  if (!Array.isArray(value.threads)) {
-    throw new TypeError(`${method} response threads must be an array`);
+  if (hasOwn(value, 'threads')) {
+    if (!Array.isArray(value.threads)) {
+      throw new TypeError(`${method} response threads must be an array`);
+    }
+    for (let index = 0; index < value.threads.length; index += 1) {
+      validateThreadSummary(method, value.threads[index], `threads[${index}]`);
+    }
   }
-  for (let index = 0; index < value.threads.length; index += 1) {
-    validateThreadSummary(method, value.threads[index], `threads[${index}]`);
-  }
-  if (!Array.isArray(value.agents)) {
-    throw new TypeError(`${method} response agents must be an array`);
-  }
-  for (let index = 0; index < value.agents.length; index += 1) {
-    validateAgentSummary(method, value.agents[index], `agents[${index}]`);
+  if (hasOwn(value, 'agents')) {
+    if (!Array.isArray(value.agents)) {
+      throw new TypeError(`${method} response agents must be an array`);
+    }
+    for (let index = 0; index < value.agents.length; index += 1) {
+      validateAgentSummary(method, value.agents[index], `agents[${index}]`);
+    }
   }
   if (hasOwn(value, 'active_turn')) {
     validateTurnSummary(method, value.active_turn, 'active_turn');
@@ -317,38 +313,33 @@ function validateSidebarStateResponse(method, response) {
     }
   }
 
-  const workspace = assertResponseRecord(method, value.workspace, 'workspace');
-  assertOnlyResponseKeys(method, workspace, WORKSPACE_PANEL_KEYS, 'workspace');
-  if (!Array.isArray(workspace.runs)) {
-    throw new TypeError(`${method} response workspace.runs must be an array`);
-  }
-  for (let index = 0; index < workspace.runs.length; index += 1) {
-    validateWorkspaceRun(method, workspace.runs[index], `workspace.runs[${index}]`);
-  }
-
-  const tokenUsage = assertResponseRecord(method, value.token_usage, 'token_usage');
-  assertOnlyResponseKeys(method, tokenUsage, TOKEN_USAGE_KEYS, 'token_usage');
-  for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'usedTokens']) {
-    if (!Number.isInteger(tokenUsage[key])) {
-      throw new TypeError(`${method} response token_usage.${key} must be an integer`);
+  if (hasOwn(value, 'workspace')) {
+    const workspace = assertResponseRecord(method, value.workspace, 'workspace');
+    assertOnlyResponseKeys(method, workspace, WORKSPACE_PANEL_KEYS, 'workspace');
+    if (!Array.isArray(workspace.runs)) {
+      throw new TypeError(`${method} response workspace.runs must be an array`);
+    }
+    for (let index = 0; index < workspace.runs.length; index += 1) {
+      validateWorkspaceRun(method, workspace.runs[index], `workspace.runs[${index}]`);
     }
   }
-  if (hasOwn(tokenUsage, 'contextWindowTokens') && !Number.isInteger(tokenUsage.contextWindowTokens)) {
-    throw new TypeError(`${method} response token_usage.contextWindowTokens must be an integer`);
-  }
-  if (hasOwn(tokenUsage, 'usedPercent') && (typeof tokenUsage.usedPercent !== 'number' || !Number.isFinite(tokenUsage.usedPercent))) {
-    throw new TypeError(`${method} response token_usage.usedPercent must be a finite number`);
+
+  if (hasOwn(value, 'token_usage')) {
+    const tokenUsage = assertResponseRecord(method, value.token_usage, 'token_usage');
+    assertOnlyResponseKeys(method, tokenUsage, TOKEN_USAGE_KEYS, 'token_usage');
+    for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'usedTokens']) {
+      if (!Number.isInteger(tokenUsage[key])) {
+        throw new TypeError(`${method} response token_usage.${key} must be an integer`);
+      }
+    }
+    if (hasOwn(tokenUsage, 'contextWindowTokens') && !Number.isInteger(tokenUsage.contextWindowTokens)) {
+      throw new TypeError(`${method} response token_usage.contextWindowTokens must be an integer`);
+    }
+    if (hasOwn(tokenUsage, 'usedPercent') && (typeof tokenUsage.usedPercent !== 'number' || !Number.isFinite(tokenUsage.usedPercent))) {
+      throw new TypeError(`${method} response token_usage.usedPercent must be a finite number`);
+    }
   }
 
-  for (const key of ['statuses', 'statusHeadersByThread', 'statusDetailsByThread']) {
-    if (hasOwn(value, key)) validateTypedMap(method, value[key], key, 'string');
-  }
-  if (hasOwn(value, 'interruptibleByThread')) {
-    validateTypedMap(method, value.interruptibleByThread, 'interruptibleByThread', 'boolean');
-  }
-  if (hasOwn(value, 'agentRuntimeById')) {
-    validateAgentRuntimeMap(method, value.agentRuntimeById, 'agentRuntimeById');
-  }
   for (const key of ['activeThreadId', 'activeCmdThreadId', 'mainAgentId']) {
     if (hasOwn(value, key) && typeof value[key] !== 'string') {
       throw new TypeError(`${method} response ${key} must be a string`);
