@@ -65,6 +65,18 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 	assertRecentInsightSnapshot(t, snaps[0])
 }
 
+func TestServiceListRecentRejectsInvalidSkillsSelected(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []json.RawMessage{json.RawMessage(`{`), json.RawMessage(`null`), json.RawMessage(`{}`), json.RawMessage(`["ok",1]`)} {
+		store := &fakeInsightStore{listRecentFn: func(context.Context, int32) ([]Record, error) {
+			return []Record{{SkillsSelected: raw}}, nil
+		}}
+		if _, err := newTestService(t, store).ListRecent(context.Background(), 1); err == nil {
+			t.Fatalf("ListRecent() error = nil for %s", raw)
+		}
+	}
+}
+
 func assertRecentInsightSnapshot(t *testing.T, s Snapshot) {
 	t.Helper()
 	if s.ID != 42 || s.Status != insightStatusFailed || s.ToolCalls != 3 {

@@ -102,8 +102,8 @@ internal/module/insight/flusher_test.go	internal	modules	go-test	9176	业务模�
 internal/module/insight/flusher.go	internal	modules	go-source	7104	业务模块层	internal,module,insight,flusher,业务模块层
 internal/module/insight/module.go	internal	modules	go-source	1122	业务模块层	internal,module,insight,业务模块层
 internal/module/insight/rpc.go	internal	modules	go-source	222	业务模块层	internal,module,insight,rpc,业务模块层
-internal/module/insight/service_test.go	internal	modules	go-test	2871	业务模块层	internal,module,insight,service,test,业务模块层
-internal/module/insight/service.go	internal	modules	go-source	4180	业务模块层	internal,module,insight,service,业务模块层
+internal/module/insight/service_test.go	internal	modules	go-test	3392	业务模块层	internal,module,insight,service,test,业务模块层
+internal/module/insight/service.go	internal	modules	go-source	4397	业务模块层	internal,module,insight,service,业务模块层
 internal/module/insight/subscribers_test.go	internal	modules	go-test	2603	业务模块层	internal,module,insight,subscribers,test,业务模块层
 internal/module/insight/subscribers.go	internal	modules	go-source	1054	业务模块层	internal,module,insight,subscribers,业务模块层
 internal/module/mcp_server_npx/module.go	internal	modules	go-source	482	业务模块层	internal,module,mcp,server,npx,业务模块层

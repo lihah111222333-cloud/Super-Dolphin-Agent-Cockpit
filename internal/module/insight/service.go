@@ -37,7 +37,7 @@ func (s *service) ListRecent(ctx context.Context, limit int32) ([]Snapshot, erro
 	if err != nil {
 		return nil, err
 	}
-	return toSnapshots(rows), nil
+	return toSnapshots(rows)
 }
 
 // ListByThread 返回指定线程的 insight 快照列表。
@@ -53,7 +53,7 @@ func (s *service) ListByThread(ctx context.Context, threadID string, limit int32
 	if err != nil {
 		return nil, err
 	}
-	return toSnapshots(rows), nil
+	return toSnapshots(rows)
 }
 
 // ListObservedApprovalRequests 返回指定线程中审批请求数据被观测到的快照列表。
@@ -82,19 +82,25 @@ func (s *service) ListObservedApprovalRequests(ctx context.Context, threadID str
 
 // toSnapshots 批量将 store.Insight 行映射为 RPC 侧 Snapshot DTO。
 // JSON 友好的时间格式化和可空 Success 统一在此处理，确保两个 List 方法结果一致。
-func toSnapshots(rows []Record) []Snapshot {
+func toSnapshots(rows []Record) ([]Snapshot, error) {
 	out := make([]Snapshot, len(rows))
 	for i, r := range rows {
-		out[i] = toSnapshot(r)
+		snapshot, err := toSnapshot(r)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = snapshot
 	}
-	return out
+	return out, nil
 }
 
 // toSnapshot 将单条 store.Insight 行转换为 Snapshot DTO。
-func toSnapshot(r Record) Snapshot {
+func toSnapshot(r Record) (Snapshot, error) {
 	var skills []string
 	if len(r.SkillsSelected) > 0 {
-		_ = json.Unmarshal(r.SkillsSelected, &skills)
+		if err := json.Unmarshal(r.SkillsSelected, &skills); err != nil || skills == nil {
+			return Snapshot{}, errors.New("insight: skills_selected must be a JSON string array")
+		}
 	}
 	return Snapshot{
 		ID:                       r.ID,
@@ -124,7 +130,7 @@ func toSnapshot(r Record) Snapshot {
 		UIProjection:             r.UIProjection,
 		SkillsSelected:           skills,
 		CreatedAt:                formatTime(r.CreatedAt),
-	}
+	}, nil
 }
 
 // formatTime 将时间格式化为 RFC3339 字符串；零值返回空字符串。
