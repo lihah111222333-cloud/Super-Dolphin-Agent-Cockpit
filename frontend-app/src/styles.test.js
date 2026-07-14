@@ -441,7 +441,7 @@ const TOKEN_COLOR_RULES = [
   ['.model-dropdown', ['background']],
   ['.model-dropdown select', ['background', 'color']],
   ['.model-inherit', ['border', 'background', 'color']],
-  ['.runtime-toolbar button', ['background', 'color']],
+  ['.runtime-toolbar .runtime-stat', ['background', 'color']],
   ['.score', ['background', 'color']],
   ['.score.good', ['border-color', 'color']],
   ['.score.bad', ['border-color', 'color']],
@@ -1866,7 +1866,7 @@ describe('runtime activity panel styles', () => {
 describe('runtime resize styles', () => {
   it('keeps resized runtime sidebar content visible instead of requiring horizontal scrolling', () => {
     const toolbar = declarationsFor('.runtime-toolbar');
-    const toolbarButton = declarationsFor('.runtime-toolbar button');
+    const toolbarStat = declarationsFor('.runtime-toolbar .runtime-stat');
     const score = declarationsFor('.score');
     const goodScore = declarationsFor('.score.good');
     const diffView = declarationsFor('.diff-view');
@@ -1886,8 +1886,9 @@ describe('runtime resize styles', () => {
     expect(toolbar['grid-template-columns']).toBe('repeat(2, minmax(0, 1fr))');
     expect(toolbar['align-content']).toBe('center');
     expect(toolbar['overflow']).toBe('hidden');
-    expect(toolbarButton['min-width']).toBe('0');
-    expect(toolbarButton['justify-content']).toBe('center');
+    expect(toolbarStat['min-width']).toBe('0');
+    expect(toolbarStat['justify-content']).toBe('center');
+    expect(toolbarStat.cursor).toBeUndefined();
     expect(score['min-width']).toBe('0');
     expect(score['justify-content']).toBe('center');
     expect(goodScore['margin-left']).toBe('0');
@@ -1985,16 +1986,18 @@ describe('light theme baseline usability', () => {
 
   it('keeps light-mode runtime summary pills on matching surfaces', () => {
     const toolbar = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar');
-    const button = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar button');
+    const stat = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat');
     const score = declarationsFor('.sa-window[data-theme="light"] .score');
     const goodScore = declarationsFor('.sa-window[data-theme="light"] .score.good');
     const badScore = declarationsFor('.sa-window[data-theme="light"] .score.bad');
 
     expect(toolbar.background).toBe('var(--surface-2)');
     expect(toolbar['border-bottom-color']).toBe('var(--line)');
-    expect(button.background).toBe('var(--surface)');
-    expect(button.color).toBe('var(--text-sec)');
-    expect(button['border-color']).toBe('var(--line)');
+    expect(stat.background).toBe('var(--surface)');
+    expect(stat.color).toBe('var(--text-sec)');
+    expect(stat['border-color']).toBe('var(--line)');
+    expect(declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat:hover')).toEqual({});
+    expect(declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat:focus-visible')).toEqual({});
     expect(score.background).toBe('var(--surface)');
     expect(score.color).toBe('var(--text-sec)');
     expect(goodScore.background).toBe('color-mix(in srgb, var(--success) 9%, var(--surface))');
