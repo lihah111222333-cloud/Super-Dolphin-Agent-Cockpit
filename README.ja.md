@@ -174,6 +174,12 @@ cmd/mcp-orch/             orchestration, DAG, cron, and agent tools
 
 Component の責務、data flow、真実源、既知の範囲は [Architecture](docs/open-source/ARCHITECTURE.md) を参照してください。File 単位の navigation には、生成された [Code Map](docs/doc/codemap/README.md) を使用してください。
 
+### データ伝達と計算の整合性
+
+型付き境界を通過しただけでデータが信頼されることはありません。各境界は、自身が所有する不変条件を検証します。RPC binder は不正な wire value を拒否し、型付き DTO と narrow port はデータ形状と ownership を制約し、service は計算前に business rule を検証して入力を正規化します。Mapper の field guard は欠落または古い field を検出し、sqlc と SQLite constraint は永続化を保護します。長時間実行される workflow では、idempotency key、lease、claim token、CAS state transition も使用し、古い worker が現在の実行を上書きできないようにします。
+
+前段で検証済みでも、計算は明示的に失敗できる設計です。Schedule、identity、configuration、retry、state transition のロジックは、データを暗黙に置き換えず error を返します。Cron path が具体例です。JSON-RPC parameter を型付き request に変換し、service validation の後に schedule を計算し、sqlc が制約された record を保存し、scheduler が期限到来 work を原子的に claim し、run、claim token、expected state が一致する場合にだけ turn result を commit します。Test と guard は宣言済みの境界を検証しますが、これは範囲のある evidence であり、将来のすべての business field が自動的に end-to-end 証明されるという意味ではありません。新しい cross-layer field には、対応する mapper、contract、schema、regression evidence の更新が必要です。
+
 ### 現在の範囲
 
 - Desktop application と、このリポジトリ固有の governance loop は実装済みです。

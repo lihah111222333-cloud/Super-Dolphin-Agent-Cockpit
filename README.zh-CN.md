@@ -174,6 +174,12 @@ cmd/mcp-orch/             orchestration, DAG, cron, and agent tools
 
 组件职责、数据流、真源和已知范围见[架构说明](docs/open-source/ARCHITECTURE.md)。文件级导航请使用生成的[代码地图](docs/doc/codemap/README.md)。
 
+### 数据传递与计算的完整性
+
+数据不会因为经过了类型化边界就自动被信任。每层边界只校验自己拥有的不变量：RPC binder 拒绝格式错误的传输值；类型化 DTO 与窄 port 约束数据形态和所有权；service 在计算前校验业务规则并规范化输入；mapper 字段守卫发现丢失或过期字段；sqlc 与 SQLite 约束保护持久化。长时间运行的工作流还使用幂等键、租约、claim token 和 CAS 状态迁移，阻止过期 worker 覆盖当前执行。
+
+即使上游已经校验，计算仍然允许显式失败。调度、身份、配置、重试和状态迁移逻辑都会返回错误，而不是静默替换数据。Cron 链路是一个具体示例：JSON-RPC 参数先转换为类型化请求，service 校验后才计算调度时间，sqlc 写入受约束记录，scheduler 原子领取到期任务，只有 run、claim token 与期望状态仍一致时才提交 turn 结果。测试与守卫覆盖这些已声明边界，但它们是有范围的证据，不代表未来新增的每个业务字段都会自动获得端到端证明；新增跨层字段时，必须同步扩展 mapper、contract、schema 与回归证据。
+
 ### 当前范围
 
 - 桌面应用及其针对本仓库的治理闭环已经在这里实现。

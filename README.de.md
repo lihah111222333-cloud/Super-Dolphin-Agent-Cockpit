@@ -174,6 +174,12 @@ Die zentrale Abhängigkeitsregel ist nach innen gerichtetes Ownership: Module de
 
 [Architecture](docs/open-source/ARCHITECTURE.md) beschreibt Komponentenverantwortung, Datenfluss, Wahrheitsquellen und bekannten Umfang. Für die Navigation auf Dateiebene dient die generierte [Code Map](docs/doc/codemap/README.md).
 
+### Datenintegrität bei Übertragung und Berechnung
+
+Daten gelten nicht allein deshalb als vertrauenswürdig, weil sie eine typisierte Grenze passiert haben. Jede Grenze prüft die Invariante, für die sie verantwortlich ist: RPC-Binder lehnen fehlerhafte Übertragungswerte ab; typisierte DTOs und schmale Ports begrenzen Form und Ownership; Services validieren Geschäftsregeln und normalisieren Eingaben vor der Berechnung; Mapper-Field-Guards erkennen ausgelassene oder veraltete Felder; und sqlc sowie SQLite-Constraints schützen die Persistenz. Lang laufende Workflows ergänzen Idempotenzschlüssel, Leases, Claim-Tokens und CAS-Zustandsübergänge, damit veraltete Worker die aktuelle Ausführung nicht überschreiben können.
+
+Berechnungen dürfen auch nach vorheriger Validierung explizit fehlschlagen. Scheduling-, Identitäts-, Konfigurations-, Retry- und Zustandsübergangslogik gibt Fehler zurück, statt Daten stillschweigend zu ersetzen. Der Cron-Pfad ist ein konkretes Beispiel: JSON-RPC-Parameter werden in einen typisierten Request überführt, die Service-Validierung erfolgt vor der Schedule-Berechnung, sqlc persistiert eingeschränkte Datensätze, der Scheduler beansprucht fällige Arbeit atomar und Turn-Ergebnisse werden nur übernommen, wenn Run, Claim-Token und erwarteter Zustand weiterhin übereinstimmen. Tests und Guards decken diese deklarierten Grenzen ab, sind jedoch begrenzte Evidenz und keine Behauptung, dass jedes zukünftige Geschäftsfeld automatisch Ende-zu-Ende bewiesen ist; neue schichtübergreifende Felder müssen die zugehörigen Mapper, Contracts, Schemas und Regressionsevidenz erweitern.
+
 ### Aktueller Umfang
 
 - Die Desktop-Anwendung und ihr repository-spezifischer Governance-Zyklus sind hier implementiert.
