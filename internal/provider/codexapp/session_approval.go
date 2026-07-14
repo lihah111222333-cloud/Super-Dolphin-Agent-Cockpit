@@ -411,6 +411,7 @@ func isRequestUserInputMethod(method string) bool {
 // 外来线程事件会被丢弃；turn 输出先补齐 result 再进入抑制和派发路径。
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
+	terminalMethod := strings.TrimSpace(method)
 	if eventThread, ok := s.alienThreadEventThread(params); ok {
 		pkglogger.Warn("codexapp: dropped alien thread event",
 			"agent_id", s.agentID,
@@ -418,6 +419,10 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 			"own_thread", s.ThreadID(),
 			"event_thread", eventThread,
 		)
+		return
+	}
+	if malformedTerminalNotification(terminalMethod, params) {
+		s.failMalformedTerminalNotification(terminalMethod)
 		return
 	}
 	// 先合并流式输出，再判断是否抑制终态事件，确保 forceComplete 路径仍能释放累积结果。
@@ -438,6 +443,16 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		s.dispatch(raw)
 	}
 	s.handleNotificationAction(method, params)
+}
+
+func malformedTerminalNotification(method string, params json.RawMessage) bool {
+	if !isTurnTerminalEvent(method) {
+		return false
+	}
+	if !json.Valid(params) {
+		return true
+	}
+	return payloadTurnID(decodeEventPayload(params)) == ""
 }
 
 // sniffTurnOutput 把流式 message delta 累积到 turn buffer，并在终态事件中补回 result。

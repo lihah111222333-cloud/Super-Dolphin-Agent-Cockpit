@@ -3,6 +3,8 @@ package codexapp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -91,6 +93,31 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	if notice := supportutil.CodexModelUnsupportedNotice(errors.New(errText), s.runtimeConfigString("model")); notice != "" {
 		errText = notice
 	}
+	h.complete(errors.New(errText))
+}
+
+func (s *session) failMalformedTerminalNotification(method string) {
+	h := s.takeTurn("")
+	if h == nil {
+		pkglogger.Warn("codexapp: malformed terminal notification without active turn",
+			"agent_id", s.agentID,
+			"method", method,
+			"thread_id", s.ThreadID(),
+		)
+		return
+	}
+
+	turnID := strings.TrimSpace(h.ProviderID())
+	errText := fmt.Sprintf("malformed terminal notification: method=%s turn_id=%s", method, turnID)
+	if threadID := s.ThreadID(); threadID != "" {
+		errText += " thread_id=" + threadID
+	}
+	pkglogger.Warn("codexapp: malformed terminal notification failed active turn",
+		"agent_id", s.agentID,
+		"method", method,
+		"thread_id", s.ThreadID(),
+		"turn_id", turnID,
+	)
 	h.complete(errors.New(errText))
 }
 
@@ -463,12 +490,7 @@ func (s *session) consumeSuppressedToolEndAnyTurnLocked(callID string, names []s
 }
 
 func stringInSet(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(candidates, value)
 }
 
 func toolEndSuppressionToolNames(toolName string) []string {

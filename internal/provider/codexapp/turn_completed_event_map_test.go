@@ -331,3 +331,103 @@ func TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful(t *testing.T) {
 		t.Fatalf("TurnCompleted.Reason = %q, want the abort reason", completed.Reason)
 	}
 }
+
+func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloadLeak(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		params json.RawMessage
+	}{
+		{name: "invalid JSON", method: "turn/completed", params: json.RawMessage(`{"turnId":"T-malformed","prompt":"raw-secret"`)},
+		{name: "missing turn identity", method: "turn.failed", params: json.RawMessage(`{"threadId":"thread-public","prompt":"raw-secret"}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTurnHandle("local-malformed", "T-malformed")
+			s := &session{
+				turns: map[string]*turnHandle{
+					"T-malformed": h,
+				},
+				activeTurnID: "T-malformed",
+			}
+
+			s.onNotification(tt.method, tt.params)
+			s.onNotification(tt.method, tt.params)
+
+			select {
+			case <-h.Done():
+			default:
+				t.Fatal("malformed terminal notification did not finish active turn")
+			}
+			if h.Err() == nil {
+				t.Fatal("malformed terminal notification completed without an error")
+			}
+			errText := h.Err().Error()
+			if !strings.Contains(errText, "malformed terminal notification") ||
+				!strings.Contains(errText, tt.method) ||
+				!strings.Contains(errText, "T-malformed") {
+				t.Fatalf("turn error = %q, want contextual method and turn identity", errText)
+			}
+			if strings.Contains(errText, "raw-secret") {
+				t.Fatalf("turn error leaked raw payload: %q", errText)
+			}
+			if s.activeTurnID != "" {
+				t.Fatalf("activeTurnID = %q, want cleared", s.activeTurnID)
+			}
+			if _, ok := s.turns["T-malformed"]; ok {
+				t.Fatal("active turn remained registered after malformed terminal notification")
+			}
+		})
+	}
+}
+
+func TestOnNotification_MalformedNonTerminalDoesNotFinishActiveTurn(t *testing.T) {
+	h := newTurnHandle("local-non-terminal", "T-non-terminal")
+	s := &session{
+		turns: map[string]*turnHandle{
+			"T-non-terminal": h,
+		},
+		activeTurnID: "T-non-terminal",
+	}
+
+	s.onNotification("item/agentMessage/delta", json.RawMessage(`{"prompt":"raw-secret"`))
+
+	select {
+	case <-h.Done():
+		t.Fatalf("malformed non-terminal notification finished active turn: %v", h.Err())
+	default:
+	}
+	if s.activeTurnID != "T-non-terminal" {
+		t.Fatalf("activeTurnID = %q, want retained", s.activeTurnID)
+	}
+	if s.turns["T-non-terminal"] != h {
+		t.Fatal("malformed non-terminal notification removed active turn handle")
+	}
+}
+
+func TestOnNotification_MalformedTerminalFromAlienThreadDoesNotFinishActiveTurn(t *testing.T) {
+	h := newTurnHandle("local-own", "T-own")
+	s := &session{
+		turns: map[string]*turnHandle{
+			"T-own": h,
+		},
+		activeTurnID: "T-own",
+	}
+	s.threadID.Store("thread-own")
+	params := json.RawMessage(`{"threadId":"thread-alien","prompt":"raw-secret"}`)
+
+	s.onNotification("turn/completed", params)
+
+	select {
+	case <-h.Done():
+		t.Fatalf("alien malformed terminal notification finished active turn: %v", h.Err())
+	default:
+	}
+	if s.activeTurnID != "T-own" {
+		t.Fatalf("activeTurnID = %q, want retained", s.activeTurnID)
+	}
+	if s.turns["T-own"] != h {
+		t.Fatal("alien malformed terminal notification removed active turn handle")
+	}
+}

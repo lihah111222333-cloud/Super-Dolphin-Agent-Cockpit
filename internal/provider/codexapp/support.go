@@ -599,7 +599,9 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 	if len(req.CodexDisabledNativeTools) > 0 {
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
-	d.restoreApprovalPolicy(ctx, s, threadID)
+	if err := d.restoreApprovalPolicy(ctx, s, threadID); err != nil {
+		return nil, fmt.Errorf("restore approval policy from thread/config/get: %w", err)
+	}
 	if err := applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools); err != nil {
 		return nil, err
 	}
@@ -726,35 +728,54 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 	pkglogger.Warn(msg, fields...)
 }
 
-// restoreApprovalPolicy 从远端线程配置恢复审批策略，失败时保留本地已有状态。
-func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
+type threadConfigGetResponse struct {
+	Effective *struct {
+		Approvals string `json:"approvals"`
+	} `json:"effective"`
+}
+
+type sanitizedThreadConfigGetError struct {
+	cause error
+}
+
+// Error 返回固定脱敏文案，避免暴露远端 RPC 错误内容。
+func (e *sanitizedThreadConfigGetError) Error() string {
+	return "config get request failed"
+}
+
+// Unwrap 保留底层错误链，供 errors.Is 和 errors.As 分类。
+func (e *sanitizedThreadConfigGetError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+// restoreApprovalPolicy 从远端线程配置恢复审批策略。
+func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) error {
 	if d == nil || s == nil {
-		return
+		return errors.New("driver and session are required")
 	}
 	result, err := s.transport.Call(ctx, "thread/config/get", map[string]any{
 		"threadId": threadID,
 	})
 	if err != nil {
-		// RPC not available – fall back to local state.
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
+		return &sanitizedThreadConfigGetError{cause: err}
 	}
-	var resp map[string]any
+	var resp threadConfigGetResponse
 	if err := json.Unmarshal(result, &resp); err != nil {
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
+		return errors.New("decode response")
 	}
-	effective, _ := resp["effective"].(map[string]any)
-	if effective == nil {
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
+	if resp.Effective == nil {
+		return errors.New("effective config is required")
 	}
-	if approval, ok := effective["approvals"].(string); ok && strings.TrimSpace(approval) != "" {
-		s.setApprovalPolicy(strings.TrimSpace(approval))
-		s.setRuntimeConfigValue("approvalPolicy", strings.TrimSpace(approval))
-		return
+	approval := strings.TrimSpace(resp.Effective.Approvals)
+	if approval == "" {
+		return errors.New("effective approval policy is required")
 	}
-	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
+	s.setApprovalPolicy(approval)
+	s.setRuntimeConfigValue("approvalPolicy", approval)
+	return nil
 }
 
 func (d *driver) reportRuntime(agentID, serverURL string) error {
