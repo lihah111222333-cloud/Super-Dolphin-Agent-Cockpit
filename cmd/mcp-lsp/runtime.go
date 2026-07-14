@@ -723,8 +723,8 @@ func appendRuntimeUnique(dst []string, values ...string) []string {
 }
 
 type stdioRunner struct {
-	server  *common.Server
-	manager *Manager
+	server  interface{ Run(context.Context) error }
+	manager interface{ Close() error }
 }
 
 func newStdioRunner(server *common.Server, manager *Manager) platformrunner.Runner {
@@ -732,13 +732,13 @@ func newStdioRunner(server *common.Server, manager *Manager) platformrunner.Runn
 }
 
 // Run 启动LSP后台流程。
-func (r stdioRunner) Run(ctx context.Context) error {
+func (r stdioRunner) Run(ctx context.Context) (err error) {
 	if r.server == nil {
 		return errors.New("mcp-lsp server is not configured")
 	}
 	defer func() {
 		if r.manager != nil {
-			_ = r.manager.Close()
+			err = errors.Join(err, r.manager.Close())
 		}
 	}()
 	return r.server.Run(ctx)

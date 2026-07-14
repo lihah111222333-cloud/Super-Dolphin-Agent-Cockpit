@@ -1,7 +1,6 @@
 package multilsp
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -137,13 +136,9 @@ func parseJSONSymbols(lines []string) []protocol.DocumentSymbol {
 
 func parseYAMLSymbols(lines []string) []protocol.DocumentSymbol {
 	items := make([]fallbackSymbol, 0)
-	scanner := bufio.NewScanner(strings.NewReader(strings.Join(lines, "\n")))
-	lineNo := 0
-	for scanner.Scan() {
-		line := scanner.Text()
+	for lineNo, line := range lines {
 		matches := yamlKeyPattern.FindStringSubmatch(line)
 		if len(matches) != 5 || strings.HasPrefix(strings.TrimSpace(line), "#") {
-			lineNo++
 			continue
 		}
 		indent := indentWidth(matches[1])
@@ -157,7 +152,6 @@ func parseYAMLSymbols(lines []string) []protocol.DocumentSymbol {
 			startCol: indent,
 			endCol:   indent + len(name),
 		})
-		lineNo++
 	}
 	return buildLevelSymbols(lines, items)
 }
