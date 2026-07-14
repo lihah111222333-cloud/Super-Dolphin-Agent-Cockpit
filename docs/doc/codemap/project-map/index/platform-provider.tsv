@@ -493,11 +493,11 @@ internal/platform/pidregistry/file_owner_unix.go	internal	platform-provider	go-s
 internal/platform/pidregistry/file_owner_windows.go	internal	platform-provider	go-source	511	基础设施层	internal,platform,pidregistry,file,owner,windows,基础设施层
 internal/platform/pidregistry/pidregistry_provenance_unix_test.go	internal	platform-provider	go-test	2845	基础设施层	internal,platform,pidregistry,provenance,unix,test,基础设施层
 internal/platform/pidregistry/pidregistry_test.go	internal	platform-provider	go-test	7555	基础设施层	internal,platform,pidregistry,test,基础设施层
-internal/platform/pidregistry/pidregistry.go	internal	platform-provider	go-source	16579	基础设施层	internal,platform,pidregistry,基础设施层
+internal/platform/pidregistry/pidregistry.go	internal	platform-provider	go-source	17235	基础设施层	internal,platform,pidregistry,基础设施层
 internal/platform/pidregistry/process_identity_darwin.go	internal	platform-provider	go-source	1370	基础设施层	internal,platform,pidregistry,process,identity,darwin,基础设施层
 internal/platform/pidregistry/process_identity_linux.go	internal	platform-provider	go-source	1209	基础设施层	internal,platform,pidregistry,process,identity,linux,基础设施层
 internal/platform/pidregistry/process_identity_other.go	internal	platform-provider	go-source	256	基础设施层	internal,platform,pidregistry,process,identity,other,基础设施层
-internal/platform/pidregistry/process_identity_test.go	internal	platform-provider	go-test	6970	基础设施层	internal,platform,pidregistry,process,identity,test,基础设施层
+internal/platform/pidregistry/process_identity_test.go	internal	platform-provider	go-test	8971	基础设施层	internal,platform,pidregistry,process,identity,test,基础设施层
 internal/platform/pidregistry/process_identity_windows.go	internal	platform-provider	go-source	1525	基础设施层	internal,platform,pidregistry,process,identity,windows,基础设施层
 internal/platform/pidregistry/process_identity.go	internal	platform-provider	go-source	557	基础设施层	internal,platform,pidregistry,process,identity,基础设施层
 internal/platform/pidregistry/process_unix.go	internal	platform-provider	go-source	948	基础设施层	internal,platform,pidregistry,process,unix,基础设施层

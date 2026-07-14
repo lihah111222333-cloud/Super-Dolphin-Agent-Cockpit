@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -62,6 +63,9 @@ func TestSigtermOrphansRejectsIdentityMismatchAndReadFailure(t *testing.T) {
 			}
 			if result.IdentityMismatch != tt.wantMismatch || result.IdentityReadFailure != tt.wantReadFail {
 				t.Fatalf("CleanupResult = %#v, want mismatch=%d read_failure=%d", result, tt.wantMismatch, tt.wantReadFail)
+			}
+			if got, want := result.hasUnresolved(), tt.wantReadFail > 0; got != want {
+				t.Fatalf("CleanupResult.hasUnresolved() = %t, want %t", got, want)
 			}
 		})
 	}
@@ -204,5 +208,49 @@ func TestCollectStaleOrphansRejectsLegacyIdentity(t *testing.T) {
 	}
 	if result.MissingIdentity != 1 {
 		t.Fatalf("MissingIdentity = %d, want 1", result.MissingIdentity)
+	}
+}
+
+func TestCleanupSignalFailuresRemainRetryable(t *testing.T) {
+	want := ChildInfo{PID: 4242, ProcessStartToken: "start-1", ExecutableIdentity: "/bin/tool"}
+	identity := processIdentity{startToken: want.ProcessStartToken, executable: want.ExecutableIdentity}
+
+	termResult := CleanupResult{}
+	sigtermed := sigtermOrphansWithOps([]staleOrphan{{child: want}}, &termResult, cleanupProcessOps{
+		readIdentity: func(int) (processIdentity, error) { return identity, nil },
+		sendTerm:     func(int) error { return errors.New("term unavailable") },
+	})
+	if len(sigtermed) != 0 || !termResult.hasUnresolved() {
+		t.Fatalf("TERM result = %#v, cleanup = %#v, want unresolved retry", sigtermed, termResult)
+	}
+
+	killResult := CleanupResult{}
+	killed := sigkillSurvivorsWithOps([]staleOrphan{{child: want}}, &killResult, cleanupProcessOps{
+		isAlive:      func(int) bool { return true },
+		readIdentity: func(int) (processIdentity, error) { return identity, nil },
+		forceKill:    func(int) error { return errors.New("kill unavailable") },
+	})
+	if killed != 0 || !killResult.hasUnresolved() {
+		t.Fatalf("KILL count = %d, cleanup = %#v, want unresolved retry", killed, killResult)
+	}
+}
+
+func TestFinalizeStaleRegistryFilesRetainsUnresolvedCleanup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stale.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write stale registry: %v", err)
+	}
+	files := []staleFile{{path: path}}
+	result := CleanupResult{}
+	result.markUnresolved()
+
+	finalizeStaleRegistryFiles(files, result)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("unresolved stale registry was removed: %v", err)
+	}
+
+	finalizeStaleRegistryFiles(files, CleanupResult{})
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("resolved stale registry still exists: %v", err)
 	}
 }

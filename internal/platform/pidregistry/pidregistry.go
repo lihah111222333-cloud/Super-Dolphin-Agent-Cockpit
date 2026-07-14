@@ -146,6 +146,17 @@ type CleanupResult struct {
 	IdentityMismatch    int
 	IdentityReadFailure int
 	MissingIdentity     int
+	unresolved          int
+}
+
+func (r *CleanupResult) markUnresolved() {
+	if r != nil {
+		r.unresolved++
+	}
+}
+
+func (r CleanupResult) hasUnresolved() bool {
+	return r.unresolved > 0
 }
 
 type cleanupProcessOps struct {
@@ -185,7 +196,7 @@ func CleanupStaleDetailedWithProtectedPIDs(protectedPIDs map[int]struct{}) Clean
 
 	orphans, result := collectStaleOrphans(staleFiles, protectedPIDs)
 	if len(orphans) == 0 {
-		cleanupStaleFiles(staleFiles)
+		finalizeStaleRegistryFiles(staleFiles, result)
 		return result
 	}
 
@@ -193,11 +204,20 @@ func CleanupStaleDetailedWithProtectedPIDs(protectedPIDs map[int]struct{}) Clean
 	waitForOrphanExit(sigtermed)
 	result.Killed += sigkillSurvivors(sigtermed, &result)
 
-	cleanupStaleFiles(staleFiles)
+	finalizeStaleRegistryFiles(staleFiles, result)
 	if result.Killed > 0 {
 		pkglogger.Info("pidregistry: stale cleanup summary", "total_killed", result.Killed)
 	}
 	return result
+}
+
+func finalizeStaleRegistryFiles(staleFiles []staleFile, result CleanupResult) {
+	if result.hasUnresolved() {
+		pkglogger.Warn("pidregistry: retained stale registry for cleanup retry",
+			"files", len(staleFiles), "unresolved", result.unresolved)
+		return
+	}
+	cleanupStaleFiles(staleFiles)
 }
 
 // collectStaleOrphans 从过期 registry 文件中收集仍存活且未受保护的子进程。
@@ -234,6 +254,7 @@ func sigtermOrphansWithOps(orphans []staleOrphan, result *CleanupResult, ops cle
 		identity, err := ops.readIdentity(o.child.PID)
 		if err != nil {
 			result.IdentityReadFailure++
+			result.markUnresolved()
 			continue
 		}
 		if !childIdentityMatches(o.child, identity) {
@@ -242,6 +263,7 @@ func sigtermOrphansWithOps(orphans []staleOrphan, result *CleanupResult, ops cle
 		}
 		if err := ops.sendTerm(o.child.PID); err != nil {
 			if !isNoSuchProcessErr(err) {
+				result.markUnresolved()
 				pkglogger.Warn("pidregistry: SIGTERM failed",
 					"pid", o.child.PID, "kind", o.child.Kind, "error", err)
 			}
@@ -291,6 +313,7 @@ func sigkillSurvivorsWithOps(sigtermed []staleOrphan, result *CleanupResult, ops
 		identity, err := ops.readIdentity(o.child.PID)
 		if err != nil {
 			result.IdentityReadFailure++
+			result.markUnresolved()
 			continue
 		}
 		if !childIdentityMatches(o.child, identity) {
@@ -298,8 +321,11 @@ func sigkillSurvivorsWithOps(sigtermed []staleOrphan, result *CleanupResult, ops
 			continue
 		}
 		if err := ops.forceKill(o.child.PID); err != nil {
-			pkglogger.Warn("pidregistry: force kill failed",
-				"pid", o.child.PID, "kind", o.child.Kind, "error", err)
+			if !isNoSuchProcessErr(err) {
+				result.markUnresolved()
+				pkglogger.Warn("pidregistry: force kill failed",
+					"pid", o.child.PID, "kind", o.child.Kind, "error", err)
+			}
 			continue
 		}
 		pkglogger.Info("pidregistry: force-killed orphaned process",
