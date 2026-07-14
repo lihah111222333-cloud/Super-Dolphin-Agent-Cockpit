@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,21 +16,28 @@ import (
 // stubAgentLaunchedProcessor 是测试用 agentLaunchedProcessor。
 // 它记录所有已处理事件，并可通过 block channel 人为卡住处理过程以观察 drain 顺序。
 type stubAgentLaunchedProcessor struct {
-	mu    sync.Mutex
-	calls []agentdto.AgentLaunched
-	block chan struct{}
-	count atomic.Int64
+	mu      sync.Mutex
+	calls   []agentdto.AgentLaunched
+	results []error
+	block   chan struct{}
+	count   atomic.Int64
 }
 
-func (s *stubAgentLaunchedProcessor) processAgentLaunched(ev agentdto.AgentLaunched) {
+func (s *stubAgentLaunchedProcessor) processAgentLaunched(ev agentdto.AgentLaunched) error {
 	s.count.Add(1)
 	s.mu.Lock()
 	s.calls = append(s.calls, ev)
+	var result error
+	if len(s.results) > 0 {
+		result = s.results[0]
+		s.results = s.results[1:]
+	}
 	block := s.block
 	s.mu.Unlock()
 	if block != nil {
 		<-block
 	}
+	return result
 }
 
 func (s *stubAgentLaunchedProcessor) snapshot() []agentdto.AgentLaunched {
@@ -61,6 +69,88 @@ func newAgentLaunchedForWorker(agentID, threadID, sessionID string) agentdto.Age
 			},
 			SessionID: sessionID,
 		},
+	}
+}
+
+func waitForAgentLaunchedProcessed(t *testing.T, worker *agentLaunchedWorker, want int64, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if worker.ProcessedTotal() >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("processed total = %d, want %d after %s", worker.ProcessedTotal(), want, d)
+}
+
+func TestAgentLaunchedWorkerRetriesBeforeCountingSuccess(t *testing.T) {
+	wantErr := errors.New("binding store unavailable")
+	stub := &stubAgentLaunchedProcessor{results: []error{wantErr, nil}}
+	w := newAgentLaunchedWorker(stub, pkglogger.Get())
+	w.retryBaseDelay = time.Millisecond
+	w.Start()
+	defer func() { _ = w.Stop(context.Background()) }()
+
+	w.Enqueue("agent-1", newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-1"))
+	waitForAgentLaunchedProcessed(t, w, 1, time.Second)
+
+	if got := stub.count.Load(); got != 2 {
+		t.Fatalf("processor calls = %d, want initial failure plus retry", got)
+	}
+	health := w.Health()
+	if health.Processed != 1 || health.Failed != 1 || health.Retried != 1 || health.Dropped != 0 {
+		t.Fatalf("health after retry success = %#v", health)
+	}
+}
+
+func TestAgentLaunchedWorkerDropsAfterBoundedRetries(t *testing.T) {
+	wantErr := errors.New("binding store unavailable")
+	stub := &stubAgentLaunchedProcessor{results: []error{wantErr, wantErr, wantErr}}
+	w := newAgentLaunchedWorker(stub, pkglogger.Get())
+	w.retryBaseDelay = time.Millisecond
+	w.Start()
+	w.Enqueue("agent-1", newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-1"))
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && w.Health().Dropped == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if err := w.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop = %v", err)
+	}
+	health := w.Health()
+	if health.Processed != 0 || health.Failed != 3 || health.Retried != 2 || health.Dropped != 1 {
+		t.Fatalf("health after retry exhaustion = %#v", health)
+	}
+	if health.LastError == "" {
+		t.Fatal("LastError empty after retry exhaustion")
+	}
+}
+
+func TestAgentLaunchedWorkerProcessesNewSameKeyEventAfterRetry(t *testing.T) {
+	firstAttempt := make(chan struct{})
+	stub := &stubAgentLaunchedProcessor{
+		results: []error{errors.New("transient"), nil, nil},
+		block:   firstAttempt,
+	}
+	w := newAgentLaunchedWorker(stub, pkglogger.Get())
+	w.retryBaseDelay = time.Millisecond
+	w.Start()
+	defer func() { _ = w.Stop(context.Background()) }()
+
+	w.Enqueue("agent-1", newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-first"))
+	waitForAgentLaunchedCount(t, stub, 1, time.Second)
+	w.Enqueue("agent-1", newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-next"))
+	close(firstAttempt)
+	waitForAgentLaunchedProcessed(t, w, 2, time.Second)
+
+	calls := stub.snapshot()
+	if len(calls) != 3 ||
+		calls[0].SessionID != "uuid-first" ||
+		calls[1].SessionID != "uuid-first" ||
+		calls[2].SessionID != "uuid-next" {
+		t.Fatalf("retry/new event order = %#v, want first, first retry, next", calls)
 	}
 }
 
@@ -151,6 +241,27 @@ func TestAgentLaunchedWorkerStopDrainsPending(t *testing.T) {
 	}
 	if got := stub.count.Load(); got != 2 {
 		t.Errorf("count after Stop = %d, want 2", got)
+	}
+}
+
+func TestAgentLaunchedWorkerStopRespectsContextDeadline(t *testing.T) {
+	block := make(chan struct{})
+	stub := &stubAgentLaunchedProcessor{block: block}
+	w := newAgentLaunchedWorker(stub, pkglogger.Get())
+	w.Start()
+	w.Enqueue("agent-1", newAgentLaunchedForWorker("agent-1", "thread-1", "uuid-1"))
+	waitForAgentLaunchedCount(t, stub, 1, time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := w.Stop(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop error = %v, want deadline exceeded", err)
+	}
+	close(block)
+	select {
+	case <-w.doneCh:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not exit after processor unblocked")
 	}
 }
 
