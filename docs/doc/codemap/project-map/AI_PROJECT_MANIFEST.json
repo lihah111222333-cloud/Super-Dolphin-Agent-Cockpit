@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-14",
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],

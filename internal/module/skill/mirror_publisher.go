@@ -501,7 +501,11 @@ func unchangedOwnedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash,
 		return false, err
 	}
 	content := string(data)
-	return capProjectMirrorTrustFrontmatter(content) == content, nil
+	capped, err := capProjectMirrorTrustFrontmatter(content)
+	if err != nil {
+		return false, err
+	}
+	return capped == content, nil
 }
 func replaceChangedMirrorRecord(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord, canonicalHash string, item SkillMirrorReportItem) (SkillMirrorReportItem, bool, error) {
 	newHash, err := replaceMirrorSkillDir(target.Root, record.Name, record.Dir, target.Scope, record.info.DisplayName)
@@ -634,19 +638,31 @@ func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry, tra
 	return copyCanonicalResourceFile(src, dst, rel, info.Mode(), tracker)
 }
 
-// capProjectMirrorTrustFrontmatter 限制项目 mirror frontmatter 的信任范围。
-func capProjectMirrorTrustFrontmatter(content string) string {
+// capProjectMirrorTrustFrontmatter 以共享 YAML 节点语义校验 frontmatter，并收敛项目 mirror 的信任范围。
+func capProjectMirrorTrustFrontmatter(content string) (string, error) {
 	frontmatter, body, ok := splitFrontmatter(content)
 	if !ok {
-		return content
+		return content, nil
 	}
-	lines := strings.Split(frontmatter, "\n")
-	for i, line := range lines {
-		if key, value, ok := parseMetaLine(line); ok && metaKeyMatch(key, trustMetaKeys) && parseTrustScope(parseScalar(value)).Trusted() {
-			lines[i] = "trust: project"
-		}
+	doc, err := parseSkillFrontmatterYAML(frontmatter)
+	if err != nil {
+		return "", err
 	}
-	return "---\n" + strings.Join(lines, "\n") + "\n---\n" + body
+	var security SkillInfo
+	if err := applyYAMLSecurityMetadata(&security, doc); err != nil {
+		return "", err
+	}
+	trust, ok := doc.security["trust"]
+	if !ok {
+		return content, nil
+	}
+	rewriteYAMLScalar(trust.key, "trust")
+	rewriteYAMLScalar(trust.value, "project")
+	frontmatter, err = marshalSkillFrontmatterYAML(doc)
+	if err != nil {
+		return "", err
+	}
+	return "---\n" + frontmatter + "\n---\n" + body, nil
 }
 func mirrorFileMode(rel string, mode os.FileMode, data []byte) os.FileMode {
 	if strings.HasPrefix(filepath.ToSlash(rel), "scripts/") && mode.Perm()&0o111 != 0 && strings.HasPrefix(string(data), "#!") {
