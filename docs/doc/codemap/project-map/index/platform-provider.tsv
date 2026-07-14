@@ -490,8 +490,14 @@ internal/platform/observability/stack.go	internal	platform-provider	go-source	18
 internal/platform/pidregistry/file_owner_unix.go	internal	platform-provider	go-source	251	基础设施层	internal,platform,pidregistry,file,owner,unix,基础设施层
 internal/platform/pidregistry/file_owner_windows.go	internal	platform-provider	go-source	511	基础设施层	internal,platform,pidregistry,file,owner,windows,基础设施层
 internal/platform/pidregistry/pidregistry_provenance_unix_test.go	internal	platform-provider	go-test	2845	基础设施层	internal,platform,pidregistry,provenance,unix,test,基础设施层
-internal/platform/pidregistry/pidregistry_test.go	internal	platform-provider	go-test	7040	基础设施层	internal,platform,pidregistry,test,基础设施层
-internal/platform/pidregistry/pidregistry.go	internal	platform-provider	go-source	13842	基础设施层	internal,platform,pidregistry,基础设施层
+internal/platform/pidregistry/pidregistry_test.go	internal	platform-provider	go-test	7555	基础设施层	internal,platform,pidregistry,test,基础设施层
+internal/platform/pidregistry/pidregistry.go	internal	platform-provider	go-source	16579	基础设施层	internal,platform,pidregistry,基础设施层
+internal/platform/pidregistry/process_identity_darwin.go	internal	platform-provider	go-source	1370	基础设施层	internal,platform,pidregistry,process,identity,darwin,基础设施层
+internal/platform/pidregistry/process_identity_linux.go	internal	platform-provider	go-source	1209	基础设施层	internal,platform,pidregistry,process,identity,linux,基础设施层
+internal/platform/pidregistry/process_identity_other.go	internal	platform-provider	go-source	256	基础设施层	internal,platform,pidregistry,process,identity,other,基础设施层
+internal/platform/pidregistry/process_identity_test.go	internal	platform-provider	go-test	6970	基础设施层	internal,platform,pidregistry,process,identity,test,基础设施层
+internal/platform/pidregistry/process_identity_windows.go	internal	platform-provider	go-source	1525	基础设施层	internal,platform,pidregistry,process,identity,windows,基础设施层
+internal/platform/pidregistry/process_identity.go	internal	platform-provider	go-source	557	基础设施层	internal,platform,pidregistry,process,identity,基础设施层
 internal/platform/pidregistry/process_unix.go	internal	platform-provider	go-source	948	基础设施层	internal,platform,pidregistry,process,unix,基础设施层
 internal/platform/pidregistry/process_windows.go	internal	platform-provider	go-source	3435	基础设施层	internal,platform,pidregistry,process,windows,基础设施层
 internal/platform/rlimit/rlimit_unix.go	internal	platform-provider	go-source	1658	基础设施层	internal,platform,rlimit,unix,基础设施层
@@ -864,7 +870,7 @@ internal/provider/codexapp/history_rollout.go	internal	platform-provider	go-sour
 internal/provider/codexapp/home_routing_test.go	internal	platform-provider	go-test	2710	Codex app/server provider 集成	internal,provider,codexapp,home,routing,test,Codex,app,server,集成
 internal/provider/codexapp/input_map_test.go	internal	platform-provider	go-test	9685	Codex app/server provider 集成	internal,provider,codexapp,input,map,test,Codex,app,server,集成
 internal/provider/codexapp/mcp_config_dynamic_tools_test.go	internal	platform-provider	go-test	1614	Codex app/server provider 集成	internal,provider,codexapp,mcp,config,dynamic,tools,test,Codex,app,server,集成
-internal/provider/codexapp/module.go	internal	platform-provider	go-source	20557	Codex app/server provider 集成	internal,provider,codexapp,module,Codex,app,server,集成
+internal/provider/codexapp/module.go	internal	platform-provider	go-source	20941	Codex app/server provider 集成	internal,provider,codexapp,module,Codex,app,server,集成
 internal/provider/codexapp/native_tool_policy_validation_test.go	internal	platform-provider	go-test	4512	Codex app/server provider 集成	internal,provider,codexapp,native,tool,policy,validation,test,Codex,app,server,集成
 internal/provider/codexapp/orphan_sweeper.go	internal	platform-provider	go-source	5906	Codex app/server provider 集成	internal,provider,codexapp,orphan,sweeper,Codex,app,server,集成
 internal/provider/codexapp/peer_supervisor_shutdown_timeout_test.go	internal	platform-provider	go-test	4550	Codex app/server provider 集成	internal,provider,codexapp,peer,supervisor,shutdown,timeout,test,Codex,app,server,集成

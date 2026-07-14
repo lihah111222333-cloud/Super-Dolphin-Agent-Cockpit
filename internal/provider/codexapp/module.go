@@ -338,12 +338,18 @@ func (m *ServerManager) cleanupStaleProcesses() {
 	})
 }
 
+// cleanupStaleProcessesOnce 按稳定进程身份回收一次历史 runtime，并记录拒绝原因。
 func (m *ServerManager) cleanupStaleProcessesOnce() {
 	protected := currentRuntimeProtectionSet()
 	// 先清理 PID registry 记录的死实例进程，只终止确认为本应用创建过的子进程。
-	if killed := pidregistry.CleanupStaleWithProtectedPIDs(protected); killed > 0 {
+	cleanup := pidregistry.CleanupStaleDetailedWithProtectedPIDs(protected)
+	if cleanup.Killed > 0 || cleanup.IdentityMismatch > 0 ||
+		cleanup.IdentityReadFailure > 0 || cleanup.MissingIdentity > 0 {
 		pkglogger.Info("server_manager: cleaned stale registry processes at startup",
-			"killed", killed)
+			"killed", cleanup.Killed,
+			"identity_mismatch", cleanup.IdentityMismatch,
+			"identity_read_failure", cleanup.IdentityReadFailure,
+			"missing_identity", cleanup.MissingIdentity)
 	}
 
 	// 再扫描早于 PID registry 的遗留孤儿进程，覆盖旧版本崩溃后留下的 sidecar。
